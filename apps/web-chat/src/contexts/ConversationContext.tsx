@@ -1,12 +1,10 @@
-import { type DecodedMessage } from "@xmtp/browser-sdk";
+import { type Message as XmtpMessage } from "@xmtp/browser-sdk";
 import { createContext, useContext, useMemo, useState } from "react";
 
 type ConversationContextType = {
   conversationId: string;
-  replyTarget: DecodedMessage | undefined;
-  setReplyTarget: React.Dispatch<
-    React.SetStateAction<DecodedMessage | undefined>
-  >;
+  replyTarget: XmtpMessage | undefined;
+  setReplyTarget: React.Dispatch<React.SetStateAction<XmtpMessage | undefined>>;
 };
 
 const ConversationContext = createContext<ConversationContextType>({
@@ -23,7 +21,7 @@ export const ConversationProvider: React.FC<ConversationProviderProps> = ({
   children,
   conversationId,
 }) => {
-  const [replyTarget, setReplyTarget] = useState<DecodedMessage | undefined>(
+  const [replyTarget, setReplyTarget] = useState<XmtpMessage | undefined>(
     undefined,
   );
 

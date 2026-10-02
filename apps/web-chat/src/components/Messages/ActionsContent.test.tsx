@@ -1,6 +1,6 @@
 import { MantineProvider } from "@mantine/core";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { Actions } from "@xmtp/browser-sdk";
+import { Timestamp, type Actions } from "@xmtp/browser-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConversationProvider } from "@/contexts/ConversationContext";
@@ -39,13 +39,13 @@ describe("ActionsContent", () => {
     renderActions({
       id: "actions-1",
       description: "Choose an action",
-      expiresAtNs: dateToNs(new Date(now + 1_000)),
+      expiresAt: new Timestamp(dateToNs(new Date(now + 1_000))),
       actions: [
         { id: "group-expiry", label: "Group expiry" },
         {
           id: "action-expiry",
           label: "Action expiry",
-          expiresAtNs: dateToNs(new Date(now + 2_000)),
+          expiresAt: new Timestamp(dateToNs(new Date(now + 2_000))),
         },
       ],
     });

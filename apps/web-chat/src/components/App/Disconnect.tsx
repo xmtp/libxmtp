@@ -13,8 +13,7 @@ export const Disconnect: React.FC = () => {
 
   useEffect(() => {
     disconnect(() => {
-      disconnectClient();
-      void navigate("/");
+      void disconnectClient().then(() => navigate("/"));
     });
   }, [disconnect, disconnectClient, navigate]);
 

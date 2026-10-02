@@ -1,4 +1,3 @@
-import { IdentifierKind } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
@@ -45,9 +44,9 @@ export const LoadDM: React.FC = () => {
         }
 
         setMessage("Verifying address...");
-        const inboxId = await client.fetchInboxIdByIdentifier({
+        const inboxId = await client.inboxIdFor({
           identifier: resolvedAddress,
-          identifierKind: IdentifierKind.Ethereum,
+          kind: "ethereum",
         });
 
         if (!inboxId) {
@@ -62,9 +61,9 @@ export const LoadDM: React.FC = () => {
         if (!dmId) {
           // no DM group, create it
           setMessage("Creating new DM...");
-          const newDm = await client.conversations.createDmWithIdentifier({
+          const newDm = await client.conversations.createDm({
             identifier: resolvedAddress,
-            identifierKind: IdentifierKind.Ethereum,
+            kind: "ethereum",
           });
           dmId = newDm.id;
           // add new DM to store

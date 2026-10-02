@@ -2,7 +2,10 @@ import { runInNewContext } from "node:vm";
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { initPureWasm } from "../../../../target/sdk-generated/typescript-pure/index";
+import {
+  initPureWasm,
+  TextCodec,
+} from "../../../../target/sdk-generated/typescript-pure/index";
 import * as P from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
 import type { ContentCodec } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/codec";
 import {
@@ -595,6 +598,32 @@ describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
       "x",
     );
     expect(pushOf(calls[0]![2])).toBe(false);
+  });
+
+  it("preserves a standard TextCodec subclass fallback override", async () => {
+    class CustomText extends TextCodec {
+      override fallback(value: string): string {
+        return `custom ${value}`;
+      }
+    }
+    const calls: [string, unknown, unknown][] = [];
+    await recordingGroup(calls).send(new CustomText(), "text");
+    expect((calls[0]![1] as { fallback?: string }).fallback).toBe(
+      "custom text",
+    );
+  });
+
+  it("stops before send when a standard TextCodec subclass fallback throws", async () => {
+    class FailedText extends TextCodec {
+      override fallback(_value: string): string {
+        throw new Error("app fallback");
+      }
+    }
+    const calls: [string, unknown, unknown][] = [];
+    await expect(
+      recordingGroup(calls).send(new FailedText(), "text"),
+    ).rejects.toBeInstanceOf(P.XmtpError.CodecEncodeFailed);
+    expect(calls).toEqual([]);
   });
 
   it("makes no send call when a codec step fails", async () => {

@@ -48,13 +48,14 @@ export const WalletSendCallsContent: React.FC<WalletSendCallsContentProps> = ({
         networkId: content.chainId,
         reference: txHash,
       };
-      const conversation =
-        await client.conversations.getConversationById(conversationId);
+      const conversation = await client.conversations.getById(conversationId);
       if (!conversation) {
         console.error("Couldn't find conversation by Id");
         return;
       }
-      await conversation.sendTransactionReference(transactionReference);
+      await conversation.sendTransactionReference(transactionReference, {
+        shouldPush: true,
+      });
     }
   }, [
     client,

@@ -8,10 +8,9 @@ import {
   TextInput,
 } from "@mantine/core";
 import {
-  ReactionAction,
-  ReactionSchema,
-  type DecodedMessage,
+  type Message as XmtpMessage,
   type Reaction,
+  type ReactionV2Content,
 } from "@xmtp/browser-sdk";
 import { useMemo, useState } from "react";
 
@@ -23,9 +22,9 @@ const EMOJIS = ["👍", "❤️", "😂", "🔥", "😮", "🙏", "🎉", "👀"
 
 const schemaToValue = (schema: Reaction["schema"]) => {
   switch (schema) {
-    case ReactionSchema.Unicode:
+    case "unicode":
       return "unicode";
-    case ReactionSchema.Shortcode:
+    case "shortcode":
       return "shortcode";
     default:
       return "custom";
@@ -33,7 +32,7 @@ const schemaToValue = (schema: Reaction["schema"]) => {
 };
 
 export type ReactionBarProps = {
-  message: DecodedMessage;
+  message: XmtpMessage;
 };
 
 export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
@@ -41,25 +40,19 @@ export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
   const { sendReaction } = useConversation(conversationId);
   const client = useClient();
   const [opened, setOpened] = useState(false);
-  const [schema, setSchema] = useState<Reaction["schema"]>(
-    ReactionSchema.Unicode,
-  );
+  const [schema, setSchema] = useState<Reaction["schema"]>("unicode");
   const [text, setText] = useState("");
 
   const userReactions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of message.reactions) {
       if (
-        r.content &&
         r.senderInboxId === client.inboxId &&
-        r.content.schema === ReactionSchema.Unicode
+        r.reaction.schema === "unicode"
       ) {
-        const key = r.content.content;
+        const key = r.reaction.content;
         const prev = counts.get(key) ?? 0;
-        counts.set(
-          key,
-          r.content.action === ReactionAction.Added ? prev + 1 : prev - 1,
-        );
+        counts.set(key, r.reaction.action === "added" ? prev + 1 : prev - 1);
       }
     }
     const result = new Set<string>();
@@ -75,17 +68,15 @@ export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
     if (userReactions.has(content)) {
       return;
     }
-    const payload: Reaction = {
-      action: ReactionAction.Added,
+    const payload: ReactionV2Content = {
+      reaction: { action: "added", schema, content },
       reference: message.id,
       referenceInboxId: message.senderInboxId,
-      schema,
-      content,
     };
     await sendReaction(payload);
     setOpened(false);
     setText("");
-    setSchema(ReactionSchema.Unicode);
+    setSchema("unicode");
   };
 
   return (
@@ -106,13 +97,13 @@ export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
           onChange={(schema: string) => {
             switch (schema) {
               case "unicode":
-                setSchema(ReactionSchema.Unicode);
+                setSchema("unicode");
                 break;
               case "shortcode":
-                setSchema(ReactionSchema.Shortcode);
+                setSchema("shortcode");
                 break;
               default:
-                setSchema(ReactionSchema.Custom);
+                setSchema("custom");
             }
           }}
           data={[
@@ -129,7 +120,7 @@ export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
             display: "flex",
             alignItems: "center",
           }}>
-          {schema === ReactionSchema.Unicode ? (
+          {schema === "unicode" ? (
             <Group gap={4}>
               {EMOJIS.map((emoji) => (
                 <ActionIcon
@@ -148,19 +139,13 @@ export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
                 onChange={(event) => {
                   setText(event.currentTarget.value);
                 }}
-                placeholder={
-                  schema === ReactionSchema.Shortcode
-                    ? ":xmtp:"
-                    : "Enter custom"
-                }
+                placeholder={schema === "shortcode" ? ":xmtp:" : "Enter custom"}
                 size="sm"
                 style={{ width: 180 }}
                 onKeyDown={(event) => {
                   if (
                     event.key === "Enter" &&
-                    [ReactionSchema.Shortcode, ReactionSchema.Custom].includes(
-                      schema,
-                    )
+                    ["shortcode", "custom"].includes(schema)
                   ) {
                     event.preventDefault();
                     void send(text);

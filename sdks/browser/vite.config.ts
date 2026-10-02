@@ -4,8 +4,7 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vite";
 import { defineConfig as defineVitestConfig } from "vitest/config";
 
-// Workspace-linked bindings live outside this package. Allow the repository
-// root so Vite can serve their WASM files.
+// Keep package asset URLs inside the workspace during browser tests.
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 // https://vitejs.dev/config/
@@ -27,9 +26,15 @@ const viteConfig = defineConfig({
 
 const vitestConfig = defineVitestConfig({
   optimizeDeps: {
-    exclude: ["@xmtp/wasm-bindings"],
+    exclude: ["@xmtp/browser-sdk", "@xmtp/browser-sdk/pure"],
   },
   test: {
+    include: [
+      "test/public*.test.ts",
+      "test/device-sync.test.ts",
+      "test/auth-public.test.ts",
+      "test/content-public.test.ts",
+    ],
     browser: {
       provider: playwright(),
       enabled: true,

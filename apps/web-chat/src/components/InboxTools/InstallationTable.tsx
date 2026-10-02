@@ -21,7 +21,7 @@ const InstallationTableRow: React.FC<InstallationTableRowProps> = ({
     sm: "10rem",
   });
 
-  const createdAt = nsToDate(installation.clientTimestampNs ?? 0n);
+  const createdAt = nsToDate(installation.createdAt?.ns ?? 0n);
   const checked = selectedInstallationIds.includes(installation.id);
 
   return (

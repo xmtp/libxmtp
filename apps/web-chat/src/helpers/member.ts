@@ -1,4 +1,4 @@
-import type { GroupMember } from "@xmtp/browser-sdk";
+import type { Member } from "@xmtp/browser-sdk";
 
 import { getMemberAddress } from "@/helpers/xmtp";
 
@@ -23,14 +23,14 @@ export const combineProfiles = (
   displayName: address,
 });
 
-export type MemberProfile = GroupMember & {
+export type MemberProfile = Member & {
   address: string;
   avatar: string | null;
   description: string | null;
   displayName: string | null;
 };
 
-export const toMemberProfile = (member: GroupMember): MemberProfile => {
+export const toMemberProfile = (member: Member): MemberProfile => {
   const address = getMemberAddress(member);
   return {
     ...member,

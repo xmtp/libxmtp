@@ -1,5 +1,4 @@
 import { Badge, Group, Stack, Text } from "@mantine/core";
-import { PermissionLevel } from "@xmtp/browser-sdk";
 import { useCallback, useMemo } from "react";
 
 import {
@@ -57,20 +56,16 @@ export const Members: React.FC<MembersProps> = ({
 
   const superAdmins = useMemo(() => {
     return finalMembers.filter(
-      (member) => member.permissionLevel === PermissionLevel.SuperAdmin,
+      (member) => member.permissionLevel === "superAdmin",
     );
   }, [finalMembers]);
 
   const admins = useMemo(() => {
-    return finalMembers.filter(
-      (member) => member.permissionLevel === PermissionLevel.Admin,
-    );
+    return finalMembers.filter((member) => member.permissionLevel === "admin");
   }, [finalMembers]);
 
   const members = useMemo(() => {
-    return finalMembers.filter(
-      (member) => member.permissionLevel === PermissionLevel.Member,
-    );
+    return finalMembers.filter((member) => member.permissionLevel === "member");
   }, [finalMembers]);
 
   return (

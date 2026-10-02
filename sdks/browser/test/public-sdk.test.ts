@@ -1,0 +1,522 @@
+import {
+  Client,
+  ConversationStream,
+  Group,
+  MessageStream,
+  Storage,
+  Timestamp,
+  XmtpError,
+  latestInboxUpdatesCount,
+} from "@xmtp/browser-sdk";
+import { initPureWasm, TextCodec } from "@xmtp/browser-sdk/pure";
+import { beforeAll, expect, test, vi } from "vitest";
+
+import { backend, create, options, signer } from "./helpers";
+
+beforeAll(() => initPureWasm());
+
+// verifies: IDENT-072
+// verifies: SEND-020
+test("public package registers, queries identities, sends, and closes", async () => {
+  const owner = signer();
+  const client = await create(owner);
+  expect(await client.isRegistered()).toBe(true);
+  expect(client.identity).toEqual(await owner.identity());
+  expect(await Client.inboxIdFor(client.identity, backend)).toBe(
+    client.inboxId,
+  );
+  expect(
+    (await Client.canMessage([client.identity], backend)).get(
+      `ethereum:${client.identity.identifier}`,
+    ),
+  ).toBe(true);
+  expect(
+    (await Client.inboxStates([client.inboxId], backend))[0].installations.map(
+      (item) => item.id,
+    ),
+  ).toContain(client.installationId);
+  expect(
+    (await latestInboxUpdatesCount([client.inboxId], backend)).get(
+      client.inboxId,
+    ),
+  ).toBeGreaterThan(0n);
+  expect(
+    (await client.keyPackageStatuses([client.installationId])).get(
+      client.installationId,
+    )?.validationError,
+  ).toBeUndefined();
+  const group = await client.conversations.createGroup([]);
+  const id = await group.sendText("public package", { shouldPush: true });
+  const message = await client.conversations.getMessageById(id);
+  expect(message?.content).toEqual({ kind: "text", value: "public package" });
+  expect(message?.client()).toBe(client);
+  expect(message?.sentAt).toBeInstanceOf(Timestamp);
+  expect(message?.rawBytes).toBeInstanceOf(Uint8Array);
+  await client.end();
+  await expect(group.messages()).rejects.toBeInstanceOf(XmtpError.ClientClosed);
+});
+
+test("group metadata, membership, permissions, and consent remain public", async () => {
+  const client = await create();
+  const peer = await create();
+  const group = await client.conversations.createGroup([peer.identity], {
+    name: "first",
+    description: "description",
+    imageUrl: "https://example.com/image",
+    appData: "app",
+    permissions: { kind: "adminOnly" },
+  });
+  const initial = await group.state();
+  expect(initial.name).toBe("first");
+  expect(initial.description).toBe("description");
+  expect(initial.imageUrl).toBe("https://example.com/image");
+  expect(initial.appData).toBe("app");
+  expect(
+    (await group.state().then((state) => state.permissions)).policyType,
+  ).toBe("adminOnly");
+  expect((await group.members()).map((item) => item.inboxId)).toContain(
+    peer.inboxId,
+  );
+  await group.updateName("second");
+  await group.updateDescription("next");
+  await group.updateImageUrl("https://example.com/next");
+  await group.updateAppData("next-app", undefined);
+  await group.updatePermission("updateMetadata", "deny", "name");
+  expect(
+    (await group.state().then((state) => state.permissions)).policySet
+      .updateName,
+  ).toBe("deny");
+  expect((await group.state()).name).toBe("second");
+  await group.addAdmin(peer.inboxId);
+  expect((await group.state()).admins).toContain(peer.inboxId);
+  await group.removeAdmin(peer.inboxId);
+  expect((await group.state()).admins).not.toContain(peer.inboxId);
+  await group.updateConsentState("denied");
+  expect((await group.state()).common.consentState).toBe("denied");
+  await group.removeMembers([peer.inboxId]);
+  expect((await group.members()).map((item) => item.inboxId)).not.toContain(
+    peer.inboxId,
+  );
+});
+
+test("DM lookup, optimistic sends, filters, reactions, and replies use the public model", async () => {
+  const client = await create();
+  const peer = await create();
+  const dm = await client.conversations.createDm(peer.identity);
+  expect((await dm.state()).pausedForVersion).toBeUndefined();
+  expect((await client.conversations.getDmByInboxId(peer.inboxId))?.id).toBe(
+    dm.id,
+  );
+  expect((await client.conversations.getDmByIdentity(peer.identity))?.id).toBe(
+    dm.id,
+  );
+  const id = await dm.sendText("first", { optimistic: true, shouldPush: true });
+  await dm.publishMessages();
+  const text = new TextCodec().encode("reply");
+  await dm.sendReply(id, client.inboxId, text, { shouldPush: true });
+  await dm.sendReaction(
+    id,
+    client.inboxId,
+    { action: "added", schema: "unicode", content: "👍" },
+    { shouldPush: true },
+  );
+  const messages = await dm.messages();
+  expect(
+    messages.some(
+      (message) => message.id === id && message.content.kind === "text",
+    ),
+  ).toBe(true);
+  expect(
+    messages.some(
+      (message) =>
+        message.content.kind === "reply" &&
+        message.content.referenceId === id &&
+        message.content.body.kind === "text" &&
+        message.content.body.value === "reply",
+    ),
+  ).toBe(true);
+  expect((await dm.messages({ limit: 1 })).length).toBe(1);
+  expect(
+    await dm.messages({ sentAfter: new Timestamp(2n ** 63n - 1n) }),
+  ).toHaveLength(0);
+});
+
+test("stream callbacks observe new conversations and messages", async () => {
+  const client = await create();
+  const conversations: string[] = [];
+  const messages: string[] = [];
+  const conversationStream = ConversationStream.open(client);
+  const messageStream = MessageStream.open(client);
+  await conversationStream.ready();
+  await messageStream.ready();
+  const conversationRead = conversationStream.onValue((conversation) => {
+    conversations.push(conversation.id);
+  });
+  const messageRead = messageStream.onValue((message) => {
+    messages.push(message.id);
+  });
+  try {
+    const group = await client.conversations.createGroup([]);
+    const id = await group.sendText("stream", { shouldPush: true });
+    await vi.waitFor(
+      () => {
+        expect(conversations).toContain(group.id);
+        expect(messages).toContain(id);
+      },
+      { timeout: 30_000 },
+    );
+  } finally {
+    await conversationStream.end();
+    await messageStream.end();
+    await conversationRead;
+    await messageRead;
+  }
+});
+
+// verifies: ARCH-012
+test("byte archives reject invalid keys and restore messages", async () => {
+  const owner = signer();
+  const client = await create(owner);
+  const group = await client.conversations.createGroup([]);
+  const id = await group.sendText("archive");
+  for (const length of [31, 33])
+    await expect(
+      client.archives.exportToBytes(new Uint8Array(length), undefined),
+    ).rejects.toThrow();
+  const key = new Uint8Array(32).fill(1);
+  const archive = await client.archives.exportToBytes(key, undefined);
+  expect(
+    (await client.archives.metadataFromBytes(archive, key)).elements.length,
+  ).toBeGreaterThan(0);
+  const replacement = await create(owner);
+  await replacement.archives.importFromBytes(archive, key);
+  const restored = await replacement.conversations.getById(group.id);
+  expect(
+    (await restored!.messages()).some((message) => message.id === id),
+  ).toBe(true);
+});
+
+test("installation revocation works through signer callbacks", async () => {
+  const owner = signer();
+  const client = await create(owner);
+  const other = await create(owner);
+  expect(
+    (await client.inboxState(true)).installations.map((item) => item.id),
+  ).toContain(other.installationId);
+  await client.revokeInstallations(owner, [other.installationId]);
+  expect(
+    (await client.inboxState(true)).installations.map((item) => item.id),
+  ).not.toContain(other.installationId);
+  await client.revokeAllOtherInstallations(owner);
+  expect(
+    (await client.inboxState(true)).installations.map((item) => item.id),
+  ).toEqual([client.installationId]);
+});
+
+test("storage admin can open and end before a client", async () => {
+  const admin = await Storage.admin();
+  try {
+    expect(await admin.listFiles()).toBeInstanceOf(Array);
+  } finally {
+    await admin.end();
+  }
+});
+
+test("metadata disappearing settings and message counts keep timestamp values", async () => {
+  const client = await create();
+  const group = await client.conversations.createGroup([]);
+  expect((await group.state()).common.pausedForVersion).toBeUndefined();
+  const settings = { from: new Timestamp(1n), retentionNs: 60_000_000_000n };
+  await group.updateDisappearingSettings(settings);
+  expect((await group.state()).common.disappearingSettings).toEqual(settings);
+  const before = await group.countMessages({ kind: "application" });
+  await group.sendText("one");
+  await group.sendText("two");
+  expect(await group.countMessages({ kind: "application" })).toBe(before + 2n);
+  expect((await group.messages({ kind: "application", limit: 1 })).length).toBe(
+    1,
+  );
+  await group.updateDisappearingSettings(undefined);
+  expect((await group.state()).common.disappearingSettings).toEqual({
+    from: new Timestamp(0n),
+    retentionNs: 0n,
+  });
+});
+
+test("optimistic group creation, idempotency, lookup, list filters, and HMAC keys", async () => {
+  const client = await create();
+  const optimistic = await client.conversations.createGroupOptimistic({
+    name: "optimistic",
+  });
+  expect((await optimistic.state()).name).toBe("optimistic");
+  const id = await optimistic.sendText("same", {
+    idempotencyKey: "public-idempotency",
+    optimistic: true,
+  });
+  expect(
+    await optimistic.sendText("same", {
+      idempotencyKey: "public-idempotency",
+      optimistic: true,
+    }),
+  ).toBe(id);
+  await optimistic.publishMessages();
+  const peer = await create();
+  const dm = await client.conversations.createDm(peer.inboxId);
+  expect((await client.conversations.getById(optimistic.id))?.kind).toBe(
+    "group",
+  );
+  expect((await client.conversations.getById(dm.id))?.kind).toBe("dm");
+  const groups = await client.conversations.list({ kind: "group" });
+  expect(groups.map((group) => group.id)).toContain(optimistic.id);
+  expect(groups.map((group) => group.id)).not.toContain(dm.id);
+  expect(
+    await client.conversations.list({
+      createdAfter: new Timestamp(2n ** 63n - 1n),
+    }),
+  ).toHaveLength(0);
+  expect(
+    (await client.conversations.hmacKeys()).get(optimistic.id)?.length,
+  ).toBeGreaterThan(0);
+  expect(await optimistic.debugInfo()).toBeDefined();
+  expect(optimistic.topic).toBeTypeOf("string");
+});
+
+test("account associations and recovery changes require the supplied signer", async () => {
+  const owner = signer();
+  const other = signer();
+  const client = await create(owner);
+  const identity = await other.identity();
+  await client.unsafeAddAccount(other, false);
+  expect((await client.inboxState(true)).identities).toContainEqual(identity);
+  await client.changeRecoveryIdentifier(owner, identity);
+  expect((await client.inboxState(true)).recoveryIdentity).toEqual(identity);
+  await client.removeAccount(other, await owner.identity());
+  expect((await client.inboxState(true)).identities).not.toContainEqual(
+    await owner.identity(),
+  );
+});
+
+test("configuration snapshots and diagnostic counters remain public", async () => {
+  const client = await create();
+  const snapshot = client.serverConfiguration;
+  expect(snapshot.identifier).not.toBe("");
+  expect(Object.keys(snapshot).sort()).toEqual(
+    [
+      "identifier",
+      "serverVersion",
+      "minLibxmtpVersion",
+      "auth",
+      "retention",
+      "limits",
+      "mls",
+      "smartContractWalletChains",
+      "attachments",
+      "applicationComponents",
+    ].sort(),
+  );
+  expect(Object.keys(snapshot.auth).sort()).toEqual(
+    ["enabled", "keys", "audiences", "issuers", "requiredScopes"].sort(),
+  );
+  for (const value of Object.values(snapshot.retention)) {
+    expect(value).toBeTypeOf("bigint");
+    expect(value).toBeGreaterThan(0n);
+  }
+  const rateFields = new Set([
+    "maxUpdateFramesPerSecond",
+    "maxUpdateBurst",
+    "maxPingFramesPerSecond",
+    "maxPingBurst",
+  ]);
+  expect(Object.keys(snapshot.limits)).toHaveLength(20);
+  for (const [key, value] of Object.entries(snapshot.limits)) {
+    expect(value).toBeTypeOf(rateFields.has(key) ? "number" : "bigint");
+    expect(value).toBeGreaterThan(0);
+  }
+  expect(snapshot.mls.maxGroupMembers).toBeGreaterThan(0n);
+  expect(snapshot.mls.maxInstallationsPerInbox).toBe(10n);
+  expect(Array.isArray(snapshot.smartContractWalletChains)).toBe(true);
+
+  expect((await Client.fetchServerConfiguration(backend)).identifier).toBe(
+    snapshot.identifier,
+  );
+  expect((await client.refreshServerConfiguration()).identifier).toBe(
+    snapshot.identifier,
+  );
+  expect(client.serverConfiguration).toEqual(snapshot);
+  const counters = await client.diagnostics.apiStatistics();
+  expect(counters.publish).toBeGreaterThanOrEqual(2n);
+  expect(counters.queryNewest).toBeGreaterThanOrEqual(1n);
+  expect(counters.query).toBeGreaterThanOrEqual(2n);
+  expect(counters.subscribe).toBe(0n);
+  expect(counters.subscribeStatic).toBe(0n);
+  expect(
+    (await client.diagnostics.identityStatistics())
+      .verifySmartContractWalletSignatures,
+  ).toBe(0n);
+  expect(
+    (await client.diagnostics.identityStatistics()).getInboxIds,
+  ).toBeGreaterThanOrEqual(1n);
+  await client.diagnostics.clearStatistics();
+  expect(
+    (await client.diagnostics.apiStatistics()).publish,
+  ).toBeLessThanOrEqual(1n);
+  const cleared = await client.diagnostics.apiStatistics();
+  for (const field of [
+    "publish",
+    "query",
+    "queryNewest",
+    "subscribe",
+    "subscribeStatic",
+  ] as const)
+    expect(cleared[field]).toBeLessThanOrEqual(1n);
+  expect(
+    (await client.diagnostics.identityStatistics()).getInboxIds,
+  ).toBeLessThanOrEqual(1n);
+  expect(
+    (await client.diagnostics.identityStatistics())
+      .verifySmartContractWalletSignatures,
+  ).toBe(0n);
+  expect(await client.diagnostics.aggregateStatistics()).toBeTypeOf("string");
+});
+
+test("a codec imported from pure encodes once when sent through the root", async () => {
+  const client = await create();
+  const group = await client.conversations.createGroup([]);
+  const codec = new TextCodec();
+  const encode = vi.spyOn(codec, "encode");
+  await group.send(codec, "one encode", { shouldPush: true });
+  expect(encode).toHaveBeenCalledExactlyOnceWith("one encode");
+});
+
+test("standard codec subclasses keep app fallback hooks before publication", async () => {
+  class CustomText extends TextCodec {
+    override fallback(value: string): string {
+      return `custom ${value}`;
+    }
+  }
+  class FailedText extends TextCodec {
+    override fallback(_value: string): string {
+      throw new Error("app fallback");
+    }
+  }
+  const client = await create();
+  const group = await client.conversations.createGroup([]);
+  const id = await group.send(new CustomText(), "override", {
+    shouldPush: true,
+  });
+  expect((await client.conversations.getMessageById(id))?.fallback).toBe(
+    "custom override",
+  );
+  const before = await group.countMessages({ kind: "application" });
+  await expect(
+    group.send(new FailedText(), "never publish"),
+  ).rejects.toBeInstanceOf(XmtpError.CodecEncodeFailed);
+  expect(await group.countMessages({ kind: "application" })).toBe(before);
+});
+
+test("a signerless build needs registration and keeps byte signatures typed", async () => {
+  const owner = signer();
+  const client = await create(owner);
+  await expect(
+    Client.build(await owner.identity(), options),
+  ).rejects.toBeInstanceOf(XmtpError.IdentityNotFound);
+  const storage = {
+    location: { directory: `signerless-${crypto.randomUUID()}` },
+  } as const;
+  const persistent = await create(owner, { storage });
+  const installation = persistent.installationId;
+  await persistent.end();
+  const built = await Client.build(await owner.identity(), {
+    ...options,
+    storage,
+  });
+  try {
+    expect(built.identity).toEqual(client.identity);
+    expect(built.installationId).toBe(installation);
+    expect(await built.isRegistered()).toBe(true);
+  } finally {
+    await built.end();
+  }
+  expect(await client.ownInboxUpdatesCount(true)).toBeGreaterThan(0n);
+  const signed = await client.signWithInstallationKey("signature");
+  expect(signed).toBeInstanceOf(Uint8Array);
+  expect(
+    await client.verifySignedWithInstallationKey("signature", signed),
+  ).toBe(true);
+  expect(await client.verifySignedWithInstallationKey("changed", signed)).toBe(
+    false,
+  );
+  expect(
+    await Client.verifySignedWithPublicKey(
+      "signature",
+      signed,
+      client.installationIdBytes,
+    ),
+  ).toBe(true);
+});
+
+test("the installation limit rejects the eleventh owner and permits revocation before create", async () => {
+  const owner = signer();
+  const installations = [];
+  for (let index = 0; index < 10; index++)
+    installations.push(await create(owner));
+  const first = installations[0]!;
+  await expect(create(owner)).rejects.toThrow();
+  await Client.revokeInstallations(
+    owner,
+    first.inboxId,
+    [installations[9]!.installationId],
+    backend,
+  );
+  const replacement = await create(owner);
+  expect((await replacement.inboxState(true)).installations).toHaveLength(10);
+});
+
+test("an identity moves only when reassignment is explicit", async () => {
+  const firstOwner = signer();
+  const nextOwner = signer();
+  const first = await create(firstOwner);
+  const next = await create(nextOwner);
+  const moved = await firstOwner.identity();
+  await expect(next.unsafeAddAccount(firstOwner, false)).rejects.toThrow();
+  const temporary = signer();
+  const temporaryIdentity = await temporary.identity();
+  await first.unsafeAddAccount(temporary, true);
+  await first.removeAccount(firstOwner, moved);
+  await first.changeRecoveryIdentifier(firstOwner, temporaryIdentity);
+  expect((await first.inboxState(true)).identities).toEqual([
+    temporaryIdentity,
+  ]);
+  await next.unsafeAddAccount(firstOwner, true);
+  expect(await Client.inboxIdFor(moved, backend)).toBe(next.inboxId);
+  await next.removeAccount(nextOwner, await nextOwner.identity());
+  await next.changeRecoveryIdentifier(nextOwner, moved);
+  expect((await next.inboxState(true)).identities).toEqual([moved]);
+  expect((await next.inboxState(true)).recoveryIdentity).toEqual(moved);
+  expect((await create(firstOwner)).inboxId).toBe(next.inboxId);
+});
+
+test("super-admin and removal-request mutations reach group state", async () => {
+  const client = await create();
+  const peer = await create();
+  const group = await client.conversations.createGroup([peer.inboxId]);
+  await group.addSuperAdmin(peer.inboxId);
+  expect((await group.state()).superAdmins).toContain(peer.inboxId);
+  await group.removeSuperAdmin(peer.inboxId);
+  expect((await group.state()).superAdmins).not.toContain(peer.inboxId);
+  await peer.conversations.sync();
+  const peerGroup = await peer.conversations.getById(group.id);
+  if (!(peerGroup instanceof Group)) throw new Error("Peer group missing");
+  await peerGroup.requestRemoval();
+  expect((await peerGroup.state()).membershipState).toBe("pendingRemove");
+  await vi.waitFor(
+    async () => {
+      await peer.conversations.syncAll(undefined);
+      await group.sync();
+      expect((await group.members()).map((item) => item.inboxId)).not.toContain(
+        peer.inboxId,
+      );
+    },
+    { timeout: 30_000 },
+  );
+});

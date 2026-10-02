@@ -1,5 +1,5 @@
 import { useLocalStorage } from "@mantine/hooks";
-import { LogLevel, type ClientOptions } from "@xmtp/browser-sdk";
+import { type LogLevel } from "@xmtp/browser-sdk";
 import { useEffect } from "react";
 import type { Hex } from "viem";
 
@@ -8,17 +8,17 @@ import type { ConnectorString } from "@/hooks/useWallet";
 const legacyLoggingLevel = (value: string) => {
   switch (value) {
     case "error":
-      return LogLevel.Error;
+      return "error";
     case "warn":
-      return LogLevel.Warn;
+      return "warn";
     case "info":
-      return LogLevel.Info;
+      return "info";
     case "debug":
-      return LogLevel.Debug;
+      return "debug";
     case "trace":
-      return LogLevel.Trace;
+      return "trace";
     default:
-      return LogLevel.Off;
+      return "off";
   }
 };
 
@@ -39,11 +39,6 @@ export const useSettings = () => {
     defaultValue: "",
     getInitialValueInEffect: false,
   });
-  const [encryptionKey, setEncryptionKey] = useLocalStorage({
-    key: "XMTP_ENCRYPTION_KEY",
-    defaultValue: "",
-    getInitialValueInEffect: false,
-  });
   const [ephemeralAccountEnabled, setEphemeralAccountEnabled] = useLocalStorage(
     {
       key: "XMTP_USE_EPHEMERAL_ACCOUNT",
@@ -51,11 +46,9 @@ export const useSettings = () => {
       getInitialValueInEffect: false,
     },
   );
-  const [loggingLevel, setLoggingLevel] = useLocalStorage<
-    ClientOptions["loggingLevel"]
-  >({
+  const [loggingLevel, setLoggingLevel] = useLocalStorage<LogLevel>({
     key: "XMTP_LOGGING_LEVEL",
-    defaultValue: LogLevel.Warn,
+    defaultValue: "warn",
     getInitialValueInEffect: false,
   });
   const [forceSCW, setForceSCW] = useLocalStorage<boolean>({
@@ -101,7 +94,6 @@ export const useSettings = () => {
     backendUrl,
     blockchain,
     connector,
-    encryptionKey,
     ephemeralAccountEnabled,
     ephemeralAccountKey,
     forceSCW,
@@ -112,7 +104,6 @@ export const useSettings = () => {
     setAutoConnect,
     setBlockchain,
     setConnector,
-    setEncryptionKey,
     setBackendUrl,
     setEphemeralAccountEnabled,
     setEphemeralAccountKey,

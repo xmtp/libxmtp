@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/browser-sdk",
-  "version": "7.2.0-dev",
+  "version": "8.0.0",
   "description": "XMTP client SDK for browsers written in TypeScript",
   "keywords": [
     "javascript",
@@ -24,19 +24,22 @@
     "directory": "sdks/browser"
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "type": "module",
   "sideEffects": false,
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/entry.js",
+  "types": "dist/entry.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/entry.d.ts",
+      "import": "./dist/entry.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./pure": {
+      "types": "./dist/pure.d.ts",
+      "import": "./dist/pure.js"
+    }
   },
   "publishConfig": {
     "access": "public",
@@ -44,10 +47,10 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "bash ../../dev/js/sdk-package browser",
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
-    "dev": "tsdown --watch",
+    "dev": "pnpm build",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",
@@ -55,10 +58,7 @@
     "test:debug": "vitest run --inspect-brk --no-file-parallelism",
     "typecheck": "tsc"
   },
-  "dependencies": {
-    "@xmtp/content-type-primitives": "catalog:",
-    "@xmtp/wasm-bindings": "workspace:*"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "^6.9.1",

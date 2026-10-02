@@ -1,7 +1,6 @@
 import { Accordion, Badge, Button, Group, Stack, Text } from "@mantine/core";
 import {
-  GroupPermissionsOptions,
-  IdentifierKind,
+  type GroupPolicyType,
   type PermissionPolicySet,
 } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useState } from "react";
@@ -21,13 +20,13 @@ import { useConversations } from "@/hooks/useConversations";
 import { ContentLayout } from "@/layouts/ContentLayout";
 import { useActions } from "@/stores/inbox/hooks";
 
-const permissionsPolicyValue = (policy: GroupPermissionsOptions) => {
+const permissionsPolicyValue = (policy: GroupPolicyType) => {
   switch (policy) {
-    case GroupPermissionsOptions.Default:
+    case "allMembers":
       return "Default";
-    case GroupPermissionsOptions.AdminOnly:
+    case "adminOnly":
       return "Admin only";
-    case GroupPermissionsOptions.CustomPolicy:
+    case "custom":
       return "Custom policy";
   }
 };
@@ -41,7 +40,7 @@ export const CreateGroupModal: React.FC = () => {
   const [imageUrlSquare, setImageUrlSquare] = useState("");
   const [addedMembers, setAddedMembers] = useState<PendingMember[]>([]);
   const [permissionsPolicy, setPermissionsPolicy] =
-    useState<GroupPermissionsOptions>(GroupPermissionsOptions.Default);
+    useState<GroupPolicyType>("allMembers");
   const [policySet, setPolicySet] =
     useState<PermissionPolicySet>(defaultPolicySet);
   const navigate = useNavigate();
@@ -60,24 +59,23 @@ export const CreateGroupModal: React.FC = () => {
         .filter((member) => isValidInboxId(member.inboxId))
         .map((member) => member.inboxId);
       const conversation = await createGroup(addedMemberInboxIds, {
-        groupName: name,
-        groupDescription: description,
-        groupImageUrlSquare: imageUrlSquare,
-        permissions: permissionsPolicy,
-        customPermissionPolicySet:
-          permissionsPolicy === GroupPermissionsOptions.CustomPolicy
-            ? policySet
-            : undefined,
+        name,
+        description,
+        imageUrl: imageUrlSquare,
+        permissions:
+          permissionsPolicy === "custom"
+            ? { kind: "custom", policySet }
+            : { kind: permissionsPolicy },
       });
 
       const addedMemberAddresses = addedMembers
         .filter((member) => isValidEthereumAddress(member.address))
         .map((member) => member.address);
       if (addedMemberAddresses.length > 0) {
-        await conversation.addMembersByIdentifiers(
+        await conversation.addMembers(
           addedMemberAddresses.map((address) => ({
             identifier: address.toLowerCase(),
-            identifierKind: IdentifierKind.Ethereum,
+            kind: "ethereum" as const,
           })),
         );
       }

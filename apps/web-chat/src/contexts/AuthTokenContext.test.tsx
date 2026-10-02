@@ -32,11 +32,11 @@ describe("AuthTokenProvider", () => {
 
   it("probes with an empty credential so an open backend connects untouched", async () => {
     const { result } = renderAuthToken();
-    const callback = result.current.createAuthCallback();
+    const callback = result.current.createCredentialSource();
 
     // The middleware asks before the first request whether or not the
     // deployment requires auth, so the first ask must not interrupt the user.
-    await expect(callback()).resolves.toMatchObject({ value: "" });
+    await expect(callback.credential()).resolves.toMatchObject({ value: "" });
     expect(result.current.request).toBeNull();
   });
 
@@ -60,12 +60,12 @@ describe("AuthTokenProvider", () => {
 
   it("prompts once the empty probe is refused", async () => {
     const { result } = renderAuthToken();
-    const callback = result.current.createAuthCallback();
-    await callback();
+    const callback = result.current.createCredentialSource();
+    await callback.credential();
 
     let credential: Promise<{ value: string }> | undefined;
     act(() => {
-      credential = callback();
+      credential = callback.credential();
     });
     expect(result.current.request).not.toBeNull();
     // Nothing was supplied yet, so this is a first ask, not a rejection.
@@ -81,9 +81,9 @@ describe("AuthTokenProvider", () => {
   it("offers a stored token before prompting", async () => {
     localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify("stored-token"));
     const { result } = renderAuthToken();
-    const callback = result.current.createAuthCallback();
+    const callback = result.current.createCredentialSource();
 
-    await expect(callback()).resolves.toMatchObject({
+    await expect(callback.credential()).resolves.toMatchObject({
       value: "Bearer stored-token",
     });
     expect(result.current.request).toBeNull();
@@ -92,15 +92,15 @@ describe("AuthTokenProvider", () => {
   it("reports a rejection when the same consumer is asked again", async () => {
     localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify("stale-token"));
     const { result } = renderAuthToken();
-    const callback = result.current.createAuthCallback();
+    const callback = result.current.createCredentialSource();
 
-    await expect(callback()).resolves.toMatchObject({
+    await expect(callback.credential()).resolves.toMatchObject({
       value: "Bearer stale-token",
     });
 
     let credential: Promise<{ value: string }> | undefined;
     act(() => {
-      credential = callback();
+      credential = callback.credential();
     });
     expect(result.current.request?.rejected).toBe(true);
 
@@ -118,13 +118,13 @@ describe("AuthTokenProvider", () => {
 
     // A reconnect, or an inbox tools query, builds a separate client with its
     // own credential cache. Its first ask must be answered from storage.
-    const first = result.current.createAuthCallback();
-    await expect(first()).resolves.toMatchObject({
+    const first = result.current.createCredentialSource();
+    await expect(first.credential()).resolves.toMatchObject({
       value: "Bearer good-token",
     });
 
-    const second = result.current.createAuthCallback();
-    await expect(second()).resolves.toMatchObject({
+    const second = result.current.createCredentialSource();
+    await expect(second.credential()).resolves.toMatchObject({
       value: "Bearer good-token",
     });
     expect(result.current.request).toBeNull();
@@ -133,18 +133,18 @@ describe("AuthTokenProvider", () => {
   it("resolves every concurrent waiter from one submission", async () => {
     localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify("stale-token"));
     const { result } = renderAuthToken();
-    const first = result.current.createAuthCallback();
-    const second = result.current.createAuthCallback();
+    const first = result.current.createCredentialSource();
+    const second = result.current.createCredentialSource();
 
     // Both consumers offer the stale token and are refused.
-    await first();
-    await second();
+    await first.credential();
+    await second.credential();
 
     let a: Promise<{ value: string }> | undefined;
     let b: Promise<{ value: string }> | undefined;
     act(() => {
-      a = first();
-      b = second();
+      a = first.credential();
+      b = second.credential();
     });
     expect(result.current.request).not.toBeNull();
 
@@ -161,11 +161,11 @@ describe("AuthTokenProvider", () => {
   it("offers a newly entered token to a consumer that was already refused", async () => {
     localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify("stale-token"));
     const { result } = renderAuthToken();
-    const callback = result.current.createAuthCallback();
-    await callback();
+    const callback = result.current.createCredentialSource();
+    await callback.credential();
 
     act(() => {
-      void callback();
+      void callback.credential();
     });
     act(() => {
       result.current.request?.resolve("fresh-token");
@@ -173,7 +173,7 @@ describe("AuthTokenProvider", () => {
 
     // The consumer already refused "stale-token"; the token entered since is
     // newer, so it is offered rather than read as already refused.
-    await expect(callback()).resolves.toMatchObject({
+    await expect(callback.credential()).resolves.toMatchObject({
       value: "Bearer fresh-token",
     });
   });
@@ -183,18 +183,18 @@ describe("AuthTokenProvider", () => {
     async (storedToken) => {
       localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify(storedToken));
       const { result } = renderAuthToken();
-      const callback = result.current.createAuthCallback();
-      await callback();
+      const callback = result.current.createCredentialSource();
+      await callback.credential();
 
       let waiting: Promise<{ value: string }> | undefined;
       act(() => {
-        waiting = callback();
+        waiting = callback.credential();
       });
 
       let immediate: Promise<{ value: string }> | undefined;
       act(() => {
         result.current.request?.resolve("  fresh-token  ");
-        immediate = callback();
+        immediate = callback.credential();
       });
 
       await expect(waiting).resolves.toMatchObject({
@@ -212,16 +212,16 @@ describe("AuthTokenProvider", () => {
     // started together, with no stored token, both using that panel's single
     // callback. Neither may be left pending.
     const { result } = renderAuthToken();
-    const callback = result.current.createAuthCallback();
+    const callback = result.current.createCredentialSource();
 
     // The empty probe is refused, so the next asks must prompt.
-    await callback();
+    await callback.credential();
 
     let a: Promise<{ value: string }> | undefined;
     let b: Promise<{ value: string }> | undefined;
     act(() => {
-      a = callback();
-      b = callback();
+      a = callback.credential();
+      b = callback.credential();
     });
     expect(result.current.request).not.toBeNull();
 
@@ -245,8 +245,8 @@ describe("AuthTokenProvider", () => {
     });
     expect(result.current.request).toBeNull();
 
-    const callback = result.current.createAuthCallback();
-    await expect(callback()).resolves.toMatchObject({
+    const callback = result.current.createCredentialSource();
+    await expect(callback.credential()).resolves.toMatchObject({
       value: "Bearer early-token",
     });
   });

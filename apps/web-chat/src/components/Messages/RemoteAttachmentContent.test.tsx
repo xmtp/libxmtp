@@ -14,7 +14,11 @@ import type * as attachmentHelpers from "@/helpers/attachment";
 
 import { RemoteAttachmentContent } from "./RemoteAttachmentContent";
 
-const { download } = vi.hoisted(() => ({ download: vi.fn() }));
+const { download, client } = vi.hoisted(() => ({
+  download: vi.fn(),
+  client: {},
+}));
+vi.mock("@/contexts/XMTPContext", () => ({ useClient: () => client }));
 
 vi.mock("@/helpers/attachment", async (importOriginal) => ({
   ...(await importOriginal<typeof attachmentHelpers>()),
@@ -32,11 +36,7 @@ const content = (name: string): RemoteAttachment => ({
   filename: `${name}.png`,
 });
 
-const attachment = {
-  filename: "image.png",
-  mimeType: "image/png",
-  content: new Uint8Array([1]),
-};
+const attachment = new Blob([new Uint8Array([1])], { type: "image/png" });
 
 const view = (source: RemoteAttachment) => (
   <MantineProvider>

@@ -18,7 +18,7 @@ const viteConfig = defineConfig({
     tsconfigPaths: true,
   },
   optimizeDeps: {
-    exclude: ["@xmtp/wasm-bindings"],
+    exclude: ["@xmtp/browser-sdk", "@xmtp/browser-sdk/pure"],
   },
   server: {
     allowedHosts: true,

@@ -1,4 +1,3 @@
-import { IdentifierKind } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
 
 import { useClient } from "@/contexts/XMTPContext";
@@ -15,9 +14,9 @@ export const useHelpDm = () => {
   useEffect(() => {
     const checkHelpDm = async () => {
       try {
-        const inboxId = await client.fetchInboxIdByIdentifier({
+        const inboxId = await client.inboxIdFor({
           identifier: HELP_ADDRESS,
-          identifierKind: IdentifierKind.Ethereum,
+          kind: "ethereum",
         });
 
         if (inboxId) {

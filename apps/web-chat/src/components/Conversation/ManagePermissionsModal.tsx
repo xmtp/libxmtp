@@ -1,6 +1,6 @@
 import { Button, Group } from "@mantine/core";
 import {
-  GroupPermissionsOptions,
+  type GroupPolicyType,
   Group as XmtpGroup,
   type PermissionPolicySet,
 } from "@xmtp/browser-sdk";
@@ -21,7 +21,7 @@ import { ContentLayout } from "@/layouts/ContentLayout";
 export const ManagePermissionsModal: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [permissionsPolicy, setPermissionsPolicy] =
-    useState<GroupPermissionsOptions>(GroupPermissionsOptions.Default);
+    useState<GroupPolicyType>("allMembers");
   const [policySet, setPolicySet] =
     useState<PermissionPolicySet>(defaultPolicySet);
 

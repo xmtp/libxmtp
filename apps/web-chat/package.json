@@ -28,7 +28,6 @@
     "@tanstack/react-virtual": "^3.13.18",
     "@tanstack/virtual-core": "^3.13.18",
     "@xmtp/browser-sdk": "workspace:*",
-    "@xmtp/content-type-primitives": "catalog:",
     "date-fns": "^4.1.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

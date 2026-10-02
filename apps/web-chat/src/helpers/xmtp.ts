@@ -1,5 +1,5 @@
-import type { GroupMember } from "@xmtp/browser-sdk";
+import type { Member } from "@xmtp/browser-sdk";
 
-export const getMemberAddress = (member: GroupMember) => {
-  return member.accountIdentifiers[0].identifier;
+export const getMemberAddress = (member: Member) => {
+  return member.identities[0].identifier;
 };

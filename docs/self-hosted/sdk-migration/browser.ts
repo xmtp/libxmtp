@@ -3,12 +3,12 @@ import {
   type ClientOptions,
   type ErrorDetails,
   type PublicIdentity,
-} from "xmtp-sdk-browser";
+} from "@xmtp/browser-sdk";
 import {
   initPureWasm,
   ReactionV2Codec,
   TextCodec,
-} from "xmtp-sdk-browser/pure";
+} from "@xmtp/browser-sdk/pure";
 
 // Initialize the pure WASM module before constructing a standalone codec.
 export async function exercisePureCodecs(): Promise<void> {

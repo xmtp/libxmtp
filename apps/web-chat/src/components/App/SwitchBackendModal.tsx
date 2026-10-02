@@ -37,9 +37,10 @@ export const SwitchBackendModal: React.FC = () => {
           </Button>
           <Button
             onClick={() => {
-              disconnect();
-              setBackendUrl(requestedUrl);
-              close();
+              void disconnect().then(() => {
+                setBackendUrl(requestedUrl);
+                close();
+              });
             }}>
             Switch backend
           </Button>

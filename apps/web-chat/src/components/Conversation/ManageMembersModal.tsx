@@ -1,5 +1,5 @@
 import { Button, Group } from "@mantine/core";
-import { IdentifierKind, Group as XmtpGroup } from "@xmtp/browser-sdk";
+import { Group as XmtpGroup } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router";
 
@@ -57,10 +57,10 @@ export const ManageMembersModal: React.FC = () => {
           isValidEthereumAddress(member.address),
         );
         if (addedMemberAddresses.length > 0) {
-          await conversation.addMembersByIdentifiers(
+          await conversation.addMembers(
             addedMemberAddresses.map((member) => ({
               identifier: member.address.toLowerCase(),
-              identifierKind: IdentifierKind.Ethereum,
+              kind: "ethereum" as const,
             })),
           );
           hasUpdated = true;

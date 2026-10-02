@@ -1,17 +1,10 @@
 import { Code } from "@mantine/core";
-import type {
-  Actions,
-  EnrichedReply,
-  RemoteAttachment,
-  TransactionReference,
-  WalletSendCalls,
-} from "@xmtp/browser-sdk";
-import type { ContentTypeId } from "@xmtp/content-type-primitives";
+import type { MessageBody, MessageContent as Content } from "@xmtp/browser-sdk";
 
 import { ActionsContent } from "@/components/Messages/ActionsContent";
 import { FallbackContent } from "@/components/Messages/FallbackContent";
 import { MarkdownContent } from "@/components/Messages/MarkdownContent";
-import { type MessageContentAlign } from "@/components/Messages/MessageContentWrapper";
+import type { MessageContentAlign } from "@/components/Messages/MessageContentWrapper";
 import { RemoteAttachmentContent } from "@/components/Messages/RemoteAttachmentContent";
 import { ReplyContent } from "@/components/Messages/ReplyContent";
 import { TextContent } from "@/components/Messages/TextContent";
@@ -19,72 +12,48 @@ import { TransactionReferenceContent } from "@/components/Messages/TransactionRe
 import { WalletSendCallsContent } from "@/components/Messages/WalletSendCallsContent";
 import { jsonStringify } from "@/helpers/strings";
 
-export type MessageContentProps<T> = {
+export type MessageContentProps = {
   align: MessageContentAlign;
   scrollToMessage: (id: string) => void;
-  content: T;
-  contentType: ContentTypeId;
+  content: Content | MessageBody;
   fallback?: string;
 };
-
-export const MessageContent = <T,>({
+export const MessageContent: React.FC<MessageContentProps> = ({
   content,
-  contentType,
   align,
   scrollToMessage,
   fallback,
-}: MessageContentProps<T>) => {
-  if (contentType.typeId === "transactionReference") {
-    return (
-      <TransactionReferenceContent content={content as TransactionReference} />
-    );
+}) => {
+  switch (content.kind) {
+    case "transactionReference":
+      return <TransactionReferenceContent content={content.value} />;
+    case "walletSendCalls":
+      return <WalletSendCallsContent content={content.value} />;
+    case "reply":
+      return (
+        <ReplyContent
+          align={align}
+          reply={content}
+          scrollToMessage={scrollToMessage}
+        />
+      );
+    case "remoteAttachment":
+      return <RemoteAttachmentContent align={align} content={content.value} />;
+    case "actions":
+      return <ActionsContent content={content.value} />;
+    case "markdown":
+      return <MarkdownContent content={content.value} />;
+    case "text":
+      return <TextContent text={content.value} />;
+    default:
+      if (fallback !== undefined) return <FallbackContent text={fallback} />;
+      return (
+        <Code
+          block
+          w="100%"
+          style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+          {jsonStringify(content)}
+        </Code>
+      );
   }
-
-  if (contentType.typeId === "walletSendCalls") {
-    return <WalletSendCallsContent content={content as WalletSendCalls} />;
-  }
-
-  if (contentType.typeId === "reply") {
-    return (
-      <ReplyContent
-        align={align}
-        reply={content as EnrichedReply}
-        scrollToMessage={scrollToMessage}
-      />
-    );
-  }
-
-  if (contentType.typeId === "remoteStaticAttachment") {
-    return (
-      <RemoteAttachmentContent
-        align={align}
-        content={content as RemoteAttachment}
-      />
-    );
-  }
-
-  if (contentType.typeId === "actions") {
-    return <ActionsContent content={content as Actions} />;
-  }
-
-  if (contentType.typeId === "markdown") {
-    return <MarkdownContent content={content as string} />;
-  }
-
-  if (typeof content === "string") {
-    return <TextContent text={content} />;
-  }
-
-  if (typeof fallback === "string") {
-    return <FallbackContent text={fallback} />;
-  }
-
-  return (
-    <Code
-      block
-      w="100%"
-      style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-      {jsonStringify(content ?? fallback)}
-    </Code>
-  );
 };

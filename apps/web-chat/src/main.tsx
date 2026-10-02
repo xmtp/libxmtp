@@ -2,6 +2,7 @@ import "@mantine/core/styles.css";
 import { createTheme, MantineProvider } from "@mantine/core";
 import { QueryClientProvider } from "@tanstack/react-query";
 import pkg from "@xmtp/browser-sdk/package.json";
+import { initPureWasm } from "@xmtp/browser-sdk/pure";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { createConfig, http, WagmiProvider } from "wagmi";
@@ -107,6 +108,7 @@ const theme = createTheme({
   },
 });
 
+await initPureWasm();
 const root = document.getElementById("root");
 if (root) {
   createRoot(root).render(

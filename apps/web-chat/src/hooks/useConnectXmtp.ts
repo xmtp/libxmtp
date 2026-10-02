@@ -1,7 +1,6 @@
-import type { AuthCallback } from "@xmtp/browser-sdk";
+import type { CredentialSource } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
-import { hexToUint8Array } from "uint8array-extras";
 import { useAccount, useSignMessage } from "wagmi";
 
 import { useAuthToken } from "@/contexts/AuthTokenContext";
@@ -15,17 +14,16 @@ export const useConnectXmtp = () => {
   const navigate = useNavigate();
   const { signer: ephemeralSigner } = useEphemeralSigner();
   const { initializing, client, initialize, lockState } = useXMTP();
-  const { createAuthCallback } = useAuthToken();
+  const { createCredentialSource } = useAuthToken();
   // One callback for this app's client, kept for the hook's lifetime so its
   // memo of offered tokens matches that client's credential cache.
-  const authCallbackRef = useRef<AuthCallback | null>(null);
-  authCallbackRef.current ??= createAuthCallback();
+  const authCallbackRef = useRef<CredentialSource | null>(null);
+  authCallbackRef.current ??= createCredentialSource();
   const authCallback = authCallbackRef.current;
   const account = useAccount();
   const { signMessageAsync } = useSignMessage();
   const {
     blockchain,
-    encryptionKey,
     backendUrl,
     ephemeralAccountEnabled,
     loggingLevel,
@@ -55,9 +53,6 @@ export const useConnectXmtp = () => {
       initialize({
         authCallback,
         backendUrl,
-        dbEncryptionKey: encryptionKey
-          ? hexToUint8Array(encryptionKey)
-          : undefined,
         loggingLevel,
         signer: ephemeralSigner,
       })
@@ -80,9 +75,6 @@ export const useConnectXmtp = () => {
     initialize({
       authCallback,
       backendUrl,
-      dbEncryptionKey: encryptionKey
-        ? hexToUint8Array(encryptionKey)
-        : undefined,
       loggingLevel,
       signer: useSCW
         ? createSCWSigner(
@@ -107,7 +99,6 @@ export const useConnectXmtp = () => {
     authCallback,
     client,
     blockchain,
-    encryptionKey,
     backendUrl,
     ephemeralAccountEnabled,
     ephemeralSigner,

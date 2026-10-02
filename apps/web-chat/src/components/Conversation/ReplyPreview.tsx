@@ -1,5 +1,5 @@
 import { ActionIcon, Box, Group, Paper, Text } from "@mantine/core";
-import type { DecodedMessage } from "@xmtp/browser-sdk";
+import type { Message as XmtpMessage } from "@xmtp/browser-sdk";
 
 import { IdentityBadge } from "@/components/IdentityBadge";
 import { AttachmentDetails } from "@/components/Messages/AttachmentDetails";
@@ -14,7 +14,7 @@ import { IconArrowBackUp } from "@/icons/IconArrowBackUp";
 import { IconX } from "@/icons/IconX";
 
 export type ReplyPreviewProps = {
-  message: DecodedMessage;
+  message: XmtpMessage;
   onCancel: () => void;
   disabled?: boolean;
 };
@@ -25,8 +25,8 @@ const ReplyPreviewContent: React.FC<Pick<ReplyPreviewProps, "message">> = ({
   if (isRemoteAttachment(message)) {
     return (
       <AttachmentDetails
-        filename={message.content?.filename ?? ""}
-        fileSize={formatFileSize(message.content?.contentLength ?? 0)}
+        filename={message.content.value.filename ?? ""}
+        fileSize={formatFileSize(message.content.value.contentLength ?? 0)}
         align="left"
       />
     );

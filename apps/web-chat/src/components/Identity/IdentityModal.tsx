@@ -29,8 +29,7 @@ export const IdentityModal: React.FC = () => {
     sync,
     syncing,
   } = useIdentity(true);
-  const accountIdentifier =
-    client.accountIdentifier?.identifier.toLowerCase() ?? null;
+  const accountIdentifier = client.identity.identifier.toLowerCase();
 
   const fullScreen = useCollapsedMediaQuery();
   const contentHeight = fullScreen ? "auto" : "70dvh";

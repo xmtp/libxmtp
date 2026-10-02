@@ -2,7 +2,7 @@ import { MantineProvider } from "@mantine/core";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   Group as XmtpGroup,
-  GroupPermissionsOptions,
+  type GroupPolicyType,
   type Conversation,
   type PermissionPolicySet,
 } from "@xmtp/browser-sdk";
@@ -13,12 +13,14 @@ import { adminPolicySet, defaultPolicySet, Permissions } from "./Permissions";
 
 const group = (
   permissions: Promise<{
-    policyType: GroupPermissionsOptions;
+    policyType: GroupPolicyType;
     policySet: PermissionPolicySet;
   }>,
 ) =>
   Object.assign(Object.create(XmtpGroup.prototype), {
-    permissions: vi.fn().mockReturnValue(permissions),
+    state: vi
+      .fn()
+      .mockReturnValue(permissions.then((value) => ({ permissions: value }))),
   }) as Conversation;
 
 const renderPermissions = (props: ComponentProps<typeof Permissions>) =>
@@ -34,7 +36,7 @@ describe("Permissions", () => {
     const onPolicySetChange = vi.fn();
     const conversation = group(
       Promise.resolve({
-        policyType: GroupPermissionsOptions.Default,
+        policyType: "allMembers",
         policySet: defaultPolicySet,
       }),
     );
@@ -47,32 +49,24 @@ describe("Permissions", () => {
 
     const policySelect = screen.getAllByRole("combobox")[0];
     await waitFor(() => {
-      expect(onPermissionsPolicyChange).toHaveBeenLastCalledWith(
-        GroupPermissionsOptions.Default,
-      );
+      expect(onPermissionsPolicyChange).toHaveBeenLastCalledWith("allMembers");
       expect(onPolicySetChange).toHaveBeenLastCalledWith(defaultPolicySet);
     });
 
-    fireEvent.change(policySelect, { target: { value: "1" } });
+    fireEvent.change(policySelect, { target: { value: "adminOnly" } });
     await waitFor(() => {
-      expect(onPermissionsPolicyChange).toHaveBeenLastCalledWith(
-        GroupPermissionsOptions.AdminOnly,
-      );
+      expect(onPermissionsPolicyChange).toHaveBeenLastCalledWith("adminOnly");
       expect(onPolicySetChange).toHaveBeenLastCalledWith(adminPolicySet);
     });
 
-    fireEvent.change(policySelect, { target: { value: "2" } });
+    fireEvent.change(policySelect, { target: { value: "custom" } });
     await waitFor(() => {
-      expect(onPermissionsPolicyChange).toHaveBeenLastCalledWith(
-        GroupPermissionsOptions.CustomPolicy,
-      );
+      expect(onPermissionsPolicyChange).toHaveBeenLastCalledWith("custom");
     });
 
-    fireEvent.change(policySelect, { target: { value: "0" } });
+    fireEvent.change(policySelect, { target: { value: "allMembers" } });
     await waitFor(() => {
-      expect(onPermissionsPolicyChange).toHaveBeenLastCalledWith(
-        GroupPermissionsOptions.Default,
-      );
+      expect(onPermissionsPolicyChange).toHaveBeenLastCalledWith("allMembers");
       expect(onPolicySetChange).toHaveBeenLastCalledWith(defaultPolicySet);
     });
   });

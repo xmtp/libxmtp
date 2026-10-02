@@ -7,20 +7,14 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-import {
-  encodeRemoteAttachment,
-  encodeText,
-  type RemoteAttachment,
-} from "@xmtp/browser-sdk";
+import { type RemoteAttachment } from "@xmtp/browser-sdk";
+import { TextCodec, RemoteAttachmentCodec } from "@xmtp/browser-sdk/pure";
 import { useCallback, useRef, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { useConversationContext } from "@/contexts/ConversationContext";
-import {
-  ATTACHMENT_UPLOADS_ENABLED,
-  uploadEncryptedAttachment,
-  validateFile,
-} from "@/helpers/attachment";
+import { useClient } from "@/contexts/XMTPContext";
+import { uploadEncryptedAttachment, validateFile } from "@/helpers/attachment";
 import { useConversation } from "@/hooks/useConversation";
 import { IconPlus } from "@/icons/IconPlus";
 
@@ -32,6 +26,7 @@ export type ComposerProps = {
 };
 
 export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
+  const client = useClient();
   const { sendText, sendReply, sendRemoteAttachment, sending } =
     useConversation(conversationId);
   const { replyTarget, setReplyTarget } = useConversationContext();
@@ -70,8 +65,10 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
       try {
         if (!remoteAttachmentRef.current) {
           setUploadingAttachment(true);
-          remoteAttachmentRef.current =
-            await uploadEncryptedAttachment(attachment);
+          remoteAttachmentRef.current = await uploadEncryptedAttachment(
+            client,
+            attachment,
+          );
         }
       } catch {
         setError("Failed to upload attachment");
@@ -85,7 +82,9 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
           await sendReply({
             reference: replyTarget.id,
             referenceInboxId: replyTarget.senderInboxId,
-            content: await encodeRemoteAttachment(remoteAttachmentRef.current),
+            content: new RemoteAttachmentCodec().encode(
+              remoteAttachmentRef.current,
+            ),
           });
         } else {
           await sendRemoteAttachment(remoteAttachmentRef.current);
@@ -104,7 +103,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
           await sendReply({
             reference: replyTarget.id,
             referenceInboxId: replyTarget.senderInboxId,
-            content: await encodeText(message),
+            content: new TextCodec().encode(message),
           });
         } else {
           await sendText(message);
@@ -119,6 +118,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
     setReplyTarget(undefined);
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [
+    client,
     message,
     attachment,
     hasContent,
@@ -159,7 +159,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
             />
           )}
           <Group gap="xxs" align="center" w="100%">
-            {ATTACHMENT_UPLOADS_ENABLED && (
+            {client.attachments.offered && (
               <Menu shadow="md" position="top-start">
                 <Menu.Target>
                   <ActionIcon
@@ -185,7 +185,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
                 </Menu.Dropdown>
               </Menu>
             )}
-            {ATTACHMENT_UPLOADS_ENABLED && (
+            {client.attachments.offered && (
               <input
                 ref={fileInputRef}
                 type="file"
