@@ -13,7 +13,7 @@ static COMPLETED: AtomicU64 = AtomicU64::new(0);
 static DROPPED_EARLY: AtomicU64 = AtomicU64::new(0);
 static CALLER_POLLS: AtomicU64 = AtomicU64::new(0);
 
-/// A snapshot for conformance runners, never part of a shipped package.
+/// A snapshot for conformance runners. @xmtp-internal
 #[derive(uniffi::Record)]
 pub struct SdkConformanceForeignCallCounts {
     pub in_flight: u64,

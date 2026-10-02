@@ -264,11 +264,20 @@ fn unproxied_foreign(
     }
 }
 
-/// A `@xmtp-pure` function runs in the main-thread pure module. A
-/// `@xmtp-worker` function is for the worker runtime only. Neither crosses
-/// the bridge.
+/// Read the worker-only marker for exported functions and methods.
+pub(crate) fn worker_only(item: &Metadata) -> bool {
+    let doc = match item {
+        Metadata::Func(function) => function.docstring.as_deref(),
+        Metadata::Method(method) => method.docstring.as_deref(),
+        _ => None,
+    };
+    doc.is_some_and(|doc| doc.contains("@xmtp-worker"))
+}
+
+/// Pure functions and worker-only calls do not cross the bridge.
 fn outside_bridge(item: &Metadata) -> bool {
-    matches!(item, Metadata::Func(function) if function.docstring.as_deref().is_some_and(|doc| doc.contains("@xmtp-pure") || doc.contains("@xmtp-worker")))
+    worker_only(item)
+        || matches!(item, Metadata::Func(function) if function.docstring.as_deref().is_some_and(|doc| doc.contains("@xmtp-pure")))
 }
 
 fn item_types(item: &Metadata) -> Vec<&Type> {
@@ -403,7 +412,7 @@ fn operations(items: &[Metadata]) -> Vec<Operation> {
                     immutable: false,
                 })
             }
-            Metadata::Method(value) => output.push(Operation {
+            Metadata::Method(value) if !outside_bridge(item) => output.push(Operation {
                 owner: Some(value.self_name.clone()),
                 name: ts_name(&value.name),
                 key: format!("{}.{}", value.self_name, ts_name(&value.name)),
@@ -1040,10 +1049,16 @@ fn render(
         {
             // A foreign trait proxy implements the trait interface itself.
             let like = if object.imp.has_struct() { "Like" } else { "" };
+            let refs = items.iter().collect::<Vec<_>>();
+            let interface = crate::forwarding::bridged_interface(
+                &refs,
+                &object.name,
+                &format!("B.{}{like}", object.name),
+            );
             writeln!(
                 proxy,
-                "export class {} extends RemoteObject implements B.{}{like} {{",
-                object.name, object.name
+                "export class {} extends RemoteObject implements {interface} {{",
+                object.name
             )?;
             if has_storage_admin && object.name == "Storage" {
                 proxy.push_str("  static admin(): Promise<PublicStorageAdmin> { return openStorageAdmin(); }\n");
@@ -1354,6 +1369,9 @@ fn render(
 }
 
 #[cfg(test)]
+mod conformance_methods;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use uniffi_meta::{
@@ -1577,7 +1595,15 @@ mod tests {
             remote: false,
             fields,
             docstring: Some(
-                "A snapshot for conformance runners, never part of a shipped package.".into(),
+                source
+                    .split_once("#[derive(uniffi::Record)]")
+                    .expect("the counter record declaration")
+                    .0
+                    .lines()
+                    .rev()
+                    .take_while(|line| line.starts_with("///"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             ),
         });
         let items = [function, record];
@@ -1594,6 +1620,7 @@ mod tests {
             crate::public_projection::Target::Node,
         );
         assert!(!api.contains("sdkConformanceForeignCallCounts"));
+        assert!(!api.contains("SdkConformanceForeignCallCounts"));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

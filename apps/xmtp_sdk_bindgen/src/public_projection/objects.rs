@@ -103,7 +103,15 @@ fn methods<'a>(items: &[&'a Metadata], owner: &str) -> Vec<&'a MethodMetadata> {
     let mut methods = items
         .iter()
         .filter_map(|item| match item {
-            Metadata::Method(method) if method.self_name == owner => Some(method),
+            Metadata::Method(method)
+                if method.self_name == owner
+                    && !method
+                        .docstring
+                        .as_deref()
+                        .is_some_and(|doc| doc.contains("@xmtp-internal")) =>
+            {
+                Some(method)
+            }
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -391,7 +399,7 @@ pub(super) fn object(
 
 pub(super) fn client_members(code: &mut String, items: &[&Metadata]) -> Result<()> {
     // The binding stays in a module-private map, as for the object classes.
-    code.push_str("const clientBindings = new WeakMap<ClientMembers, B.ClientLike>();\n/** Attach the binding Client when the host creates a public Client. */\nexport function attachClientBinding(client: ClientMembers, binding: B.ClientLike): void { clientBindings.set(client, binding); }\nexport function clientBinding(client: ClientMembers): B.ClientLike {\n  const binding = clientBindings.get(client);\n  if (binding === undefined) throw new TypeError(\"not an XMTP Client\");\n  return binding;\n}\n/** Generated public Client members. The host Client supplies its binding. */\nexport abstract class ClientMembers {\n");
+    code.push_str("import type { ClientBinding } from \"./client-forwarding.gen.js\";\nconst clientBindings = new WeakMap<ClientMembers, ClientBinding>();\n/** Attach the binding Client when the host creates a public Client. */\nexport function attachClientBinding(client: ClientMembers, binding: ClientBinding): void { clientBindings.set(client, binding); }\nexport function clientBinding(client: ClientMembers): ClientBinding {\n  const binding = clientBindings.get(client);\n  if (binding === undefined) throw new TypeError(\"not an XMTP Client\");\n  return binding;\n}\n/** Generated public Client members. The host Client supplies its binding. */\nexport abstract class ClientMembers {\n");
     for method in methods(items, "Client") {
         if HOST_CLIENT_MEMBERS.contains(&camel(&method.name).as_str()) {
             continue;
@@ -479,7 +487,12 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
             // The host Client takes its options with codecs. Message data
             // carries the internal client key; the host Message replaces it.
             Metadata::Record(value)
-                if value.name != "ClientOptions" && value.name != "MessageData" =>
+                if value.name != "ClientOptions"
+                    && value.name != "MessageData"
+                    && !value
+                        .docstring
+                        .as_deref()
+                        .is_some_and(|doc| doc.contains("@xmtp-internal")) =>
             {
                 types.insert(value.name.clone());
             }
