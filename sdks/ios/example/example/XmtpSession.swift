@@ -1,5 +1,4 @@
 import OSLog
-import Security
 import SwiftUI
 import XmtpSdk
 
@@ -91,14 +90,17 @@ class XmtpSession {
 			state = client == nil ? .loggedOut : .loggedIn
 		}
 
-		let signer = await generateLocalSigner()
-		let databaseKey = try makeDatabaseKey()
+		guard let bundleId = Bundle.main.bundleIdentifier else {
+			throw XmtpSessionError.unableToLoadData
+		}
+		let credentials = try await ExampleCredentials.loadOrCreate(service: bundleId)
+		let signer = try await localSignerFromPrivateKey(key: credentials.signerKey)
 		let backendUrl = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://localhost:5050"
 		client = try await SDKClient.create(
 			signer: signer,
 			options: ClientOptions(
 				backend: .options(options: BackendOptions(url: backendUrl)),
-				storage: StorageOptions(location: .default, encryptionKey: databaseKey),
+				storage: StorageOptions(location: .default, encryptionKey: credentials.databaseKey),
 			),
 		)
 	}
@@ -157,20 +159,11 @@ class XmtpSession {
 		conversationMembers.clear()
 		conversationMessages.clear()
 		inboxes.clear()
-		// TODO: clear saved credentials etc
+		// Keep the keys so the next login opens the same encrypted database.
 		try await client?.end()
 		client = nil
 		state = .loggedOut
 	}
-}
-
-private func makeDatabaseKey() throws -> Data {
-	var bytes = [UInt8](repeating: 0, count: 32)
-	let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-	guard status == errSecSuccess else {
-		throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-	}
-	return Data(bytes)
 }
 
 extension Conversation {

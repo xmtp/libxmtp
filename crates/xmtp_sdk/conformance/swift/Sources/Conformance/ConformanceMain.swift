@@ -313,6 +313,9 @@ struct Conformance {
         try await checkReaderAppError(owner: reopenedHost, group: breakGroup, messageId: breakId)
         try await checkCooperativeReaderOpeningCancellation()
         try await checkLateReaderOpeningCleanup(owner: reopenedHost, group: protocolGroup)
+        try await checkLifecycleStartupBarrier()
+        try await checkLifecycleFailedSuspendResume(overlap: false)
+        try await checkLifecycleFailedSuspendResume(overlap: true)
         let reopenedReader = try await protocolGroup.messageReader()
         try await reopenedReader.end()
         // When iteration ends, the reader is already released: a replacement

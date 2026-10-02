@@ -10,9 +10,9 @@ public extension SDKClient {
 }
 
 enum AppleStreamLifecycle {
-    static func enableIfNeeded() {
+    static func enableIfNeeded() async {
         if SDKClient.manageStreamLifecycle {
-            StreamLifecycleManager.shared.enableIfNeeded()
+            await StreamLifecycleManager.shared.enableIfNeeded()
         }
     }
 }
@@ -28,10 +28,25 @@ final class StreamLifecycleManager: @unchecked Sendable {
     private var appliedLive = true
     /// Whether a reconciler task is currently draining toward `desiredLive`.
     private var isReconciling = false
+    private var reconciliation: Task<Void, Never>?
+    private let suspend: @Sendable () async throws -> Void
+    private let resume: @Sendable () async throws -> Void
 
-    private init() {}
+    init(
+        suspend: @escaping @Sendable () async throws -> Void = { try await suspendStreams() },
+        resume: @escaping @Sendable () async throws -> Void = { try await resumeStreams() }
+    ) {
+        self.suspend = suspend
+        self.resume = resume
+    }
 
-    func enableIfNeeded() {
+    func enableIfNeeded() async {
+        await MainActor.run { registerIfNeeded() }
+        await currentReconciliation()?.value
+    }
+
+    @MainActor
+    private func registerIfNeeded() {
         #if canImport(UIKit)
             lock.lock()
             if isRegistered {
@@ -96,18 +111,23 @@ final class StreamLifecycleManager: @unchecked Sendable {
         #endif
     }
 
-    private func setDesired(live: Bool) {
+    @discardableResult
+    func setDesired(live: Bool) -> Task<Void, Never>? {
         lock.lock()
+        defer { lock.unlock() }
         desiredLive = live
         let shouldStart = !isReconciling && appliedLive != desiredLive
         if shouldStart {
             isReconciling = true
+            reconciliation = Task { await reconcile() }
         }
-        lock.unlock()
+        return reconciliation
+    }
 
-        if shouldStart {
-            Task { await reconcile() }
-        }
+    private func currentReconciliation() -> Task<Void, Never>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return reconciliation
     }
 
     /// Drives the wire toward `desiredLive`, one op at a time, until they agree.
@@ -117,24 +137,27 @@ final class StreamLifecycleManager: @unchecked Sendable {
     /// rather than lost. The lock is only touched by the synchronous helpers —
     /// never held across an `await`.
     ///
-    /// A failed op does *not* advance `appliedLive`: recording a transition that
-    /// never happened would leave the wire stuck in the wrong state with no retry.
-    /// Instead the reconciler stops and leaves `appliedLive` misaligned, so the
-    /// next foreground/background transition re-runs the op it was owed.
+    /// Rust sets the suspend latch before it waits for wire acknowledgements.
+    /// A failed suspend must still be followed by a resume on foreground.
     private func reconcile() async {
         while let target = nextTarget() {
             do {
                 if target {
-                    try await resumeStreams()
+                    try await resume()
                 } else {
-                    try await suspendStreams()
+                    try await suspend()
                 }
             } catch {
                 os_log(
-                    "Stream %{public}@ failed; retrying on the next lifecycle transition: %{public}@",
+                    "Stream %{public}@ failed: %{public}@",
                     log: OSLog.default, type: .error,
                     target ? "resume" : "suspend", error.localizedDescription
                 )
+                if !target {
+                    markApplied(false)
+                    // Apply a foreground event received during the failed suspend.
+                    continue
+                }
                 stopReconciling()
                 return
             }
@@ -149,6 +172,7 @@ final class StreamLifecycleManager: @unchecked Sendable {
         defer { lock.unlock() }
         guard desiredLive != appliedLive else {
             isReconciling = false
+            reconciliation = nil
             return nil
         }
         return desiredLive
@@ -166,5 +190,6 @@ final class StreamLifecycleManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         isReconciling = false
+        reconciliation = nil
     }
 }

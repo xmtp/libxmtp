@@ -68,7 +68,7 @@ public final class SDKClient: @unchecked Sendable {
         codecs: [any ContentCodec] = []
     ) async throws -> SDKClient {
         #if canImport(UIKit)
-            AppleStreamLifecycle.enableIfNeeded()
+            await AppleStreamLifecycle.enableIfNeeded()
         #endif
         return try await SDKClient(Client.create(signer: signer, options: resolved(options)), codecs: codecs)
     }
@@ -78,7 +78,7 @@ public final class SDKClient: @unchecked Sendable {
         codecs: [any ContentCodec] = []
     ) async throws -> SDKClient {
         #if canImport(UIKit)
-            AppleStreamLifecycle.enableIfNeeded()
+            await AppleStreamLifecycle.enableIfNeeded()
         #endif
         return try await SDKClient(Client.build(identity: identity, options: resolved(options), inboxId: inboxId), codecs: codecs)
     }
