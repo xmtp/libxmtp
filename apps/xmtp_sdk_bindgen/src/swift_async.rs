@@ -59,7 +59,7 @@ const NEW_BODY: &str = r#"    let allowsCancellation = errorHandler != nil
             cancelEventRead?()
             return try await Task.detached { try await endCancelledEventRead() }.value
         }
-        if let eventReadResult { return eventReadResult(lifted) }
+        if let eventReadResult { return try await eventReadResult(lifted) }
         return lifted
         } catch let cancellation as CancellationError {
             guard let endCancelledEventRead else { throw cancellation }
@@ -197,7 +197,7 @@ pub fn rewrite(source: &str) -> Result<String> {
     }
     output = output.replace(
         SIGNATURE,
-        "    cancelFunc: @escaping (UInt64) -> (),\n    freeFunc: @escaping (UInt64) -> (),\n    discardReadyOnCancellation: ((T) async throws -> Void)? = nil,\n    eventReadResult: ((T) -> T)? = nil,\n    endCancelledEventRead: (() async throws -> T)? = nil,\n    cancelEventRead: (() -> Void)? = nil,",
+        "    cancelFunc: @escaping (UInt64) -> (),\n    freeFunc: @escaping (UInt64) -> (),\n    discardReadyOnCancellation: ((T) async throws -> Void)? = nil,\n    eventReadResult: ((T) async throws -> T)? = nil,\n    endCancelledEventRead: (() async throws -> T)? = nil,\n    cancelEventRead: (() -> Void)? = nil,",
     );
     output = output.replace(OLD_BODY, NEW_BODY);
     output = output.replace(CANCELLED, "            throw CancellationError()");

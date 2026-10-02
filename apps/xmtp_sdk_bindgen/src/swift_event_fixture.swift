@@ -70,6 +70,36 @@ open func events(filter: EventFilter)async throws  -> EventReader  {
         )
 }
 
+open func storage() -> Storage  {
+    return try!  FfiConverterTypeStorage_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_client_storage(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+
+
+}
+
+open class Storage: StorageProtocol, @unchecked Sendable {
+
+open func delete()async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_storage_delete(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_void,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_void,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
 }
 
 open class MessageReader: MessageReaderProtocol, @unchecked Sendable {

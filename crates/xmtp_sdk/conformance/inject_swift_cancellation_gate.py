@@ -43,6 +43,16 @@ for kind, args in [
         f'{kind}Func: {{ {args} in sdkConformanceSwiftReaderCalls.record("{kind}"); {result}ffi_xmtp_sdk_rust_future_{kind}_rust_buffer({args}) }},',
     )
 source = source[:start] + block + source[end:]
+final = "        if let eventReadResult {"
+assert source.count(final) == 1, "Swift final event handoff changed"
+source = source.replace(final, "        await finalEventHook?()\n" + final)
+argument = "\n    eventReadResult:"
+assert source.count(argument) == 1, "Swift event result argument changed"
+source = source.replace(argument, "\n    finalEventHook: (() async -> Void)? = nil," + argument)
+event_call = "            eventReadResult:"
+assert source.count(event_call) == 1, "Swift event handoff call changed"
+source = source.replace(event_call, "            finalEventHook: { await sdkConformanceSwiftEventFinalGate.hold() },\n" + event_call)
+
 pattern = r"(await uniffiRustCallAsync\(\n)(\s*(?:eventReadResult:[^\n]*\n\s*endCancelledEventRead:[^\n]*\n\s*cancelEventRead:[^\n]*\n)?\s*rustFutureFunc: \{\n\s*uniffi_xmtp_sdk_fn_method_eventreader_next\()"
 source, count = re.subn(
     pattern,
@@ -94,6 +104,7 @@ public let sdkConformanceSwiftReaderGate = SdkConformanceSwiftReaderGate()
 public let sdkConformanceSwiftReaderLiftGate = SdkConformanceSwiftReaderGate()
 public let sdkConformanceSwiftEventGate = SdkConformanceSwiftReaderGate()
 public let sdkConformanceSwiftEventLiftGate = SdkConformanceSwiftReaderGate()
+public let sdkConformanceSwiftEventFinalGate = SdkConformanceSwiftReaderGate()
 
 public final class SdkConformanceSwiftReaderCalls: @unchecked Sendable {
     private let lock = NSLock()

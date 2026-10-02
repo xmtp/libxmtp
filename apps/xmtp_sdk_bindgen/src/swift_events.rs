@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 
 const READER: &str = "open class EventReader: EventReaderProtocol, @unchecked Sendable {";
+const STORAGE: &str = "open class Storage: StorageProtocol, @unchecked Sendable {";
 const CLIENT: &str = "open class Client: ClientProtocol, @unchecked Sendable {";
 const STATE: &str = r#"internal final class SdkEventReadGate: @unchecked Sendable {
     private let lock = NSLock()
@@ -8,10 +9,10 @@ const STATE: &str = r#"internal final class SdkEventReadGate: @unchecked Sendabl
 
     func stop() { lock.lock(); ended = true; lock.unlock() }
     func isEnded() -> Bool { lock.lock(); defer { lock.unlock() }; return ended }
-    func handoff<T>(_ value: T?) -> T? {
+    func handoff<T>(_ value: T?) -> (ended: Bool, value: T?) {
         lock.lock()
         defer { lock.unlock() }
-        return ended ? nil : value
+        return (ended, ended ? nil : value)
     }
 }
 
@@ -102,6 +103,11 @@ pub fn rewrite(source: &str) -> Result<String> {
         CLIENT,
         &format!("{CLIENT}\n    internal let sdkEventReadGates = SdkEventReadGates()"),
     )?;
+    output = once(
+        &output,
+        STORAGE,
+        &format!("{STORAGE}\n    internal var sdkEventReadGates: SdkEventReadGates?"),
+    )?;
     method(&mut output, READER, "end", |body| {
         let body = open_method(
             body,
@@ -117,7 +123,7 @@ pub fn rewrite(source: &str) -> Result<String> {
         once(
             &body,
             "liftFunc: FfiConverterOptionTypeClientEvent.lift,",
-            "eventReadResult: { self.sdkEventReadGate.handoff($0) },\n            endCancelledEventRead: { try await self.end(); return nil },\n            cancelEventRead: { self.sdkEventReadGate.stop() },\n            liftFunc: FfiConverterOptionTypeClientEvent.lift,",
+            "eventReadResult: { let result = self.sdkEventReadGate.handoff($0); if result.ended { try await self.end() }; return result.value },\n            endCancelledEventRead: { try await self.end(); return nil },\n            cancelEventRead: { self.sdkEventReadGate.stop() },\n            liftFunc: FfiConverterOptionTypeClientEvent.lift,",
         )
     })?;
     method(&mut output, CLIENT, "end", |body| {
@@ -129,6 +135,20 @@ pub fn rewrite(source: &str) -> Result<String> {
             &body,
             "\n}\n",
             "\n    sdkEventReadGates.add(reader.sdkEventReadGate)\n    return reader\n}\n",
+        )
+    })?;
+    method(&mut output, CLIENT, "storage", |body| {
+        let body = once(body, "    return ", "    let storage = ")?;
+        once(
+            &body,
+            "\n}\n",
+            "\n    storage.sdkEventReadGates = sdkEventReadGates\n    return storage\n}\n",
+        )
+    })?;
+    method(&mut output, STORAGE, "delete", |body| {
+        open_method(
+            body,
+            " {\n    if try await path() != nil { sdkEventReadGates?.stopAll() }\n",
         )
     })?;
     output = format!("{STATE}{output}");
@@ -146,10 +166,12 @@ mod tests {
         let output = rewrite(PINNED)?;
         assert!(output.contains("sdkEventReadGate.stop()"));
         assert!(output.contains("return try await Task.detached { [self] in"));
-        assert!(output.contains("eventReadResult: { self.sdkEventReadGate.handoff($0) }"));
+        assert!(output.contains("eventReadResult: { let result = self.sdkEventReadGate.handoff($0); if result.ended { try await self.end() }; return result.value }"));
         assert!(output.contains("endCancelledEventRead: { try await self.end(); return nil }"));
         assert!(output.contains("sdkEventReadGates.stopAll()"));
         assert!(output.contains("sdkEventReadGates.add(reader.sdkEventReadGate)"));
+        assert!(output.contains("storage.sdkEventReadGates = sdkEventReadGates"));
+        assert!(output.contains("if try await path() != nil { sdkEventReadGates?.stopAll() }"));
         let message = PINNED.split("open class MessageReader:").nth(1).unwrap();
         assert_eq!(
             output.split("open class MessageReader:").nth(1).unwrap(),
