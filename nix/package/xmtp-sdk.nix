@@ -52,7 +52,8 @@ let
     CARGO_BUILD_JOBS = 2;
     OPENSSL_NO_VENDOR = "0";
     OPENSSL_STATIC = "1";
-  } // lib.optionalAttrs pkgs.stdenv.isDarwin { MACOSX_DEPLOYMENT_TARGET = "11.0"; };
+  }
+  // lib.optionalAttrs pkgs.stdenv.isDarwin { MACOSX_DEPLOYMENT_TARGET = "11.0"; };
   native = rust.buildPackage (
     common
     // nativeArgs
@@ -136,11 +137,14 @@ let
           src = sdkSource;
           CARGO_BUILD_TARGET = target;
           __noChroot = true;
-          cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (nativeArgs // {
-            CARGO_BUILD_TARGET = target;
-            __noChroot = true;
-            buildPhaseCargoCommand = command;
-          });
+          cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (
+            nativeArgs
+            // {
+              CARGO_BUILD_TARGET = target;
+              __noChroot = true;
+              buildPhaseCargoCommand = command;
+            }
+          );
           buildPhaseCargoCommand = command;
           installPhaseCommand = ''
             mkdir -p $out/lib
