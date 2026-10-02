@@ -236,6 +236,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         }
         teardown = task
         lock.unlock()
+        currentOpening?.cancel()
         currentMonitor?.cancel()
         for waiter in pending {
             waiter.resume(throwing: CancellationError())
