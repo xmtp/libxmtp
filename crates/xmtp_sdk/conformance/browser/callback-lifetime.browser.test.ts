@@ -42,6 +42,11 @@ function realWorker() {
   );
   let terminated = 0;
   let replies = 0;
+  const workerError = signal();
+  worker.addEventListener("error", (event) => {
+    event.preventDefault();
+    workerError.resolve();
+  });
   const endpoint: WireEndpoint = {
     postMessage(message, transfer) {
       if (message.t === "callbackResult") replies++;
@@ -66,6 +71,7 @@ function realWorker() {
     worker,
     terminated: () => terminated,
     replies: () => replies,
+    workerError: workerError.promise,
   };
 }
 
@@ -90,7 +96,8 @@ for (const [family, method, width] of families) {
   for (const mode of ["complete", "session-close", "worker-death"] as const) {
     test(`callback transport: ${family}.${method}, ${mode}, 20 cycles`, async () => {
       for (let cycle = 0; cycle < CYCLES; cycle++) {
-        const { session, worker, terminated, replies } = realWorker();
+        const { session, worker, terminated, replies, workerError } =
+          realWorker();
         const allEntered = signal();
         const release = signal();
         const allFinished = signal();
@@ -153,6 +160,7 @@ for (const [family, method, width] of families) {
             expect(count(session.callbacks, "targets")).toBe(0);
             expect(active).toBe(width);
             expect(terminated()).toBe(1);
+            if (mode === "worker-death") await within(workerError);
           }
           release.resolve();
           await within(allFinished.promise);

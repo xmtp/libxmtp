@@ -35,7 +35,9 @@ const host = new WorkerHost(
       return { callbacks: pending.size, handles: host.registry.size };
     }
     if (key === "die") {
-      void Promise.reject(new Error("callback lifetime worker death"));
+      setTimeout(() => {
+        throw new Error("callback lifetime worker death");
+      });
       return undefined;
     }
     if (key === "callback") {
