@@ -29,6 +29,7 @@ export async function notificationBackend() {
     fcm?: { token: string };
     http?: { url: string; signingKey: number[] };
   }> = [];
+  const requests: Array<{ path: string; authorization?: string }> = [];
   const server = createServer();
   const sessions = new Set<ServerHttp2Session>();
   server.on("session", (session) => {
@@ -36,6 +37,13 @@ export async function notificationBackend() {
     session.on("close", () => sessions.delete(session));
   });
   server.on("stream", (stream: ServerHttp2Stream, headers) => {
+    requests.push({
+      path: String(headers[":path"]),
+      authorization:
+        typeof headers.authorization === "string"
+          ? headers.authorization
+          : undefined,
+    });
     const chunks: Buffer[] = [];
     stream.on("data", (chunk: Buffer) => chunks.push(chunk));
     stream.on("end", () => {
@@ -113,6 +121,7 @@ export async function notificationBackend() {
   return {
     url: `http://127.0.0.1:${address.port}`,
     registrations,
+    requests,
     close: async () => {
       for (const session of sessions) session.destroy();
       await new Promise<void>((resolve, reject) =>
