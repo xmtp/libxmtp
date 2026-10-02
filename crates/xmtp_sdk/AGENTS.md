@@ -73,6 +73,9 @@ Run commands from the repository root in the Nix shell. Run
   (retained undecodable content; the foreign Restored DM peer getter), pinned
   in `crates/xmtp_sdk/dev/isolation-pins.tsv` to their reviewed git blob hashes.
   A listed file passes only while its content matches its pin.
+  The reviewed PROC-052 reader repair also pins the retained WASM reader and
+  the four legacy SDK message stream wrappers. Switched SDK deletions remain
+  subject to their own switch marker.
   The native CI update to `sdks/ios/VALIDATION.md` is also pinned. The gate
   permits deletion of the three retired `sdks/ios/dev/fly/` files only when
   their base contents match the reviewed blob hashes. It still rejects changes

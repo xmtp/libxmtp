@@ -5,7 +5,7 @@ bindings/wasm/src/content_types/decoded_message_content.rs	b1b83022a70cf17a8001d
 bindings/wasm/src/enriched_message.rs	5d3fc4699a5d36c9b3df0bebef7bc78ea13ed5c8
 sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift	3479688eb58dcba6c59800782b2d5a333cc5200a
 sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift	4b575163cb7617e861582dcd57682d085460729d
-sdks/ios/Sources/XMTPiOS/MessageDeliveryStream.swift	b6f1fc4f2ba9131589cbbb3357e47f48d6f52b48
+sdks/ios/Sources/XMTPiOS/MessageDeliveryStream.swift	dcd410f826ffc7665012e5437207ec70b2d4e410
 sdks/ios/Sources/XMTPiOS/MessageReader.swift	48ead1937a809f56133a1bd500538b347fa193df
 sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift	4fbb2c3aea593b10f02ba180cbc8fcb04a8aead9
 sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt	4f1d0ab5ff0f7827c743db687b7715daf2dd12a7
@@ -20,3 +20,7 @@ sdks/ios/VALIDATION.md	f4b7def1af650319a5e182dd0d420dca0235b368
 bindings/wasm/wasm.just	a1c580aa4e35653dd7fb890f9ed154c00756df5f
 bindings/node/src/client/inbox_state.rs	14e679f412e739080bbbe0c5640b848196b059bd
 sdks/js.just	492d94defa3b62a151088595173f7790ea4427de
+bindings/wasm/src/message_delivery.rs	2620a1e3180ebaf691633e7025f331d5f168a089
+sdks/android/library/src/main/java/org/xmtp/android/library/MessageDeliveryFlow.kt	5e67aa41cf486d263b5bd7bb90f9a907d4a63a72
+sdks/browser/src/MessageStream.ts	3e2bb4ab204b2b537a32b5916f691c1ca41bfd6b
+sdks/node/src/MessageStream.ts	c104fe979ecd98d41a428cd1aa87cfb59d3519e7
