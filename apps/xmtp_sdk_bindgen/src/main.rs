@@ -364,6 +364,11 @@ fn generate(
     if matches!(language, Language::Swift | Language::Kotlin) {
         forwarding::generate(&metadata, language, out)?;
     }
+    if matches!(language, Language::Swift) {
+        // Forwarding adds documentation after the initial binding rewrite.
+        let binding = out.join("xmtp_sdk.swift");
+        fs::write(&binding, format::swift_trailing_whitespace(&fs::read_to_string(&binding)?))?;
+    }
     Ok(())
 }
 
