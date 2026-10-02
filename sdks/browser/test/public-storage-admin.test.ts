@@ -95,9 +95,12 @@ test("public storage admin restores database content and preserves selected file
     expect(replacement.storagePath).toBe(firstPath);
     expect(replacement.inboxId).not.toBe(first.inboxId);
     const replacementGroup = await replacement.conversations.createGroup([]);
-    const replacementId = await replacementGroup.sendText("replacement content", {
-      shouldPush: false,
-    });
+    const replacementId = await replacementGroup.sendText(
+      "replacement content",
+      {
+        shouldPush: false,
+      },
+    );
     await replacement.end();
     expect(await admin.exportDb(firstPath)).not.toEqual(exported);
     expect(await admin.deleteFile(firstPath)).toBe(true);
