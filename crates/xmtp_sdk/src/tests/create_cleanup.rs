@@ -14,7 +14,7 @@ async fn discard_disconnects_store_when_close_fails() {
         xmtp_common::time::now_ns()
     ));
     settings.storage.location = explicit_location(&path);
-    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    let client = Arc::new(Client::create(crate::generate_local_signer().await, settings).await?);
     let group = client.conversations().create_group(vec![], None).await?;
     // The reader holds the delivery lease that close must release.
     let _reader = group.message_reader(None).await?;
@@ -28,7 +28,7 @@ async fn discard_disconnects_store_when_close_fails() {
     })?;
     assert!(client.end().await.is_err(), "close did not fail");
 
-    client.discard().await?;
+    crate::sdk_discard_unreturned_client(client.clone()).await?;
 
     let query = client
         .inner
@@ -47,7 +47,7 @@ async fn discard_reports_store_left_open_when_disconnect_fails() {
     use xmtp_db::ConnectionExt;
     use xmtp_db::diesel::{RunQueryDsl, sql_query};
 
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let client = Arc::new(Client::create(crate::generate_local_signer().await, options()).await?);
     let group = client.conversations().create_group(vec![], None).await?;
     // The reader holds the delivery lease that close must release.
     let _reader = group.message_reader(None).await?;
@@ -61,7 +61,12 @@ async fn discard_reports_store_left_open_when_disconnect_fails() {
     })?;
     crate::client::FAIL_DISCARD_DISCONNECT.store(true, Ordering::Relaxed);
 
-    assert!(client.discard().await.is_err(), "discard hid an open store");
+    assert!(
+        crate::sdk_discard_unreturned_client(client.clone())
+            .await
+            .is_err(),
+        "discard hid an open store"
+    );
     assert!(
         crate::client::STORE_LEFT_OPEN.load(Ordering::Relaxed),
         "the open store was not reported"

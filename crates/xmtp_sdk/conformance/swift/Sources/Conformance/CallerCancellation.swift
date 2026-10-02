@@ -35,7 +35,7 @@ private func callerCancellationCase(_ backend: BackendOptions, _ mode: String) a
             let call = Task { await gate.wait(); return try await reader.next() }
             call.cancel()
             await gate.release()
-            do { _ = try await call.value; throw ConformanceFailure("prepoll cancellation returned") }
+            do { _ = try await callerValue(call, "cancelled reader result"); throw ConformanceFailure("prepoll cancellation returned") }
             catch is CancellationError {}
             let counts = sdkConformanceSwiftReaderCalls.snapshot()
             guard counts == ["cancel": 1, "free": 1] else { throw ConformanceFailure("prepoll native counts \(counts)") }
@@ -55,7 +55,7 @@ private func callerCancellationCase(_ backend: BackendOptions, _ mode: String) a
                 try await Task.sleep(for: .milliseconds(1))
             }
             call.cancel()
-            do { _ = try await call.value; throw ConformanceFailure("pending cancellation returned") }
+            do { _ = try await callerValue(call, "cancelled reader result"); throw ConformanceFailure("pending cancellation returned") }
             catch is CancellationError {}
             let counts = sdkConformanceSwiftReaderCalls.snapshot()
             guard counts["cancel"] == 1, counts["free"] == 1, counts["complete"] == 1 else { throw ConformanceFailure("pending native counts \(counts)") }
@@ -88,7 +88,7 @@ private func callerCancellationCase(_ backend: BackendOptions, _ mode: String) a
         }
         call.cancel()
         await gate.release()
-        switch await call.result {
+        switch try await callerResult(call, "READY reader result") {
         case let .success(item):
             guard item?.id == first else { throw ConformanceFailure("wrong ready item") }
             if mode == "lift" {
@@ -130,4 +130,5 @@ func checkSwiftCallerCancellation(backend: BackendOptions) async throws {
     for mode in ["nonthrowing", "prepoll", "pending", "reader", "lift"] {
         try await callerCancellationCase(backend, mode)
     }
+    try await checkSwiftEventCancellation(backend)
 }

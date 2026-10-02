@@ -12,6 +12,10 @@ mod archives;
 mod attachments;
 #[cfg(not(feature = "pure-only"))]
 mod client;
+#[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
+mod client_discard;
+#[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
+pub use client_discard::sdk_discard_unreturned_client;
 #[cfg(not(feature = "pure-only"))]
 mod client_identity;
 #[cfg(not(feature = "pure-only"))]

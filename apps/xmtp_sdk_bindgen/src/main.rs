@@ -5,8 +5,10 @@ mod forwarding;
 mod kotlin_callbacks;
 mod kotlin_records;
 mod logging_admission;
+mod native_visibility;
 mod public_projection;
 mod swift_async;
+mod swift_events;
 mod validate;
 
 use std::{collections::BTreeSet, fs, path::Path};
@@ -141,19 +143,22 @@ fn generate(
                 let binding = out.join("xmtp_sdk.swift");
                 fs::write(
                     &binding,
-                    swift_async::rewrite(&fs::read_to_string(&binding)?)?,
+                    swift_events::rewrite(&swift_async::rewrite(&fs::read_to_string(&binding)?)?)?,
                 )?;
             }
             if matches!(language, Language::Kotlin) {
                 let binding = out.join("uniffi/xmtp_sdk/xmtp_sdk.kt");
                 let callbacks = kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?;
                 let callbacks = logging_admission::kotlin(&callbacks)?;
+                let callbacks = native_visibility::kotlin(&callbacks)?;
                 fs::write(&binding, kotlin_records::rewrite(&callbacks, &metadata)?)?;
             } else {
                 let binding = out.join("xmtp_sdk.swift");
                 fs::write(
                     &binding,
-                    logging_admission::swift(&fs::read_to_string(&binding)?)?,
+                    native_visibility::swift(&logging_admission::swift(&fs::read_to_string(
+                        &binding,
+                    )?)?)?,
                 )?;
             }
         }

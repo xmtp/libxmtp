@@ -84,6 +84,11 @@ Run commands from the repository root in the Nix shell. Run
 - `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and
   real reader pre-poll, pending and READY handoff. It counts native cancel/free
   calls in generated conformance copies and requires the prior item to replay.
+  It also checks EventReader and event iterator cancellation before polling,
+  while pending, and after READY or lift. Ended event reads return nil.
+  Constructor lifetime checks retain the READY gate and add a post-lift gate.
+  The post-lift control requires no native cancel, one complete and free,
+  weak owner release, stopped workers, and a disconnected store before cleanup.
 - `dev/nix-shell 'just sdk callback-lifetime <swift|kotlin|node>'` runs 20 held callback
   and constructor adoption cycles against fresh conformance bindings. Set
   `SDK_CALLBACK_LIFETIME_FAMILY` to select one family. These bindings expose
