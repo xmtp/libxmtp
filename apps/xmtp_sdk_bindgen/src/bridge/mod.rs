@@ -264,21 +264,20 @@ fn unproxied_foreign(
     }
 }
 
-/// A `@xmtp-pure` function runs in the main-thread pure module. A
-/// `@xmtp-worker` function or method runs in the worker only. Neither crosses
-/// the bridge.
+/// Read the worker-only marker for exported functions and methods.
+pub(crate) fn worker_only(item: &Metadata) -> bool {
+    let doc = match item {
+        Metadata::Func(function) => function.docstring.as_deref(),
+        Metadata::Method(method) => method.docstring.as_deref(),
+        _ => None,
+    };
+    doc.is_some_and(|doc| doc.contains("@xmtp-worker"))
+}
+
+/// Pure functions and worker-only calls do not cross the bridge.
 fn outside_bridge(item: &Metadata) -> bool {
-    match item {
-        Metadata::Func(function) => function
-            .docstring
-            .as_deref()
-            .is_some_and(|doc| doc.contains("@xmtp-pure") || doc.contains("@xmtp-worker")),
-        Metadata::Method(method) => method
-            .docstring
-            .as_deref()
-            .is_some_and(|doc| doc.contains("@xmtp-worker")),
-        _ => false,
-    }
+    worker_only(item)
+        || matches!(item, Metadata::Func(function) if function.docstring.as_deref().is_some_and(|doc| doc.contains("@xmtp-pure")))
 }
 
 fn item_types(item: &Metadata) -> Vec<&Type> {

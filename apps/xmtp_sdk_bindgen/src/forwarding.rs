@@ -352,11 +352,7 @@ pub(crate) fn bridged_interface(items: &[&Metadata], owner: &str, stock: &str) -
         .iter()
         .filter_map(|item| match item {
             Metadata::Method(method)
-                if method.self_name == owner
-                    && method
-                        .docstring
-                        .as_deref()
-                        .is_some_and(|doc| doc.contains("@xmtp-worker")) =>
+                if method.self_name == owner && crate::bridge::worker_only(item) =>
             {
                 Some(host_name(&method.name))
             }
@@ -379,8 +375,10 @@ pub(crate) fn bridged_interface(items: &[&Metadata], owner: &str, stock: &str) -
 }
 
 pub(crate) fn typescript_forwarders(items: &[&Metadata]) -> String {
-    let selected = client_methods(items.iter().copied().filter(|item| !matches!(item,
-        Metadata::Method(method) if method.docstring.as_deref().is_some_and(|doc| doc.contains("@xmtp-worker")))));
+    let selected =
+        client_methods(items.iter().copied().filter(
+            |item| !matches!(item, Metadata::Method(_) if crate::bridge::worker_only(item)),
+        ));
     render_typescript(&selected, &bridged_interface(items, "Client", "ClientLike"))
 }
 
