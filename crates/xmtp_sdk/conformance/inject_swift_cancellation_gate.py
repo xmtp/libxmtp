@@ -80,6 +80,27 @@ for kind, args in [("poll", "h, cb, data"), ("complete", "h, status"), ("cancel"
     block = block.replace(old, f'{kind}Func: {{ {args} in sdkConformanceSwiftEventEndCalls.record("{kind}"); {result}ffi_xmtp_sdk_rust_future_{kind}_void({args}) }},')
 source = source[:start] + block + source[end:]
 
+for anchor, gate in [
+    ("    sdkEventReadGates.stopAll()\n", "sdkConformanceSwiftClientEndGate"),
+    ("    if fileBacked { sdkEventReadGates?.stopAll() }\n", "sdkConformanceSwiftStorageDeleteGate"),
+]:
+    assert source.count(anchor) == 1, "Swift close admission changed"
+    source = source.replace(anchor, anchor + f"    await {gate}.hold()\n", 1)
+
+for method, counts in [
+    ("client_end", "sdkConformanceSwiftClientEndCalls"),
+    ("storage_delete", "sdkConformanceSwiftStorageDeleteCalls"),
+]:
+    start = source.index(f"uniffi_xmtp_sdk_fn_method_{method}(")
+    end = source.index("errorHandler: FfiConverterTypeXmtpError_lift", start)
+    block = source[start:end]
+    for kind, args in [("poll", "h, cb, data"), ("complete", "h, status"), ("cancel", "h"), ("free", "h")]:
+        old = f"{kind}Func: ffi_xmtp_sdk_rust_future_{kind}_void,"
+        assert block.count(old) == 1, f"Swift {method} {kind} call changed"
+        result = "return " if kind == "complete" else ""
+        block = block.replace(old, f'{kind}Func: {{ {args} in {counts}.record("{kind}"); {result}ffi_xmtp_sdk_rust_future_{kind}_void({args}) }},')
+    source = source[:start] + block + source[end:]
+
 source += """
 
 public actor SdkConformanceSwiftReaderGate {
@@ -105,6 +126,8 @@ public let sdkConformanceSwiftReaderLiftGate = SdkConformanceSwiftReaderGate()
 public let sdkConformanceSwiftEventGate = SdkConformanceSwiftReaderGate()
 public let sdkConformanceSwiftEventLiftGate = SdkConformanceSwiftReaderGate()
 public let sdkConformanceSwiftEventFinalGate = SdkConformanceSwiftReaderGate()
+public let sdkConformanceSwiftClientEndGate = SdkConformanceSwiftReaderGate()
+public let sdkConformanceSwiftStorageDeleteGate = SdkConformanceSwiftReaderGate()
 
 public final class SdkConformanceSwiftReaderCalls: @unchecked Sendable {
     private let lock = NSLock()
@@ -116,5 +139,7 @@ public final class SdkConformanceSwiftReaderCalls: @unchecked Sendable {
 public let sdkConformanceSwiftReaderCalls = SdkConformanceSwiftReaderCalls()
 public let sdkConformanceSwiftEventCalls = SdkConformanceSwiftReaderCalls()
 public let sdkConformanceSwiftEventEndCalls = SdkConformanceSwiftReaderCalls()
+public let sdkConformanceSwiftClientEndCalls = SdkConformanceSwiftReaderCalls()
+public let sdkConformanceSwiftStorageDeleteCalls = SdkConformanceSwiftReaderCalls()
 """
 path.write_text(source)

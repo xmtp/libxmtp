@@ -127,7 +127,16 @@ pub fn rewrite(source: &str) -> Result<String> {
         )
     })?;
     method(&mut output, CLIENT, "end", |body| {
-        open_method(body, " {\n    sdkEventReadGates.stopAll()\n")
+        let body = open_method(
+            body,
+            " {\n    sdkEventReadGates.stopAll()\n    try await Task.detached { [self] in\n",
+        )?;
+        let body = once(&body, "    return\n", "    _ =\n")?;
+        once(
+            &body,
+            "\n}\n",
+            "\n    }.value\n    try Task.checkCancellation()\n}\n",
+        )
     })?;
     method(&mut output, CLIENT, "events", |body| {
         let body = once(body, "    return\n", "    let reader =\n")?;
@@ -146,9 +155,15 @@ pub fn rewrite(source: &str) -> Result<String> {
         )
     })?;
     method(&mut output, STORAGE, "delete", |body| {
-        open_method(
+        let body = open_method(
             body,
-            " {\n    if try await path() != nil { sdkEventReadGates?.stopAll() }\n",
+            " {\n    let fileBacked = try await path() != nil\n    try Task.checkCancellation()\n    if fileBacked { sdkEventReadGates?.stopAll() }\n    try await Task.detached { [self] in\n",
+        )?;
+        let body = once(&body, "    return\n", "    _ =\n")?;
+        once(
+            &body,
+            "\n}\n",
+            "\n    }.value\n    try Task.checkCancellation()\n}\n",
         )
     })?;
     output = format!("{STATE}{output}");
@@ -171,7 +186,7 @@ mod tests {
         assert!(output.contains("sdkEventReadGates.stopAll()"));
         assert!(output.contains("sdkEventReadGates.add(reader.sdkEventReadGate)"));
         assert!(output.contains("storage.sdkEventReadGates = sdkEventReadGates"));
-        assert!(output.contains("if try await path() != nil { sdkEventReadGates?.stopAll() }"));
+        assert!(output.contains("if fileBacked { sdkEventReadGates?.stopAll() }"));
         let message = PINNED.split("open class MessageReader:").nth(1).unwrap();
         assert_eq!(
             output.split("open class MessageReader:").nth(1).unwrap(),

@@ -1,6 +1,41 @@
 //! Conformance-only control of the real native constructor's adoption point.
 use super::*;
 use xmtp_db::ConnectionExt;
+
+struct ShutdownGate {
+    entered: std::sync::atomic::AtomicBool,
+    released: std::sync::atomic::AtomicBool,
+    release: tokio::sync::Notify,
+}
+
+impl ShutdownGate {
+    fn release(&self) {
+        self.released.store(true, Ordering::SeqCst);
+        self.release.notify_waiters();
+    }
+}
+
+static SHUTDOWN_GATES: std::sync::LazyLock<
+    parking_lot::Mutex<std::collections::HashMap<usize, std::sync::Weak<ShutdownGate>>>,
+> = std::sync::LazyLock::new(Default::default);
+
+pub(super) async fn pause_shutdown(client: &CoreClient) {
+    let gate = SHUTDOWN_GATES
+        .lock()
+        .get(&(client as *const CoreClient as usize))
+        .and_then(std::sync::Weak::upgrade);
+    let Some(gate) = gate else { return };
+    gate.entered.store(true, Ordering::SeqCst);
+    loop {
+        let released = gate.release.notified();
+        tokio::pin!(released);
+        released.as_mut().enable();
+        if gate.released.load(Ordering::SeqCst) {
+            return;
+        }
+        released.await;
+    }
+}
 use xmtp_db::diesel::{RunQueryDsl, sql_query};
 
 #[derive(uniffi::Record)]
@@ -18,6 +53,7 @@ pub struct SdkConformanceConstructorProbe {
     probe: Arc<build_task_probe::BuildTaskProbe>,
     adopted: parking_lot::Mutex<Option<Client>>,
     ready_client: parking_lot::Mutex<Option<std::sync::Weak<Client>>>,
+    shutdown: parking_lot::Mutex<Option<Arc<ShutdownGate>>>,
 }
 
 #[xmtp_macro::sdk_export(native_only)]
@@ -31,6 +67,7 @@ impl SdkConformanceConstructorProbe {
             probe,
             adopted: parking_lot::Mutex::new(None),
             ready_client: parking_lot::Mutex::new(None),
+            shutdown: parking_lot::Mutex::new(None),
         }
     }
 
@@ -105,6 +142,42 @@ impl SdkConformanceConstructorProbe {
             .is_some_and(|client| client.strong_count() != 0)
     }
 
+    /// Observe a real client for private shutdown controls. @xmtp-worker @xmtp-internal
+    pub fn observe_client(&self, client: Arc<Client>) {
+        self.release_shutdown();
+        *self.probe.client.lock() = Some(client.inner.clone());
+    }
+
+    /// Hold native shutdown after its reader-close step. @xmtp-worker @xmtp-internal
+    pub fn hold_shutdown(&self) {
+        self.release_shutdown();
+        let client = self.probe.client.lock().clone().expect("captured client");
+        let gate = Arc::new(ShutdownGate {
+            entered: std::sync::atomic::AtomicBool::new(false),
+            released: std::sync::atomic::AtomicBool::new(false),
+            release: tokio::sync::Notify::new(),
+        });
+        let mut gates = SHUTDOWN_GATES.lock();
+        gates.retain(|_, gate| gate.strong_count() != 0);
+        gates.insert(Arc::as_ptr(&client) as usize, Arc::downgrade(&gate));
+        *self.shutdown.lock() = Some(gate);
+    }
+
+    /// Read the private native shutdown boundary. @xmtp-worker @xmtp-internal
+    pub fn shutdown_entered(&self) -> bool {
+        self.shutdown
+            .lock()
+            .as_ref()
+            .is_some_and(|gate| gate.entered.load(Ordering::SeqCst))
+    }
+
+    /// Release the held native shutdown. @xmtp-worker @xmtp-internal
+    pub fn release_shutdown(&self) {
+        if let Some(gate) = self.shutdown.lock().take() {
+            gate.release();
+        }
+    }
+
     /// Wait for task completion while the parent still owns the unconsumed output.
     pub async fn wait_for_completed(&self) -> Result<(), XmtpError> {
         self.probe.started.notified().await;
@@ -168,6 +241,7 @@ impl SdkConformanceConstructorProbe {
 
     /// Always call this after a probe failure so the test cannot leave workers.
     pub async fn cleanup(&self) -> Result<(), XmtpError> {
+        self.release_shutdown();
         self.release();
         self.end_adopted().await?;
         let client = self.probe.client.lock().clone();
@@ -175,5 +249,13 @@ impl SdkConformanceConstructorProbe {
             client.close().await.map_err(XmtpError::from_client)?;
         }
         Ok(())
+    }
+}
+
+impl Drop for SdkConformanceConstructorProbe {
+    fn drop(&mut self) {
+        if let Some(gate) = self.shutdown.get_mut().take() {
+            gate.release();
+        }
     }
 }
