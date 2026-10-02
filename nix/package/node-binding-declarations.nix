@@ -53,7 +53,9 @@ let
 
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
     specialArgs
-    // { CARGO_BUILD_JOBS = "2"; }
+    // {
+      CARGO_BUILD_JOBS = "2";
+    }
     // lib.optionalAttrs isGnu {
       # override everything for glibc compatibility
       preBuild = "export HOME=$TMPDIR";

@@ -177,10 +177,14 @@ class CutoverGates(unittest.TestCase):
         self.assertIn("sdks/browser/src/guard.ts", result.stderr)
         sibling.write_text("export const sibling = 1;\n")
         node_manifest = self.root / "sdks/node/package.json"
-        node_manifest.write_text('{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package node"}}')
+        node_manifest.write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package node"}}'
+        )
         agent_manifest = self.root / "sdks/agent/package.json"
         agent_manifest.parent.mkdir(parents=True)
-        agent_manifest.write_text('{"name":"@xmtp/agent-sdk","version":"8.0.0","dependencies":{"@xmtp/node-sdk":"workspace:*"}}')
+        agent_manifest.write_text(
+            '{"name":"@xmtp/agent-sdk","version":"8.0.0","dependencies":{"@xmtp/node-sdk":"workspace:*"}}'
+        )
         agent = self.root / "sdks/agent/src/guard.ts"
         agent.parent.mkdir(parents=True)
         agent.write_text("export const agent = 1;\n")

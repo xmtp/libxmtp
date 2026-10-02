@@ -37,9 +37,9 @@ def main():
     identity.add_argument("--runtime-source", type=Path)
     parser.add_argument("--out", type=Path, default=Path("target/sdk-node-platforms"))
     args = parser.parse_args()
-    revision = tomllib.loads((artifacts.ROOT / "Cargo.toml").read_text())[
-        "workspace"
-    ]["metadata"]["xmtp-sdk-fork"]["rev"]
+    revision = tomllib.loads((artifacts.ROOT / "Cargo.toml").read_text())["workspace"][
+        "metadata"
+    ]["xmtp-sdk-fork"]["rev"]
     rust_target, library = PLATFORMS[args.target]
     addon = f"uniffi-runtime-napi.{args.target}.node"
     if args.native_provenance:
@@ -64,8 +64,19 @@ def main():
             ["git", "-C", str(args.runtime_source), "rev-parse", "HEAD"], text=True
         ).strip()
         subprocess.run(
-            ["git", "-C", str(args.runtime_source), "diff", "--exit-code",
-             "HEAD", "--", "*.rs", "*Cargo.toml", "*Cargo.lock"], check=True
+            [
+                "git",
+                "-C",
+                str(args.runtime_source),
+                "diff",
+                "--exit-code",
+                "HEAD",
+                "--",
+                "*.rs",
+                "*Cargo.toml",
+                "*Cargo.lock",
+            ],
+            check=True,
         )
     else:
         receipt = json.loads(args.runtime_provenance.read_text())
@@ -81,12 +92,26 @@ def main():
     with artifacts.staged_output(args.out.resolve() / args.target) as output:
         for source, name in ((args.library, library), (args.addon, addon)):
             shutil.copy2(source, output / name)
-        (output / "sdk-node-platform.json").write_text(json.dumps({
-            "schema": 1, "target": args.target, "rustTarget": rust_target,
-            "source": native["source"], "generator": native["generator"],
-            "features": "", "profile": "release", "runtimeRevision": revision,
-            "files": {name: artifacts.digest(output / name) for name in (library, addon)},
-        }, indent=2) + "\n")
+        (output / "sdk-node-platform.json").write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "target": args.target,
+                    "rustTarget": rust_target,
+                    "source": native["source"],
+                    "generator": native["generator"],
+                    "features": "",
+                    "profile": "release",
+                    "runtimeRevision": revision,
+                    "files": {
+                        name: artifacts.digest(output / name)
+                        for name in (library, addon)
+                    },
+                },
+                indent=2,
+            )
+            + "\n"
+        )
 
 
 if __name__ == "__main__":

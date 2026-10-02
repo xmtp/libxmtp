@@ -84,10 +84,7 @@ fn class(code: &mut String, value: &EnumMetadata) -> Result<()> {
     code.push_str("}\n");
     for variant in &value.variants {
         let v = &variant.name;
-        writeln!(
-            code,
-            "class {name}{v} extends {name} {{"
-        )?;
+        writeln!(code, "class {name}{v} extends {name} {{")?;
         let extras = extra_fields(variant)?;
         if !extras.is_empty() {
             for (field, metadata) in &extras {
