@@ -266,6 +266,8 @@ pub(crate) async fn end_client(
     for reader in &readers {
         reader.close();
     }
+    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
+    constructor_conformance::pause_shutdown(client).await;
     for reader in &readers {
         reader.wait_for_reads().await;
     }

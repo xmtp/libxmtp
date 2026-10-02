@@ -27,6 +27,7 @@ const NEW_BODY: &str = r#"    let allowsCancellation = errorHandler != nil
     let future = UniffiCancellableRustFuture(rustFuture, cancel: cancelFunc, free: freeFunc)
     defer { future.free() }
     return try await withTaskCancellationHandler(operation: {
+        do {
         if allowsCancellation { try Task.checkCancellation() }
         var pollResult: Int8
         repeat {
@@ -40,14 +41,33 @@ const NEW_BODY: &str = r#"    let allowsCancellation = errorHandler != nil
                 )
             }
         } while pollResult != UNIFFI_RUST_FUTURE_POLL_READY
-        // Lift every ready result. Only named Client constructors discard it on cancellation.
+        // Lift stored ready results before the caller applies its handoff policy.
         let value = try future.complete { handle in
             try makeRustCall({ completeFunc(handle, $0) }, errorHandler: errorHandler)
         }
         let lifted = try liftFunc(value)
-        if discardReadyOnCancellation { try Task.checkCancellation() }
+        if let discard = discardReadyOnCancellation, Task.isCancelled {
+            let cancellation = CancellationError()
+            do {
+                try await Task.detached { try await discard(lifted) }.value
+            } catch {
+                NSLog("Discarded Client cleanup failed")
+            }
+            throw cancellation
+        }
+        if let endCancelledEventRead, Task.isCancelled {
+            cancelEventRead?()
+            return try await Task.detached { try await endCancelledEventRead() }.value
+        }
+        if let eventReadResult { return try await eventReadResult(lifted) }
         return lifted
+        } catch let cancellation as CancellationError {
+            guard let endCancelledEventRead else { throw cancellation }
+            cancelEventRead?()
+            return try await Task.detached { try await endCancelledEventRead() }.value
+        }
     }, onCancel: {
+        cancelEventRead?()
         if allowsCancellation { future.cancel() }
     })"#;
 
@@ -137,7 +157,7 @@ pub fn rewrite(source: &str) -> Result<String> {
             }
             if discard_ready {
                 let indent = &line[..line.len() - line.trim_start().len()];
-                output.push_str(&format!("{indent}discardReadyOnCancellation: true,\n"));
+                output.push_str(&format!("{indent}discardReadyOnCancellation: {{ try await sdkDiscardUnreturnedClient(client: $0) }},\n"));
             }
             caller = None;
             discard_ready = false;
@@ -177,7 +197,7 @@ pub fn rewrite(source: &str) -> Result<String> {
     }
     output = output.replace(
         SIGNATURE,
-        "    cancelFunc: @escaping (UInt64) -> (),\n    freeFunc: @escaping (UInt64) -> (),\n    discardReadyOnCancellation: Bool = false,",
+        "    cancelFunc: @escaping (UInt64) -> (),\n    freeFunc: @escaping (UInt64) -> (),\n    discardReadyOnCancellation: ((T) async throws -> Void)? = nil,\n    eventReadResult: ((T) async throws -> T)? = nil,\n    endCancelledEventRead: (() async throws -> T)? = nil,\n    cancelEventRead: (() -> Void)? = nil,",
     );
     output = output.replace(OLD_BODY, NEW_BODY);
     output = output.replace(CANCELLED, "            throw CancellationError()");
@@ -211,7 +231,7 @@ mod tests {
         assert_eq!(rewrite("pure bindings\n").unwrap(), "pure bindings\n");
         assert!(output.contains("let allowsCancellation = errorHandler != nil"));
         assert!(output.contains("if allowsCancellation { future.cancel() }"));
-        assert!(output.contains("if discardReadyOnCancellation { try Task.checkCancellation() }"));
+        assert!(output.contains("try await Task.detached { try await discard(lifted) }.value"));
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -221,7 +241,7 @@ mod tests {
             &format!("{caller}(FfiConverterTypeSigner_lower(signer),\nfreeFunc: ffi_xmtp_sdk_rust_future_free_u64,\nliftFunc: FfiConverterTypeClient_lift,"));
         let output = rewrite(&source).unwrap();
         assert_eq!(
-            output.matches("discardReadyOnCancellation: true,").count(),
+            output.matches("discardReadyOnCancellation: { try await sdkDiscardUnreturnedClient(client: $0) },").count(),
             1
         );
         assert!(
@@ -239,7 +259,7 @@ mod tests {
             assert_eq!(
                 rewrite(&source.replace(caller, &name))
                     .unwrap()
-                    .matches("discardReadyOnCancellation: true,")
+                    .matches("discardReadyOnCancellation: { try await sdkDiscardUnreturnedClient(client: $0) },")
                     .count(),
                 1
             );
