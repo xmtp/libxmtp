@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { resolve, join } from "node:path";
+import { packageAsset } from "./package-smoke-path.mjs";
 
 import { chromium } from "../../../sdks/browser/node_modules/playwright/index.mjs";
 const packageRoot = resolve(process.argv[2]);
@@ -34,8 +35,8 @@ const server = createServer((request, response) => {
     response.end(html);
     return;
   }
-  const file = resolve(packageRoot, `.${decodeURIComponent(path)}`);
-  if (!file.startsWith(`${packageRoot}/`) || !existsSync(file)) {
+  const file = packageAsset(packageRoot, path);
+  if (file === undefined || !existsSync(file)) {
     response.writeHead(404);
     response.end();
     return;
