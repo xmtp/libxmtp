@@ -10,7 +10,6 @@ Path	Owner
 .github/workflows/AGENTS.md	Integration writer
 .github/workflows/CLAUDE.md	Integration writer
 .github/workflows/cargo-deny-checker.yml	Integration writer
-.github/workflows/cleanup-ios.yml	iOS
 .github/workflows/create-release-branch.yml	Integration writer
 .github/workflows/deploy-backend-dev.yml	Integration writer
 .github/workflows/deploy-docs.yml	Integration writer
@@ -54,6 +53,7 @@ Path	Owner
 .github/workflows/test-browser-sdk.yml	Browser
 .github/workflows/test-ios.yml	iOS
 .github/workflows/test-keepalive-probe.yml	Integration writer
+.github/workflows/test-native-backend.yml	Integration writer
 .github/workflows/test-node-sdk.yml	Node plus agent
 .github/workflows/test-node.yml	Integration writer
 .github/workflows/test-sdk.yml	Integration writer
@@ -864,6 +864,11 @@ bindings/wasm/tsconfig.json	Integration writer
 bindings/wasm/vite.config.ts	Integration writer
 bindings/wasm/wasm.just	Integration writer
 crates/xmtp_cryptography/AGENTS.md	Integration writer
+crates/xmtp_sdk/AGENTS.md	Integration writer
+crates/xmtp_sdk/benchmarks/README.md	Integration writer
+crates/xmtp_sdk/benchmarks/baselines.lock.json	Integration writer
+crates/xmtp_sdk/benchmarks/baselines.py	Integration writer
+crates/xmtp_sdk/benchmarks/test_repairs.py	Integration writer
 crates/xmtp_sdk/conformance/browser/attachment-lifetime.chromium.ts	Browser
 crates/xmtp_sdk/conformance/browser/attachment-worker-control.ts	Browser
 crates/xmtp_sdk/conformance/browser/attachments-support.ts	Browser
@@ -876,6 +881,8 @@ crates/xmtp_sdk/conformance/browser/bridge-create.ts	Browser
 crates/xmtp_sdk/conformance/browser/bridge-ending.ts	Browser
 crates/xmtp_sdk/conformance/browser/bridge-event-ending.ts	Browser
 crates/xmtp_sdk/conformance/browser/bridge-identity.ts	Browser
+crates/xmtp_sdk/conformance/browser/bridge-log-restart.ts	Browser
+crates/xmtp_sdk/conformance/browser/bridge-logging.ts	Browser
 crates/xmtp_sdk/conformance/browser/bridge-ownership.ts	Browser
 crates/xmtp_sdk/conformance/browser/bridge-package-lifetime.ts	Browser
 crates/xmtp_sdk/conformance/browser/bridge-streams.ts	Browser
@@ -895,8 +902,14 @@ crates/xmtp_sdk/conformance/browser/bridge.test.ts	Browser
 crates/xmtp_sdk/conformance/browser/bridge.value-layout.mts	Browser
 crates/xmtp_sdk/conformance/browser/bridge.values.real.mts	Browser
 crates/xmtp_sdk/conformance/browser/bridge.worker.mts	Browser
+crates/xmtp_sdk/conformance/browser/callback-lifetime.browser.test.ts	Browser
+crates/xmtp_sdk/conformance/browser/callback-lifetime.worker.ts	Browser
 crates/xmtp_sdk/conformance/browser/codec-policy.test.ts	Browser
+crates/xmtp_sdk/conformance/browser/logging.chromium.mts	Browser
+crates/xmtp_sdk/conformance/browser/logging.chromium.ts	Browser
 crates/xmtp_sdk/conformance/browser/message.custom.chromium.ts	Browser
+crates/xmtp_sdk/conformance/browser/message.decode-once.chromium.ts	Browser
+crates/xmtp_sdk/conformance/browser/message.decode-once.worker.ts	Browser
 crates/xmtp_sdk/conformance/browser/message.deleted.chromium.ts	Browser
 crates/xmtp_sdk/conformance/browser/message.deleted.worker.ts	Browser
 crates/xmtp_sdk/conformance/browser/message.standard.chromium.ts	Browser
@@ -913,6 +926,7 @@ crates/xmtp_sdk/conformance/browser/pure-codecs.chromium.ts	Browser
 crates/xmtp_sdk/conformance/browser/reader.admission.chromium.ts	Browser
 crates/xmtp_sdk/conformance/browser/reader.admission.worker.ts	Browser
 crates/xmtp_sdk/conformance/browser/release.gc.mts	Browser
+crates/xmtp_sdk/conformance/browser/retained-content.test.ts	Browser
 crates/xmtp_sdk/conformance/browser/storage.bridge.chromium.ts	Browser
 crates/xmtp_sdk/conformance/browser/storage.bridge.worker.ts	Browser
 crates/xmtp_sdk/conformance/browser/storage.chromium.mts	Browser
@@ -927,9 +941,17 @@ crates/xmtp_sdk/conformance/browser/suite.panic.chromium.ts	Browser
 crates/xmtp_sdk/conformance/browser/suite.panic.worker.ts	Browser
 crates/xmtp_sdk/conformance/browser/suite.worker.ts	Browser
 crates/xmtp_sdk/conformance/browser/vitest.browser.config.mts	Browser
+crates/xmtp_sdk/conformance/browser/vitest.callback-lifetime.config.mts	Browser
 crates/xmtp_sdk/conformance/browser/vitest.config.mts	Browser
+crates/xmtp_sdk/conformance/codec-author/browser.test.mts	Integration writer
+crates/xmtp_sdk/conformance/codec-author/browser.test.ts	Integration writer
+crates/xmtp_sdk/conformance/codec-author/node.test.mts	Integration writer
+crates/xmtp_sdk/conformance/codec-author/wire-policy.test.mjs	Integration writer
+crates/xmtp_sdk/conformance/inject_callback_counts.py	Integration writer
 crates/xmtp_sdk/conformance/inject_event_start_hook.py	Integration writer
 crates/xmtp_sdk/conformance/inject_reader_gate.py	Integration writer
+crates/xmtp_sdk/conformance/inject_swift_cancellation_gate.py	Integration writer
+crates/xmtp_sdk/conformance/inject_swift_ready_gate.py	Integration writer
 crates/xmtp_sdk/conformance/kotlin/.gitignore	Android
 crates/xmtp_sdk/conformance/kotlin/build.gradle.kts	Android
 crates/xmtp_sdk/conformance/kotlin/negative/CodecTypeNegative.kt	Android
@@ -937,22 +959,33 @@ crates/xmtp_sdk/conformance/kotlin/negative/ConsumerNegative.kt	Android
 crates/xmtp_sdk/conformance/kotlin/settings.gradle.kts	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/AttachmentSupport.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/Attachments.kt	Android
+crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/CallbackLifetime.kt	Android
+crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/CallbackOperations.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/CodecPolicy.kt	Android
+crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/CodecRecordValues.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/Conformance.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/ConformanceSupport.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/ConsumerPositive.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/IdentityRoutes.kt	Android
-crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/LiftCost.kt	Android
+crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/Logging.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/MetadataFields.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/ReaderCursor.kt	Android
+crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/RetainedContent.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/StorageLayout.kt	Android
 crates/xmtp_sdk/conformance/kotlin/src/main/kotlin/android/content/Context.kt	Android
 crates/xmtp_sdk/conformance/public/.gitignore	Integration writer
 crates/xmtp_sdk/conformance/public/browser/negative/codecs.ts	Integration writer
 crates/xmtp_sdk/conformance/public/browser/negative/raw.ts	Integration writer
 crates/xmtp_sdk/conformance/public/browser/src/client.ts	Integration writer
+crates/xmtp_sdk/conformance/public/browser/src/codec-records.ts	Integration writer
 crates/xmtp_sdk/conformance/public/browser/src/codecs.ts	Integration writer
 crates/xmtp_sdk/conformance/public/browser/src/conversations.ts	Integration writer
+crates/xmtp_sdk/conformance/public/codec-author/README.md	Integration writer
+crates/xmtp_sdk/conformance/public/codec-author/negative.ts	Integration writer
+crates/xmtp_sdk/conformance/public/codec-author/package.json	Integration writer
+crates/xmtp_sdk/conformance/public/codec-author/positive.ts	Integration writer
+crates/xmtp_sdk/conformance/public/codec-author/src/index.ts	Integration writer
+crates/xmtp_sdk/conformance/public/codec-author/src/round-trip.ts	Integration writer
 crates/xmtp_sdk/conformance/public/kotlin/.gitignore	Integration writer
 crates/xmtp_sdk/conformance/public/kotlin/build.gradle.kts	Integration writer
 crates/xmtp_sdk/conformance/public/kotlin/consumer/build.gradle.kts	Integration writer
@@ -963,15 +996,34 @@ crates/xmtp_sdk/conformance/public/kotlin/consumer/src/main/kotlin/Storage.kt	In
 crates/xmtp_sdk/conformance/public/kotlin/gradle.properties	Integration writer
 crates/xmtp_sdk/conformance/public/kotlin/negative/CodecValues.kt	Integration writer
 crates/xmtp_sdk/conformance/public/kotlin/negative/RawAccess.kt	Integration writer
+crates/xmtp_sdk/conformance/public/kotlin/negative/codec_records/DeleteMessage-encode.kt	Integration writer
+crates/xmtp_sdk/conformance/public/kotlin/negative/codec_records/DeleteMessage-reply.kt	Integration writer
+crates/xmtp_sdk/conformance/public/kotlin/negative/codec_records/DeleteMessage-send.kt	Integration writer
+crates/xmtp_sdk/conformance/public/kotlin/negative/codec_records/ReactionV2-encode.kt	Integration writer
+crates/xmtp_sdk/conformance/public/kotlin/negative/codec_records/ReactionV2-reply.kt	Integration writer
+crates/xmtp_sdk/conformance/public/kotlin/negative/codec_records/ReactionV2-send.kt	Integration writer
+crates/xmtp_sdk/conformance/public/kotlin/negative/codec_records/Reply-encode.kt	Integration writer
+crates/xmtp_sdk/conformance/public/kotlin/negative/codec_records/Reply-reply.kt	Integration writer
+crates/xmtp_sdk/conformance/public/kotlin/negative/codec_records/Reply-send.kt	Integration writer
 crates/xmtp_sdk/conformance/public/kotlin/sdk/build.gradle.kts	Integration writer
 crates/xmtp_sdk/conformance/public/kotlin/settings.gradle.kts	Integration writer
 crates/xmtp_sdk/conformance/public/node/negative/codecs.ts	Integration writer
 crates/xmtp_sdk/conformance/public/node/negative/raw.ts	Integration writer
-crates/xmtp_sdk/conformance/public/node/root/load-twice.mts	Integration writer
+crates/xmtp_sdk/conformance/public/node/root/load-esm.mts	Integration writer
 crates/xmtp_sdk/conformance/public/node/src/client.ts	Integration writer
+crates/xmtp_sdk/conformance/public/node/src/codec-records.ts	Integration writer
 crates/xmtp_sdk/conformance/public/node/src/codecs.ts	Integration writer
 crates/xmtp_sdk/conformance/public/node/src/conversations.ts	Integration writer
 crates/xmtp_sdk/conformance/public/swift/.gitignore	Integration writer
+crates/xmtp_sdk/conformance/public/swift/Negative/CodecRecords/DeleteMessage-encode.swift	Integration writer
+crates/xmtp_sdk/conformance/public/swift/Negative/CodecRecords/DeleteMessage-reply.swift	Integration writer
+crates/xmtp_sdk/conformance/public/swift/Negative/CodecRecords/DeleteMessage-send.swift	Integration writer
+crates/xmtp_sdk/conformance/public/swift/Negative/CodecRecords/ReactionV2-encode.swift	Integration writer
+crates/xmtp_sdk/conformance/public/swift/Negative/CodecRecords/ReactionV2-reply.swift	Integration writer
+crates/xmtp_sdk/conformance/public/swift/Negative/CodecRecords/ReactionV2-send.swift	Integration writer
+crates/xmtp_sdk/conformance/public/swift/Negative/CodecRecords/Reply-encode.swift	Integration writer
+crates/xmtp_sdk/conformance/public/swift/Negative/CodecRecords/Reply-reply.swift	Integration writer
+crates/xmtp_sdk/conformance/public/swift/Negative/CodecRecords/Reply-send.swift	Integration writer
 crates/xmtp_sdk/conformance/public/swift/Negative/CodecValues.swift	Integration writer
 crates/xmtp_sdk/conformance/public/swift/Negative/RawAccess.swift	Integration writer
 crates/xmtp_sdk/conformance/public/swift/Package.swift	Integration writer
@@ -985,16 +1037,25 @@ crates/xmtp_sdk/conformance/swift/Negative/ConsumerTypeNegative.swift	iOS
 crates/xmtp_sdk/conformance/swift/Package.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/AttachmentSupport.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/Attachments.swift	iOS
+crates/xmtp_sdk/conformance/swift/Sources/Conformance/CallbackLifetime.swift	iOS
+crates/xmtp_sdk/conformance/swift/Sources/Conformance/CallbackOperations.swift	iOS
+crates/xmtp_sdk/conformance/swift/Sources/Conformance/CallbackReadyResult.swift	iOS
+crates/xmtp_sdk/conformance/swift/Sources/Conformance/CallerCancellation.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/CodecPolicy.swift	iOS
+crates/xmtp_sdk/conformance/swift/Sources/Conformance/CodecRecordValues.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/ConformanceMain.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/ConformanceSupport.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/ConsumerPositive.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/IdentityRoutes.swift	iOS
-crates/xmtp_sdk/conformance/swift/Sources/Conformance/LiftCost.swift	iOS
+crates/xmtp_sdk/conformance/swift/Sources/Conformance/Logging.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/MetadataFields.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/ReaderCursor.swift	iOS
+crates/xmtp_sdk/conformance/swift/Sources/Conformance/ReaderLoopExit.swift	iOS
+crates/xmtp_sdk/conformance/swift/Sources/Conformance/RetainedContent.swift	iOS
 crates/xmtp_sdk/conformance/swift/Sources/Conformance/StorageLayout.swift	iOS
 crates/xmtp_sdk/conformance/ts/bench.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/callback-lifetime-main.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/callback-lifetime-support.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/codec-policy.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/config-mismatch.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/consumers/negative.ts	Node plus agent
@@ -1002,17 +1063,25 @@ crates/xmtp_sdk/conformance/ts/consumers/positive.ts	Node plus agent
 crates/xmtp_sdk/conformance/ts/identity-routes.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/load.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/logging-child.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/logging-contract.ts	Node plus agent
+crates/xmtp_sdk/conformance/ts/logging-wait.ts	Node plus agent
 crates/xmtp_sdk/conformance/ts/logging.typecheck.ts	Node plus agent
 crates/xmtp_sdk/conformance/ts/metadata-scenario.ts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-attachments.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-callback-failure.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/node-callback-lifetime.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/node-callback-operations.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-codecs.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/node-constructor-lifetime.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/node-credential-lifetime.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/node-credential-ownership.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-logging.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-metadata.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-reader-delivery.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-storage-layout.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-stream-failures.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-stream-lifecycle.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/node-stream-lifetime.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node-support.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/node.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/object-store-native.mjs	Node plus agent
@@ -1025,18 +1094,23 @@ crates/xmtp_sdk/conformance/ts/public-streams.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/public-values/negative.ts	Node plus agent
 crates/xmtp_sdk/conformance/ts/public-values/positive.ts	Node plus agent
 crates/xmtp_sdk/conformance/ts/reader-cursor.mts	Node plus agent
+crates/xmtp_sdk/conformance/ts/reader-loop-exit.ts	Node plus agent
 crates/xmtp_sdk/conformance/ts/sign.mjs	Node plus agent
 crates/xmtp_sdk/conformance/ts/timestamp.test.mts	Node plus agent
 crates/xmtp_sdk/conformance/ts/transfer-control.mts	Node plus agent
 crates/xmtp_sdk/dev/bench	Integration writer
+crates/xmtp_sdk/dev/callback-lifetime-browser	Integration writer
+crates/xmtp_sdk/dev/check-codec-record-values	Integration writer
 crates/xmtp_sdk/dev/check-isolation	Integration writer
 crates/xmtp_sdk/dev/check-wasm-init	Integration writer
+crates/xmtp_sdk/dev/codec-author	Integration writer
 crates/xmtp_sdk/dev/conformance-browser	Integration writer
 crates/xmtp_sdk/dev/conformance-kotlin	Integration writer
 crates/xmtp_sdk/dev/conformance-node	Integration writer
-crates/xmtp_sdk/dev/deploy-fly-backend	Integration writer
 crates/xmtp_sdk/dev/isolation-pins.tsv	Integration writer
 crates/xmtp_sdk/dev/lint-generated	Integration writer
+crates/xmtp_sdk/dev/mobile-package.py	Integration writer
+crates/xmtp_sdk/dev/package-smoke-browser.mjs	Integration writer
 crates/xmtp_sdk/dev/public-consumer	Integration writer
 crates/xmtp_sdk/dev/run-bridge-conformance	Integration writer
 crates/xmtp_sdk/sdk.just	Integration writer
@@ -1164,6 +1238,7 @@ nix/lib/uniffiGenerate.nix	Integration writer
 nix/musl-docker.nix	Integration writer
 nix/node-packages.nix	Integration writer
 nix/package/android.nix	Android
+nix/package/backend-ci.nix	Integration writer
 nix/package/backend.nix	Integration writer
 nix/package/ios.nix	iOS
 nix/package/keepalive-probe-check.nix	Integration writer
@@ -1174,6 +1249,7 @@ nix/package/wasm-nextest.nix	Browser
 nix/package/wasm.nix	Browser
 nix/package/xdbg-check.nix	Integration writer
 nix/package/xdbg.nix	Integration writer
+nix/package/xmtp-sdk-native.nix	Integration writer
 nix/package/xmtp-sdk.nix	Integration writer
 nix/shells/android.nix	Integration writer
 nix/shells/ios.nix	Integration writer
@@ -1728,9 +1804,6 @@ sdks/ios/XMTPiOSExample/XMTPiOSExample/XMTPiOSExampleApp.swift	iOS
 sdks/ios/buf.gen.yaml	iOS
 sdks/ios/dev/.setup	iOS
 sdks/ios/dev/bindings	iOS
-sdks/ios/dev/fly/cleanup	iOS
-sdks/ios/dev/fly/deploy	iOS
-sdks/ios/dev/fly/machine-config.json	iOS
 sdks/ios/example/example.xcodeproj/project.pbxproj	iOS
 sdks/ios/example/example.xcodeproj/project.xcworkspace/contents.xcworkspacedata	iOS
 sdks/ios/example/example.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved	iOS

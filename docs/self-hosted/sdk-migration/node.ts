@@ -4,12 +4,12 @@ import {
   Client,
   type ClientOptions,
   type ErrorDetails,
-  type Signer,
+  type PublicIdentity,
 } from "xmtp-sdk";
 
 // End the old SDK client before calling this function.
 export async function exerciseMigration(
-  signer: Signer,
+  existingIdentity: PublicIdentity,
   options: ClientOptions,
   dbPath: string,
   attachmentsDir: string,
@@ -22,11 +22,15 @@ export async function exerciseMigration(
       location: { dbPath, attachmentsDir },
     },
   };
-  const first = await Client.create(signer, explicit);
-  const identity = first.identity;
-  const inboxId = first.inboxId;
-  const openedPath = await first.storage.path();
-  await first.end();
+  const first = await Client.build(existingIdentity, explicit);
+  const { identity, inboxId, openedPath } = await withMigrationClient(
+    first,
+    async () => ({
+      identity: first.identity,
+      inboxId: first.inboxId,
+      openedPath: await first.storage.path(),
+    }),
+  );
   if (openedPath === undefined || resolve(openedPath) !== expectedPath)
     throw new Error("The SDK opened another database");
 
@@ -34,13 +38,30 @@ export async function exerciseMigration(
     ...explicit,
     allowOffline: true,
   });
-  try {
+  await withMigrationClient(reopened, async () => {
     if (reopened.inboxId !== inboxId) throw new Error("The inbox changed");
     const reopenedPath = await reopened.storage.path();
     if (reopenedPath === undefined || resolve(reopenedPath) !== expectedPath)
       throw new Error("The reopened database path changed");
+  });
+}
+
+async function withMigrationClient<T>(
+  client: Client,
+  action: () => Promise<T>,
+): Promise<T> {
+  let actionFailed = false;
+  try {
+    return await action();
+  } catch (error) {
+    actionFailed = true;
+    throw error;
   } finally {
-    await reopened.end();
+    try {
+      await client.end();
+    } catch (error) {
+      if (!actionFailed) throw error;
+    }
   }
 }
 

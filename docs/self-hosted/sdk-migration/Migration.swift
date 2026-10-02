@@ -8,16 +8,25 @@ public enum MigrationFailure: Error {
 
 /// End the old SDK client before calling this function.
 public func exerciseMigration(
-    signer: Signer, options: ClientOptions, dbPath: String, attachmentsDir: String
+    existingIdentity: PublicIdentity, options: ClientOptions, dbPath: String, attachmentsDir: String
 ) async throws {
     let expectedPath = URL(fileURLWithPath: dbPath).standardizedFileURL.path
     var explicit = options
     explicit.storage.location = .explicit(dbPath: dbPath, attachmentsDir: attachmentsDir)
-    let first = try await SDKClient.create(signer: signer, options: explicit)
-    let identity = first.identity()
-    let inboxId = first.inboxId()
-    let openedPath = try await first.storage().path()
-    try await first.end()
+    let first = try await SDKClient.build(identity: existingIdentity, options: explicit)
+    let identity: PublicIdentity
+    let inboxId: String
+    let openedPath: String?
+    do {
+        identity = first.identity()
+        inboxId = first.inboxId()
+        openedPath = try await first.storage().path()
+    } catch {
+        try await endMigrationClient(first, preserving: error)
+        throw error
+    }
+    try await endMigrationClient(first)
+    try Task.checkCancellation()
     guard let openedPath, URL(fileURLWithPath: openedPath).standardizedFileURL.path == expectedPath else { throw MigrationFailure.pathChanged }
 
     explicit.allowOffline = true
@@ -27,8 +36,19 @@ public func exerciseMigration(
         guard let reopenedPath = try await reopened.storage().path(),
               URL(fileURLWithPath: reopenedPath).standardizedFileURL.path == expectedPath else { throw MigrationFailure.pathChanged }
     } catch {
-        try await reopened.end()
+        try await endMigrationClient(reopened, preserving: error)
         throw error
     }
-    try await reopened.end()
+    try await endMigrationClient(reopened)
+    try Task.checkCancellation()
+}
+
+private func endMigrationClient(_ client: SDKClient, preserving primaryError: Error? = nil) async throws {
+    let cleanup = Task { try await client.end() }
+    do {
+        try await cleanup.value
+    } catch {
+        // Keep the error that started cleanup.
+        throw primaryError ?? error
+    }
 }

@@ -346,22 +346,62 @@ fn hide_identity_routes(source: &str, language: Language) -> Result<String> {
     Ok(output)
 }
 
+/// The proxy carries only methods that can cross the worker bridge.
+pub(crate) fn bridged_interface(items: &[&Metadata], owner: &str, stock: &str) -> String {
+    let mut omitted = items
+        .iter()
+        .filter_map(|item| match item {
+            Metadata::Method(method)
+                if method.self_name == owner && crate::bridge::worker_only(item) =>
+            {
+                Some(host_name(&method.name))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    omitted.sort();
+    omitted.dedup();
+    if omitted.is_empty() {
+        return stock.to_owned();
+    }
+    format!(
+        "Omit<{stock}, {}>",
+        omitted
+            .iter()
+            .map(|name| format!("\"{name}\""))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    )
+}
+
+pub(crate) fn typescript_forwarders(items: &[&Metadata]) -> String {
+    let selected =
+        client_methods(items.iter().copied().filter(
+            |item| !matches!(item, Metadata::Method(_) if crate::bridge::worker_only(item)),
+        ));
+    render_typescript(&selected, &bridged_interface(items, "Client", "ClientLike"))
+}
+
 /// Write the TypeScript host Client's forwarders as a base class. Each method
 /// takes and returns the binding method's own types, so a method that the
 /// binding lacks fails the TypeScript compile.
 pub(crate) fn generate_typescript(groups: &MetadataGroupMap, out: &Utf8Path) -> Result<()> {
-    let selected = client_methods(groups.values().flat_map(|group| &group.items));
+    let items = groups
+        .values()
+        .flat_map(|group| &group.items)
+        .collect::<Vec<_>>();
     let name = "client-forwarding.gen.ts";
     fs::write(
         out.join(name),
-        crate::format::typescript(name, &render_typescript(&selected))?,
+        crate::format::typescript(name, &typescript_forwarders(&items))?,
     )?;
     Ok(())
 }
 
-fn render_typescript(selected: &[String]) -> String {
-    let mut code = String::from(
-        "// Generated from exported Client methods. Do not edit this output.\nimport type { ClientLike } from \"./xmtp_sdk\";\n\n/** The host Client forwards these methods to its private binding Client. */\nexport abstract class ClientForwarders {\n  protected abstract binding(): ClientLike;\n",
+fn render_typescript(selected: &[String], binding: &str) -> String {
+    let mut code = format!("export type ClientBinding = {binding};\n");
+    code.push_str(
+        "// Generated from exported Client methods. Do not edit this output.\nimport type { ClientLike } from \"./xmtp_sdk\";\n\n/** The host Client forwards these methods to its private binding Client. */\nexport abstract class ClientForwarders {\n  protected abstract binding(): ClientBinding;\n",
     );
     for name in selected {
         code.push_str(&format!(

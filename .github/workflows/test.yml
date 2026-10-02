@@ -143,6 +143,7 @@ jobs:
               - 'apps/xmtp_sdk_bindgen/**'
               - '.github/workflows/test-sdk.yml'
             wasm:
+              - '.config/nextest.toml'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
@@ -157,6 +158,7 @@ jobs:
               - 'flake.*'
               - 'dev/docker/**'
               - '.github/workflows/test-wasm.yml'
+              - '.github/workflows/test.yml'
             browser_sdk:
               - 'package.json'
               - 'pnpm-lock.yaml'

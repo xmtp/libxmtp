@@ -2,6 +2,7 @@
 use super::*;
 use xmtp_events::EventWriter;
 
+/// Private listener counts. @xmtp-internal
 #[derive(uniffi::Record)]
 pub struct SdkConformanceListenerCounts {
     pub registered: bool,
@@ -12,6 +13,7 @@ pub struct SdkConformanceListenerCounts {
 
 #[xmtp_macro::sdk_export]
 impl Client {
+    /// Fill the native conformance queue. @xmtp-worker @xmtp-internal
     pub fn sdk_conformance_emit_hmac_events(&self, count: u32) -> Result<u32, XmtpError> {
         let _call = self.ensure_open()?;
         for _ in 0..count {
@@ -25,6 +27,7 @@ impl Client {
         Ok(count)
     }
 
+    /// Read the native conformance queue. @xmtp-worker @xmtp-internal
     pub fn sdk_conformance_listener_counts(
         &self,
         id: crate::ListenerId,

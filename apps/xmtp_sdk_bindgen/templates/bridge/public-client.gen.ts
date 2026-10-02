@@ -1,4 +1,4 @@
-import { ClientForwarders } from "./client-forwarding.gen.js";
+import { ClientForwarders, type ClientBinding } from "./client-forwarding.gen.js";
 import type { HostClientOptions } from "./host-message.gen.js";
 import { createInWorker } from "./package-session.gen.js";
 import * as P from "./proxy.gen.js";
@@ -50,7 +50,7 @@ export class Client extends ClientForwarders {
     clients.set(raw, new WeakRef(this));
   }
 
-  protected binding(): B.ClientLike {
+  protected binding(): ClientBinding {
     return bindingOf(this);
   }
 

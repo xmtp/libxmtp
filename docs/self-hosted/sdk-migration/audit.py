@@ -37,7 +37,7 @@ PLATFORM_FILES = {
     "Browser": {"nix/package/wasm.nix", "nix/package/wasm-nextest.nix"},
 }
 WORKFLOWS = {
-    "iOS": {"cleanup-ios", "lint-ios", "release-ios", "test-ios"},
+    "iOS": {"lint-ios", "release-ios", "test-ios"},
     "Android": {"lint-android", "release-android", "test-android"},
     "Node plus agent": {
         "lint-node",
