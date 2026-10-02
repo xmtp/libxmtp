@@ -1,0 +1,173 @@
+name: Build public Node SDK platforms
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+    outputs:
+      artifact:
+        value: sdk_node_public
+jobs:
+  unix:
+    name: Node pair (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64-gnu
+            library: libxmtp_sdk.so
+            runner: blacksmith-16vcpu-ubuntu-2404
+          - target: linux-x64-musl
+            library: libxmtp_sdk.so
+            runner: blacksmith-16vcpu-ubuntu-2404
+          - target: linux-arm64-gnu
+            library: libxmtp_sdk.so
+            runner: ubuntu-24.04-arm
+          - target: linux-arm64-musl
+            library: libxmtp_sdk.so
+            runner: ubuntu-24.04-arm
+          - target: darwin-arm64
+            library: libxmtp_sdk.dylib
+            runner: warp-macos-15-arm64-6x
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build matched SDK and pinned runtime pair
+        env:
+          TARGET: ${{ matrix.target }}
+          LIBRARY: ${{ matrix.library }}
+        run: |
+          dev/nix-shell 'nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair -L'
+          dev/nix-shell 'python3 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair/lib/"$LIBRARY" --addon target/sdk-node-pair/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair/native-provenance.json --runtime-provenance target/sdk-node-pair/runtime/runtime-provenance.json'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdk_node_pair_${{ matrix.target }}
+          path: target/sdk-node-platforms
+          retention-days: 1
+
+  windows:
+    name: Node pair (win32-x64-msvc)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      SQLX_OFFLINE: "true"
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: x86_64-pc-windows-msvc
+          workspaces: .
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.12.0"
+      - uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: install protoc
+      - name: Build SDK library and pinned runtime addon
+        shell: bash
+        run: |
+          python crates/xmtp_sdk/dev/sdk-artifacts.py build --targets node --profile release --rust-target x86_64-pc-windows-msvc --skip-bindgen --artifacts target/sdk-node-windows
+          git clone https://github.com/neekolas/uniffi-bindgen-react-native.git target/sdk-node-runtime-source
+          fork_rev=$(node -p 'require("fs").readFileSync("Cargo.toml", "utf8").match(/\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/)[1]')
+          git -C target/sdk-node-runtime-source checkout "$fork_rev"
+          cargo build --manifest-path target/sdk-node-runtime-source/Cargo.toml --locked --release -p uniffi-runtime-napi --lib --target x86_64-pc-windows-msvc
+          python crates/xmtp_sdk/dev/record-node-platform.py win32-x64-msvc --library target/sdk-node-windows/build/native/x86_64-pc-windows-msvc/release/xmtp_sdk.dll --addon target/sdk-node-runtime-source/target/x86_64-pc-windows-msvc/release/uniffi_runtime_napi.dll --native-artifacts target/sdk-node-windows/artifacts.json --runtime-source target/sdk-node-runtime-source
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdk_node_pair_win32-x64-msvc
+          path: target/sdk-node-platforms
+          retention-days: 1
+
+  assemble:
+    name: Assemble one supported-platform public package
+    needs: [unix, windows]
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: sdk_node_pair_*
+          merge-multiple: true
+          path: target/sdk-node-platforms
+      - name: Build and render the common release binding
+        run: |
+          dev/nix-shell 'just sdk build node --profile release'
+          dev/nix-shell 'just sdk render node'
+      - name: Assemble the full public product
+        env:
+          XMTP_SDK_NODE_PLATFORMS_DIR: target/sdk-node-platforms
+        run: dev/nix-shell 'bash dev/js/sdk-package node'
+      - name: Check installed aggregate Node ESM package
+        run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs node'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdk_node_public
+          path: target/sdk-packages/node
+          include-hidden-files: true
+          retention-days: 1
+
+  load:
+    name: Installed public Node package (${{ matrix.target }})
+    needs: assemble
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64-gnu
+            runner: ubuntu-latest
+            image: node:22.12.0-bookworm-slim
+          - target: linux-x64-musl
+            runner: ubuntu-latest
+            image: node:22.12.0-alpine
+          - target: linux-arm64-gnu
+            runner: ubuntu-24.04-arm
+            image: node:22.12.0-bookworm-slim
+          - target: linux-arm64-musl
+            runner: ubuntu-24.04-arm
+            image: node:22.12.0-alpine
+          - target: darwin-arm64
+            runner: warp-macos-15-arm64-6x
+          - target: win32-x64-msvc
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: sdk_node_public
+          path: target/sdk-packages/node
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.12.0"
+      - name: Installed package on Linux without build-host libraries
+        if: runner.os == 'Linux'
+        env:
+          NODE_IMAGE: ${{ matrix.image }}
+        run: docker run --rm -v "$PWD:/work" -w /work "$NODE_IMAGE" node crates/xmtp_sdk/dev/package-smoke.mjs node
+      - name: Installed package on macOS or Windows
+        if: runner.os != 'Linux'
+        shell: bash
+        run: node crates/xmtp_sdk/dev/package-smoke.mjs node

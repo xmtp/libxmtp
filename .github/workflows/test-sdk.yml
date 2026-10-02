@@ -6,6 +6,10 @@ on:
         type: boolean
         default: false
 jobs:
+  node-platforms:
+    uses: ./.github/workflows/build-sdk-node-platforms.yml
+    secrets: inherit
+
   sdk:
     name: Generate and test SDK façade
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -177,7 +181,7 @@ jobs:
           XMTP_SDK_TSDOWN_CLI: node_modules/tsdown/dist/run.mjs
         run: |
           python crates/xmtp_sdk/dev/record-generated.py target/sdk-generated --native target/debug/xmtp_sdk.dll --bindgen target/debug/xmtp-sdk-bindgen.exe --profile debug
-          node crates/xmtp_sdk/dev/stage-package.mjs node
+          node crates/xmtp_sdk/dev/stage-package.mjs node --public
       - name: Use the minimum SDK Node version
         uses: actions/setup-node@v6
         with:

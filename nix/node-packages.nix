@@ -36,24 +36,25 @@
         ++ lib.optionals pkgs.stdenv.isDarwin darwinTargets;
 
       crossPkgs = self.lib.mkCrossPkgs system nodeTargets;
-      mkNodeBindings = p: p.callPackage ./package/node.nix;
+      runtime = pkgs.callPackage ./lib/packages/ubrn.nix { };
+      mkSdkNode =
+        p:
+        p.callPackage ./package/node.nix {
+          xmtpNative = p.callPackage ./package/xmtp-sdk-native.nix { glibcVersion = "2.27"; };
+          ubrnNative = p.callPackage ./package/xmtp-sdk-node-runtime.nix {
+            ubrnSrc = runtime.src;
+            runtimeRevision = runtime.rev;
+          };
+          runtimeRevision = runtime.rev;
+        };
     in
     {
       packages = {
-        node-bindings-js = mkNodeBindings pkgs { withJs = true; };
-        node-bindings-fast = mkNodeBindings pkgs { };
-        node-bindings-test = mkNodeBindings pkgs {
-          withJs = true;
-          test = true;
-        };
+        xmtp-sdk-node-fast = mkSdkNode pkgs;
       }
       // lib.mapAttrs' (target: crossPkgs: {
         name = "xmtp-sdk-node-${pkgs.xmtp.toNapiTarget target}";
-        value = crossPkgs.callPackage ./package/xmtp-sdk-native.nix { };
-      }) crossPkgs
-      // lib.mapAttrs' (target: crossPkgs: {
-        name = "node-bindings-${pkgs.xmtp.toNapiTarget target}";
-        value = mkNodeBindings crossPkgs { };
+        value = mkSdkNode crossPkgs;
       }) crossPkgs;
     };
 }
