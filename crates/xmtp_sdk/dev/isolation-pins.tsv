@@ -19,3 +19,4 @@ bindings/node/src/client/identity.rs	888d39134a90f615c35b76c134ae964763dc35e2
 sdks/ios/VALIDATION.md	f4b7def1af650319a5e182dd0d420dca0235b368
 bindings/wasm/wasm.just	a1c580aa4e35653dd7fb890f9ed154c00756df5f
 bindings/node/src/client/inbox_state.rs	14e679f412e739080bbbe0c5640b848196b059bd
+sdks/js.just	f1868658955a40f1e3bb19ffeba9d1855084f4f1
