@@ -70,7 +70,7 @@ final class StreamLifecycleManager: @unchecked Sendable {
 
 	/// Whether the host app is currently backgrounded, or `nil` when it can't be
 	/// determined — an app extension (no app-level lifecycle to seed from) or an
-	/// unexpected runtime shape. XMTPiOS is usable from extension targets, where
+	/// unexpected runtime shape. XmtpSdk is usable from extension targets, where
 	/// `UIApplication.shared` is compile-time unavailable, so this reads the
 	/// shared application and its state dynamically and only in the app process.
 	/// Any failure returns `nil`, leaving the foreground default — it can never
