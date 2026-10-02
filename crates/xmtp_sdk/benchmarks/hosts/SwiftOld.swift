@@ -16,7 +16,7 @@ final class BenchSigner: SigningKey {
 
     func sign(_ message: String) async throws -> SignedData {
         clock.mark(); if delay > 0 {
-            try await Task.sleep(nanoseconds: try delayNanoseconds(delay))
+            try await Task.sleep(nanoseconds: delayNanoseconds(delay))
         }
         return try await SignedData(rawData: unhex(signerHelper(config, ["key": key, "text": message])["signature"]!))
     }

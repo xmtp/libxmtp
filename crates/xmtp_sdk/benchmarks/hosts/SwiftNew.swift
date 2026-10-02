@@ -20,7 +20,7 @@ final class BenchSigner: Signer, @unchecked Sendable {
 
     func sign(request: SigningRequest) async throws -> Signature {
         clock.mark(); if delay > 0 {
-            try await Task.sleep(nanoseconds: try delayNanoseconds(delay))
+            try await Task.sleep(nanoseconds: delayNanoseconds(delay))
         }
         return try await .ecdsa(unhex(signerHelper(config, ["key": key, "text": request.text])["signature"]!))
     }

@@ -128,10 +128,10 @@ export async function measure(api, fixture, state, workload, coldPath) {
         throw new Error("Stream ended with missing messages");
     })();
     await Promise.all([publisher, consumer]);
-    await stream.end();
-    stream = undefined;
     const messages = enrichLive(live, state.ids);
     const end = performance.now();
+    await stream.end();
+    stream = undefined;
     return {
       duration_ms: end - start,
       timing_window: { start_ms: start, end_ms: end },

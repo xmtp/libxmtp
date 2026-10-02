@@ -120,6 +120,11 @@ cutover-bench-check:
     cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
     cd "{{ root }}" && node crates/xmtp_sdk/benchmarks/entry_controls.mjs
     cd "{{ root }}" && node --experimental-vm-modules crates/xmtp_sdk/benchmarks/browser_window_controls.mjs
+    cd "{{ root }}" && node --experimental-vm-modules crates/xmtp_sdk/benchmarks/workload_window_controls.mjs
+
+# Compile the exact Swift delay helper with its accepted and rejected bounds.
+cutover-bench-swift-delay-check output:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/swift_delay_controls.py {{ quote(output) }}
 
 # Use the ios Nix shell. The product is an installed public Swift package.
 cutover-bench-ios-prepare config output:

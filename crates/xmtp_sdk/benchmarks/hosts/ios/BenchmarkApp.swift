@@ -24,10 +24,10 @@ func runProbe(_ config: HostConfig, _ request: [String: Any]) async throws -> [S
         throw BenchFailure(message: "Requested probe failure")
     }
     let outside = request["transport_delay_ms"] as? UInt64 ?? 0
-    try await Task.sleep(nanoseconds: try delayNanoseconds(outside))
+    try await Task.sleep(nanoseconds: delayNanoseconds(outside))
     let start = now()
     let inside = request["operation_delay_ms"] as? UInt64 ?? 0
-    try await Task.sleep(nanoseconds: try delayNanoseconds(inside))
+    try await Task.sleep(nanoseconds: delayNanoseconds(inside))
     var result: [String: Any] = ["probe": true, "duration_ms": now() - start]
     if request["probe"] as? String == "signer" {
         let account = try await signerHelper(config, [:])
