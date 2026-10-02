@@ -9,6 +9,9 @@ const CANCELLED: u8 = 1;
 const COMMIT_ADMITTED: u8 = 2;
 const HANDOFF_ADMITTED: u8 = 2;
 
+#[cfg(any(test, feature = "test-utils"))]
+type DeliveryAckObserver = Arc<dyn Fn(DeliveryAckPhase) + Send + Sync>;
+
 /// Rust-only state shared by an iterator request, its ACK and its handoff.
 /// Cancellation never waits for the database writer.
 #[derive(Default)]
@@ -16,7 +19,7 @@ pub struct DeliveryAckRequest {
     state: AtomicU8,
     handoff_state: AtomicU8,
     #[cfg(any(test, feature = "test-utils"))]
-    observer: parking_lot::Mutex<Option<Arc<dyn Fn(DeliveryAckPhase) + Send + Sync>>>,
+    observer: parking_lot::Mutex<Option<DeliveryAckObserver>>,
 }
 
 impl DeliveryAckRequest {
