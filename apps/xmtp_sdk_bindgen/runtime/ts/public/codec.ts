@@ -28,3 +28,13 @@ export type AnyContentCodec = {
   encode(value: never): EncodedContent;
   decode(encoded: EncodedContent): unknown;
 };
+
+// Internal codec instances retain the exact builtin fallback method. A subclass
+// override is not skipped, and worker-only modules have no codec dependency.
+const rustStandardFallbacks = new WeakMap<object, unknown>();
+export function registerRustStandardFallback(codec: object, fallback: unknown): void {
+  rustStandardFallbacks.set(codec, fallback);
+}
+export function usesRustStandardFallback(codec: ContentCodec<never>): boolean {
+  return rustStandardFallbacks.has(codec) && rustStandardFallbacks.get(codec) === codec.fallback;
+}

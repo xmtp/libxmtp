@@ -1,4 +1,4 @@
-import { usesRustStandardFallback } from "./codecs";
+import { usesRustStandardFallback } from "./codec";
 // The host send policy for typed codecs (Ref Public surface, Host codecs).
 // Every codec step runs before the send starts, so a failed step makes no
 // publish attempt.
