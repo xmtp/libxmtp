@@ -52,6 +52,19 @@ impl DeliveryAckRequest {
         self.state.load(Ordering::Acquire) == CANCELLED
     }
 
+    /// Admit replay progress with the same atomic order as cancellation.
+    /// Replay does not acquire a database writer or change default progress.
+    pub fn admit_replay_acknowledgement(&self) -> bool {
+        #[cfg(any(test, feature = "test-utils"))]
+        self.observe(DeliveryAckPhase::ReplayBeforeAdmission);
+        let admitted = self.admit_commit();
+        #[cfg(any(test, feature = "test-utils"))]
+        if admitted {
+            self.observe(DeliveryAckPhase::ReplayAdmitted);
+        }
+        admitted
+    }
+
     pub(crate) fn admit_commit(&self) -> bool {
         self.state
             .compare_exchange(ACTIVE, COMMIT_ADMITTED, Ordering::AcqRel, Ordering::Acquire)
@@ -76,6 +89,8 @@ impl DeliveryAckRequest {
 #[cfg(any(test, feature = "test-utils"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryAckPhase {
+    ReplayBeforeAdmission,
+    ReplayAdmitted,
     BeforeWriter,
     WriterAcquired,
     TentativeUpdate,
