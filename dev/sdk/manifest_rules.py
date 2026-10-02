@@ -2021,7 +2021,7 @@ def _classify(entry: object) -> Decision:
     }:
         target = {
             "createBackend": "Backend.connect",
-            "generateInboxId": "Client.inboxID(for:)",
+            "generateInboxId": "func generateInboxId",
             "getInboxIdForIdentifier": "Client.inboxID(for:)",
         }[name]
         return decision(

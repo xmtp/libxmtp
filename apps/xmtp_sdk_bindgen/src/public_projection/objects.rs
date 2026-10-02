@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeSet, fmt::Write as _};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use heck::ToLowerCamelCase;
 use uniffi_meta::{FnMetadata, FnParamMetadata, Metadata, MethodMetadata, Type};
 
@@ -27,6 +27,13 @@ const HOST_CLIENT_MEMBERS: &[&str] = &[
 
 /// Functions that the host runtime replaces.
 const HOST_FUNCTIONS: &[&str] = &["setLogSink"];
+
+// The pinned uint64 serializer wraps out-of-range values. Check this public
+// nonce before lowering it so the canonical Rust calculation gets the exact u64.
+const INBOX_NONCE_GUARD: &str = r#"
+if (nonce !== undefined && (typeof nonce !== "bigint" || nonce < 0n || nonce > 18446744073709551615n))
+  throw new XmtpError.InvalidArgument({ code: "InvalidArgument", category: "input", retryable: false, message: "nonce must be an unsigned 64-bit bigint" });
+"#;
 
 /// Guards that route one membership parameter. An empty list uses inbox IDs.
 /// A list that mixes inbox IDs and account identities fails before any call.
@@ -442,6 +449,16 @@ pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target)
             }
         }
     };
+    if name == "generateInboxId" {
+        if asynchronous
+            || !matches!(function.inputs.as_slice(), [identity, nonce]
+            if identity.name == "identity" && matches!(&identity.ty, Type::Record { name, .. } if name == "PublicIdentity")
+                && nonce.name == "nonce" && matches!(&nonce.ty, Type::Optional { inner_type } if matches!(inner_type.as_ref(), Type::UInt64)))
+        {
+            bail!("generateInboxId: expected a pure identity and optional u64 nonce");
+        }
+        code.push_str(INBOX_NONCE_GUARD);
+    }
     render_body(code, &call, &callee, asynchronous)?;
     code.push_str("}\n");
     Ok(())
@@ -528,7 +545,7 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
             "export { setLogSink, type LogSink } from \"./runtime/public/logging.js\";\nexport { ActionsCodec, AttachmentCodec, DeleteMessageCodec, GroupUpdatedCodec, IntentCodec, LeaveRequestCodec, MarkdownCodec, MultiRemoteAttachmentCodec, ReactionV2Codec, ReadReceiptCodec, RemoteAttachmentCodec, ReplyCodec, TextCodec, TransactionReferenceCodec, WalletSendCallsCodec } from \"./runtime/public/codecs.js\";\n"
         }
         Target::Browser => {
-            "export { setLogSink, type LogSink } from \"./runtime/public/logging.js\";\nexport type { StorageAdmin } from \"./storage-admin.gen.js\";\n"
+            "export { setLogSink, type LogSink } from \"./runtime/public/logging.js\";\nexport type { StorageAdmin } from \"./storage-admin.gen.js\";\nexport { generateInboxId } from \"../typescript-pure/index.js\";\n"
         }
         Target::Pure => unreachable!("the pure module has its own entry"),
     };
@@ -571,4 +588,65 @@ fn pure_api(items: &[&Metadata]) -> String {
         join(values),
         join(types)
     )
+}
+
+#[cfg(test)]
+mod pure_inbox_tests {
+    use super::*;
+    use uniffi_meta::{DefaultValueMetadata, LiteralMetadata};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn pure_inbox_projection_keeps_sync_optional_nonce_and_excludes_worker_dispatch() {
+        let mut nonce = FnParamMetadata::simple(
+            "nonce",
+            Type::Optional {
+                inner_type: Box::new(Type::UInt64),
+            },
+        );
+        nonce.default = Some(DefaultValueMetadata::Literal(LiteralMetadata::None));
+        let mut metadata = FnMetadata {
+            module_path: "xmtp_sdk::signer".into(),
+            name: "generate_inbox_id".into(),
+            orig_name: None,
+            is_async: false,
+            inputs: vec![
+                FnParamMetadata::simple(
+                    "identity",
+                    Type::Record {
+                        module_path: "xmtp_sdk::signer".into(),
+                        name: "PublicIdentity".into(),
+                    },
+                ),
+                nonce,
+            ],
+            return_type: Some(Type::Custom {
+                module_path: "xmtp_sdk::ids".into(),
+                name: "InboxId".into(),
+                builtin: Box::new(Type::String),
+            }),
+            throws: None,
+            checksum: None,
+            docstring: Some("@xmtp-pure".into()),
+        };
+        for target in [Target::Node, Target::Pure] {
+            let mut code = String::new();
+            function(&mut code, &metadata, target)?;
+            assert!(
+                code.contains("function generateInboxId(identity: PublicIdentity, nonce?: bigint)")
+            );
+            assert!(code.contains("typeof nonce !== \"bigint\""));
+            assert!(code.contains("nonce < 0n"));
+            assert!(code.contains("nonce > 18446744073709551615n"));
+            assert!(code.contains("B.generateInboxId("));
+            assert!(!code.contains("await"));
+            assert!(!code.contains("createInWorker"));
+        }
+        let mut worker = String::new();
+        function(&mut worker, &metadata, Target::Browser)?;
+        assert!(worker.is_empty());
+        let root = public_api(&[], Target::Browser);
+        assert!(root.contains("export { generateInboxId } from \"../typescript-pure/index.js\""));
+        metadata.inputs[1].ty = Type::Int64;
+        assert!(function(&mut String::new(), &metadata, Target::Pure).is_err());
+    }
 }

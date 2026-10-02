@@ -1,11 +1,5 @@
-use alloy::signers::local::PrivateKeySigner;
-use std::{collections::HashMap, sync::Arc};
-use xmtp_common::{MaybeSend, MaybeSync};
-use xmtp_id::associations::Identifier;
-use xmtp_id::associations::ident;
-use xmtp_id::{InboxOwner, associations::unverified::UnverifiedSignature};
-
-use crate::{XmtpError, foreign};
+use crate::{InboxId, XmtpError};
+use xmtp_id::associations::{Identifier, ident};
 
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum PublicIdentityKind {
@@ -44,193 +38,138 @@ impl From<Identifier> for PublicIdentity {
     }
 }
 
-pub(crate) fn can_message_results(
-    results: impl IntoIterator<Item = (Identifier, bool)>,
-) -> HashMap<String, bool> {
-    results
-        .into_iter()
-        .map(|(identity, available)| {
-            let key = match identity {
-                Identifier::Ethereum(ident::Ethereum(text)) => format!("ethereum:{text}"),
-                Identifier::Passkey(ident::Passkey { key, .. }) => {
-                    format!("passkey:{}", hex::encode(key))
-                }
-            };
-            (key, available)
-        })
-        .collect()
+/// Calculate an inbox ID from a public identity and a nonce.
+/// An omitted nonce is 1. This operation does not use a backend or storage.
+#[xmtp_macro::sdk_export(pure, default(nonce = None))]
+pub fn generate_inbox_id(
+    identity: PublicIdentity,
+    nonce: Option<u64>,
+) -> Result<InboxId, XmtpError> {
+    let id = identity
+        .to_core()
+        .map_err(|_| XmtpError::invalid_argument("invalid public identity"))?
+        .inbox_id(nonce.unwrap_or(1))
+        .map_err(|_| XmtpError::invalid_argument("invalid public identity"))?;
+    InboxId::try_from(id)
 }
 
+#[cfg(not(feature = "pure-only"))]
+include!("signer/live.rs");
+
 #[cfg(test)]
-mod can_message_tests {
+mod pure_identity_tests {
     use super::*;
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn result_keys_keep_identity_kind_and_core_text() -> Result<(), XmtpError> {
-        let same_text = "1111111111111111111111111111111111111111";
-        let eth = PublicIdentity {
-            identifier: same_text.into(),
-            kind: PublicIdentityKind::Ethereum,
-        }
-        .to_core()?;
-        let passkey = PublicIdentity {
-            identifier: same_text.into(),
-            kind: PublicIdentityKind::Passkey,
-        }
-        .to_core()?;
-        for (first, second) in [(true, false), (false, true)] {
-            for results in [
-                vec![(eth.clone(), first), (passkey.clone(), second)],
-                vec![(passkey.clone(), second), (eth.clone(), first)],
-            ] {
-                let keys = can_message_results(results);
-                assert_eq!(keys.len(), 2);
-                assert_eq!(
-                    keys["ethereum:1111111111111111111111111111111111111111"],
-                    first
-                );
-                assert_eq!(
-                    keys["passkey:1111111111111111111111111111111111111111"],
-                    second
-                );
+    fn pure_inbox_calculation_matches_fixed_core_vectors() -> Result<(), XmtpError> {
+        for (identifier, kind, nonce, expected) in [
+            (
+                "0xabcdef0000000000000000000000000000000000",
+                PublicIdentityKind::Ethereum,
+                0,
+                "139a684d70154ab320b846179e5219b6e2d192048577779b230763a85a28365d",
+            ),
+            (
+                "0xabcdef0000000000000000000000000000000000",
+                PublicIdentityKind::Ethereum,
+                1,
+                "f020cf771dabaf2610250b5f00076215a8f1da8649ba46cf5ba2d00df6ce5279",
+            ),
+            (
+                "0xabcdef0000000000000000000000000000000000",
+                PublicIdentityKind::Ethereum,
+                9007199254740993,
+                "7388e86684247cde39d20ef985b6999cb657325d1576c28b74670a5392228913",
+            ),
+            (
+                "0xabcdef0000000000000000000000000000000000",
+                PublicIdentityKind::Ethereum,
+                18446744073709551615,
+                "00b23df9cd0b16c488b19647e02ee5872a8c7de14d056b937d1cd1f54c4a28fc",
+            ),
+            (
+                "abcdef",
+                PublicIdentityKind::Passkey,
+                0,
+                "e26bbe40a904acb658e0dd48f4031811b662ce4e6238eef5c46f5bb92550713a",
+            ),
+            (
+                "abcdef",
+                PublicIdentityKind::Passkey,
+                1,
+                "ac9f830ae6cf2299ba293dd4cec3be0d87a88e6a8fbfe5015de6fffd11d79b6e",
+            ),
+            (
+                "abcdef",
+                PublicIdentityKind::Passkey,
+                9007199254740993,
+                "ef91da01728a1d16593d300a7a699d6a7831c43e00916a6b199f8244f207637d",
+            ),
+            (
+                "abcdef",
+                PublicIdentityKind::Passkey,
+                18446744073709551615,
+                "469fa9bb87114e117a27305350728cb2a4f85fdae9b5ccaef3b702f879dd9ae4",
+            ),
+        ] {
+            let identity = PublicIdentity {
+                identifier: identifier.into(),
+                kind,
+            };
+            assert_eq!(
+                generate_inbox_id(identity.clone(), Some(nonce))?.into_checked()?,
+                expected
+            );
+            if nonce == 1 {
+                assert_eq!(generate_inbox_id(identity, None)?.into_checked()?, expected);
             }
         }
-        let prefixed = PublicIdentity {
-            identifier: "0xABCDEF0000000000000000000000000000000000".into(),
-            kind: PublicIdentityKind::Ethereum,
-        }
-        .to_core()?;
-        let upper_passkey = PublicIdentity {
-            identifier: "ABCDEF".into(),
-            kind: PublicIdentityKind::Passkey,
-        }
-        .to_core()?;
-        let keys = can_message_results([(prefixed, true), (upper_passkey, false)]);
-        assert!(keys["ethereum:0xabcdef0000000000000000000000000000000000"]);
-        assert!(!keys["passkey:abcdef"]);
         Ok(())
     }
-}
 
-#[derive(Clone, Debug, uniffi::Enum)]
-pub enum SignerKind {
-    Eoa,
-    Scw {
-        chain_id: u64,
-        block_number: Option<u64>,
-    },
-    Passkey,
-}
-
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct SigningRequest {
-    pub text: String,
-}
-
-#[derive(Clone, Debug, uniffi::Enum)]
-pub enum Signature {
-    Ecdsa(Vec<u8>),
-    Scw {
-        bytes: Vec<u8>,
-        address: String,
-        chain_id: u64,
-        block_number: Option<u64>,
-    },
-    Passkey {
-        signature: Vec<u8>,
-        public_key: Vec<u8>,
-        authenticator_data: Vec<u8>,
-        client_data_json: Vec<u8>,
-    },
-}
-
-#[xmtp_macro::callback_error]
-#[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
-pub enum SignerError {
-    #[error("signer callback failed")]
-    Failed,
-}
-
-impl From<uniffi::UnexpectedUniFFICallbackError> for SignerError {
-    fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
-        Self::Failed
+    #[xmtp_common::test(unwrap_try = true)]
+    fn pure_inbox_calculation_keeps_identity_validation_and_full_nonce() -> Result<(), XmtpError> {
+        for identity in [
+            PublicIdentity {
+                identifier: "0xabcdef0000000000000000000000000000000000".into(),
+                kind: PublicIdentityKind::Ethereum,
+            },
+            PublicIdentity {
+                identifier: "abcdef".into(),
+                kind: PublicIdentityKind::Passkey,
+            },
+        ] {
+            let core = identity.to_core()?;
+            assert_eq!(
+                generate_inbox_id(identity.clone(), None)?.into_checked()?,
+                core.inbox_id(1).map_err(XmtpError::from_core)?
+            );
+            for nonce in [0, 1, 9_007_199_254_740_993, u64::MAX] {
+                assert_eq!(
+                    generate_inbox_id(identity.clone(), Some(nonce))?.into_checked()?,
+                    core.inbox_id(nonce).map_err(XmtpError::from_core)?
+                );
+            }
+            assert_ne!(
+                generate_inbox_id(identity.clone(), Some(0))?.into_checked()?,
+                generate_inbox_id(identity, None)?.into_checked()?
+            );
+        }
+        for (identifier, kind) in [
+            ("invalid", PublicIdentityKind::Ethereum),
+            ("not hex", PublicIdentityKind::Passkey),
+        ] {
+            assert!(matches!(
+                generate_inbox_id(
+                    PublicIdentity {
+                        identifier: identifier.into(),
+                        kind
+                    },
+                    None
+                ),
+                Err(XmtpError::InvalidArgument(_))
+            ));
+        }
+        Ok(())
     }
-}
-
-// Foreign traits need `with_foreign`, which `sdk_export` cannot emit.
-#[uniffi::export(with_foreign)]
-#[xmtp_common::async_trait]
-pub trait Signer: MaybeSend + MaybeSync + 'static {
-    async fn identity(&self) -> Result<PublicIdentity, SignerError>;
-    async fn kind(&self) -> Result<SignerKind, SignerError>;
-    async fn sign(&self, request: SigningRequest) -> Result<Signature, SignerError>;
-}
-
-struct LocalSigner(PrivateKeySigner);
-
-#[xmtp_common::async_trait]
-impl Signer for LocalSigner {
-    async fn identity(&self) -> Result<PublicIdentity, SignerError> {
-        Ok(PublicIdentity {
-            identifier: self
-                .0
-                .get_identifier()
-                .map_err(|_| SignerError::Failed)?
-                .to_string(),
-            kind: PublicIdentityKind::Ethereum,
-        })
-    }
-
-    async fn kind(&self) -> Result<SignerKind, SignerError> {
-        Ok(SignerKind::Eoa)
-    }
-
-    async fn sign(&self, request: SigningRequest) -> Result<Signature, SignerError> {
-        let UnverifiedSignature::RecoverableEcdsa(signature) = self
-            .0
-            .sign(&request.text)
-            .map_err(|_| SignerError::Failed)?
-        else {
-            return Err(SignerError::Failed);
-        };
-        Ok(Signature::Ecdsa(signature.signature_bytes().to_vec()))
-    }
-}
-
-#[xmtp_macro::sdk_export]
-pub async fn generate_local_signer() -> Arc<dyn Signer> {
-    Arc::new(LocalSigner(PrivateKeySigner::random()))
-}
-
-#[xmtp_macro::sdk_export]
-pub async fn local_signer_from_private_key(key: Vec<u8>) -> Result<Arc<dyn Signer>, XmtpError> {
-    let signer = PrivateKeySigner::from_slice(&key)
-        .map_err(|_| XmtpError::invalid("invalid local signer private key"))?;
-    Ok(Arc::new(LocalSigner(signer)))
-}
-
-pub(crate) async fn identity(
-    signer: std::sync::Arc<dyn Signer>,
-) -> Result<PublicIdentity, XmtpError> {
-    foreign::call(async move { signer.identity().await })
-        .await
-        .map_err(XmtpError::unknown)?
-        .map_err(|_| XmtpError::signer())
-}
-
-pub(crate) async fn kind(signer: std::sync::Arc<dyn Signer>) -> Result<SignerKind, XmtpError> {
-    foreign::call(async move { signer.kind().await })
-        .await
-        .map_err(XmtpError::unknown)?
-        .map_err(|_| XmtpError::signer())
-}
-
-pub(crate) async fn sign(
-    signer: std::sync::Arc<dyn Signer>,
-    request: SigningRequest,
-) -> Result<Signature, XmtpError> {
-    foreign::call(async move { signer.sign(request).await })
-        .await
-        .map_err(XmtpError::unknown)?
-        .map_err(|_| XmtpError::signer())
 }
