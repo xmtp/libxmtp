@@ -1,6 +1,6 @@
 use super::*;
 
-// verifies: DMS-017, PROC-028, PROC-034, PROC-050
+// verifies: DMS-017, PROC-052, PROC-034, PROC-050
 #[xmtp_common::test(unwrap_try = true)]
 async fn foreign_restored_dm_has_no_local_peer() {
     let alix = Client::create(crate::generate_local_signer().await, options()).await?;

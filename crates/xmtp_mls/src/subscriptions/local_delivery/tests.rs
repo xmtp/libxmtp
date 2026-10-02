@@ -10,7 +10,7 @@ use xmtp_common::{
 use xmtp_db::{ConnectionExt, Store};
 use xmtp_proto::types::Cursor;
 
-// verifies: PROC-028
+// verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn iterator_drop_retains_the_last_item_until_a_later_next_request() {
     tester!(alix);
@@ -39,7 +39,7 @@ async fn iterator_drop_retains_the_last_item_until_a_later_next_request() {
     assert_eq!(stream.next().await.unwrap()?.id, second.id);
 }
 
-// verifies: PROC-028
+// verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_callback_releases_owner_without_consuming_its_item() {
     tester!(alix);
@@ -70,7 +70,7 @@ async fn rejected_callback_releases_owner_without_consuming_its_item() {
     ));
 }
 
-// verifies: PROC-028
+// verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelling_a_pending_next_does_not_bypass_explicit_acknowledgement() {
     tester!(alix);
@@ -556,7 +556,7 @@ async fn renewal_storage_error_retains_its_cause_and_allows_a_fresh_reader() {
     assert_eq!(replacement.next_delivery().await?.unwrap().message.id, second.id);
 }
 
-// verifies: PROC-028, PROC-040
+// verifies: PROC-052, PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn sqlite_full_ack_ends_stream_without_next_handoff_and_new_stream_replays() {
     use diesel::{RunQueryDsl, connection::SimpleConnection};
@@ -792,4 +792,149 @@ async fn queued_message_that_expires_before_enrichment_is_not_delivered() {
         next.acknowledgement.enriched_message()?.metadata.id,
         retained.id
     );
+}
+
+// verifies: PROC-034, PROC-052
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 4)]
+async fn replay_cancelled_ack_keeps_same_instance_position_and_item() {
+    replay_ack_boundary(false).await?;
+}
+
+// verifies: PROC-034, PROC-052
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 4)]
+async fn replay_admitted_ack_keeps_same_instance_progress_after_cancel() {
+    replay_ack_boundary(true).await?;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn replay_ack_boundary(
+    after_admission: bool,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    use xmtp_db::delivery::acknowledgement::{DeliveryAckPhase, DeliveryAckRequest};
+    use xmtp_db::refresh_state::{EntityKind, QueryRefreshState};
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    let from = alix.context.db().current_delivery_cursor()?;
+    let first = generate_stored_msg(Cursor(100), group.group_id);
+    let second = generate_stored_msg(Cursor(200), group.group_id);
+    first.store(&alix.context.db())?;
+    second.store(&alix.context.db())?;
+    let create = || {
+        LocalDelivery::new(
+            alix.context.clone(),
+            DeliveryScope::Groups(vec![group.group_id]),
+            LocalDeliveryFilter::default(),
+            Some(from),
+            LocalDeliveryConfig::default(),
+        )
+    };
+    let mut reader = create()?;
+    let item = reader.next_delivery().await?.expect("A handoff");
+    assert_eq!(item.message.id, first.id);
+    item.acknowledgement.check_owner()?;
+    let before = alix
+        .context
+        .db()
+        .get_last_cursor(group.group_id, EntityKind::Delivery)?;
+    let request = Arc::new(DeliveryAckRequest::default());
+    let (arrived_tx, arrived_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    request.set_observer(Arc::new(move |phase| {
+        let target = if after_admission {
+            DeliveryAckPhase::ReplayAdmitted
+        } else {
+            DeliveryAckPhase::ReplayBeforeAdmission
+        };
+        if phase == target {
+            arrived_tx.send(()).unwrap();
+            release_rx
+                .lock()
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap();
+        }
+    }));
+    let retained = Arc::new(item.acknowledgement);
+    let ack = retained.clone();
+    let acknowledging = request.clone();
+    let worker = std::thread::spawn(move || ack.acknowledge_cancellable(&acknowledging));
+    arrived_rx.recv_timeout(Duration::from_secs(10))?;
+    request.cancel();
+    release_tx.send(())?;
+    let admitted = worker.join().expect("ACK thread")?;
+    let next = reader.next_delivery().now_or_never();
+    let position = reader.replay_position;
+    println!(
+        "REPLAY_CANCEL after_admission={after_admission} admitted={admitted} position_unchanged={} replacement_pending={}",
+        position == Some(from),
+        next.is_none()
+    );
+    assert_eq!(
+        admitted, after_admission,
+        "cancellation and replay ACK need one atomic order"
+    );
+    if after_admission {
+        assert_eq!(
+            next.expect("admitted replay ACK must release B")?
+                .expect("B item")
+                .message
+                .id,
+            second.id
+        );
+        assert_eq!(
+            position,
+            Some(item.cursor),
+            "admitted ACK must advance only through A"
+        );
+    } else {
+        assert_eq!(
+            position,
+            Some(from),
+            "same-instance replay position must not advance"
+        );
+        assert!(
+            matches!(
+                *reader.pending.as_ref().expect("pending A").state.lock(),
+                acknowledgement::AcknowledgementState::Dispatched
+            ),
+            "A must remain unacknowledged"
+        );
+        assert!(
+            next.is_none(),
+            "the same reader must not return B before an ACK retry"
+        );
+        assert!(retained.acknowledge_cancellable(&DeliveryAckRequest::default())?);
+        assert_eq!(
+            reader
+                .next_delivery()
+                .await?
+                .expect("ACK retry B")
+                .message
+                .id,
+            second.id
+        );
+        assert_eq!(reader.replay_position, Some(item.cursor));
+    }
+    reader.close();
+    let mut restarted = create()?;
+    assert_eq!(
+        restarted
+            .next_delivery()
+            .await?
+            .expect("restart A")
+            .message
+            .id,
+        first.id
+    );
+    restarted.close();
+    assert_eq!(
+        alix.context
+            .db()
+            .get_last_cursor(group.group_id, EntityKind::Delivery)?,
+        before,
+        "replay must not change D"
+    );
+    Ok(())
 }

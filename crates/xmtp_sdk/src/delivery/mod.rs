@@ -8,7 +8,7 @@ pub use conversation_reader::ConversationReader;
 pub use message_reader::MessageReader;
 
 #[cfg(test)]
-pub(crate) use message_reader::{HandoffGate, selection_changed};
+pub(crate) use message_reader::{AckAdmissionGate, HandoffGate, RequestGates, selection_changed};
 
 use crate::{ErrorCategory, ErrorDetails, XmtpError};
 use std::error::Error;

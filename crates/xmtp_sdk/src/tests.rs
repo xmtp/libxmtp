@@ -1,7 +1,9 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+mod reader_ack_cancellation;
 mod reader_admission;
 mod reader_restored;
+mod reader_review_regressions;
 mod reader_selection;
 
 use std::sync::{
