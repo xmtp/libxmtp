@@ -60,6 +60,7 @@
     "@types/node": "catalog:node22",
     "@vitest/coverage-v8": "catalog:",
     "fast-glob": "catalog:",
+    "protobufjs": "^7.0.0",
     "rimraf": "^6.1.2",
     "tsdown": "catalog:",
     "tsx": "catalog:",
