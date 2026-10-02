@@ -106,6 +106,44 @@ pub(crate) async fn list_local(
 
 #[xmtp_macro::sdk_export]
 impl Conversations {
+    /// Capture history with kind and consent selection. A replay `from` cursor
+    /// is invalid because this call captures a new atomic replay boundary.
+    #[uniffi::method(default(options = None))]
+    pub async fn message_history_snapshot(
+        &self,
+        limit: u32,
+        options: Option<crate::MessageReaderOptions>,
+    ) -> Result<crate::MessageHistorySnapshot, XmtpError> {
+        use xmtp_mls::subscriptions::local_delivery::{DeliveryScope, LocalDeliveryFilter};
+        let context = self.client.context.clone();
+        let client_key = self.client_key;
+        let options = options.unwrap_or_default();
+        if options.from.is_some() {
+            return Err(XmtpError::invalid_argument(
+                "history snapshot does not take a replay cursor",
+            ));
+        }
+        on_sdk_worker(self.client.context.clone(), async move {
+            let filter = LocalDeliveryFilter {
+                conversation_type: options.conversation_kind.map(|kind| match kind {
+                    crate::ConversationKind::Group => ConversationType::Group,
+                    crate::ConversationKind::Dm => ConversationType::Dm,
+                }),
+                consent_states: options
+                    .consent_states
+                    .map(|states| states.into_iter().map(Into::into).collect()),
+            };
+            crate::delivery::history_snapshot(
+                &context,
+                &DeliveryScope::All,
+                &filter,
+                limit,
+                client_key,
+            )
+        })
+        .await
+    }
+
     #[uniffi::method(default(options = None))]
     pub async fn message_reader(
         &self,

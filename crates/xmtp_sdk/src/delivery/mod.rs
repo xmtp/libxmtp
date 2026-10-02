@@ -1,10 +1,13 @@
 mod connection_state;
 mod conversation_reader;
 pub(crate) mod cursor;
+mod history;
 mod message_reader;
 
 pub use connection_state::ConnectionState;
 pub use conversation_reader::ConversationReader;
+pub use history::MessageHistorySnapshot;
+pub(crate) use history::history_snapshot;
 pub use message_reader::MessageReader;
 
 #[cfg(test)]
