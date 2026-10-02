@@ -25709,6 +25709,20 @@ public func metadataFieldRef(field: WellKnownMetadataField) -> MetadataFieldRef 
     )
 })
 }
+/**
+ * Calculate an inbox ID from a public identity and a nonce.
+ * An omitted nonce is 1. This operation does not use a backend or storage.
+ *
+ */
+public func generateInboxId(identity: PublicIdentity, nonce: UInt64? = nil)throws  -> InboxId  {
+    return try  FfiConverterTypeInboxId_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_func_generate_inbox_id(
+        FfiConverterTypePublicIdentity_lower(identity),
+        FfiConverterOptionUInt64.lower(nonce),uniffiCallStatus
+    )
+})
+}
 public func generateLocalSigner()async  -> Signer  {
     return
         try!  await uniffiRustCallAsync(
@@ -25953,6 +25967,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_metadata_field_ref() != 37889) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_func_generate_inbox_id() != 40370) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_generate_local_signer() != 36191) {
