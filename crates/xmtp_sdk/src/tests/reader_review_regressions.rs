@@ -157,3 +157,128 @@ async fn reader_review_callback_commit_failure_replays_on_same_connection() {
     assert_eq!(replay.0.id, first_id, "same connection must replay A");
     std::fs::remove_dir_all(root)?;
 }
+
+// verifies: PROC-034, PROC-052
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 4)]
+async fn reader_replay_cancel_before_ack_admission_retains_item() {
+    replay_cancel_at_ack(false).await?;
+}
+
+// verifies: PROC-034, PROC-052
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 4)]
+async fn reader_replay_cancel_after_ack_admission_keeps_progress() {
+    replay_cancel_at_ack(true).await?;
+}
+
+async fn replay_cancel_at_ack(after_admission: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use xmtp_db::delivery::acknowledgement::DeliveryAckPhase;
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let prefix_id = group.send_text("committed prefix".into(), None).await?;
+    let default = group.message_reader(None).await?;
+    let prefix = default.next().await?.expect("prefix handoff");
+    assert_eq!(prefix.0.id, prefix_id);
+    let start = prefix.0.delivery_cursor.expect("prefix cursor");
+    let first_id = group.send_text("replay A".into(), None).await?;
+    let second_id = group.send_text("replay B".into(), None).await?;
+    assert_eq!(
+        default.next().await?.expect("A after prefix ACK").0.id,
+        first_id
+    );
+    default.end().await?;
+    let reader = group
+        .message_reader(Some(crate::ConversationMessageReaderOptions {
+            from: Some(start.clone()),
+        }))
+        .await?;
+    assert_eq!(reader.next().await?.expect("A handoff").0.id, first_id);
+    let before = client
+        .inner
+        .context
+        .db()
+        .get_last_cursor(&group.inner.group_id, EntityKind::Delivery)?
+        .0;
+    let held = Arc::new(reader::AckAdmissionGate {
+        arrived: Notify::new(),
+        released: parking_lot::Mutex::new(false),
+        wake: parking_lot::Condvar::new(),
+    });
+    let observed = Arc::new(AtomicBool::new(false));
+    let admitted = observed.clone();
+    let gate = held.clone();
+    let settled = Arc::new(Notify::new());
+    {
+        let mut gates = reader.request_gates.lock();
+        gates.settled = Some(settled.clone());
+        gates.ack_observer = Some(Arc::new(move |phase| {
+            if phase == DeliveryAckPhase::ReplayAdmitted {
+                admitted.store(true, Ordering::Release);
+            }
+            let target = if after_admission {
+                DeliveryAckPhase::ReplayAdmitted
+            } else {
+                DeliveryAckPhase::ReplayBeforeAdmission
+            };
+            if phase == target {
+                gate.wait();
+            }
+        }));
+    }
+    let reading = reader.clone();
+    let next = tokio::spawn(async move { reading.next().await });
+    xmtp_common::time::timeout(Duration::from_secs(10), held.arrived.notified()).await?;
+    next.abort();
+    assert!(
+        next.await.unwrap_err().is_cancelled(),
+        "outer read must cancel without B handoff"
+    );
+    assert!(
+        reader
+            .request_cancel
+            .lock()
+            .as_ref()
+            .expect("request token")
+            .is_cancelled()
+    );
+    *held.released.lock() = true;
+    held.wake.notify_all();
+    xmtp_common::time::timeout(Duration::from_secs(10), settled.notified()).await?;
+    *reader.request_gates.lock() = reader::RequestGates::default();
+    let resumed = xmtp_common::time::timeout(Duration::from_secs(10), reader.next())
+        .await??
+        .expect("same-reader retry");
+    reader.end().await?;
+    let restarted = group
+        .message_reader(Some(crate::ConversationMessageReaderOptions {
+            from: Some(start),
+        }))
+        .await?;
+    let replay = restarted.next().await?.expect("app-cursor restart A");
+    restarted.end().await?;
+    let after = client
+        .inner
+        .context
+        .db()
+        .get_last_cursor(&group.inner.group_id, EntityKind::Delivery)?
+        .0;
+    client.end().await?;
+    println!(
+        "REPLAY_ACK after_admission={after_admission} admitted={} same_reader_b={} restart_a={} d_before={before} d_after={after}",
+        observed.load(Ordering::Acquire),
+        resumed.0.id == second_id,
+        replay.0.id == first_id
+    );
+    assert_eq!(
+        observed.load(Ordering::Acquire),
+        after_admission,
+        "cancellation and replay ACK need one atomic order"
+    );
+    assert_eq!(
+        resumed.0.id, second_id,
+        "a new app request can acknowledge A and resume at B"
+    );
+    assert_eq!(replay.0.id, first_id, "app-cursor restart must replay A");
+    assert_eq!(after, before, "replay must not change default D");
+    Ok(())
+}
