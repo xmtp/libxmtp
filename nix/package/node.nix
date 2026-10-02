@@ -1,126 +1,71 @@
 {
-  xmtp,
-  cacert,
+  runCommand,
   lib,
   stdenv,
+  xmtpNative,
+  ubrnNative,
+  runtimeRevision,
+  jq,
   darwin,
-  cargo-zigbuild,
-  test ? false,
-  withJs ? false,
+  patchelf,
 }:
 let
-  inherit (xmtp) craneLib;
-  inherit (lib.fileset) unions;
-  inherit (craneLib.fileset) commonCargoSources;
-  # p is important here, since crane splices packages according to host/build platform
-  # so it must be used to create the right toolchain for the platform.
-  rust-toolchain = p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ ];
-
-  isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
-
-  # overrideToolchain accepts a function that accepts `p` a pkg set
-  rust = craneLib.overrideToolchain rust-toolchain;
-  root = ./../..;
-  src = lib.fileset.toSource {
-    inherit root;
-    fileset = unions [
-      xmtp.filesets.libraries
-      (commonCargoSources (root + /bindings/node))
-      (root + /bindings/node/package.json)
-    ];
-  };
-  maybeTestFeature = if test then "--features test-utils" else "";
-  version = xmtp.mkVersion rust;
-  targetGlibcVersion = if isGnu then "2.27" else null;
-
-  specialArgs =
-    lib.optionalAttrs stdenv.hostPlatform.isMusl {
-      # Use -crt-static to allow cdylib output on musl targets.
-      RUSTFLAGS = "-C target-feature=-crt-static";
-    }
-    // lib.optionalAttrs isGnu {
-      # overwrite build target for glibc
-      CARGO_BUILD_TARGET = "${stdenv.hostPlatform.rust.rustcTarget}.${targetGlibcVersion}";
-    };
-
-  commonArgs =
-    xmtp.base.commonArgs
-    // {
-      inherit version;
-    }
-    // specialArgs;
-
-  cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
-    specialArgs
-    // lib.optionalAttrs isGnu {
-      # override everything for glibc compatibility
-      preBuild = "export HOME=$TMPDIR";
-      nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [ cargo-zigbuild ];
-      # the glibc-suffixed target must go through zigbuild's --target, which strips the suffix before rustc sees it
-      buildPhaseCargoCommand = "cargo zigbuild ${maybeTestFeature} --profile $CARGO_PROFILE --target ${specialArgs.CARGO_BUILD_TARGET} --locked";
-    }
-  );
-
+  target = stdenv.hostPlatform.rust.rustcTarget;
+  napiTarget = {
+    aarch64-apple-darwin = "darwin-arm64";
+    x86_64-apple-darwin = "darwin-x64";
+    aarch64-unknown-linux-gnu = "linux-arm64-gnu";
+    x86_64-unknown-linux-gnu = "linux-x64-gnu";
+    aarch64-unknown-linux-musl = "linux-arm64-musl";
+    x86_64-unknown-linux-musl = "linux-x64-musl";
+    x86_64-pc-windows-msvc = "win32-x64-msvc";
+  }.${target};
+  addon = "uniffi-runtime-napi.${napiTarget}.node";
+  library = if stdenv.hostPlatform.isDarwin then "libxmtp_sdk.dylib" else "libxmtp_sdk.so";
 in
-rust.napiBuild (
-  commonArgs
-  // {
-    inherit src cargoArtifacts;
-    SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
-    NODE_EXTRA_CA_CERTS = "${cacert}/etc/ssl/certs/ca-bundle.crt";
-    napiExtraArgs = "-p bindings_node ${maybeTestFeature} --package-json-path ${src}/bindings/node/package.json";
-    pname = "bindings-node-js";
-    doInstallCargoArtifacts = false;
-    napiGenerateJs = withJs;
-    zigBuild = isGnu;
+runCommand "xmtp-sdk-node-${napiTarget}"
+  {
+    nativeBuildInputs = [ jq ]
+      ++ lib.optionals stdenv.hostPlatform.isMusl [ patchelf ]
+      ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.autoSignDarwinBinariesHook ];
   }
-  // lib.optionalAttrs stdenv.hostPlatform.isMusl {
-    # remove nix specific rpaths for compatibility with musl dynamic linker
-    postFixup = ''
-      patchelf --remove-rpath $out/dist/bindings_node.*.node
-    '';
-  }
-  // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
-    nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
-      darwin.autoSignDarwinBinariesHook
-    ];
-    postFixup = ''
-      NODE_LIB=$(echo $out/dist/bindings_node.*.node)
-
-      # Rewrite the dylib's own install name (LC_ID_DYLIB) so consumers
-      # resolve it relative to the .node file, not the Nix build path.
-      install_name_tool -id "@loader_path/$(basename $NODE_LIB)" "$NODE_LIB"
-
-      # Rewrite every /nix/store/.../libiconv.<ver>.dylib load reference
-      # to the macOS system copy. Using otool -L output as the source of
-      # truth is drift-proof — we rewrite whatever the linker actually
-      # recorded, not whatever Nix evaluation resolves darwin.libiconv to.
-      # Cross-compile splicing in mkCrossPkgs was causing the two to
-      # diverge, silently defeating a hardcoded `install_name_tool -change`.
-      # See https://github.com/xmtp/libxmtp/issues/3516.
-      # NR > 1 skips otool -L's header line (the file's own id).
-      otool -L "$NODE_LIB" \
+  (''
+    test "$(jq -r .revision ${ubrnNative}/runtime-provenance.json)" = '${runtimeRevision}'
+    test "$(jq -r .target ${ubrnNative}/runtime-provenance.json)" = '${target}'
+    test "$(jq -r .addon ${ubrnNative}/runtime-provenance.json)" = '${addon}'
+    test "$(jq -r .schema ${ubrnNative}/runtime-provenance.json)" = 1
+    mkdir -p "$out/lib" "$out/runtime"
+    cp ${xmtpNative}/lib/${library} "$out/lib/${library}"
+    cp ${xmtpNative}/native-provenance.json "$out/native-provenance.json"
+    cp ${ubrnNative}/${addon} "$out/runtime/${addon}"
+    cp ${ubrnNative}/runtime-provenance.json "$out/runtime/runtime-provenance.json"
+    chmod u+w "$out/lib/${library}" "$out/runtime/${addon}"
+  ''
+  + lib.optionalString stdenv.hostPlatform.isMusl ''
+    patchelf --remove-rpath "$out/lib/${library}"
+    patchelf --remove-rpath "$out/runtime/${addon}"
+  ''
+  + lib.optionalString stdenv.hostPlatform.isDarwin ''
+    for binary in "$out/lib/${library}" "$out/runtime/${addon}"; do
+      if otool -l "$binary" | awk '/cmd LC_ID_DYLIB/ { found=1 } END { exit !found }'; then
+        install_name_tool -id "@loader_path/$(basename "$binary")" "$binary"
+      fi
+      otool -L "$binary" \
         | awk 'NR > 1 && $1 ~ /^\/nix\/store\/.*\/libiconv(\.[0-9]+)*\.dylib$/ { print $1 }' \
         | while read -r old; do
-          install_name_tool -change "$old" "/usr/lib/$(basename "$old")" "$NODE_LIB"
+          install_name_tool -change "$old" "/usr/lib/$(basename "$old")" "$binary"
         done
-
-      # install_name_tool invalidates the ad-hoc signature; re-sign with the
-      # `sign` function from signingUtils (sourced via autoSignDarwinBinariesHook),
-      # which sets CODESIGN_ALLOCATE — bare sigtool codesign aborts now that
-      # nixpkgs' darwin stdenv no longer puts cctools on PATH. See #3513.
-      sign "$NODE_LIB"
-
-      # Assert no /nix/store references remain — guards against silent
-      # no-ops in the rewrites above and catches the 1.10.0 regression.
-      # See https://github.com/xmtp/libxmtp/issues/3479.
-      # NR > 1 skips otool -L's header line (the file's own /nix/store path).
-      remaining=$(otool -L "$NODE_LIB" | awk 'NR > 1 && $1 ~ /^\/nix\/store\// { print $1 }')
-      if [ -n "$remaining" ]; then
-        echo "error: $NODE_LIB still references /nix/store after postFixup:" >&2
-        echo "$remaining" >&2
+      otool -l "$binary" \
+        | awk '/cmd LC_RPATH/ { rpath=1; next } rpath && $1 == "path" { if ($2 ~ /^\/nix\/store\//) print $2; rpath=0 }' \
+        | while read -r old; do
+          install_name_tool -delete_rpath "$old" "$binary"
+        done
+      sign "$binary"
+      remaining=$(otool -L "$binary" | awk 'NR > 1 && $1 ~ /^\/nix\/store\// { print $1 }')
+      rpaths=$(otool -l "$binary" | awk '/cmd LC_RPATH/ { rpath=1; next } rpath && $1 == "path" { if ($2 ~ /^\/nix\/store\//) print $2; rpath=0 }')
+      if [ -n "$remaining$rpaths" ]; then
+        echo "error: $binary retains a Nix load path or rpath" >&2
         exit 1
       fi
-    '';
-  }
-)
+    done
+  '')
