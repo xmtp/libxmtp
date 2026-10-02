@@ -99,6 +99,7 @@ let
       export DEVELOPER_DIR="$_XCODE_DEV"
       export SDKROOT="$_XCODE_DEV/${effectiveSdkSuffix}"
       export IPHONEOS_DEPLOYMENT_TARGET="14"
+      export MACOSX_DEPLOYMENT_TARGET="11.0"
       export PATH="$_XCODE_DEV/usr/bin:$PATH"
 
       # Always use Xcode's clang directly for ALL targets (not just iOS). Even for
@@ -145,6 +146,7 @@ let
 
     export DEVELOPER_DIR="$_XCODE_DEV"
     export IPHONEOS_DEPLOYMENT_TARGET="14"
+    export MACOSX_DEPLOYMENT_TARGET="11.0"
     _XCODE_CLANG="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
     _XCODE_CLANGXX="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
     # Keep the host compiler and linker with the selected Xcode SDK. Nix's
