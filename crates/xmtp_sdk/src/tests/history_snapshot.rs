@@ -2,6 +2,146 @@ use super::*;
 use futures::FutureExt;
 use xmtp_db::delivery::QueryDelivery;
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn history_snapshot_keeps_valid_rows_and_warns_without_content() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+    use xmtp_logging::{Level, test_logging::LogCapture};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let good = group.send_text("valid row".into(), None).await?;
+    let bad = group
+        .send_text("sensitive-history-content".into(), None)
+        .await?;
+    let unknown = group.send_text("malformed content".into(), None).await?;
+    let bad_bytes = bad.to_bytes()?;
+    let unknown_bytes = unknown.to_bytes()?;
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&bad_bytes)))
+            .set(dsl::sender_inbox_id.eq(""))
+            .execute(conn)?;
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&unknown_bytes)))
+            .set(dsl::decrypted_message_bytes.eq(vec![0xff]))
+            .execute(conn)
+    })?;
+    let snapshot = group.message_history_snapshot(128).await?;
+    assert!(snapshot.messages.iter().any(|message| message.0.id == good));
+    assert!(!snapshot.messages.iter().any(|message| message.0.id == bad));
+    let malformed = snapshot
+        .messages
+        .iter()
+        .find(|message| message.0.id == unknown)
+        .expect("malformed content must remain in the snapshot");
+    assert!(matches!(
+        malformed.0.content,
+        MessageContent::Unknown { .. }
+    ));
+    assert_eq!(malformed.0.raw_bytes, [0xff]);
+    let boundary = client.inner.context.db().current_delivery_cursor()?;
+    assert_eq!(crate::delivery::cursor::parse(&snapshot.cursor)?, boundary);
+
+    let capture = LogCapture::new(Level::Warn);
+    let lifted = tracing::dispatcher::with_default(&capture.dispatch(), || {
+        crate::delivery::history_snapshot(
+            &client.inner.context,
+            &xmtp_mls::subscriptions::local_delivery::DeliveryScope::Groups(vec![
+                group.inner.group_id,
+            ]),
+            &Default::default(),
+            128,
+            client.client_key(),
+        )
+    })?;
+    assert_eq!(lifted.messages.len(), snapshot.messages.len());
+    let output = capture.output();
+    let warnings = output
+        .lines()
+        .filter(|line| line.contains("skipping stored message"))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
+    let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
+    assert_eq!(warning["message_id"], bad.checked()?);
+    assert!(
+        warning["error"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty())
+    );
+    assert!(!output.contains("sensitive-history-content"));
+    client.end().await?;
+}
+
+// verifies: DMS-009, DMS-016, PROC-034
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_history_snapshot_reads_both_physical_groups_and_replays_after_boundary() {
+    let a = Client::create(crate::generate_local_signer().await, options()).await?;
+    let b = Client::create(crate::generate_local_signer().await, options()).await?;
+    let first = a.conversations().create_dm(b.inbox_id(), None).await?;
+    let first_id = first.send_text("first physical group".into(), None).await?;
+    let second = b.conversations().create_dm(a.inbox_id(), None).await?;
+    let second_id = second
+        .send_text("second physical group".into(), None)
+        .await?;
+    assert_ne!(first.id(), second.id());
+    a.conversations().sync_all(None).await?;
+    b.conversations().sync_all(None).await?;
+    let winner = a
+        .conversations()
+        .get_dm_by_inbox_id(b.inbox_id())
+        .await?
+        .expect("stitched DM");
+    let mut physical = winner.duplicate_dms().await?;
+    physical.push(winner.clone());
+    assert_eq!(physical.len(), 2);
+    let boundary = a.inner.context.db().current_delivery_cursor()?;
+    let mut previous = None;
+    for dm in &physical {
+        let snapshot = dm.message_history_snapshot(2).await?;
+        let ids = snapshot
+            .messages
+            .iter()
+            .map(|message| message.0.id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, [first_id.clone(), second_id.clone()]);
+        assert_eq!(crate::delivery::cursor::parse(&snapshot.cursor)?, boundary);
+        let rows = snapshot
+            .messages
+            .iter()
+            .map(|message| {
+                crate::delivery::cursor::parse(
+                    message.0.delivery_cursor.as_ref().expect("row cursor"),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        assert!(rows[0].delivery_sequence < rows[1].delivery_sequence);
+        if let Some(expected) = &previous {
+            assert_eq!(&rows, expected);
+        }
+        previous = Some(rows);
+        let latest = dm.message_history_snapshot(1).await?;
+        assert_eq!(latest.messages.len(), 1);
+        assert_eq!(latest.messages[0].0.id, second_id);
+    }
+    let late = winner.send_text("after the boundary".into(), None).await?;
+    for dm in &physical {
+        let reader = dm
+            .message_reader(Some(crate::ConversationMessageReaderOptions {
+                from: Some(crate::delivery::cursor::encode(boundary)),
+            }))
+            .await?;
+        let message = tokio::time::timeout(Duration::from_secs(2), reader.next())
+            .await??
+            .expect("new row after the snapshot");
+        assert_eq!(message.0.id, late);
+        let cursor = crate::delivery::cursor::parse(
+            message.0.delivery_cursor.as_ref().expect("row cursor"),
+        )?;
+        assert!(cursor.delivery_sequence > boundary.delivery_sequence);
+        reader.end().await?;
+    }
+    a.end().await?;
+    b.end().await?;
+}
+
 // verifies: DMS-016
 #[xmtp_common::test(unwrap_try = true)]
 async fn history_snapshot_routes_recent_rows_and_global_atomic_boundary() {

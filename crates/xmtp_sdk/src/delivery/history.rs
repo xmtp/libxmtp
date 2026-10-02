@@ -1,6 +1,6 @@
 use xmtp_mls::subscriptions::local_delivery::{DeliveryScope, LocalDelivery, LocalDeliveryFilter};
 
-use crate::{Message, XmtpError};
+use crate::{Message, XmtpError, conversation::lift_history_messages};
 
 /// Retained messages and their replay boundary from one database snapshot.
 #[derive(Clone, Debug, uniffi::Record)]
@@ -19,14 +19,7 @@ pub(crate) fn history_snapshot(
     // implements: DMS-016
     let snapshot = LocalDelivery::enriched_history_snapshot(context, scope, filter, limit)
         .map_err(super::delivery_error)?;
-    let messages = snapshot
-        .messages
-        .into_iter()
-        .map(|row| {
-            Message::from_enriched(row.stored, row.decoded, row.parent_stored, client_key)
-                .map(|message| message.with_delivery_cursor(row.delivery_cursor))
-        })
-        .collect::<Result<_, _>>()?;
+    let messages = lift_history_messages(snapshot.messages, client_key);
     Ok(MessageHistorySnapshot {
         messages,
         cursor: super::cursor::encode(snapshot.cursor),
