@@ -108,6 +108,7 @@ check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-staging.py
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-package-smoke-path.mjs
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-node-platforms.mjs
+    cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-stamp-package.mjs
 
 # Use the matching ios or android Nix shell. This does not switch a shipped SDK.
 mobile-build target:
