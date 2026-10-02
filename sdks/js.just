@@ -62,7 +62,7 @@ test-node-sdk-ci *args="": build-node-sdk
     {{ _env }} && pnpm --filter @xmtp/node-sdk run test {{ args }}
 
 # CI: browser-sdk tests (Playwright). Bindings are a nix cache hit (test-wasm).
-test-browser-sdk-ci *args="": bindings
+test-browser-sdk-ci *args="": bindings-wasm
     {{ _env }} && pnpm --filter @xmtp/browser-sdk run test {{ args }}
 
 # CI: agent-sdk tests. Runs against the local node-sdk (workspace dependency),
