@@ -462,10 +462,8 @@ where
                 if is_external {
                     log_incoming_preference_updates(&updates);
                 }
-                tracing::info!(
-                    "{} storing preference updates",
-                    self.context.installation_id()
-                );
+                // implements: PROC-036
+                tracing::info!(update_count = updates.len(), "storing preference updates");
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                 crate::state_tx::state_write_with_events(
                     self.context.mls_storage(),

@@ -169,6 +169,21 @@ pub fn remote_attachment_from_encrypted(
     encrypted_encoded_content: EncryptedEncodedContent,
     filename: Option<String>,
 ) -> Result<RemoteAttachment, crate::XmtpError> {
+    use xmtp_content_types::encryption::{AES_GCM_NONCE_SIZE, HKDF_SALT_SIZE, SECRET_SIZE};
+
+    let keys = &encrypted_encoded_content.keys;
+    // implements: CTYPE-015
+    for (name, actual, expected) in [
+        ("secret", keys.secret.len(), SECRET_SIZE),
+        ("salt", keys.salt.len(), HKDF_SALT_SIZE),
+        ("nonce", keys.nonce.len(), AES_GCM_NONCE_SIZE),
+    ] {
+        if actual != expected {
+            return Err(crate::XmtpError::invalid_argument(format!(
+                "attachment {name} must contain {expected} bytes"
+            )));
+        }
+    }
     let scheme = xmtp_attachments::check_content_url(&url)
         .map_err(|error| crate::XmtpError::invalid_argument(error.to_string()))?;
     let content_length =
