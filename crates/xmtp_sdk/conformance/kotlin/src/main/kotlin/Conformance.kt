@@ -188,6 +188,7 @@ fun main() =
         checkCredentialDisplayRedactsToken()
         checkConfigurationDiscoveryDoesNotCallCredentials(backendOptions)
         checkStoragePoolOptionsCrossTheNativeBoundary(backendOptions)
+        checkStorageReconnectAndRebuildKeepHistory(backendOptions)
         checkConfigurationRefreshKeepsTheHeldSnapshot(backendOptions)
         checkReaderCollectorBoundarySurvivesDatabaseReopen(backendOptions)
         checkEndedClientCannotHandOffReaderValues(backendOptions)

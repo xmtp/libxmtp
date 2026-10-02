@@ -11,6 +11,7 @@ internal suspend fun runRetainedConformanceCase(name: String, backend: BackendOp
         "configuration-fields" -> checkNativeConfigurationRecordProjection()
         "pure-inbox-id" -> checkPureInboxIdCalculation()
         "pool" -> checkStoragePoolOptionsCrossTheNativeBoundary(backend)
+        "storage-reconnect" -> checkStorageReconnectAndRebuildKeepHistory(backend)
         "configuration-refresh" -> checkConfigurationRefreshKeepsTheHeldSnapshot(backend)
         "reader-boundary" -> checkReaderCollectorBoundarySurvivesDatabaseReopen(backend)
         "reader-ended-owner" -> checkEndedClientCannotHandOffReaderValues(backend)
