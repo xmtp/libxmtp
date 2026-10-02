@@ -795,18 +795,23 @@ async fn queued_message_that_expires_before_enrichment_is_not_delivered() {
 }
 
 // verifies: PROC-034, PROC-052
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 4)]
 async fn replay_cancelled_ack_keeps_same_instance_position_and_item() {
     replay_ack_boundary(false).await?;
 }
 
 // verifies: PROC-034, PROC-052
+#[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 4)]
 async fn replay_admitted_ack_keeps_same_instance_progress_after_cancel() {
     replay_ack_boundary(true).await?;
 }
 
-async fn replay_ack_boundary(after_admission: bool) -> Result<(), Box<dyn std::error::Error>> {
+#[cfg(not(target_arch = "wasm32"))]
+async fn replay_ack_boundary(
+    after_admission: bool,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
     use xmtp_db::delivery::acknowledgement::{DeliveryAckPhase, DeliveryAckRequest};
     use xmtp_db::refresh_state::{EntityKind, QueryRefreshState};
     tester!(alix);
