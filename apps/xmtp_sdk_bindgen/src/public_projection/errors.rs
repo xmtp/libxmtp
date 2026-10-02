@@ -2,7 +2,7 @@
 //!
 //! A binding error enum whose every variant carries `ErrorDetails` first
 //! becomes a public error class with plain `details` and one subclass per
-//! code, so `instanceof` still works. A variant can carry more unnamed fields
+//! variant, so `instanceof` still works. A variant can carry more unnamed fields
 //! after its details; its subclass exposes each one as a readonly property
 //! named after the field's type, for example `attachmentFailure`. No binding
 //! error class reaches the public API.
@@ -69,10 +69,10 @@ fn class(code: &mut String, value: &EnumMetadata) -> Result<()> {
     let name = &value.name;
     writeln!(
         code,
-        "/** A failure from the XMTP SDK. Its subclass names the code in `details.code`. */\nexport class {name} extends Error {{\n  readonly details: ErrorDetails;\n  constructor(details: ErrorDetails) {{\n    super(details.message);\n    this.name = `{name}.${{details.code}}`;\n    this.details = details;\n  }}"
+        "/** A failure from the XMTP SDK. Its subclass names the failure variant. `details.code` keeps the Rust cause code. */\nexport class {name} extends Error {{\n  readonly details: ErrorDetails;\n  constructor(details: ErrorDetails) {{\n    super(details.message);\n    this.name = `{name}.${{details.code}}`;\n    this.details = details;\n  }}"
     )?;
-    // Each code has its own named subclass, so `instanceof` narrows to that
-    // code and keeps the other codes. The subclasses are module-private and
+    // Each variant has its own named subclass. The details keep the Rust
+    // cause code, which can differ from the variant name. The subclasses are module-private and
     // declared after the base class, which keeps the declarations small.
     for variant in &value.variants {
         writeln!(
@@ -86,7 +86,7 @@ fn class(code: &mut String, value: &EnumMetadata) -> Result<()> {
         let v = &variant.name;
         writeln!(
             code,
-            "class {name}{v} extends {name} {{\n  declare readonly details: ErrorDetails & {{ readonly code: \"{v}\" }};"
+            "class {name}{v} extends {name} {{"
         )?;
         let extras = extra_fields(variant)?;
         if !extras.is_empty() {
