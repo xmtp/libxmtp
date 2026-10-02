@@ -60,7 +60,9 @@ If you want to inspect the database visually, you can use [DB Browser for SQLite
 
 ## Create a client
 
-`Client.create()` takes a signer and a `backendUrl`. The remaining options are optional except for the database encryption key on Kotlin and Swift.
+`Client.create()` takes a signer and a `backendUrl` on JavaScript and Kotlin.
+Swift uses `SDKClient.create(signer:options:)` with `BackendOptions` and
+`StorageOptions`. Use the platform example below.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -103,6 +105,11 @@ let client = try await SDKClient.create(signer: signingKey, options: options)
 </Tabs>
 
 ### Client options
+
+The table below describes JavaScript and Kotlin options. Swift uses the
+`ClientOptions` record. Set `backend` to `.options(options: BackendOptions(...))`
+and set the database location and key through `storage`. `allowOffline` selects
+offline build behavior. Pass custom codecs to the create or build method.
 
 | Option                                                           | Default                                | Purpose                                                               |
 | ---------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------- |
@@ -234,11 +241,14 @@ cache. See [backend auth configuration](/get-started/run-the-backend/#auth).
 
 Build, or resume, an existing client (created using [`Client.create()`](#create-a-client)) that's logged in and has an existing local database.
 
-For Android and iOS SDKs, when building a client with an existing `inboxId`, the client automatically operates in offline mode since no backend request is needed to check the identity ledger. In offline mode, the client:
+For the Kotlin SDK, when building a client with an existing `inboxId`, the client automatically operates in offline mode since no backend request is needed to check the identity ledger. In offline mode, the client:
 
 - Skips all backend requests, including preference sync and inbox validation
 - Works entirely from the local database
 - Can be synchronized later with `syncAllConversations()` or by recreating the client without the offline flag
+
+For Swift, set `ClientOptions.allowOffline` explicitly when local-only build
+behavior is required. An `inboxId` alone does not select offline mode.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
