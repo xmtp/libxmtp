@@ -76,6 +76,11 @@ it.each(["end", "abort", "client-end"] as const)(
         "late native reader",
         undefined,
       );
+      const history = await nativeGroup.messageHistorySnapshot(128);
+      const firstPosition = history.messages.findIndex(
+        (message) => message.id.toString() === messageId.toString(),
+      );
+      expect(firstPosition).toBeGreaterThanOrEqual(0);
       type NativeReader = Awaited<ReturnType<typeof nativeGroup.messageReader>>;
       let replacement: Promise<NativeReader> | undefined;
       const openNative = async (signal?: AbortSignal) => {
@@ -89,11 +94,20 @@ it.each(["end", "abort", "client-end"] as const)(
       stream = new ReaderStream(
         async (signal) => {
           const reader = await openNative(signal);
+          // Drain the exact creation-history prefix before the target item.
+          let item = await reader.next({ signal });
+          for (let position = 0; position <= firstPosition; position++) {
+            if (position > 0) item = await reader.next({ signal });
+            expect(item?.id.toString()).toBe(
+              history.messages[position]?.id.toString(),
+            );
+            expect(item?.deliveryCursor).toEqual(
+              history.messages[position]?.deliveryCursor,
+            );
+          }
           // A real native handoff holds the scope and leaves this item
           // unacknowledged. The host has not received the reader or value.
-          expect((await reader.next({ signal }))?.id.toString()).toBe(
-            messageId.toString(),
-          );
+          expect(item?.id.toString()).toBe(messageId.toString());
           acquired.resolve();
           await release.promise;
           return {
