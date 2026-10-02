@@ -310,7 +310,7 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
                     now_ns,
                 )?;
             }
-            Ok(!request.is_some_and(DeliveryAckRequest::is_cancelled))
+            Ok(request.is_none_or(DeliveryAckRequest::admit_replay_acknowledgement))
         });
         match result {
             Err(LocalDeliveryError::SelectionChanged) => Err(LocalDeliveryError::SelectionChanged),
