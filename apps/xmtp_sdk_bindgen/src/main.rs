@@ -159,9 +159,9 @@ fn generate(
                 let binding = out.join("xmtp_sdk.swift");
                 fs::write(
                     &binding,
-                    native_visibility::swift(&logging_admission::swift(&fs::read_to_string(
-                        &binding,
-                    )?)?)?,
+                    format::swift_trailing_whitespace(&native_visibility::swift(
+                        &logging_admission::swift(&fs::read_to_string(&binding)?)?,
+                    )?),
                 )?;
             }
         }
