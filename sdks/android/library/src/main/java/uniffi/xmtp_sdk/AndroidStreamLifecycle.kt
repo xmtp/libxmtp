@@ -1,7 +1,5 @@
 package uniffi.xmtp_sdk
 
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
@@ -10,6 +8,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 
 /**
  * Keep the shared transport in step with the process lifecycle.
@@ -20,28 +19,31 @@ object AndroidStreamLifecycle {
     @Volatile
     var enabled: Boolean = true
 
-    private val lock = Any()
-    private var registered = false
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val controller =
-        StreamLifecycleController(CoroutineScope(SupervisorJob() + Dispatchers.IO), apply = { live ->
+        StreamLifecycleController(scope, apply = { live ->
             if (live) resumeStreams() else suspendStreams()
         }, report = { error -> Log.w("XMTP", "Stream lifecycle transition failed", error) })
+    private val startup =
+        StreamLifecycleStartup(scope, controller) { setLive ->
+            withContext(Dispatchers.Main.immediate) {
+                val lifecycle = ProcessLifecycleOwner.get().lifecycle
+                lifecycle.addObserver(
+                    object : DefaultLifecycleObserver {
+                        override fun onStart(owner: LifecycleOwner) = setLive(true)
+
+                        override fun onStop(owner: LifecycleOwner) = setLive(false)
+                    },
+                )
+                lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            }
+        }
 
     fun enable() {
-        synchronized(lock) {
-            if (!enabled || registered) return
-            registered = true
-        }
-        Handler(Looper.getMainLooper()).post {
-            val lifecycle = ProcessLifecycleOwner.get().lifecycle
-            lifecycle.addObserver(
-                object : DefaultLifecycleObserver {
-                    override fun onStart(owner: LifecycleOwner) = controller.setLive(true)
+        if (enabled) startup.enable()
+    }
 
-                    override fun onStop(owner: LifecycleOwner) = controller.setLive(false)
-                },
-            )
-            controller.setLive(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-        }
+    internal suspend fun awaitReady() {
+        if (enabled) startup.awaitReady()
     }
 }

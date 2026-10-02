@@ -19,7 +19,7 @@ suspend fun SDKClient.Companion.create(
     options: ClientOptions,
     codecs: List<ContentCodec<*>> = emptyList(),
 ): SDKClient {
-    AndroidStreamLifecycle.enable()
+    AndroidStreamLifecycle.awaitReady()
     return create(signer, androidOptions(context.applicationContext, options), codecs = codecs)
 }
 
@@ -31,6 +31,6 @@ suspend fun SDKClient.Companion.build(
     inboxId: InboxId? = null,
     codecs: List<ContentCodec<*>> = emptyList(),
 ): SDKClient {
-    AndroidStreamLifecycle.enable()
+    AndroidStreamLifecycle.awaitReady()
     return build(identity, androidOptions(context.applicationContext, options), inboxId, codecs = codecs)
 }
