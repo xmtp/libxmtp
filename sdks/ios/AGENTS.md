@@ -17,11 +17,14 @@ dev/nix-shell 'just ios test-simulator "platform=iOS Simulator,name=iPhone 17"'
 dev/nix-shell 'just ios docs'
 NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XmtpSdkTests.RetainedBehaviorTests/testRemoteAttachmentLength'
 NIX_DEVSHELL=ios dev/nix-shell 'ruby sdks/ios/script/test_podspec.rb'
+dev/nix-shell 'python3 sdks/ios/script/test_recipes.py'
 ```
 
 The podspec test needs an existing Ruby runtime with `cocoapods-core`. Use the
 same Ruby runtime as CocoaPods. It checks source selection, invalid receipts,
 and simulator exclusions. It does not install or download a pod.
+
+The recipe test checks the real Just commands without compiling the SDK.
 
 ## Rules
 

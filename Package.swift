@@ -12,7 +12,8 @@ if FileManager.default.fileExists(atPath: root.appendingPathComponent(localFrame
     let receipt = root.appendingPathComponent("sdks/ios/ReleaseArtifacts.json")
     guard let data = try? Data(contentsOf: receipt),
           let record = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-          let url = record["url"], let checksum = record["sha256"] else {
+          let url = record["url"], let checksum = record["sha256"]
+    else {
         fatalError("Run dev/nix-shell 'just ios build' before building this checkout. A release needs ReleaseArtifacts.json.")
     }
     binary = .binaryTarget(name: "xmtp_sdkFFI", url: url, checksum: checksum)

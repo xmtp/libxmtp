@@ -5,7 +5,7 @@ import PackageDescription
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let workspace = (0 ..< 4).reduce(packageRoot) { path, _ in path.deletingLastPathComponent() }
 
-// Conformance links the root Apple package.
+/// Conformance links the root Apple package.
 let package = Package(
     name: "XmtpSdkConformance",
     platforms: [.macOS(.v15)],

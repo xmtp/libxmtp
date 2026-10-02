@@ -1,5 +1,11 @@
 # The shipped Apple package uses the same SDK artifact and generator as conformance.
-{ lib, stdenv, pkgs, xmtp, ... }:
+{
+  lib,
+  stdenv,
+  pkgs,
+  xmtp,
+  ...
+}:
 let
   sdk = pkgs.callPackage ./xmtp-sdk.nix { };
   version = "8.0.0";
@@ -37,29 +43,42 @@ let
       '';
     };
   };
-  framework = targetList: stdenv.mkDerivation {
-    pname = "xmtp-sdk-apple-xcframework";
-    inherit version;
-    dontUnpack = true;
-    dontFixup = true;
-    __noChroot = true;
-    installPhase = ''
-      ${xmtp.iosEnv.envSetup host}
-      export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"
-      mkdir -p "$out"
-      xcodebuild -create-xcframework \
-        ${lib.concatMapStringsSep " \\\n        " (target: "-library ${native target}/lib/libxmtp_sdk.a -headers ${swiftBindings}/swift/include") targetList} \
-        -output "$out/XmtpSdkFFI.xcframework"
-      cp -r ${swiftBindings}/swift "$out/swift"
-      test -f "$out/XmtpSdkFFI.xcframework/Info.plist"
-      for slice in "$out/XmtpSdkFFI.xcframework"/*/; do
-        test -f "$slice/Headers/xmtp_sdkFFI.h"
-        test -f "$slice/Headers/module.modulemap"
-      done
-    '';
-  };
-  allTargets = [ host "aarch64-apple-ios" "aarch64-apple-ios-sim" ];
-  fastTargets = [ host "aarch64-apple-ios-sim" ];
+  framework =
+    targetList:
+    stdenv.mkDerivation {
+      pname = "xmtp-sdk-apple-xcframework";
+      inherit version;
+      dontUnpack = true;
+      dontFixup = true;
+      __noChroot = true;
+      installPhase = ''
+        ${xmtp.iosEnv.envSetup host}
+        export PATH="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin:/usr/bin:$PATH"
+        mkdir -p "$out"
+        xcodebuild -create-xcframework \
+          ${
+            lib.concatMapStringsSep " \\\n        " (
+              target: "-library ${native target}/lib/libxmtp_sdk.a -headers ${swiftBindings}/swift/include"
+            ) targetList
+          } \
+          -output "$out/XmtpSdkFFI.xcframework"
+        cp -r ${swiftBindings}/swift "$out/swift"
+        test -f "$out/XmtpSdkFFI.xcframework/Info.plist"
+        for slice in "$out/XmtpSdkFFI.xcframework"/*/; do
+          test -f "$slice/Headers/xmtp_sdkFFI.h"
+          test -f "$slice/Headers/module.modulemap"
+        done
+      '';
+    };
+  allTargets = [
+    host
+    "aarch64-apple-ios"
+    "aarch64-apple-ios-sim"
+  ];
+  fastTargets = [
+    host
+    "aarch64-apple-ios-sim"
+  ];
   releaseFramework = framework allTargets;
 in
 {

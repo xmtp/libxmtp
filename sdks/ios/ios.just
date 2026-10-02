@@ -6,7 +6,7 @@ export XMTP_BACKEND_URL := env("XMTP_BACKEND_URL", "")
 
 set shell := ["../../dev/nix-shell"]
 
-root := justfile_directory() + "/../.."
+root := justfile_directory()
 
 # The backend port differs per worktree. `_env` loads dev/docker/.env, written
 # by dev/worktree-env, so the suites reach this worktree's own backend.
