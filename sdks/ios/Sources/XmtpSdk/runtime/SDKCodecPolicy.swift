@@ -131,7 +131,7 @@ public extension Conversation {
     }
 }
 
-// Standard encoders already apply their canonical fallback, including nil.
+/// Standard encoders already apply their canonical fallback, including nil.
 private func usesRustStandardFallback<C: ContentCodec>(_ codec: C) -> Bool {
     codec is TextCodec ||
         codec is MarkdownCodec ||

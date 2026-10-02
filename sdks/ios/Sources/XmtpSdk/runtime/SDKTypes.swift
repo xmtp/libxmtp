@@ -61,6 +61,7 @@ public struct Timestamp: Hashable, Sendable {
     public init(ns: Int64) {
         self.ns = ns
     }
+
     public var date: Date {
         Date(timeIntervalSince1970: Double(ns) / 1_000_000_000)
     }
