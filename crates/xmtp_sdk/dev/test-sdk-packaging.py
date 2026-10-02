@@ -531,8 +531,16 @@ class PackagingTests(unittest.TestCase):
         finally:
             self.patches[2].start()
 
+    def test_apple_native_build_pins_supported_deployment_floors(self):
+        with patch.object(artifacts.sys, "platform", "darwin"), patch.dict(
+            os.environ, {"MACOSX_DEPLOYMENT_TARGET": "14.0", "IPHONEOS_DEPLOYMENT_TARGET": "17"}
+        ):
+            artifacts.build(self.args)
+            self.assertEqual(os.environ["MACOSX_DEPLOYMENT_TARGET"], "11.0")
+            self.assertEqual(os.environ["IPHONEOS_DEPLOYMENT_TARGET"], "14")
+
     def test_cargo_compiler_inputs_change_native_cache_admission(self):
-        names = ("MACOSX_DEPLOYMENT_TARGET", "RUSTC", "CARGO_BUILD_RUSTC")
+        names = ("RUSTC", "CARGO_BUILD_RUSTC")
         environment = {
             key: value for key, value in os.environ.items() if key not in names
         }
@@ -553,7 +561,7 @@ class PackagingTests(unittest.TestCase):
                     )
                     calls = len(self.calls)
                     os.environ[name] = (
-                        "11.0" if name == "MACOSX_DEPLOYMENT_TARGET" else str(compiler)
+                        str(compiler)
                     )
                     artifacts.build(self.args)
                     after = json.loads(
