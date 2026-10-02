@@ -712,3 +712,72 @@ async fn sync_message_from_another_inbox_is_not_applied() {
     );
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
 }
+
+// The same event reaches the JSON destination and the public app log callback.
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg(not(target_arch = "wasm32"))]
+fn incoming_preference_logs_omit_secret_material() {
+    use std::sync::Arc;
+    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
+
+    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
+    impl LogSinkTarget for Capture {
+        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+            self.0.lock().push(record);
+            Ok(())
+        }
+    }
+
+    let key = b"synthetic-private-sync-key-e7a619c3".to_vec();
+    let entity = "synthetic-private-consent-identity";
+    let updates = vec![
+        preference_sync::PreferenceUpdate::Hmac {
+            key: key.clone(),
+            cycled_at_ns: 9_007_199_254_740_993,
+        }
+        .into(),
+        preference_sync::PreferenceUpdate::Consent(StoredConsentRecord::new(
+            ConsentType::InboxId,
+            ConsentState::Denied,
+            entity.to_string(),
+        ))
+        .into(),
+    ];
+    let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
+    let capture = LogCapture::with_sink(Level::Info, Some(sink.clone()));
+    tracing::dispatcher::with_default(&capture.dispatch(), || {
+        worker::log_incoming_preference_updates(&updates);
+    });
+    let json = capture.output();
+    assert!(json.contains("Incoming preference updates"));
+    let records = sink.0.lock();
+    assert_eq!(records.len(), 1);
+    assert!(records[0].message.contains("Incoming preference updates"));
+    for sensitive in [
+        format!("{key:?}"),
+        entity.to_string(),
+        "9007199254740993".to_string(),
+    ] {
+        assert!(
+            !json.contains(&sensitive),
+            "sensitive sync material reached JSON logging; synthetic JSON: {json}; synthetic app records: {records:?}"
+        );
+        assert!(
+            !records[0].message.contains(&sensitive),
+            "sensitive material reached the app log message"
+        );
+        assert!(
+            records[0]
+                .fields
+                .values()
+                .all(|value| !value.contains(&sensitive)),
+            "sensitive material reached app log fields"
+        );
+    }
+    assert!(json.contains("\"update_count\":2"));
+    assert_eq!(records[0].message, "Incoming preference updates");
+    assert_eq!(
+        records[0].fields.get("update_count"),
+        Some(&"2".to_string())
+    );
+}
