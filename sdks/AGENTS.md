@@ -12,8 +12,8 @@ stay `@xmtp/node-sdk`, `@xmtp/browser-sdk`, and `@xmtp/agent-sdk`.
 
 ```bash
 just install-js                        # install the root pnpm workspace once
-just js bindings                       # stage each SDK product selected by its manifest
-just js bindings-node                  # stage the generated Node product
+just js sdk-products                       # stage each SDK product selected by its manifest
+just js build-node-sdk                  # stage the generated Node product
 just js check-node                       # typecheck Node and agent SDKs
 just js check-notification-surface       # published Node types; Browser/WASM absence
 just js lint-node                      # lint Node and agent SDKs

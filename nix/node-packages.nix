@@ -51,6 +51,10 @@
     {
       packages = {
         xmtp-sdk-node-fast = mkSdkNode pkgs;
+        # The unchanged Browser primitives still use these internal declarations.
+        node-bindings-js = pkgs.callPackage ./package/node-binding-declarations.nix {
+          withJs = true;
+        };
       }
       // lib.mapAttrs' (target: crossPkgs: {
         name = "xmtp-sdk-node-${pkgs.xmtp.toNapiTarget target}";
