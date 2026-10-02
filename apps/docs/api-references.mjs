@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 
 import { createStarlightTypeDocPlugin } from "starlight-typedoc";
 
+import { sdkEntry } from "./scripts/sdk-entry.mjs";
 import { validateTypeDoc } from "./scripts/typedoc-validation.mjs";
 
 const sdkRoot = new URL("../../sdks/", import.meta.url);
@@ -16,7 +17,7 @@ function sdkReference(
   const [plugin, sidebarGroup] = createStarlightTypeDocPlugin();
   const packageRoot = new URL(`${packageDirectory}/`, sdkRoot);
 
-  const entryPoints = [fileURLToPath(new URL("src/index.ts", packageRoot))];
+  const entryPoints = [sdkEntry(fileURLToPath(packageRoot), true)];
   const tsconfig = fileURLToPath(new URL("tsconfig.json", packageRoot));
   const typeDocOptions = {
     excludeExternals: false,

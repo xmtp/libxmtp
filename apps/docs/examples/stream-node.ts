@@ -3,14 +3,16 @@ import {
   type Client,
   type Conversation,
 } from "@xmtp/node-sdk";
+
 export async function streamConversations(
   client: Client,
   handleConversation: (conversation: Conversation) => void,
 ) {
   // #region stream
   const stream = ConversationStream.open(client);
-  await stream.ready();
-  void stream.onValue(handleConversation).catch(console.error);
+  const receive = (async () => {
+    for await (const conversation of stream) handleConversation(conversation);
+  })();
   // #endregion stream
-  return stream;
+  return { stream, receive };
 }

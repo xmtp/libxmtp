@@ -8,11 +8,11 @@ export async function configureNotifications(
   // #region configure
   await client.enableNotifications({ channel: { kind: "fcm", token } });
   await conversation.setNotifications("disabled");
-  const stateSnapshot = await conversation.state();
+  const conversationState = await conversation.state();
   const enabled =
-    "common" in stateSnapshot
-      ? stateSnapshot.common.notificationsEnabled
-      : stateSnapshot.notificationsEnabled;
+    "common" in conversationState
+      ? conversationState.common.notificationsEnabled
+      : conversationState.notificationsEnabled;
   await conversation.setNotifications("default");
   const state = await client.notificationState();
   if (state.kind === "failed") {

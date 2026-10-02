@@ -1,13 +1,14 @@
-import { Client, type BackendSource, type Signer } from "@xmtp/node-sdk";
+import { Client, type Backend, type Signer } from "@xmtp/node-sdk";
+
 export async function manageInboxes(
   client: Client,
-  signer: Signer,
   inboxIds: string[],
-  backend: BackendSource,
+  backend: Backend,
   installationIds: string[],
+  signer: Signer,
 ) {
   // #region manage
-  const state = await client.inboxState(false);
+  const state = await client.inboxState(true);
   const states = await Client.inboxStates(inboxIds, backend);
   await client.revokeInstallations(signer, installationIds);
   await client.revokeAllOtherInstallations(signer);

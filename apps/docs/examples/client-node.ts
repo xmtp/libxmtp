@@ -1,13 +1,18 @@
 import { Client, type PublicIdentity, type Signer } from "@xmtp/node-sdk";
-export async function createClient(signer: Signer, encryptionKey: Uint8Array) {
+
+export async function createClient(
+  signer: Signer,
+  dbEncryptionKey: Uint8Array,
+) {
   // #region create
   const client = await Client.create(signer, {
     backend: { url: "https://xmtp.example.com" },
-    storage: { location: "default", encryptionKey },
+    storage: { location: "default", encryptionKey: dbEncryptionKey },
   });
   // #endregion create
   return client;
 }
+
 export async function buildClient(
   identity: PublicIdentity,
   options: Parameters<typeof Client.build>[1],
@@ -17,6 +22,7 @@ export async function buildClient(
   // #endregion build
   return client;
 }
+
 export async function createAuthenticatedClient(
   signer: Signer,
   fetchToken: () => Promise<{ token: string; expiresAtSeconds: bigint }>,
@@ -26,7 +32,7 @@ export async function createAuthenticatedClient(
     backend: {
       url: "https://xmtp.example.com",
       credentials: {
-        credential: async () => {
+        async credential() {
           const { token, expiresAtSeconds } = await fetchToken();
           return { value: `Bearer ${token}`, expiresAtSeconds };
         },
@@ -37,9 +43,10 @@ export async function createAuthenticatedClient(
   // #endregion auth
   return client;
 }
+
 export async function deleteClient(client: Client) {
   // #region delete
+  // End the client and delete its persistent database.
   await client.storage.delete_();
-  await client.end();
   // #endregion delete
 }
