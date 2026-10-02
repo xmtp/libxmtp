@@ -241,3 +241,17 @@ Residual package review checks:
   `just sdk check-package-scripts` checks this gate under Python optimization
   with invalid inputs for each build stage.
   This check does not prove archive linkage or installed package loading.
+Android staging dependency inputs:
+
+- The staging Gradle root is `crates/xmtp_sdk/packaging/android`. Keep its
+  `gradle.lockfile`, `buildscript-gradle.lockfile`, and
+  `gradle/verification-metadata.xml` with the staging source.
+- The normal stage command uses strict verification and does not write inputs.
+  To refresh inputs, use a separate controlled resolution through
+  `NIX_DEVSHELL=android dev/nix-shell`. Resolve the actual `assembleRelease`
+  route with `--write-locks --write-verification-metadata sha256`. Review the resolved graph, repositories, and SHA256
+  entries before acceptance. Keep metadata verification enabled.
+- Record the actual plugin classpath and each resolved release configuration.
+  AAR output hashes do not prove dependency input coverage.
+- The switched Android project owns its own graph under Task 14. Do not copy
+  staging lock state into a different Gradle root.
