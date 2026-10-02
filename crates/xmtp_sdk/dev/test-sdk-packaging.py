@@ -66,6 +66,17 @@ class PackagingTests(unittest.TestCase):
             item.stop()
         self.temporary.cleanup()
 
+    def seed_android_dependency_inputs(self):
+        project = self.root / "crates/xmtp_sdk/packaging/android"
+        for name in (
+            "gradle.lockfile",
+            "buildscript-gradle.lockfile",
+            "gradle/verification-metadata.xml",
+        ):
+            file = project / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text("fixture dependency input")
+
     def prepare_mobile_stage(self, target):
         self.args.targets = ("swift",) if target == "ios" else ("kotlin",)
         artifacts.build(self.args)
@@ -84,15 +95,7 @@ class PackagingTests(unittest.TestCase):
             (generated / "runtime").mkdir()
             (generated / "runtime/Client.swift").write_text("fixture runtime")
         if target == "android":
-            project = self.root / "crates/xmtp_sdk/packaging/android"
-            for name in (
-                "gradle.lockfile",
-                "buildscript-gradle.lockfile",
-                "gradle/verification-metadata.xml",
-            ):
-                file = project / name
-                file.parent.mkdir(parents=True, exist_ok=True)
-                file.write_text("fixture dependency input")
+            self.seed_android_dependency_inputs()
         output = self.root / "products" / target
         if output.exists():
             shutil.rmtree(output)
@@ -162,9 +165,7 @@ class PackagingTests(unittest.TestCase):
                     self.assemble_mobile("android", tool)
                 tool.assert_not_called()
                 self.assertEqual(self.product_files(output), previous)
-                self.assertEqual(
-                    list(output.parent.glob(".sdk-mobile-stage-*")), []
-                )
+                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
 
     def test_android_stage_uses_strict_read_only_dependency_inputs(self):
         self.prepare_mobile_stage("android")
@@ -173,11 +174,18 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(command[0], "sdks/android/gradlew")
             self.assertIn("--dependency-verification=strict", command)
             self.assertIn("--max-workers=2", command)
-            self.assertFalse(any(
-                arg.startswith(("--write-locks", "--update-locks",
-                                "--write-verification-metadata"))
-                for arg in command
-            ))
+            self.assertFalse(
+                any(
+                    arg.startswith(
+                        (
+                            "--write-locks",
+                            "--update-locks",
+                            "--write-verification-metadata",
+                        )
+                    )
+                    for arg in command
+                )
+            )
             self.mobile_tool(command, **kwargs)
 
         self.assemble_mobile("android", tool)
@@ -699,6 +707,7 @@ class PackagingTests(unittest.TestCase):
             (swift / "xmtp_sdkFFI.modulemap").write_text("fixture module")
             (swift / "runtime").mkdir(exist_ok=True)
             (swift / "runtime/Client.swift").write_text("fixture runtime")
+            self.seed_android_dependency_inputs()
 
         self.args.targets = ("swift", "kotlin")
         artifacts.build(self.args)
