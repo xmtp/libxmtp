@@ -1,9 +1,8 @@
-import { generateInboxId as rootGenerateInboxId } from "@xmtp/node-sdk";
 import {
   XmtpError,
   generateInboxId,
   type PublicIdentity,
-} from "@xmtp/node-sdk/pure";
+} from "@xmtp/node-sdk";
 import { expect, test } from "vitest";
 
 const ethereum: PublicIdentity = {
@@ -111,9 +110,8 @@ test.each([1, Number(9_007_199_254_740_993n), "1", null])(
     }),
 );
 
-test("the public root uses the same synchronous inbox calculation", () => {
-  expect(rootGenerateInboxId).toBe(generateInboxId);
-  const actual = rootGenerateInboxId(ethereum, 9_007_199_254_740_993n);
+test("the public root calculates an inbox ID synchronously", () => {
+  const actual = generateInboxId(ethereum, 9_007_199_254_740_993n);
   expect(actual).toBeTypeOf("string");
   expect(actual).toBe(vectors[2][2]);
 });
