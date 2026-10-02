@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
 import protobuf from "protobufjs";
 
 // Decode the repository schema to check native SDK request fields.
-export async function notificationBackend() {
+export async function notificationBackend(
+  options: { responseDelayMs?: number } = {},
+) {
   const protoRoot = fileURLToPath(new URL("../../../proto/", import.meta.url));
   const root = new protobuf.Root();
   root.resolvePath = (_, target) =>
@@ -47,70 +49,78 @@ export async function notificationBackend() {
     const chunks: Buffer[] = [];
     stream.on("data", (chunk: Buffer) => chunks.push(chunk));
     stream.on("end", () => {
-      const frame = Buffer.concat(chunks);
-      let payload = Buffer.alloc(0);
-      if (String(headers[":path"]).endsWith("/Query")) {
-        payload = Buffer.from(
-          queryResponse
-            .encode(queryResponse.fromObject({ continuation: {} }))
-            .finish(),
+      const respond = () => {
+        if (stream.closed || stream.destroyed) return;
+        const frame = Buffer.concat(chunks);
+        let payload = Buffer.alloc(0);
+        if (String(headers[":path"]).endsWith("/Query")) {
+          payload = Buffer.from(
+            queryResponse
+              .encode(queryResponse.fromObject({ continuation: {} }))
+              .finish(),
+          );
+        }
+        // Client setup reads the deployment identifier before identity setup.
+        if (String(headers[":path"]).endsWith("/GetConfiguration")) {
+          payload = Buffer.from(
+            configurationResponse
+              .encode(
+                configurationResponse.fromObject({
+                  identifier: "test.notification.backend",
+                }),
+              )
+              .finish(),
+          );
+        }
+        if (String(headers[":path"]).endsWith("/GetInboxIds")) {
+          const request = inboxRequest.toObject(
+            inboxRequest.decode(frame.subarray(5)),
+          );
+          payload = Buffer.from(
+            inboxResponse
+              .encode(inboxResponse.fromObject({ responses: request.requests }))
+              .finish(),
+          );
+        }
+        if (
+          headers[":path"] === "/xmtp.backend.v1.NotificationService/Register"
+        ) {
+          const request = register.toObject(
+            register.decode(frame.subarray(5)),
+            {
+              bytes: Array,
+            },
+          ) as (typeof registrations)[number];
+          registrations.push(request);
+          payload = Buffer.from(
+            recipient
+              .encode(
+                recipient.fromObject({
+                  channel: request.http ? 3 : request.fcm ? 2 : 1,
+                  expiresAtNs: (
+                    BigInt(Date.now()) * 1_000_000n +
+                    86_400_000_000_000n
+                  ).toString(),
+                }),
+              )
+              .finish(),
+          );
+        }
+        // Other calls see an empty backend: no inbox, messages, or subscriptions.
+        const response = Buffer.alloc(5 + payload.length);
+        response.writeUInt32BE(payload.length, 1);
+        payload.copy(response, 5);
+        stream.respond(
+          { ":status": 200, "content-type": "application/grpc" },
+          { waitForTrailers: true },
         );
-      }
-      // Client setup reads the deployment identifier before identity setup.
-      if (String(headers[":path"]).endsWith("/GetConfiguration")) {
-        payload = Buffer.from(
-          configurationResponse
-            .encode(
-              configurationResponse.fromObject({
-                identifier: "test.notification.backend",
-              }),
-            )
-            .finish(),
+        stream.on("wantTrailers", () =>
+          stream.sendTrailers({ "grpc-status": "0" }),
         );
-      }
-      if (String(headers[":path"]).endsWith("/GetInboxIds")) {
-        const request = inboxRequest.toObject(
-          inboxRequest.decode(frame.subarray(5)),
-        );
-        payload = Buffer.from(
-          inboxResponse
-            .encode(inboxResponse.fromObject({ responses: request.requests }))
-            .finish(),
-        );
-      }
-      if (
-        headers[":path"] === "/xmtp.backend.v1.NotificationService/Register"
-      ) {
-        const request = register.toObject(register.decode(frame.subarray(5)), {
-          bytes: Array,
-        }) as (typeof registrations)[number];
-        registrations.push(request);
-        payload = Buffer.from(
-          recipient
-            .encode(
-              recipient.fromObject({
-                channel: request.http ? 3 : request.fcm ? 2 : 1,
-                expiresAtNs: (
-                  BigInt(Date.now()) * 1_000_000n +
-                  86_400_000_000_000n
-                ).toString(),
-              }),
-            )
-            .finish(),
-        );
-      }
-      // Other calls see an empty backend: no inbox, messages, or subscriptions.
-      const response = Buffer.alloc(5 + payload.length);
-      response.writeUInt32BE(payload.length, 1);
-      payload.copy(response, 5);
-      stream.respond(
-        { ":status": 200, "content-type": "application/grpc" },
-        { waitForTrailers: true },
-      );
-      stream.on("wantTrailers", () =>
-        stream.sendTrailers({ "grpc-status": "0" }),
-      );
-      stream.end(response);
+        stream.end(response);
+      };
+      if (options.responseDelayMs) setTimeout(respond, options.responseDelayMs);
+      else respond();
     });
   });
   server.listen(0, "127.0.0.1");
