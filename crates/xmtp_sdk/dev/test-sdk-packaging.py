@@ -30,7 +30,7 @@ mobile = load("mobile", "mobile-package.py")
 class PackagingTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         (self.root / "crates/xmtp_sdk").mkdir(parents=True)
         (self.root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
         (self.root / "Cargo.toml").write_text("fixture manifest")
@@ -40,6 +40,7 @@ class PackagingTests(unittest.TestCase):
         self.config = self.root / "crates/xmtp_sdk/uniffi.toml"
         self.config.write_text("fixture configuration")
         self.calls = []
+        self.sdk_root = self.root / "sdks/android"
         self.patches = [
             patch.object(artifacts, "ROOT", self.root),
             patch.object(receipt.artifacts, "ROOT", self.root),
@@ -96,14 +97,19 @@ class PackagingTests(unittest.TestCase):
             output.mkdir(parents=True)
             (output / "library").write_text("fixture xcframework")
         else:
-            output = self.root / "crates/xmtp_sdk/packaging/android/build/outputs/aar"
+            self.assertEqual(
+                command[:5],
+                [str(self.sdk_root / "gradlew"), "-p",
+                 str(self.sdk_root), ":library:assembleRelease", "--no-daemon"],
+            )
+            output = self.sdk_root / "library/build/outputs/aar"
             output.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(output / "xmtp-sdk-stage-release.aar", "w") as archive:
+            with zipfile.ZipFile(output / "library-release.aar", "w") as archive:
                 archive.writestr("classes.jar", b"fixture classes")
                 for abi in mobile.ANDROID:
                     archive.writestr(f"jni/{abi}/libxmtp_sdk.so", b"fixture native")
 
-    def assemble_mobile(self, target, tool=None):
+    def assemble_mobile(self, target, tool=None, sdk_root=None):
         with (
             patch.object(mobile, "ROOT", self.root),
             patch.object(mobile, "run", side_effect=tool or self.mobile_tool),
@@ -120,10 +126,18 @@ class PackagingTests(unittest.TestCase):
                     str(self.root / "mobile"),
                     "--out",
                     str(self.root / "products"),
+                    *(["--sdk-root", str(sdk_root)] if sdk_root else []),
                 ],
             ),
         ):
             mobile.main()
+
+    def test_android_owned_project_override_keeps_common_native_receipts(self):
+        self.prepare_mobile_stage("android")
+        self.sdk_root = self.root / "owned-worktree/sdks/android"
+        self.assemble_mobile("android", sdk_root=self.sdk_root)
+        self.assertTrue((self.root / "products/android/xmtp-sdk.aar").exists())
+        self.assertFalse((self.root / "sdks/android/library/build").exists())
 
     def product_files(self, output):
         return {
@@ -160,7 +174,7 @@ class PackagingTests(unittest.TestCase):
             self.mobile_tool(command, **kwargs)
             archive = (
                 self.root
-                / "crates/xmtp_sdk/packaging/android/build/outputs/aar/xmtp-sdk-stage-release.aar"
+                / "sdks/android/library/build/outputs/aar/library-release.aar"
             )
             with zipfile.ZipFile(archive, "w") as broken:
                 broken.writestr("classes.jar", b"fixture classes")
