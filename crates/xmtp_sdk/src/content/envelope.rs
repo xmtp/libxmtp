@@ -161,3 +161,32 @@ impl Reaction {
         }
     }
 }
+
+/// Project an app-hosted encrypted attachment with the shared content URL rule.
+#[xmtp_macro::sdk_export(pure)]
+pub fn remote_attachment_from_encrypted(
+    url: String,
+    encrypted_encoded_content: EncryptedEncodedContent,
+    filename: Option<String>,
+) -> Result<RemoteAttachment, crate::XmtpError> {
+    let scheme = xmtp_attachments::check_content_url(&url)
+        .map_err(|error| crate::XmtpError::invalid_argument(error.to_string()))?;
+    let content_length =
+        u32::try_from(encrypted_encoded_content.ciphertext.len()).map_err(|_| {
+            crate::XmtpError::invalid_argument("attachment ciphertext exceeds contentLength")
+        })?;
+    let content_digest = hex::encode(xmtp_cryptography::hash::sha256_array(
+        &encrypted_encoded_content.ciphertext,
+    ));
+    let keys = encrypted_encoded_content.keys;
+    Ok(RemoteAttachment {
+        url,
+        content_digest,
+        secret: keys.secret,
+        salt: keys.salt,
+        nonce: keys.nonce,
+        scheme,
+        content_length: Some(content_length),
+        filename,
+    })
+}

@@ -96,12 +96,13 @@ pub use configuration::{
 pub use content::StandardCodecSample;
 pub use content::{
     Action, ActionStyle, Actions, Attachment, Compression, DeleteMessageContent, DeletedBy,
-    DeletedMessage, EncodedContent, GroupUpdated, Intent, LeaveRequest, MetadataFieldChange,
-    MultiRemoteAttachment, Reaction, ReactionAction, ReactionSchema, ReactionV2Content,
-    RemoteAttachment, ReplyContent, SendOptions, StandardContent, StandardContentKind,
-    TransactionMetadata, TransactionReference, WalletCall, WalletCallMetadata, WalletSendCalls,
-    catalogue_content_type_should_push, decode_encoded_content, decode_standard,
-    encode_encoded_content, encode_standard, encode_text, standard_content_type,
+    DeletedMessage, EncodedContent, EncryptedEncodedContent, EncryptionKeys, GroupUpdated, Intent,
+    LeaveRequest, MetadataFieldChange, MultiRemoteAttachment, Reaction, ReactionAction,
+    ReactionSchema, ReactionV2Content, RemoteAttachment, ReplyContent, SendOptions,
+    StandardContent, StandardContentKind, TransactionMetadata, TransactionReference, WalletCall,
+    WalletCallMetadata, WalletSendCalls, catalogue_content_type_should_push,
+    decode_encoded_content, decode_standard, encode_encoded_content, encode_standard, encode_text,
+    remote_attachment_from_encrypted, standard_content_type,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use conversation::{Conversation, Conversations, Dm, Group};
@@ -116,8 +117,6 @@ pub use conversations::{
 pub use credentials::{
     Backend, BackendOptions, BackendSource, Credential, CredentialError, CredentialSource,
 };
-#[cfg(not(feature = "pure-only"))]
-pub use crypto::{EncryptedEncodedContent, EncryptionKeys};
 #[cfg(all(test, not(feature = "pure-only")))]
 use delivery as reader;
 #[cfg(not(feature = "pure-only"))]

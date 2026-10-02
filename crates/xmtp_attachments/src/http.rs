@@ -105,6 +105,13 @@ pub(crate) fn secure_upload_url(url: &url::Url) -> Result<(), AttachmentError> {
     }
 }
 
+/// Check a published content URL without DNS or transfer policy.
+pub fn check_content_url(raw: &str) -> Result<String, AttachmentError> {
+    let url = url::Url::parse(raw).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
+    secure_upload_url(&url)?;
+    Ok(format!("{}://", url.scheme()))
+}
+
 pub(crate) fn is_loopback_name(name: &str) -> bool {
     name.strip_suffix('.')
         .unwrap_or(name)
