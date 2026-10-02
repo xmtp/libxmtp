@@ -2,7 +2,7 @@ require 'json'
 Pod::Spec.new do |spec|
   spec.name = 'XMTP'
   spec.module_name = 'XmtpSdk'
-  spec.version = '8.0.0'
+  spec.version = "8.0.0"
   spec.summary = 'XMTP messaging SDK'
   spec.description = 'The XMTP SDK uses Rust for messaging, storage, content and attachment transfers.'
   spec.homepage = 'https://github.com/xmtp/libxmtp'
