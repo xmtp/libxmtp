@@ -118,6 +118,8 @@ cutover-bench target config output:
 
 cutover-bench-check:
     cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
+    cd "{{ root }}" && node crates/xmtp_sdk/benchmarks/entry_controls.mjs
+    cd "{{ root }}" && node --experimental-vm-modules crates/xmtp_sdk/benchmarks/browser_window_controls.mjs
 
 # Use the ios Nix shell. The product is an installed public Swift package.
 cutover-bench-ios-prepare config output:

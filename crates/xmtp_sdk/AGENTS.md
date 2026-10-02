@@ -50,6 +50,8 @@ Run commands from the repository root in the Nix shell. Run
   memory, signer HTTP, identity rejection, timing scope, and timeout cleanup.
   See `benchmarks/README.md` for the HTTP signer and app launch configuration.
 - `dev/nix-shell 'just sdk cutover-bench-check'` checks the statistical gates and receipt rules.
+  It also checks new and old Node/browser package admission and deterministic
+  browser long-task interval boundaries.
 - `dev/nix-shell 'just sdk cutover-bench-stream-check <output> <browser-node_modules>'` checks
   live stream content in Node, Chromium, and compiled Swift/Kotlin helpers.
   It requires missing or changed live content to fail with correct history.
