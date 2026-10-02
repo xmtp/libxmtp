@@ -99,8 +99,13 @@ class PackagingTests(unittest.TestCase):
         else:
             self.assertEqual(
                 command[:5],
-                [str(self.sdk_root / "gradlew"), "-p",
-                 str(self.sdk_root), ":library:assembleRelease", "--no-daemon"],
+                [
+                    str(self.sdk_root / "gradlew"),
+                    "-p",
+                    str(self.sdk_root),
+                    ":library:assembleRelease",
+                    "--no-daemon",
+                ],
             )
             output = self.sdk_root / "library/build/outputs/aar"
             output.mkdir(parents=True, exist_ok=True)
@@ -173,8 +178,7 @@ class PackagingTests(unittest.TestCase):
         def missing_abi(command, **kwargs):
             self.mobile_tool(command, **kwargs)
             archive = (
-                self.root
-                / "sdks/android/library/build/outputs/aar/library-release.aar"
+                self.root / "sdks/android/library/build/outputs/aar/library-release.aar"
             )
             with zipfile.ZipFile(archive, "w") as broken:
                 broken.writestr("classes.jar", b"fixture classes")
@@ -662,17 +666,29 @@ class PackagingTests(unittest.TestCase):
                 self.assertNotEqual(artifacts.build_context(), baseline)
                 with (
                     patch.object(artifacts.subprocess, "run") as version_probe,
-                    patch.object(artifacts.subprocess, "check_output", return_value=b"fixed rustc"),
+                    patch.object(
+                        artifacts.subprocess,
+                        "check_output",
+                        return_value=b"fixed rustc",
+                    ),
                 ):
-                    version_probe.return_value = subprocess.CompletedProcess([], 0, b"version one", b"")
+                    version_probe.return_value = subprocess.CompletedProcess(
+                        [], 0, b"version one", b""
+                    )
                     stable_bytes = artifacts.build_context()
-                    version_probe.return_value = subprocess.CompletedProcess([], 0, b"version two", b"")
+                    version_probe.return_value = subprocess.CompletedProcess(
+                        [], 0, b"version two", b""
+                    )
                     self.assertNotEqual(artifacts.build_context(), stable_bytes)
                 version = artifacts.build_context()
-                tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n# changed bytes\n")
+                tool.write_text(
+                    "#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n# changed bytes\n"
+                )
                 self.assertNotEqual(artifacts.build_context(), version)
                 before = artifacts.build_context()
-                os.environ["RANLIB_aarch64_linux_android"] = str(self.root / "other-ranlib")
+                os.environ["RANLIB_aarch64_linux_android"] = str(
+                    self.root / "other-ranlib"
+                )
                 self.assertNotEqual(artifacts.build_context(), before)
         finally:
             self.patches[2].start()

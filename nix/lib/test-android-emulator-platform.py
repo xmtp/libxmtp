@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check the actual emulator selector before any AVD or download runs."""
+
 import os
 from pathlib import Path
 import subprocess
@@ -8,13 +9,25 @@ import unittest
 
 class EmulatorPlatformTests(unittest.TestCase):
     def select(self, api=None, supported="1"):
-        env = dict(os.environ, ANDROID_DEFAULT_EMULATOR_API="34", ANDROID_API23_SUPPORTED=supported)
+        env = dict(
+            os.environ,
+            ANDROID_DEFAULT_EMULATOR_API="34",
+            ANDROID_API23_SUPPORTED=supported,
+        )
         env.pop("NIX_ANDROID_EMULATOR_API", None)
         if api is not None:
             env["NIX_ANDROID_EMULATOR_API"] = api
         return subprocess.run(
-            ["bash", "-ec", 'source "$1"; printf "%s" "$ANDROID_EMULATOR_API"', "selector", str(Path(__file__).with_name("android-emulator-platform.sh"))],
-            env=env, capture_output=True, text=True,
+            [
+                "bash",
+                "-ec",
+                'source "$1"; printf "%s" "$ANDROID_EMULATOR_API"',
+                "selector",
+                str(Path(__file__).with_name("android-emulator-platform.sh")),
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
         )
 
     def test_default_and_named_minimum_selection(self):

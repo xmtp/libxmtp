@@ -24,9 +24,10 @@ internal class StreamLifecycleStartup(
 
     private fun task(): Deferred<Unit> =
         synchronized(lock) {
-            startup ?: scope.async(start = CoroutineStart.LAZY) {
-                controller.setLive(register(controller::setLive))
-                controller.awaitSettled()
-            }.also { startup = it }
+            startup ?: scope
+                .async(start = CoroutineStart.LAZY) {
+                    controller.setLive(register(controller::setLive))
+                    controller.awaitSettled()
+                }.also { startup = it }
         }
 }

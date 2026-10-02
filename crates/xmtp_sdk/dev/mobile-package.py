@@ -155,7 +155,9 @@ def main():
         default=Path(os.environ.get("XMTP_SDK_PACKAGES_DIR", "target/sdk-packages")),
     )
     parser.add_argument(
-        "--sdk-root", type=Path, default=ROOT / "sdks/android",
+        "--sdk-root",
+        type=Path,
+        default=ROOT / "sdks/android",
         help="Android SDK project to assemble; native receipts still use the common source",
     )
     args = parser.parse_args()
@@ -244,7 +246,8 @@ let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
                 env=env,
             )
             shutil.copy2(
-                args.sdk_root.resolve() / "library/build/outputs/aar/library-release.aar",
+                args.sdk_root.resolve()
+                / "library/build/outputs/aar/library-release.aar",
                 output / "xmtp-sdk.aar",
             )
             with zipfile.ZipFile(output / "xmtp-sdk.aar") as archive:

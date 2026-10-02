@@ -7,15 +7,18 @@ import java.util.concurrent.atomic.AtomicInteger
 internal suspend fun checkCredentialCallbacksStayDistinct() {
     val firstCalls = AtomicInteger()
     val secondCalls = AtomicInteger()
-    fun source(prefix: String, calls: AtomicInteger) =
-        SDKForeign.credentials(
-            object : CredentialSource {
-                override suspend fun credential(): Credential {
-                    val number = calls.incrementAndGet()
-                    return Credential(null, "Bearer $prefix-$number", 9_007_199_254_740_993L + number)
-                }
-            },
-        )
+
+    fun source(
+        prefix: String,
+        calls: AtomicInteger,
+    ) = SDKForeign.credentials(
+        object : CredentialSource {
+            override suspend fun credential(): Credential {
+                val number = calls.incrementAndGet()
+                return Credential(null, "Bearer $prefix-$number", 9_007_199_254_740_993L + number)
+            }
+        },
+    )
     val first = source("first", firstCalls)
     val second = source("second", secondCalls)
     val a = withTimeout(5_000) { first.credential() }

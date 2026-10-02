@@ -34,7 +34,9 @@ products = json.loads(
     )
 )
 for name, phases in products.items():
-    native = name == "xmtp-sdk-libs" or name.startswith(("xmtp-sdk-ios-", "xmtp-sdk-android-"))
+    native = name == "xmtp-sdk-libs" or name.startswith(
+        ("xmtp-sdk-ios-", "xmtp-sdk-android-")
+    )
     for phase, inputs in phases.items():
         if inputs["jobs"] != 2:
             raise ValueError((name, phase, "Cargo job limit", inputs))
@@ -43,7 +45,9 @@ for name, phases in products.items():
                 raise ValueError((name, phase, "vendored OpenSSL", inputs))
             if inputs["static"] != "1":
                 raise ValueError((name, phase, "static OpenSSL", inputs))
-            if "xmtp-sdk-ios-device" in products and not name.startswith("xmtp-sdk-android-"):
+            if "xmtp-sdk-ios-device" in products and not name.startswith(
+                "xmtp-sdk-android-"
+            ):
                 if inputs["macos"] != "11.0":
                     raise ValueError((name, phase, "macOS floor", inputs))
         if name.startswith("xmtp-sdk-ios-"):

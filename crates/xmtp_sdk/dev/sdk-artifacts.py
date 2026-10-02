@@ -130,7 +130,9 @@ def build_context():
                 ]
             archive_indexes[name] = identity
     return hashlib.sha256(
-        json.dumps([compiler, compiler_bytes, flags, archive_indexes], sort_keys=True).encode()
+        json.dumps(
+            [compiler, compiler_bytes, flags, archive_indexes], sort_keys=True
+        ).encode()
     ).hexdigest()
 
 
