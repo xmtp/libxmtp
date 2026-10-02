@@ -305,7 +305,7 @@ export function registerEndingTests(): void {
     expect(await second).toMatchObject({ code: "WorkerTerminated" });
   });
 
-  // verifies: PROC-028
+  // verifies: PROC-052
   it("posts a second read only after the first read settles on the main thread", async () => {
     const readHeld = latch();
     const readRelease = latch();
@@ -349,14 +349,14 @@ export function registerEndingTests(): void {
     expect(reads).toBe(1);
   });
 
-  // verifies: PROC-028
+  // verifies: PROC-052
   it("delivers a read held during a Client.end that fails", async () => {
     const { end, read } = await endWithReadInTransit(true);
     expect(end).toMatchObject({ error: { message: "end failed" } });
     expect(read).toEqual({ value: { id: "admitted" } });
   });
 
-  // verifies: PROC-028
+  // verifies: PROC-052
   it("abandons a read held during a Client.end that succeeds", async () => {
     const { end, read } = await endWithReadInTransit(false);
     expect(end).toEqual({ ended: true });

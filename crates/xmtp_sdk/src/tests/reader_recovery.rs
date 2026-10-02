@@ -82,7 +82,7 @@ async fn late_reader_released() {
     client.end().await?;
 }
 
-// verifies: CTYPE-008, PROC-028
+// verifies: CTYPE-008, PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn raw_message_bytes_are_delivered_and_replayed_until_acknowledged() {
     use xmtp_mls::groups::send_message_opts::SendMessageOpts;
@@ -116,7 +116,7 @@ async fn raw_message_bytes_are_delivered_and_replayed_until_acknowledged() {
     client.end().await?;
 }
 
-// verifies: PROC-028
+// verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn message_decode_error_closes_reader_and_releases_lease() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
