@@ -11,7 +11,9 @@ describe("the shared Apple archive receipt", () => {
   let root: string;
   let packagePath: string;
   const url = "https://example.com/releases/ios-8.0.0/XmtpSdkFFI.zip";
-  const checksum = createHash("sha256").update("test archive bytes").digest("hex");
+  const checksum = createHash("sha256")
+    .update("test archive bytes")
+    .digest("hex");
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-spm-"));
@@ -24,14 +26,29 @@ describe("the shared Apple archive receipt", () => {
 
   it("writes the supplied archive identity for both package managers", () => {
     updateSpmChecksum(packagePath, url, checksum.toUpperCase());
-    const receipt = JSON.parse(fs.readFileSync(path.join(root, "sdks/ios/ReleaseArtifacts.json"), "utf-8"));
+    const receipt = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "sdks/ios/ReleaseArtifacts.json"),
+        "utf-8",
+      ),
+    );
     expect(receipt).toEqual({ url, sha256: checksum });
-    expect(fs.readFileSync(packagePath, "utf-8")).toBe("// consumer manifest remains unchanged\n");
+    expect(fs.readFileSync(packagePath, "utf-8")).toBe(
+      "// consumer manifest remains unchanged\n",
+    );
   });
 
   it("rejects the old split archive and an invalid checksum before writing", () => {
-    expect(() => updateSpmChecksum(packagePath, "https://example.com/LibXMTPSwiftFFI.zip", checksum)).toThrow();
+    expect(() =>
+      updateSpmChecksum(
+        packagePath,
+        "https://example.com/LibXMTPSwiftFFI.zip",
+        checksum,
+      ),
+    ).toThrow();
     expect(() => updateSpmChecksum(packagePath, url, "missing")).toThrow();
-    expect(fs.existsSync(path.join(root, "sdks/ios/ReleaseArtifacts.json"))).toBe(false);
+    expect(
+      fs.existsSync(path.join(root, "sdks/ios/ReleaseArtifacts.json")),
+    ).toBe(false);
   });
 });

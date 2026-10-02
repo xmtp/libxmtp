@@ -16,7 +16,11 @@ export function updateSpmChecksum(
   }
   fs.accessSync(packageSwiftPath, fs.constants.R_OK);
   const receipt = path.join(
-    path.dirname(packageSwiftPath), "sdks/ios/ReleaseArtifacts.json",
+    path.dirname(packageSwiftPath),
+    "sdks/ios/ReleaseArtifacts.json",
   );
-  fs.writeFileSync(receipt, JSON.stringify({ url, sha256: checksum.toLowerCase() }, null, 2) + "\n");
+  fs.writeFileSync(
+    receipt,
+    JSON.stringify({ url, sha256: checksum.toLowerCase() }, null, 2) + "\n",
+  );
 }
