@@ -95,14 +95,17 @@ describe("Agent stream lifecycle", () => {
     async (mode, reentry) => {
       const streams: ReaderStream<unknown>[] = [];
       const rawReaders: { end: ReturnType<typeof vi.fn> }[] = [];
-      const makeStream = (owner: object, options?: StreamOptions) => {
-        const pending = deferred<undefined>();
+      const makeStream = <T>(owner: object, options?: StreamOptions) => {
+        const pending = deferred<T | undefined>();
         const raw = {
           next: () => pending.promise,
           end: vi.fn(async () => pending.resolve(undefined)),
         };
         rawReaders.push(raw);
-        const stream = new ReaderStream(async () => raw, owner, options);
+        const stream = new ReaderStream<T>(async () => raw, owner, {
+          signal: options?.signal,
+          onClose: options?.onClose,
+        });
         streams.push(stream);
         return stream;
       };
@@ -110,13 +113,13 @@ describe("Agent stream lifecycle", () => {
         .spyOn(ConversationStream, "open")
         .mockImplementation(
           (owner, _selection, options) =>
-            makeStream(owner, options) as ConversationStream,
+            makeStream<Conversation>(owner, options) as ConversationStream,
         );
       const messages = vi
         .spyOn(MessageStream, "open")
         .mockImplementation(
           (owner, _selection, options) =>
-            makeStream(owner, options) as MessageStream,
+            makeStream<Message>(owner, options) as MessageStream,
         );
       const client = { inboxId: "agent" } as Client;
       const agent = new Agent({ client });

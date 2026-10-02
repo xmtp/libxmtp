@@ -25,7 +25,7 @@ describe("installation ID command inputs", () => {
       vi.spyOn(command, "output").mockImplementation(() => undefined);
       const revoke = vi
         .spyOn(Client, "revokeInstallations")
-        .mockResolvedValue();
+        .mockResolvedValue(undefined);
 
       await command.run();
 
@@ -87,10 +87,12 @@ describe("installation ID command inputs", () => {
       const root = new RevokeInstallations(["inbox", "-i", input], config);
       vi.spyOn(root, "getConfig").mockReturnValue({ walletKey });
       vi.spyOn(root, "networkOptions").mockReturnValue(backend);
-      const rootConfirm = vi.spyOn(root, "confirmAction").mockResolvedValue();
+      const rootConfirm = vi
+        .spyOn(root, "confirmAction")
+        .mockResolvedValue(undefined);
       const rootRevoke = vi
         .spyOn(Client, "revokeInstallations")
-        .mockResolvedValue();
+        .mockResolvedValue(undefined);
       await expect(root.run()).rejects.toThrow();
       expect(rootConfirm).not.toHaveBeenCalled();
       expect(rootRevoke).not.toHaveBeenCalled();
@@ -101,7 +103,9 @@ describe("installation ID command inputs", () => {
         revokeInstallations: localRevoke,
       } as unknown as XmtpClient);
       vi.spyOn(local, "getConfig").mockReturnValue({ walletKey });
-      const localConfirm = vi.spyOn(local, "confirmAction").mockResolvedValue();
+      const localConfirm = vi
+        .spyOn(local, "confirmAction")
+        .mockResolvedValue(undefined);
       await expect(local.run()).rejects.toThrow();
       expect(init).not.toHaveBeenCalled();
       expect(localConfirm).not.toHaveBeenCalled();
