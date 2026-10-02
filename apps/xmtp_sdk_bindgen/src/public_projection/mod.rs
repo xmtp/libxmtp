@@ -32,6 +32,13 @@ pub(crate) fn public_api_for_test(items: &[&Metadata], target: Target) -> String
     objects::public_api(items, target)
 }
 
+#[cfg(test)]
+pub(crate) fn client_members_for_test(items: &[&Metadata]) -> Result<String> {
+    let mut code = String::new();
+    objects::client_members(&mut code, items)?;
+    Ok(code)
+}
+
 pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target) -> Result<()> {
     let items = groups
         .values()

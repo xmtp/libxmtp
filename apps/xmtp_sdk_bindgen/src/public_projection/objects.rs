@@ -103,7 +103,15 @@ fn methods<'a>(items: &[&'a Metadata], owner: &str) -> Vec<&'a MethodMetadata> {
     let mut methods = items
         .iter()
         .filter_map(|item| match item {
-            Metadata::Method(method) if method.self_name == owner => Some(method),
+            Metadata::Method(method)
+                if method.self_name == owner
+                    && !method
+                        .docstring
+                        .as_deref()
+                        .is_some_and(|doc| doc.contains("@xmtp-internal")) =>
+            {
+                Some(method)
+            }
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -479,7 +487,12 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
             // The host Client takes its options with codecs. Message data
             // carries the internal client key; the host Message replaces it.
             Metadata::Record(value)
-                if value.name != "ClientOptions" && value.name != "MessageData" =>
+                if value.name != "ClientOptions"
+                    && value.name != "MessageData"
+                    && !value
+                        .docstring
+                        .as_deref()
+                        .is_some_and(|doc| doc.contains("@xmtp-internal")) =>
             {
                 types.insert(value.name.clone());
             }

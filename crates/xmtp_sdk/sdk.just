@@ -116,7 +116,7 @@ mobile-stage target:
 
 # Compare complete installed release packages with the approved paired gates.
 cutover-bench target config output:
-    {{ _env }} && cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/runner.py {{ target }} "{{ config }}" "{{ output }}"
+    {{ _env }} && cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/runner.py {{ quote(target) }} {{ quote(config) }} {{ quote(output) }}
 
 cutover-bench-check:
     cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
