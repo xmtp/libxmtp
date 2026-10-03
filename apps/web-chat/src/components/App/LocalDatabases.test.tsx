@@ -32,12 +32,19 @@ afterEach(() => {
 });
 
 it("deletes only a selected database for this backend and awaits admin end", async () => {
-  const selected = "/xmtp/selected-backend/deployment/inbox/xmtp.db3";
-  const retained = "/xmtp/selected-backend/deployment/other/xmtp.db3";
-  const foreign = "/xmtp/other-backend/deployment/inbox/xmtp.db3";
+  const selected = "/xmtp-sdk/selected-backend/deployment/inbox/xmtp.db3";
+  const retained = "/xmtp-sdk/selected-backend/deployment/other/xmtp.db3";
+  const foreign = "/xmtp-sdk/other-backend/deployment/inbox/xmtp.db3";
   const foreignInbox =
-    "/xmtp/other-backend/deployment/selected-backend/xmtp.db3";
-  mocks.list.mockResolvedValue([selected, retained, foreign, foreignInbox]);
+    "/xmtp-sdk/other-backend/deployment/selected-backend/xmtp.db3";
+  const legacy = "xmtp-selected-backend-old-inbox.db3";
+  mocks.list.mockResolvedValue([
+    selected,
+    retained,
+    foreign,
+    foreignInbox,
+    legacy,
+  ]);
   mocks.admin.mockResolvedValue({
     listFiles: mocks.list,
     deleteFile: mocks.remove,
@@ -57,12 +64,12 @@ it("deletes only a selected database for this backend and awaits admin end", asy
   const select = screen.getByRole("combobox", { name: "Database" });
   expect(
     [...select.querySelectorAll("option")].map((option) => option.value),
-  ).toEqual(["", selected, retained]);
+  ).toEqual(["", selected, retained, legacy]);
   fireEvent.change(select, { target: { value: selected } });
   fireEvent.click(remove);
   await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(2));
   expect(mocks.remove).toHaveBeenCalledExactlyOnceWith(selected);
   expect(
     [...select.querySelectorAll("option")].map((option) => option.value),
-  ).toEqual(["", retained]);
+  ).toEqual(["", retained, legacy]);
 });

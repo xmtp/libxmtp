@@ -23,7 +23,7 @@ export const LocalDatabases: React.FC = () => {
       try {
         const available = (await admin.listFiles()).filter(
           (file) =>
-            (file.replace(/^\/+/, "").startsWith(`xmtp/${label}/`) &&
+            (file.replace(/^\/+/, "").startsWith(`xmtp-sdk/${label}/`) &&
               file.endsWith("/xmtp.db3")) ||
             (file.split("/").at(-1)?.startsWith(`xmtp-${label}-`) &&
               file.endsWith(".db3")),

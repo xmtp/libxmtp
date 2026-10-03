@@ -43,7 +43,7 @@ const storageLocation = async (
   }
   const identity = await signer.identity();
   const reachable = await Client.canMessage([identity], backend);
-  const inboxId = reachable.get(identity.identifier)
+  const inboxId = reachable.get(`${identity.kind}:${identity.identifier}`)
     ? await Client.inboxIdFor(identity, backend)
     : generateInboxId(identity);
   const dbPath = `${prefix}${inboxId}.db3`;

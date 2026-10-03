@@ -11,7 +11,9 @@ const mocks = vi.hoisted(() => {
     canMessage: vi
       .fn()
       .mockImplementation(([identity]) =>
-        Promise.resolve(new Map([[identity.identifier, true]])),
+        Promise.resolve(
+          new Map([[`${identity.kind}:${identity.identifier}`, true]]),
+        ),
       ),
     inboxIdFor: vi.fn().mockResolvedValue("registered-inbox-id"),
     generateInboxId: vi.fn().mockReturnValue("legacy-nonce-one-id"),
@@ -127,7 +129,7 @@ it("uses the version 7 nonce for an unregistered old database", async () => {
   const signer = { identity: vi.fn().mockResolvedValue(identity) };
   mocks.listFiles.mockResolvedValueOnce(["xmtp-test-legacy-nonce-one-id.db3"]);
   mocks.canMessage.mockResolvedValueOnce(
-    new Map([[identity.identifier, false]]),
+    new Map([[`${identity.kind}:${identity.identifier}`, false]]),
   );
   mocks.create.mockResolvedValueOnce({ end: vi.fn() });
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
