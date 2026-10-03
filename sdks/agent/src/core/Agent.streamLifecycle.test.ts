@@ -335,10 +335,15 @@ describe("Agent stream lifecycle", () => {
       } as unknown as Client;
       const agent = new Agent({ client });
       const unhandled = vi.fn();
+      const closed = vi.fn();
       agent.on("unhandledError", unhandled);
       if (disposition === "stopped") agent.errors.use(() => undefined);
-      await agent.start();
+      await agent.start({ onClose: closed });
       await vi.waitFor(() => expect(messageEnd).toHaveBeenCalledOnce());
+      expect(closed).toHaveBeenCalledWith({
+        kind: "failed",
+        error: expect.objectContaining({ cause }),
+      });
       expect(messageNext).toHaveBeenCalledOnce();
       expect(conversationEnd).toHaveBeenCalledOnce();
       if (disposition === "unhandled") {

@@ -182,7 +182,9 @@ type ErrorDisposition = "resume" | "stop" | "unhandled";
 
 class UnacceptedValueError extends Error {
   constructor(readonly valueError: unknown) {
-    super("Agent value processing failed without acceptance.");
+    super("Agent value processing failed without acceptance.", {
+      cause: valueError,
+    });
   }
 }
 
