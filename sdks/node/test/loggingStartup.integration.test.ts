@@ -17,7 +17,11 @@ it.each(["off", "otel"])(
       ],
       { env: process.env, timeout: 30000 },
     );
-    expect(JSON.parse(stdout.trim().split("\n").at(-1)!)).toMatchObject({
+    const results = stdout
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('{"result":"PASS","mode":'));
+    expect(results).toHaveLength(1);
+    expect(JSON.parse(results[0]!)).toMatchObject({
       result: "PASS",
       mode,
     });
