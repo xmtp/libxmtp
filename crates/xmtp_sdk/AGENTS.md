@@ -174,6 +174,8 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
   build WASM. Full and pure WASM use separate output directories.
 - `dev/nix-shell 'just sdk render [swift,kotlin,node,browser]'` uses those artifacts. It rejects
   a changed binary or generator contract before it replaces generated output.
+  Package staging requires exact generated asset sets and hashes. Unlisted
+  generated files fail before runtime or compiler work.
   It replaces only selected targets and keeps valid unselected targets with
   their original receipts. It removes stale unselected targets and unknown roots.
   `dev/nix-shell 'just sdk generate [targets]'` runs both steps. Use `--profile release` on the
