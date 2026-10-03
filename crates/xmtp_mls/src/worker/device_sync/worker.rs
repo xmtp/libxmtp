@@ -61,6 +61,8 @@ pub struct SyncWorker<Context> {
     next_event_id: Arc<AtomicU64>,
     init: OnceCell<()>,
     metrics: Arc<WorkerMetrics<SyncMetric>>,
+    #[cfg(test)]
+    completed_turns: Option<Arc<[AtomicU64; 2]>>,
 }
 
 impl<Context> SyncWorker<Context>
@@ -85,6 +87,8 @@ where
             next_event_id,
             init: OnceCell::new(),
             metrics,
+            #[cfg(test)]
+            completed_turns: None,
         }
     }
 }
@@ -170,6 +174,8 @@ where
             .context
             .worker_interval(WorkerKind::DeviceSync, Duration::from_secs(20));
         let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
+        // Native intervals have an immediate first tick. Wasm intervals do not.
+        #[cfg(not(target_arch = "wasm32"))]
         let _ = intervals.next().await;
         let subscription = self
             .subscription
@@ -300,9 +306,17 @@ where
             tracing::info!("Processing {} messages.", unprocessed_messages.len());
         }
 
-        self.client
+        let result = self
+            .client
             .process_sync_group_messages(&self.metrics, unprocessed_messages)
-            .await
+            .await;
+        #[cfg(test)]
+        if result.is_ok()
+            && let Some(turns) = &self.completed_turns
+        {
+            turns[usize::from(is_tick)].fetch_add(1, Ordering::SeqCst);
+        }
+        result
     }
 
     async fn evt_sync_preferences(
@@ -504,5 +518,74 @@ pub enum SyncMetric {
 impl WorkerMetrics<SyncMetric> {
     pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
         self.register_interest(SyncMetric::Init, 1).wait().await
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+    use crate::{tester, worker::WorkerConfig};
+    use futures::FutureExt;
+    use xmtp_events::EventWriter;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn queued_event_precedes_first_periodic_turn() {
+        const PERIOD: Duration = Duration::from_secs(4);
+        const EVENT_WAIT: Duration = Duration::from_secs(1);
+        const PERIOD_WAIT: Duration = Duration::from_secs(6);
+        let config = WorkerConfig {
+            interval_overrides: [(WorkerKind::DeviceSync, PERIOD.as_nanos() as u64)]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        tester!(alix, disable_workers, worker_config: config);
+        let turns = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        worker.completed_turns = Some(turns.clone());
+        let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
+        worker.set_subscription(subscription.clone());
+        alix.context
+            .events()
+            .emit(None, Some(InternalEvent::SyncMessagePublished));
+
+        {
+            let run = worker.run_internal().fuse();
+            let observe = async {
+                xmtp_common::time::timeout(
+                    EVENT_WAIT,
+                    xmtp_common::wait_for_eq(|| async { turns[0].load(Ordering::SeqCst) }, 1),
+                )
+                .await
+                .expect("queued event must complete before the first periodic tick")
+                .expect("queued event wait must complete");
+                assert_eq!(turns[1].load(Ordering::SeqCst), 0);
+                xmtp_common::time::timeout(
+                    PERIOD_WAIT,
+                    xmtp_common::wait_for_eq(
+                        || async { turns[1].load(Ordering::SeqCst) >= 1 },
+                        true,
+                    ),
+                )
+                .await
+                .expect("periodic reconciliation must still complete")
+                .expect("periodic turn wait must complete");
+                assert_eq!(turns[0].load(Ordering::SeqCst), 1);
+            }
+            .fuse();
+            futures::pin_mut!(run, observe);
+            futures::select! {
+                () = observe => {},
+                result = run => panic!("worker ended before observed turns: {result:?}"),
+            }
+        }
+        subscription.close();
+        alix.close().await?;
     }
 }
