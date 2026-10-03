@@ -2,6 +2,7 @@
   runCommand,
   lib,
   stdenv,
+  buildPackages,
   xmtpNative,
   ubrnNative,
   runtimeRevision,
@@ -33,7 +34,7 @@ runCommand "xmtp-sdk-node-${napiTarget}"
     ++ lib.optionals stdenv.hostPlatform.isMusl [ patchelf ]
     ++ lib.optionals stdenv.hostPlatform.isDarwin [
       darwin.autoSignDarwinBinariesHook
-      darwin.cctools
+      buildPackages.darwin.cctools
     ];
   }
   (
