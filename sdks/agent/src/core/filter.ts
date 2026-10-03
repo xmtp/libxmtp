@@ -25,11 +25,17 @@ const isDM = (conversation: Group | Dm): conversation is Dm =>
   conversation instanceof Dm;
 const isGroup = (conversation: Group | Dm): conversation is Group =>
   conversation instanceof Group;
-const isGroupAdmin = (conversation: Group | Dm, message: Message) =>
+const isGroupAdminAsync = (
+  conversation: Group | Dm,
+  message: Message,
+): Promise<boolean> =>
   isGroup(conversation)
     ? conversation.isAdmin(message.senderInboxId)
     : Promise.resolve(false);
-const isGroupSuperAdmin = (conversation: Group | Dm, message: Message) =>
+const isGroupSuperAdminAsync = (
+  conversation: Group | Dm,
+  message: Message,
+): Promise<boolean> =>
   isGroup(conversation)
     ? conversation.isSuperAdmin(message.senderInboxId)
     : Promise.resolve(false);
@@ -57,10 +63,10 @@ export const filter = {
   isDM,
   /** Check whether the conversation is a group. */
   isGroup,
-  /** Check whether the message sender is a group admin. */
-  isGroupAdmin,
-  /** Check whether the message sender is a group super admin. */
-  isGroupSuperAdmin,
+  /** Await this check before granting group admin access. */
+  isGroupAdminAsync,
+  /** Await this check before granting group super admin access. */
+  isGroupSuperAdminAsync,
   /** Check the codec authority, type name, and major version. */
   usesCodec,
 };

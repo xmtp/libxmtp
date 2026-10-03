@@ -1,5 +1,6 @@
 import EventEmitter from "node:events";
 import fs from "node:fs";
+import path from "node:path";
 
 import type { Dm } from "@xmtp/node-sdk";
 import {
@@ -178,6 +179,14 @@ type ErrorFlow =
   | { kind: "continue"; error: unknown } // next(err) or handler throws
   | { kind: "stopped" }; // handler returns without next()
 
+type ErrorDisposition = "resume" | "stop" | "unhandled";
+
+class UnhandledValueError extends Error {
+  constructor(readonly valueError: unknown) {
+    super("Agent value processing failed without an error handler.");
+  }
+}
+
 /** Event-driven XMTP agent that routes conversations and messages to middleware. */
 export class Agent<ContentTypes = unknown> extends EventEmitter<
   EventHandlerMap<ContentTypes>
@@ -290,14 +299,39 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         1000,
         "XMTP_BACKEND_URL or options.backend is required.",
       );
-    const storage = options?.storage ?? {
-      location: XMTP_DB_DIRECTORY
-        ? { directory: XMTP_DB_DIRECTORY }
-        : "default",
-      label: XMTP_ENV,
-    };
     if (XMTP_DB_DIRECTORY)
       fs.mkdirSync(XMTP_DB_DIRECTORY, { recursive: true, mode: 0o700 });
+    let storage = options?.storage;
+    if (!storage) {
+      const legacyFiles = XMTP_DB_DIRECTORY
+        ? fs
+            .readdirSync(XMTP_DB_DIRECTORY, { withFileTypes: true })
+            .filter(
+              (entry) =>
+                entry.isFile() && /^xmtp-[0-9a-f]{64}\.db3$/i.test(entry.name),
+            )
+            .map((entry) => path.join(XMTP_DB_DIRECTORY, entry.name))
+        : [];
+      if (legacyFiles.length > 1)
+        throw new AgentError(
+          1000,
+          "More than one legacy XMTP database exists. Pass an explicit storage location.",
+        );
+      const legacyPath = legacyFiles[0];
+      storage = legacyPath
+        ? {
+            location: {
+              dbPath: legacyPath,
+              attachmentsDir: `${legacyPath}.attachments`,
+            },
+          }
+        : {
+            location: XMTP_DB_DIRECTORY
+              ? { directory: XMTP_DB_DIRECTORY }
+              : "default",
+            label: XMTP_ENV,
+          };
+    }
     const key = XMTP_DB_ENCRYPTION_KEY?.replace(/^0x/, "");
     if (key && !/^[0-9a-fA-F]{64}$/.test(key))
       throw new AgentError(
@@ -374,7 +408,8 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     this.#isLocked = false;
     // Error middleware can explicitly start a fresh generation here. A
     // handled error alone does not silently renew an exhausted retry budget.
-    await this.#runErrorChain(error, { client: this.#client });
+    if (!(error instanceof UnhandledValueError))
+      await this.#runErrorChain(error, { client: this.#client });
   }
 
   async #setupStreams(generation: number, options?: AgentStreamingOptions) {
@@ -390,11 +425,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         if (isCurrent()) {
           if (reason.kind === "failed") {
             void this.#handleStreamError(
-              new AgentStreamingError(
-                1004,
-                "Agent stream failed.",
-                reason.error,
-              ),
+              reason.error instanceof UnhandledValueError
+                ? reason.error
+                : new AgentStreamingError(
+                    1004,
+                    "Agent stream failed.",
+                    reason.error,
+                  ),
               generation,
             );
           } else {
@@ -413,24 +450,27 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     await conversations.ready();
     if (!isCurrent()) return false;
     void conversations
-      .onValue((conversation) => {
+      .onValue(async (conversation) => {
         if (!isCurrent()) return;
-        const context = new ConversationContext({
-          conversation,
-          client: this.#client,
-        });
-        this.emit("conversation", context);
-        if (!isCurrent()) return;
-        if (conversation instanceof Group)
-          this.emit(
-            "group",
-            new ConversationContext({ conversation, client: this.#client }),
-          );
-        else
-          this.emit(
-            "dm",
-            new ConversationContext({ conversation, client: this.#client }),
-          );
+        try {
+          const context = new ConversationContext<ContentTypes>({
+            conversation,
+            client: this.#client,
+          });
+          this.emit("conversation", context);
+          if (!isCurrent()) return;
+          if (context.isGroup()) this.emit("group", context);
+          else if (context.isDm()) this.emit("dm", context);
+        } catch (error) {
+          if (error instanceof UnhandledValueError) throw error;
+          if (isCurrent()) {
+            const disposition = await this.#runErrorChain(error, {
+              client: this.#client,
+              conversation,
+            });
+            if (disposition === "unhandled") throw new UnhandledValueError(error);
+          }
+        }
       })
       .catch((error) => this.#handleStreamError(error, generation));
     const messages = MessageStream.open(this.#client, undefined, {
@@ -459,13 +499,24 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       text: "text",
     };
     void messages
-      .onValue((message) =>
-        this.#processMessage(
-          message,
-          isCurrent,
-          topics[message.content.kind] ?? "unknownMessage",
-        ),
-      )
+      .onValue(async (message) => {
+        try {
+          await this.#processMessage(
+            message,
+            isCurrent,
+            topics[message.content.kind] ?? "unknownMessage",
+          );
+        } catch (error) {
+          if (error instanceof UnhandledValueError) throw error;
+          if (isCurrent()) {
+            const disposition = await this.#runErrorChain(error, {
+              client: this.#client,
+              message,
+            });
+            if (disposition === "unhandled") throw new UnhandledValueError(error);
+          }
+        }
+      })
       .catch((error) => this.#handleStreamError(error, generation));
     return true;
   }
@@ -503,11 +554,6 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     isCurrent: () => boolean,
     topic: EventName<ContentTypes> = "unknownMessage",
   ) {
-    // Skip messages with undefined content (failed to decode)
-    if (!filter.hasContent(message)) {
-      return;
-    }
-
     // Skip messages from agent itself
     if (filter.fromSelf(message, this.#client)) {
       return;
@@ -545,7 +591,11 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         if (!isCurrent()) return;
         this.emit("message", context);
       } catch (error) {
-        if (isCurrent()) await this.#runErrorChain(error, context);
+        if (error instanceof UnhandledValueError) throw error;
+        if (isCurrent()) {
+          const disposition = await this.#runErrorChain(error, context);
+          if (disposition === "unhandled") throw new UnhandledValueError(error);
+        }
       }
     };
 
@@ -556,12 +606,14 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           try {
             await mw(context, next);
           } catch (error) {
+            if (error instanceof UnhandledValueError) throw error;
             if (!isCurrent()) return;
-            const resume = await this.#runErrorChain(error, context);
-            if (resume && isCurrent()) {
+            const disposition = await this.#runErrorChain(error, context);
+            if (disposition === "resume" && isCurrent()) {
               await next();
             }
-            // Chain is not resuming, error is being swallowed
+            if (disposition === "unhandled")
+              throw new UnhandledValueError(error);
           }
         };
       },
@@ -602,7 +654,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   async #runErrorChain(
     error: unknown,
     context: AgentErrorContext<ContentTypes>,
-  ): Promise<boolean> {
+  ): Promise<ErrorDisposition> {
     const chain = [...this.#errorMiddleware, this.#defaultErrorHandler];
 
     let currentError: unknown = error;
@@ -619,10 +671,11 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       switch (outcome.kind) {
         case "handled":
           // Error was handled. Main middleware can continue.
-          return true;
+          return "resume";
         case "stopped":
-          // Error cannot be handled. Main middleware won't continue.
-          return false;
+          // A custom handler can stop the chain. The default handler cannot
+          // accept an unhandled value on behalf of the application.
+          return handler === this.#defaultErrorHandler ? "unhandled" : "stop";
         case "continue":
           // Error is passed to the next handler
           currentError = outcome.error;
@@ -630,7 +683,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     }
 
     // Reached end of chain without recovery
-    return false;
+    return "unhandled";
   }
 
   /** Return the wrapped client for operations outside agent middleware. */

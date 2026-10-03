@@ -91,7 +91,7 @@ describe("Filters", () => {
     });
   });
 
-  describe("isGroupAdmin", () => {
+  describe("isGroupAdminAsync", () => {
     it("should return true when sender is a group admin", async () => {
       const client = await createClient();
       const otherClient = await createClient();
@@ -110,7 +110,7 @@ describe("Filters", () => {
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[2]!;
-      const result = await filter.isGroupAdmin(group, message);
+      const result = await filter.isGroupAdminAsync(group, message);
       expect(result).toBe(true);
     });
 
@@ -126,7 +126,7 @@ describe("Filters", () => {
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[0]!;
-      const result = await filter.isGroupAdmin(group, message);
+      const result = await filter.isGroupAdminAsync(group, message);
       expect(result).toBe(false);
     });
 
@@ -136,19 +136,19 @@ describe("Filters", () => {
       const dm = await client.conversations.createDm(otherClient.inboxId);
       const messages = await dm.messages();
       const message = messages[0]!;
-      const result = await filter.isGroupAdmin(dm, message);
+      const result = await filter.isGroupAdminAsync(dm, message);
       expect(result).toBe(false);
     });
   });
 
-  describe("isGroupSuperAdmin", () => {
+  describe("isGroupSuperAdminAsync", () => {
     it("should return true when sender is a group super admin", async () => {
       const client = await createClient();
       const group = await client.conversations.createGroup([]);
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[0]!;
-      const result = await filter.isGroupSuperAdmin(group, message);
+      const result = await filter.isGroupSuperAdminAsync(group, message);
       expect(result).toBe(true);
     });
 
@@ -161,7 +161,7 @@ describe("Filters", () => {
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[1]!;
-      const result = await filter.isGroupSuperAdmin(group, message);
+      const result = await filter.isGroupSuperAdminAsync(group, message);
       expect(result).toBe(false);
     });
 
@@ -171,7 +171,7 @@ describe("Filters", () => {
       const dm = await client.conversations.createDm(otherClient.inboxId);
       const messages = await dm.messages();
       const message = messages[0]!;
-      const result = await filter.isGroupSuperAdmin(dm, message);
+      const result = await filter.isGroupSuperAdminAsync(dm, message);
       expect(result).toBe(false);
     });
 
@@ -185,7 +185,7 @@ describe("Filters", () => {
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[2]!;
-      const result = await filter.isGroupSuperAdmin(group, message);
+      const result = await filter.isGroupSuperAdminAsync(group, message);
       expect(result).toBe(false);
     });
   });
