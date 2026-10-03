@@ -335,7 +335,10 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
             label: XMTP_ENV,
           };
     }
-    const key = XMTP_DB_ENCRYPTION_KEY?.replace(/^0x/, "");
+    const key =
+      options?.storage?.encryptionKey === undefined
+        ? XMTP_DB_ENCRYPTION_KEY?.replace(/^0x/, "")
+        : undefined;
     if (key && !/^[0-9a-fA-F]{64}$/.test(key))
       throw new AgentError(
         1000,

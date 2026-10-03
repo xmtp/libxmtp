@@ -202,6 +202,21 @@ describe("agent environment storage", () => {
     expect(fs.existsSync(dbDirectory)).toBe(false);
   });
 
+  it.each(["03".repeat(32), "not-a-key"])(
+    "uses a caller encryption key instead of environment key %s",
+    async (environmentKey) => {
+      const { create, stopped } = setup();
+      vi.stubEnv("XMTP_DB_ENCRYPTION_KEY", environmentKey);
+      const encryptionKey = toBytes(`0x${"02".repeat(32)}`);
+      const storage = { location: "inMemory" as const, encryptionKey };
+      await expect(Agent.createFromEnv({ storage })).rejects.toBe(stopped);
+      expect(create).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ storage: expect.objectContaining(storage) }),
+      );
+    },
+  );
+
   it.each(["directory", "default"] as const)(
     "opens an encrypted %s legacy database with the same installation",
     async (location) => {
