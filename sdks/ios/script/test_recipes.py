@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 class RecipeTests(unittest.TestCase):
-    def test_xcode_recipes_clear_inherited_linker(self):
+    def test_xcode_recipes_use_supported_environment_and_targets(self):
         with tempfile.TemporaryDirectory() as directory:
             tools = Path(directory)
             producer = tools / "xcodebuild"
@@ -60,8 +60,23 @@ class RecipeTests(unittest.TestCase):
                             args[0], "build" if recipe == "check-examples" else "test"
                         )
                         if recipe == "check-examples":
+                            self.assertIn("ARCHS=arm64", args)
                             self.assertIn("CODE_SIGNING_ALLOWED=NO", args)
             self.assertEqual(count, 3)
+
+    def test_swift_recipes_keep_default_job_counts(self):
+        for recipe in ("check", "test"):
+            with self.subTest(recipe=recipe):
+                result = subprocess.run(
+                    ["just", "--dry-run", "ios", recipe],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                commands = result.stdout + result.stderr
+                self.assertNotIn("--jobs", commands)
+                self.assertNotIn("--num-workers", commands)
 
     def test_docs_create_output_parent_in_fresh_checkout(self):
         with tempfile.TemporaryDirectory() as directory:

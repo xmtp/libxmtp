@@ -34,6 +34,8 @@ The recipe test checks the real Just commands without compiling the SDK.
 - CI runs the test, example, and simulator recipes through `just backend ci`.
   This starts disposable native PostgreSQL, S3, and backend services.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
+- Example builds select `arm64` to match the shipped simulator library.
+- Swift builds and tests use their default worker counts.
 - `Package.swift` stays at the repository root.
 - `Sources/XmtpSdk/xmtp_sdk.swift` and `Sources/XmtpSdk/runtime` are generated.
   Change Rust or `apps/xmtp_sdk_bindgen`, then generate them. Do not edit output.
