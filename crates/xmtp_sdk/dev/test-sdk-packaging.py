@@ -564,7 +564,21 @@ class PackagingTests(unittest.TestCase):
         )
 
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
-        names = ("CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "LDFLAGS")
+        names = ("CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "LDFLAGS", "PERL") + tuple(
+            prefix + "OPENSSL_" + name
+            for prefix in ("", "AARCH64_LINUX_ANDROID_")
+            for name in (
+                "DIR",
+                "LIB_DIR",
+                "INCLUDE_DIR",
+                "NO_VENDOR",
+                "STATIC",
+                "LIBS",
+                "CONFIG_DIR",
+                "SRC_PERL",
+                "RUST_USE_NASM",
+            )
+        )
         environment = {
             key: value for key, value in os.environ.items() if key not in names
         }
@@ -946,6 +960,7 @@ class PackagingTests(unittest.TestCase):
         tools = self.root / "ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
         tools.mkdir(parents=True)
         (tools / "llvm-ar").write_text("archiver")
+        (tools / "llvm-ranlib").write_text("archive index")
         for triple in mobile.ANDROID.values():
             target = (
                 "armv7a-linux-androideabi"
@@ -990,6 +1005,7 @@ class PackagingTests(unittest.TestCase):
             self.assertTrue(linker.endswith("23-clang"))
             self.assertTrue(env["CXX_" + target].endswith("23-clang++"))
             self.assertEqual(env["AR_" + target], str(tools / "llvm-ar"))
+            self.assertEqual(env["RANLIB_" + target], str(tools / "llvm-ranlib"))
             self.assertEqual(command[-1], str(self.root / "android" / triple))
 
 

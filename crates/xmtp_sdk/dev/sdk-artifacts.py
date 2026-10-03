@@ -81,6 +81,16 @@ def source_hash(generator=False):
     return hashlib.sha256(json.dumps(sorted(selected)).encode()).hexdigest()
 
 
+def compiler_host():
+    """Read the host triple from the selected artifact compiler."""
+    compiler = os.environ.get("RUSTC") or os.environ.get("CARGO_BUILD_RUSTC") or "rustc"
+    identity = subprocess.check_output([compiler, "-vV"], cwd=ROOT).decode()
+    for line in identity.splitlines():
+        if line.startswith("host: "):
+            return line.removeprefix("host: ")
+    raise ValueError("Artifact compiler identity has no host triple")
+
+
 def build_context():
     """Include the compiler and target flags in the artifact cache key."""
     compiler_path = (
@@ -106,10 +116,27 @@ def build_context():
             "CFLAGS",
             "CXXFLAGS",
             "LDFLAGS",
+            "PERL",
+            "RANLIB",
+            "RANLIBFLAGS",
+            "TARGET_RANLIB",
+            "TARGET_RANLIBFLAGS",
+            "HOST_RANLIB",
+            "HOST_RANLIBFLAGS",
         )
         or name.startswith(
-            ("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_", "OPENSSL_")
+            (
+                "CARGO_TARGET_",
+                "CC_",
+                "CXX_",
+                "CFLAGS_",
+                "AR_",
+                "RANLIB_",
+                "RANLIBFLAGS_",
+                "OPENSSL_",
+            )
         )
+        or "_OPENSSL_" in name
         or name.endswith("_DEPLOYMENT_TARGET")
     }
     return hashlib.sha256(

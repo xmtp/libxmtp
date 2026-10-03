@@ -23,10 +23,11 @@ export async function admitEntries(config, request, target) {
   };
   const sdk = await realpath(config.sdk_entry);
   inside(sdk);
-  if (request.side !== "new") {
-    if (config.pure_entry) inside(await realpath(config.pure_entry));
-    return;
-  }
+  if (
+    !["old", "new"].includes(request.side) ||
+    !["node", "browser"].includes(target)
+  )
+    throw new Error("Unknown benchmark package side or target");
   let directory = dirname(sdk);
   let manifest;
   while (true) {
@@ -43,7 +44,12 @@ export async function admitEntries(config, request, target) {
       throw new Error("Missing installed SDK manifest");
     directory = dirname(directory);
   }
-  const expectedName = target === "node" ? "xmtp-sdk" : "xmtp-sdk-browser";
+  const expectedName =
+    request.side === "old"
+      ? `@xmtp/${target}-sdk`
+      : target === "node"
+        ? "xmtp-sdk"
+        : "xmtp-sdk-browser";
   if (manifest.name !== expectedName || manifest.type !== "module")
     throw new Error("Unexpected installed SDK package identity");
   const conditions = new Set(
@@ -83,9 +89,9 @@ export async function admitEntries(config, request, target) {
   };
   if (sdk !== (await publicPath(".")))
     throw new Error("SDK entry does not identify the installed public root");
-  if (target === "node") {
+  if (target === "node" || request.side === "old") {
     if (config.pure_entry && (await realpath(config.pure_entry)) !== sdk)
-      throw new Error("Node codecs must use the installed public root");
+      throw new Error("Codecs must use the installed public root");
   } else {
     if (
       !config.pure_entry ||
