@@ -9,6 +9,9 @@ Use `import XmtpSdk`. The package has one static native XCFramework. CocoaPods
 uses the same archive and SHA256 receipt. The pod name is `XMTP`; its module is
 `XmtpSdk`. This change starts at version `8.0.0`.
 
+The native framework has ARM64 slices for iOS devices, the iOS simulator, and
+macOS. Intel macOS hosts are not supported.
+
 For a local CocoaPods checkout, first run `dev/nix-shell 'just ios build'`.
 Point the Podfile at `sdks/ios` with `:path`. When no release receipt exists,
 the podspec selects `Artifacts/XmtpSdkFFI.xcframework`. A released pod uses the
