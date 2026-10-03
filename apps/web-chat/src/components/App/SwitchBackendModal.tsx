@@ -1,5 +1,5 @@
 import { Button, Group, Stack, Text } from "@mantine/core";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { Modal } from "@/components/Modal";
@@ -13,6 +13,7 @@ export const SwitchBackendModal: React.FC = () => {
   const { disconnect } = useXMTP();
   const { backendUrl, setBackendUrl } = useSettings();
   const [switching, setSwitching] = useState(false);
+  const switchingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const requestedUrl = searchParams.get("backend") ?? "";
   const opened =
@@ -24,22 +25,28 @@ export const SwitchBackendModal: React.FC = () => {
     [requestedUrl],
   );
 
-  const close = () => {
+  const clearRequest = () => {
     setError(null);
     void navigate(window.location.pathname, { replace: true });
   };
+  const close = () => {
+    if (switchingRef.current) return;
+    clearRequest();
+  };
 
   const switchBackend = async () => {
-    if (switching) return;
+    if (switchingRef.current) return;
+    switchingRef.current = true;
     setError(null);
     setSwitching(true);
     try {
       await disconnect();
       setBackendUrl(requestedUrl);
-      close();
+      clearRequest();
     } catch {
       setError("Could not disconnect from XMTP. Try again.");
     } finally {
+      switchingRef.current = false;
       setSwitching(false);
     }
   };

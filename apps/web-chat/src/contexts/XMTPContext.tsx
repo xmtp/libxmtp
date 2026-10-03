@@ -74,10 +74,15 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
   // when another session claims the lock, disconnect without releasing
   const handleLockLost = useCallback(async () => {
     if (client) {
-      await client.end();
-      setClientSigner(undefined);
-      setClient(undefined);
-      reset();
+      try {
+        await client.end();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause : new Error(String(cause)));
+      } finally {
+        setClientSigner(undefined);
+        setClient(undefined);
+        reset();
+      }
     }
   }, [client, reset]);
   const { lockState, acquireLock, releaseLock } = useAppLock(() => {
