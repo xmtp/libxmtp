@@ -179,6 +179,9 @@ Package review checks:
   Windows browser asset paths, default mobile features, all four NDK compiler targets and archive index tools,
   caller archive-tool policies, target OpenSSL paths and policy, cache inputs, and both flat and prebuilt runtime
   directory layouts.
+  Explicit target OpenSSL roots keep upstream library-directory selection. Host
+  library and header paths use the selected compiler's host-qualified variables
+  in the Android child environment. Parent inputs and caller overrides stay intact.
 - Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
   for small C probes. The output records ELF class and machine for each ABI.
   These probes do not prove an installed Android SDK.

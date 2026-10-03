@@ -111,6 +111,140 @@ class ArtifactTests(unittest.TestCase):
                             "Caller input changed",
                         )
 
+    def test_android_target_root_keeps_host_inputs_separate(self):
+        host_prefix = "AARCH64_APPLE_DARWIN_OPENSSL_"
+        for triple in mobile.ANDROID.values():
+            prefix = triple.upper().replace("-", "_") + "_OPENSSL_"
+            for host_policy in (None, "0", "1"):
+                for target_policy in (None, "0", "1"):
+                    for components in (
+                        (),
+                        ("LIB_DIR",),
+                        ("INCLUDE_DIR",),
+                        ("LIB_DIR", "INCLUDE_DIR"),
+                    ):
+                        for qualified_host in (False, True):
+                            inputs = {
+                                "ANDROID_NDK_HOME": "/fixture/ndk",
+                                prefix + "DIR": "/target/root",
+                                "OPENSSL_LIB_DIR": "/host/lib",
+                                "OPENSSL_INCLUDE_DIR": "/host/include",
+                            }
+                            inputs.update(
+                                {prefix + key: "/caller/" + key for key in components}
+                            )
+                            if qualified_host:
+                                inputs.update(
+                                    {
+                                        host_prefix + key: "/qualified/" + key
+                                        for key in ("LIB_DIR", "INCLUDE_DIR")
+                                    }
+                                )
+                            if host_policy is not None:
+                                inputs["OPENSSL_NO_VENDOR"] = host_policy
+                            if target_policy is not None:
+                                inputs[prefix + "NO_VENDOR"] = target_policy
+                            with (
+                                self.subTest(
+                                    triple=triple,
+                                    host=host_policy,
+                                    policy=target_policy,
+                                    components=components,
+                                    qualified_host=qualified_host,
+                                ),
+                                patch.dict(os.environ, inputs, clear=True),
+                                patch.object(
+                                    Path,
+                                    "glob",
+                                    return_value=[Path("/fixture/ndk/toolchain")],
+                                ),
+                                patch.object(Path, "is_file", return_value=True),
+                                patch.object(
+                                    mobile.artifacts,
+                                    "compiler_host",
+                                    return_value="aarch64-apple-darwin",
+                                ),
+                            ):
+                                env = mobile.android_environment(triple)
+                                self.assertEqual(
+                                    dict(os.environ),
+                                    inputs,
+                                    "Parent environment changed",
+                                )
+                                self.assertEqual(
+                                    env[prefix + "NO_VENDOR"], target_policy or "1"
+                                )
+                                for key in ("LIB_DIR", "INCLUDE_DIR"):
+                                    self.assertEqual(
+                                        env.get(prefix + key), inputs.get(prefix + key)
+                                    )
+                                    if target_policy == "0":
+                                        self.assertEqual(
+                                            env["OPENSSL_" + key],
+                                            inputs["OPENSSL_" + key],
+                                        )
+                                    else:
+                                        self.assertFalse(
+                                            "OPENSSL_" + key in env,
+                                            "Host component shadows target root",
+                                        )
+                                        self.assertEqual(
+                                            env[host_prefix + key],
+                                            inputs.get(
+                                                host_prefix + key,
+                                                inputs["OPENSSL_" + key],
+                                            ),
+                                        )
+
+    def test_android_equal_host_target_does_not_add_root_shadow(self):
+        triple = "aarch64-linux-android"
+        prefix = "AARCH64_LINUX_ANDROID_OPENSSL_"
+        inputs = {
+            "ANDROID_NDK_HOME": "/fixture/ndk",
+            prefix + "DIR": "/target/root",
+            "OPENSSL_LIB_DIR": "/host/lib",
+        }
+        with (
+            patch.dict(os.environ, inputs, clear=True),
+            patch.object(Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(mobile.artifacts, "compiler_host", return_value=triple),
+        ):
+            env = mobile.android_environment(triple)
+            self.assertFalse(
+                prefix + "LIB_DIR" in env, "Host compensation shadows target root"
+            )
+            self.assertFalse(
+                "OPENSSL_LIB_DIR" in env, "Generic path shadows target root"
+            )
+            self.assertEqual(dict(os.environ), inputs)
+
+    def test_compiler_host_uses_artifact_compiler_selection(self):
+        for inputs, expected in (
+            ({}, "rustc"),
+            ({"CARGO_BUILD_RUSTC": "/build/rustc"}, "/build/rustc"),
+            (
+                {"RUSTC": "/selected/rustc", "CARGO_BUILD_RUSTC": "/build/rustc"},
+                "/selected/rustc",
+            ),
+        ):
+            with (
+                self.subTest(inputs=tuple(inputs)),
+                patch.dict(os.environ, inputs, clear=True),
+                patch.object(
+                    artifacts.subprocess,
+                    "check_output",
+                    return_value=b"rustc fixture\nhost: aarch64-apple-darwin\n",
+                ) as query,
+            ):
+                self.assertEqual(artifacts.compiler_host(), "aarch64-apple-darwin")
+                query.assert_called_once_with([expected, "-vV"], cwd=artifacts.ROOT)
+        with patch.object(
+            artifacts.subprocess, "check_output", return_value=b"rustc fixture\n"
+        ):
+            with self.assertRaisesRegex(ValueError, "no host triple"):
+                artifacts.compiler_host()
+
     def test_android_archive_index_uses_target_tool_and_keeps_caller_inputs(self):
         host = {
             "ANDROID_NDK_HOME": "/fixture/ndk",
@@ -173,6 +307,9 @@ class ArtifactTests(unittest.TestCase):
             for prefix in ("RANLIB_", "RANLIBFLAGS_")
             for triple in mobile.ANDROID.values()
             for target in (triple, triple.replace("-", "_"))
+        )
+        names += tuple(
+            "AARCH64_APPLE_DARWIN_OPENSSL_" + key for key in ("LIB_DIR", "INCLUDE_DIR")
         )
         self.context_patch.stop()
         try:

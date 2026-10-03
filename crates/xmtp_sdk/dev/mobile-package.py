@@ -111,6 +111,19 @@ def android_environment(triple):
     )
     # Use caller target paths, or build OpenSSL instead of linking host libraries.
     env.setdefault(openssl_prefix + "NO_VENDOR", "1" if target_openssl else "0")
+    if (
+        openssl_prefix + "DIR" in env
+        and env[openssl_prefix + "NO_VENDOR"] != "0"
+        and any("OPENSSL_" + key in env for key in ("LIB_DIR", "INCLUDE_DIR"))
+    ):
+        # Keep host dependencies separate from the explicit target root.
+        host_prefix = artifacts.compiler_host().upper().replace("-", "_") + "_OPENSSL_"
+        for component in ("LIB_DIR", "INCLUDE_DIR"):
+            generic = "OPENSSL_" + component
+            if generic in env:
+                value = env.pop(generic)
+                if host_prefix != openssl_prefix:
+                    env.setdefault(host_prefix + component, value)
     return env
 
 
