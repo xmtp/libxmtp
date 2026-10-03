@@ -86,6 +86,12 @@ pub use client::{
     AttachmentOptions, Client, ClientHandlers, ClientOptions, PreAuthenticate,
     PreAuthenticateError, StorageLocation, StorageOptions,
 };
+#[cfg(all(
+    feature = "conformance",
+    not(feature = "pure-only"),
+    not(target_arch = "wasm32")
+))]
+pub use configuration::sdk_conformance_server_configuration_sample;
 #[cfg(not(feature = "pure-only"))]
 pub use configuration::{
     AttachmentsConfiguration, AuthConfiguration, LimitsConfiguration, MlsConfiguration,
@@ -196,6 +202,24 @@ uniffi::setup_scaffolding!();
 #[xmtp_macro::sdk_export(pure)]
 pub fn sdk_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
+}
+
+/// Suspend shared process streams and keep their durable progress.
+#[cfg(not(feature = "pure-only"))]
+#[xmtp_macro::sdk_export(native_only)]
+pub async fn suspend_streams() -> Result<(), XmtpError> {
+    xmtp_mls::subscriptions::router_callbacks::suspend_bidi_streams()
+        .await
+        .map_err(XmtpError::from_core)
+}
+
+/// Resume shared process streams from their durable progress.
+#[cfg(not(feature = "pure-only"))]
+#[xmtp_macro::sdk_export(native_only)]
+pub async fn resume_streams() -> Result<(), XmtpError> {
+    xmtp_mls::subscriptions::router_callbacks::resume_bidi_streams()
+        .await
+        .map_err(XmtpError::from_core)
 }
 
 /// An empty asynchronous call for measuring FFI scheduling cost.

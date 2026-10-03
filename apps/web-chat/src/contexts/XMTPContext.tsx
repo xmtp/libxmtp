@@ -71,6 +71,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
   const { reset } = useActions();
   const [client, setClient] = useState<Client | undefined>(initialClient);
   const [clientSigner, setClientSigner] = useState<Signer>();
+  const [error, setError] = useState<Error | null>(null);
   // when another session claims the lock, disconnect without releasing
   const handleLockLost = useCallback(async () => {
     if (client) {
@@ -89,7 +90,6 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
     void handleLockLost();
   });
   const [initializing, setInitializing] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
   // client is initializing
   const initializingRef = useRef(false);
 
