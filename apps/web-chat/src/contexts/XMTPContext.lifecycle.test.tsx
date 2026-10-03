@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => {
     endAdmin: vi.fn().mockResolvedValue(undefined),
     releaseLock: vi.fn(),
     acquireLock: vi.fn(() => true),
+    ownsLock: vi.fn(() => true),
     reset: vi.fn(),
     lockLost: null as null | (() => void),
     signer: {},
@@ -47,6 +48,7 @@ vi.mock("@/hooks/useAppLock", () => ({
       lockState: "available",
       acquireLock: mocks.acquireLock,
       releaseLock: mocks.releaseLock,
+      ownsLock: mocks.ownsLock,
     };
   },
 }));
@@ -57,6 +59,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mocks.lockLost = null;
+  mocks.ownsLock.mockReturnValue(true);
 });
 
 it("opens the matching old Browser database when it exists", async () => {
@@ -237,4 +240,60 @@ it("disconnects and reports a failed SDK end after lock loss", async () => {
   expect(result.current.error?.message).toBe("Shutdown failed");
   expect(mocks.reset).toHaveBeenCalledTimes(1);
   expect(mocks.releaseLock).not.toHaveBeenCalled();
+});
+
+it("ends a client created after another tab takes the app lock", async () => {
+  const created = Promise.withResolvers<{ end: () => Promise<void> }>();
+  const end = vi.fn().mockResolvedValue(undefined);
+  mocks.create.mockReturnValueOnce(created.promise);
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+
+  let pending!: Promise<unknown>;
+  act(() => {
+    pending = result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: mocks.signer as never,
+    });
+  });
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+
+  act(() => {
+    mocks.ownsLock.mockReturnValue(false);
+    mocks.lockLost?.();
+  });
+  await act(async () => {
+    created.resolve({ end });
+    await expect(pending).rejects.toThrow("App lock was lost");
+  });
+
+  expect(end).toHaveBeenCalledTimes(1);
+  expect(result.current.client).toBeUndefined();
+  expect(result.current.signer).toBeUndefined();
+});
+
+it("checks storage ownership when the lock-loss event is delayed", async () => {
+  const created = Promise.withResolvers<{ end: () => Promise<void> }>();
+  const end = vi.fn().mockResolvedValue(undefined);
+  mocks.create.mockReturnValueOnce(created.promise);
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+
+  let pending!: Promise<unknown>;
+  act(() => {
+    pending = result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: mocks.signer as never,
+    });
+  });
+  await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+
+  mocks.ownsLock.mockReturnValue(false);
+  await act(async () => {
+    created.resolve({ end });
+    await expect(pending).rejects.toThrow("App lock was lost");
+  });
+
+  expect(end).toHaveBeenCalledTimes(1);
+  expect(result.current.client).toBeUndefined();
 });

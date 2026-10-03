@@ -104,6 +104,18 @@ export const useAppLock = (onLockLost?: () => void) => {
     setLastActive(null);
   }, [sessionLockId, setLockId, setLastActive]);
 
+  // Read storage at the time of use. React state can still show the old owner
+  // while a storage event is waiting to run.
+  const ownsLock = useCallback(
+    () =>
+      hadLockRef.current &&
+      readLocalStorageValue<string | null>({
+        key: APP_LOCK_ID_KEY,
+        defaultValue: null,
+      }) === sessionLockId,
+    [sessionLockId],
+  );
+
   // if the lock is lost, call the onLockLost callback
   // this is helpful for disconnecting the user when the lock is lost
   useEffect(() => {
@@ -155,5 +167,5 @@ export const useAppLock = (onLockLost?: () => void) => {
     };
   }, [lockState, lockId, releaseLock, sessionLockId]);
 
-  return { lockState, acquireLock, releaseLock };
+  return { lockState, acquireLock, releaseLock, ownsLock };
 };

@@ -70,6 +70,17 @@ describe("useAppLock", () => {
       expect(localStorage.getItem(APP_LOCK_ID_KEY)).not.toBeNull();
     });
 
+    it("reads current ownership before a storage event arrives", () => {
+      const { result } = renderHook(() => useAppLock());
+      act(() => {
+        result.current.acquireLock();
+      });
+      expect(result.current.ownsLock()).toBe(true);
+
+      localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("other-session-id"));
+      expect(result.current.ownsLock()).toBe(false);
+    });
+
     it("does not acquire lock when another session has it", () => {
       localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("other-session-id"));
       localStorage.setItem(
