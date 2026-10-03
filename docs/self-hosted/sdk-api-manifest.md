@@ -3428,8 +3428,8 @@ The SDK tables above keep the approved pre-switch retention ledger. Its source b
 
 | SDK | Source family | Current declarations | Status |
 | --- | --- | ---: | --- |
-| Browser | TypeScript root export names | 221 | current generated public product |
-| Browser | TypeScript /pure root export names | 75 | current generated public product |
+| Browser | TypeScript root export names | 229 | current generated public product |
+| Browser | TypeScript /pure root export names | 83 | current generated public product |
 
 ## Open items
 
