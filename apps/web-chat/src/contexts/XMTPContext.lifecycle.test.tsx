@@ -1,5 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { generateInboxId, initPureWasm } from "@xmtp/browser-sdk/pure";
+import { afterEach, beforeAll, expect, it, vi } from "vitest";
 
 import { XMTPProvider, useXMTP } from "./XMTPContext";
 
@@ -16,7 +17,6 @@ const mocks = vi.hoisted(() => {
         ),
       ),
     inboxIdFor: vi.fn().mockResolvedValue("registered-inbox-id"),
-    generateInboxId: vi.fn().mockReturnValue("legacy-nonce-one-id"),
     listFiles: vi.fn().mockResolvedValue([]),
     endAdmin: vi.fn().mockResolvedValue(undefined),
     releaseLock: vi.fn(),
@@ -27,13 +27,13 @@ const mocks = vi.hoisted(() => {
     signer: {},
   };
 });
-vi.mock("@xmtp/browser-sdk", () => ({
+vi.mock("@xmtp/browser-sdk", async () => ({
   Client: {
     create: mocks.create,
     canMessage: mocks.canMessage,
     inboxIdFor: mocks.inboxIdFor,
   },
-  generateInboxId: mocks.generateInboxId,
+  generateInboxId: (await import("@xmtp/browser-sdk/pure")).generateInboxId,
   Storage: {
     admin: () =>
       Promise.resolve({ listFiles: mocks.listFiles, end: mocks.endAdmin }),
@@ -41,6 +41,9 @@ vi.mock("@xmtp/browser-sdk", () => ({
   initLogging: vi.fn(),
   XmtpError: { StorageBusy: mocks.StorageBusy },
 }));
+beforeAll(async () => {
+  await initPureWasm();
+});
 vi.mock("@/hooks/useAppLock", () => ({
   useAppLock: (onLockLost: () => void) => {
     mocks.lockLost = onLockLost;
@@ -128,9 +131,15 @@ it("does not open another inbox's old Browser database", async () => {
 });
 
 it("uses the version 7 nonce for an unregistered old database", async () => {
-  const identity = { identifier: "0x1234", kind: "ethereum" };
+  const identity = {
+    identifier: "0xabcdef0000000000000000000000000000000000",
+    kind: "ethereum" as const,
+  };
   const signer = { identity: vi.fn().mockResolvedValue(identity) };
-  mocks.listFiles.mockResolvedValueOnce(["xmtp-test-legacy-nonce-one-id.db3"]);
+  const legacyInboxId =
+    "f020cf771dabaf2610250b5f00076215a8f1da8649ba46cf5ba2d00df6ce5279";
+  expect(generateInboxId(identity, 1n)).toBe(legacyInboxId);
+  mocks.listFiles.mockResolvedValueOnce([`xmtp-test-${legacyInboxId}.db3`]);
   mocks.canMessage.mockResolvedValueOnce(
     new Map([[`${identity.kind}:${identity.identifier}`, false]]),
   );
@@ -145,15 +154,14 @@ it("uses the version 7 nonce for an unregistered old database", async () => {
     });
   });
 
-  expect(mocks.generateInboxId).toHaveBeenCalledWith(identity);
   expect(mocks.inboxIdFor).not.toHaveBeenCalled();
   expect(mocks.create).toHaveBeenCalledWith(
     signer,
     expect.objectContaining({
       storage: {
         location: {
-          dbPath: "xmtp-test-legacy-nonce-one-id.db3",
-          attachmentsDir: "xmtp-test-legacy-nonce-one-id.db3.attachments",
+          dbPath: `xmtp-test-${legacyInboxId}.db3`,
+          attachmentsDir: `xmtp-test-${legacyInboxId}.db3.attachments`,
         },
         label: "test",
       },

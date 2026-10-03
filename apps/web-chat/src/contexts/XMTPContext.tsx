@@ -45,7 +45,7 @@ const storageLocation = async (
   const reachable = await Client.canMessage([identity], backend);
   const inboxId = reachable.get(`${identity.kind}:${identity.identifier}`)
     ? await Client.inboxIdFor(identity, backend)
-    : generateInboxId(identity);
+    : generateInboxId(identity, 1n);
   const dbPath = `${prefix}${inboxId}.db3`;
   return files.includes(dbPath)
     ? { dbPath, attachmentsDir: `${dbPath}.attachments` }
