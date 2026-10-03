@@ -43,6 +43,11 @@ let
   };
   special =
     lib.optionalAttrs android { buildInputs = [ ]; }
+    // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
+      MACOSX_DEPLOYMENT_TARGET = "11.0";
+      # Darwin setup replaces this variable before the Cargo build.
+      preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
+    }
     // lib.optionalAttrs stdenv.hostPlatform.isMusl { RUSTFLAGS = "-C target-feature=-crt-static"; };
   command = "cargo build --release --locked -p xmtp_sdk --lib --target ${target}";
 in
