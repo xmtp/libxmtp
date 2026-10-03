@@ -42,7 +42,10 @@ async fn history_snapshot_fails_before_returning_cursor_for_bad_row() {
             .execute(conn)
     })?;
     let result = group.message_history_snapshot(128).await;
-    assert!(result.is_err(), "an omitted row must not advance the cursor");
+    assert!(
+        result.is_err(),
+        "an omitted row must not advance the cursor"
+    );
     assert!(!format!("{result:?}").contains("sensitive-history-content"));
     client.end().await?;
 }
