@@ -59,10 +59,11 @@ to change how the file is written.
 | `XMTP_DISABLE_DEVICE_SYNC` | Disable device sync when `true`                     | No                                  |
 | `XMTP_APP_VERSION`         | Custom app version                                  | No                                  |
 
-Without `XMTP_DB_PATH`, the CLI stores the database at
-`~/.xmtp/<backend-label>/xmtp-db`. The label is derived from the backend origin,
-so different backends use different databases. `XMTP_ENV` changes only the SDK
-database label; it does not select a backend.
+Without `XMTP_DB_PATH`, the CLI stores the `local` database at
+`~/.xmtp/<backend-label>/xmtp-db`. Other `XMTP_ENV` labels use
+`~/.xmtp/<backend-label>/environments/<environment-label>/xmtp-db`. The backend label comes
+from the backend origin. `XMTP_ENV` does not select a backend. An explicit
+`XMTP_DB_PATH` stays unchanged.
 
 ## Usage
 

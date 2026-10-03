@@ -43,6 +43,25 @@ describe("backend utilities", () => {
     );
   });
 
+  it("keeps non-local environment labels in separate database paths", () => {
+    const url = "https://example.com";
+    expect(defaultDbPath(url, "local")).toBe(defaultDbPath(url));
+    expect(defaultDbPath(url, "staging-a")).toBe(
+      join(
+        homedir(),
+        ".xmtp",
+        backendLabel(url),
+        "environments",
+        "staging-a",
+        "xmtp-db",
+      ),
+    );
+    expect(defaultDbPath(url, "staging-b")).not.toBe(
+      defaultDbPath(url, "staging-a"),
+    );
+    expect(defaultDbPath(url, "xmtp-db")).not.toBe(defaultDbPath(url));
+  });
+
   it.each([
     ["http://example.com", "http://example.com/"],
     ["http://example.com", "http://example.com/path"],
@@ -61,7 +80,7 @@ describe("backend utilities", () => {
     },
   );
 
-  it.each(["", ".", "..", "a/b", "a\\b"])(
+  it.each(["", ".", "..", "a/b", "a\\b", "a:b", "a\0b"])(
     "rejects invalid environment label %s",
     (label) => {
       expect(() => parseEnvironmentLabel(label)).toThrow(

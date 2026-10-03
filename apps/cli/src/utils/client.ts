@@ -101,7 +101,8 @@ export async function createClient(
   }
 
   const level = parseLogLevel(config.logLevel);
-  if (level) await initLogging({ level, structured: config.structuredLogging });
+  if (level !== undefined || config.structuredLogging)
+    await initLogging({ level, structured: config.structuredLogging });
   const client = await Client.create(signer, {
     backend: networkOptions,
     storage: {

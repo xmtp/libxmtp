@@ -5,7 +5,7 @@ import { join } from "node:path";
 const INVALID_BACKEND_URL =
   "Backend URL must be a valid http:// or https:// URL.";
 const INVALID_ENVIRONMENT_LABEL =
-  'Environment label must be non-empty, must not be "." or "..", and must not contain "/" or "\\".';
+  'Environment label must be non-empty, must not be "." or "..", and must not contain "/", "\\", ":", or NUL.';
 
 export function parseBackendUrl(value: string): URL {
   let url: URL;
@@ -28,7 +28,9 @@ export function parseEnvironmentLabel(value: string): string {
     value === "." ||
     value === ".." ||
     value.includes("/") ||
-    value.includes("\\")
+    value.includes("\\") ||
+    value.includes(":") ||
+    value.includes("\0")
   ) {
     throw new Error(INVALID_ENVIRONMENT_LABEL);
   }
@@ -47,6 +49,13 @@ export function backendLabel(value: string): string {
   return `${hostPort}-${hash}`;
 }
 
-export function defaultDbPath(value: string): string {
-  return join(homedir(), ".xmtp", backendLabel(value), "xmtp-db");
+export function defaultDbPath(
+  value: string,
+  environmentLabel = "local",
+): string {
+  const label = parseEnvironmentLabel(environmentLabel);
+  const backendDirectory = join(homedir(), ".xmtp", backendLabel(value));
+  return label === "local"
+    ? join(backendDirectory, "xmtp-db")
+    : join(backendDirectory, "environments", label, "xmtp-db");
 }
