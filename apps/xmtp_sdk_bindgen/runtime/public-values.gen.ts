@@ -20,6 +20,7 @@ export type ContentTypeId = {
 export type EncodedContent = {
   readonly type: ContentTypeId;
   readonly content: Uint8Array;
+  readonly fallback?: string;
 };
 export type MessageBody =
   | { readonly kind: "text"; readonly value: string }

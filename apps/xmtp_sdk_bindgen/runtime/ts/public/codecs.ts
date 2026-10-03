@@ -75,7 +75,11 @@ abstract class StandardCodec<Value, Host> implements ContentCodec<Value> {
     private readonly lift: Convert<Host, Value>,
   ) {
     this.type = liftContentTypeId(host.type, currentProjection());
-    registerRustStandardFallback(this, StandardCodec.prototype.fallback);
+    registerRustStandardFallback(
+      this,
+      Object.getOwnPropertyDescriptor(StandardCodec.prototype, "fallback")
+        ?.value,
+    );
   }
 
   encode(value: Value): EncodedContent {
