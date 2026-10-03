@@ -125,26 +125,39 @@ describe("useAppLock", () => {
       expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).toBeNull();
     });
 
-    it("releases the lock when another session has it", () => {
-      localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("other-session-id"));
-      localStorage.setItem(
-        APP_LOCK_LAST_ACTIVE_KEY,
-        JSON.stringify(Date.now()),
-      );
+    it("keeps a new owner's lock after shutdown completes", async () => {
       const { result } = renderHook(() => useAppLock());
 
       act(() => {
         result.current.acquireLock();
       });
 
-      expect(result.current.lockState).toBe("locked");
-
+      const shutdown = Promise.withResolvers<void>();
+      const pending = shutdown.promise.then(() => result.current.releaseLock());
+      const otherLockId = JSON.stringify("other-session-id");
+      const otherLastActive = JSON.stringify(Date.now());
       act(() => {
-        result.current.releaseLock();
+        localStorage.setItem(APP_LOCK_ID_KEY, otherLockId);
+        localStorage.setItem(APP_LOCK_LAST_ACTIVE_KEY, otherLastActive);
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key: APP_LOCK_ID_KEY,
+            newValue: otherLockId,
+            storageArea: localStorage,
+          }),
+        );
       });
 
-      expect(result.current.lockState).toBe("available");
-      expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).toBeNull();
+      await act(async () => {
+        shutdown.resolve();
+        await pending;
+      });
+
+      expect(result.current.lockState).toBe("locked");
+      expect(localStorage.getItem(APP_LOCK_ID_KEY)).toBe(otherLockId);
+      expect(localStorage.getItem(APP_LOCK_LAST_ACTIVE_KEY)).toBe(
+        otherLastActive,
+      );
     });
   });
 
@@ -241,6 +254,25 @@ describe("useAppLock", () => {
       ) as number;
 
       expect(updatedLastActive).toBeGreaterThan(initialLastActive);
+    });
+
+    it("does not refresh another owner's lock before its storage event arrives", () => {
+      const { result } = renderHook(() => useAppLock());
+      act(() => {
+        result.current.acquireLock();
+      });
+
+      const otherLastActive = JSON.stringify(Date.now());
+      localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("other-session-id"));
+      localStorage.setItem(APP_LOCK_LAST_ACTIVE_KEY, otherLastActive);
+
+      act(() => {
+        vi.advanceTimersByTime(ACTIVE_INTERVAL);
+      });
+
+      expect(localStorage.getItem(APP_LOCK_LAST_ACTIVE_KEY)).toBe(
+        otherLastActive,
+      );
     });
 
     it("clears interval on unmount", () => {

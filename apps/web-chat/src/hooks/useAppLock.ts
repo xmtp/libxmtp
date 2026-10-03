@@ -93,9 +93,16 @@ export const useAppLock = (onLockLost?: () => void) => {
 
   const releaseLock = useCallback((): void => {
     hadLockRef.current = false;
+    const currentLockId = readLocalStorageValue<string | null>({
+      key: APP_LOCK_ID_KEY,
+      defaultValue: null,
+    });
+    if (currentLockId !== sessionLockId) {
+      return;
+    }
     setLockId(null);
     setLastActive(null);
-  }, [setLockId, setLastActive]);
+  }, [sessionLockId, setLockId, setLastActive]);
 
   // if the lock is lost, call the onLockLost callback
   // this is helpful for disconnecting the user when the lock is lost
@@ -116,7 +123,13 @@ export const useAppLock = (onLockLost?: () => void) => {
 
     // update the last active time at the set interval
     const interval = setInterval(() => {
-      setLastActive(Date.now());
+      const currentLockId = readLocalStorageValue<string | null>({
+        key: APP_LOCK_ID_KEY,
+        defaultValue: null,
+      });
+      if (currentLockId === sessionLockId) {
+        setLastActive(Date.now());
+      }
     }, ACTIVE_INTERVAL);
 
     return () => {
