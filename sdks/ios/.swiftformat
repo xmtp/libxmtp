@@ -25,3 +25,6 @@
 # Disable rules that incorrectly remove await keywords
 # The redundantAsync rule is too aggressive and removes await in autoclosure contexts
 --disable redundantAsync
+
+# Use the selected Swift compiler syntax for formatting.
+--swiftversion 6.1
