@@ -101,6 +101,7 @@ package-smoke target="node":
 
 check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-staging.py
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-package-smoke-path.mjs

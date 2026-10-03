@@ -105,6 +105,17 @@ def android_environment(triple):
         for name in ("RANLIB_" + triple, "RANLIB_" + target, "TARGET_RANLIB")
     ):
         env["RANLIB_" + target] = str(ranlib)
+    return openssl_environment(triple, env)
+
+
+def ios_environment(triple):
+    """Select target OpenSSL without changing the iOS shell toolchain."""
+    return openssl_environment(triple, dict(os.environ))
+
+
+def openssl_environment(triple, env):
+    """Keep target libraries separate from host OpenSSL inputs."""
+    target = triple.replace("-", "_")
     openssl_prefix = target.upper() + "_OPENSSL_"
     target_openssl = any(
         openssl_prefix + name in env for name in ("DIR", "LIB_DIR", "INCLUDE_DIR")
@@ -184,7 +195,7 @@ def main():
             env = (
                 android_environment(triple)
                 if args.target == "android"
-                else dict(os.environ)
+                else ios_environment(triple)
             )
             run(
                 [
