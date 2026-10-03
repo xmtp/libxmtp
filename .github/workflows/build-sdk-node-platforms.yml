@@ -47,7 +47,7 @@ jobs:
           LIBRARY: ${{ matrix.library }}
         run: |
           dev/nix-shell 'env -u LD_LIBRARY_PATH nix build .#xmtp-sdk-node-"$TARGET" --out-link target/sdk-node-pair -L'
-          dev/nix-shell 'python3 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair/lib/"$LIBRARY" --addon target/sdk-node-pair/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair/native-provenance.json --runtime-provenance target/sdk-node-pair/runtime/runtime-provenance.json'
+          dev/nix-shell 'python3.11 crates/xmtp_sdk/dev/record-node-platform.py "$TARGET" --library target/sdk-node-pair/lib/"$LIBRARY" --addon target/sdk-node-pair/runtime/uniffi-runtime-napi."$TARGET".node --native-provenance target/sdk-node-pair/native-provenance.json --runtime-provenance target/sdk-node-pair/runtime/runtime-provenance.json'
       - uses: actions/upload-artifact@v7
         with:
           name: sdk_node_pair_${{ matrix.target }}
