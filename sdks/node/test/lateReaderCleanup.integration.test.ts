@@ -169,7 +169,7 @@ it.each(["end", "abort", "client-end"] as const)(
         clients.push(reopened);
         const reopenedGroup = await reopened.conversations.getById(group.id);
         assert.ok(reopenedGroup instanceof Group);
-        const replay = await unwrapGroup(reopenedGroup).messageReader();
+        const replay = await unwrapGroup(reopenedGroup).messageReader(undefined);
         retained.push(replay);
         expect(
           (await within(replay.next(), "reopened replay hung"))?.id.toString(),
