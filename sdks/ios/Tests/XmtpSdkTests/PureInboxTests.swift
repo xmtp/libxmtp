@@ -22,8 +22,8 @@ final class PureInboxTests: XCTestCase {
 			for (nonce, inboxId) in zip(nonces, expected) {
 				XCTAssertEqual(try generateInboxId(identity: identity, nonce: nonce), inboxId)
 			}
-			XCTAssertEqual(try generateInboxId(identity: identity), expected[1])
-			XCTAssertEqual(try generateInboxId(identity: identity, nonce: nil), expected[1])
+			XCTAssertEqual(try generateInboxId(identity: identity), expected[0])
+			XCTAssertEqual(try generateInboxId(identity: identity, nonce: nil), expected[0])
 		}
 	}
 
