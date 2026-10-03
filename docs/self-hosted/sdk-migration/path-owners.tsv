@@ -1101,13 +1101,11 @@ crates/xmtp_sdk/conformance/ts/transfer-control.mts	Node plus agent
 crates/xmtp_sdk/dev/bench	Integration writer
 crates/xmtp_sdk/dev/callback-lifetime-browser	Integration writer
 crates/xmtp_sdk/dev/check-codec-record-values	Integration writer
-crates/xmtp_sdk/dev/check-isolation	Integration writer
 crates/xmtp_sdk/dev/check-wasm-init	Integration writer
 crates/xmtp_sdk/dev/codec-author	Integration writer
 crates/xmtp_sdk/dev/conformance-browser	Integration writer
 crates/xmtp_sdk/dev/conformance-kotlin	Integration writer
 crates/xmtp_sdk/dev/conformance-node	Integration writer
-crates/xmtp_sdk/dev/isolation-pins.tsv	Integration writer
 crates/xmtp_sdk/dev/lint-generated	Integration writer
 crates/xmtp_sdk/dev/mobile-package.py	Integration writer
 crates/xmtp_sdk/dev/package-smoke-browser.mjs	Integration writer

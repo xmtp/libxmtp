@@ -53,39 +53,15 @@ Run commands from the repository root in the Nix shell. Run
   memory, signer HTTP, identity rejection, timing scope, and timeout cleanup.
   See `benchmarks/README.md` for the HTTP signer and app launch configuration.
 - `dev/nix-shell 'just sdk cutover-bench-check'` checks the statistical gates and receipt rules.
+  It also checks new and old Node/browser package admission and deterministic
+  browser long-task interval boundaries and awaited stream cleanup outside timing.
+- `dev/nix-shell 'just sdk cutover-bench-swift-delay-check <output>'` compiles
+  the exact Swift delay helper and checks zero, ordinary, maximum and overflow inputs.
 - `dev/nix-shell 'just sdk cutover-bench-stream-check <output> <browser-node_modules>'` checks
   live stream content in Node, Chromium, and compiled Swift/Kotlin helpers.
   It requires missing or changed live content to fail with correct history.
 - `dev/nix-shell 'just sdk cutover-bench-baselines <output>'` resolves published baseline
   versions and records source and artifact hashes.
-- `dev/nix-shell 'just sdk check-isolation self-hosted'` checks shipped SDK
-  and binding changes against the base. A Phase 2 switch admits only its SDK
-  directory. The Node switch also admits the agent SDK at version 8 when it
-  depends on the workspace Node SDK. The marker must name the approved
-  generated public product. Shared JS recipes must match their exact file pin.
-  Unswitched sibling SDKs and retained bindings keep the original guard and
-  exact reviewed file pins. File mode changes still fail.
-  Pass the local base branch. CI can use its merge commit base.
-  On unswitched paths, the Task 1 exception accepts only the reviewed PROC-032
-  backlink removal in four named SDK source files, checked against their full
-  base content. Later backlink changes need a reviewed gate update.
-  The other exceptions are the exact files of the two design SDK-040 changes
-  (retained undecodable content; the foreign Restored DM peer getter), pinned
-  in `crates/xmtp_sdk/dev/isolation-pins.tsv` to their reviewed git blob hashes.
-  A listed file passes only while its content matches its pin.
-  The reviewed PROC-052 reader repair also pins the retained WASM reader and
-  the four legacy SDK message stream wrappers. Switched SDK deletions remain
-  subject to their own switch marker.
-  The native CI update to `sdks/ios/VALIDATION.md` is also pinned. The gate
-  permits deletion of the three retired `sdks/ios/dev/fly/` files only when
-  their base contents match the reviewed blob hashes. It still rejects changes
-  to those scripts and deletion of other scripts on unswitched paths.
-  After the last reviewed change to a listed file, run
-  `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with it.
-  One build-only diagnostic exception pins `bindings/wasm/wasm.just` with
-  `--print-build-logs` on the existing test derivation. It keeps the same tests,
-  timeout, retries, and file mode. Tests and changelogs remain outside the
-  shipped-code guard.
 - `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and
   real reader pre-poll, pending and READY handoff. It counts native cancel/free
   calls in generated conformance copies and requires the prior item to replay.
@@ -215,8 +191,12 @@ Package review checks:
 
 - `dev/nix-shell 'just sdk check-package-scripts'` also checks both provenance producers,
   config-only changes, Cargo compiler overrides, macOS deployment targets,
-  Windows browser asset paths, default mobile features, all four NDK target tools,
-  and both flat and prebuilt runtime directory layouts.
+  Windows browser asset paths, default mobile features, all four NDK compiler targets and archive index tools,
+  caller archive-tool policies, target OpenSSL paths and policy, cache inputs, and both flat and prebuilt runtime
+  directory layouts.
+  Explicit target OpenSSL roots keep upstream library-directory selection. Host
+  library and header paths use the selected compiler's host-qualified variables
+  in the Android child environment. Parent inputs and caller overrides stay intact.
 - Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
   for small C probes. The output records ELF class and machine for each ABI.
   These probes do not prove an installed Android SDK.
@@ -250,6 +230,9 @@ Android staging dependency inputs:
   `NIX_DEVSHELL=android dev/nix-shell`. Resolve the actual `assembleRelease`
   route with `--write-locks --write-verification-metadata sha256`. Review the resolved graph, repositories, and SHA256
   entries before acceptance. Keep metadata verification enabled.
+  After refresh, keep each verification `<component>` on one line. Keep all
+  checksum values and policy entries. This keeps the generated inventory within
+  the SDK file-size limit.
 - Record the actual plugin classpath and each resolved release configuration.
   AAR output hashes do not prove dependency input coverage.
 - The switched Android project owns its own graph under Task 14. Do not copy
