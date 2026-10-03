@@ -22,11 +22,22 @@ impl<F: Fn(TopicCursor) + MaybeSend + MaybeSync> ReceiptSink for F {
     }
 }
 
+trait ConnectionSource: MaybeSend + MaybeSync {
+    fn is_connected(&self) -> bool;
+}
+
+impl<F: Fn() -> bool + MaybeSend + MaybeSync> ConnectionSource for F {
+    fn is_connected(&self) -> bool {
+        self()
+    }
+}
+
 /// The receipt callback accepts only positions committed to local storage.
 pub struct IncomingSubscription<E> {
     /// Ordered transport events. Reading an event does not commit receipt.
     pub events: BoxDynStream<'static, Result<IncomingEvent, E>>,
     receipt: Box<dyn ReceiptSink>,
+    connection: Option<Box<dyn ConnectionSource>>,
 }
 
 impl<E> IncomingSubscription<E> {
@@ -38,7 +49,24 @@ impl<E> IncomingSubscription<E> {
         Self {
             events,
             receipt: Box::new(receipt),
+            connection: None,
         }
+    }
+
+    /// Bind a retained subscription to its current network receipt source.
+    pub fn with_connection_source(
+        mut self,
+        connection: impl Fn() -> bool + MaybeSend + MaybeSync + 'static,
+    ) -> Self {
+        self.connection = Some(Box::new(connection));
+        self
+    }
+
+    /// A retained lease can remain open while its network wire is unavailable.
+    pub fn is_connected(&self) -> bool {
+        self.connection
+            .as_ref()
+            .is_none_or(|connection| connection.is_connected())
     }
 
     /// Advance resume positions only to the committed received prefix `F`.
@@ -57,6 +85,7 @@ impl<E> IncomingSubscription<E> {
         IncomingSubscription {
             events: Box::pin(self.events.map(move |event| event.map_err(&map))),
             receipt: self.receipt,
+            connection: self.connection,
         }
     }
 }
