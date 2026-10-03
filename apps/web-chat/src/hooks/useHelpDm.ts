@@ -14,14 +14,22 @@ export const useHelpDm = () => {
   useEffect(() => {
     const checkHelpDm = async () => {
       try {
-        const inboxId = await client.inboxIdFor({
+        const identity = {
           identifier: HELP_ADDRESS,
-          kind: "ethereum",
-        });
+          kind: "ethereum" as const,
+        };
+        const reachable = await client.canMessage([identity]);
 
-        if (inboxId) {
-          const dm = await client.conversations.getDmByInboxId(inboxId);
-          setExists(dm !== undefined);
+        if (reachable.get(`ethereum:${identity.identifier}`)) {
+          const inboxId = await client.inboxIdFor(identity);
+          if (inboxId) {
+            const dm = await client.conversations.getDmByInboxId(inboxId);
+            setExists(dm !== undefined);
+          } else {
+            setExists(false);
+          }
+        } else {
+          setExists(false);
         }
       } catch {
         setExists(false);

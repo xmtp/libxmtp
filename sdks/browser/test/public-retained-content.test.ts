@@ -20,15 +20,16 @@ beforeAll(() => initPureWasm());
 
 function fixture<T>(
   name: string,
-  codec: ContentCodec<T>,
+  makeCodec: () => ContentCodec<T>,
   value: T,
   kind: string,
 ) {
   return {
     name,
     expected: { kind, value },
-    type: codec.type,
-    send: (group: Group) => group.send(codec, value, { shouldPush: false }),
+    type: () => makeCodec().type,
+    send: (group: Group) =>
+      group.send(makeCodec(), value, { shouldPush: false }),
   };
 }
 
@@ -63,41 +64,41 @@ const actions = {
 };
 
 const cases = [
-  fixture("text", new TextCodec(), "Hello, world!", "text"),
-  fixture("markdown", new MarkdownCodec(), "**message**", "markdown"),
+  fixture("text", () => new TextCodec(), "Hello, world!", "text"),
+  fixture("markdown", () => new MarkdownCodec(), "**message**", "markdown"),
   fixture(
     "attachment without filename",
-    new AttachmentCodec(),
+    () => new AttachmentCodec(),
     attachment,
     "attachment",
   ),
   fixture(
     "attachment with filename",
-    new AttachmentCodec(),
+    () => new AttachmentCodec(),
     { ...attachment, filename: "image.png" },
     "attachment",
   ),
   fixture(
     "remote attachment without filename",
-    new RemoteAttachmentCodec(),
+    () => new RemoteAttachmentCodec(),
     remote,
     "remoteAttachment",
   ),
   fixture(
     "remote attachment with filename",
-    new RemoteAttachmentCodec(),
+    () => new RemoteAttachmentCodec(),
     { ...remote, filename: "image.png" },
     "remoteAttachment",
   ),
   fixture(
     "one remote attachment",
-    new MultiRemoteAttachmentCodec(),
+    () => new MultiRemoteAttachmentCodec(),
     { attachments: [remote] },
     "multiRemoteAttachment",
   ),
   fixture(
     "two remote attachments",
-    new MultiRemoteAttachmentCodec(),
+    () => new MultiRemoteAttachmentCodec(),
     {
       attachments: [
         remote,
@@ -108,25 +109,25 @@ const cases = [
   ),
   fixture(
     "transaction without namespace",
-    new TransactionReferenceCodec(),
+    () => new TransactionReferenceCodec(),
     transaction,
     "transactionReference",
   ),
   fixture(
     "transaction with namespace",
-    new TransactionReferenceCodec(),
+    () => new TransactionReferenceCodec(),
     { ...transaction, namespace: "eip155" },
     "transactionReference",
   ),
   fixture(
     "transaction with empty reference",
-    new TransactionReferenceCodec(),
+    () => new TransactionReferenceCodec(),
     { ...transaction, reference: "" },
     "transactionReference",
   ),
   fixture(
     "transaction metadata",
-    new TransactionReferenceCodec(),
+    () => new TransactionReferenceCodec(),
     {
       ...transaction,
       metadata: {
@@ -142,19 +143,19 @@ const cases = [
   ),
   fixture(
     "one wallet call",
-    new WalletSendCallsCodec(),
+    () => new WalletSendCallsCodec(),
     wallet,
     "walletSendCalls",
   ),
   fixture(
     "multiple wallet calls",
-    new WalletSendCallsCodec(),
+    () => new WalletSendCallsCodec(),
     { ...wallet, calls: [...wallet.calls, { to: "0x123", data: "0x02" }] },
     "walletSendCalls",
   ),
   fixture(
     "wallet metadata and capabilities",
-    new WalletSendCallsCodec(),
+    () => new WalletSendCallsCodec(),
     {
       ...wallet,
       calls: [
@@ -173,10 +174,10 @@ const cases = [
     },
     "walletSendCalls",
   ),
-  fixture("all action styles", new ActionsCodec(), actions, "actions"),
+  fixture("all action styles", () => new ActionsCodec(), actions, "actions"),
   fixture(
     "action expiry and image",
-    new ActionsCodec(),
+    () => new ActionsCodec(),
     {
       ...actions,
       expiresAt: new Timestamp(1_234_000_000n),
@@ -190,13 +191,13 @@ const cases = [
   ),
   fixture(
     "intent without metadata",
-    new IntentCodec(),
+    () => new IntentCodec(),
     { id: "intent", actionId: "primary" },
     "intent",
   ),
   fixture(
     "intent metadata",
-    new IntentCodec(),
+    () => new IntentCodec(),
     { id: "intent", actionId: "primary", metadataJson: '{"choice":1}' },
     "intent",
   ),
@@ -219,7 +220,7 @@ test.each(cases)(
       expect(message?.id).toBe(id);
       expect(message?.senderInboxId).toBe(sender.inboxId);
       expect(message?.conversationId).toBe(group.id);
-      expect(message?.contentType).toEqual(type);
+      expect(message?.contentType).toEqual(type());
       expect(message?.content).toEqual(expected);
     }
   },

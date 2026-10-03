@@ -19,6 +19,8 @@ jobs:
       - uses: ./.github/actions/setup-js
       - name: Build and stage selected SDK products
         run: just js sdk-products
+      - name: Stage WASM bindings for workspace typecheck
+        run: dev/nix-shell 'dev/js/bindings wasm'
       - name: Typecheck JavaScript workspace
         run: dev/nix-shell 'pnpm typecheck'
       - name: Oxlint JavaScript workspace

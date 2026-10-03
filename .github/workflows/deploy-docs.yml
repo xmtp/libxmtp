@@ -17,6 +17,8 @@ on:
       - "dev/js/**"
       - "bindings/node/**"
       - "apps/xmtp_sdk_bindgen/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "crates/**"
       - "nix/**"
       - "flake.lock"

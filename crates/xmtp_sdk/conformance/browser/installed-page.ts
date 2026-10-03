@@ -276,7 +276,7 @@ export async function callbackVoidFailures(): Promise<{
   let logCount = 0;
   let logInstalled = false;
   const listener = await current.startListener(
-    { kinds: ["consentChanged"], referencesOwnMessages: false },
+    { kinds: ["consent.changed"], referencesOwnMessages: false },
     () => {
       eventCount++;
       if (eventCount <= 2) {

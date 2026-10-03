@@ -10,7 +10,7 @@ export const getInboxIdForAddressQuery = async (
   queryClient.fetchQuery({
     queryKey: ["getInboxIdForAddress", address, backendUrl],
     queryFn: () => getInboxIdForAddress(address, backendUrl),
-    staleTime: Infinity,
+    staleTime: 0,
     gcTime: Infinity,
   });
 
@@ -20,10 +20,14 @@ export const getInboxIdForAddress = async (
 ): Promise<string | null> => {
   if (!isValidEthereumAddress(address)) return null;
   try {
-    return await Client.inboxIdFor(
-      { identifier: address.toLowerCase(), kind: "ethereum" },
-      { url: backendUrl },
-    );
+    const identity = {
+      identifier: address.toLowerCase(),
+      kind: "ethereum" as const,
+    };
+    const backend = { url: backendUrl };
+    const reachable = await Client.canMessage([identity], backend);
+    if (!reachable.get(`ethereum:${identity.identifier}`)) return null;
+    return await Client.inboxIdFor(identity, backend);
   } catch (error) {
     if (error instanceof XmtpError.IdentityNotFound) return null;
     throw error;

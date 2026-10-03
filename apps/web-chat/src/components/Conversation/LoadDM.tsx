@@ -44,11 +44,20 @@ export const LoadDM: React.FC = () => {
         }
 
         setMessage("Verifying address...");
-        const inboxId = await client.inboxIdFor({
-          identifier: resolvedAddress,
+        const identity = {
+          identifier: resolvedAddress.toLowerCase(),
           kind: "ethereum",
-        });
+        } as const;
+        const reachable = await client.canMessage([identity]);
 
+        if (!reachable.get(`ethereum:${identity.identifier}`)) {
+          navigateToHome(
+            "Address not registered on the XMTP network, redirecting...",
+          );
+          return;
+        }
+
+        const inboxId = await client.inboxIdFor(identity);
         if (!inboxId) {
           navigateToHome(
             "Address not registered on the XMTP network, redirecting...",
@@ -61,10 +70,7 @@ export const LoadDM: React.FC = () => {
         if (!dmId) {
           // no DM group, create it
           setMessage("Creating new DM...");
-          const newDm = await client.conversations.createDm({
-            identifier: resolvedAddress,
-            kind: "ethereum",
-          });
+          const newDm = await client.conversations.createDm(identity);
           dmId = newDm.id;
           // add new DM to store
           await addConversation(newDm);

@@ -1,6 +1,6 @@
 import type { Client, ClientEvent } from "@xmtp/browser-sdk";
 
-type ConsentChange = Extract<ClientEvent, { kind: "consentChanged" }>;
+type ConsentChange = Extract<ClientEvent, { kind: "consent.changed" }>;
 
 export async function streamConsent(
   client: Client,
@@ -8,12 +8,12 @@ export async function streamConsent(
 ) {
   // #region stream
   const stream = await client.events({
-    kinds: ["consentChanged"],
+    kinds: ["consent.changed"],
     referencesOwnMessages: false,
   });
   const receive = (async () => {
     for await (const event of stream) {
-      if (event.kind === "consentChanged") handleConsent(event);
+      if (event.kind === "consent.changed") handleConsent(event);
     }
   })();
   // #endregion stream

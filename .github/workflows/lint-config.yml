@@ -15,6 +15,7 @@ jobs:
           disk-key: rust
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
       - name: Generate switched Browser projection
         run: |
           if python3 dev/sdk/switches.py | grep -Fxq 'sdks/browser/'; then

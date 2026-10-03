@@ -1,5 +1,5 @@
 import { Button, Group, Stack, Text } from "@mantine/core";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { Modal } from "@/components/Modal";
@@ -12,6 +12,8 @@ export const SwitchBackendModal: React.FC = () => {
   const navigate = useNavigate();
   const { disconnect } = useXMTP();
   const { backendUrl, setBackendUrl } = useSettings();
+  const [switching, setSwitching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const requestedUrl = searchParams.get("backend") ?? "";
   const opened =
     isValidBackendUrl(requestedUrl) &&
@@ -22,8 +24,25 @@ export const SwitchBackendModal: React.FC = () => {
     [requestedUrl],
   );
 
-  const close = () =>
+  const close = () => {
+    setError(null);
     void navigate(window.location.pathname, { replace: true });
+  };
+
+  const switchBackend = async () => {
+    if (switching) return;
+    setError(null);
+    setSwitching(true);
+    try {
+      await disconnect();
+      setBackendUrl(requestedUrl);
+      close();
+    } catch {
+      setError("Could not disconnect from XMTP. Try again.");
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   return (
     <Modal opened={opened} onClose={close} title="Switch backend?" centered>
@@ -31,17 +50,12 @@ export const SwitchBackendModal: React.FC = () => {
         <Text>
           Disconnect and switch xmtp.chat to <strong>{requestedHost}</strong>?
         </Text>
+        {error && <Text c="red">{error}</Text>}
         <Group justify="flex-end">
-          <Button variant="default" onClick={close}>
+          <Button variant="default" onClick={close} disabled={switching}>
             Cancel
           </Button>
-          <Button
-            onClick={() => {
-              void disconnect().then(() => {
-                setBackendUrl(requestedUrl);
-                close();
-              });
-            }}>
+          <Button onClick={() => void switchBackend()} loading={switching}>
             Switch backend
           </Button>
         </Group>

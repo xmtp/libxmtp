@@ -136,7 +136,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
                     do {
                         let newHandle = try await open()
                         if !opened(newHandle) {
-                            await newHandle.end()
+                            await Task.detached { await newHandle.end() }.value
                         }
                     } catch { openFailed(error) }
                 }

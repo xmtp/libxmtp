@@ -25,6 +25,7 @@ jobs:
       backend_ci: ${{ steps.filter.outputs.backend_ci }}
       browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
       node: ${{ steps.filter.outputs.node }}
+      wasm: ${{ steps.filter.outputs.wasm }}
       node_sdk: ${{ steps.filter.outputs.node_sdk }}
       agent_sdk: ${{ steps.filter.outputs.agent_sdk }}
       ios: ${{ steps.filter.outputs.ios }}
@@ -56,6 +57,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
+              - '.config/nextest.toml'
               - 'rust-toolchain.toml'
               - 'apps/**/Cargo.toml'
               - 'apps/**/build.rs'
@@ -79,6 +81,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
+              - '.config/nextest.toml'
               - 'rust-toolchain.toml'
               - 'dev/docker/**'
               - 'dev/up'
@@ -105,6 +108,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
+              - '.config/nextest.toml'
               - 'rust-toolchain.toml'
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -173,11 +177,22 @@ jobs:
               - 'bindings/node/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - '.config/nextest.toml'
               - 'nix/**'
               - 'flake.lock'
               - 'dev/docker/**'
               - 'dev/up'
               - '.github/workflows/test-node*'
+            wasm:
+              - 'crates/**'
+              - 'bindings/wasm/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.config/nextest.toml'
+              - 'nix/**'
+              - 'flake.lock'
+              - 'dev/docker/**'
+              - '.github/workflows/test-wasm*'
             node_sdk:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -387,6 +402,12 @@ jobs:
     uses: ./.github/workflows/test-node.yml
     secrets: inherit
 
+  test-wasm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.wasm == 'true'
+    uses: ./.github/workflows/test-wasm.yml
+    secrets: inherit
+
   # Gated on test-node: runs after the node-bindings test job so the
   # node-bindings-test nix build is a cache hit. Proceeds when test-node
   # succeeded OR was skipped (bindings unchanged); aborts only if it failed.
@@ -467,6 +488,7 @@ jobs:
       - test-xdbg
       - test-keepalive-probe
       - test-node
+      - test-wasm
       - test-browser-sdk
       - test-node-sdk
       - test-agent-sdk

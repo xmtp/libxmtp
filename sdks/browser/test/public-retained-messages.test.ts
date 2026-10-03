@@ -125,7 +125,7 @@ test("local deletion delivers one exact public event and removes the local messa
   );
   const events: ClientEvent[] = [];
   const listener = await client.startListener(
-    { kinds: ["messageDeleted"], referencesOwnMessages: true },
+    { kinds: ["message.deleted"], referencesOwnMessages: true },
     (event) => {
       events.push(event);
     },
@@ -134,7 +134,7 @@ test("local deletion delivers one exact public event and removes the local messa
     await client.conversations.deleteMessageLocally(id);
     await vi.waitFor(() => expect(events).toHaveLength(1), { timeout: 10_000 });
     expect(events[0]).toEqual({
-      kind: "messageDeleted",
+      kind: "message.deleted",
       conversationId: group.id,
       messageId: id,
       cause: "deletedLocally",
@@ -193,21 +193,19 @@ test("peer reaction and reply reads keep exact references, bodies, and parents",
   if (!received) throw new Error("Peer group missing");
   const listed = await received.messages();
   for (const { id, reaction } of reactions) {
-    for (const message of [
-      await peer.conversations.getMessageById(id),
-      listed.find((item) => item.id === id),
-    ]) {
-      expect(message?.content).toEqual({
-        kind: "reaction",
-        reference: parent,
-        referenceInboxId: sender.inboxId,
-        reaction,
-      });
-      expect(message?.contentType).toMatchObject({
-        authorityId: "xmtp.org",
-        typeId: "reaction",
-      });
-    }
+    const message = await peer.conversations.getMessageById(id);
+    expect(message?.content).toEqual({
+      kind: "reaction",
+      reference: parent,
+      referenceInboxId: sender.inboxId,
+      reaction,
+    });
+    expect(message?.contentType).toMatchObject({
+      authorityId: "xmtp.org",
+      typeId: "reaction",
+    });
+    // History attaches reactions to their parent and omits reaction rows.
+    expect(listed.some((item) => item.id === id)).toBe(false);
   }
   for (const { id, body } of replies) {
     for (const message of [
