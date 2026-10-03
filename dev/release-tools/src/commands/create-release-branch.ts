@@ -70,8 +70,7 @@ export function builder(yargs: Argv<GlobalArgs>) {
       type: "boolean",
       default: false,
       describe: "Include Node bindings in release",
-    })
-;
+    });
 }
 
 interface CreateReleaseBranchArgs extends GlobalArgs {

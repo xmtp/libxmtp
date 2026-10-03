@@ -58,7 +58,11 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("sdks/browser/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: ["crates/**", "apps/xmtp_sdk_bindgen/**", "sdks/browser/**"],
+    notesIncludeGlobs: [
+      "crates/**",
+      "apps/xmtp_sdk_bindgen/**",
+      "sdks/browser/**",
+    ],
     notesExcludeGlobs: [
       "bindings/node/**",
       "bindings/mobile/**",
