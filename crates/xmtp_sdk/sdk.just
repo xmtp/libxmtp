@@ -104,6 +104,7 @@ check-native-nix:
 check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-native-nix-gate.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-staging.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-source-package.py
