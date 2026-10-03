@@ -14,6 +14,8 @@ import zipfile
 from unittest.mock import Mock, patch
 import unittest
 
+from mobile_package_test_fixtures import MobilePackageTestFixtures
+
 
 def load(name, file):
     spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(file))
@@ -27,7 +29,7 @@ receipt = load("receipt", "record-generated.py")
 mobile = load("mobile", "mobile-package.py")
 
 
-class PackagingTests(unittest.TestCase):
+class PackagingTests(MobilePackageTestFixtures, unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -65,17 +67,6 @@ class PackagingTests(unittest.TestCase):
         for item in reversed(self.patches):
             item.stop()
         self.temporary.cleanup()
-
-    def seed_android_dependency_inputs(self):
-        project = self.root / "crates/xmtp_sdk/packaging/android"
-        for name in (
-            "gradle.lockfile",
-            "buildscript-gradle.lockfile",
-            "gradle/verification-metadata.xml",
-        ):
-            file = project / name
-            file.parent.mkdir(parents=True, exist_ok=True)
-            file.write_text("fixture dependency input")
 
     def prepare_mobile_stage(self, target):
         self.args.targets = ("swift",) if target == "ios" else ("kotlin",)
@@ -149,13 +140,6 @@ class PackagingTests(unittest.TestCase):
             {"aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin"},
         )
         self.assertIn(".macOS(.v11)", (output / "Package.swift").read_text())
-
-    def product_files(self, output):
-        return {
-            str(path.relative_to(output)): path.read_bytes()
-            for path in output.rglob("*")
-            if path.is_file()
-        }
 
     def test_android_dependency_inputs_are_required_before_tool_use(self):
         for name in (
