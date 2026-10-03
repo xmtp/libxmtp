@@ -1,5 +1,6 @@
 mod bridge;
 mod callback_cursor;
+mod callback_results;
 mod format;
 mod forwarding;
 mod kotlin_callbacks;
@@ -9,6 +10,7 @@ mod native_visibility;
 mod public_projection;
 mod swift_async;
 mod swift_events;
+mod swift_records;
 mod validate;
 
 use std::{collections::BTreeSet, fs, path::Path};
@@ -143,7 +145,9 @@ fn generate(
                 let binding = out.join("xmtp_sdk.swift");
                 fs::write(
                     &binding,
-                    swift_events::rewrite(&swift_async::rewrite(&fs::read_to_string(&binding)?)?)?,
+                    swift_events::rewrite(&swift_records::rewrite(&swift_async::rewrite(
+                        &fs::read_to_string(&binding)?,
+                    )?)?)?,
                 )?;
             }
             if matches!(language, Language::Kotlin) {
@@ -225,7 +229,9 @@ fn generate(
             if !pure_only {
                 fs::write(
                     &binding,
-                    callback_cursor::rewrite(&fs::read_to_string(&binding)?)?,
+                    callback_results::rewrite(&callback_cursor::rewrite(&fs::read_to_string(
+                        &binding,
+                    )?)?)?,
                 )?;
             }
             if is_wasm && !pure_only {

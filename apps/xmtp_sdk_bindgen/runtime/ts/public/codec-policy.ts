@@ -7,6 +7,7 @@ import {
   type EncodedContent,
   type SendOptions,
 } from "../../public-values.gen";
+import { usesRustStandardFallback } from "./codec";
 import type { ContentCodec } from "./codec";
 import { isCatalogueContentType } from "./host";
 
@@ -222,7 +223,14 @@ export function encodeForSend<T>(
   // envelope that has a fallback skips the hook, so a throwing or invalid
   // `fallback` member does not fail that send.
   if (encoded.fallback !== undefined) return encoded;
-  const hook = runStep("fallback", () => codec.fallback, parseHook<T>);
+  const hook = runStep(
+    "fallback",
+    () => {
+      const fallback = codec.fallback;
+      return usesRustStandardFallback(codec, fallback) ? undefined : fallback;
+    },
+    parseHook<T>,
+  );
   if (hook === undefined) return encoded;
   // Call each hook on its codec, so a class codec can use `this`.
   const fallback = runStep(

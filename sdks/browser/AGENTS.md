@@ -1,11 +1,15 @@
 # XMTP Browser SDK
 
+The public SDK is staged by `dev/js/sdk-package browser`. Its generated product
+is copied to `sdks/browser/dist` for local workspace imports. Releases pack
+`target/sdk-packages/browser` directly.
+
 ```bash
-just js test-browser-sdk-ci
+dev/nix-shell 'just js test-browser-sdk-ci'
 ```
 
 The browser tests use Playwright and gRPC-Web on the backend listener.
-Test creation helpers close their clients after each test. Do not share those clients across tests.
-
-Await the client's `close()` before a whole-database restore. Close releases the
-database owner before it stops the worker.
+Close each client after its test. Do not share a client between tests.
+Await `client.end()` before a database restore or storage replacement.
+The generated package owns the worker and OPFS pool. Do not add another worker
+or storage dispatcher here. Pure synchronous codecs use the `/pure` entry.

@@ -1,10 +1,10 @@
 import { Box, Text } from "@mantine/core";
-import type { DecodedMessage } from "@xmtp/browser-sdk";
+import type { Message as XmtpMessage } from "@xmtp/browser-sdk";
 
 import { MessageList } from "./MessageList";
 
 export type ConversationProps = {
-  messages: DecodedMessage[];
+  messages: XmtpMessage[];
 };
 
 export const Messages: React.FC<ConversationProps> = ({ messages }) => {

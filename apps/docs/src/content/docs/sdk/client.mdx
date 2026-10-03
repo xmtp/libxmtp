@@ -60,7 +60,8 @@ If you want to inspect the database visually, you can use [DB Browser for SQLite
 
 ## Create a client
 
-`Client.create()` takes a signer and a `backendUrl`. The remaining options are optional except for the database encryption key on Kotlin and Swift.
+Browser `Client.create()` takes a signer, typed `backend`, and explicit `storage`.
+Node and Kotlin retain their current `backendUrl` options.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -126,16 +127,22 @@ let client = try await Client.create(account: signingKey, options: options)
 | `otelEndpoint`, `resourceAttributes`, `stdoutLoggingLevel`       | Unset                                  | Telemetry and log output                                              |
 | `debugEventsEnabled`, `performanceLogging`                       | `false`                                | Diagnostic output                                                     |
 
-`dbPath: null` creates an in-memory client. A string selects that exact path. Node also accepts a callback that receives the inbox ID. Browser does not accept the callback form.
+The table above describes the retained Node and mobile options. Browser SDK 8
+uses `backend: { url, credentials? }`, `storage: { location }`, and `deviceSync`.
+Use `storage.location: "inMemory"` for a Browser client without OPFS storage.
+
+For the retained Node options, `dbPath: null` creates an in-memory client. A string selects that exact path. Node also accepts a callback that receives the inbox ID. Browser does not accept the callback form.
 
 Node can take a pre-built `Backend` instead of inline network options. Do not
-pass both. Browser clients need inline options because a WASM `Backend` cannot
-cross the worker boundary. `createBackend` takes `backendUrl`, `env`,
+pass both. Browser clients use typed backend records across the worker boundary.
+The retained Node `createBackend` takes `backendUrl`, `env`,
 `appVersion`, and an optional `authCallback`.
 
 ### Backend authentication
 
-If the backend requires an API key or JWT, set `authCallback`. This async callback
+If the backend requires an API key or JWT, Browser uses
+`backend.credentials.credential()`. Its expiry is a bigint in Unix seconds.
+The retained Node and mobile SDKs use `authCallback`. This async callback
 returns a credential with `value`, `expiresAtSeconds` in Unix seconds, and an
 optional header `name`. The default name is `authorization`. Include `Bearer`
 and one space before the token. This credential is separate from the XMTP wallet

@@ -4,14 +4,15 @@ The instructions below apply to the JavaScript SDKs in `node`, `browser`, and
 `agent`. See `android/AGENTS.md` and `ios/AGENTS.md` for the native SDKs.
 
 The JavaScript SDKs use the root pnpm workspace: `node` uses `bindings/node`,
-`browser` uses `bindings/wasm`, and `agent` uses `node`. Published package names
+`browser` uses the generated public SDK product, and `agent` uses `node`. Published package names
 stay `@xmtp/node-sdk`, `@xmtp/browser-sdk`, and `@xmtp/agent-sdk`.
 
 ## Commands
 
 ```bash
 just install-js                        # install the root pnpm workspace once
-just js bindings                        # build node + wasm bindings via Nix, stage into bindings/*/dist
+just js sdk-products                    # select each SDK from its source manifest
+just js build-browser-sdk               # stage the generated Browser product
 just js bindings-node                    # build only Node bindings via Nix
 just js check-node                       # typecheck Node and agent SDKs
 just js check-notification-surface       # published Node types; Browser/WASM absence
@@ -25,7 +26,8 @@ just js test                            # needs `just backend up`
 
 ## Shared SDK rules
 
-- Require `backendUrl` for client creation. Do not select a URL from `env`.
+- Browser requires an explicit `backend`. Node uses its current `backendUrl` API.
+  Do not select a URL from a database label.
 - Use `env` only as the label in the default database file name.
 - Keep the API-client cache key as `<backendUrl>|<appVersion>`.
 - Keep file archive export and import tests.
@@ -34,7 +36,10 @@ Native streams stay open during retryable network faults and resume in order.
 
 ## Task graph
 
-SDK recipes stage the Node or WASM bindings before package tasks. Do not use
+SDK recipes stage the Node binding or generated Browser product before package tasks.
+Source package builds run `dev/nix-shell 'just sdk generate <target>'` before staging.
+An explicit `XMTP_SDK_GENERATED_DIR` reuses that input and keeps the strict staging checks.
+Do not use
 `--parallel` or `--no-sort`; they can bypass task dependencies. See the
 `writing-typescript` skill for the root pnpm workspace and formatting.
 

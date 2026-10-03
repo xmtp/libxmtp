@@ -1,4 +1,4 @@
-import { PermissionLevel, PermissionPolicy } from "@xmtp/browser-sdk";
+import { type PermissionLevel, type PermissionPolicy } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
 
 import { useClient } from "@/contexts/XMTPContext";
@@ -10,22 +10,22 @@ const hasPermission = (
 ) => {
   if (
     policy === undefined ||
-    policy === PermissionPolicy.Deny ||
-    policy === PermissionPolicy.Other ||
-    policy === PermissionPolicy.DoesNotExist
+    policy === "deny" ||
+    policy === "other" ||
+    policy === "doesNotExist"
   ) {
     return false;
   }
-  if (policy === PermissionPolicy.Allow) {
+  if (policy === "allow") {
     return true;
   }
 
   switch (permissionLevel) {
-    case PermissionLevel.SuperAdmin:
+    case "superAdmin":
       // super admin can do anything
       return true;
-    case PermissionLevel.Admin:
-      return policy === PermissionPolicy.Admin;
+    case "admin":
+      return policy === "admin";
     default:
       return false;
   }
@@ -52,47 +52,46 @@ export const useClientPermissions = (
   const clientPermissionLevel: PermissionLevel = useMemo(() => {
     if (client.inboxId) {
       const member = members.get(client.inboxId);
-      return member?.permissionLevel ?? PermissionLevel.Member;
+      return member?.permissionLevel ?? "member";
     }
-    return PermissionLevel.Member;
+    return "member";
   }, [members, client.inboxId]);
 
   return useMemo(() => {
     return {
       canAddMembers: hasPermission(
         clientPermissionLevel,
-        permissions?.policySet.addMemberPolicy,
+        permissions?.policySet.addMember,
       ),
       canRemoveMembers: hasPermission(
         clientPermissionLevel,
-        permissions?.policySet.removeMemberPolicy,
+        permissions?.policySet.removeMember,
       ),
       canPromoteMembers: hasPermission(
         clientPermissionLevel,
-        permissions?.policySet.addAdminPolicy,
+        permissions?.policySet.addAdmin,
       ),
       canDemoteMembers: hasPermission(
         clientPermissionLevel,
-        permissions?.policySet.removeAdminPolicy,
+        permissions?.policySet.removeAdmin,
       ),
       canChangeGroupName: hasPermission(
         clientPermissionLevel,
-        permissions?.policySet.updateGroupNamePolicy,
+        permissions?.policySet.updateName,
       ),
       canChangeGroupDescription: hasPermission(
         clientPermissionLevel,
-        permissions?.policySet.updateGroupDescriptionPolicy,
+        permissions?.policySet.updateDescription,
       ),
       canChangeGroupImage: hasPermission(
         clientPermissionLevel,
-        permissions?.policySet.updateGroupImageUrlSquarePolicy,
+        permissions?.policySet.updateImage,
       ),
       canChangeMessageDisappearingPolicy: hasPermission(
         clientPermissionLevel,
-        permissions?.policySet.updateMessageDisappearingPolicy,
+        permissions?.policySet.updateDisappearing,
       ),
-      canChangePermissionsPolicy:
-        clientPermissionLevel === PermissionLevel.SuperAdmin,
+      canChangePermissionsPolicy: clientPermissionLevel === "superAdmin",
     };
   }, [clientPermissionLevel, permissions]);
 };

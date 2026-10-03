@@ -1,4 +1,4 @@
-import type { DecodedMessage } from "@xmtp/browser-sdk";
+import type { Message as XmtpMessage } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useRef } from "react";
 
 import VirtualList, { type VirtualListHandle } from "@/components/VirtualList";
@@ -8,7 +8,7 @@ import { Message } from "./Message";
 import classes from "./MessageList.module.css";
 
 export type MessageListProps = {
-  messages: DecodedMessage[];
+  messages: XmtpMessage[];
 };
 
 export const MessageList: React.FC<MessageListProps> = ({ messages }) => {

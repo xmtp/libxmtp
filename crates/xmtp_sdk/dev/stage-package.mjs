@@ -20,6 +20,8 @@ import {
 import { dirname, join, resolve, relative, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { checkGeneratedAssets } from "./check-generated-assets.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = resolve(
   process.env.XMTP_SDK_GENERATED_DIR ?? "target/sdk-generated",
@@ -28,8 +30,12 @@ const output = resolve(
   process.env.XMTP_SDK_PACKAGES_DIR ?? "target/sdk-packages",
 );
 const target = process.argv[2];
+const publicPackage = process.argv.includes("--public");
 if (!["node", "browser"].includes(target))
   throw new Error("expected node or browser");
+const sourceManifest = publicPackage
+  ? JSON.parse(readFileSync(join(root, "sdks", target, "package.json")))
+  : undefined;
 const trees =
   target === "node"
     ? ["typescript-napi"]
@@ -55,10 +61,7 @@ function files(directory) {
   });
 }
 for (let i = 0; i < trees.length; i++) {
-  for (const [path, expected] of Object.entries(contracts[i].files)) {
-    if (hash(join(generated, trees[i], path)) !== expected)
-      throw new Error(`SDK generated asset mismatch: ${path}`);
-  }
+  checkGeneratedAssets(generated, trees[i], contracts[i]);
 }
 mkdirSync(output, { recursive: true });
 const staging = mkdtempSync(join(output, ".sdk-stage-"));
@@ -239,9 +242,30 @@ try {
     ),
     bundledDependencies: runtimes.map((name) => `@ubjs/${name}`),
   };
+  if (sourceManifest) {
+    for (const field of [
+      "name",
+      "version",
+      "description",
+      "keywords",
+      "homepage",
+      "bugs",
+      "license",
+      "author",
+      "repository",
+      "publishConfig",
+    ]) {
+      if (sourceManifest[field] !== undefined)
+        manifest[field] = sourceManifest[field];
+    }
+    delete manifest.private;
+    manifest.main = "./entry.js";
+    manifest.types = "./entry.d.ts";
+    manifest.exports["./package.json"] = "./package.json";
+  }
   writeFileSync(
     join(destination, "package.json"),
-    JSON.stringify(manifest, null, 2) + "\n",
+    JSON.stringify(manifest, null, 2),
   );
   if (target === "browser") {
     const bindings = {

@@ -34,9 +34,8 @@ class PackagingTests(unittest.TestCase):
         (self.root / "crates/xmtp_sdk").mkdir(parents=True)
         (self.root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
         (self.root / "Cargo.toml").write_text("fixture manifest")
-        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text(
-            "fixture template"
-        )
+        template = self.root / "apps/xmtp_sdk_bindgen/template.txt"
+        template.write_text("fixture template")
         self.config = self.root / "crates/xmtp_sdk/uniffi.toml"
         self.config.write_text("fixture configuration")
         self.calls = []
@@ -173,7 +172,7 @@ class PackagingTests(unittest.TestCase):
         def tool(command, **kwargs):
             self.assertEqual(command[0], "sdks/android/gradlew")
             self.assertIn("--dependency-verification=strict", command)
-            self.assertIn("--max-workers=2", command)
+            self.assertFalse(any(arg.startswith("--max-workers") for arg in command))
             self.assertFalse(
                 any(
                     arg.startswith(
@@ -417,9 +416,8 @@ class PackagingTests(unittest.TestCase):
                     SDK_SHELL_TRACE=str(trace),
                 ),
             )
-        self.assertEqual(
-            trace.read_text().splitlines(), [name + ":rust" for name in names]
-        )
+        expected = [name + ":rust" for name in names]
+        self.assertEqual(trace.read_text().splitlines(), expected)
 
     def command(self, command, **kwargs):
         self.calls.append(command)
@@ -603,8 +601,23 @@ class PackagingTests(unittest.TestCase):
         finally:
             self.patches[2].start()
 
+    def test_apple_native_build_pins_supported_deployment_floors(self):
+        with (
+            patch.object(artifacts.sys, "platform", "darwin"),
+            patch.dict(
+                os.environ,
+                {
+                    "MACOSX_DEPLOYMENT_TARGET": "14.0",
+                    "IPHONEOS_DEPLOYMENT_TARGET": "17",
+                },
+            ),
+        ):
+            artifacts.build(self.args)
+            self.assertEqual(os.environ["MACOSX_DEPLOYMENT_TARGET"], "11.0")
+            self.assertEqual(os.environ["IPHONEOS_DEPLOYMENT_TARGET"], "14")
+
     def test_cargo_compiler_inputs_change_native_cache_admission(self):
-        names = ("MACOSX_DEPLOYMENT_TARGET", "RUSTC", "CARGO_BUILD_RUSTC")
+        names = ("RUSTC", "CARGO_BUILD_RUSTC")
         environment = {
             key: value for key, value in os.environ.items() if key not in names
         }
@@ -624,9 +637,7 @@ class PackagingTests(unittest.TestCase):
                         (self.args.artifacts / "artifacts.json").read_text()
                     )
                     calls = len(self.calls)
-                    os.environ[name] = (
-                        "11.0" if name == "MACOSX_DEPLOYMENT_TARGET" else str(compiler)
-                    )
+                    os.environ[name] = str(compiler)
                     artifacts.build(self.args)
                     after = json.loads(
                         (self.args.artifacts / "artifacts.json").read_text()
@@ -789,9 +800,8 @@ class PackagingTests(unittest.TestCase):
         artifacts.build(self.args)
         self.assertEqual(len(self.calls), calls + 1)
         self.assertIn("xmtp-sdk-bindgen", self.calls[-1])
-        self.assertEqual(
-            json.loads(manifest.read_text())["artifacts"]["native"], native
-        )
+        actual = json.loads(manifest.read_text())["artifacts"]["native"]
+        self.assertEqual(actual, native)
         artifacts.render(self.args)
         binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
         self.assertEqual(binding["artifact"], native)

@@ -1,4 +1,5 @@
 use super::*;
+use futures::StreamExt;
 
 fn raw_group(sequence: u64) -> ServerEnvelope {
     let mut envelope = group_msg(sequence, &[7; 16]);
@@ -33,6 +34,82 @@ async fn incoming_frame(receiver: &mut mpsc::Receiver<IncomingFrame>) -> Incomin
         .await
         .expect("timed out waiting for an incoming frame")
         .expect("incoming frame sender closed")
+}
+
+// verifies: EVENT-027
+#[xmtp_common::test(unwrap_try = true)]
+async fn retained_subscription_reports_suspension_until_registration_ack() {
+    let topic = group_topic(&[7; 16]);
+    let (transport, servers) = transport();
+    let lease = transport
+        .lease_ordered(vec![(topic.clone(), 0)], 8, limits())
+        .await?;
+    let mut subscription = lease.into_incoming_subscription();
+    assert!(
+        !subscription.is_connected(),
+        "registration is not acknowledged"
+    );
+    let mut server = take_server(&servers);
+    let update = server.next_mutate().await;
+    server.ack(update.id, vec![(topic.clone(), 0)]);
+    assert!(matches!(
+        subscription.events.next().await.transpose()?,
+        Some(IncomingEvent::Registered { .. })
+    ));
+    assert!(subscription.is_connected());
+    server.send(messages(vec![raw_group(1)], vec![]));
+    let Some(IncomingEvent::OrderedBatch(held)) = subscription.events.next().await.transpose()?
+    else {
+        panic!("ordered delivery is missing");
+    };
+
+    transport.suspend().await?;
+    assert!(
+        !subscription.is_connected(),
+        "suspended wire still reports connected"
+    );
+    let resumed = transport.clone();
+    let resume = tokio::spawn(async move { resumed.resume().await });
+    xmtp_common::wait_for_some(|| async { (!servers.lock().unwrap().is_empty()).then_some(()) })
+        .await;
+    let mut server = take_server(&servers);
+    let update = server.next_mutate().await;
+    assert!(
+        !subscription.is_connected(),
+        "dial alone restores connected state"
+    );
+    assert_eq!(update.adds[0].cursor.as_ref().unwrap().sequence_id, 0);
+    server.ack(update.id, vec![(topic.clone(), 0)]);
+    assert!(matches!(
+        subscription.events.next().await.transpose()?,
+        Some(IncomingEvent::Registered { .. })
+    ));
+    resume.await??;
+    assert!(subscription.is_connected());
+    server.send(messages(vec![raw_group(1)], vec![]));
+    let Some(IncomingEvent::OrderedBatch(replayed)) =
+        subscription.events.next().await.transpose()?
+    else {
+        panic!("held delivery did not replay");
+    };
+    assert_eq!(replayed.envelopes, held.envelopes);
+    subscription.acknowledge_received([(topic.clone(), Cursor(1))].into());
+    transport.suspend().await?;
+    assert!(!subscription.is_connected());
+    let resumed = transport.clone();
+    let resume = tokio::spawn(async move { resumed.resume().await });
+    xmtp_common::wait_for_some(|| async { (!servers.lock().unwrap().is_empty()).then_some(()) })
+        .await;
+    let mut server = take_server(&servers);
+    let update = server.next_mutate().await;
+    assert_eq!(update.adds[0].cursor.as_ref().unwrap().sequence_id, 1);
+    server.ack(update.id, vec![(topic, 1)]);
+    assert!(matches!(
+        subscription.events.next().await.transpose()?,
+        Some(IncomingEvent::Registered { .. })
+    ));
+    resume.await??;
+    assert!(subscription.is_connected());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

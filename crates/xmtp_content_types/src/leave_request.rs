@@ -28,7 +28,8 @@ impl ContentCodec<LeaveRequest> for LeaveRequestCodec {
         }
     }
 
-    fn encode(data: LeaveRequest) -> Result<EncodedContent, CodecError> {
+    fn encode(mut data: LeaveRequest) -> Result<EncodedContent, CodecError> {
+        data.authenticated_note = data.authenticated_note.filter(|note| !note.is_empty());
         let mut buf = Vec::new();
         data.encode(&mut buf)
             .map_err(|e| CodecError::Encode(e.to_string()))?;
@@ -36,16 +37,17 @@ impl ContentCodec<LeaveRequest> for LeaveRequestCodec {
         Ok(EncodedContent {
             r#type: Some(LeaveRequestCodec::content_type()),
             parameters: HashMap::new(),
-            fallback: None,
+            fallback: Some("A member has requested leaving the group".to_string()),
             compression: None,
             content: buf,
         })
     }
 
     fn decode(content: EncodedContent) -> Result<LeaveRequest, CodecError> {
-        let decoded = LeaveRequest::decode(content.content.as_slice())
+        let mut decoded = LeaveRequest::decode(content.content.as_slice())
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 
+        decoded.authenticated_note = decoded.authenticated_note.filter(|note| !note.is_empty());
         Ok(decoded)
     }
 

@@ -1,12 +1,9 @@
-import { Box, Button, Group, Tabs, Text } from "@mantine/core";
-import { Opfs } from "@xmtp/browser-sdk";
+import { Box, Button, Group, Tabs } from "@mantine/core";
 import { useEffect, useState } from "react";
 
 import { CodeWithCopy } from "@/components/CodeWithCopy";
 import { Modal } from "@/components/Modal";
-import { backendLabel } from "@/helpers/backend";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
-import { useSettings } from "@/hooks/useSettings";
 import { ContentLayout } from "@/layouts/ContentLayout";
 
 export const ErrorModal: React.FC = () => {
@@ -14,48 +11,6 @@ export const ErrorModal: React.FC = () => {
     useState<Error | null>(null);
   const fullScreen = useCollapsedMediaQuery();
   const contentHeight = fullScreen ? "auto" : 500;
-  const { backendUrl } = useSettings();
-  const [deletionError, setDeletionError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const canDeleteDatabase =
-    unhandledRejectionError?.message.startsWith(
-      "[StorageError::PreTransitionDatabase]",
-    ) ||
-    unhandledRejectionError?.message.startsWith(
-      "[StorageError::OldStreamDatabase]",
-    );
-
-  const deleteLocalDatabase = async () => {
-    setDeleting(true);
-    setDeletionError(null);
-    const label = await backendLabel(backendUrl);
-    const prefix = `xmtp-${label}-`;
-    const opfs = await Opfs.create();
-    try {
-      const matchingFiles = (await opfs.listFiles()).filter(
-        (file) => file.startsWith(prefix) && file.endsWith(".db3"),
-      );
-      await Promise.all(matchingFiles.map((file) => opfs.deleteFile(file)));
-      let survivors = (await opfs.listFiles()).filter(
-        (file) => file.startsWith(prefix) && file.endsWith(".db3"),
-      );
-      if (survivors.length > 0) {
-        await Promise.all(survivors.map((file) => opfs.deleteFile(file)));
-        survivors = (await opfs.listFiles()).filter(
-          (file) => file.startsWith(prefix) && file.endsWith(".db3"),
-        );
-      }
-      if (survivors.length > 0) {
-        setDeletionError(`Unable to delete: ${survivors.join(", ")}`);
-      } else {
-        setUnhandledRejectionError(null);
-      }
-    } finally {
-      opfs.close();
-      setDeleting(false);
-    }
-  };
-
   useEffect(() => {
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       setUnhandledRejectionError(event.reason as Error);
@@ -89,14 +44,6 @@ export const ErrorModal: React.FC = () => {
         target="_blank">
         Report issue
       </Button>
-      {canDeleteDatabase && (
-        <Button
-          color="red"
-          loading={deleting}
-          onClick={() => void deleteLocalDatabase()}>
-          Delete local database
-        </Button>
-      )}
       <Button
         onClick={() => {
           setUnhandledRejectionError(null);
@@ -132,11 +79,6 @@ export const ErrorModal: React.FC = () => {
             </Tabs.List>
             <Tabs.Panel value="message" py="md">
               <CodeWithCopy code={unhandledRejectionError.message} />
-              {deletionError && (
-                <Text c="red" mt="md">
-                  {deletionError}
-                </Text>
-              )}
             </Tabs.Panel>
             <Tabs.Panel value="stackTrace" py="md">
               <CodeWithCopy

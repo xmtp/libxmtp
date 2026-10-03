@@ -1,9 +1,5 @@
 import { Stack, Text } from "@mantine/core";
-import {
-  DeliveryStatus,
-  GroupMessageKind,
-  type DecodedMessage,
-} from "@xmtp/browser-sdk";
+import { type Message as XmtpMessage } from "@xmtp/browser-sdk";
 import { intlFormat } from "date-fns";
 import { useMemo } from "react";
 
@@ -11,7 +7,7 @@ import { BadgeWithCopy } from "@/components/BadgeWithCopy";
 import { nsToDate } from "@/helpers/date";
 
 export type MessagePropertiesProps = {
-  message: DecodedMessage;
+  message: XmtpMessage;
 };
 
 export const MessageProperties: React.FC<MessagePropertiesProps> = ({
@@ -19,11 +15,11 @@ export const MessageProperties: React.FC<MessagePropertiesProps> = ({
 }) => {
   const deliveryStatus = useMemo(() => {
     switch (message.deliveryStatus) {
-      case DeliveryStatus.Published:
+      case "published":
         return "Published";
-      case DeliveryStatus.Failed:
+      case "failed":
         return "Failed";
-      case DeliveryStatus.Unpublished:
+      case "unpublished":
         return "Unpublished";
       default:
         return "Unknown";
@@ -32,9 +28,9 @@ export const MessageProperties: React.FC<MessagePropertiesProps> = ({
 
   const messageKind = useMemo(() => {
     switch (message.kind) {
-      case GroupMessageKind.Application:
+      case "application":
         return "Application";
-      case GroupMessageKind.MembershipChange:
+      case "membershipChange":
         return "Membership Change";
       default:
         return "Unknown";
@@ -78,7 +74,7 @@ export const MessageProperties: React.FC<MessagePropertiesProps> = ({
           Sent at
         </Text>
         <BadgeWithCopy
-          value={intlFormat(nsToDate(message.sentAtNs), {
+          value={intlFormat(nsToDate(message.sentAt.ns), {
             year: "numeric",
             month: "2-digit",
             day: "2-digit",

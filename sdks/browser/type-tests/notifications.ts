@@ -1,46 +1,46 @@
-import type { Client, Conversation, Dm, Group } from "@xmtp/browser-sdk";
 import type {
-  Client as WasmClient,
-  Conversation as WasmConversation,
-} from "@xmtp/wasm-bindings";
+  Client,
+  Conversation,
+  Dm,
+  Group,
+  NotificationOverride,
+} from "@xmtp/browser-sdk";
 
 type Assert<T extends true> = T;
-type PushMethods =
+type NativePushMethods =
   | "enableNotifications"
   | "disableNotifications"
-  | "notificationState"
-  | "setNotifications"
-  | "notificationsEnabled";
-type HasNoPush<T> = Extract<keyof T, PushMethods> extends never ? true : false;
+  | "notificationState";
+type HasNoNativePush<T> =
+  Extract<keyof T, NativePushMethods> extends never ? true : false;
 
-export type ClientHasNoPush = Assert<HasNoPush<Client>>;
-export type ConversationHasNoPush = Assert<HasNoPush<Conversation>>;
-export type GroupHasNoPush = Assert<HasNoPush<Group>>;
-export type DmHasNoPush = Assert<HasNoPush<Dm>>;
-export type WasmClientHasNoPush = Assert<HasNoPush<WasmClient>>;
-export type WasmConversationHasNoPush = Assert<HasNoPush<WasmConversation>>;
+export type ClientHasNoNativePush = Assert<HasNoNativePush<Client>>;
+export type ConversationHasNoNativePush = Assert<HasNoNativePush<Conversation>>;
+export type GroupHasNoNativePush = Assert<HasNoNativePush<Group>>;
+export type DmHasNoNativePush = Assert<HasNoNativePush<Dm>>;
+// Conversation notification metadata stays public on all targets.
+export type MetadataOverride = Assert<
+  NotificationOverride extends "enabled" | "disabled" | "default" ? true : false
+>;
+export type GroupMetadataSetter = Assert<
+  Group["setNotifications"] extends (
+    value: NotificationOverride,
+  ) => Promise<void>
+    ? true
+    : false
+>;
 
-// @ts-expect-error Browser has no notification configuration type.
+// @ts-expect-error Browser has no native notification configuration type.
 export type { NotificationConfig } from "@xmtp/browser-sdk";
-// @ts-expect-error Browser has no notification channel type.
+// @ts-expect-error Browser has no native notification channel type.
 export type { NotificationChannel } from "@xmtp/browser-sdk";
-// @ts-expect-error Browser has no notification state type.
+// @ts-expect-error Browser has no native notification state type.
 export type { NotificationState } from "@xmtp/browser-sdk";
-// @ts-expect-error Browser has no notification override type.
-export type { NotificationOverride } from "@xmtp/browser-sdk";
-// @ts-expect-error Browser has no notification error type.
+// @ts-expect-error Browser has no native notification error type.
 export type { NotificationError } from "@xmtp/browser-sdk";
-// @ts-expect-error WASM has no notification configuration type.
-export type { NotificationConfig as WasmNotificationConfig } from "@xmtp/wasm-bindings";
-// @ts-expect-error WASM has no notification channel type.
-export type { NotificationChannel as WasmNotificationChannel } from "@xmtp/wasm-bindings";
-// @ts-expect-error WASM has no notification state type.
-export type { NotificationState as WasmNotificationState } from "@xmtp/wasm-bindings";
-// @ts-expect-error WASM has no notification override type.
-export type { NotificationOverride as WasmNotificationOverride } from "@xmtp/wasm-bindings";
-// @ts-expect-error WASM has no notification error type.
-export type { NotificationError as WasmNotificationError } from "@xmtp/wasm-bindings";
-// @ts-expect-error WASM has no native notification failure enum.
-export type { NotificationFailure as WasmNotificationFailure } from "@xmtp/wasm-bindings";
-// @ts-expect-error WASM has no native notification state enum.
-export type { NotificationStateKind as WasmNotificationStateKind } from "@xmtp/wasm-bindings";
+// @ts-expect-error Browser has no native notification failure type.
+export type { NotificationFailure } from "@xmtp/browser-sdk";
+// @ts-expect-error Browser has no handwritten worker client.
+export type { WorkerClient } from "@xmtp/browser-sdk";
+// @ts-expect-error Browser has no handwritten OPFS dispatcher.
+export type { Opfs } from "@xmtp/browser-sdk";

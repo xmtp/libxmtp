@@ -288,6 +288,7 @@ async fn target_capture_timeout_reports_every_starting_topic() {
     );
     for status in unfinished {
         assert_eq!(status.target, None);
+        assert_eq!(status.scope_generation, None);
         assert_eq!(status.received, Cursor(0));
         assert_eq!(status.processed, Cursor(0));
         assert!(matches!(status.cause, Some(BarrierCause::TargetPending)));

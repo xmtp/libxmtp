@@ -144,3 +144,16 @@ if (typeof input !== 'object' || input === null || !('kind' in input) ||
   );
 }
 "#;
+
+// Do not let JavaScript coerce malformed foreign credentials into wire values.
+// Callback rejection maps to the existing CredentialError failure in Rust.
+pub(super) const CREDENTIAL_GUARD: &str = r#"
+if (typeof value !== 'object' || value === null ||
+    typeof value.value !== 'string' ||
+    (value.name !== undefined && typeof value.name !== 'string') ||
+    typeof value.expiresAtSeconds !== 'bigint' ||
+    value.expiresAtSeconds < -9223372036854775808n ||
+    value.expiresAtSeconds > 9223372036854775807n) {
+  throw new TypeError('invalid credential record');
+}
+"#;

@@ -1,5 +1,5 @@
 import { ActionIcon, Badge, Group, Stack, Text, Tooltip } from "@mantine/core";
-import { Dm, PermissionLevel } from "@xmtp/browser-sdk";
+import { Dm } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
 
 import { MemberListItem } from "@/components/Conversation/MemberListItem";
@@ -66,7 +66,7 @@ export const MembersList: React.FC<MembersListProps> = ({
     const items: (MembersListTitle | MemberProfile)[] = [];
 
     const superAdmins = memberProfiles.filter(
-      (profile) => profile.permissionLevel === PermissionLevel.SuperAdmin,
+      (profile) => profile.permissionLevel === "superAdmin",
     );
 
     if (superAdmins.length > 0) {
@@ -75,7 +75,7 @@ export const MembersList: React.FC<MembersListProps> = ({
     }
 
     const admins = memberProfiles.filter(
-      (profile) => profile.permissionLevel === PermissionLevel.Admin,
+      (profile) => profile.permissionLevel === "admin",
     );
 
     if (admins.length > 0) {
@@ -84,7 +84,7 @@ export const MembersList: React.FC<MembersListProps> = ({
     }
 
     const regulars = memberProfiles.filter(
-      (profile) => profile.permissionLevel === PermissionLevel.Member,
+      (profile) => profile.permissionLevel === "member",
     );
 
     if (regulars.length > 0) {

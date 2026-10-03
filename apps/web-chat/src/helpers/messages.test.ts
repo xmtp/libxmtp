@@ -1,101 +1,59 @@
-import {
-  contentTypeReaction,
-  contentTypeReply,
-  contentTypeText,
-  DeliveryStatus,
-  GroupMessageKind,
-  ReactionAction,
-  ReactionSchema,
-  type DecodedMessage,
-  type EnrichedReply,
-  type Reaction,
-} from "@xmtp/browser-sdk";
-import { type ContentTypeId } from "@xmtp/content-type-primitives";
+import type { Message, MessageContent } from "@xmtp/browser-sdk";
 import { describe, expect, it } from "vitest";
 
 import { stringify } from "./messages";
 
-const createDecodedMessage = <T>(
-  content: T,
-  contentType: ContentTypeId,
-  fallback?: string,
-): DecodedMessage<T> => {
-  return {
-    id: "test-id",
-    sentAtNs: 1000n,
-    kind: GroupMessageKind.Application,
-    senderInstallationId: "test-installation-id",
-    senderInboxId: "test-inbox-id",
-    contentType,
-    conversationId: "test-conversation-id",
-    content,
-    fallback,
-    reactions: [],
-    deliveryStatus: DeliveryStatus.Published,
-    numReplies: 0n,
-    expiresAtNs: undefined,
-  } as unknown as DecodedMessage<T>;
-};
+const message = (content: MessageContent, fallback?: string) =>
+  ({ content, fallback }) as Message;
 
 describe("stringify", () => {
-  it("returns plain text for text messages", async () => {
-    const content = "Hello, World!";
-    const textDecodedMessage = createDecodedMessage(
-      content,
-      await contentTypeText(),
-      "fallback",
+  it("shows text and markdown", () => {
+    expect(
+      stringify(message({ kind: "text", value: "hello" }, "fallback")),
+    ).toBe("hello");
+    expect(stringify(message({ kind: "markdown", value: "**hello**" }))).toBe(
+      "**hello**",
     );
-    expect(stringify(textDecodedMessage)).toBe(content);
   });
-
-  it("returns plain text for text replies", async () => {
-    const textDecodedMessage = createDecodedMessage(
-      "gm",
-      await contentTypeText(),
-      "fallback",
-    );
-    const content: EnrichedReply<string> = {
-      referenceId: "id",
-      content: "hi",
-      contentType: () => contentTypeText(),
-      inReplyTo: textDecodedMessage,
-    };
-    const replyDecodedMessage = createDecodedMessage(
-      content,
-      await contentTypeReply(),
-      "fallback",
-    );
-    expect(stringify(replyDecodedMessage)).toBe(content.content);
+  it("shows nested reply text", () => {
+    expect(
+      stringify(
+        message({
+          kind: "reply",
+          referenceId: "parent",
+          body: { kind: "text", value: "reply" },
+        }),
+      ),
+    ).toBe("reply");
   });
-
-  it("returns plain text for reactions", async () => {
-    const content: Reaction = {
-      reference: "id",
-      referenceInboxId: "inbox",
-      action: ReactionAction.Added,
-      content: "👍",
-      schema: ReactionSchema.Unicode,
-    };
-    const reactionDecodedMessage = createDecodedMessage(
-      content,
-      await contentTypeReaction(),
-      "fallback",
-    );
-    expect(stringify(reactionDecodedMessage)).toBe(content.content);
+  it("shows a reaction", () => {
+    expect(
+      stringify(
+        message({
+          kind: "reaction",
+          reference: "parent",
+          reaction: { action: "added", schema: "unicode", content: "👍" },
+        }),
+      ),
+    ).toBe("👍");
   });
-
-  it("returns fallback text when the content type is unknown", () => {
-    const fallback = "fallback";
-    const decodedMessage = createDecodedMessage(
-      {},
-      {
-        authorityId: "test",
-        typeId: "unknown.content.type",
-        versionMajor: 3,
-        versionMinor: 0,
-      },
-      fallback,
-    );
-    expect(stringify(decodedMessage)).toBe(fallback);
+  it("uses fallback for unknown content", () => {
+    expect(
+      stringify(
+        message(
+          {
+            kind: "unknown",
+            rawBytes: new Uint8Array(),
+            error: {
+              code: "MalformedEnvelope",
+              category: "input",
+              retryable: false,
+              message: "Invalid content",
+            },
+          },
+          "fallback",
+        ),
+      ),
+    ).toBe("fallback");
   });
 });

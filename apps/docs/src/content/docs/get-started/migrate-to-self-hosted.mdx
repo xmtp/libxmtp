@@ -23,7 +23,7 @@ unversioned install or a moving `dev` tag.
 
 | SDK     | Package or dependency         | Dev version                                                                                                                   |
 | ------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Browser | `@xmtp/browser-sdk`           | [7.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.9f72722)                                           |
+| Browser | `@xmtp/browser-sdk`           | Build the checked-out SDK 8 source with `dev/nix-shell 'just js build-browser-sdk'`.                                          |
 | Node    | `@xmtp/node-sdk`              | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)                                              |
 | Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)                                             |
 | Kotlin  | `org.xmtp:android`            | [4.12.0-dev.9f72722](https://repo.maven.apache.org/maven2/org/xmtp/android/4.12.0-dev.9f72722/android-4.12.0-dev.9f72722.pom) |
@@ -36,9 +36,9 @@ select the exact revision `ios-4.12.0-dev.9f72722` from
 `https://github.com/xmtp/libxmtp.git` and add the `XMTPiOS` product. That release
 includes a manifest that downloads its matching native binaries.
 
-Node and Browser depend on matching `@xmtp/node-bindings` and
-`@xmtp/wasm-bindings` versions, respectively: `1.12.0-dev.9f72722`. Let the SDK
-install these dependencies; do not replace them with bindings from `main`.
+Node uses its matching `@xmtp/node-bindings` dependency. Keep that dependency
+with the old Node SDK. Browser SDK 8 includes its matched WASM and runtime
+assets in the public package. Keep these assets with the generated source.
 
 ## Migration order
 
@@ -66,7 +66,7 @@ Keep the label and database path stable after migration.
 
 | SDK     | Required change                                                                                                                                                                       |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browser | Pass `{ backendUrl: "https://xmtp.example.com" }` to `Client.create` and `Client.build`. A pre-built WASM `Backend` cannot cross the worker boundary.                                 |
+| Browser | Pass `backend: { url: "https://xmtp.example.com" }` and explicit `storage` to `Client.create` and `Client.build`.                                                                     |
 | Node    | Pass `{ backendUrl: "https://xmtp.example.com" }`, or `{ backend }` with a pre-built `Backend`. Do not pass both forms.                                                               |
 | Agent   | Set `XMTP_BACKEND_URL` or pass `backendUrl` to `Agent.createFromEnv`. The environment variable takes precedence. Remove `XMTP_GATEWAY_HOST`. `XMTP_ENV` now labels the database only. |
 | Kotlin  | Supply `ClientOptions(api = ClientOptions.Api(backendUrl = "https://xmtp.example.com"), ...)`. `env` defaults to `"local"`.                                                           |
@@ -93,13 +93,17 @@ does not remove `disableDeviceSync`, mobile `deviceSyncEnabled`, or JavaScript
 
 ### Standalone identity calls and bindings
 
-JavaScript static `Client.canMessage`, `fetchInboxStates`,
+The old Node SDK static `Client.canMessage`, `fetchInboxStates`,
 `fetchLatestInboxUpdatesCount`, and `revokeInstallations` now require
 `NetworkOptions` or a `Backend`. Node `isAddressAuthorized` and
 `isInstallationAuthorized` do too. Replace an omitted argument or an environment
 string with explicit connection options.
 
-For direct binding consumers, construct `BackendBuilder` with a backend URL.
+Browser SDK 8 uses instance identity methods and the free
+`latestInboxUpdatesCount(inboxIds, backend)` query where no client exists.
+These methods use an explicit typed backend.
+
+For retained Node and mobile binding consumers, construct `BackendBuilder` with a backend URL.
 Remove `setApiUrl` and `setGatewayHost`; optional `setEnv` sets the database
 label. `Backend.backendUrl` replaces `v3Host` and `gatewayHost`; `cacheKey` is
 new. Raw client creation no longer takes a separate gateway host. Mobile
@@ -111,8 +115,9 @@ Backend authentication is separate from the wallet signer used for XMTP identity
 The backend can require an API key or JWT. See
 [authentication configuration](/get-started/run-the-backend/#auth).
 
-All SDKs accept an async `authCallback`: pass it in JavaScript network options
-or mobile `ClientOptions.Api`. Agents pass it through their client options.
+Browser SDK 8 uses `backend.credentials.credential()`, which returns a
+credential with a bigint Unix expiry. Node and mobile SDKs retain their current
+async `authCallback` options. Agents pass those through their client options.
 The callback returns a `Credential` with `value`, `expiresAtSeconds` (Unix
 seconds), and optional `name`. The default header is `authorization`. Include
 `Bearer` and one space before an API key or JWT.
@@ -121,7 +126,7 @@ The middleware caches the credential and requests a new one after expiry or
 rejection. Configuration discovery needs no credential and does not invoke the
 callback. Callback failures use a fixed error, without app error text.
 See [Backend authentication](/sdk/client/#backend-authentication) for examples.
-The low-level binding callback and handle APIs remain available.
+The retained Node and mobile low-level callback and handle APIs remain available.
 For direct mobile binding implementations, auth callbacks now throw
 `FfiAuthCallbackError.Failed` in Swift or `FfiAuthCallbackException.Failed` in
 Kotlin. The dedicated callback error replaces the flat `FfiError`, which could

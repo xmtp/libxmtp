@@ -4,14 +4,14 @@ pnpm workspace package for xmtp.chat, linked to the in-tree browser SDK.
 
 ## Commands
 
-- `just install-js`: install the root workspace dependencies.
-- `just web-chat check`: build the linked SDK and typecheck the app.
-- `just web-chat lint`: run oxlint.
-- `just web-chat build`: build the linked SDK and app.
-- `just web-chat test`: build the linked SDK and run browser tests.
-- `just web-chat dev`: build the linked SDK and start Vite with worktree backend settings.
+- `dev/nix-shell 'just install-js'`: install the root workspace dependencies.
+- `dev/nix-shell 'just web-chat check'`: build the linked SDK and typecheck the app.
+- `dev/nix-shell 'just web-chat lint'`: run oxlint.
+- `dev/nix-shell 'just web-chat build'`: build the linked SDK and app.
+- `dev/nix-shell 'just web-chat test'`: build the linked SDK and run browser tests.
+- `dev/nix-shell 'just web-chat dev'`: build the linked SDK and start Vite with worktree backend settings.
 
-Tests require `just backend up`.
+Tests require `dev/nix-shell 'just backend up'`.
 
 ## Backend configuration
 
@@ -21,8 +21,9 @@ Tests require `just backend up`.
 ## Deployment
 
 `.github/workflows/deploy-web-chat.yml` builds this app under Nix and deploys
-`dist/` to Vercel on a push to `self-hosted`. Vercel cannot build the app
-itself: the `portal:` dependency chain ends at a Nix-built Rust WASM crate.
+`dist/` to Vercel on a push to `self-hosted`. The workflow stages the generated
+browser package, including its worker, pure codecs, WASM assets, and pinned
+runtime. Vercel serves the prebuilt app.
 
 Secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`,
 `WALLETCONNECT_PROJECT_ID`. `XMTP_BACKEND_URL` is inlined at build time and is

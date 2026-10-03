@@ -60,7 +60,7 @@ func encodeForSend<C: ContentCodec>(_ codec: C, value: C.Value, type: ContentTyp
     guard !encoded.type.authorityId.isEmpty, !encoded.type.typeId.isEmpty else {
         throw codecEncodeFailed("encode", CodecStepFailure(description: "the envelope type has an empty authority or type ID"))
     }
-    if encoded.fallback == nil {
+    if encoded.fallback == nil && !usesRustStandardFallback(codec) {
         encoded.fallback = try step("fallback") { try codec.fallback(value) }
     }
     return encoded
@@ -129,4 +129,23 @@ public extension Conversation {
         let (encoded, sendOptions) = try sendParts(codec, value: value, options: options)
         return try await prepareMessage(encoded: encoded, options: sendOptions)
     }
+}
+
+/// Standard encoders already apply their canonical fallback, including nil.
+private func usesRustStandardFallback<C: ContentCodec>(_ codec: C) -> Bool {
+    codec is TextCodec ||
+        codec is MarkdownCodec ||
+        codec is ReadReceiptCodec ||
+        codec is ReactionV2Codec ||
+        codec is AttachmentCodec ||
+        codec is RemoteAttachmentCodec ||
+        codec is MultiRemoteAttachmentCodec ||
+        codec is TransactionReferenceCodec ||
+        codec is WalletSendCallsCodec ||
+        codec is ActionsCodec ||
+        codec is IntentCodec ||
+        codec is ReplyCodec ||
+        codec is GroupUpdatedCodec ||
+        codec is DeleteMessageCodec ||
+        codec is LeaveRequestCodec
 }

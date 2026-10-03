@@ -70,11 +70,6 @@ export function builder(yargs: Argv<GlobalArgs>) {
       type: "boolean",
       default: false,
       describe: "Include Node bindings in release",
-    })
-    .option("wasm", {
-      type: "boolean",
-      default: false,
-      describe: "Include WASM bindings in release",
     });
 }
 
@@ -88,7 +83,6 @@ interface CreateReleaseBranchArgs extends GlobalArgs {
   agentSdk?: string;
   cli?: string;
   node: boolean;
-  wasm: boolean;
 }
 
 export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
@@ -117,19 +111,16 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
     sdkBumps.push({ sdk: Sdk.Cli, bump: argv.cli as BumpType });
   }
 
-  // Collect SDK includes (node/wasm just set the version directly)
+  // Collect SDK includes (Node binding just set the version directly)
   const sdkIncludes: Sdk[] = [];
   if (argv.node) {
     sdkIncludes.push(Sdk.NodeBindings);
-  }
-  if (argv.wasm) {
-    sdkIncludes.push(Sdk.WasmBindings);
   }
 
   // Validate at least one SDK is being released
   if (sdkBumps.length === 0 && sdkIncludes.length === 0) {
     throw new Error(
-      "At least one SDK must be bumped (use --ios/--android/--node-sdk/--browser-sdk/--agent-sdk/--cli with a bump type, or --node/--wasm)",
+      "At least one SDK must be bumped (use --ios/--android/--node-sdk/--browser-sdk/--agent-sdk/--cli with a bump type, or --node)",
     );
   }
 
@@ -155,7 +146,7 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
     bumpedSdks.push(`${sdk} ${newVersion}`);
   }
 
-  // Process node/wasm SDKs (set version directly, no semver bump)
+  // Process Node binding SDKs (set version directly, no semver bump)
   for (const sdk of sdkIncludes) {
     const config = getSdkConfig(sdk);
     const currentVersion = config.manifest.readVersion(cwd);

@@ -14,6 +14,8 @@ import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
 import { useSettings } from "@/hooks/useSettings";
 import { useWallet } from "@/hooks/useWallet";
 
+import { LocalDatabases } from "./LocalDatabases";
+
 import classes from "./ConnectXMTP.module.css";
 
 export const ConnectXMTP: React.FC = () => {
@@ -63,6 +65,7 @@ export const ConnectXMTP: React.FC = () => {
             <BackendUrlInput />
             <AuthTokenInput />
             <LoggingSelect />
+            <LocalDatabases />
           </Stack>
           <Group
             justify="space-between"

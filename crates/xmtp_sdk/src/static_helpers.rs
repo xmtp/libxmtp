@@ -18,6 +18,32 @@ fn api(backend: &Backend) -> xmtp_api::ApiClientWrapper<xmtp_mls::XmtpApiClient>
     xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default())
 }
 
+/// Read inbox update counts without opening a client or local storage.
+#[xmtp_macro::sdk_export]
+pub async fn latest_inbox_updates_count(
+    inbox_ids: Vec<InboxId>,
+    backend: BackendSource,
+) -> Result<HashMap<String, u64>, XmtpError> {
+    let filters = inbox_ids
+        .iter()
+        .map(|id| {
+            Ok(xmtp_api::GetIdentityUpdatesV2Filter {
+                inbox_id: id.checked()?.to_owned(),
+                sequence_id: None,
+            })
+        })
+        .collect::<Result<Vec<_>, XmtpError>>()?;
+    let backend = backend.resolve().await?;
+    let updates = api(&backend)
+        .get_identity_updates_v2(filters)
+        .await
+        .map_err(XmtpError::from_api)?;
+    Ok(updates
+        .into_iter()
+        .map(|(id, values)| (id, values.len() as u64))
+        .collect())
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MessageMetadataEntry {
     pub sequence_id: u64,

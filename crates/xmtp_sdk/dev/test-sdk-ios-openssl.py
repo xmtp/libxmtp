@@ -121,13 +121,14 @@ class IosOpenSslTests(unittest.TestCase):
                                             "OPENSSL_" + key in child,
                                             "Host path shadows target root",
                                         )
-                                        self.assertEqual(
-                                            child[host_prefix + key],
-                                            inputs.get(
-                                                host_prefix + key,
-                                                inputs["OPENSSL_" + key],
-                                            ),
-                                        )
+                                        if host_prefix != prefix:
+                                            self.assertEqual(
+                                                child[host_prefix + key],
+                                                inputs.get(
+                                                    host_prefix + key,
+                                                    inputs["OPENSSL_" + key],
+                                                ),
+                                            )
 
     def test_equal_host_target_cannot_restore_generic_root_shadow(self):
         for triple in mobile.IOS:

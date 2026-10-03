@@ -9,7 +9,8 @@ import {
 } from "@mantine/core";
 import {
   Client,
-  type AuthCallback,
+  latestInboxUpdatesCount,
+  type CredentialSource,
   type Installation,
   type Signer,
 } from "@xmtp/browser-sdk";
@@ -22,7 +23,6 @@ import { ConnectedAddress } from "@/components/App/ConnectedAddress";
 import { WalletConnect } from "@/components/App/WalletConnect";
 import { InstallationTable } from "@/components/InboxTools/InstallationTable";
 import { useAuthToken } from "@/contexts/AuthTokenContext";
-import { backendLabel } from "@/helpers/backend";
 import { createEOASigner, createSCWSigner } from "@/helpers/createSigner";
 import { isValidInboxId } from "@/helpers/strings";
 import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
@@ -33,7 +33,7 @@ import { ContentLayout } from "@/layouts/ContentLayout";
 
 type InboxToolsData = {
   installations: Installation[];
-  inboxUpdatesCount: number | null;
+  inboxUpdatesCount: bigint | null;
   selectedInstallationIds: string[];
   loading: boolean;
 };
@@ -109,23 +109,21 @@ export const InboxTools: React.FC = () => {
     },
     [query],
   );
-  const { createAuthCallback } = useAuthToken();
+  const { createCredentialSource } = useAuthToken();
   // The inbox tools statics build their own short-lived clients, separate from
   // the app's client, so they get their own callback and their own memo.
-  const authCallbackRef = useRef<AuthCallback | null>(null);
-  authCallbackRef.current ??= createAuthCallback();
+  const authCallbackRef = useRef<CredentialSource | null>(null);
+  authCallbackRef.current ??= createCredentialSource();
   const authCallback = authCallbackRef.current;
   const [active, setActive] = useState(1);
 
   const fetchInstallations = useCallback(async () => {
-    const inboxState = await Client.fetchInboxStates([inboxId], {
-      authCallback,
-      backendUrl,
-      env: await backendLabel(backendUrl),
+    const inboxState = await Client.inboxStates([inboxId], {
+      credentials: authCallback,
+      url: backendUrl,
     });
     return inboxState[0].installations.toSorted(
-      (a, b) =>
-        Number(b.clientTimestampNs ?? 0) - Number(a.clientTimestampNs ?? 0),
+      (a, b) => Number(b.createdAt?.ns ?? 0) - Number(a.createdAt?.ns ?? 0),
     );
   }, [inboxId, backendUrl, authCallback]);
 
@@ -153,11 +151,11 @@ export const InboxTools: React.FC = () => {
     }
     updateQuery({ loading: true, inboxUpdatesCount: null });
     try {
-      const inboxUpdatesCounts = await Client.fetchLatestInboxUpdatesCount(
-        [inboxId],
-        { authCallback, backendUrl, env: await backendLabel(backendUrl) },
-      );
-      finishQuery({ inboxUpdatesCount: inboxUpdatesCounts.get(inboxId) ?? 0 });
+      const inboxUpdatesCounts = await latestInboxUpdatesCount([inboxId], {
+        credentials: authCallback,
+        url: backendUrl,
+      });
+      finishQuery({ inboxUpdatesCount: inboxUpdatesCounts.get(inboxId) ?? 0n });
     } catch (error) {
       console.error(error);
     } finally {
@@ -166,7 +164,7 @@ export const InboxTools: React.FC = () => {
   }, [inboxId, backendUrl, authCallback, updateQuery, finishQuery]);
 
   const handleRevokeInstallations = useCallback(
-    async (installationIds: Uint8Array[]) => {
+    async (installationIds: string[]) => {
       let signer: Signer;
       if (ephemeralAccountEnabled) {
         if (!ephemeralAddress) {
@@ -196,9 +194,8 @@ export const InboxTools: React.FC = () => {
       updateQuery({ loading: true });
       try {
         await Client.revokeInstallations(signer, inboxId, installationIds, {
-          authCallback,
-          backendUrl,
-          env: await backendLabel(backendUrl),
+          credentials: authCallback,
+          url: backendUrl,
         });
         finishQuery({ selectedInstallationIds: [] });
         finishQuery({ installations: await fetchInstallations() });
@@ -260,7 +257,7 @@ export const InboxTools: React.FC = () => {
                   .filter((installation) =>
                     selectedInstallationIds.includes(installation.id),
                   )
-                  .map((installation) => installation.bytes);
+                  .map((installation) => installation.id);
                 void handleRevokeInstallations(installationBytes);
               }}>
               Revoke installations

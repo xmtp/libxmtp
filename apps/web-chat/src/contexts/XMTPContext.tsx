@@ -1,8 +1,13 @@
 import {
   Client,
-  type AuthCallback,
-  type BuiltInContentTypes,
-  type ClientOptions,
+  generateInboxId,
+  Storage,
+  type BackendSource,
+  type CredentialSource,
+  type LogLevel,
+  initLogging,
+  type StorageLocation,
+  XmtpError,
   type Signer,
 } from "@xmtp/browser-sdk";
 import {
@@ -18,14 +23,40 @@ import { backendLabel } from "@/helpers/backend";
 import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
 import { useActions } from "@/stores/inbox/hooks";
 
-export type ContentTypes = BuiltInContentTypes;
+const storageLocation = async (
+  signer: Signer,
+  backend: BackendSource,
+  label: string,
+): Promise<StorageLocation> => {
+  const admin = await Storage.admin();
+  let files: string[];
+  try {
+    files = await admin.listFiles();
+  } finally {
+    await admin.end();
+  }
+
+  // Version 7 kept its database at the OPFS pool root.
+  const prefix = `xmtp-${label}-`;
+  if (!files.some((path) => path.startsWith(prefix) && path.endsWith(".db3"))) {
+    return "default";
+  }
+  const identity = await signer.identity();
+  const reachable = await Client.canMessage([identity], backend);
+  const inboxId = reachable.get(`${identity.kind}:${identity.identifier}`)
+    ? await Client.inboxIdFor(identity, backend)
+    : generateInboxId(identity);
+  const dbPath = `${prefix}${inboxId}.db3`;
+  return files.includes(dbPath)
+    ? { dbPath, attachmentsDir: `${dbPath}.attachments` }
+    : "default";
+};
 
 export type InitializeClientOptions = {
-  authCallback?: AuthCallback;
+  authCallback?: CredentialSource;
   backendUrl: string;
-  dbEncryptionKey?: Uint8Array;
   env?: string;
-  loggingLevel?: ClientOptions["loggingLevel"];
+  loggingLevel?: LogLevel;
   signer: Signer;
 };
 
@@ -34,6 +65,7 @@ export type XMTPContextValue = {
    * The XMTP client instance
    */
   client?: Client;
+  signer?: Signer;
   /**
    * Set the XMTP client instance
    */
@@ -41,7 +73,7 @@ export type XMTPContextValue = {
   initialize: (options: InitializeClientOptions) => Promise<Client | undefined>;
   initializing: boolean;
   error: Error | null;
-  disconnect: () => void;
+  disconnect: () => Promise<void>;
   lockState: AppLockState;
   acquireLock: () => void;
   releaseLock: () => void;
@@ -52,7 +84,7 @@ export const XMTPContext = createContext<XMTPContextValue>({
   initialize: () => Promise.reject(new Error("XMTPProvider not available")),
   initializing: false,
   error: null,
-  disconnect: () => {},
+  disconnect: async () => {},
   lockState: "available",
   acquireLock: () => false,
   releaseLock: () => {},
@@ -70,18 +102,39 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
   client: initialClient,
 }) => {
   const { reset } = useActions();
-  const [client, setClient] = useState<Client | undefined>(initialClient);
-  // when another session claims the lock, disconnect without releasing
-  const handleLockLost = useCallback(() => {
-    if (client) {
-      void client.close();
-      setClient(undefined);
-      reset();
-    }
-  }, [client, reset]);
-  const { lockState, acquireLock, releaseLock } = useAppLock(handleLockLost);
-  const [initializing, setInitializing] = useState(false);
+  const [client, setClientState] = useState<Client | undefined>(initialClient);
+  const clientRef = useRef<Client | undefined>(initialClient);
+  const setClient = useCallback<
+    React.Dispatch<React.SetStateAction<Client | undefined>>
+  >((next) => {
+    const updated = typeof next === "function" ? next(clientRef.current) : next;
+    clientRef.current = updated;
+    setClientState(updated);
+  }, []);
+  const [clientSigner, setClientSigner] = useState<Signer>();
   const [error, setError] = useState<Error | null>(null);
+  const lockLossEpoch = useRef(0);
+  // when another session claims the lock, disconnect without releasing
+  const handleLockLost = useCallback(async () => {
+    lockLossEpoch.current += 1;
+    const current = clientRef.current;
+    if (current) {
+      clientRef.current = undefined;
+      try {
+        await current.end();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause : new Error(String(cause)));
+      } finally {
+        setClientSigner(undefined);
+        setClient(undefined);
+        reset();
+      }
+    }
+  }, [reset, setClient]);
+  const { lockState, acquireLock, releaseLock, ownsLock } = useAppLock(() => {
+    void handleLockLost();
+  });
+  const [initializing, setInitializing] = useState(false);
   // client is initializing
   const initializingRef = useRef(false);
 
@@ -92,7 +145,6 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
     async ({
       authCallback,
       backendUrl,
-      dbEncryptionKey,
       env,
       loggingLevel,
       signer,
@@ -108,6 +160,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
 
         // flag the client as initializing
         initializingRef.current = true;
+        const startingLockEpoch = lockLossEpoch.current;
 
         // reset error state
         setError(null);
@@ -118,22 +171,44 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
 
         try {
           // create a new XMTP client
-          xmtpClient = await Client.create(signer, {
-            authCallback,
-            backendUrl,
-            env: env ?? (await backendLabel(backendUrl)),
-            loggingLevel,
-            dbEncryptionKey,
+          await initLogging({ level: loggingLevel ?? "warn" });
+          const backend = {
+            url: backendUrl,
+            credentials: authCallback,
             appVersion: "xmtp.chat/0",
+          };
+          const label = env ?? (await backendLabel(backendUrl));
+          const location = await storageLocation(signer, backend, label);
+          if (lockLossEpoch.current !== startingLockEpoch || !ownsLock()) {
+            throw new Error("App lock was lost during XMTP initialization");
+          }
+          xmtpClient = await Client.create(signer, {
+            backend,
+            storage: {
+              location,
+              label,
+            },
           });
+          if (lockLossEpoch.current !== startingLockEpoch || !ownsLock()) {
+            await xmtpClient.end();
+            throw new Error("App lock was lost during XMTP initialization");
+          }
+          setClientSigner(signer);
           setClient(xmtpClient);
         } catch (e) {
           setClient(undefined);
-          setError(e as Error);
+          setClientSigner(undefined);
+          const error =
+            e instanceof XmtpError.StorageBusy
+              ? new Error(
+                  "Another tab uses XMTP storage. Close that tab, then connect again.",
+                )
+              : (e as Error);
+          setError(error);
           // release lock on error
           releaseLock();
           // re-throw error for upstream consumption
-          throw e;
+          throw error;
         } finally {
           initializingRef.current = false;
           setInitializing(false);
@@ -143,13 +218,14 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
       }
       return client;
     },
-    [client, acquireLock, releaseLock],
+    [client, acquireLock, ownsLock, releaseLock, setClient],
   );
 
-  const disconnect = useCallback(() => {
+  const disconnect = useCallback(async () => {
     if (client) {
-      void client.close();
+      await client.end();
       setClient(undefined);
+      setClientSigner(undefined);
       reset();
       releaseLock();
     }
@@ -159,6 +235,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
   const value = useMemo(
     () => ({
       client,
+      signer: clientSigner,
       setClient,
       initialize,
       initializing,
@@ -170,6 +247,8 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
     }),
     [
       client,
+      clientSigner,
+      setClient,
       initialize,
       initializing,
       error,

@@ -1,8 +1,9 @@
 import { Group, Stack, Text, Textarea, TextInput } from "@mantine/core";
-import { Group as XmtpGroup, type Conversation } from "@xmtp/browser-sdk";
+import { type Conversation } from "@xmtp/browser-sdk";
 import { useState } from "react";
 
 import { type ClientPermissions } from "@/hooks/useClientPermissions";
+import { useMetadata } from "@/stores/inbox/hooks";
 
 type MetadataProps = {
   conversation?: Conversation;
@@ -19,15 +20,10 @@ export const Metadata: React.FC<MetadataProps> = ({
   onDescriptionChange,
   onImageUrlChange,
 }) => {
-  const [name, setName] = useState(
-    conversation instanceof XmtpGroup ? (conversation.name ?? "") : "",
-  );
-  const [description, setDescription] = useState(
-    conversation instanceof XmtpGroup ? (conversation.description ?? "") : "",
-  );
-  const [imageUrl, setImageUrl] = useState(
-    conversation instanceof XmtpGroup ? (conversation.imageUrl ?? "") : "",
-  );
+  const metadata = useMetadata(conversation?.id ?? "");
+  const [name, setName] = useState(metadata.name ?? "");
+  const [description, setDescription] = useState(metadata.description ?? "");
+  const [imageUrl, setImageUrl] = useState(metadata.imageUrl ?? "");
 
   return (
     <Stack gap="xs" p="md">

@@ -20,20 +20,19 @@ export const ManageMetadataModal: React.FC = () => {
 const MetadataForm: React.FC<{ conversationId: string }> = ({
   conversationId,
 }) => {
-  const { conversation } = useConversation(conversationId);
+  const {
+    conversation,
+    name: currentName,
+    description: currentDescription,
+    imageUrl: currentImageUrl,
+  } = useConversation(conversationId);
   const clientPermissions = useClientPermissions(conversationId);
   const { addConversation } = useActions();
   const navigate = useNavigate();
   const fullScreen = useCollapsedMediaQuery();
-  const [name, setName] = useState(
-    conversation instanceof XmtpGroup ? (conversation.name ?? "") : "",
-  );
-  const [description, setDescription] = useState(
-    conversation instanceof XmtpGroup ? (conversation.description ?? "") : "",
-  );
-  const [imageUrl, setImageUrl] = useState(
-    conversation instanceof XmtpGroup ? (conversation.imageUrl ?? "") : "",
-  );
+  const [name, setName] = useState(currentName ?? "");
+  const [description, setDescription] = useState(currentDescription ?? "");
+  const [imageUrl, setImageUrl] = useState(currentImageUrl ?? "");
   const [isLoading, setIsLoading] = useState(false);
   const contentHeight = fullScreen ? "auto" : 500;
   const [initial] = useState({ name, description, imageUrl });

@@ -4,14 +4,13 @@ import { useParams } from "react-router";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import VirtualList from "@/components/VirtualList";
-import type { ContentTypes } from "@/contexts/XMTPContext";
 
 import { ConversationCard } from "./ConversationCard";
 
 import classes from "./ConversationList.module.css";
 
 export type ConversationsListProps = {
-  conversations: Conversation<ContentTypes>[];
+  conversations: Conversation[];
 };
 
 export const ConversationsList: React.FC<ConversationsListProps> = ({

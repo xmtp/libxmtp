@@ -277,7 +277,6 @@ let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
                     "assembleRelease",
                     "--no-daemon",
                     "--dependency-verification=strict",
-                    "--max-workers=2",
                 ],
                 env=env,
             )

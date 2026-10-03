@@ -32,7 +32,7 @@ export const useServerAuthConfig = (backendUrl: string): ServerAuthConfig => {
     // A slow backend must not leave a stale answer on screen, and a response
     // for a previous URL must not overwrite a newer one.
     let active = true;
-    Client.fetchServerConfiguration(request.backendUrl)
+    Client.fetchServerConfiguration({ url: request.backendUrl })
       .then((configuration) => {
         if (!active) return;
         setResult({

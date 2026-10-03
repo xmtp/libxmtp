@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 
 import { createStarlightTypeDocPlugin } from "starlight-typedoc";
 
+import { sdkEntry } from "./scripts/sdk-entry.mjs";
 import { validateTypeDoc } from "./scripts/typedoc-validation.mjs";
 
 const sdkRoot = new URL("../../sdks/", import.meta.url);
@@ -16,7 +17,7 @@ function sdkReference(
   const [plugin, sidebarGroup] = createStarlightTypeDocPlugin();
   const packageRoot = new URL(`${packageDirectory}/`, sdkRoot);
 
-  const entryPoints = [fileURLToPath(new URL("src/index.ts", packageRoot))];
+  const entryPoints = [sdkEntry(fileURLToPath(packageRoot), true)];
   const tsconfig = fileURLToPath(new URL("tsconfig.json", packageRoot));
   const typeDocOptions = {
     excludeExternals: false,
@@ -58,11 +59,66 @@ function sdkReference(
 const references = [
   sdkReference("node", "node-sdk", "Node SDK", "node-sdk"),
   sdkReference("browser", "browser-sdk", "Browser SDK", "browser-sdk", {
-    // Worker implementation types are not package exports.
+    // The public API uses the wasm types for these duplicate generated names.
+    // Error variants are public through XmtpError, not as separate exports.
+    // TypeDoc rejects an exception that no longer matches a referenced type.
     intentionallyNotExported: [
-      "WorkerConversation",
-      "WorkerBridge",
-      "ClientWorkerAction",
+      "ClientOptions",
+      "ErrorDetails",
+      "PublicIdentity",
+      "XmtpErrorAttachment",
+      "XmtpErrorAuthRequired",
+      "XmtpErrorBackendMismatch",
+      "XmtpErrorCallbackFailed",
+      "XmtpErrorCancelled",
+      "XmtpErrorChainNotAccepted",
+      "XmtpErrorChannelNotConfigured",
+      "XmtpErrorClientClosed",
+      "XmtpErrorClientVersionTooOld",
+      "XmtpErrorCodecDecodeFailed",
+      "XmtpErrorCodecEncodeFailed",
+      "XmtpErrorCodecNotFound",
+      "XmtpErrorConfigurationInvalid",
+      "XmtpErrorConfigurationUnavailable",
+      "XmtpErrorConsumerOwned",
+      "XmtpErrorCredential",
+      "XmtpErrorCredentialCallbackFailed",
+      "XmtpErrorCredentialExhausted",
+      "XmtpErrorCredentialMissing",
+      "XmtpErrorCredentialRejected",
+      "XmtpErrorDuplicateField",
+      "XmtpErrorForeignCursor",
+      "XmtpErrorIdentityMismatch",
+      "XmtpErrorIdentityNotFound",
+      "XmtpErrorInvalidArgument",
+      "XmtpErrorInvalidCursor",
+      "XmtpErrorInvalidInput",
+      "XmtpErrorLagged",
+      "XmtpErrorMalformedEnvelope",
+      "XmtpErrorNotificationApi",
+      "XmtpErrorNotificationGroup",
+      "XmtpErrorNotificationNotFound",
+      "XmtpErrorNotificationStorage",
+      "XmtpErrorNotUserField",
+      "XmtpErrorOutOfRange",
+      "XmtpErrorPermissionDenied",
+      "XmtpErrorPublishedButUnconfirmed",
+      "XmtpErrorRecoveryExhausted",
+      "XmtpErrorRequestTimeout",
+      "XmtpErrorResourceExhausted",
+      "XmtpErrorSigner",
+      "XmtpErrorStorage",
+      "XmtpErrorStorageBusy",
+      "XmtpErrorStorageLocation",
+      "XmtpErrorStorageLocationRequired",
+      "XmtpErrorTaskRunnerDisabled",
+      "XmtpErrorTypeChanged",
+      "XmtpErrorTypeMismatch",
+      "XmtpErrorUnimplemented",
+      "XmtpErrorUnknown",
+      "XmtpErrorUnknownField",
+      "XmtpErrorUnsupportedType",
+      "XmtpErrorUserLimitExceeded",
     ],
   }),
   sdkReference("agent", "agent-sdk", "Agent SDK", "agent-sdk", {

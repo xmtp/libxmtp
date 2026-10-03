@@ -51,18 +51,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     releaseWorkflow: "release-node.yml",
     channels: ["nightly", "rc", "final"],
   },
-  [Sdk.WasmBindings]: {
-    name: "WASM",
-    manifestPath: "bindings/wasm/package.json",
-    tagPrefix: "wasm-bindings-",
-    artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider("bindings/wasm/package.json"),
-    versionTrack: "follows-libxmtp",
-    notesIncludeGlobs: ["crates/**", "bindings/wasm/**"],
-    notesExcludeGlobs: ["bindings/node/**", "bindings/mobile/**"],
-    releaseWorkflow: "release-wasm.yml",
-    channels: ["nightly", "rc", "final"],
-  },
   [Sdk.BrowserSdk]: {
     name: "Browser SDK",
     manifestPath: "sdks/browser/package.json",
@@ -70,7 +58,11 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("sdks/browser/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: ["crates/**", "bindings/wasm/**", "sdks/browser/**"],
+    notesIncludeGlobs: [
+      "crates/**",
+      "apps/xmtp_sdk_bindgen/**",
+      "sdks/browser/**",
+    ],
     notesExcludeGlobs: [
       "bindings/node/**",
       "bindings/mobile/**",

@@ -91,6 +91,7 @@ lint-config: lint-treefmt sdk-manifest-check
 # Fail if docs/self-hosted/sdk-api-manifest.md differs from the SDK sources.
 sdk-manifest-check:
     python3.11 dev/sdk/inventory.py --check
+    python3.11 dev/sdk/test-cutover-gates.py
 
 lint-toml:
     taplo format --check --diff

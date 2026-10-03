@@ -9,6 +9,9 @@ Run commands from the repository root in the Nix shell. Run
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
   the worker, the benchmark, and transport tests import it.
+- `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
+  the checkout source identity with the generated and native Nix source filters.
+  It does not compile a product.
 - `dev/nix-shell 'just sdk check-file-sizes'` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
@@ -122,11 +125,18 @@ Run commands from the repository root in the Nix shell. Run
   and assets.
   The proof installs local copies under `target/sdk-codec-author/` and uses
   only the supported ESM roots in the codec package.
-- `dev/nix-shell 'just sdk manifest-check'` compares `docs/self-hosted/sdk-api-manifest.md`
-  with the old SDK sources, then checks that each Node and browser binding
-  re-export row names a real export of the generated package roots. A rename
-  names the new export; a removal names its replacement. Run
-  `dev/nix-shell 'just sdk generate'` first.
+- `dev/nix-shell 'just sdk manifest-check'` and
+  `dev/nix-shell 'just sdk-manifest-check'` check the same API manifest.
+  A switched SDK keeps its pinned pre-switch retention and removal ledger.
+  The same manifest counts its current public projection in a separate section.
+  Unswitched SDKs still match their current source declarations. Missing current
+  generated source or changed pinned rows fail. The checks also test rejection
+  of missing projections, altered ledger rows, and unswitched sibling changes.
+  Run generation first for each switched target. `XMTP_SDK_GENERATED_DIR`
+  selects the matched generated source input. After a source change, update the
+  current count with `dev/nix-shell 'python3.11 dev/sdk/inventory.py --write'`.
+  The SDK check also verifies retained TypeScript root exports for switched
+  targets. Before any switch, it verifies both TypeScript roots.
 - `dev/nix-shell 'just test crate xmtp_sdk'` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
@@ -142,6 +152,8 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
   build WASM. Full and pure WASM use separate output directories.
 - `dev/nix-shell 'just sdk render [swift,kotlin,node,browser]'` uses those artifacts. It rejects
   a changed binary or generator contract before it replaces generated output.
+  Package staging requires exact generated asset sets and hashes. Unlisted
+  generated files fail before runtime or compiler work.
   It replaces only selected targets and keeps valid unselected targets with
   their original receipts. It removes stale unselected targets and unknown roots.
   `dev/nix-shell 'just sdk generate [targets]'` runs both steps. Use `--profile release` on the
@@ -149,11 +161,19 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
 - `dev/nix-shell 'just sdk check-package-scripts'` checks reuse, mismatch rejection, and cleanup
   with a small fixture. `dev/nix-shell 'just sdk check-clean-generate'` adds one real Swift
   render. It uses existing artifacts and does not rebuild Rust.
+  The script checks also reject missing or extra pure WASM functions and pure
+  functions in worker bindings or dispatch. The exact set comes from approved
+  pure Rust declarations in the current isolated SDK source.
 - `dev/nix-shell 'just sdk stage node'` and `dev/nix-shell 'just sdk stage browser'` compile ESM products with
   tsdown. They copy the pinned runtimes, native library, worker, pure WASM,
   loaders, and snippets. `dev/nix-shell 'just sdk package-smoke node|browser'` packs each product
   and installs it in an empty consumer. It checks a codec round trip and rejects
   a changed contract before an operation. Browser smoke also loads its worker.
+  Switched SDK package builds use `bash ../../dev/js/sdk-package node|browser`
+  from the SDK directory. The helper stages a public manifest and copies the
+  complete product into the SDK's `dist` directory for workspace imports.
+  Release jobs pack `target/sdk-packages/<target>` directly. Private staging
+  remains the default for conformance.
 - Use `NIX_DEVSHELL=ios dev/nix-shell 'just sdk mobile-build ios'` for the iOS
   device and simulator libraries. Then use the same shell for
   `dev/nix-shell 'just sdk mobile-stage ios'` to assemble `XmtpSdkFFI.xcframework` and SwiftPM
@@ -201,6 +221,12 @@ Residual package review checks:
   private path override for the launcher proof. The normal path comes from
   the selected Node installation, including the Windows installation.
 
+- Use `dev/nix-shell 'just sdk check-native-nix'` to check the evaluated SDK
+  build inputs. Cargo uses its normal or caller-selected job count. Native stages use
+  vendored static OpenSSL. Apple stages keep macOS 11 and iOS 14 floors.
+  `just sdk check-package-scripts` checks this gate under Python optimization
+  with invalid inputs for each build stage.
+  This check does not prove archive linkage or installed package loading.
 Android staging dependency inputs:
 
 - The staging Gradle root is `crates/xmtp_sdk/packaging/android`. Keep its
@@ -209,8 +235,7 @@ Android staging dependency inputs:
 - The normal stage command uses strict verification and does not write inputs.
   To refresh inputs, use a separate controlled resolution through
   `NIX_DEVSHELL=android dev/nix-shell`. Resolve the actual `assembleRelease`
-  route with `--write-locks --write-verification-metadata sha256` and
-  `--max-workers=2`. Review the resolved graph, repositories, and SHA256
+  route with `--write-locks --write-verification-metadata sha256`. Review the resolved graph, repositories, and SHA256
   entries before acceptance. Keep metadata verification enabled.
   After refresh, keep each verification `<component>` on one line. Keep all
   checksum values and policy entries. This keeps the generated inventory within

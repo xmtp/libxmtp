@@ -4,57 +4,57 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: 'Git ref to check out, package, and tag. Defaults to the workflow run ref; callers building a different ref MUST pass it or the version stamp and tag land on the wrong commit.'
+        description: "Git ref to check out, package, and tag. Defaults to the workflow run ref; callers building a different ref MUST pass it or the version stamp and tag land on the wrong commit."
         required: false
         type: string
-        default: ''
+        default: ""
       package-dir:
-        description: 'Path to the npm package directory'
+        description: "Path to the npm package directory"
         required: true
         type: string
       sdk:
-        description: 'SDK name for release tools (e.g. node-bindings, wasm-bindings)'
+        description: "SDK name for release tools (e.g. node-bindings, wasm-bindings)"
         required: true
         type: string
       version:
-        description: 'The version to publish'
+        description: "The version to publish"
         required: true
         type: string
       artifact-pattern:
-        description: 'Pattern for downloading build artifacts (optional)'
+        description: "Pattern for downloading build artifacts (optional)"
         required: false
         type: string
       artifact-path:
-        description: 'Path to download artifacts to (required if artifact-pattern is set)'
+        description: "Path to download artifacts to (required if artifact-pattern is set)"
         required: false
         type: string
       ignore-scripts:
-        description: 'Skip npm lifecycle scripts during publish (e.g. prepublishOnly)'
+        description: "Skip npm lifecycle scripts during publish (e.g. prepublishOnly)"
         required: false
         type: boolean
         default: false
       dep-name:
-        description: 'Dependency name to pin before publish (e.g. @xmtp/node-bindings)'
+        description: "Dependency name to pin before publish (e.g. @xmtp/node-bindings)"
         required: false
         type: string
-        default: ''
+        default: ""
       dep-version:
-        description: 'Exact version to pin the dependency to (e.g. 1.2.3-nightly.20260604.abc1234)'
+        description: "Exact version to pin the dependency to (e.g. 1.2.3-nightly.20260604.abc1234)"
         required: false
         type: string
-        default: ''
+        default: ""
       dep-name-2:
-        description: 'Second dependency name to pin before publish'
+        description: "Second dependency name to pin before publish"
         required: false
         type: string
-        default: ''
+        default: ""
       dep-version-2:
-        description: 'Exact version for the second dependency'
+        description: "Exact version for the second dependency"
         required: false
         type: string
-        default: ''
+        default: ""
       dry-run:
-        description: 'When true, run all steps EXCEPT the npm publish and tag (no side effects)'
+        description: "When true, run all steps EXCEPT the npm publish and tag (no side effects)"
         required: false
         type: boolean
         default: false
@@ -98,6 +98,12 @@ jobs:
         if: ${{ inputs.dep-name-2 != '' }}
         run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name-2 }}" --version "${{ inputs.dep-version-2 }}"
 
+      - name: Set the packed product version
+        env:
+          PACKAGE_DIRECTORY: ${{ inputs.package-dir }}
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: node crates/xmtp_sdk/dev/stamp-package.mjs "$PACKAGE_DIRECTORY" "$PACKAGE_VERSION"
+
       - name: Determine NPM tag
         id: npm-tag
         run: |
@@ -121,6 +127,7 @@ jobs:
           pack_dir="$RUNNER_TEMP/npm-pack"
           mkdir -p "$pack_dir"
           pnpm --dir "${{ inputs.package-dir }}" pack \
+            --config.node-linker=hoisted \
             --config.ignore-scripts="$IGNORE_SCRIPTS" \
             --pack-destination "$pack_dir"
           shopt -s nullglob

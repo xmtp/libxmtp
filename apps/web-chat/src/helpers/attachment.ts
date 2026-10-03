@@ -1,6 +1,4 @@
-import { decryptAttachment, type RemoteAttachment } from "@xmtp/browser-sdk";
-
-export const ATTACHMENT_UPLOADS_ENABLED: boolean = false;
+import { type Client, type RemoteAttachment } from "@xmtp/browser-sdk";
 
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB
 
@@ -47,24 +45,35 @@ export const validateFile = (file: File): FileValidation => {
   return { valid: true };
 };
 
-export const uploadEncryptedAttachment = (
-  _file: File,
-): Promise<RemoteAttachment> =>
-  Promise.reject(
-    new Error(
-      "Attachment uploads are disabled until the backend supports remote attachments",
-    ),
-  );
+export const uploadEncryptedAttachment = async (
+  client: Client,
+  file: File,
+): Promise<RemoteAttachment> => {
+  const pending = await client.attachments.create({
+    kind: "bytes",
+    bytes: new Uint8Array(await file.arrayBuffer()),
+    mimeType: file.type,
+    filename: file.name,
+  });
+  await pending.upload();
+  return pending.remoteAttachment;
+};
 
-export const downloadRemoteAttachment = async (content: RemoteAttachment) => {
-  const response = await fetch(content.url);
-  if (!response.ok) {
-    throw new Error(
-      `Unable to load attachment: [${response.status}] ${response.statusText}`,
-    );
-  }
-  const payload = new Uint8Array(await response.arrayBuffer());
-  return decryptAttachment(payload, content);
+export const downloadRemoteAttachment = async (
+  client: Client,
+  content: RemoteAttachment,
+) => {
+  const attachment = await client.attachments.download(content);
+  const parts = attachment.path.split("/").filter(Boolean);
+  const filename = parts.pop();
+  if (!filename || parts.includes(".."))
+    throw new Error("Invalid attachment path");
+  let directory = await navigator.storage.getDirectory();
+  for (const part of parts)
+    directory = await directory.getDirectoryHandle(part);
+  const handle = await directory.getFileHandle(filename);
+  const file = await handle.getFile();
+  return file.slice(0, file.size, attachment.mimeType ?? file.type);
 };
 
 export const getFileType = (filename: string) => {

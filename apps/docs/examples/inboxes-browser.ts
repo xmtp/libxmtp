@@ -1,16 +1,17 @@
-import { Client, type Backend } from "@xmtp/browser-sdk";
+import { Client, type Backend, type Signer } from "@xmtp/browser-sdk";
 
 export async function manageInboxes(
   client: Client,
   inboxIds: string[],
   backend: Backend,
-  installationIds: Uint8Array[],
+  installationIds: string[],
+  signer: Signer,
 ) {
   // #region manage
-  const state = await client.preferences.fetchInboxState();
-  const states = await Client.fetchInboxStates(inboxIds, backend);
-  await client.revokeInstallations(installationIds);
-  await client.revokeAllOtherInstallations();
+  const state = await client.inboxState(true);
+  const states = await Client.inboxStates(inboxIds, backend);
+  await client.revokeInstallations(signer, installationIds);
+  await client.revokeAllOtherInstallations(signer);
   // #endregion manage
   return { state, states };
 }

@@ -52,6 +52,21 @@ export async function checkPureCodecs(): Promise<number> {
     const encoded = codec.encode(value as never);
     if (!(encoded.content instanceof Uint8Array))
       throw new Error(`codec bytes are not a Uint8Array for ${kind}`);
+    if (codec.fallback?.(value as never) !== sample.expected.fallback)
+      throw new Error(`standalone fallback differs from Rust for ${kind}`);
+    const push = sdk.catalogueContentTypeShouldPush(sample.expected.type);
+    if (codec.shouldPush?.(value as never) !== push)
+      throw new Error(
+        `standalone push differs from Rust catalogue for ${kind}`,
+      );
+    if (
+      kind === "leaveRequest" &&
+      (push !== false ||
+        sample.expected.fallback !== "A member has requested leaving the group")
+    )
+      throw new Error(
+        "leave request lost its quiet policy or retained fallback",
+      );
     const roundTrip = codec.encode(codec.decode(encoded) as never);
     const expected = JSON.stringify(Array.from(sample.expected.content));
     if (
@@ -79,7 +94,9 @@ export async function checkPureCodecs(): Promise<number> {
 
   const failsWith = (
     label: string,
-    type: typeof sdk.XmtpError.InvalidArgument | typeof sdk.XmtpError.InvalidInput,
+    type:
+      | typeof sdk.XmtpError.InvalidArgument
+      | typeof sdk.XmtpError.InvalidInput,
     code: "InvalidArgument" | "InvalidInput",
     encode: () => unknown,
   ): void => {
@@ -162,11 +179,15 @@ export async function checkPureCodecs(): Promise<number> {
       }),
     );
   }
-  failsWith("intent metadata JSON", sdk.XmtpError.InvalidInput, "InvalidInput", () =>
-    sdk.encodeStandard({
-      kind: "intent",
-      value: { id: "intent", actionId: "action", metadataJson: "{bad json" },
-    }),
+  failsWith(
+    "intent metadata JSON",
+    sdk.XmtpError.InvalidInput,
+    "InvalidInput",
+    () =>
+      sdk.encodeStandard({
+        kind: "intent",
+        value: { id: "intent", actionId: "action", metadataJson: "{bad json" },
+      }),
   );
   return samples.length;
 }

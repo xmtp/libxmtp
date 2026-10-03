@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use uniffi_meta::{EnumMetadata, RecordMetadata, Type};
 
 use super::{camel, convert, policy::cursor_type, public_type};
@@ -76,9 +76,14 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         } else {
             body
         };
+        let guard = if lower && name == "Credential" {
+            super::policy::CREDENTIAL_GUARD
+        } else {
+            ""
+        };
         writeln!(
             code,
-            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; return {body}; }}"
+            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; {guard} return {body}; }}"
         )?;
     }
     Ok(())
@@ -89,7 +94,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
     let flat = !value.shape.is_error() && value.variants.iter().all(|v| v.fields.is_empty());
     writeln!(code, "export type {name} =")?;
     for variant in &value.variants {
-        let kind = camel(&variant.name);
+        let kind = public_variant_kind(name, &variant.name)?;
         if flat {
             writeln!(code, "| '{kind}'")?;
             continue;
@@ -145,7 +150,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
             writeln!(code, "switch ({discriminant}) {{")?;
         }
         for variant in &value.variants {
-            let kind = camel(&variant.name);
+            let kind = public_variant_kind(name, &variant.name)?;
             let raw_variant = format!("B.{name}.{}", variant.name);
             let case = if lower {
                 format!("'{kind}'")
@@ -220,4 +225,43 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
         code.push_str("}\n");
     }
     Ok(())
+}
+
+fn public_variant_kind(name: &str, variant: &str) -> Result<String> {
+    if name != "EventKind" && name != "ClientEvent" {
+        return Ok(camel(variant));
+    }
+    // EVENT-020: The filter kind and emitted event kind use the same public string.
+    let kind = match variant {
+        "ConversationJoined" => "conversation.joined",
+        "ConversationRemoved" => "conversation.removed",
+        "ConversationMembershipChanged" => "conversation.membership_changed",
+        "ConversationMetadataChanged" => "conversation.metadata_changed",
+        "ConversationPaused" => "conversation.paused",
+        "MessageReceived" => "message.received",
+        "MessageStatusChanged" => "message.status_changed",
+        "MessageDeleted" => "message.deleted",
+        "MessageExpired" => "message.expired",
+        "ConsentChanged" => "consent.changed",
+        "HmacKeysUpdated" => "hmac_keys.updated",
+        "IdentityRegistered" => "identity.registered",
+        "IdentityOwnInstallationAdded" => "identity.own_installation_added",
+        "IdentityOwnInstallationRevoked" => "identity.own_installation_revoked",
+        "ClientRejectedByServer" => "client.rejected_by_server",
+        "ClientLockoutChanged" => "client.lockout_changed",
+        "ConversationForkDetected" => "conversation.fork_detected",
+        "NotificationsFailed" => "notifications.failed",
+        "ArchiveRestored" => "archive.restored",
+        "ConnectionStateChanged" => "connection.state_changed",
+        "AttachmentUploadStarted" => "attachment.upload_started",
+        "AttachmentUploadCompleted" => "attachment.upload_completed",
+        "AttachmentUploadFailed" => "attachment.upload_failed",
+        "AttachmentDownloadStarted" => "attachment.download_started",
+        "AttachmentDownloadCompleted" => "attachment.download_completed",
+        "AttachmentDownloadFailed" => "attachment.download_failed",
+        "AttachmentDeleted" => "attachment.deleted",
+        "Lagged" => "lagged",
+        _ => bail!("{name}: unmapped public event kind {variant}"),
+    };
+    Ok(kind.to_owned())
 }

@@ -1,9 +1,10 @@
 import { Box, Button, Group, Loader, Paper, Text } from "@mantine/core";
-import { type RemoteAttachment } from "@xmtp/browser-sdk";
+import { type Client, type RemoteAttachment } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
 
 import { AttachmentDetails } from "@/components/Messages/AttachmentDetails";
 import type { MessageContentAlign } from "@/components/Messages/MessageContentWrapper";
+import { useClient } from "@/contexts/XMTPContext";
 import {
   downloadRemoteAttachment,
   formatFileSize,
@@ -11,23 +12,24 @@ import {
 } from "@/helpers/attachment";
 
 // Cache downloads, but let each mounted attachment own its object URL.
-const attachmentCache = new Map<string, Promise<Blob>>();
+const attachmentCaches = new WeakMap<Client, Map<string, Promise<Blob>>>();
 
 const loadAttachment = (
+  client: Client,
   content: RemoteAttachment,
   key: string,
   force: boolean,
 ) => {
+  let attachmentCache = attachmentCaches.get(client);
+  if (!attachmentCache) {
+    attachmentCache = new Map();
+    attachmentCaches.set(client, attachmentCache);
+  }
   const cached = attachmentCache.get(key);
   if (cached && !force) {
     return cached;
   }
-  const download = downloadRemoteAttachment(content).then(
-    (attachment) =>
-      new Blob([attachment.content as Uint8Array<ArrayBuffer>], {
-        type: attachment.mimeType,
-      }),
-  );
+  const download = downloadRemoteAttachment(client, content);
   attachmentCache.set(key, download);
   return download;
 };
@@ -60,6 +62,7 @@ export const RemoteAttachmentContent: React.FC<
 const AttachmentContent: React.FC<
   RemoteAttachmentContentProps & { attachmentKey: string }
 > = ({ content, align, attachmentKey }) => {
+  const client = useClient();
   // The key replaces this snapshot when the attachment changes.
   const [source] = useState(content);
   const [attempt, setAttempt] = useState(0);
@@ -74,7 +77,7 @@ const AttachmentContent: React.FC<
     let active = true;
     let objectUrl: string | undefined;
 
-    void loadAttachment(source, attachmentKey, attempt > 0)
+    void loadAttachment(client, source, attachmentKey, attempt > 0)
       .then((blob) => {
         if (active) {
           objectUrl = URL.createObjectURL(blob);
@@ -93,7 +96,7 @@ const AttachmentContent: React.FC<
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [source, attachmentKey, attempt]);
+  }, [client, source, attachmentKey, attempt]);
 
   const fileSize = formatFileSize(content.contentLength);
 

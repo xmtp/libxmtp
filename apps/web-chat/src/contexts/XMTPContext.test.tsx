@@ -33,6 +33,6 @@ describe("XMTPProvider", () => {
       });
     });
     expect(initialized.client?.inboxId).toBeTruthy();
-    await initialized.client?.close();
+    await initialized.client?.end();
   });
 });

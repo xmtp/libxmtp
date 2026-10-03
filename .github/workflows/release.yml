@@ -469,7 +469,7 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-release-tools
       # Don't mint an empty hub release. A manual nightly dispatch can disable
-      # every SDK (ios=android=node=wasm=false), which would otherwise produce a
+      # every SDK (ios=android=node=browser=false), which would otherwise produce a
       # libxmtp Release with an all-"—" rollup. Require at least one SDK to have
       # shipped a version. (The cron path always enables all four, so this only
       # guards manual dispatch.)
@@ -479,10 +479,10 @@ jobs:
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
           NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
-          WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
+          BROWSER_VERSION: ${{ needs.release-browser-sdk.outputs.version }}
         run: |
           set -euo pipefail
-          if [ -z "${IOS_VERSION}${ANDROID_VERSION}${NODE_VERSION}${WASM_VERSION}" ]; then
+          if [ -z "${IOS_VERSION}${ANDROID_VERSION}${NODE_VERSION}${BROWSER_VERSION}" ]; then
             echo "should-release=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No SDK shipped a version; skipping the empty hub release."
           else
@@ -543,7 +543,7 @@ jobs:
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
           NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
-          WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
+          BROWSER_VERSION: ${{ needs.release-browser-sdk.outputs.version }}
           AGENT_VERSION: ${{ needs.release-agent-sdk.outputs.version }}
           CLI_VERSION: ${{ needs.release-cli.outputs.version }}
         run: |
@@ -558,7 +558,7 @@ jobs:
           | iOS | ${IOS_VERSION:-—} |
           | Android | ${ANDROID_VERSION:-—} |
           | Node | ${NODE_VERSION:-—} |
-          | WASM | ${WASM_VERSION:-—} |
+          | Browser | ${BROWSER_VERSION:-—} |
           | Agent | ${AGENT_VERSION:-—} |
           | CLI | ${CLI_VERSION:-—} |
 
@@ -600,8 +600,8 @@ jobs:
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
           NODE_RESULT: ${{ needs.release-node-sdk.result }}
           NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
-          WASM_RESULT: ${{ needs.release-browser-sdk.result }}
-          WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
+          BROWSER_RESULT: ${{ needs.release-browser-sdk.result }}
+          BROWSER_VERSION: ${{ needs.release-browser-sdk.outputs.version }}
           AGENT_RESULT: ${{ needs.release-agent-sdk.result }}
           AGENT_VERSION: ${{ needs.release-agent-sdk.outputs.version }}
           CLI_RESULT: ${{ needs.release-cli.result }}
@@ -618,8 +618,8 @@ jobs:
           if [ -n "$NODE_VERSION" ] || [ "$NODE_RESULT" != "skipped" ]; then
             MSG="$MSG Node ${NODE_VERSION:-failed} (${NODE_RESULT})"
           fi
-          if [ -n "$WASM_VERSION" ] || [ "$WASM_RESULT" != "skipped" ]; then
-            MSG="$MSG WASM ${WASM_VERSION:-failed} (${WASM_RESULT})"
+          if [ -n "$BROWSER_VERSION" ] || [ "$BROWSER_RESULT" != "skipped" ]; then
+            MSG="$MSG Browser ${BROWSER_VERSION:-failed} (${BROWSER_RESULT})"
           fi
           if [ -n "$AGENT_VERSION" ] || [ "$AGENT_RESULT" != "skipped" ]; then
             MSG="$MSG Agent ${AGENT_VERSION:-failed} (${AGENT_RESULT})"

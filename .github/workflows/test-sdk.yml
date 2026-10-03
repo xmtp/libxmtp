@@ -30,43 +30,45 @@ jobs:
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
       - name: Install JavaScript tools
-        run: just install-js
+        run: dev/nix-shell 'just install-js'
       - name: Start backend
-        run: just backend up
+        run: dev/nix-shell 'just backend up'
+      - name: Check native Nix inputs
+        run: dev/nix-shell 'just sdk check-native-nix'
       - name: Check package scripts
-        run: just sdk check-package-scripts
+        run: dev/nix-shell 'just sdk check-package-scripts'
       - name: Build SDK artifacts once
-        run: just sdk build
+        run: dev/nix-shell 'just sdk build'
       - name: Render SDK bindings
-        run: just sdk render
+        run: dev/nix-shell 'just sdk render'
       - name: Lint generated SDK bindings
-        run: just sdk lint
+        run: dev/nix-shell 'just sdk lint'
       - name: Check clean SDK generation
-        run: just sdk check-clean-generate
+        run: dev/nix-shell 'just sdk check-clean-generate'
       - name: Initialize generated SDK WASM
-        run: just sdk wasm-init
+        run: dev/nix-shell 'just sdk wasm-init'
       - name: Check SDK manifest roots
-        run: just sdk manifest-check
+        run: dev/nix-shell 'just sdk manifest-check'
       - name: Installed Node ESM package smoke
-        run: just sdk package-smoke node
+        run: dev/nix-shell 'just sdk package-smoke node'
       - name: Installed browser pure and worker package smoke
         env:
           NIX_DEVSHELL: js
-        run: just sdk package-smoke browser
+        run: dev/nix-shell 'just sdk package-smoke browser'
       - name: Bridge conformance
         env:
           NIX_DEVSHELL: js
-        run: just sdk conformance-bridge
+        run: dev/nix-shell 'just sdk conformance-bridge'
       - name: Test SDK crate
-        run: just test crate xmtp_sdk
+        run: dev/nix-shell 'just test crate xmtp_sdk'
       - name: Node conformance
-        run: just sdk conformance node
+        run: dev/nix-shell 'just sdk conformance node'
       - name: Kotlin JVM conformance
-        run: just sdk conformance kotlin
+        run: dev/nix-shell 'just sdk conformance kotlin'
       - name: Chromium worker conformance
         env:
           NIX_DEVSHELL: js
-        run: just sdk conformance browser
+        run: dev/nix-shell 'just sdk conformance browser'
       - name: Dump Docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2

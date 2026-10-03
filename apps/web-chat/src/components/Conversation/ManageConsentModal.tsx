@@ -1,5 +1,5 @@
 import { Box, Button, Group, NativeSelect } from "@mantine/core";
-import { ConsentState } from "@xmtp/browser-sdk";
+import { type ConsentState } from "@xmtp/browser-sdk";
 import {
   useCallback,
   useEffect,
@@ -22,17 +22,18 @@ export const ManageConsentModal: React.FC = () => {
   const navigate = useNavigate();
   const fullScreen = useCollapsedMediaQuery();
   const contentHeight = fullScreen ? "auto" : 500;
-  const [initialConsentState, setInitialConsentState] = useState<ConsentState>(
-    ConsentState.Unknown,
-  );
-  const [consentState, setConsentState] = useState<ConsentState>(
-    ConsentState.Unknown,
-  );
+  const [initialConsentState, setInitialConsentState] =
+    useState<ConsentState>("unknown");
+  const [consentState, setConsentState] = useState<ConsentState>("unknown");
   const [consentStateLoading, setConsentStateLoading] = useState(false);
 
   useEffect(() => {
     const loadConsentState = async () => {
-      const consentState = await conversation.consentState();
+      const consentState = await conversation
+        .state()
+        .then((state) =>
+          "common" in state ? state.common.consentState : state.consentState,
+        );
       setInitialConsentState(consentState);
       setConsentState(consentState);
     };
@@ -45,7 +46,7 @@ export const ManageConsentModal: React.FC = () => {
 
   const handleConsentStateChange = useCallback(
     (event: ChangeEvent<HTMLSelectElement>) => {
-      const newValue = parseInt(event.currentTarget.value, 10) as ConsentState;
+      const newValue = event.currentTarget.value as ConsentState;
       setConsentState(newValue);
     },
     [],
@@ -110,9 +111,9 @@ export const ManageConsentModal: React.FC = () => {
               handleConsentStateChange(event);
             }}
             data={[
-              { value: "0", label: "Unknown" },
-              { value: "1", label: "Allowed" },
-              { value: "2", label: "Denied" },
+              { value: "unknown", label: "Unknown" },
+              { value: "allowed", label: "Allowed" },
+              { value: "denied", label: "Denied" },
             ]}
           />
         </Box>

@@ -415,6 +415,26 @@ pub trait QueryDelivery: ConnectionExt + Sized {
         limit: u32,
         max_bytes: u64,
     ) -> Result<DeliverySnapshot, StorageError> {
+        self.delivery_history_snapshot_projected(
+            scope,
+            filter,
+            now_ns,
+            limit,
+            max_bytes,
+            |_, snapshot| Ok(snapshot),
+        )
+    }
+
+    /// Project selected rows before the history read transaction ends.
+    fn delivery_history_snapshot_projected<T>(
+        &self,
+        scope: &DeliveryScope,
+        filter: &DeliveryFilter,
+        now_ns: i64,
+        limit: u32,
+        max_bytes: u64,
+        project: impl FnOnce(&mut SqliteConnection, DeliverySnapshot) -> Result<T, StorageError>,
+    ) -> Result<T, StorageError> {
         self.raw_query(|conn| {
             Ok(conn.transaction::<_, StorageError, _>(|conn| {
                 let cursor = current_cursor(conn)?;
@@ -431,7 +451,7 @@ pub trait QueryDelivery: ConnectionExt + Sized {
                     },
                 )?;
                 messages.reverse();
-                Ok(DeliverySnapshot { messages, cursor })
+                project(conn, DeliverySnapshot { messages, cursor })
             }))
         })?
     }
