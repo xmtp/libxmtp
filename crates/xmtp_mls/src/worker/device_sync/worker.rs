@@ -60,6 +60,12 @@ pub(crate) mod test_hooks {
         parking_lot::Mutex::new(None);
 }
 
+#[cfg(test)]
+struct TestTickGate {
+    ready: futures::channel::oneshot::Sender<()>,
+    release: futures::channel::oneshot::Receiver<()>,
+}
+
 pub struct SyncWorker<Context> {
     client: DeviceSyncClient<Context>,
     subscription: Option<Arc<Subscription<InternalEvent>>>,
@@ -67,6 +73,12 @@ pub struct SyncWorker<Context> {
     next_event_id: Arc<AtomicU64>,
     init: OnceCell<()>,
     metrics: Arc<WorkerMetrics<SyncMetric>>,
+    #[cfg(test)]
+    completed_turns: Option<Arc<[AtomicU64; 2]>>,
+    #[cfg(test)]
+    received_ticks: Option<Arc<AtomicU64>>,
+    #[cfg(test)]
+    tick_gates: std::collections::VecDeque<TestTickGate>,
 }
 
 impl<Context> SyncWorker<Context>
@@ -91,6 +103,12 @@ where
             next_event_id,
             init: OnceCell::new(),
             metrics,
+            #[cfg(test)]
+            completed_turns: None,
+            #[cfg(test)]
+            received_ticks: None,
+            #[cfg(test)]
+            tick_gates: Default::default(),
         }
     }
 }
@@ -177,8 +195,28 @@ where
             .client
             .context
             .worker_interval(WorkerKind::DeviceSync, Duration::from_secs(20));
-        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
-        let _ = intervals.next().await;
+        let intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
+        #[cfg(test)]
+        let intervals = {
+            let gates = Arc::new(Mutex::new(std::mem::take(&mut self.tick_gates)));
+            let intervals = intervals.then(move |instant| {
+                let gate = gates.lock().pop_front();
+                async move {
+                    if let Some(gate) = gate {
+                        let _ = gate.ready.send(());
+                        let _ = gate.release.await;
+                    }
+                    instant
+                }
+            });
+            xmtp_common::wasm_or_native! {
+                native => { intervals.boxed() },
+                wasm => { intervals.boxed_local() },
+            }
+        };
+        let mut intervals = intervals;
+        // Poll events while native startup jitter delays the first tick.
+        let mut skip_initial_tick = cfg!(not(target_arch = "wasm32"));
         let subscription = self
             .subscription
             .as_ref()
@@ -197,7 +235,17 @@ where
                     *self.pending.lock() = Some((id, event.clone()));
                     self.handle_pending_event(id, event).await?;
                 }
-                _ = intervals.next() => self.evt_new_sync_group_msg(true).await?,
+                _ = intervals.next() => {
+                    #[cfg(test)]
+                    if let Some(ticks) = &self.received_ticks {
+                        ticks.fetch_add(1, Ordering::SeqCst);
+                    }
+                    if skip_initial_tick {
+                        skip_initial_tick = false;
+                        continue;
+                    }
+                    self.evt_new_sync_group_msg(true).await?;
+                },
             }
         }
         Ok(())
@@ -310,9 +358,17 @@ where
             tracing::info!("Processing {} messages.", unprocessed_messages.len());
         }
 
-        self.client
+        let result = self
+            .client
             .process_sync_group_messages(&self.metrics, unprocessed_messages)
-            .await
+            .await;
+        #[cfg(test)]
+        if result.is_ok()
+            && let Some(turns) = &self.completed_turns
+        {
+            turns[usize::from(is_tick)].fetch_add(1, Ordering::SeqCst);
+        }
+        result
     }
 
     async fn evt_sync_preferences(
@@ -512,5 +568,215 @@ pub enum SyncMetric {
 impl WorkerMetrics<SyncMetric> {
     pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
         self.register_interest(SyncMetric::Init, 1).wait().await
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+    use crate::{tester, worker::WorkerConfig};
+    use futures::FutureExt;
+    use xmtp_events::EventWriter;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn queued_event_precedes_first_periodic_turn() {
+        const PERIOD: Duration = Duration::from_secs(4);
+        const EVENT_WAIT: Duration = Duration::from_secs(1);
+        const PERIOD_WAIT: Duration = Duration::from_secs(6);
+        let config = WorkerConfig {
+            interval_overrides: [(WorkerKind::DeviceSync, PERIOD.as_nanos() as u64)]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        tester!(alix, disable_workers, worker_config: config);
+        let turns = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        worker.completed_turns = Some(turns.clone());
+        let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
+        worker.set_subscription(subscription.clone());
+        alix.context
+            .events()
+            .emit(None, Some(InternalEvent::SyncMessagePublished));
+
+        {
+            let run = worker.run_internal().fuse();
+            let observe = async {
+                xmtp_common::time::timeout(
+                    EVENT_WAIT,
+                    xmtp_common::wait_for_eq(|| async { turns[0].load(Ordering::SeqCst) }, 1),
+                )
+                .await
+                .expect("queued event must complete before the first periodic tick")
+                .expect("queued event wait must complete");
+                assert_eq!(turns[1].load(Ordering::SeqCst), 0);
+                xmtp_common::time::timeout(
+                    PERIOD_WAIT,
+                    xmtp_common::wait_for_eq(
+                        || async { turns[1].load(Ordering::SeqCst) >= 1 },
+                        true,
+                    ),
+                )
+                .await
+                .expect("periodic reconciliation must still complete")
+                .expect("periodic turn wait must complete");
+                assert_eq!(turns[0].load(Ordering::SeqCst), 1);
+            }
+            .fuse();
+            futures::pin_mut!(run, observe);
+            futures::select! {
+                () = observe => {},
+                result = run => panic!("worker ended before observed turns: {result:?}"),
+            }
+        }
+        subscription.close();
+        alix.close().await?;
+    }
+    struct TickControl {
+        gate: TestTickGate,
+        ready: futures::channel::oneshot::Receiver<()>,
+        release: futures::channel::oneshot::Sender<()>,
+    }
+
+    impl TickControl {
+        fn new() -> Self {
+            let (ready_tx, ready) = futures::channel::oneshot::channel();
+            let (release, release_rx) = futures::channel::oneshot::channel();
+            Self {
+                gate: TestTickGate {
+                    ready: ready_tx,
+                    release: release_rx,
+                },
+                ready,
+                release,
+            }
+        }
+    }
+
+    fn jitter_config() -> WorkerConfig {
+        const PERIOD: Duration = Duration::from_millis(40);
+        const JITTER: Duration = Duration::from_millis(20);
+        WorkerConfig {
+            interval_overrides: [(WorkerKind::DeviceSync, PERIOD.as_nanos() as u64)]
+                .into_iter()
+                .collect(),
+            jitter_overrides: [(WorkerKind::DeviceSync, JITTER.as_nanos() as u64)]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn jittered_initial_tick_does_not_block_events_or_change_first_turn() {
+        const WAIT: Duration = Duration::from_secs(1);
+        tester!(alix, disable_workers, worker_config: jitter_config());
+        let turns = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        let ticks = Arc::new(AtomicU64::new(0));
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        worker.completed_turns = Some(turns.clone());
+        worker.received_ticks = Some(ticks.clone());
+        let first = TickControl::new();
+        let second = TickControl::new();
+        worker.tick_gates.extend([first.gate, second.gate]);
+        let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
+        worker.set_subscription(subscription.clone());
+        {
+            let run = worker.run_internal().fuse();
+            let observe = async {
+                xmtp_common::time::timeout(WAIT, first.ready)
+                    .await
+                    .expect("actual jittered first tick must reach the private gate")
+                    .expect("first tick gate must remain owned");
+                alix.context
+                    .events()
+                    .emit(None, Some(InternalEvent::SyncMessagePublished));
+                xmtp_common::time::timeout(
+                    WAIT,
+                    xmtp_common::wait_for_eq(|| async { turns[0].load(Ordering::SeqCst) }, 1),
+                )
+                .await
+                .expect("queued event must complete while the initial tick is pending")
+                .expect("queued event wait must complete");
+                assert_eq!(turns[1].load(Ordering::SeqCst), 0);
+                first.release.send(()).expect("release the first tick");
+                xmtp_common::time::timeout(WAIT, second.ready)
+                    .await
+                    .expect("actual jittered second tick must reach the private gate")
+                    .expect("second tick gate must remain owned");
+                assert_eq!(ticks.load(Ordering::SeqCst), 1);
+                let first_periodic = u64::from(cfg!(target_arch = "wasm32"));
+                assert_eq!(
+                    turns[1].load(Ordering::SeqCst),
+                    first_periodic,
+                    "native skips its first tick; Wasm reconciles its first tick"
+                );
+                second.release.send(()).expect("release the second tick");
+                xmtp_common::time::timeout(
+                    WAIT,
+                    xmtp_common::wait_for_eq(
+                        || async { turns[1].load(Ordering::SeqCst) > first_periodic },
+                        true,
+                    ),
+                )
+                .await
+                .expect("periodic reconciliation must complete after the second tick")
+                .expect("periodic reconciliation wait must complete");
+            }
+            .fuse();
+            futures::pin_mut!(run, observe);
+            futures::select! {
+                () = observe => {},
+                result = run => panic!("worker ended before observed turns: {result:?}"),
+            }
+        }
+        subscription.close();
+        alix.close().await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn closing_subscription_stops_worker_with_initial_tick_pending() {
+        const WAIT: Duration = Duration::from_secs(1);
+        tester!(alix, disable_workers, worker_config: jitter_config());
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let first = TickControl::new();
+        worker.tick_gates.push_back(first.gate);
+        let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let subscription = Arc::new(alix.context.events().subscribe(filter, depth));
+        worker.set_subscription(subscription.clone());
+        let (result, ()) = xmtp_common::time::timeout(WAIT, async {
+            futures::join!(worker.run_internal(), async {
+                first
+                    .ready
+                    .await
+                    .expect("actual first tick reaches the gate");
+                subscription.close();
+            })
+        })
+        .await
+        .expect("closed subscription must stop while the initial tick is pending");
+        result?;
+        assert!(
+            first.release.is_canceled(),
+            "ending the worker must drop the pending tick receiver"
+        );
+        alix.close().await?;
     }
 }
