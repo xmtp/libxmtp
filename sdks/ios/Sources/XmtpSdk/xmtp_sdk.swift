@@ -1543,8 +1543,8 @@ open class Client: ClientProtocol, @unchecked Sendable {
      * Build requires a stored identity. It fetches server configuration by default.
      * Set `allowOffline` to true to use stored state offline; it needs a known
      * inbox ID unless the storage location is `Explicit`.
-     * With an `inboxId`, build skips the `Explicit` identity check and trusts
-     * the caller, as `Directory` storage does.
+     * Build checks that the identity belongs to the opened inbox, including
+     * when the caller supplies an `inboxId`.
      */
 static func build(identity: PublicIdentity, options: ClientOptions, inboxId: InboxId?)async throws  -> Client  {
     return
@@ -10246,14 +10246,22 @@ public struct ErrorDetails: Equatable, Hashable {
     public var category: ErrorCategory
     public var retryable: Bool
     public var message: String
+    /**
+     * Fixed processing obligations that the operation did not complete.
+     */
+    public var streamFailure: StreamFailureDetails?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(code: String, category: ErrorCategory, retryable: Bool, message: String) {
+    public init(code: String, category: ErrorCategory, retryable: Bool, message: String,
+        /**
+         * Fixed processing obligations that the operation did not complete.
+         */streamFailure: StreamFailureDetails? = nil) {
         self.code = code
         self.category = category
         self.retryable = retryable
         self.message = message
+        self.streamFailure = streamFailure
     }
 
 
@@ -10275,7 +10283,8 @@ public struct FfiConverterTypeErrorDetails: FfiConverterRustBuffer {
                 code: FfiConverterString.read(from: &buf),
                 category: FfiConverterTypeErrorCategory.read(from: &buf),
                 retryable: FfiConverterBool.read(from: &buf),
-                message: FfiConverterString.read(from: &buf)
+                message: FfiConverterString.read(from: &buf),
+                streamFailure: FfiConverterOptionTypeStreamFailureDetails.read(from: &buf)
         )
     }
 
@@ -10284,6 +10293,7 @@ public struct FfiConverterTypeErrorDetails: FfiConverterRustBuffer {
         FfiConverterTypeErrorCategory.write(value.category, into: &buf)
         FfiConverterBool.write(value.retryable, into: &buf)
         FfiConverterString.write(value.message, into: &buf)
+        FfiConverterOptionTypeStreamFailureDetails.write(value.streamFailure, into: &buf)
     }
 }
 
@@ -13841,6 +13851,391 @@ public func FfiConverterTypeStoragePoolOptions_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeStoragePoolOptions_lower(_ value: StoragePoolOptions) -> RustBuffer {
     return FfiConverterTypeStoragePoolOptions.lower(value)
+}
+
+
+/**
+ * Safe cause fields. Use the kind and code for control flow.
+ */
+public struct StreamBarrierCause: Equatable, Hashable {
+    public var kind: StreamBarrierCauseKind
+    public var code: String?
+    public var message: String
+    public var retryable: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: StreamBarrierCauseKind, code: String?, message: String, retryable: Bool) {
+        self.kind = kind
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension StreamBarrierCause: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStreamBarrierCause: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StreamBarrierCause {
+        return
+            try StreamBarrierCause(
+                kind: FfiConverterTypeStreamBarrierCauseKind.read(from: &buf),
+                code: FfiConverterOptionString.read(from: &buf),
+                message: FfiConverterString.read(from: &buf),
+                retryable: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: StreamBarrierCause, into buf: inout [UInt8]) {
+        FfiConverterTypeStreamBarrierCauseKind.write(value.kind, into: &buf)
+        FfiConverterOptionString.write(value.code, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterBool.write(value.retryable, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierCause_lift(_ buf: RustBuffer) throws -> StreamBarrierCause {
+    return try FfiConverterTypeStreamBarrierCause.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierCause_lower(_ value: StreamBarrierCause) -> RustBuffer {
+    return FfiConverterTypeStreamBarrierCause.lower(value)
+}
+
+
+/**
+ * Every unfinished topic from one failed barrier.
+ */
+public struct StreamBarrierFailure: Equatable, Hashable {
+    public var reason: StreamBarrierReason
+    public var unfinished: [StreamBarrierTopic]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(reason: StreamBarrierReason, unfinished: [StreamBarrierTopic]) {
+        self.reason = reason
+        self.unfinished = unfinished
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension StreamBarrierFailure: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStreamBarrierFailure: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StreamBarrierFailure {
+        return
+            try StreamBarrierFailure(
+                reason: FfiConverterTypeStreamBarrierReason.read(from: &buf),
+                unfinished: FfiConverterSequenceTypeStreamBarrierTopic.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: StreamBarrierFailure, into buf: inout [UInt8]) {
+        FfiConverterTypeStreamBarrierReason.write(value.reason, into: &buf)
+        FfiConverterSequenceTypeStreamBarrierTopic.write(value.unfinished, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierFailure_lift(_ buf: RustBuffer) throws -> StreamBarrierFailure {
+    return try FfiConverterTypeStreamBarrierFailure.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierFailure_lower(_ value: StreamBarrierFailure) -> RustBuffer {
+    return FfiConverterTypeStreamBarrierFailure.lower(value)
+}
+
+
+/**
+ * One fixed topic obligation and its stored processing progress.
+ */
+public struct StreamBarrierTopic: Equatable, Hashable {
+    /**
+     * Complete topic bytes.
+     */
+    public var topic: Data
+    /**
+     * Captured owning scope. None precedes admission.
+     */
+    public var scopeGeneration: UInt64?
+    /**
+     * Target H. None differs from a captured empty target of zero.
+     */
+    public var target: UInt64?
+    /**
+     * Stored receipt cursor F.
+     */
+    public var received: UInt64
+    /**
+     * Resolved processing cursor P, separate from consumer acknowledgement.
+     */
+    public var processed: UInt64
+    /**
+     * Unresolved Welcome sequence IDs at or below H.
+     */
+    public var unresolvedWelcomes: [UInt64]
+    public var inactive: Bool
+    public var cause: StreamBarrierCause?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Complete topic bytes.
+         */topic: Data,
+        /**
+         * Captured owning scope. None precedes admission.
+         */scopeGeneration: UInt64? = nil,
+        /**
+         * Target H. None differs from a captured empty target of zero.
+         */target: UInt64?,
+        /**
+         * Stored receipt cursor F.
+         */received: UInt64,
+        /**
+         * Resolved processing cursor P, separate from consumer acknowledgement.
+         */processed: UInt64,
+        /**
+         * Unresolved Welcome sequence IDs at or below H.
+         */unresolvedWelcomes: [UInt64], inactive: Bool, cause: StreamBarrierCause?) {
+        self.topic = topic
+        self.scopeGeneration = scopeGeneration
+        self.target = target
+        self.received = received
+        self.processed = processed
+        self.unresolvedWelcomes = unresolvedWelcomes
+        self.inactive = inactive
+        self.cause = cause
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension StreamBarrierTopic: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStreamBarrierTopic: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StreamBarrierTopic {
+        return
+            try StreamBarrierTopic(
+                topic: FfiConverterData.read(from: &buf),
+                scopeGeneration: FfiConverterOptionUInt64.read(from: &buf),
+                target: FfiConverterOptionUInt64.read(from: &buf),
+                received: FfiConverterUInt64.read(from: &buf),
+                processed: FfiConverterUInt64.read(from: &buf),
+                unresolvedWelcomes: FfiConverterSequenceUInt64.read(from: &buf),
+                inactive: FfiConverterBool.read(from: &buf),
+                cause: FfiConverterOptionTypeStreamBarrierCause.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: StreamBarrierTopic, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.topic, into: &buf)
+        FfiConverterOptionUInt64.write(value.scopeGeneration, into: &buf)
+        FfiConverterOptionUInt64.write(value.target, into: &buf)
+        FfiConverterUInt64.write(value.received, into: &buf)
+        FfiConverterUInt64.write(value.processed, into: &buf)
+        FfiConverterSequenceUInt64.write(value.unresolvedWelcomes, into: &buf)
+        FfiConverterBool.write(value.inactive, into: &buf)
+        FfiConverterOptionTypeStreamBarrierCause.write(value.cause, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierTopic_lift(_ buf: RustBuffer) throws -> StreamBarrierTopic {
+    return try FfiConverterTypeStreamBarrierTopic.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierTopic_lower(_ value: StreamBarrierTopic) -> RustBuffer {
+    return FfiConverterTypeStreamBarrierTopic.lower(value)
+}
+
+
+/**
+ * Typed details from the core error, including all sibling barriers.
+ */
+public struct StreamFailureDetails: Equatable, Hashable {
+    public var kind: StreamFailureKind
+    public var code: String
+    public var message: String
+    public var retryable: Bool
+    public var intentId: Int32?
+    public var publishedIntentIds: [Int32]
+    public var summary: StreamFailureSummary?
+    public var barriers: [StreamBarrierFailure]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: StreamFailureKind, code: String, message: String, retryable: Bool, intentId: Int32?, publishedIntentIds: [Int32], summary: StreamFailureSummary?, barriers: [StreamBarrierFailure]) {
+        self.kind = kind
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.intentId = intentId
+        self.publishedIntentIds = publishedIntentIds
+        self.summary = summary
+        self.barriers = barriers
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension StreamFailureDetails: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStreamFailureDetails: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StreamFailureDetails {
+        return
+            try StreamFailureDetails(
+                kind: FfiConverterTypeStreamFailureKind.read(from: &buf),
+                code: FfiConverterString.read(from: &buf),
+                message: FfiConverterString.read(from: &buf),
+                retryable: FfiConverterBool.read(from: &buf),
+                intentId: FfiConverterOptionInt32.read(from: &buf),
+                publishedIntentIds: FfiConverterSequenceInt32.read(from: &buf),
+                summary: FfiConverterOptionTypeStreamFailureSummary.read(from: &buf),
+                barriers: FfiConverterSequenceTypeStreamBarrierFailure.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: StreamFailureDetails, into buf: inout [UInt8]) {
+        FfiConverterTypeStreamFailureKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.code, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterBool.write(value.retryable, into: &buf)
+        FfiConverterOptionInt32.write(value.intentId, into: &buf)
+        FfiConverterSequenceInt32.write(value.publishedIntentIds, into: &buf)
+        FfiConverterOptionTypeStreamFailureSummary.write(value.summary, into: &buf)
+        FfiConverterSequenceTypeStreamBarrierFailure.write(value.barriers, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamFailureDetails_lift(_ buf: RustBuffer) throws -> StreamFailureDetails {
+    return try FfiConverterTypeStreamFailureDetails.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamFailureDetails_lower(_ value: StreamFailureDetails) -> RustBuffer {
+    return FfiConverterTypeStreamFailureDetails.lower(value)
+}
+
+
+/**
+ * Catch-up progress that remains committed after an incomplete result.
+ */
+public struct StreamFailureSummary: Equatable, Hashable {
+    public var messages: UInt64
+    public var conversations: UInt64
+    public var failed: UInt64
+    public var completed: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(messages: UInt64, conversations: UInt64, failed: UInt64, completed: Bool) {
+        self.messages = messages
+        self.conversations = conversations
+        self.failed = failed
+        self.completed = completed
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension StreamFailureSummary: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStreamFailureSummary: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StreamFailureSummary {
+        return
+            try StreamFailureSummary(
+                messages: FfiConverterUInt64.read(from: &buf),
+                conversations: FfiConverterUInt64.read(from: &buf),
+                failed: FfiConverterUInt64.read(from: &buf),
+                completed: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: StreamFailureSummary, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.messages, into: &buf)
+        FfiConverterUInt64.write(value.conversations, into: &buf)
+        FfiConverterUInt64.write(value.failed, into: &buf)
+        FfiConverterBool.write(value.completed, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamFailureSummary_lift(_ buf: RustBuffer) throws -> StreamFailureSummary {
+    return try FfiConverterTypeStreamFailureSummary.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamFailureSummary_lower(_ value: StreamFailureSummary) -> RustBuffer {
+    return FfiConverterTypeStreamFailureSummary.lower(value)
 }
 
 
@@ -21239,15 +21634,15 @@ public enum StorageLocation: Equatable, Hashable {
     case inMemory
     /**
      * A directory that holds a database for each deployment and inbox.
-     * Create and build without an inbox ID fail `IdentityMismatch` when the
-     * identity is not a member of the inbox they open.
+     * Create and build fail `IdentityMismatch` when the identity is not a
+     * member of the inbox they open.
      */
     case directory(directory: String
     )
     /**
      * A database file and an attachments directory the app names. Create
-     * and build without an inbox ID use the inbox stored in the database,
-     * and fail `IdentityMismatch` when the identity does not belong to it.
+     * and build without an inbox ID use the inbox stored in the database.
+     * Build fails `IdentityMismatch` when the identity does not belong to it.
      */
     case explicit(dbPath: String, attachmentsDir: String
     )
@@ -21325,6 +21720,262 @@ public func FfiConverterTypeStorageLocation_lift(_ buf: RustBuffer) throws -> St
 #endif
 public func FfiConverterTypeStorageLocation_lower(_ value: StorageLocation) -> RustBuffer {
     return FfiConverterTypeStorageLocation.lower(value)
+}
+
+
+
+/**
+ * The typed cause of one unfinished topic obligation.
+ */
+
+public enum StreamBarrierCauseKind: Equatable, Hashable {
+
+    case targetPending
+    case receiptPending
+    case processingPending
+    case blocked
+    case storage
+    case receiver
+    case invalidTopic
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension StreamBarrierCauseKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStreamBarrierCauseKind: FfiConverterRustBuffer {
+    typealias SwiftType = StreamBarrierCauseKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StreamBarrierCauseKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        case 1: return .targetPending
+
+        case 2: return .receiptPending
+
+        case 3: return .processingPending
+
+        case 4: return .blocked
+
+        case 5: return .storage
+
+        case 6: return .receiver
+
+        case 7: return .invalidTopic
+
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: StreamBarrierCauseKind, into buf: inout [UInt8]) {
+        switch value {
+
+
+        case .targetPending:
+            writeInt(&buf, Int32(1))
+
+
+        case .receiptPending:
+            writeInt(&buf, Int32(2))
+
+
+        case .processingPending:
+            writeInt(&buf, Int32(3))
+
+
+        case .blocked:
+            writeInt(&buf, Int32(4))
+
+
+        case .storage:
+            writeInt(&buf, Int32(5))
+
+
+        case .receiver:
+            writeInt(&buf, Int32(6))
+
+
+        case .invalidTopic:
+            writeInt(&buf, Int32(7))
+
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierCauseKind_lift(_ buf: RustBuffer) throws -> StreamBarrierCauseKind {
+    return try FfiConverterTypeStreamBarrierCauseKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierCauseKind_lower(_ value: StreamBarrierCauseKind) -> RustBuffer {
+    return FfiConverterTypeStreamBarrierCauseKind.lower(value)
+}
+
+
+
+/**
+ * Why a barrier stopped waiting. Pending work remains stored.
+ */
+
+public enum StreamBarrierReason: Equatable, Hashable {
+
+    case blocked
+    case deadline
+    case cancelled
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension StreamBarrierReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStreamBarrierReason: FfiConverterRustBuffer {
+    typealias SwiftType = StreamBarrierReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StreamBarrierReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        case 1: return .blocked
+
+        case 2: return .deadline
+
+        case 3: return .cancelled
+
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: StreamBarrierReason, into buf: inout [UInt8]) {
+        switch value {
+
+
+        case .blocked:
+            writeInt(&buf, Int32(1))
+
+
+        case .deadline:
+            writeInt(&buf, Int32(2))
+
+
+        case .cancelled:
+            writeInt(&buf, Int32(3))
+
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierReason_lift(_ buf: RustBuffer) throws -> StreamBarrierReason {
+    return try FfiConverterTypeStreamBarrierReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamBarrierReason_lower(_ value: StreamBarrierReason) -> RustBuffer {
+    return FfiConverterTypeStreamBarrierReason.lower(value)
+}
+
+
+
+/**
+ * The operation with unfinished fixed processing obligations.
+ */
+
+public enum StreamFailureKind: Equatable, Hashable {
+
+    case barrier
+    case publishedButUnconfirmed
+    case catchUp
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension StreamFailureKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStreamFailureKind: FfiConverterRustBuffer {
+    typealias SwiftType = StreamFailureKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StreamFailureKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        case 1: return .barrier
+
+        case 2: return .publishedButUnconfirmed
+
+        case 3: return .catchUp
+
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: StreamFailureKind, into buf: inout [UInt8]) {
+        switch value {
+
+
+        case .barrier:
+            writeInt(&buf, Int32(1))
+
+
+        case .publishedButUnconfirmed:
+            writeInt(&buf, Int32(2))
+
+
+        case .catchUp:
+            writeInt(&buf, Int32(3))
+
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamFailureKind_lift(_ buf: RustBuffer) throws -> StreamFailureKind {
+    return try FfiConverterTypeStreamFailureKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStreamFailureKind_lower(_ value: StreamFailureKind) -> RustBuffer {
+    return FfiConverterTypeStreamFailureKind.lower(value)
 }
 
 
@@ -22224,6 +22875,30 @@ fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionInt32: FfiConverterRustBuffer {
+    typealias SwiftType = Int32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
     typealias SwiftType = UInt64?
 
@@ -22960,6 +23635,78 @@ fileprivate struct FfiConverterOptionTypeStoragePoolOptions: FfiConverterRustBuf
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeStoragePoolOptions.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeStreamBarrierCause: FfiConverterRustBuffer {
+    typealias SwiftType = StreamBarrierCause?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeStreamBarrierCause.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeStreamBarrierCause.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeStreamFailureDetails: FfiConverterRustBuffer {
+    typealias SwiftType = StreamFailureDetails?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeStreamFailureDetails.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeStreamFailureDetails.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeStreamFailureSummary: FfiConverterRustBuffer {
+    typealias SwiftType = StreamFailureSummary?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeStreamFailureSummary.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeStreamFailureSummary.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -23712,6 +24459,31 @@ fileprivate struct FfiConverterOptionTypeTimestamp: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceInt32: FfiConverterRustBuffer {
+    typealias SwiftType = [Int32]
+
+    public static func write(_ value: [Int32], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterInt32.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Int32] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Int32]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterInt32.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
     typealias SwiftType = [UInt64]
 
@@ -24329,6 +25101,56 @@ fileprivate struct FfiConverterSequenceTypeSigningKeyDescription: FfiConverterRu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeSigningKeyDescription.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeStreamBarrierFailure: FfiConverterRustBuffer {
+    typealias SwiftType = [StreamBarrierFailure]
+
+    public static func write(_ value: [StreamBarrierFailure], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeStreamBarrierFailure.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [StreamBarrierFailure] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [StreamBarrierFailure]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeStreamBarrierFailure.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeStreamBarrierTopic: FfiConverterRustBuffer {
+    typealias SwiftType = [StreamBarrierTopic]
+
+    public static func write(_ value: [StreamBarrierTopic], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeStreamBarrierTopic.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [StreamBarrierTopic] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [StreamBarrierTopic]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeStreamBarrierTopic.read(from: &buf))
         }
         return seq
     }
@@ -25577,6 +26399,18 @@ public func catalogueContentTypeShouldPush(contentType: ContentTypeId) -> Bool  
 })
 }
 /**
+ * Read a content envelope and apply the shared decompression limits.
+ *
+ */
+public func decodeEncodedContent(bytes: Data)throws  -> EncodedContent  {
+    return try  FfiConverterTypeEncodedContent_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_func_decode_encoded_content(
+        FfiConverterData.lower(bytes),uniffiCallStatus
+    )
+})
+}
+/**
  *
  */
 public func decodeStandard(encoded: EncodedContent)throws  -> StandardContent  {
@@ -25584,6 +26418,18 @@ public func decodeStandard(encoded: EncodedContent)throws  -> StandardContent  {
         uniffiCallStatus in
     uniffi_xmtp_sdk_fn_func_decode_standard(
         FfiConverterTypeEncodedContent_lower(encoded),uniffiCallStatus
+    )
+})
+}
+/**
+ * Serialize a content envelope with the shared wire format.
+ *
+ */
+public func encodeEncodedContent(content: EncodedContent)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_func_encode_encoded_content(
+        FfiConverterTypeEncodedContent_lower(content),uniffiCallStatus
     )
 })
 }
@@ -25828,7 +26674,7 @@ public func metadataFieldRef(field: WellKnownMetadataField) -> MetadataFieldRef 
 }
 /**
  * Calculate an inbox ID from a public identity and a nonce.
- * An omitted nonce is 1. This operation does not use a backend or storage.
+ * An omitted nonce is 0, as in client creation. This operation does not use a backend or storage.
  *
  */
 public func generateInboxId(identity: PublicIdentity, nonce: UInt64? = nil)throws  -> InboxId  {
@@ -26032,7 +26878,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_catalogue_content_type_should_push() != 18071) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_func_decode_encoded_content() != 26754) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_func_decode_standard() != 44276) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_func_encode_encoded_content() != 58536) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_encode_standard() != 50165) {
@@ -26089,7 +26941,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_metadata_field_ref() != 37889) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_generate_inbox_id() != 40370) {
+    if (uniffi_xmtp_sdk_checksum_func_generate_inbox_id() != 38075) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_generate_local_signer() != 36191) {
@@ -26839,7 +27691,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_storage_reconnect() != 55856) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_constructor_client_build() != 10277) {
+    if (uniffi_xmtp_sdk_checksum_constructor_client_build() != 29783) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_constructor_client_create() != 6439) {
