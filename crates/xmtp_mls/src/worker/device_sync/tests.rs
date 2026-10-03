@@ -6,6 +6,72 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, StoredGroup},
 };
 
+// verifies: PROC-036
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn device_sync_logs_omit_installation_id_on_group_creation() {
+    use tracing::instrument::WithSubscriber;
+    use xmtp_logging::{Level, test_logging::LogCapture};
+
+    tester!(alix, disable_workers);
+    let sync = alix.context.device_sync_client();
+    assert!(sync.primary_sync_group()?.is_none());
+    let capture = LogCapture::new(Level::Trace);
+    sync.get_sync_group()
+        .with_subscriber(capture.dispatch())
+        .await?;
+    let output = capture.output();
+    let event = output
+        .lines()
+        .find(|line| line.contains("Creating sync group:"))
+        .expect("group creation emitted its INFO event");
+    assert!(
+        !event.contains(&hex::encode(alix.context.installation_id())),
+        "group creation log contains the full installation ID"
+    );
+}
+
+// verifies: PROC-036
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn device_sync_logs_omit_installation_id_and_message_payload() {
+    use futures::FutureExt;
+    use preference_sync::PreferenceUpdate;
+    use xmtp_logging::{Level, test_logging::LogCapture};
+
+    tester!(alix, disable_workers);
+    let sync = alix.context.device_sync_client();
+    sync.get_sync_group().await?;
+    let capture = LogCapture::new(Level::Trace);
+    tracing::dispatcher::with_default(&capture.dispatch(), || {
+        let content = ContentProto::PreferenceUpdates(
+            xmtp_proto::xmtp::device_sync::content::PreferenceUpdates {
+                updates: vec![
+                    PreferenceUpdate::Hmac {
+                        key: vec![93; 32],
+                        cycled_at_ns: 1,
+                    }
+                    .into(),
+                ],
+            },
+        );
+        let _ = sync.send_device_sync_message(content).now_or_never();
+    });
+    let output = capture.output();
+    let event = output
+        .lines()
+        .find(|line| line.contains("Sending sync message to group"))
+        .expect("send emitted its INFO event");
+    assert!(
+        !event.contains(&alix.context.installation_id().to_string()),
+        "send log contains the full installation ID"
+    );
+    assert!(
+        !output.contains("\"content\":"),
+        "send span records the message payload"
+    );
+}
+
 // verifies: EVENT-024, SYNC-020
 #[rstest::rstest]
 #[timeout(std::time::Duration::from_secs(180))]
