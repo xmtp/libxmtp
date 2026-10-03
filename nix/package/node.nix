@@ -31,7 +31,10 @@ runCommand "xmtp-sdk-node-${napiTarget}"
       jq
     ]
     ++ lib.optionals stdenv.hostPlatform.isMusl [ patchelf ]
-    ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.autoSignDarwinBinariesHook ];
+    ++ lib.optionals stdenv.hostPlatform.isDarwin [
+      darwin.autoSignDarwinBinariesHook
+      darwin.cctools
+    ];
   }
   (
     ''
