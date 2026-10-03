@@ -41,6 +41,7 @@ import {
   HostClient,
   bindingClient,
   checkStorage,
+  resolveLegacyStorage,
   type HostClientOptions,
 } from "./host";
 
@@ -124,10 +125,13 @@ export class Client extends ClientMembers {
 
   static async create(signer: Signer, options: ClientOptions): Promise<Client> {
     const projection = currentProjection();
-    const host = await rethrow(() =>
+    const host = await rethrow(async () =>
       HostClient.create(
         lowerSigner(signer, projection),
-        hostOptions(options, projection),
+        hostOptions(
+          await resolveLegacyStorage(options, () => signer.identity()),
+          projection,
+        ),
       ),
     );
     return publicClient(host);
@@ -139,10 +143,13 @@ export class Client extends ClientMembers {
     inboxId?: InboxId,
   ): Promise<Client> {
     const projection = currentProjection();
-    const host = await rethrow(() =>
+    const host = await rethrow(async () =>
       HostClient.build(
         lowerPublicIdentity(identity, projection),
-        hostOptions(options, projection),
+        hostOptions(
+          await resolveLegacyStorage(options, () => Promise.resolve(identity), inboxId),
+          projection,
+        ),
         inboxId,
       ),
     );
