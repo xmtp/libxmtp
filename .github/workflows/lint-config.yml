@@ -15,5 +15,10 @@ jobs:
           disk-key: rust
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
+      - name: Generate current Node public projection
+        run: |
+          if python3 dev/sdk/switches.py | grep -Fxq 'sdks/node/'; then
+            just sdk generate node
+          fi
       - name: Lint config files (TOML, Nix, shell)
         run: just lint-config
