@@ -105,8 +105,8 @@ test.each(vectors)(
   },
 );
 
-test.each([vectors[1], vectors[5]])(
-  "pure inbox calculation defaults %o to nonce one",
+test.each([vectors[0], vectors[4]])(
+  "pure inbox calculation defaults %o to nonce zero",
   (identity, _nonce, expected) => {
     expect(generateInboxId(identity)).toBe(expected);
     expect(generateInboxId(identity, undefined)).toBe(expected);
