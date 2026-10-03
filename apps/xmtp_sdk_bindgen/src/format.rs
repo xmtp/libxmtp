@@ -21,6 +21,19 @@ pub(crate) fn disable() {
     DISABLED.store(true, Ordering::Relaxed);
 }
 
+/// Remove generated Swift line-end spaces before recording output hashes.
+pub(crate) fn swift_trailing_whitespace(source: &str) -> String {
+    source
+        .split_inclusive('\n')
+        .map(|line| {
+            let (body, ending) = line
+                .strip_suffix('\n')
+                .map_or((line, ""), |body| (body, "\n"));
+            format!("{}{ending}", body.trim_end_matches([' ', '\t']))
+        })
+        .collect()
+}
+
 /// The formatter command for one source. The source goes through standard
 /// input, and `name` only selects the parser. The formatter reads no
 /// directory, so it never walks a generated package's node_modules.
@@ -82,6 +95,17 @@ pub(crate) fn typescript_files<'a>(paths: impl IntoIterator<Item = &'a Utf8Path>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn swift_line_end_cleanup_preserves_code_and_is_idempotent() {
+        let source = "  let value = \"inside  \"  \n \t\n\t// comment\t\nlast  ";
+        let expected = "  let value = \"inside  \"\n\n\t// comment\nlast";
+        let output = swift_trailing_whitespace(source);
+        assert_eq!(output, expected);
+        assert_eq!(swift_trailing_whitespace(&output), output);
+        assert_eq!(swift_trailing_whitespace("let x = 1\n"), "let x = 1\n");
+        assert_eq!(swift_trailing_whitespace(""), "");
+    }
 
     // With formatting off, the source is returned unchanged and no formatter
     // is needed.

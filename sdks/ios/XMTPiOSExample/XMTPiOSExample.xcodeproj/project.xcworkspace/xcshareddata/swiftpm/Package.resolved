@@ -1,24 +1,6 @@
 {
-  "originHash" : "36aae46a599bbb2b7087052198e123aa5e000a268a36e050e8c5d67da2238451",
+  "originHash" : "8c539425b4584139d3d444784a493e22ca4ac9dd685d1e2f57f574ee0fd60c16",
   "pins" : [
-    {
-      "identity" : "cryptoswift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/CryptoSwift.git",
-      "state" : {
-        "revision" : "e45a26384239e028ec87fbcc788f513b67e10d8f",
-        "version" : "1.9.0"
-      }
-    },
-    {
-      "identity" : "csecp256k1.swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tesseract-one/CSecp256k1.swift.git",
-      "state" : {
-        "revision" : "cfbd6f540d5084bc96a60af841121472fbe725a3",
-        "version" : "0.2.0"
-      }
-    },
     {
       "identity" : "keychainaccess",
       "kind" : "remoteSourceControl",
@@ -26,15 +8,6 @@
       "state" : {
         "branch" : "master",
         "revision" : "e0c7eebc5a4465a3c4680764f26b7a61f567cdaf"
-      }
-    },
-    {
-      "identity" : "starscream",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/daltoniam/Starscream",
-      "state" : {
-        "revision" : "a063fda2b8145a231953c20e7a646be254365396",
-        "version" : "3.1.2"
       }
     }
   ],

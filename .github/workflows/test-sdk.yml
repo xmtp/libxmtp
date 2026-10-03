@@ -130,7 +130,11 @@ jobs:
       - name: Check native Apple toolchain
         run: dev/nix-shell 'bash dev/check-apple-toolchain'
       - run: dev/nix-shell 'just sdk generate swift'
+        env:
+          CARGO_BUILD_JOBS: "2"
       - run: dev/nix-shell 'just backend ci just sdk conformance swift'
+        env:
+          CARGO_BUILD_JOBS: "2"
       - name: Retain native service logs
         if: always()
         uses: actions/upload-artifact@v4

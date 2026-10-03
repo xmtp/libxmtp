@@ -12,11 +12,23 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import importlib.util
+import os
 import sys
 
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "docs/self-hosted/sdk-api-manifest.md"
-GENERATED = ROOT / "target/sdk-generated"
+sys.dont_write_bytecode = True
+switches_spec = importlib.util.spec_from_file_location(
+    "sdk_switches", ROOT / "dev/sdk/switches.py"
+)
+switches = importlib.util.module_from_spec(switches_spec)
+switches_spec.loader.exec_module(switches)
+switched_sdks = switches.switched_sdks
+
+GENERATED = Path(
+    os.environ.get("XMTP_SDK_GENERATED_DIR", ROOT / "target/sdk-generated")
+)
 TREES = {
     "Node": ["typescript-napi"],
     "Browser": ["typescript-wasm", "typescript-pure"],
@@ -38,9 +50,11 @@ def root_exports(tree: str) -> set[str]:
 
 
 def main() -> None:
+    switched = switched_sdks(ROOT)
     exports = {
         sdk: set().union(*(root_exports(tree) for tree in trees))
         for sdk, trees in TREES.items()
+        if not switched or sdk in switched
     }
     section = None
     errors = []

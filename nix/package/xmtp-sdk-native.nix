@@ -37,6 +37,8 @@ let
       (root + /flake.lock)
       (root + /rust-toolchain.toml)
       (root + /crates/xmtp_sdk)
+      (root + /apps/xmtp_sdk_bindgen)
+      (root + /crates/xmtp_configuration)
     ];
   };
   special =

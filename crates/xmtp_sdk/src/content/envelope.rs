@@ -1,3 +1,24 @@
+/// Serialize a content envelope with the shared wire format.
+#[xmtp_macro::sdk_export(pure)]
+pub fn encode_encoded_content(content: EncodedContent) -> Result<Vec<u8>, crate::XmtpError> {
+    use prost::Message;
+    if content.r#type.authority_id.is_empty() || content.r#type.type_id.is_empty() {
+        return Err(crate::XmtpError::invalid_argument(
+            "content type identifier is incomplete",
+        ));
+    }
+    Ok(ProtoEncodedContent::from(content).encode_to_vec())
+}
+
+/// Read a content envelope and apply the shared decompression limits.
+#[xmtp_macro::sdk_export(pure)]
+pub fn decode_encoded_content(bytes: Vec<u8>) -> Result<EncodedContent, crate::XmtpError> {
+    use prost::Message;
+    ProtoEncodedContent::decode(bytes.as_slice())
+        .map_err(|error| crate::XmtpError::malformed_envelope(error.to_string()))?
+        .try_into()
+}
+
 impl From<EncodedContent> for ProtoEncodedContent {
     fn from(value: EncodedContent) -> Self {
         Self {
@@ -144,4 +165,48 @@ impl Reaction {
             },
         }
     }
+}
+
+/// Project an app-hosted encrypted attachment with the shared content URL rule.
+#[xmtp_macro::sdk_export(pure)]
+pub fn remote_attachment_from_encrypted(
+    url: String,
+    encrypted_encoded_content: EncryptedEncodedContent,
+    filename: Option<String>,
+) -> Result<RemoteAttachment, crate::XmtpError> {
+    use xmtp_content_types::encryption::{AES_GCM_NONCE_SIZE, HKDF_SALT_SIZE, SECRET_SIZE};
+
+    let keys = &encrypted_encoded_content.keys;
+    // implements: CTYPE-015
+    for (name, actual, expected) in [
+        ("secret", keys.secret.len(), SECRET_SIZE),
+        ("salt", keys.salt.len(), HKDF_SALT_SIZE),
+        ("nonce", keys.nonce.len(), AES_GCM_NONCE_SIZE),
+    ] {
+        if actual != expected {
+            return Err(crate::XmtpError::invalid_argument(format!(
+                "attachment {name} must contain {expected} bytes"
+            )));
+        }
+    }
+    let scheme = xmtp_attachments::check_content_url(&url)
+        .map_err(|error| crate::XmtpError::invalid_argument(error.to_string()))?;
+    let content_length =
+        u32::try_from(encrypted_encoded_content.ciphertext.len()).map_err(|_| {
+            crate::XmtpError::invalid_argument("attachment ciphertext exceeds contentLength")
+        })?;
+    let content_digest = hex::encode(xmtp_cryptography::hash::sha256_array(
+        &encrypted_encoded_content.ciphertext,
+    ));
+    let keys = encrypted_encoded_content.keys;
+    Ok(RemoteAttachment {
+        url,
+        content_digest,
+        secret: keys.secret,
+        salt: keys.salt,
+        nonce: keys.nonce,
+        scheme,
+        content_length: Some(content_length),
+        filename,
+    })
 }

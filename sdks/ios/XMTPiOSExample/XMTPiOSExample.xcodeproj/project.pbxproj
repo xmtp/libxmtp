@@ -18,18 +18,15 @@
 		A6557A3329411F4F00CC4C7B /* NewConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6557A3229411F4F00CC4C7B /* NewConversationView.swift */; };
 		A65F0704297B5D4E00C3C76E /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65F0703297B5D4E00C3C76E /* Persistence.swift */; };
 		A65F070A297B5E8600C3C76E /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = A65F0709297B5E8600C3C76E /* KeychainAccess */; };
-		A6606A1A2B5EE80000E2ED4D /* XMTPiOS in Frameworks */ = {isa = PBXBuildFile; productRef = A6606A192B5EE80000E2ED4D /* XMTPiOS */; };
+		A6606A1A2B5EE80000E2ED4D /* XmtpSdk in Frameworks */ = {isa = PBXBuildFile; productRef = A6606A192B5EE80000E2ED4D /* XmtpSdk */; };
 		A683860C293EA862006336FF /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A683860B293EA862006336FF /* MessageListView.swift */; };
 		A685CC662B72B114008ACECE /* Util.swift in Sources */ = {isa = PBXBuildFile; fileRef = A685CC652B72B114008ACECE /* Util.swift */; };
 		A685CC682B72B306008ACECE /* GroupSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A685CC672B72B306008ACECE /* GroupSettingsView.swift */; };
 		A68807152B6C53E0004340BD /* GroupDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68807142B6C53E0004340BD /* GroupDetailView.swift */; };
 		A69F33CA292DD557005A5556 /* LoggedInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33C9292DD557005A5556 /* LoggedInView.swift */; };
 		A69F33CC292DD568005A5556 /* QRCodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */; };
-		A6C0F37B2AC1E321008C6AA7 /* Starscream in Frameworks */ = {isa = PBXBuildFile; productRef = A6C0F37A2AC1E321008C6AA7 /* Starscream */; };
 		A6C0F3862AC1E549008C6AA7 /* Data.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C0F3852AC1E549008C6AA7 /* Data.swift */; };
 		A6D192D0293A7B97006B49F2 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D192CF293A7B97006B49F2 /* ConversationListView.swift */; };
-		E513AEA32CE6AF2700BC31C3 /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = E513AEA22CE6AF2700BC31C3 /* CryptoSwift */; };
-		E583625C2CED1643003D5D00 /* CSecp256k1 in Frameworks */ = {isa = PBXBuildFile; productRef = E583625B2CED1643003D5D00 /* CSecp256k1 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -74,10 +71,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E513AEA32CE6AF2700BC31C3 /* CryptoSwift in Frameworks */,
-				A6606A1A2B5EE80000E2ED4D /* XMTPiOS in Frameworks */,
-				E583625C2CED1643003D5D00 /* CSecp256k1 in Frameworks */,
-				A6C0F37B2AC1E321008C6AA7 /* Starscream in Frameworks */,
+				A6606A1A2B5EE80000E2ED4D /* XmtpSdk in Frameworks */,
 				A65F070A297B5E8600C3C76E /* KeychainAccess in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -180,10 +174,7 @@
 			name = XMTPiOSExample;
 			packageProductDependencies = (
 				A65F0709297B5E8600C3C76E /* KeychainAccess */,
-				A6C0F37A2AC1E321008C6AA7 /* Starscream */,
-				A6606A192B5EE80000E2ED4D /* XMTPiOS */,
-				E513AEA22CE6AF2700BC31C3 /* CryptoSwift */,
-				E583625B2CED1643003D5D00 /* CSecp256k1 */,
+				A6606A192B5EE80000E2ED4D /* XmtpSdk */,
 			);
 			productName = XMTPiOSExample;
 			productReference = A628198F292DC825004B9117 /* XMTPiOSExample.app */;
@@ -216,9 +207,6 @@
 			packageReferences = (
 				D55977A530B70233005B6CF1 /* XCLocalSwiftPackageReference "../../.." */,
 				A65F0708297B5E8600C3C76E /* XCRemoteSwiftPackageReference "KeychainAccess" */,
-				A6C0F3792AC1E321008C6AA7 /* XCRemoteSwiftPackageReference "Starscream" */,
-				E513AEA12CE6AF2700BC31C3 /* XCRemoteSwiftPackageReference "CryptoSwift" */,
-				E583625A2CED1643003D5D00 /* XCRemoteSwiftPackageReference "CSecp256k1.swift" */,
 			);
 			productRefGroup = A6281990292DC825004B9117 /* Products */;
 			projectDirPath = "";
@@ -519,30 +507,6 @@
 				kind = branch;
 			};
 		};
-		A6C0F3792AC1E321008C6AA7 /* XCRemoteSwiftPackageReference "Starscream" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/daltoniam/Starscream";
-			requirement = {
-				kind = exactVersion;
-				version = 3.1.2;
-			};
-		};
-		E513AEA12CE6AF2700BC31C3 /* XCRemoteSwiftPackageReference "CryptoSwift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/krzyzanowskim/CryptoSwift.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.8.3;
-			};
-		};
-		E583625A2CED1643003D5D00 /* XCRemoteSwiftPackageReference "CSecp256k1.swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/tesseract-one/CSecp256k1.swift.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.2.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -551,24 +515,9 @@
 			package = A65F0708297B5E8600C3C76E /* XCRemoteSwiftPackageReference "KeychainAccess" */;
 			productName = KeychainAccess;
 		};
-		A6606A192B5EE80000E2ED4D /* XMTPiOS */ = {
+		A6606A192B5EE80000E2ED4D /* XmtpSdk */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = XMTPiOS;
-		};
-		A6C0F37A2AC1E321008C6AA7 /* Starscream */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A6C0F3792AC1E321008C6AA7 /* XCRemoteSwiftPackageReference "Starscream" */;
-			productName = Starscream;
-		};
-		E513AEA22CE6AF2700BC31C3 /* CryptoSwift */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = E513AEA12CE6AF2700BC31C3 /* XCRemoteSwiftPackageReference "CryptoSwift" */;
-			productName = CryptoSwift;
-		};
-		E583625B2CED1643003D5D00 /* CSecp256k1 */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = E583625A2CED1643003D5D00 /* XCRemoteSwiftPackageReference "CSecp256k1.swift" */;
-			productName = CSecp256k1;
+			productName = XmtpSdk;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -429,6 +429,28 @@ where
         )
     }
 
+    /// Read history, relations, deletions, and its boundary in one database snapshot.
+    pub fn enriched_history_snapshot(
+        context: &Context,
+        scope: &DeliveryScope,
+        filter: &LocalDeliveryFilter,
+        limit: u32,
+    ) -> Result<EnrichedDeliverySnapshot> {
+        let settings = context.incoming_runtime().policy();
+        let filter = effective_filter(scope, filter);
+        Ok(context.db().delivery_history_snapshot_projected(
+            scope,
+            &filter,
+            now_ns(),
+            limit.min(settings.max_local_read_rows),
+            settings.max_local_read_bytes,
+            |conn, snapshot| {
+                let storage = conn.key_store();
+                enrich_delivery_snapshot(storage.db(), snapshot)
+            },
+        )?)
+    }
+
     /// Read history and its resume boundary in one database snapshot.
     pub fn history_snapshot(
         context: &Context,
@@ -510,3 +532,46 @@ fn matches_filter<Context: XmtpSharedContext>(
 
 #[cfg(test)]
 mod tests;
+
+/// Selected rows with canonical relations and deletion placeholders.
+pub struct EnrichedDeliverySnapshot {
+    pub messages: Vec<crate::messages::enrichment::EnrichedStoredMessage>,
+    pub cursor: DeliveryCursor,
+}
+
+fn enrich_delivery_snapshot(
+    db: impl xmtp_db::DbQuery,
+    snapshot: DeliverySnapshot,
+) -> std::result::Result<EnrichedDeliverySnapshot, StorageError> {
+    use crate::messages::enrichment::{EnrichMessageError, enrich_messages_with_stored};
+    let mut groups = std::collections::HashMap::new();
+    let mut projected: Vec<_> = (0..snapshot.messages.len()).map(|_| None).collect();
+    for (index, item) in snapshot.messages.into_iter().enumerate() {
+        groups
+            .entry(item.message.group_id)
+            .or_insert_with(Vec::new)
+            .push(((index, item.cursor), item.message));
+    }
+    for (group_id, items) in groups {
+        let (positions, rows): (Vec<_>, Vec<_>) = items.into_iter().unzip();
+        let enriched =
+            enrich_messages_with_stored(&db, &group_id, rows).map_err(|error| match error {
+                EnrichMessageError::Storage(error) => error,
+                EnrichMessageError::DbConnection(error) => StorageError::from(error),
+            })?;
+        if enriched.len() != positions.len() {
+            return Err(StorageError::DbDeserialize);
+        }
+        for ((index, cursor), mut row) in positions.into_iter().zip(enriched) {
+            row.delivery_cursor = Some(cursor);
+            projected[index] = Some(row);
+        }
+    }
+    Ok(EnrichedDeliverySnapshot {
+        messages: projected
+            .into_iter()
+            .map(|row| row.ok_or(StorageError::DbDeserialize))
+            .collect::<std::result::Result<_, _>>()?,
+        cursor: snapshot.cursor,
+    })
+}

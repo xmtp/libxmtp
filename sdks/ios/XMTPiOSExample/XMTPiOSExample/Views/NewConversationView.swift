@@ -1,168 +1,48 @@
-//
-//  NewConversationView.swift
-//  XMTPiOSExample
-//
-//  Created by Pat Nakajima on 12/7/22.
-//
-
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 struct NewConversationView: View {
-	var client: XMTPiOS.Client
-	var onCreate: (XMTPiOS.Conversation) -> Void
-
-	@Environment(\.dismiss) var dismiss
-	@State private var recipientAddress = ""
+	var client: SDKClient
+	var onCreate: (Conversation) -> Void
+	@Environment(\.dismiss) private var dismiss
+	@State private var address = ""
+	@State private var members: [PublicIdentity] = []
 	@State private var error: String?
-
-	@State private var groupMembers: [String] = []
-	@State private var newGroupMember = ""
-	@State private var isAddingMember = false
-	@State private var groupError = ""
+	@State private var isCreating = false
 
 	var body: some View {
 		Form {
-			Section("Recipient Address") {
-				TextField("Enter address here…", text: $recipientAddress)
-					.onChange(of: recipientAddress) { newAddress in
-						check(address: newAddress)
-					}
-
-				if let error {
-					Text(error)
-						.font(.caption)
-						.foregroundColor(.secondary)
-				}
+			TextField("Ethereum address", text: $address).textInputAutocapitalization(.never)
+			Button("Create DM") { create(isGroup: false) }.disabled(address.isEmpty)
+			Section("Group members") {
+				ForEach(members, id: \.identifier) { Text($0.identifier) }
+				Button("Add address") {
+					members.append(PublicIdentity(identifier: address, kind: .ethereum))
+					address = ""
+				}.disabled(address.isEmpty)
+				Button("Create group") { create(isGroup: true) }.disabled(members.isEmpty)
 			}
-
-			Section(header: Text("Or Create a Group")) {
-				ForEach(groupMembers, id: \.self) { member in
-					Text(member)
-				}
-
-				HStack {
-					TextField("Add member", text: $newGroupMember)
-					Button("Add") {
-						if newGroupMember.lowercased() == client.publicIdentity.identifier.lowercased() {
-							groupError = "You cannot add yourself to a group"
-							return
-						}
-
-						isAddingMember = true
-
-						Task {
-							do {
-								if try await client.canMessage(identity: PublicIdentity(kind: .ethereum, identifier: newGroupMember)) {
-									await MainActor.run {
-										groupError = ""
-										groupMembers.append(newGroupMember)
-										newGroupMember = ""
-										isAddingMember = false
-									}
-								} else {
-									await MainActor.run {
-										groupError = "Member address not registered"
-										isAddingMember = false
-									}
-								}
-							} catch {
-								groupError = error.localizedDescription
-								isAddingMember = false
-							}
-						}
-					}
-					.opacity(isAddingMember ? 0 : 1)
-					.overlay {
-						if isAddingMember {
-							ProgressView()
-						}
-					}
-				}
-
-				if groupError != "" {
-					Text(groupError)
-						.foregroundStyle(.red)
-						.font(.subheadline)
-				}
-
-				Button("Create Group") {
-					Task {
-						do {
-							let identities = groupMembers.map { PublicIdentity(kind: .ethereum, identifier: $0) }
-							let group = try await client.conversations.newGroupWithIdentities(with: identities)
-							try await client.conversations.sync()
-							await MainActor.run {
-								dismiss()
-								onCreate(.group(group))
-							}
-						} catch {
-							await MainActor.run {
-								groupError = error.localizedDescription
-							}
-						}
-					}
-				}
-				.disabled(!createGroupEnabled)
+			if let error {
+				Text(error).foregroundStyle(.red)
 			}
-			.disabled(isAddingMember)
-		}
-		.navigationTitle("New conversation")
+		}.disabled(isCreating).navigationTitle("New conversation")
 	}
 
-	var createGroupEnabled: Bool {
-		if groupError != "" {
-			return false
-		}
-
-		if groupMembers.isEmpty {
-			return false
-		}
-
-		return true
-	}
-
-	private func check(address: String) {
-		if address.count != 42 {
-			return
-		}
-
-		error = nil
-
+	private func create(isGroup: Bool) {
 		Task {
+			isCreating = true
+			defer { isCreating = false }
 			do {
-				let conversation = try await client.conversations.newConversationWithIdentity(with: PublicIdentity(
-					kind: .ethereum,
-					identifier: address
-				))
-				await MainActor.run {
-					dismiss()
-					onCreate(conversation)
+				let conversation: Conversation = if isGroup {
+					try await .group(group: client.conversations().createGroup(members: members, options: nil))
+				} else {
+					try await .dm(dm: client.conversations().createDm(
+						peer: PublicIdentity(identifier: address, kind: .ethereum), options: nil,
+					))
 				}
-			} catch ConversationError.memberNotRegistered([address]) {
-				await MainActor.run {
-					self.error = "Recipient is not on the XMTP network."
-				}
-			} catch {
-				await MainActor.run {
-					self.error = error.localizedDescription
-				}
-			}
-		}
-	}
-}
-
-struct NewConversationView_Previews: PreviewProvider {
-	static var previews: some View {
-		NavigationStack {
-			VStack {
-				PreviewClientProvider { client in
-					Text("Hi")
-						.sheet(isPresented: .constant(true)) {
-							NewConversationView(client: client) { _ in }
-						}
-				}
-			}
+				onCreate(conversation)
+				dismiss()
+			} catch { self.error = error.localizedDescription }
 		}
 	}
 }

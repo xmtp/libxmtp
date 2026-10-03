@@ -1,50 +1,74 @@
-# xmtp-ios
+# XMTP iOS SDK
 
-![Test](https://github.com/xmtp/xmtp-ios/actions/workflows/tests.yml/badge.svg) ![Lint](https://github.com/xmtp/xmtp-ios/actions/workflows/lint.yml/badge.svg)
+The iOS package exports `XmtpSdk`. Rust owns messaging, storage, content, and
+attachment transfers. Swift provides app storage paths, streams, callbacks, and
+Apple system logging.
 
-`xmtp-ios` provides a Swift implementation of an XMTP message API client for use with iOS apps.
+Add this repository as a Swift package in Xcode. Select the `XmtpSdk` product.
+Use `import XmtpSdk`. The package has one static native XCFramework. CocoaPods
+uses the same archive and SHA256 receipt. The pod name is `XMTP`; its module is
+`XmtpSdk`. This change starts at version `8.0.0`.
 
-Use `xmtp-ios` to build with XMTP to send messages between blockchain accounts, including DMs, notifications, announcements, and more.
+The native framework has ARM64 slices for iOS devices, the iOS simulator, and
+macOS. Intel macOS hosts are not supported.
 
-> **Note:** This SDK is now part of the [libxmtp monorepo](https://github.com/xmtp/libxmtp). For issues and contributions, please use the main repository.
+For a local CocoaPods checkout, first run `dev/nix-shell 'just ios build'`.
+Point the Podfile at `sdks/ios` with `:path`. When no release receipt exists,
+the podspec selects `Artifacts/XmtpSdkFFI.xcframework`. A released pod uses the
+archive URL and checksum in `ReleaseArtifacts.json`. An invalid receipt fails
+evaluation. The `ios-<version>` tag is a release source template. It does not
+mean that an unpublished version has an available tag or archive.
 
-To keep up with the latest SDK developments, see the [Issues tab](https://github.com/xmtp/libxmtp/issues) in this repo.
+Create a client with a signer, explicit backend options, and the app's stored
+32-byte database key:
 
-## Documentation
+```swift
+import Foundation
+import XmtpSdk
 
-To learn how to use the XMTP iOS SDK, see [Get started with the XMTP iOS SDK](https://docs.xmtp.org/sdks/ios).
+func connect(signer: any Signer, databaseKey: Data) async throws {
+    let client = try await SDKClient.create(
+        signer: signer,
+        options: ClientOptions(
+            backend: .options(options: BackendOptions(url: "https://backend.example")),
+            storage: StorageOptions(location: .default, encryptionKey: databaseKey)
+        )
+    )
+    let group = try await client.conversations().createGroup(members: [String](), options: nil)
+    _ = try await group.sendText(text: "Hello", options: nil)
+    for try await message in try await client.messages(in: group) {
+        if case .standard(.text(let text)) = message.content { print(text) }
+    }
+    try await client.end()
+}
+```
 
-## SDK reference
+Default storage uses the app's Application Support directory and bundle ID.
+Store the database key in the Keychain. Use the same key to open the database
+again. If `encryptionKey` is absent, native storage is unencrypted. Do not write
+the key to logs. The simple example stores its signer and database key in the
+Keychain before it opens the database. Later logins reuse those keys. The larger
+example stores its database key and address before it creates a client. It can
+reopen the saved account. A Keychain read or write error stops the connection.
+Use `.directory` or `.explicit` when the app selects its own path. Use
+`.inMemory` for a temporary client. Call `end()` when the app releases a client.
+Automatic Apple lifecycle management is on by default. It suspends live streams
+when the app enters the background and resumes them when the app becomes active.
 
-Access the [iOS client SDK reference documentation](https://xmtp.github.io/xmtp-ios/).
+Standard codecs call Rust. Custom codecs belong to one client. Pass them to
+`SDKClient.create` or `SDKClient.build`. Message content is typed; unknown
+content keeps its bytes, fallback, and error details.
 
-## Example app built with `xmtp-ios`
+Run commands from the repository root:
 
-Use the [XMTP iOS quickstart app](./example) as a tool to start building an app with XMTP. This basic messaging app has an intentionally unopinionated UI to help make it easier for you to build with.
+```sh
+dev/nix-shell 'just ios build'
+dev/nix-shell 'just ios check'
+dev/nix-shell 'just ios check-examples'
+dev/nix-shell 'just ios test'
+dev/nix-shell 'just ios test-simulator'
+```
 
-## Install from Swift Package Manager
-
-You can add XMTP-iOS via Swift Package Manager by adding it to your `Package.swift` file or using Xcode’s “Add Package Dependency” feature.
-
-## 🏗 Breaking revisions
-
-Because `xmtp-ios` is in active development, you should expect breaking revisions that might require you to adopt the latest SDK release to enable your app to continue working as expected.
-
-Breaking revisions in an `xmtp-ios` release are described on the [Releases page](https://github.com/xmtp/libxmtp/releases).
-
-## Deprecation
-
-XMTP communicates about deprecations in the [XMTP Community Forums](https://community.xmtp.org/), providing as much advance notice as possible.
-
-Older versions of the SDK will eventually be deprecated, which means:
-
-1. The network will not support and eventually actively reject connections from clients using deprecated versions.
-2. Bugs will not be fixed in deprecated versions.
-
-The following table provides the deprecation schedule.
-
-| Announced | Effective | Minimum Version | Rationale |
-| --- | --- | --- | --- |
-| No more support for XMTP V2 | May 1, 2025 | >=4.0.3 | In a move toward better security with MLS and the ability to decentralize, we will be shutting down XMTP V2 and moving entirely to XMTP V3. To learn more about V2 deprecation, see [XIP-53: XMTP V2 deprecation plan](https://community.xmtp.org/t/xip-53-xmtp-v2-deprecation-plan/867). To learn how to upgrade, see [xmtp-ios v4.0.4](https://github.com/xmtp/xmtp-ios/releases/tag/4.0.4). |
-
-Bug reports, feature requests, and PRs are welcome in accordance with these [libxmtp contribution guidelines](../../CONTRIBUTING.md).
+Both [example apps](./example) and [XMTPiOSExample](./XMTPiOSExample) use the
+local package. Set `XMTP_BACKEND_URL` to the backend for the tested commit. A
+physical device needs a backend address that it can reach.
