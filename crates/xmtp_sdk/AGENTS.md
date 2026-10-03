@@ -176,8 +176,8 @@ Package review checks:
 
 - `dev/nix-shell 'just sdk check-package-scripts'` also checks both provenance producers,
   config-only changes, Cargo compiler overrides, macOS deployment targets,
-  Windows browser asset paths, default mobile features, all four NDK target tools,
-  target OpenSSL selection and cache inputs, and both flat and prebuilt runtime
+  Windows browser asset paths, default mobile features, all four NDK compiler targets and archive index tools,
+  caller archive-tool policies, target OpenSSL paths and policy, cache inputs, and both flat and prebuilt runtime
   directory layouts.
 - Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
   for small C probes. The output records ELF class and machine for each ABI.

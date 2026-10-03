@@ -64,7 +64,7 @@ def record(output, generated, native):
 
 
 def android_environment(triple):
-    """Select the API 23 NDK compiler and archiver for one Rust target."""
+    """Select the API 23 NDK compiler and archive tools for one Rust target."""
     ndk = (
         os.environ.get("ANDROID_NDK_HOME")
         or os.environ.get("ANDROID_NDK_ROOT")
@@ -90,7 +90,8 @@ def android_environment(triple):
     cc = tools / (clang_target + "23-clang" + suffix)
     cxx = tools / (clang_target + "23-clang++" + suffix)
     ar = tools / ("llvm-ar.exe" if sys.platform == "win32" else "llvm-ar")
-    for tool in (cc, cxx, ar):
+    ranlib = tools / ("llvm-ranlib.exe" if sys.platform == "win32" else "llvm-ranlib")
+    for tool in (cc, cxx, ar, ranlib):
         if not tool.is_file():
             raise ValueError(f"Android NDK missing target tool: {tool}")
     target = triple.replace("-", "_")
@@ -99,12 +100,17 @@ def android_environment(triple):
     env["CC_" + target] = str(cc)
     env["CXX_" + target] = str(cxx)
     env["AR_" + target] = str(ar)
-    openssl_prefix = target.upper() + "_OPENSSL_"
     if not any(
-        openssl_prefix + name in env for name in ("DIR", "LIB_DIR", "INCLUDE_DIR")
+        name in env
+        for name in ("RANLIB_" + triple, "RANLIB_" + target, "TARGET_RANLIB")
     ):
-        # Build target OpenSSL instead of linking libraries from the host shell.
-        env.setdefault(openssl_prefix + "NO_VENDOR", "0")
+        env["RANLIB_" + target] = str(ranlib)
+    openssl_prefix = target.upper() + "_OPENSSL_"
+    target_openssl = any(
+        openssl_prefix + name in env for name in ("DIR", "LIB_DIR", "INCLUDE_DIR")
+    )
+    # Use caller target paths, or build OpenSSL instead of linking host libraries.
+    env.setdefault(openssl_prefix + "NO_VENDOR", "1" if target_openssl else "0")
     return env
 
 

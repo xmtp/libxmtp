@@ -107,9 +107,24 @@ def build_context():
             "CXXFLAGS",
             "LDFLAGS",
             "PERL",
+            "RANLIB",
+            "RANLIBFLAGS",
+            "TARGET_RANLIB",
+            "TARGET_RANLIBFLAGS",
+            "HOST_RANLIB",
+            "HOST_RANLIBFLAGS",
         )
         or name.startswith(
-            ("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_", "OPENSSL_")
+            (
+                "CARGO_TARGET_",
+                "CC_",
+                "CXX_",
+                "CFLAGS_",
+                "AR_",
+                "RANLIB_",
+                "RANLIBFLAGS_",
+                "OPENSSL_",
+            )
         )
         or "_OPENSSL_" in name
     }

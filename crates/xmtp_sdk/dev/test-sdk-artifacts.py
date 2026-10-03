@@ -75,9 +75,120 @@ class ArtifactTests(unittest.TestCase):
                 self.assertEqual(env[prefix + selected], os.environ[prefix + selected])
                 self.assertEqual(env["OPENSSL_NO_VENDOR"], "1")
                 if selected != "NO_VENDOR":
-                    self.assertFalse(
-                        prefix + "NO_VENDOR" in env, "Explicit target path was replaced"
+                    self.assertEqual(env[prefix + "NO_VENDOR"], "1")
+
+    def test_android_target_openssl_paths_select_external_libraries(self):
+        prefix = "AARCH64_LINUX_ANDROID_OPENSSL_"
+        for path in ("DIR", "LIB_DIR", "INCLUDE_DIR"):
+            for host_policy in (None, "0", "1"):
+                for target_policy in (None, "0", "1"):
+                    inputs = {
+                        "ANDROID_NDK_HOME": "/fixture/ndk",
+                        prefix + path: "/caller/openssl",
+                    }
+                    if host_policy is not None:
+                        inputs["OPENSSL_NO_VENDOR"] = host_policy
+                    if target_policy is not None:
+                        inputs[prefix + "NO_VENDOR"] = target_policy
+                    with (
+                        self.subTest(path=path, host=host_policy, target=target_policy),
+                        patch.dict(os.environ, inputs, clear=True),
+                        patch.object(
+                            Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]
+                        ),
+                        patch.object(Path, "is_file", return_value=True),
+                    ):
+                        env = mobile.android_environment("aarch64-linux-android")
+                        self.assertEqual(
+                            env[prefix + "NO_VENDOR"],
+                            target_policy if target_policy is not None else "1",
+                        )
+                        self.assertEqual(env[prefix + path], "/caller/openssl")
+                        self.assertTrue(
+                            all(
+                                env.get(name) == value for name, value in inputs.items()
+                            ),
+                            "Caller input changed",
+                        )
+
+    def test_android_archive_index_uses_target_tool_and_keeps_caller_inputs(self):
+        host = {
+            "ANDROID_NDK_HOME": "/fixture/ndk",
+            "RANLIB": "/host/ranlib",
+            "RANLIBFLAGS": "host flags",
+        }
+        for triple in mobile.ANDROID.values():
+            target = triple.replace("-", "_")
+            for override in (
+                None,
+                "RANLIB_" + triple,
+                "RANLIB_" + target,
+                "TARGET_RANLIB",
+            ):
+                with (
+                    self.subTest(triple=triple, override=override),
+                    patch.dict(
+                        os.environ,
+                        host | ({override: "/caller/llvm-ranlib"} if override else {}),
+                        clear=True,
+                    ),
+                    patch.object(
+                        Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]
+                    ),
+                    patch.object(Path, "is_file", return_value=True),
+                ):
+                    env = mobile.android_environment(triple)
+                    self.assertEqual(env["RANLIB"], host["RANLIB"])
+                    self.assertEqual(env["RANLIBFLAGS"], host["RANLIBFLAGS"])
+                    if override:
+                        self.assertEqual(env[override], "/caller/llvm-ranlib")
+                        if override != "RANLIB_" + target:
+                            self.assertFalse(
+                                "RANLIB_" + target in env, "Caller tool was masked"
+                            )
+                    else:
+                        self.assertEqual(
+                            Path(env["RANLIB_" + target]).name,
+                            "llvm-ranlib.exe"
+                            if mobile.sys.platform == "win32"
+                            else "llvm-ranlib",
+                        )
+                    self.assertTrue(
+                        dict(os.environ)
+                        == host
+                        | ({override: "/caller/llvm-ranlib"} if override else {}),
+                        "Parent environment changed",
                     )
+
+    def test_archive_index_inputs_change_artifact_cache_context(self):
+        names = (
+            "RANLIB",
+            "RANLIBFLAGS",
+            "TARGET_RANLIB",
+            "TARGET_RANLIBFLAGS",
+            "HOST_RANLIB",
+            "HOST_RANLIBFLAGS",
+        ) + tuple(
+            prefix + target
+            for prefix in ("RANLIB_", "RANLIBFLAGS_")
+            for triple in mobile.ANDROID.values()
+            for target in (triple, triple.replace("-", "_"))
+        )
+        self.context_patch.stop()
+        try:
+            with patch.object(
+                artifacts.subprocess, "check_output", return_value=b"fixture rustc"
+            ):
+                for name in names:
+                    with (
+                        self.subTest(input=name),
+                        patch.dict(os.environ, {}, clear=True),
+                    ):
+                        before = artifacts.build_context()
+                        os.environ[name] = "caller-selected input"
+                        self.assertNotEqual(artifacts.build_context(), before)
+        finally:
+            self.context_patch.start()
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
