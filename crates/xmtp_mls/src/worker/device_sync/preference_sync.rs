@@ -40,10 +40,7 @@ where
 
     // implements: SYNC-015
     pub(crate) async fn cycle_hmac(&self) -> Result<(), ClientError> {
-        tracing::info!(
-            "[{}] Sending new HMAC key to sync group.",
-            self.context.installation_id()
-        );
+        tracing::info!("Sending new HMAC key to sync group.");
 
         self.sync_preferences(vec![PreferenceUpdate::Hmac {
             key: HmacKey::random_key(),
@@ -192,6 +189,31 @@ mod tests {
     };
     use xmtp_db::consent_record::{ConsentState, ConsentType};
     use xmtp_db::user_preferences::StoredUserPreferences;
+
+    // verifies: PROC-036
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn cycle_hmac_log_omits_installation_id() {
+        use futures::FutureExt;
+        use xmtp_logging::{Level, test_logging::LogCapture};
+
+        tester!(alix, disable_workers);
+        let capture = LogCapture::new(Level::Info);
+        let sync = alix.context.device_sync_client();
+        tracing::dispatcher::with_default(&capture.dispatch(), || {
+            // Poll the real call through its log emission, before network completion.
+            let _ = sync.cycle_hmac().now_or_never();
+        });
+        let output = capture.output();
+        let event = output
+            .lines()
+            .find(|line| line.contains("Sending new HMAC key to sync group."))
+            .expect("cycle_hmac emitted its INFO event");
+        assert!(
+            !event.contains(&alix.context.installation_id().to_string()),
+            "cycle_hmac log contains the full installation ID"
+        );
+    }
 
     // verifies: SYNC-015
     #[rstest::rstest]
