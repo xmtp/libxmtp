@@ -8,11 +8,28 @@ import {
   createRegisteredClient,
   createSigner,
 } from "@test/helpers";
-import { Client, XmtpError, latestInboxUpdatesCount } from "@xmtp/node-sdk";
+import {
+  Client,
+  XmtpError,
+  generateInboxId,
+  latestInboxUpdatesCount,
+} from "@xmtp/node-sdk";
 import { uint8ArrayToHex } from "uint8array-extras";
 import { describe, expect, it } from "vitest";
 
 describe("Client", () => {
+  it("matches an omitted nonce in inbox calculation and client creation", async () => {
+    const { signer, identifier } = createSigner();
+    const client = await createClient(signer);
+    try {
+      expect(generateInboxId(identifier)).toBe(client.inboxId);
+      expect(generateInboxId(identifier, 0n)).toBe(client.inboxId);
+      expect(generateInboxId(identifier, 1n)).not.toBe(client.inboxId);
+    } finally {
+      await client.end();
+    }
+  });
+
   it("creates an unregistered client and preserves the selected identity and nonce", async () => {
     const { signer, identifier } = createSigner();
     const client = await createClient(signer, { registration: { nonce: 1n } });
