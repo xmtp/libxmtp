@@ -109,12 +109,13 @@ Returns the new group's ID and details.`;
     );
 
     const members = await group.members();
+    const state = await group.state();
 
     this.output({
       id: group.id,
-      name: (await group.state()).name,
-      description: (await group.state()).description,
-      imageUrl: (await group.state()).imageUrl,
+      name: state.name,
+      description: state.description,
+      imageUrl: state.imageUrl,
       createdAt: group.createdAt.date.toISOString(),
       memberCount: members.length,
       members: members.map((m) => ({

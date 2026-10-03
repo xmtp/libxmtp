@@ -251,10 +251,9 @@ describe("Agent stream lifecycle", () => {
       h.agent.on("unknownMessage", unknown);
       h.agent.on("message", received);
       await h.agent.start();
-      const undecoded = {
-        ...message,
+      const undecoded = Object.assign({}, message, {
         content: { kind },
-      } as Message;
+      }) as Message;
       await h.messages[0]!.value(undecoded);
       expect(middleware).toHaveBeenCalledOnce();
       expect(unknown).toHaveBeenCalledOnce();
@@ -298,51 +297,91 @@ describe("Agent stream lifecycle", () => {
     expect(unhandled).toHaveBeenCalledWith(cause);
     await h.agent.stop();
   });
-  it("does not make an acknowledging read after an unhandled value", async () => {
-    const cause = new Error("lookup failed");
-    const conversationRead = deferred<Conversation | undefined>();
-    const conversationEnd = vi.fn(async () =>
-      conversationRead.resolve(undefined),
-    );
-    const messageNext = vi
-      .fn<() => Promise<Message | undefined>>()
-      .mockResolvedValueOnce(message)
-      .mockResolvedValue(undefined);
-    const messageEnd = vi.fn(async () => undefined);
-    vi.spyOn(ConversationStream, "open").mockImplementation(
-      (owner, _selection, options) =>
-        new ReaderStream<Conversation>(
-          async () => ({
-            next: () => conversationRead.promise,
-            end: conversationEnd,
-          }),
-          owner,
-          options && { signal: options.signal, onClose: options.onClose },
-        ) as ConversationStream,
-    );
-    vi.spyOn(MessageStream, "open").mockImplementation(
-      (owner, _selection, options) =>
-        new ReaderStream<Message>(
-          async () => ({ next: messageNext, end: messageEnd }),
-          owner,
-          options && { signal: options.signal, onClose: options.onClose },
-        ) as MessageStream,
-    );
-    const client = {
-      inboxId: "agent",
-      conversations: { getById: vi.fn().mockRejectedValue(cause) },
-    } as unknown as Client;
-    const agent = new Agent({ client });
-    const unhandled = vi.fn();
-    agent.on("unhandledError", unhandled);
-    await agent.start();
-    await vi.waitFor(() => expect(messageEnd).toHaveBeenCalledOnce());
-    expect(messageNext).toHaveBeenCalledOnce();
-    expect(conversationEnd).toHaveBeenCalledOnce();
-    expect(unhandled).toHaveBeenCalledOnce();
-    expect(unhandled).toHaveBeenCalledWith(cause);
-    await agent.stop();
-  });
+  it.each(["unhandled", "stopped"] as const)(
+    "does not make an acknowledging read after a %s value",
+    async (disposition) => {
+      const cause = new Error("lookup failed");
+      const conversationRead = deferred<Conversation | undefined>();
+      const conversationEnd = vi.fn(async () =>
+        conversationRead.resolve(undefined),
+      );
+      const messageNext = vi
+        .fn<() => Promise<Message | undefined>>()
+        .mockResolvedValueOnce(message)
+        .mockResolvedValue(undefined);
+      const messageEnd = vi.fn(async () => undefined);
+      vi.spyOn(ConversationStream, "open").mockImplementation(
+        (owner, _selection, options) =>
+          new ReaderStream<Conversation>(
+            async () => ({
+              next: () => conversationRead.promise,
+              end: conversationEnd,
+            }),
+            owner,
+            options && { signal: options.signal, onClose: options.onClose },
+          ) as ConversationStream,
+      );
+      vi.spyOn(MessageStream, "open").mockImplementation(
+        (owner, _selection, options) =>
+          new ReaderStream<Message>(
+            async () => ({ next: messageNext, end: messageEnd }),
+            owner,
+            options && { signal: options.signal, onClose: options.onClose },
+          ) as MessageStream,
+      );
+      const client = {
+        inboxId: "agent",
+        conversations: { getById: vi.fn().mockRejectedValue(cause) },
+      } as unknown as Client;
+      const agent = new Agent({ client });
+      const unhandled = vi.fn();
+      agent.on("unhandledError", unhandled);
+      if (disposition === "stopped") agent.errors.use(() => undefined);
+      await agent.start();
+      await vi.waitFor(() => expect(messageEnd).toHaveBeenCalledOnce());
+      expect(messageNext).toHaveBeenCalledOnce();
+      expect(conversationEnd).toHaveBeenCalledOnce();
+      if (disposition === "unhandled") {
+        expect(unhandled).toHaveBeenCalledOnce();
+        expect(unhandled).toHaveBeenCalledWith(cause);
+      } else {
+        expect(unhandled).not.toHaveBeenCalled();
+      }
+      await agent.stop();
+    },
+  );
+  it.each(["middleware", "message listener", "conversation listener"] as const)(
+    "rejects a %s error when custom error middleware stops",
+    async (origin) => {
+      const h = harness();
+      const cause = new Error("app failed");
+      const onError = vi.fn(() => undefined);
+      const unhandled = vi.fn();
+      h.agent.errors.use(onError);
+      h.agent.on("unhandledError", unhandled);
+      if (origin === "middleware")
+        h.agent.use(() => {
+          throw cause;
+        });
+      if (origin === "message listener")
+        h.agent.on("message", () => {
+          throw cause;
+        });
+      if (origin === "conversation listener")
+        h.agent.on("conversation", () => {
+          throw cause;
+        });
+      await h.agent.start();
+      await expect(
+        origin === "conversation listener"
+          ? h.conversations[0]!.value(h.group)
+          : h.messages[0]!.value(message),
+      ).rejects.toThrow("Agent value processing failed");
+      expect(onError).toHaveBeenCalledOnce();
+      expect(unhandled).not.toHaveBeenCalled();
+      await h.agent.stop();
+    },
+  );
   it("routes a throwing conversation listener through error middleware", async () => {
     const h = harness();
     const cause = new Error("listener failed");

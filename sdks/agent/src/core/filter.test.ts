@@ -1,4 +1,4 @@
-import { Group } from "@xmtp/node-sdk";
+import { Group, type Message } from "@xmtp/node-sdk";
 import { assertType, describe, expect, it } from "vitest";
 
 import { filter } from "@/core/filter";
@@ -213,6 +213,14 @@ describe("Filters", () => {
       const message = (await client.conversations.getMessageById(messageId))!;
       const result = filter.usesCodec(message, TestCodec);
       expect(result).toBe(false);
+    });
+
+    it("does not narrow custom content when its codec failed", () => {
+      const message = {
+        contentType: new TestCodec().type,
+        content: { kind: "custom", error: { code: "CodecDecodeFailed" } },
+      } as unknown as Message;
+      expect(filter.usesCodec(message, TestCodec)).toBe(false);
     });
   });
 });

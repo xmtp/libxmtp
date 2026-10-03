@@ -49,7 +49,8 @@ const usesCodec = <T extends AnyContentCodec>(
     actual !== undefined &&
     actual.authorityId === type.authorityId &&
     actual.typeId === type.typeId &&
-    actual.versionMajor === type.versionMajor
+    actual.versionMajor === type.versionMajor &&
+    hasContent(message)
   );
 };
 

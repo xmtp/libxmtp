@@ -8,6 +8,7 @@ export default class PreferencesStream extends BaseCommand {
 Listens for all user preference updates in real-time. This includes:
 - Consent state changes (ConsentUpdate)
 - HMAC key updates (HmacKeyUpdate)
+- Lagged events with the number of discarded updates (resync after these)
 
 Each update batch is output as it arrives.
 
@@ -87,18 +88,29 @@ first if you need a current snapshot before listening for updates.`;
 
     try {
       for await (const event of stream) {
-        const update =
-          event.kind === "consent.changed"
-            ? {
-                type: "ConsentUpdate",
-                entityType: event.entityKind,
-                entity: event.entity,
-                state: event.state,
-              }
-            : {
-                type: "HmacKeyUpdate",
-                keys: await client.conversations.hmacKeys(),
-              };
+        if (event.kind === "lagged") {
+          this.streamOutput({
+            timestamp: new Date().toISOString(),
+            warning: { type: "Lagged", discarded: event.discarded },
+          });
+          continue;
+        }
+        let update;
+        if (event.kind === "consent.changed") {
+          update = {
+            type: "ConsentUpdate",
+            entityType: event.entityKind,
+            entity: event.entity,
+            state: event.state,
+          };
+        } else if (event.kind === "hmac_keys.updated") {
+          update = {
+            type: "HmacKeyUpdate",
+            keys: await client.conversations.hmacKeys(),
+          };
+        } else {
+          throw new Error(`Unexpected preference event: ${event.kind}`);
+        }
         this.streamOutput({
           timestamp: new Date().toISOString(),
           updates: [update],

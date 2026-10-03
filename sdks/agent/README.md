@@ -235,7 +235,7 @@ Error middleware receives the `error`, `ctx`, and a `next` function. Just like r
 
 1. Use `next()` to mark the error as handled and continue with the main middleware chain
 2. Use `next(error)` to forward the original (or transformed) error to the next error handler
-3. Use `return` to end error handling and stop the middleware chain
+3. Use `return` to end error handling and stop the current reader. A failed message remains eligible for a later stream.
 4. Use `throw` to raise a new error to be caught by the error chain
 
 Example:

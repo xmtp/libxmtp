@@ -58,6 +58,40 @@ test("iterator reads cannot acknowledge a held callback value", async () => {
   }
 });
 
+test("a callback cannot take a stream after an iterator read starts", async () => {
+  let releaseRead!: (value: number) => void;
+  const firstValue = new Promise<number>((resolve) => {
+    releaseRead = resolve;
+  });
+  let reads = 0;
+  const stream = new ReaderStream(
+    async () => ({
+      next: async () => {
+        reads++;
+        return reads === 1 ? firstValue : undefined;
+      },
+      end: async () => undefined,
+    }),
+    {},
+  );
+  const callback = vi.fn();
+  const first = stream.next();
+  try {
+    await vi.waitFor(() => expect(reads).toBe(1));
+    const blocked = expect(stream.onValue(callback)).rejects.toThrow(
+      /iterator consumer/,
+    );
+    releaseRead(7);
+    await expect(first).resolves.toEqual({ done: false, value: 7 });
+    await blocked;
+    expect(reads).toBe(1);
+    expect(callback).not.toHaveBeenCalled();
+  } finally {
+    releaseRead(7);
+    await stream.end();
+  }
+});
+
 test("a closed stream answers an iterator while a callback is held", async () => {
   const { stream, held, release, reads } = heldReader();
   const first = stream.onValue(async (value) => {

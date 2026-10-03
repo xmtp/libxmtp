@@ -2,10 +2,9 @@ import EventEmitter from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { Dm } from "@xmtp/node-sdk";
+import type { Dm, Group } from "@xmtp/node-sdk";
 import {
   Client,
-  Group,
   ConversationStream,
   MessageStream,
   initLogging,
@@ -144,7 +143,7 @@ export type AgentMiddleware<ContentTypes = unknown> = (
   next: () => Promise<void> | void,
 ) => Promise<void>;
 
-/** Handles an error and calls `next` with no argument to resume processing. */
+/** Handle an error. Call `next()` to resume, or return to end the reader. */
 export type AgentErrorMiddleware<ContentTypes = unknown> = (
   error: unknown,
   ctx: AgentErrorContext<ContentTypes>,
@@ -181,9 +180,9 @@ type ErrorFlow =
 
 type ErrorDisposition = "resume" | "stop" | "unhandled";
 
-class UnhandledValueError extends Error {
+class UnacceptedValueError extends Error {
   constructor(readonly valueError: unknown) {
-    super("Agent value processing failed without an error handler.");
+    super("Agent value processing failed without acceptance.");
   }
 }
 
@@ -412,7 +411,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     this.#isLocked = false;
     // Error middleware can explicitly start a fresh generation here. A
     // handled error alone does not silently renew an exhausted retry budget.
-    if (!(error instanceof UnhandledValueError))
+    if (!(error instanceof UnacceptedValueError))
       await this.#runErrorChain(error, { client: this.#client });
   }
 
@@ -429,7 +428,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         if (isCurrent()) {
           if (reason.kind === "failed") {
             void this.#handleStreamError(
-              reason.error instanceof UnhandledValueError
+              reason.error instanceof UnacceptedValueError
                 ? reason.error
                 : new AgentStreamingError(
                     1004,
@@ -466,14 +465,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           if (context.isGroup()) this.emit("group", context);
           else if (context.isDm()) this.emit("dm", context);
         } catch (error) {
-          if (error instanceof UnhandledValueError) throw error;
+          if (error instanceof UnacceptedValueError) throw error;
           if (isCurrent()) {
             const disposition = await this.#runErrorChain(error, {
               client: this.#client,
               conversation,
             });
-            if (disposition === "unhandled")
-              throw new UnhandledValueError(error);
+            if (disposition !== "resume") throw new UnacceptedValueError(error);
           }
         }
       })
@@ -512,14 +510,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
             topics[message.content.kind] ?? "unknownMessage",
           );
         } catch (error) {
-          if (error instanceof UnhandledValueError) throw error;
+          if (error instanceof UnacceptedValueError) throw error;
           if (isCurrent()) {
             const disposition = await this.#runErrorChain(error, {
               client: this.#client,
               message,
             });
-            if (disposition === "unhandled")
-              throw new UnhandledValueError(error);
+            if (disposition !== "resume") throw new UnacceptedValueError(error);
           }
         }
       })
@@ -597,10 +594,10 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         if (!isCurrent()) return;
         this.emit("message", context);
       } catch (error) {
-        if (error instanceof UnhandledValueError) throw error;
+        if (error instanceof UnacceptedValueError) throw error;
         if (isCurrent()) {
           const disposition = await this.#runErrorChain(error, context);
-          if (disposition === "unhandled") throw new UnhandledValueError(error);
+          if (disposition !== "resume") throw new UnacceptedValueError(error);
         }
       }
     };
@@ -612,14 +609,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           try {
             await mw(context, next);
           } catch (error) {
-            if (error instanceof UnhandledValueError) throw error;
+            if (error instanceof UnacceptedValueError) throw error;
             if (!isCurrent()) return;
             const disposition = await this.#runErrorChain(error, context);
             if (disposition === "resume" && isCurrent()) {
               await next();
             }
-            if (disposition === "unhandled")
-              throw new UnhandledValueError(error);
+            if (disposition !== "resume") throw new UnacceptedValueError(error);
           }
         };
       },
