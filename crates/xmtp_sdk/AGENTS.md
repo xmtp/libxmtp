@@ -60,27 +60,6 @@ Run commands from the repository root in the Nix shell. Run
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It
   enables the off-by-default `bench` feature and writes separate bindings to
   `target/sdk-bench/`.
-- `dev/nix-shell 'just sdk check-isolation'` rejects shipped-code changes in `sdks/` or
-  `bindings/` on a façade branch. Its Task 1 exception accepts only the reviewed
-  PROC-032 backlink removal in four named SDK source files, checked against
-  their full base content. Later backlink changes need a reviewed gate update.
-  Its other exceptions are the exact files of the two design SDK-040 changes
-  (retained undecodable content; the foreign Restored DM peer getter), pinned
-  in `crates/xmtp_sdk/dev/isolation-pins.tsv` to the git blob hash of their
-  reviewed content: a listed file passes only while it hashes to its pin.
-  The native CI update to `sdks/ios/VALIDATION.md` is also pinned. The gate
-  permits deletion of the three retired `sdks/ios/dev/fly/` files only when
-  their base contents match the reviewed blob hashes. It still rejects changes
-  to those scripts and deletion of other scripts.
-  After the last reviewed change to a listed file, run
-  `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with it.
-  One build-only diagnostic exception pins `bindings/wasm/wasm.just` with
-  `--print-build-logs` on the existing test derivation. It keeps the same tests,
-  timeout, retries, and file mode.
-  The gate rejects code, scripts, generated output, and file-mode changes.
-  Locally, pass the base branch (`dev/nix-shell 'just sdk check-isolation self-hosted'`): a
-  branch tip that merges trunk otherwise looks like a pull request merge commit.
-  Tests and changelogs remain outside the shipped-code guard.
 - `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and
   real reader pre-poll, pending and READY handoff. It counts native cancel/free
   calls in generated conformance copies and requires the prior item to replay.

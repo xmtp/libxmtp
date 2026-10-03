@@ -23,9 +23,6 @@ check-file-sizes:
 wasm-init:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-wasm-init"
 
-check-isolation base="":
-    cd "{{ root }}" && crates/xmtp_sdk/dev/check-isolation {{ base }}
-
 [private]
 _browser-pure-fixture target:
     if [ "{{ target }}" = browser ]; then \

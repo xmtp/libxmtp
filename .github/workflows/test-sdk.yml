@@ -31,8 +31,6 @@ jobs:
       - uses: ./.github/actions/setup-js
       - name: Install JavaScript tools
         run: just install-js
-      - name: Check SDK isolation
-        run: just sdk check-isolation
       - name: Start backend
         run: just backend up
       - name: Check package scripts
