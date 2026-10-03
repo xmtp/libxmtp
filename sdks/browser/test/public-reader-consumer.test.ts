@@ -128,3 +128,39 @@ test("a closed stream answers an iterator while a callback is held", async () =>
     await first;
   }
 });
+
+test.each(["direct", "adapter"] as const)(
+  "%s iterator rejects a second read before the first value reaches the app",
+  async (mode) => {
+    let release!: (value: number) => void;
+    const firstValue = new Promise<number>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    const stream = new ReaderStream(
+      async () => ({
+        next: async () => {
+          reads++;
+          return reads === 1 ? firstValue : reads === 2 ? 2 : undefined;
+        },
+        end: async () => undefined,
+      }),
+      {},
+    );
+    const iterator =
+      mode === "adapter" ? stream[Symbol.asyncIterator]() : stream;
+    const first = iterator.next();
+    try {
+      await vi.waitFor(() => expect(reads).toBe(1));
+      const second = iterator.next();
+      release(1);
+      await expect(first).resolves.toEqual({ done: false, value: 1 });
+      await expect(second).rejects.toThrow(/iterator read is active/);
+      expect(reads).toBe(1);
+      await expect(iterator.next()).resolves.toEqual({ done: false, value: 2 });
+    } finally {
+      release(1);
+      await stream.end();
+    }
+  },
+);
