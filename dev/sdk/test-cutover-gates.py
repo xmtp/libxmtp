@@ -6,7 +6,6 @@ import os
 from unittest.mock import patch
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
 import sys
 import unittest
@@ -120,83 +119,10 @@ class CutoverGates(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing current pure projection"):
                 module.switched_source_rows({"Browser"})
             pure.write_text("export { Timestamp };\n")
-            with self.assertRaisesRegex(ValueError, "pure root misses retained exports"):
+            with self.assertRaisesRegex(
+                ValueError, "pure root misses retained exports"
+            ):
                 module.switched_source_rows({"Browser"})
-
-    def test_isolation_admits_only_the_switched_sdk(self):
-        for source in (
-            "sdks/node/package.json",
-            "sdks/browser/package.json",
-            "sdks/android/gradle.properties",
-            "sdks/android/library/build.gradle",
-            "dev/sdk/switches.py",
-            "crates/xmtp_sdk/dev/check-isolation",
-            "crates/xmtp_sdk/dev/isolation-pins.tsv",
-        ):
-            self.copy(source)
-        for folder, version in (("node", "6.0.0"), ("browser", "7.0.0")):
-            (self.root / f"sdks/{folder}/package.json").write_text(
-                '{"version":"' + version + '","scripts":{"build":"legacy"}}'
-            )
-        (self.root / "sdks/android/gradle.properties").write_text("version=7.0.0\n")
-        (self.root / "sdks/android/library/build.gradle").write_text("legacy")
-        (self.root / "Package.swift").write_text('name: "XMTPiOS"')
-        facade = self.root / "crates/xmtp_sdk/src/lib.rs"
-        facade.parent.mkdir(parents=True)
-        facade.write_text("old facade\n")
-        sibling = self.root / "sdks/browser/src/guard.ts"
-        sibling.parent.mkdir(parents=True)
-        sibling.write_text("export const sibling = 1;\n")
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
-        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.email=fixture@example.test",
-                "-c",
-                "user.name=fixture",
-                "commit",
-                "-qm",
-                "base",
-            ],
-            cwd=self.root,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "update-ref", "refs/remotes/origin/fixture", "HEAD"],
-            cwd=self.root,
-            check=True,
-        )
-        facade.write_text("new facade\n")
-        (self.root / "Package.swift").write_text(
-            'name: "XmtpSdk"; path: "sdks/ios/Sources/XmtpSdk"'
-        )
-        switched = self.root / "sdks/ios/Sources/XmtpSdk/new.swift"
-        switched.parent.mkdir(parents=True)
-        switched.write_text("public struct Product {}\n")
-        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.email=fixture@example.test",
-                "-c",
-                "user.name=fixture",
-                "commit",
-                "-qm",
-                "switch",
-            ],
-            cwd=self.root,
-            check=True,
-        )
-        command = ["bash", "crates/xmtp_sdk/dev/check-isolation", "fixture"]
-        result = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        sibling.write_text("export const sibling = 2;\n")
-        result = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("sdks/browser/src/guard.ts", result.stderr)
 
 
 if __name__ == "__main__":

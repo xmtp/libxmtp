@@ -23,8 +23,7 @@ window.benchmark = async (request, fixture, state, backend) => {
   if (request.phase === "reset") return { ready: true };
   const tasks = [];
   const observer = new PerformanceObserver((entries) => {
-    for (const entry of entries.getEntries())
-      if (entry.duration > 50) tasks.push(entry.duration);
+    for (const entry of entries.getEntries()) tasks.push(entry);
   });
   observer.observe({ type: "longtask", buffered: false });
   const result = await measure(
@@ -36,12 +35,19 @@ window.benchmark = async (request, fixture, state, backend) => {
   );
   // Deliver observer records for the completed timed work before teardown.
   await new Promise((resolve) => setTimeout(resolve, 0));
-  for (const entry of observer.takeRecords())
-    if (entry.duration > 50) tasks.push(entry.duration);
+  for (const entry of observer.takeRecords()) tasks.push(entry);
   observer.disconnect();
   return {
     ...result,
-    long_tasks_ms: tasks,
+    long_tasks_ms: tasks
+      .map(
+        (entry) =>
+          Math.min(
+            entry.startTime + entry.duration,
+            result.timing_window.end_ms,
+          ) - Math.max(entry.startTime, result.timing_window.start_ms),
+      )
+      .filter((duration) => duration > 50),
     source: {
       fixture_sha256: request.fixture_sha256,
       package_sha256: request.package_sha256,

@@ -64,12 +64,15 @@ export async function measure(api, fixture, state, workload, coldPath) {
       },
     );
     const end = performance.now();
+    const measuredStart = workload.startsWith("callback_")
+      ? callbackStart
+      : start;
     await api.close(client);
     if (workload.startsWith("callback_") && callbackCount === 0)
       throw new Error("Signer callback was not invoked");
     return {
-      duration_ms:
-        end - (workload.startsWith("callback_") ? callbackStart : start),
+      duration_ms: end - measuredStart,
+      timing_window: { start_ms: measuredStart, end_ms: end },
       completed: true,
       callback_count: callbackCount,
     };
@@ -89,8 +92,10 @@ export async function measure(api, fixture, state, workload, coldPath) {
       const messages = (await api.page(group, 1000)).map((message) =>
         api.normalize(message, keyById),
       );
+      const end = performance.now();
       return {
-        duration_ms: performance.now() - start,
+        duration_ms: end - start,
+        timing_window: { start_ms: start, end_ms: end },
         observed_messages: messages,
       };
     }
@@ -110,24 +115,28 @@ export async function measure(api, fixture, state, workload, coldPath) {
     // Publishing and reading run together. The complete operation is timed.
     const publisher = api.publish(group);
     const consumer = (async () => {
-      for await (const message of stream) {
+      const iterator = stream[Symbol.asyncIterator]();
+      while (seen.size !== expectedEvents.size) {
+        const { value: message, done } = await iterator.next();
+        if (done) break;
         if (expectedEvents.has(message.id)) {
           if (seen.has(message.id))
             throw new Error("Duplicate expected stream event");
           live.push(api.live(message));
           seen.add(message.id);
         }
-        if (seen.size === expectedEvents.size) break;
       }
       if (seen.size !== expectedEvents.size)
         throw new Error("Stream ended with missing messages");
     })();
     await Promise.all([publisher, consumer]);
+    const messages = enrichLive(live, state.ids);
+    const end = performance.now();
     await stream.end();
     stream = undefined;
-    const messages = enrichLive(live, state.ids);
     return {
-      duration_ms: performance.now() - start,
+      duration_ms: end - start,
+      timing_window: { start_ms: start, end_ms: end },
       observed_messages: messages,
       eager_snapshots: live
         .filter((event) => event.kind !== "reaction")

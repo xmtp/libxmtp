@@ -24,14 +24,15 @@ func runProbe(_ config: HostConfig, _ request: [String: Any]) async throws -> [S
         throw BenchFailure(message: "Requested probe failure")
     }
     let outside = request["transport_delay_ms"] as? UInt64 ?? 0
-    try await Task.sleep(nanoseconds: outside * 1_000_000)
+    try await Task.sleep(nanoseconds: delayNanoseconds(outside))
     let start = now()
     let inside = request["operation_delay_ms"] as? UInt64 ?? 0
-    try await Task.sleep(nanoseconds: inside * 1_000_000)
+    try await Task.sleep(nanoseconds: delayNanoseconds(inside))
     var result: [String: Any] = ["probe": true, "duration_ms": now() - start]
     if request["probe"] as? String == "signer" {
         let account = try await signerHelper(config, [:])
-        let signature = try await signerHelper(config, ["key": account["key"]!, "text": "iOS benchmark bridge"])
+        guard let key = account["key"] else { throw BenchFailure(message: "Signer response has no private key") }
+        let signature = try await signerHelper(config, ["key": key, "text": "iOS benchmark bridge"])
         try require(signature["signature"]?.count == 130, "Signer probe returned no signature")
         result["signed"] = true
     }
