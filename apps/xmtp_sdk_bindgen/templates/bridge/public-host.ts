@@ -38,3 +38,12 @@ export function checkStorage(storage: object): void {
       message: "browser storage does not support encryptionKey",
     });
 }
+
+/** Browser storage has no Node database to find. */
+export function resolveLegacyStorage<T>(
+  options: T,
+  _identity: () => Promise<unknown>,
+  _inboxId?: string,
+): T {
+  return options;
+}

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { copyFileSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import {
   buildClient,
@@ -18,6 +20,113 @@ import { uint8ArrayToHex } from "uint8array-extras";
 import { describe, expect, it } from "vitest";
 
 describe("Client", () => {
+  it("reuses the legacy default database and rejects ambiguous matches", async () => {
+    const { signer, identifier } = createSigner();
+    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-"));
+    const previousDirectory = process.cwd();
+    process.chdir(directory);
+    try {
+      const inboxId = generateInboxId(identifier);
+      const oldPath = join(directory, `xmtp-production-${inboxId}.db3`);
+      const otherPath = join(directory, `xmtp-local-${inboxId}.db3`);
+      const options = clientOptions({
+        registration: { auto: false },
+        storage: {
+          location: {
+            dbPath: oldPath,
+            attachmentsDir: `${oldPath}.attachments`,
+          },
+        },
+      });
+      const first = await Client.create(signer, options);
+      await first.end();
+
+      const withDefault = {
+        ...options,
+        storage: { location: "default" as const },
+      };
+      const reopened = await Client.create(signer, withDefault);
+      try {
+        expect(reopened.storagePath).toBe(realpathSync(oldPath));
+      } finally {
+        await reopened.end();
+      }
+
+      copyFileSync(oldPath, otherPath);
+      await expect(Client.create(signer, withDefault)).rejects.toThrow(
+        "More than one legacy XMTP database",
+      );
+    } finally {
+      process.chdir(previousDirectory);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("builds from a registered legacy default database", async () => {
+    const { signer, identifier } = createSigner();
+    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-build-"));
+    const previousDirectory = process.cwd();
+    process.chdir(directory);
+    try {
+      const oldPath = join(
+        directory,
+        `xmtp-local-${generateInboxId(identifier)}.db3`,
+      );
+      const options = clientOptions({
+        storage: {
+          location: {
+            dbPath: oldPath,
+            attachmentsDir: `${oldPath}.attachments`,
+          },
+        },
+      });
+      const registered = await Client.create(signer, options);
+      const inboxId = registered.inboxId;
+      await registered.end();
+
+      const built = await Client.build(
+        identifier,
+        { ...options, storage: { location: "default" } },
+        inboxId,
+      );
+      try {
+        expect(built.storagePath).toBe(realpathSync(oldPath));
+      } finally {
+        await built.end();
+      }
+    } finally {
+      process.chdir(previousDirectory);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a legacy database when a current default database also exists", async () => {
+    const { signer, identifier } = createSigner();
+    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-conflict-"));
+    const previousDirectory = process.cwd();
+    process.chdir(directory);
+    try {
+      const options = clientOptions({
+        registration: { auto: false },
+        storage: { location: "default" },
+      });
+      const current = await Client.create(signer, options);
+      const currentPath = current.storagePath;
+      await current.end();
+
+      copyFileSync(
+        currentPath,
+        join(directory, `xmtp-production-${generateInboxId(identifier)}.db3`),
+      );
+      await expect(Client.create(signer, options)).rejects.toThrow(
+        "Both legacy and current XMTP databases",
+      );
+    } finally {
+      process.chdir(previousDirectory);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("matches an omitted nonce in inbox calculation and client creation", async () => {
     const { signer, identifier } = createSigner();
     const client = await createClient(signer);
