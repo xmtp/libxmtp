@@ -28,10 +28,12 @@ async function within<T>(operation: Promise<T>, label: string): Promise<T> {
   }
 }
 
+// An all-message SQLite ACK failure is tested in local_delivery Rust tests.
+// A second SQLite connection can crash macOS WAL during the all-message worker.
 // verifies: PROC-028, PROC-040, PROC-041
-it.each(["group", "all"] as const)(
-  "ends %s callbacks on a real SQLite ACK failure and replays without a later handoff",
-  async (scope) => {
+it(
+  "ends group callbacks on a real SQLite ACK failure and replays without a later handoff",
+  async () => {
     const directory = await mkdtemp(join(tmpdir(), "xmtp-node-ack-failure-"));
     const dbPath = join(directory, "client.db3");
     const streams: MessageStream[] = [];
@@ -69,14 +71,9 @@ it.each(["group", "all"] as const)(
       database = new DatabaseSync(dbPath);
       database.exec("PRAGMA busy_timeout = 5000");
       const open = (onClose?: (reason: StreamCloseReason) => void) => {
-        const stream =
-          scope === "group"
-            ? MessageStream.openGroup(client!, group, undefined, { onClose })
-            : MessageStream.open(
-                client!,
-                { conversationKind: "group" },
-                { onClose },
-              );
+        const stream = MessageStream.openGroup(client!, group, undefined, {
+          onClose,
+        });
         streams.push(stream);
         return stream;
       };
