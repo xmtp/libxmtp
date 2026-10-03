@@ -4,6 +4,39 @@ import PreferencesStream from "../../../src/commands/preferences/stream.js";
 import { createRegisteredIdentity, runWithIdentity } from "../../helpers.js";
 
 describe("preferences stream", () => {
+  it("keeps the CLI entity types for both consent event kinds", async () => {
+    const client = {
+      events: vi.fn(async () =>
+        (async function* () {
+          yield {
+            kind: "consent.changed",
+            entityKind: "inbox",
+            entity: "inbox-1",
+            state: "allowed",
+          };
+          yield {
+            kind: "consent.changed",
+            entityKind: "conversation",
+            entity: "group-1",
+            state: "denied",
+          };
+        })(),
+      ),
+    };
+    const output = vi.fn();
+    const command = Object.assign(Object.create(PreferencesStream.prototype), {
+      parse: vi.fn(async () => ({ flags: { count: 2 } })),
+      initClient: vi.fn(async () => client),
+      streamOutput: output,
+    }) as PreferencesStream;
+
+    await command.run();
+
+    expect(
+      output.mock.calls.map(([value]) => value.updates[0].entityType),
+    ).toEqual(["inbox_id", "conversation_id"]);
+  });
+
   it("reports discarded events without claiming an HMAC update", async () => {
     const hmacKeys = vi.fn(async () => []);
     const client = {
@@ -44,6 +77,6 @@ describe("preferences stream", () => {
     );
 
     // Should exit cleanly after timeout
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, result.stderr).toBe(0);
   });
 });
