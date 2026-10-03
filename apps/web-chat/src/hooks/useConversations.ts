@@ -180,18 +180,17 @@ export const useConversations = () => {
   }, [addConversation, client]);
 
   const streamAllMessages = useCallback(async () => {
-    const onValue = (message: XmtpMessage) => {
+    const onValue = async (message: XmtpMessage) => {
       if (isReaction(message) && message.content.reference) {
-        void client.conversations
-          .getMessageById(message.content.reference)
-          .then((updatedMessage) => {
-            if (updatedMessage) {
-              void addMessage(updatedMessage.conversationId, updatedMessage);
-            }
-          });
+        const updatedMessage = await client.conversations.getMessageById(
+          message.content.reference,
+        );
+        if (updatedMessage) {
+          await addMessage(updatedMessage.conversationId, updatedMessage);
+        }
         return;
       }
-      void addMessage(message.conversationId, message);
+      await addMessage(message.conversationId, message);
     };
 
     const stream = MessageStream.open(client);
