@@ -128,3 +128,61 @@ test("a closed stream answers an iterator while a callback is held", async () =>
     await first;
   }
 });
+
+// verifies: PROC-028, PROC-040, PROC-041
+test("an acknowledgement failure ends callbacks and a new reader can replay", async () => {
+  const storageError = new Error("acknowledgement storage failure");
+  const closeReasons: unknown[] = [];
+  const received: number[] = [];
+  let reads = 0;
+  let ends = 0;
+  const failed = new ReaderStream(
+    async () => ({
+      next: async () => {
+        reads++;
+        if (reads === 1) return 1;
+        throw storageError;
+      },
+      end: async () => {
+        ends++;
+      },
+    }),
+    {},
+    { onClose: (reason) => closeReasons.push(reason) },
+  );
+
+  await expect(failed.onValue((value) => received.push(value))).rejects.toBe(
+    storageError,
+  );
+  expect(received).toEqual([1]);
+  expect(reads).toBe(2);
+  expect(ends).toBe(1);
+  expect(closeReasons).toEqual([{ kind: "failed", error: storageError }]);
+  await expect(failed.next()).rejects.toBe(storageError);
+
+  let replayReads = 0;
+  const replacement = new ReaderStream(
+    async () => ({
+      next: async () => {
+        replayReads++;
+        return replayReads <= 2 ? replayReads : undefined;
+      },
+      end: async () => undefined,
+    }),
+    {},
+  );
+  try {
+    await failed.end();
+    await expect(replacement.next()).resolves.toEqual({
+      done: false,
+      value: 1,
+    });
+    await expect(replacement.next()).resolves.toEqual({
+      done: false,
+      value: 2,
+    });
+    await expect(failed.next()).rejects.toBe(storageError);
+  } finally {
+    await replacement.end();
+  }
+});
