@@ -7,6 +7,11 @@ func require(_ value: Bool, _ message: String) throws {
     }
 }
 
+func delayNanoseconds(_ milliseconds: UInt64) throws -> UInt64 {
+    try require(milliseconds <= UInt64.max / 1_000_000, "Delay exceeds the nanosecond limit")
+    return milliseconds * 1_000_000
+}
+
 func now() -> Double {
     ProcessInfo.processInfo.systemUptime * 1000
 }

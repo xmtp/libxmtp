@@ -43,11 +43,22 @@ class StagingTests(unittest.TestCase):
     def test_failed_rebuild_preserves_prior_product_and_success_replaces_it(self):
         generated = self.root / "generated/typescript-napi"
         generated.mkdir(parents=True)
-        (generated / "sdk-contract.json").write_text(
-            json.dumps({"contract": "fixture", "generator": "fixture", "files": {}})
-        )
         (generated / "package.json").write_text('{"type":"module"}')
         (generated / "index.ts").write_text("export const marker = 'sdk';")
+        (generated / "sdk-contract.json").write_text(
+            json.dumps(
+                {
+                    "contract": "fixture",
+                    "generator": "fixture",
+                    "files": {
+                        name: hashlib.sha256(
+                            (generated / name).read_bytes()
+                        ).hexdigest()
+                        for name in ("package.json", "index.ts")
+                    },
+                }
+            )
+        )
         for name in ("core", "node"):
             self.runtime(self.root / "runtime", name)
         compiler = self.root / "compiler.mjs"
@@ -137,11 +148,22 @@ class StagingTests(unittest.TestCase):
     def test_flat_and_prebuilt_runtime_products_stage(self):
         generated = self.root / "generated/typescript-napi"
         generated.mkdir(parents=True)
-        (generated / "sdk-contract.json").write_text(
-            json.dumps({"contract": "fixture", "generator": "fixture", "files": {}})
-        )
         (generated / "package.json").write_text('{"type":"module"}')
         (generated / "index.ts").write_text("export const marker = 'sdk';")
+        (generated / "sdk-contract.json").write_text(
+            json.dumps(
+                {
+                    "contract": "fixture",
+                    "generator": "fixture",
+                    "files": {
+                        name: hashlib.sha256(
+                            (generated / name).read_bytes()
+                        ).hexdigest()
+                        for name in ("package.json", "index.ts")
+                    },
+                }
+            )
+        )
         compiler = self.root / "compiler.mjs"
         compiler.write_text(
             "import {writeFileSync} from 'node:fs';\n"

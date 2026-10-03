@@ -82,8 +82,9 @@ timer. Node also reports its process maximum RSS. Browser scope includes Vite,
 Chromium, worker, and renderer processes. Kotlin reports the Android app process
 PSS sampled every 10 ms. Build memory uses the build process tree on every host.
 These scopes must be recorded in the configuration. Do not compare RSS and PSS
-across targets. Browser records every observed main-thread task above 50 ms
-while the measurement runs; the JSON report contains counts and durations.
+across targets. Browser intersects each observed main-thread task with the exact
+operation timer window. It reports only overlaps above 50 ms. Setup and teardown
+are outside that window. The JSON report contains the window, counts and durations.
 
 ## Prepare installed inputs
 

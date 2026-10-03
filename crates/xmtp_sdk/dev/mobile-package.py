@@ -100,7 +100,30 @@ def android_environment(triple):
     env["CC_" + target] = str(cc)
     env["CXX_" + target] = str(cxx)
     env["AR_" + target] = str(ar)
-    env["RANLIB_" + target] = str(ranlib)
+    if not any(
+        name in env
+        for name in ("RANLIB_" + triple, "RANLIB_" + target, "TARGET_RANLIB")
+    ):
+        env["RANLIB_" + target] = str(ranlib)
+    openssl_prefix = target.upper() + "_OPENSSL_"
+    target_openssl = any(
+        openssl_prefix + name in env for name in ("DIR", "LIB_DIR", "INCLUDE_DIR")
+    )
+    # Use caller target paths, or build OpenSSL instead of linking host libraries.
+    env.setdefault(openssl_prefix + "NO_VENDOR", "1" if target_openssl else "0")
+    if (
+        openssl_prefix + "DIR" in env
+        and env[openssl_prefix + "NO_VENDOR"] != "0"
+        and any("OPENSSL_" + key in env for key in ("LIB_DIR", "INCLUDE_DIR"))
+    ):
+        # Keep host dependencies separate from the explicit target root.
+        host_prefix = artifacts.compiler_host().upper().replace("-", "_") + "_OPENSSL_"
+        for component in ("LIB_DIR", "INCLUDE_DIR"):
+            generic = "OPENSSL_" + component
+            if generic in env:
+                value = env.pop(generic)
+                if host_prefix != openssl_prefix:
+                    env.setdefault(host_prefix + component, value)
     return env
 
 

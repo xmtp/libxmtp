@@ -595,7 +595,21 @@ class PackagingTests(unittest.TestCase):
         )
 
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
-        names = ("CC", "CXX", "AR", "RANLIB", "CFLAGS", "CXXFLAGS", "LDFLAGS")
+        names = ("CC", "CXX", "AR", "RANLIB", "CFLAGS", "CXXFLAGS", "LDFLAGS", "PERL") + tuple(
+            prefix + "OPENSSL_" + name
+            for prefix in ("", "AARCH64_LINUX_ANDROID_")
+            for name in (
+                "DIR",
+                "LIB_DIR",
+                "INCLUDE_DIR",
+                "NO_VENDOR",
+                "STATIC",
+                "LIBS",
+                "CONFIG_DIR",
+                "SRC_PERL",
+                "RUST_USE_NASM",
+            )
+        )
         environment = {
             key: value for key, value in os.environ.items() if key not in names
         }
