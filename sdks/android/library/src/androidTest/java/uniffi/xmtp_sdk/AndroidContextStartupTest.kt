@@ -44,10 +44,14 @@ class AndroidContextStartupTest {
         val storage = client.options().storage
         assertEquals(StorageOptions(context).location, storage.location)
         assertEquals(configuration.storage.label, storage.label)
-        assertArrayEquals(configuration.storage.encryptionKey, storage.encryptionKey)
+        assertNull("public options must redact the encryption key", storage.encryptionKey)
         assertEquals(configuration.storage.pool, storage.pool)
-        val root = File(context.filesDir, "xmtp_db/${configuration.storage.label}").canonicalPath
-        assertTrue(checkNotNull(client.storage().path()).startsWith(root + File.separator))
+        val root = File(context.filesDir, "xmtp_db").canonicalPath
+        val path = File(checkNotNull(client.storage().path())).canonicalPath
+        assertTrue("database must stay under the app storage root", path.startsWith(root + File.separator))
+        val salt = File("$path.sqlcipher_salt")
+        assertTrue("configured SQLCipher storage must have its salt file", salt.isFile)
+        assertEquals("SQLCipher salt size", 32L, salt.length())
     }
 
     @Test fun firstContextCreateWaitsForMainLifecycleRegistration() =
