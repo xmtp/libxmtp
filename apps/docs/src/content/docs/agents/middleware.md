@@ -26,9 +26,9 @@ Error middleware can be registered with `agent.errors.use` either one at a time 
 
 Error middleware receives the `error`, `ctx`, and a `next` function. Just like regular middleware, the flow in error middleware depends on how to use `next`:
 
-| Action               | Result                                                           |
-| -------------------- | ---------------------------------------------------------------- |
-| `await next()`       | Mark the error handled and continue the main chain               |
-| `await next(error)`  | Send an error to the next error handler                          |
-| `return`             | Stop the current reader without acknowledging the failed message |
-| `throw error`        | Send a new error through the error chain                         |
+| Action              | Result                                                           |
+| ------------------- | ---------------------------------------------------------------- |
+| `await next()`      | Mark the error handled and continue the main chain               |
+| `await next(error)` | Send an error to the next error handler                          |
+| `return`            | Stop the current reader without acknowledging the failed message |
+| `throw error`       | Send a new error through the error chain                         |

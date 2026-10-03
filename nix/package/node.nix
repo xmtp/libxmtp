@@ -25,6 +25,7 @@ let
     .${target};
   addon = "uniffi-runtime-napi.${napiTarget}.node";
   library = if stdenv.hostPlatform.isDarwin then "libxmtp_sdk.dylib" else "libxmtp_sdk.so";
+  cctools = buildPackages.darwin.cctools.out;
 in
 runCommand "xmtp-sdk-node-${napiTarget}"
   {
@@ -35,7 +36,7 @@ runCommand "xmtp-sdk-node-${napiTarget}"
     ++ lib.optionals stdenv.hostPlatform.isDarwin [
       darwin.autoSignDarwinBinariesHook
       # The spliced cctools default is dev; otool is in out.
-      buildPackages.darwin.cctools.out
+      cctools
     ];
   }
   (
@@ -56,23 +57,25 @@ runCommand "xmtp-sdk-node-${napiTarget}"
       patchelf --remove-rpath "$out/runtime/${addon}"
     ''
     + lib.optionalString stdenv.hostPlatform.isDarwin ''
+      otool=${cctools}/bin/otool
+      install_name_tool=${cctools}/bin/install_name_tool
       for binary in "$out/lib/${library}" "$out/runtime/${addon}"; do
-        if otool -l "$binary" | awk '/cmd LC_ID_DYLIB/ { found=1 } END { exit !found }'; then
-          install_name_tool -id "@loader_path/$(basename "$binary")" "$binary"
+        if "$otool" -l "$binary" | awk '/cmd LC_ID_DYLIB/ { found=1 } END { exit !found }'; then
+          "$install_name_tool" -id "@loader_path/$(basename "$binary")" "$binary"
         fi
-        otool -L "$binary" \
+        "$otool" -L "$binary" \
           | awk 'NR > 1 && $1 ~ /^\/nix\/store\/.*\/libiconv(\.[0-9]+)*\.dylib$/ { print $1 }' \
           | while read -r old; do
-            install_name_tool -change "$old" "/usr/lib/$(basename "$old")" "$binary"
+            "$install_name_tool" -change "$old" "/usr/lib/$(basename "$old")" "$binary"
           done
-        otool -l "$binary" \
+        "$otool" -l "$binary" \
           | awk '/cmd LC_RPATH/ { rpath=1; next } rpath && $1 == "path" { if ($2 ~ /^\/nix\/store\//) print $2; rpath=0 }' \
           | while read -r old; do
-            install_name_tool -delete_rpath "$old" "$binary"
+            "$install_name_tool" -delete_rpath "$old" "$binary"
           done
         sign "$binary"
-        remaining=$(otool -L "$binary" | awk 'NR > 1 && $1 ~ /^\/nix\/store\// { print $1 }')
-        rpaths=$(otool -l "$binary" | awk '/cmd LC_RPATH/ { rpath=1; next } rpath && $1 == "path" { if ($2 ~ /^\/nix\/store\//) print $2; rpath=0 }')
+        remaining=$("$otool" -L "$binary" | awk 'NR > 1 && $1 ~ /^\/nix\/store\// { print $1 }')
+        rpaths=$("$otool" -l "$binary" | awk '/cmd LC_RPATH/ { rpath=1; next } rpath && $1 == "path" { if ($2 ~ /^\/nix\/store\//) print $2; rpath=0 }')
         if [ -n "$remaining$rpaths" ]; then
           echo "error: $binary retains a Nix load path or rpath" >&2
           exit 1
