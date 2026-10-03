@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => {
   return {
     StorageBusy,
     create: vi.fn(),
+    inboxIdFor: vi.fn().mockResolvedValue("registered-inbox-id"),
+    listFiles: vi.fn().mockResolvedValue([]),
+    endAdmin: vi.fn().mockResolvedValue(undefined),
     releaseLock: vi.fn(),
     acquireLock: vi.fn(() => true),
     reset: vi.fn(),
@@ -16,7 +19,11 @@ const mocks = vi.hoisted(() => {
   };
 });
 vi.mock("@xmtp/browser-sdk", () => ({
-  Client: { create: mocks.create },
+  Client: { create: mocks.create, inboxIdFor: mocks.inboxIdFor },
+  Storage: {
+    admin: () =>
+      Promise.resolve({ listFiles: mocks.listFiles, end: mocks.endAdmin }),
+  },
   initLogging: vi.fn(),
   XmtpError: { StorageBusy: mocks.StorageBusy },
 }));
@@ -37,6 +44,90 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mocks.lockLost = null;
+});
+
+it("opens the matching old Browser database when it exists", async () => {
+  const identity = { identifier: "0x1234", kind: "ethereum" };
+  const signer = { identity: vi.fn().mockResolvedValue(identity) };
+  mocks.listFiles.mockResolvedValueOnce([
+    "xmtp-test-someone-else.db3",
+    "xmtp-test-registered-inbox-id.db3",
+  ]);
+  mocks.create.mockResolvedValueOnce({ end: vi.fn() });
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+
+  await act(async () => {
+    await result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: signer as never,
+    });
+  });
+
+  expect(mocks.inboxIdFor).toHaveBeenCalledWith(identity, {
+    url: "https://example.com",
+    credentials: undefined,
+    appVersion: "xmtp.chat/0",
+  });
+  expect(mocks.create).toHaveBeenCalledWith(
+    signer,
+    expect.objectContaining({
+      storage: {
+        location: {
+          dbPath: "xmtp-test-registered-inbox-id.db3",
+          attachmentsDir: "xmtp-test-registered-inbox-id.db3.attachments",
+        },
+        label: "test",
+      },
+    }),
+  );
+  expect(mocks.endAdmin).toHaveBeenCalledTimes(1);
+});
+
+it("does not open another inbox's old Browser database", async () => {
+  const signer = {
+    identity: vi.fn().mockResolvedValue({
+      identifier: "0x1234",
+      kind: "ethereum",
+    }),
+  };
+  mocks.listFiles.mockResolvedValueOnce(["xmtp-test-other-inbox.db3"]);
+  mocks.create.mockResolvedValueOnce({ end: vi.fn() });
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+
+  await act(async () => {
+    await result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: signer as never,
+    });
+  });
+
+  expect(mocks.create).toHaveBeenCalledWith(
+    signer,
+    expect.objectContaining({
+      storage: { location: "default", label: "test" },
+    }),
+  );
+});
+
+it("stops initialization when the old database check fails", async () => {
+  mocks.listFiles.mockRejectedValueOnce(new Error("Storage check failed"));
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+
+  await act(async () => {
+    await expect(
+      result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      }),
+    ).rejects.toThrow("Storage check failed");
+  });
+
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.endAdmin).toHaveBeenCalledTimes(1);
+  expect(mocks.releaseLock).toHaveBeenCalledTimes(1);
 });
 
 it("shows a second-tab storage error and releases the app lock", async () => {

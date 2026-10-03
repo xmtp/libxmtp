@@ -1,8 +1,11 @@
 import {
   Client,
+  Storage,
+  type BackendSource,
   type CredentialSource,
   type LogLevel,
   initLogging,
+  type StorageLocation,
   XmtpError,
   type Signer,
 } from "@xmtp/browser-sdk";
@@ -18,6 +21,31 @@ import {
 import { backendLabel } from "@/helpers/backend";
 import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
 import { useActions } from "@/stores/inbox/hooks";
+
+const storageLocation = async (
+  signer: Signer,
+  backend: BackendSource,
+  label: string,
+): Promise<StorageLocation> => {
+  const admin = await Storage.admin();
+  let files: string[];
+  try {
+    files = await admin.listFiles();
+  } finally {
+    await admin.end();
+  }
+
+  // Version 7 kept its database at the OPFS pool root.
+  const prefix = `xmtp-${label}-`;
+  if (!files.some((path) => path.startsWith(prefix) && path.endsWith(".db3"))) {
+    return "default";
+  }
+  const inboxId = await Client.inboxIdFor(await signer.identity(), backend);
+  const dbPath = `${prefix}${inboxId}.db3`;
+  return files.includes(dbPath)
+    ? { dbPath, attachmentsDir: `${dbPath}.attachments` }
+    : "default";
+};
 
 export type InitializeClientOptions = {
   authCallback?: CredentialSource;
@@ -126,15 +154,18 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
         try {
           // create a new XMTP client
           await initLogging({ level: loggingLevel ?? "warn" });
+          const backend = {
+            url: backendUrl,
+            credentials: authCallback,
+            appVersion: "xmtp.chat/0",
+          };
+          const label = env ?? (await backendLabel(backendUrl));
+          const location = await storageLocation(signer, backend, label);
           xmtpClient = await Client.create(signer, {
-            backend: {
-              url: backendUrl,
-              credentials: authCallback,
-              appVersion: "xmtp.chat/0",
-            },
+            backend,
             storage: {
-              location: "default",
-              label: env ?? (await backendLabel(backendUrl)),
+              location,
+              label,
             },
           });
           setClientSigner(signer);
