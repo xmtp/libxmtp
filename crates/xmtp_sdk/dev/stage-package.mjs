@@ -20,6 +20,8 @@ import {
 import { dirname, join, resolve, relative, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { checkGeneratedAssets } from "./check-generated-assets.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = resolve(
   process.env.XMTP_SDK_GENERATED_DIR ?? "target/sdk-generated",
@@ -59,10 +61,7 @@ function files(directory) {
   });
 }
 for (let i = 0; i < trees.length; i++) {
-  for (const [path, expected] of Object.entries(contracts[i].files)) {
-    if (hash(join(generated, trees[i], path)) !== expected)
-      throw new Error(`SDK generated asset mismatch: ${path}`);
-  }
+  checkGeneratedAssets(generated, trees[i], contracts[i]);
 }
 mkdirSync(output, { recursive: true });
 const staging = mkdtempSync(join(output, ".sdk-stage-"));
@@ -245,10 +244,19 @@ try {
   };
   if (sourceManifest) {
     for (const field of [
-      "name", "version", "description", "keywords", "homepage", "bugs",
-      "license", "author", "repository", "publishConfig",
+      "name",
+      "version",
+      "description",
+      "keywords",
+      "homepage",
+      "bugs",
+      "license",
+      "author",
+      "repository",
+      "publishConfig",
     ]) {
-      if (sourceManifest[field] !== undefined) manifest[field] = sourceManifest[field];
+      if (sourceManifest[field] !== undefined)
+        manifest[field] = sourceManifest[field];
     }
     delete manifest.private;
     manifest.main = "./entry.js";

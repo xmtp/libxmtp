@@ -3422,6 +3422,15 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `StreamValueMutator` | type | `StreamValueMutator` | static runtime | 5, stream adapters; 11.4 Node, Conversations | Source: `sdks/browser/src/utils/streams.ts`. |
 | `func createStream` | free function | — | approved removal | 11.4 Node, Conversations | Stream retry knobs leave the public API. Source: `sdks/browser/src/utils/streams.ts`. |
 
+## Switched SDK source inventory
+
+The SDK tables above keep the approved pre-switch retention ledger. Its source baseline is `86ab172`. The counts below describe the current public projection. These counts do not replace the retention decisions.
+
+| SDK | Source family | Current declarations | Status |
+| --- | --- | ---: | --- |
+| Browser | TypeScript root export names | 221 | current generated public product |
+| Browser | TypeScript /pure root export names | 75 | current generated public product |
+
 ## Open items
 
 136 exports need a design decision. Their proposed status appears in the SDK table.
