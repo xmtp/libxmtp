@@ -121,8 +121,19 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
     const current = clientRef.current;
     if (current) {
       clientRef.current = undefined;
+      let dbPath: string | undefined;
+      try {
+        dbPath = await current.storage.path();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause : new Error(String(cause)));
+      }
       try {
         await current.end();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause : new Error(String(cause)));
+      }
+      try {
+        await removeAttachmentDirectory(dbPath);
       } catch (cause) {
         setError(cause instanceof Error ? cause : new Error(String(cause)));
       } finally {

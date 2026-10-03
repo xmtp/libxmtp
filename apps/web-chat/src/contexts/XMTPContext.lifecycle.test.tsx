@@ -275,7 +275,10 @@ it("removes old local attachment files when the user disconnects", async () => {
 
 it("disconnects and reports a failed SDK end after lock loss", async () => {
   const end = vi.fn().mockRejectedValueOnce(new Error("Shutdown failed"));
-  mocks.create.mockResolvedValueOnce({ end });
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => undefined },
+    end,
+  });
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
   await act(async () => {
     await result.current.initialize({
@@ -289,6 +292,42 @@ it("disconnects and reports a failed SDK end after lock loss", async () => {
   expect(result.current.error?.message).toBe("Shutdown failed");
   expect(mocks.reset).toHaveBeenCalledTimes(1);
   expect(mocks.releaseLock).not.toHaveBeenCalled();
+});
+
+it("removes old local attachment files after lock loss", async () => {
+  const deployment = `lock-loss-${crypto.randomUUID()}`;
+  const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const path = await backend.getDirectoryHandle(deployment, { create: true });
+  const inbox = await path.getDirectoryHandle("inbox", { create: true });
+  await inbox.getDirectoryHandle("attachments", { create: true });
+  const end = vi.fn(async () => {});
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => dbPath },
+    end,
+  });
+  try {
+    const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    act(() => mocks.lockLost?.());
+    await waitFor(() => expect(result.current.client).toBeUndefined());
+    expect(end).toHaveBeenCalledOnce();
+    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
+      {
+        name: "NotFoundError",
+      },
+    );
+  } finally {
+    await backend.removeEntry(deployment, { recursive: true });
+  }
 });
 
 it("ends a client created after another tab takes the app lock", async () => {
