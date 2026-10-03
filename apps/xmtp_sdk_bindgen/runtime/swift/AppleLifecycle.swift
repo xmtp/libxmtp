@@ -43,6 +43,7 @@ final class StreamLifecycleManager: @unchecked Sendable {
     func enableIfNeeded() async {
         await MainActor.run { registerIfNeeded() }
         await currentReconciliation()?.value
+        await restartReconciliationIfNeeded()?.value
     }
 
     @MainActor
@@ -127,6 +128,17 @@ final class StreamLifecycleManager: @unchecked Sendable {
     private func currentReconciliation() -> Task<Void, Never>? {
         lock.lock()
         defer { lock.unlock() }
+        return reconciliation
+    }
+
+    /// Retry a failed operation before client use. Keep the current lifecycle state.
+    private func restartReconciliationIfNeeded() -> Task<Void, Never>? {
+        lock.lock()
+        defer { lock.unlock() }
+        if !isReconciling && desiredLive != appliedLive {
+            isReconciling = true
+            reconciliation = Task { await reconcile() }
+        }
         return reconciliation
     }
 

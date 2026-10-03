@@ -47,20 +47,20 @@ struct ContentView: View {
 			do {
 				let persistence = Persistence()
 				if reopen {
-					guard let key = persistence.loadKeys(), let address = persistence.loadAddress() else {
+					guard let account = try persistence.loadAccount() else {
 						error = "No saved keys"
 						return
 					}
 					client = try await SDKClient.build(
-						identity: PublicIdentity(identifier: address, kind: .ethereum),
-						options: exampleOptions(key: key),
+						identity: PublicIdentity(identifier: account.address, kind: .ethereum),
+						options: exampleOptions(key: account.databaseKey),
 					)
 				} else {
 					let signer = await generateLocalSigner()
 					let key = try secureRandomBytes(count: 32)
+					let identity = try await signer.identity()
+					try persistence.saveAccount(Persistence.Account(databaseKey: key, address: identity.identifier))
 					let created = try await SDKClient.create(signer: signer, options: exampleOptions(key: key))
-					persistence.saveKeys(key)
-					persistence.saveAddress(created.identity().identifier)
 					client = created
 				}
 				error = nil

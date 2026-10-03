@@ -17,11 +17,11 @@ When you call `Client.create()`, the following steps happen under the hood:
 
 ### Keep the database encryption key safe
 
-Generate a secure 32-byte encryption key and store it so the app can use the same key on every launch. If the key changes or is lost, the client creates a new installation and cannot read the former local database.
+Generate a secure 32-byte encryption key and store it so the app can use the same key on every launch. If the key changes or is lost, the client cannot read the former encrypted database. Keep the same key when reopening it.
 
 ### The database is the installation
 
-`dbEncryptionKey` and the database path decide whether a client reopens its installation. If either changes, the client creates a new installation without reporting that the old installation was replaced. The new installation needs a signature and counts against the limit of 10.
+The database key and path select the stored installation. A different path can select a new database. In Swift, the wrong key fails to open an existing encrypted database with a typed storage error. It does not replace the stored key. A new installation needs a signature and counts against the limit of 10.
 
 Store the key and path as durable app state. Keep the same `env` value because it selects the default file name. An agent deployment must mount durable storage for `XMTP_DB_DIRECTORY`.
 

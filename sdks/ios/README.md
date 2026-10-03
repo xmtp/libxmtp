@@ -46,8 +46,10 @@ func connect(signer: any Signer, databaseKey: Data) async throws {
 Default storage uses the app's Application Support directory and bundle ID.
 Store the database key in the Keychain. Use the same key to open the database
 again. If `encryptionKey` is absent, native storage is unencrypted. Do not write
-the key to logs. The simple example makes a new signer and
-database key for each login. It does not reopen a saved account.
+the key to logs. The simple example stores its signer and database key in the
+Keychain before it opens the database. Later logins reuse those keys. The larger
+example stores its database key and address before it creates a client. It can
+reopen the saved account. A Keychain read or write error stops the connection.
 Use `.directory` or `.explicit` when the app selects its own path. Use
 `.inMemory` for a temporary client. Call `end()` when the app releases a client.
 Automatic Apple lifecycle management is on by default. It suspends live streams
