@@ -15,6 +15,11 @@ let
   rust = xmtp.craneLib.overrideToolchain (p: xmtp.mkToolchain p [ target ] [ ]);
   isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
   buildTarget = target + lib.optionalString isGnu ".2.27";
+  gnuBuildEnv = lib.optionalString isGnu ''
+    export CONFIG_SITE="''${CONFIG_SITE:+$CONFIG_SITE }${./libffi-zig-cross.site}"
+    export CARGO_ZIGBUILD_CACHE_DIR="$TMPDIR/cargo-zigbuild"
+    export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global"
+  '';
   dummySrc = rust.mkDummySrc {
     src = ubrnSrc;
     cargoLock = ubrnSrc + /Cargo.lock;
@@ -34,7 +39,7 @@ let
     cargoExtraArgs = "--locked -p uniffi-runtime-napi --lib --target ${target}";
     CARGO_BUILD_TARGET = buildTarget;
     buildPhaseCargoCommand =
-      lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global "
+      gnuBuildEnv
       + "cargo ${
         if isGnu then "zigbuild" else "build"
       } --release --locked -p uniffi-runtime-napi --lib --target ${buildTarget}";

@@ -1,0 +1,5 @@
+# Zig can emit an older glibc binary for the host CPU. Nix cannot run that
+# binary in the build sandbox. Treat this libffi configure run as a cross build.
+case "$ac_pwd" in
+  */libffi-build | */libffi-build/*) cross_compiling=maybe ;;
+esac
