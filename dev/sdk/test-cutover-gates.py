@@ -2,6 +2,8 @@
 """Keep the retention ledger and each unswitched source guard effective."""
 
 import importlib.util
+import os
+from unittest.mock import patch
 from pathlib import Path
 import shutil
 import subprocess
@@ -100,6 +102,26 @@ class CutoverGates(unittest.TestCase):
         )
         self.assertNotEqual(module.build(), built)
         self.assertIn(module.ledger_section(ledger, "Swift"), built)
+
+    def test_browser_inventory_requires_own_main_and_pure_roots(self):
+        module = self.inventory()
+        generated = self.root / "own-generated"
+        worker = generated / "typescript-wasm/index.ts"
+        pure = generated / "typescript-pure/index.ts"
+        worker.parent.mkdir(parents=True)
+        pure.parent.mkdir(parents=True)
+        worker.write_text("export { Client, Message, Timestamp };\n")
+        pure.write_text("export { Timestamp, generateInboxId, initPureWasm };\n")
+        with patch.dict(os.environ, {"XMTP_SDK_GENERATED_DIR": str(generated)}):
+            rows = module.switched_source_rows({"Browser"})
+            self.assertEqual(len(rows), 2)
+            self.assertIn("/pure root export names | 3 |", rows[1])
+            pure.unlink()
+            with self.assertRaisesRegex(ValueError, "missing current pure projection"):
+                module.switched_source_rows({"Browser"})
+            pure.write_text("export { Timestamp };\n")
+            with self.assertRaisesRegex(ValueError, "pure root misses retained exports"):
+                module.switched_source_rows({"Browser"})
 
     def test_isolation_admits_only_the_switched_sdk(self):
         for source in (

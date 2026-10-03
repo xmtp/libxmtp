@@ -772,10 +772,16 @@ def ts_inventory(sdk: str) -> list[Entry]:
     return list(by_name.values())
 
 
-try:
-    from dev.sdk.manifest_rules import Decision, classify, client_placement, decision
-except ModuleNotFoundError:
-    from manifest_rules import Decision, classify, client_placement, decision
+rules_spec = importlib.util.spec_from_file_location(
+    "sdk_inventory_rules", ROOT / "dev/sdk/manifest_rules.py"
+)
+rules = importlib.util.module_from_spec(rules_spec)
+sys.modules[rules_spec.name] = rules
+rules_spec.loader.exec_module(rules)
+Decision = rules.Decision
+classify = rules.classify
+client_placement = rules.client_placement
+decision = rules.decision
 
 
 def markdown_cell(value: str) -> str:
@@ -1063,6 +1069,21 @@ def switched_source_rows(switched: set[str]) -> list[str]:
         rows.append(
             f"| {sdk} | {family} | {count} | current generated public product |"
         )
+        if sdk == "Browser":
+            pure = generated / "typescript-pure/index.ts"
+            if not pure.is_file():
+                raise ValueError(f"Browser: missing current pure projection {pure}")
+            exports = {
+                part.strip().split(" as ")[-1].removeprefix("type ")
+                for group in re.findall(r"export (?:type )?\{([^}]+)\}", pure.read_text())
+                for part in group.split(",")
+                if part.strip()
+            }
+            if not {"Timestamp", "generateInboxId", "initPureWasm"}.issubset(exports):
+                raise ValueError("Browser: current pure root misses retained exports")
+            rows.append(
+                f"| Browser | TypeScript /pure root export names | {len(exports)} | current generated public product |"
+            )
     return rows
 
 
