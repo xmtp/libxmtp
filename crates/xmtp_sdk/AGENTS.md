@@ -194,9 +194,10 @@ Package review checks:
   Windows browser asset paths, default mobile features, all four NDK compiler targets and archive index tools,
   caller archive-tool policies, target OpenSSL paths and policy, cache inputs, and both flat and prebuilt runtime
   directory layouts.
-  Explicit target OpenSSL roots keep upstream library-directory selection. Host
-  library and header paths use the selected compiler's host-qualified variables
-  in the Android and iOS child environments. Both mobile routes build target
+  Explicit target OpenSSL paths keep upstream library-directory selection.
+  Generic host roots, library paths and header paths use the selected compiler's
+  host-qualified variables in the Android and iOS child environments. A policy-only
+  override keeps generic paths. Both mobile routes build target
   OpenSSL by default. Explicit target paths and policies stay intact. Parent
   inputs stay intact.
 - Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`

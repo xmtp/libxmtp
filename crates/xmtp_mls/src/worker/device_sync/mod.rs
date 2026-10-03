@@ -272,10 +272,10 @@ where
     /// Sends a device sync message.
     /// If the `group_id` is `None`, the message will be sent
     /// to the primary sync group ID.
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = self.context.inbox_id()), skip(self, content)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
-        tracing::instrument(level = "trace", skip(self))
+        tracing::instrument(level = "trace", skip(self, content))
     )]
     // implements: SYNC-004
     async fn send_device_sync_message(
@@ -285,8 +285,7 @@ where
         let sync_group = self.get_sync_group().await?;
 
         let msg = format!(
-            "[{}] Sending sync message to group {:?}",
-            self.context.installation_id(),
+            "Sending sync message to group {:?}",
             xmtp_common::fmt::debug_hex(sync_group.group_id)
         );
         tracing::info!("{}", msg.yellow());
@@ -350,11 +349,7 @@ where
                     GroupMetadataOptions::default(),
                     None,
                 )?;
-                tracing::info!(
-                    "[{}] Creating sync group: {}",
-                    hex::encode(self.context.installation_id()),
-                    hex::encode(sync_group.group_id)
-                );
+                tracing::info!("Creating sync group: {}", hex::encode(sync_group.group_id));
                 if let Err(inline_err) = sync_group.add_missing_installations().await {
                     // The group row is already persisted, so this add is never
                     // re-attempted (later calls take the `Some` branch) — arm
