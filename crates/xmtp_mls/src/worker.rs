@@ -615,6 +615,7 @@ mod disconnect_propagation_tests {
             reason: BarrierFailure::Blocked,
             unfinished: vec![BarrierTopic {
                 topic: Topic::new_group_message([1; 32]),
+                scope_generation: None,
                 target: Some(Cursor(3)),
                 received: Cursor(2),
                 processed: Cursor(1),

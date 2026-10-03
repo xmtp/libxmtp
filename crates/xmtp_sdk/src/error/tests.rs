@@ -1,5 +1,64 @@
 use super::{ErrorCategory, XmtpError};
 
+#[xmtp_common::test(unwrap_try = true)]
+fn metadata_character_limits_are_invalid_arguments() {
+    use xmtp_mls::{builder::ClientBuilderError, client::ClientError, groups::GroupError};
+
+    for length in [0, 1, 1024, usize::MAX] {
+        let core = || GroupError::TooManyCharacters { length };
+        let expected_message = core().to_string();
+        for error in [
+            XmtpError::from_core(core()),
+            XmtpError::from_group(core()),
+            XmtpError::from_group_write(core()),
+            XmtpError::from_core(ClientError::Group(Box::new(core()))),
+            XmtpError::from_core(ClientBuilderError::GroupError(Box::new(core()))),
+        ] {
+            let XmtpError::InvalidArgument(details) = error else {
+                panic!("expected InvalidArgument, got {error:?}");
+            };
+            assert_eq!(details.code, "InvalidArgument");
+            assert!(matches!(details.category, ErrorCategory::Input));
+            assert!(!details.retryable);
+            assert_eq!(details.message, expected_message);
+            assert!(details.stream_failure.is_none());
+        }
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn invalid_backend_requests_are_invalid_arguments() {
+    use xmtp_api::ApiError;
+    use xmtp_mls::{client::ClientError, groups::GroupError};
+
+    for field in ["inbox id", "empty publish unit", "query limit"] {
+        let core = || ApiError::InvalidRequest(field);
+        let expected_message = core().to_string();
+        for error in [
+            XmtpError::from_api(core()),
+            XmtpError::api_cause(&core()),
+            XmtpError::from_group(GroupError::WrappedApi(core())),
+            XmtpError::from_group_write(GroupError::WrappedApi(core())),
+            XmtpError::from_core(ClientError::Group(Box::new(GroupError::WrappedApi(core())))),
+        ] {
+            let XmtpError::InvalidArgument(details) = error else {
+                panic!("expected InvalidArgument, got {error:?}");
+            };
+            assert_eq!(details.code, "InvalidArgument");
+            assert!(matches!(details.category, ErrorCategory::Input));
+            assert!(!details.retryable);
+            assert_eq!(details.message, expected_message);
+            assert!(details.stream_failure.is_none());
+        }
+    }
+    let XmtpError::Unknown(details) = XmtpError::from_api(ApiError::InvalidResponse("inbox id"))
+    else {
+        panic!("response failures must keep their current category");
+    };
+    assert!(matches!(details.category, ErrorCategory::Network));
+    assert!(!details.retryable);
+}
+
 /// A write keeps the credential recovery hint.
 /// Storage and unknown transport failures do not permit a whole-call retry.
 // verifies: AUTH-026

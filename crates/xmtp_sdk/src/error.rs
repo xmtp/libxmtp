@@ -26,6 +26,9 @@ pub struct ErrorDetails {
     pub category: ErrorCategory,
     pub retryable: bool,
     pub message: String,
+    /// Fixed processing obligations that the operation did not complete.
+    #[uniffi(default = None)]
+    pub stream_failure: Option<StreamFailureDetails>,
 }
 
 /// Errors returned by the SDK façade.
@@ -166,6 +169,7 @@ impl XmtpError {
             category,
             retryable,
             message: message.into(),
+            stream_failure: None,
         }
     }
 
@@ -175,6 +179,7 @@ impl XmtpError {
             category: ErrorCategory::Input,
             retryable: false,
             message: message.into(),
+            stream_failure: None,
         })
     }
 
@@ -234,6 +239,7 @@ impl XmtpError {
             category: ErrorCategory::Lifecycle,
             retryable: false,
             message: "client is closed".into(),
+            stream_failure: None,
         })
     }
 
@@ -252,6 +258,7 @@ impl XmtpError {
             category: ErrorCategory::Storage,
             retryable: false,
             message: "the host must resolve the default storage location".into(),
+            stream_failure: None,
         })
     }
 
@@ -311,13 +318,16 @@ impl XmtpError {
             category: ErrorCategory::Unknown,
             retryable: false,
             message: error.to_string(),
+            stream_failure: None,
         })
     }
 
     /// Map a core failure to the public code of its recovery action.
     // implements: CONF-064
     pub(crate) fn from_core<E: CoreError>(error: E) -> Self {
-        Self::classify(&error).unwrap_or_else(|| Self::unclassified(&error))
+        Self::classify(&error)
+            .unwrap_or_else(|| Self::unclassified(&error))
+            .with_stream_failure(&error)
     }
 
     /// `Unknown` keeps the retry policy of a typed core error; with none, it
@@ -401,6 +411,9 @@ impl XmtpError {
             return match group {
                 GroupError::MetadataField(field) => Some(Self::from_field(field)),
                 GroupError::ComponentSource(source) => Some(Self::from_component_source(source)),
+                GroupError::TooManyCharacters { .. } => {
+                    Some(Self::invalid_argument(group.to_string()))
+                }
                 GroupError::ReservedTranscriptContentType => {
                     Some(Self::InvalidInput(Self::details(
                         "ReservedTranscriptContentType",
@@ -523,6 +536,7 @@ impl XmtpError {
         match api {
             xmtp_api::ApiError::Auth(auth) => Self::from_auth(*auth),
             xmtp_api::ApiError::Preflight(preflight) => Self::preflight_cause(preflight),
+            xmtp_api::ApiError::InvalidRequest(_) => Self::invalid_argument(api.to_string()),
             other => Self::classify_sources(other).unwrap_or_else(|| {
                 Self::Unknown(Self::details(
                     "Unknown",
@@ -618,6 +632,7 @@ impl XmtpError {
             category: ErrorCategory::Callback,
             retryable: false,
             message: "signer callback failed".into(),
+            stream_failure: None,
         })
     }
 
@@ -685,7 +700,7 @@ impl XmtpError {
     }
 
     pub(crate) fn from_api(error: xmtp_api::ApiError) -> Self {
-        Self::api_cause(&error)
+        Self::api_cause(&error).with_stream_failure(&error)
     }
 
     pub(crate) fn from_builder(error: xmtp_mls::builder::ClientBuilderError) -> Self {
@@ -699,7 +714,9 @@ impl XmtpError {
     /// Core's retry hint is for its own sync loop, not a promise that
     /// repeating the call is safe.
     pub(crate) fn from_group(error: xmtp_mls::groups::GroupError) -> Self {
-        Self::classify(&error).unwrap_or_else(|| Self::unknown(error))
+        Self::classify(&error)
+            .unwrap_or_else(|| Self::unknown(&error))
+            .with_stream_failure(&error)
     }
 
     /// Maps a group error from a send or commit. The message or intent may
@@ -909,13 +926,17 @@ impl XmtpError {
                 ErrorCategory::Conversation,
                 source.is_retryable(),
                 source.to_string(),
-            )),
+            ))
+            .with_stream_failure(&source),
         }
     }
 }
 
 // Keep exported module paths stable for generated bindings.
 include!("error/attachment.rs");
+include!("error/stream_failure.rs");
 
+#[cfg(test)]
+mod stream_failure_tests;
 #[cfg(test)]
 mod tests;

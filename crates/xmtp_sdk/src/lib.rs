@@ -124,7 +124,8 @@ pub use delivery::{ConnectionState, ConversationReader, MessageHistorySnapshot, 
 pub use diagnostics::{ApiStats, Diagnostics, IdentityStats};
 pub use error::{
     AttachmentFailure, AttachmentFailureCause, CredentialFailureKind, ErrorCategory, ErrorDetails,
-    XmtpError,
+    StreamBarrierCause, StreamBarrierCauseKind, StreamBarrierFailure, StreamBarrierReason,
+    StreamBarrierTopic, StreamFailureDetails, StreamFailureKind, StreamFailureSummary, XmtpError,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use events::{
