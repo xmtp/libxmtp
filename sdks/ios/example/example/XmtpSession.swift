@@ -65,7 +65,7 @@ class XmtpSession {
 				return []
 			}
 			if let c = try await client.conversations().getById(id: conversationId) {
-				return try await c.messages(options: nil) // TODO: paging etc.
+				return try await c.messages(options: ListMessagesOptions(limit: 10)) // TODO: paging etc.
 			}
 			return []
 		}
