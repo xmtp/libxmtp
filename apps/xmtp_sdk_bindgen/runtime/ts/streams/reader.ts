@@ -51,6 +51,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   #pending?: AbortController;
   #closed = false;
   #reads: Promise<void> = Promise.resolve();
+  #consumer?: "iterator" | "callback";
   #closeReason?: StreamCloseReason;
   #closing?: Promise<void>;
   readonly #abortListener = () => void this.return().catch(reportCallbackError);
@@ -182,6 +183,15 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
    * second read must not start while the first value has not reached the app.
    */
   next(): Promise<IteratorResult<T>> {
+    if (!this.#closed) {
+      if (this.#consumer === "callback")
+        return Promise.reject(new Error("reader callback consumer is active"));
+      this.#consumer = "iterator";
+    }
+    return this.#next();
+  }
+
+  #next(): Promise<IteratorResult<T>> {
     // A closed stream answers at once. It does not wait for a read that is
     // still ending its reader.
     const result = Promise.race([this.#reads, this.#stopped]).then(() =>
@@ -225,9 +235,14 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
 
   /** Resolve after the callback; the next read then acknowledges this value. */
   async onValue(callback: (value: T) => void | Promise<void>): Promise<void> {
+    if (this.#consumer === "iterator")
+      throw new Error("reader iterator consumer is active");
+    if (this.#consumer === "callback")
+      throw new Error("reader callback consumer is active");
+    this.#consumer = "callback";
     try {
       for (;;) {
-        const item = await this.next();
+        const item = await this.#next();
         if (item.done) return;
         await callback(item.value);
       }

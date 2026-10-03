@@ -9,6 +9,9 @@ Run commands from the repository root in the Nix shell. Run
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
   the worker, the benchmark, and transport tests import it.
+- `dev/nix-shell 'just sdk check-package-scripts'` runs the normal packaging controls.
+  Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
+  which the main packaging suite loads as inherited test methods.
 - `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
   the checkout source identity with the generated and native Nix source filters.
   It does not compile a product.

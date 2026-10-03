@@ -35,3 +35,5 @@ NIX_DEVSHELL=ios dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && swi
 - `messageReader(from: cursor)` opens independent replay. `messageHistorySnapshot` returns messages and a cursor from one database snapshot. Each delivered message has a typed `deliveryCursor`.
 - Readers expose scope and filter updates, catch-up snapshots, and change waits. Catch-up keeps the current generation and at most one previous generation.
 - Read `error.streamFailureDetails` for typed barrier, publish-confirmation, and catch-up failures. A nil target means capture failed; zero is a captured empty target. All cursors and counts remain `UInt64` values.
+
+The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.

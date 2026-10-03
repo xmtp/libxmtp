@@ -116,11 +116,9 @@ impl Client {
                     if require_stored_identity && stored.is_none() {
                         return Err(XmtpError::identity_not_found());
                     }
-                    // A caller's inbox ID wins, and the core build rejects a
-                    // database of another inbox.
-                    if inbox_id.is_none() {
-                        stored_inbox = stored;
-                    }
+                    // Keep the stored inbox ID for the identity check, even
+                    // when the caller supplies an inbox ID.
+                    stored_inbox = stored;
                     opened = Some(super::location::OpenedStore {
                         path: db_path.clone(),
                         store,
@@ -136,6 +134,13 @@ impl Client {
         if require_stored_identity && location.is_none() {
             return Err(XmtpError::identity_not_found());
         }
+        if stored_inbox
+            .as_ref()
+            .zip(inbox_id.as_ref())
+            .is_some_and(|(stored, supplied)| stored != supplied)
+        {
+            return Err(XmtpError::identity_mismatch());
+        }
         let backend = options
             .backend
             .clone()
@@ -143,39 +148,44 @@ impl Client {
             .resolve()
             .await?;
         let auth_handle = backend.auth_handle.clone();
+        // Offline, check an explicit store with local identity updates. A
+        // smart contract wallet state that needs a request is not known.
+        let offline_stored_checked = if options.allow_offline
+            && let Some((stored, opened)) = stored_inbox.as_ref().zip(opened.as_ref())
+        {
+            use xmtp_id::associations::SignatureError;
+            use xmtp_mls::client::ClientError;
+            let membership = match identifier_membership(
+                &opened.store.db(),
+                stored,
+                &identifier,
+                &NoRequestVerifier,
+            )
+            .await
+            {
+                Ok(membership) => membership,
+                Err(ClientError::SignatureValidation(SignatureError::VerifierError(_))) => {
+                    return Err(XmtpError::identity_mismatch());
+                }
+                Err(error) => return Err(XmtpError::from_client(error)),
+            };
+            if !identifier_opens_inbox(membership, &identifier, nonce, stored) {
+                return Err(XmtpError::identity_mismatch());
+            }
+            true
+        } else {
+            false
+        };
         // Whether the build checks that the identifier belongs to the inbox it
         // opens, after it has checked the deployment and before any worker.
         let mut check_membership = false;
         let strategy = |inbox_id| IdentityStrategy::new(inbox_id, identifier.clone(), nonce);
         let strategy = match (inbox_id, stored_inbox.zip(opened.as_ref())) {
-            (Some(value), _) => strategy(value),
-            // The core build trusts a stored identity of the same inbox, so
-            // another identity must not open the database here.
-            (None, Some((stored, opened))) if options.allow_offline => {
-                use xmtp_id::associations::SignatureError;
-                use xmtp_mls::client::ClientError;
-                let membership = match identifier_membership(
-                    &opened.store.db(),
-                    &stored,
-                    &identifier,
-                    &NoRequestVerifier,
-                )
-                .await
-                {
-                    Ok(membership) => membership,
-                    // A state that needs a smart contract wallet check is
-                    // unknown offline. The identity may have been removed,
-                    // so none opens it, not even the creator.
-                    Err(ClientError::SignatureValidation(SignatureError::VerifierError(_))) => {
-                        return Err(XmtpError::identity_mismatch());
-                    }
-                    Err(error) => return Err(XmtpError::from_client(error)),
-                };
-                if !identifier_opens_inbox(membership, &identifier, nonce, &stored) {
-                    return Err(XmtpError::identity_mismatch());
-                }
-                strategy(stored)
+            (Some(value), _) => {
+                check_membership = !offline_stored_checked;
+                strategy(value)
             }
+            (None, Some((stored, _))) if options.allow_offline => strategy(stored),
             // Online, the identity updates come from the backend, which the
             // build checks against the stored deployment before any identity
             // request. The build checks the identifier on them before it

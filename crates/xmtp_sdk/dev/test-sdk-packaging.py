@@ -25,18 +25,17 @@ def load(name, file):
 artifacts = load("artifacts", "sdk-artifacts.py")
 receipt = load("receipt", "record-generated.py")
 mobile = load("mobile", "mobile-package.py")
+android_inputs = load("android_inputs", "sdk-packaging-android-inputs.py")
 
 
-class PackagingTests(unittest.TestCase):
+class PackagingTests(android_inputs.AndroidDependencyInputs, unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name).resolve()
         (self.root / "crates/xmtp_sdk").mkdir(parents=True)
         (self.root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
         (self.root / "Cargo.toml").write_text("fixture manifest")
-        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text(
-            "fixture template"
-        )
+        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("template")
         self.config = self.root / "crates/xmtp_sdk/uniffi.toml"
         self.config.write_text("fixture configuration")
         self.calls = []
@@ -66,17 +65,6 @@ class PackagingTests(unittest.TestCase):
         for item in reversed(self.patches):
             item.stop()
         self.temporary.cleanup()
-
-    def seed_android_dependency_inputs(self):
-        project = self.sdk_root
-        for name in (
-            "library/gradle.lockfile",
-            "buildscript-gradle.lockfile",
-            "gradle/verification-metadata.xml",
-        ):
-            file = project / name
-            file.parent.mkdir(parents=True, exist_ok=True)
-            file.write_text("fixture dependency input")
 
     def prepare_mobile_stage(self, target):
         self.args.targets = ("swift",) if target == "ios" else ("kotlin",)
@@ -152,85 +140,12 @@ class PackagingTests(unittest.TestCase):
         ):
             mobile.main()
 
-    def test_android_owned_project_override_keeps_common_native_receipts(self):
-        self.prepare_mobile_stage("android")
-        self.sdk_root = self.root / "owned-worktree/sdks/android"
-        self.seed_android_dependency_inputs()
-        self.assemble_mobile("android", sdk_root=self.sdk_root)
-        self.assertTrue((self.root / "products/android/xmtp-sdk.aar").exists())
-        self.assertFalse((self.root / "sdks/android/library/build").exists())
-
     def product_files(self, output):
         return {
             str(path.relative_to(output)): path.read_bytes()
             for path in output.rglob("*")
             if path.is_file()
         }
-
-    def test_android_dependency_inputs_are_required_before_tool_use(self):
-        for name in (
-            "library/gradle.lockfile",
-            "buildscript-gradle.lockfile",
-            "gradle/verification-metadata.xml",
-        ):
-            with self.subTest(name=name):
-                output = self.prepare_mobile_stage("android")
-                previous = self.product_files(output)
-                project = self.sdk_root
-                (project / name).unlink()
-                tool = Mock(side_effect=self.mobile_tool)
-                with self.assertRaisesRegex(
-                    ValueError, "Android dependency input missing"
-                ):
-                    self.assemble_mobile("android", tool)
-                tool.assert_not_called()
-                self.assertEqual(self.product_files(output), previous)
-                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
-
-    def test_android_fixture_inputs_do_not_cover_selected_sdk_root(self):
-        output = self.prepare_mobile_stage("android")
-        previous = self.product_files(output)
-        fixture = self.root / "crates/xmtp_sdk/packaging/android"
-        for name in ("gradle.lockfile", "buildscript-gradle.lockfile",
-                     "gradle/verification-metadata.xml"):
-            path = fixture / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("fixture dependency input")
-        self.sdk_root = self.root / "owned-worktree/sdks/android"
-        tool = Mock(side_effect=self.mobile_tool)
-        with self.assertRaisesRegex(ValueError, "Android dependency input missing"):
-            self.assemble_mobile("android", tool, sdk_root=self.sdk_root)
-        tool.assert_not_called()
-        self.assertEqual(self.product_files(output), previous)
-        self.seed_android_dependency_inputs()
-        self.assemble_mobile("android", sdk_root=self.sdk_root)
-        self.assertTrue((output / "xmtp-sdk.aar").is_file())
-
-    def test_android_stage_uses_strict_read_only_dependency_inputs(self):
-        self.prepare_mobile_stage("android")
-
-        def tool(command, **kwargs):
-            self.assertEqual(command[0], str(self.sdk_root / "gradlew"))
-            self.assertEqual(command[2], str(self.sdk_root))
-            self.assertIn(":library:assembleRelease", command)
-            self.assertIn("--dependency-verification=strict", command)
-            self.assertFalse(any(arg.startswith("--max-workers") for arg in command))
-            self.assertIn("-Pkotlin.compiler.execution.strategy=in-process", command)
-            self.assertFalse(
-                any(
-                    arg.startswith(
-                        (
-                            "--write-locks",
-                            "--update-locks",
-                            "--write-verification-metadata",
-                        )
-                    )
-                    for arg in command
-                )
-            )
-            self.mobile_tool(command, **kwargs)
-
-        self.assemble_mobile("android", tool)
 
     def test_mobile_late_tool_failure_preserves_prior_and_cleans_fresh_stage(self):
         for target in ("ios", "android"):
@@ -665,7 +580,7 @@ class PackagingTests(unittest.TestCase):
             key: value for key, value in os.environ.items() if key not in names
         }
         compiler = self.root / "fixture-rustc"
-        compiler.write_text("#!/bin/sh\nprintf 'fixture rustc version one\\n'\n")
+        compiler.write_text("#!/bin/sh\nprintf 'v1\\n'\n")
         compiler.chmod(0o755)
         self.patches[2].stop()
         try:
@@ -716,14 +631,10 @@ class PackagingTests(unittest.TestCase):
                     self.args.artifacts = self.root / variable
                     artifacts.build(self.args)
                     calls = len(self.calls)
-                    compiler.write_text(
-                        "#!/bin/sh\nprintf 'fixture rustc version two\\n'\n"
-                    )
+                    compiler.write_text("#!/bin/sh\nprintf 'v2\\n'\n")
                     artifacts.build(self.args)
                     self.assertEqual(len(self.calls), calls + 2)
-                    compiler.write_text(
-                        "#!/bin/sh\nprintf 'fixture rustc version one\\n'\n"
-                    )
+                    compiler.write_text("#!/bin/sh\nprintf 'v1\\n'\n")
         finally:
             self.patches[2].start()
 

@@ -3,9 +3,8 @@ use futures::FutureExt;
 use xmtp_db::delivery::QueryDelivery;
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn history_snapshot_keeps_valid_rows_and_warns_without_content() {
+async fn history_snapshot_fails_before_returning_cursor_for_bad_row() {
     use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
-    use xmtp_logging::{Level, test_logging::LogCapture};
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
@@ -14,19 +13,15 @@ async fn history_snapshot_keeps_valid_rows_and_warns_without_content() {
         .send_text("sensitive-history-content".into(), None)
         .await?;
     let unknown = group.send_text("malformed content".into(), None).await?;
-    let bad_bytes = bad.to_bytes()?;
     let unknown_bytes = unknown.to_bytes()?;
     client.inner.context.db().raw_query(|conn| {
-        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&bad_bytes)))
-            .set(dsl::sender_inbox_id.eq(""))
-            .execute(conn)?;
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&unknown_bytes)))
             .set(dsl::decrypted_message_bytes.eq(vec![0xff]))
             .execute(conn)
     })?;
     let snapshot = group.message_history_snapshot(128).await?;
     assert!(snapshot.messages.iter().any(|message| message.0.id == good));
-    assert!(!snapshot.messages.iter().any(|message| message.0.id == bad));
+    assert!(snapshot.messages.iter().any(|message| message.0.id == bad));
     let malformed = snapshot
         .messages
         .iter()
@@ -40,33 +35,18 @@ async fn history_snapshot_keeps_valid_rows_and_warns_without_content() {
     let boundary = client.inner.context.db().current_delivery_cursor()?;
     assert_eq!(crate::delivery::cursor::parse(&snapshot.cursor)?, boundary);
 
-    let capture = LogCapture::new(Level::Warn);
-    let lifted = tracing::dispatcher::with_default(&capture.dispatch(), || {
-        crate::delivery::history_snapshot(
-            &client.inner.context,
-            &xmtp_mls::subscriptions::local_delivery::DeliveryScope::Groups(vec![
-                group.inner.group_id,
-            ]),
-            &Default::default(),
-            128,
-            client.client_key(),
-        )
+    let bad_bytes = bad.to_bytes()?;
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&bad_bytes)))
+            .set(dsl::sender_inbox_id.eq(""))
+            .execute(conn)
     })?;
-    assert_eq!(lifted.messages.len(), snapshot.messages.len());
-    let output = capture.output();
-    let warnings = output
-        .lines()
-        .filter(|line| line.contains("skipping stored message"))
-        .collect::<Vec<_>>();
-    assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
-    let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
-    assert_eq!(warning["message_id"], bad.checked()?);
+    let result = group.message_history_snapshot(128).await;
     assert!(
-        warning["error"]
-            .as_str()
-            .is_some_and(|reason| !reason.is_empty())
+        result.is_err(),
+        "an omitted row must not advance the cursor"
     );
-    assert!(!output.contains("sensitive-history-content"));
+    assert!(!format!("{result:?}").contains("sensitive-history-content"));
     client.end().await?;
 }
 
