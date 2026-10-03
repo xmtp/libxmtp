@@ -34,7 +34,8 @@ runCommand "xmtp-sdk-node-${napiTarget}"
     ++ lib.optionals stdenv.hostPlatform.isMusl [ patchelf ]
     ++ lib.optionals stdenv.hostPlatform.isDarwin [
       darwin.autoSignDarwinBinariesHook
-      buildPackages.darwin.cctools
+      # The spliced cctools default is dev; otool is in out.
+      buildPackages.darwin.cctools.out
     ];
   }
   (

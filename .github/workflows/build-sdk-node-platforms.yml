@@ -85,7 +85,7 @@ jobs:
           fork_rev=$(node -p 'require("fs").readFileSync("Cargo.toml", "utf8").match(/\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/)[1]')
           git -C target/sdk-node-runtime-source checkout "$fork_rev"
           cargo build --manifest-path target/sdk-node-runtime-source/Cargo.toml --locked --release -p uniffi-runtime-napi --lib --target x86_64-pc-windows-msvc
-          python crates/xmtp_sdk/dev/record-node-platform.py win32-x64-msvc --library target/sdk-node-windows/build/native/x86_64-pc-windows-msvc/release/xmtp_sdk.dll --addon target/sdk-node-runtime-source/target/x86_64-pc-windows-msvc/release/uniffi_runtime_napi.dll --native-artifacts target/sdk-node-windows/artifacts.json --runtime-source target/sdk-node-runtime-source
+          python crates/xmtp_sdk/dev/record-node-platform.py win32-x64-msvc --library target/sdk-node-windows/native/xmtp_sdk.dll --addon target/sdk-node-runtime-source/target/x86_64-pc-windows-msvc/release/uniffi_runtime_napi.dll --native-artifacts target/sdk-node-windows/artifacts.json --runtime-source target/sdk-node-runtime-source
       - uses: actions/upload-artifact@v7
         with:
           name: sdk_node_pair_win32-x64-msvc

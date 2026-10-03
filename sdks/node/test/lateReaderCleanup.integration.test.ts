@@ -67,6 +67,7 @@ it.each(["end", "abort", "client-end"] as const)(
     let lateEndCompleted = false;
     let lateEndError: unknown;
     let callbacks = 0;
+    let shutdownFailure: PromiseRejectedResult | undefined;
     try {
       const client = await createRegisteredClient(signer, { storage });
       clients.push(client);
@@ -207,10 +208,12 @@ it.each(["end", "abort", "client-end"] as const)(
       const shutdown = await Promise.allSettled(
         clients.map((client) => within(client.end(), "client cleanup hung")),
       );
-      for (const result of shutdown) {
-        if (result.status === "rejected") throw result.reason;
-      }
+      shutdownFailure = shutdown.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
       await rm(directory, { recursive: true, force: true });
     }
+    if (shutdownFailure) throw shutdownFailure.reason;
   },
 );

@@ -34,9 +34,7 @@ class PackagingTests(unittest.TestCase):
         (self.root / "crates/xmtp_sdk").mkdir(parents=True)
         (self.root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
         (self.root / "Cargo.toml").write_text("fixture manifest")
-        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text(
-            "fixture template"
-        )
+        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("template")
         self.config = self.root / "crates/xmtp_sdk/uniffi.toml"
         self.config.write_text("fixture configuration")
         self.calls = []
@@ -624,7 +622,7 @@ class PackagingTests(unittest.TestCase):
             key: value for key, value in os.environ.items() if key not in names
         }
         compiler = self.root / "fixture-rustc"
-        compiler.write_text("#!/bin/sh\nprintf 'fixture rustc version one\\n'\n")
+        compiler.write_text("#!/bin/sh\nprintf 'v1\\n'\n")
         compiler.chmod(0o755)
         self.patches[2].stop()
         try:
@@ -675,14 +673,10 @@ class PackagingTests(unittest.TestCase):
                     self.args.artifacts = self.root / variable
                     artifacts.build(self.args)
                     calls = len(self.calls)
-                    compiler.write_text(
-                        "#!/bin/sh\nprintf 'fixture rustc version two\\n'\n"
-                    )
+                    compiler.write_text("#!/bin/sh\nprintf 'v2\\n'\n")
                     artifacts.build(self.args)
                     self.assertEqual(len(self.calls), calls + 2)
-                    compiler.write_text(
-                        "#!/bin/sh\nprintf 'fixture rustc version one\\n'\n"
-                    )
+                    compiler.write_text("#!/bin/sh\nprintf 'v1\\n'\n")
         finally:
             self.patches[2].start()
 
