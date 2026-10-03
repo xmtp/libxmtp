@@ -153,6 +153,7 @@ class XmtpSession {
 
 	func clear() async throws {
 		Self.logger.debug("clear")
+		try await client?.end()
 		conversationIds = []
 		conversations.clear()
 		conversationNames.clear()
@@ -160,7 +161,6 @@ class XmtpSession {
 		conversationMessages.clear()
 		inboxes.clear()
 		// Keep the keys so the next login opens the same encrypted database.
-		try await client?.end()
 		client = nil
 		state = .loggedOut
 	}
