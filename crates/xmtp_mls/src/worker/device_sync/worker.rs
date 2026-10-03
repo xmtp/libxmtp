@@ -268,7 +268,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn", event = ?event))]
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
     async fn handle_event(
         &mut self,
         event: xmtp_events::EventEnvelope<InternalEvent>,
@@ -577,6 +577,50 @@ mod startup_tests {
     use crate::{tester, worker::WorkerConfig};
     use futures::FutureExt;
     use xmtp_events::EventWriter;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn worker_turn_span_omits_hmac_key() {
+        tester!(alix, disable_workers);
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let key = (1_u8..=42).collect::<Vec<_>>();
+        let key_debug = format!("{key:?}");
+        let event = xmtp_events::EventEnvelope::new(
+            None,
+            Some(InternalEvent::PreferencesChanged {
+                updates: vec![PreferenceUpdate::Hmac {
+                    key,
+                    cycled_at_ns: 1,
+                }],
+                origin: PreferenceOrigin::Sync,
+            }),
+            Default::default(),
+        );
+        let (result, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            worker
+                .handle_event(event)
+                .now_or_never()
+                .expect("the Sync-origin handler must finish without IO")
+        });
+        result?;
+        let span = spans
+            .iter()
+            .find(|span| span.name == "handle_event")
+            .expect("the actual worker handler must export its span");
+        let fields = format!("{:?}", span.attributes);
+        assert!(fields.contains("worker_turn"));
+        assert!(fields.contains("DeviceSync"));
+        assert!(
+            !fields.contains(&key_debug),
+            "worker span must not export the HMAC root key"
+        );
+        alix.close().await?;
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn queued_event_precedes_first_periodic_turn() {
