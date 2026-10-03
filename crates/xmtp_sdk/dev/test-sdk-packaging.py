@@ -34,9 +34,8 @@ class PackagingTests(unittest.TestCase):
         (self.root / "crates/xmtp_sdk").mkdir(parents=True)
         (self.root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
         (self.root / "Cargo.toml").write_text("fixture manifest")
-        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text(
-            "fixture template"
-        )
+        template = self.root / "apps/xmtp_sdk_bindgen/template.txt"
+        template.write_text("fixture template")
         self.config = self.root / "crates/xmtp_sdk/uniffi.toml"
         self.config.write_text("fixture configuration")
         self.calls = []
@@ -417,9 +416,8 @@ class PackagingTests(unittest.TestCase):
                     SDK_SHELL_TRACE=str(trace),
                 ),
             )
-        self.assertEqual(
-            trace.read_text().splitlines(), [name + ":rust" for name in names]
-        )
+        expected = [name + ":rust" for name in names]
+        self.assertEqual(trace.read_text().splitlines(), expected)
 
     def command(self, command, **kwargs):
         self.calls.append(command)
@@ -802,9 +800,8 @@ class PackagingTests(unittest.TestCase):
         artifacts.build(self.args)
         self.assertEqual(len(self.calls), calls + 1)
         self.assertIn("xmtp-sdk-bindgen", self.calls[-1])
-        self.assertEqual(
-            json.loads(manifest.read_text())["artifacts"]["native"], native
-        )
+        actual = json.loads(manifest.read_text())["artifacts"]["native"]
+        self.assertEqual(actual, native)
         artifacts.render(self.args)
         binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
         self.assertEqual(binding["artifact"], native)
