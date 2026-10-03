@@ -5,7 +5,11 @@ import { test } from 'node:test';
 const source = readFileSync('apps/xmtp_sdk_bindgen/src/public_projection/policy.rs', 'utf8');
 const match = source.match(/const CREDENTIAL_GUARD: &str = r#"([\s\S]*?)"#;/);
 assert.ok(match, 'generated credential guard must exist');
-const check = new Function('value', match[1]);
+// The generated guard uses a TypeScript type annotation. Remove only that
+// annotation so this test runs the same guard statements in JavaScript.
+const guard = match[1].replace('const input: unknown = value;', 'const input = value;');
+assert.notEqual(guard, match[1], 'credential guard type annotation must exist');
+const check = new Function('value', guard);
 const credential = expiresAtSeconds => ({ value: 'Bearer private-test-value', expiresAtSeconds });
 
 test('credential wire guard rejects malformed and out-of-range values without secret text', () => {
