@@ -4,14 +4,14 @@ pub enum StorageLocation {
     Default,
     InMemory,
     /// A directory that holds a database for each deployment and inbox.
-    /// Create and build without an inbox ID fail `IdentityMismatch` when the
-    /// identity is not a member of the inbox they open.
+    /// Create and build fail `IdentityMismatch` when the identity is not a
+    /// member of the inbox they open.
     Directory {
         directory: String,
     },
     /// A database file and an attachments directory the app names. Create
-    /// and build without an inbox ID use the inbox stored in the database,
-    /// and fail `IdentityMismatch` when the identity does not belong to it.
+    /// and build without an inbox ID use the inbox stored in the database.
+    /// Build fails `IdentityMismatch` when the identity does not belong to it.
     Explicit {
         db_path: String,
         attachments_dir: String,
