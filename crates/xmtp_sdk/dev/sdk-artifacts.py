@@ -106,8 +106,12 @@ def build_context():
             "CFLAGS",
             "CXXFLAGS",
             "LDFLAGS",
+            "PERL",
         )
-        or name.startswith(("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_"))
+        or name.startswith(
+            ("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_", "OPENSSL_")
+        )
+        or "_OPENSSL_" in name
     }
     return hashlib.sha256(
         json.dumps([compiler, compiler_bytes, flags], sort_keys=True).encode()

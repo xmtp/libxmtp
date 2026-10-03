@@ -18,8 +18,67 @@ spec = importlib.util.spec_from_file_location(
 artifacts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(artifacts)
 
+mobile_spec = importlib.util.spec_from_file_location(
+    "mobile", Path(__file__).with_name("mobile-package.py")
+)
+mobile = importlib.util.module_from_spec(mobile_spec)
+mobile_spec.loader.exec_module(mobile)
+
 
 class ArtifactTests(unittest.TestCase):
+    def test_android_targets_vendor_openssl_with_inherited_host_libraries(self):
+        host = {
+            "ANDROID_NDK_HOME": "/fixture/ndk",
+            "OPENSSL_NO_VENDOR": "1",
+            "OPENSSL_DIR": "/fixture/host/include",
+            "OPENSSL_LIB_DIR": "/fixture/host/lib",
+        }
+        with (
+            patch.dict(os.environ, host, clear=True),
+            patch.object(Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]),
+            patch.object(Path, "is_file", return_value=True),
+        ):
+            for triple in mobile.ANDROID.values():
+                with self.subTest(triple=triple):
+                    env = mobile.android_environment(triple)
+                    prefix = triple.upper().replace("-", "_") + "_OPENSSL_"
+                    self.assertEqual(env[prefix + "NO_VENDOR"], "0")
+                    for name in ("OPENSSL_DIR", "OPENSSL_LIB_DIR", "OPENSSL_NO_VENDOR"):
+                        self.assertEqual(env[name], host[name])
+                    self.assertFalse(
+                        prefix + "NO_VENDOR" in os.environ, "Parent environment changed"
+                    )
+
+    def test_android_preserves_explicit_target_openssl_policy_and_paths(self):
+        triple = "aarch64-linux-android"
+        prefix = "AARCH64_LINUX_ANDROID_OPENSSL_"
+        for selected in ("NO_VENDOR", "DIR", "LIB_DIR", "INCLUDE_DIR"):
+            with (
+                self.subTest(selected=selected),
+                patch.dict(
+                    os.environ,
+                    {
+                        "ANDROID_NDK_HOME": "/fixture/ndk",
+                        "OPENSSL_NO_VENDOR": "1",
+                        prefix + selected: "1"
+                        if selected == "NO_VENDOR"
+                        else "/target/openssl",
+                    },
+                    clear=True,
+                ),
+                patch.object(
+                    Path, "glob", return_value=[Path("/fixture/ndk/toolchain")]
+                ),
+                patch.object(Path, "is_file", return_value=True),
+            ):
+                env = mobile.android_environment(triple)
+                self.assertEqual(env[prefix + selected], os.environ[prefix + selected])
+                self.assertEqual(env["OPENSSL_NO_VENDOR"], "1")
+                if selected != "NO_VENDOR":
+                    self.assertFalse(
+                        prefix + "NO_VENDOR" in env, "Explicit target path was replaced"
+                    )
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

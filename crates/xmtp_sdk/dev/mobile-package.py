@@ -99,6 +99,12 @@ def android_environment(triple):
     env["CC_" + target] = str(cc)
     env["CXX_" + target] = str(cxx)
     env["AR_" + target] = str(ar)
+    openssl_prefix = target.upper() + "_OPENSSL_"
+    if not any(
+        openssl_prefix + name in env for name in ("DIR", "LIB_DIR", "INCLUDE_DIR")
+    ):
+        # Build target OpenSSL instead of linking libraries from the host shell.
+        env.setdefault(openssl_prefix + "NO_VENDOR", "0")
     return env
 
 
