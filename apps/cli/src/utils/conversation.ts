@@ -21,3 +21,9 @@ export function requireDm(conversation: Group | Dm): Dm {
   }
   return conversation;
 }
+
+/** Read one state snapshot for CLI output. */
+export async function conversationState(conversation: Group | Dm) {
+  const state = await conversation.state();
+  return "common" in state ? state.common : state;
+}

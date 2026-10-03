@@ -6,13 +6,17 @@ export async function configureNotifications(
   token: string,
 ) {
   // #region configure
-  await client.enableNotifications({ channel: { type: "fcm", token } });
+  await client.enableNotifications({ channel: { kind: "fcm", token } });
   await conversation.setNotifications("disabled");
-  const enabled = await conversation.notificationsEnabled();
+  const conversationState = await conversation.state();
+  const enabled =
+    "common" in conversationState
+      ? conversationState.common.notificationsEnabled
+      : conversationState.notificationsEnabled;
   await conversation.setNotifications("default");
   const state = await client.notificationState();
-  if (state.state === "failed") {
-    console.error(state.error.code);
+  if (state.kind === "failed") {
+    console.error(state.error);
   }
   await client.disableNotifications();
   // #endregion configure
@@ -21,7 +25,7 @@ export async function configureNotifications(
 
 export function webhookChannel(url: string, signingKey: Uint8Array) {
   // #region webhook
-  const channel: NotificationChannel = { type: "http", url, signingKey };
+  const channel: NotificationChannel = { kind: "http", url, signingKey };
   // #endregion webhook
   return channel;
 }
@@ -44,7 +48,7 @@ export async function receivePushHint(
   await client.conversations.sync();
   if (isWelcome) return;
   const groupId = topic.subarray(1).toString("hex");
-  const conversation = await client.conversations.getConversationById(groupId);
+  const conversation = await client.conversations.getById(groupId);
   if (!conversation) throw new Error("Conversation is not available yet");
   await conversation.sync();
   const messages = await conversation.messages();

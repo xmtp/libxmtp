@@ -1,7 +1,7 @@
 # XMTP Agent SDK
 
 ```bash
-just js test-agent-sdk-ci
+dev/nix-shell 'just js test-agent-sdk-ci'
 ```
 
 ## Stream startup

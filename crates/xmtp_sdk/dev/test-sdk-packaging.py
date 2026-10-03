@@ -34,9 +34,7 @@ class PackagingTests(unittest.TestCase):
         (self.root / "crates/xmtp_sdk").mkdir(parents=True)
         (self.root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
         (self.root / "Cargo.toml").write_text("fixture manifest")
-        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text(
-            "fixture template"
-        )
+        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("template")
         self.config = self.root / "crates/xmtp_sdk/uniffi.toml"
         self.config.write_text("fixture configuration")
         self.calls = []
@@ -173,7 +171,7 @@ class PackagingTests(unittest.TestCase):
         def tool(command, **kwargs):
             self.assertEqual(command[0], "sdks/android/gradlew")
             self.assertIn("--dependency-verification=strict", command)
-            self.assertIn("--max-workers=2", command)
+            self.assertFalse(any(arg.startswith("--max-workers") for arg in command))
             self.assertFalse(
                 any(
                     arg.startswith(
@@ -603,13 +601,28 @@ class PackagingTests(unittest.TestCase):
         finally:
             self.patches[2].start()
 
+    def test_apple_native_build_pins_supported_deployment_floors(self):
+        with (
+            patch.object(artifacts.sys, "platform", "darwin"),
+            patch.dict(
+                os.environ,
+                {
+                    "MACOSX_DEPLOYMENT_TARGET": "14.0",
+                    "IPHONEOS_DEPLOYMENT_TARGET": "17",
+                },
+            ),
+        ):
+            artifacts.build(self.args)
+            self.assertEqual(os.environ["MACOSX_DEPLOYMENT_TARGET"], "11.0")
+            self.assertEqual(os.environ["IPHONEOS_DEPLOYMENT_TARGET"], "14")
+
     def test_cargo_compiler_inputs_change_native_cache_admission(self):
-        names = ("MACOSX_DEPLOYMENT_TARGET", "RUSTC", "CARGO_BUILD_RUSTC")
+        names = ("RUSTC", "CARGO_BUILD_RUSTC")
         environment = {
             key: value for key, value in os.environ.items() if key not in names
         }
         compiler = self.root / "fixture-rustc"
-        compiler.write_text("#!/bin/sh\nprintf 'fixture rustc version one\\n'\n")
+        compiler.write_text("#!/bin/sh\nprintf 'v1\\n'\n")
         compiler.chmod(0o755)
         self.patches[2].stop()
         try:
@@ -624,9 +637,7 @@ class PackagingTests(unittest.TestCase):
                         (self.args.artifacts / "artifacts.json").read_text()
                     )
                     calls = len(self.calls)
-                    os.environ[name] = (
-                        "11.0" if name == "MACOSX_DEPLOYMENT_TARGET" else str(compiler)
-                    )
+                    os.environ[name] = str(compiler)
                     artifacts.build(self.args)
                     after = json.loads(
                         (self.args.artifacts / "artifacts.json").read_text()
@@ -662,14 +673,10 @@ class PackagingTests(unittest.TestCase):
                     self.args.artifacts = self.root / variable
                     artifacts.build(self.args)
                     calls = len(self.calls)
-                    compiler.write_text(
-                        "#!/bin/sh\nprintf 'fixture rustc version two\\n'\n"
-                    )
+                    compiler.write_text("#!/bin/sh\nprintf 'v2\\n'\n")
                     artifacts.build(self.args)
                     self.assertEqual(len(self.calls), calls + 2)
-                    compiler.write_text(
-                        "#!/bin/sh\nprintf 'fixture rustc version one\\n'\n"
-                    )
+                    compiler.write_text("#!/bin/sh\nprintf 'v1\\n'\n")
         finally:
             self.patches[2].start()
 

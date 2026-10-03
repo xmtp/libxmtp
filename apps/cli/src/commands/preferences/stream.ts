@@ -1,9 +1,4 @@
 import { Flags } from "@oclif/core";
-import {
-  ConsentEntityType,
-  ConsentState,
-  type UserPreferenceUpdate,
-} from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 
@@ -13,6 +8,7 @@ export default class PreferencesStream extends BaseCommand {
 Listens for all user preference updates in real-time. This includes:
 - Consent state changes (ConsentUpdate)
 - HMAC key updates (HmacKeyUpdate)
+- Lagged events with the number of discarded updates (resync after these)
 
 Each update batch is output as it arrives.
 
@@ -68,22 +64,14 @@ first if you need a current snapshot before listening for updates.`;
     const { flags } = await this.parse(PreferencesStream);
     const client = await this.initClient();
 
-    const entityTypeNames: Record<ConsentEntityType, string> = {
-      [ConsentEntityType.InboxId]: "inbox_id",
-      [ConsentEntityType.GroupId]: "conversation_id",
-    };
-
-    const consentStateNames: Record<ConsentState, string> = {
-      [ConsentState.Allowed]: "allowed",
-      [ConsentState.Denied]: "denied",
-      [ConsentState.Unknown]: "unknown",
-    };
-
     let updateCount = 0;
     const maxCount = flags.count;
     const timeoutMs = flags.timeout ? flags.timeout * 1000 : undefined;
 
-    const stream = await client.preferences.streamPreferences();
+    const stream = await client.events({
+      kinds: ["consent.changed", "hmac_keys.updated"],
+      referencesOwnMessages: false,
+    });
 
     // Set up timeout if specified
     let timeoutId: NodeJS.Timeout | undefined;
@@ -98,34 +86,35 @@ first if you need a current snapshot before listening for updates.`;
     };
     process.once("SIGINT", onSigint);
 
-    const formatUpdate = (update: UserPreferenceUpdate) => {
-      if (update.type === "ConsentUpdate") {
-        return {
-          type: "ConsentUpdate",
-          entityType: entityTypeNames[update.consent.entityType],
-          entity: update.consent.entity,
-          state: consentStateNames[update.consent.state],
-        };
-      }
-      // HmacKeyUpdate
-      return {
-        type: "HmacKeyUpdate",
-        // Convert Uint8Array to hex string for readability
-        key: Buffer.from(update.key).toString("hex"),
-      };
-    };
-
     try {
-      for await (const updates of stream) {
-        if (updates.length === 0) {
+      for await (const event of stream) {
+        if (event.kind === "lagged") {
+          this.streamOutput({
+            timestamp: new Date().toISOString(),
+            warning: { type: "Lagged", discarded: event.discarded },
+          });
           continue;
         }
-
-        const output = updates.map(formatUpdate);
-
+        let update;
+        if (event.kind === "consent.changed") {
+          update = {
+            type: "ConsentUpdate",
+            entityType:
+              event.entityKind === "inbox" ? "inbox_id" : "conversation_id",
+            entity: event.entity,
+            state: event.state,
+          };
+        } else if (event.kind === "hmac_keys.updated") {
+          update = {
+            type: "HmacKeyUpdate",
+            keys: await client.conversations.hmacKeys(),
+          };
+        } else {
+          throw new Error(`Unexpected preference event: ${event.kind}`);
+        }
         this.streamOutput({
           timestamp: new Date().toISOString(),
-          updates: output,
+          updates: [update],
         });
 
         updateCount++;

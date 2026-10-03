@@ -1,5 +1,5 @@
 import { Flags } from "@oclif/core";
-import { ConsentEntityType, ConsentState } from "@xmtp/node-sdk";
+import type { ConsentEntityKind, ConsentState } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 
@@ -55,22 +55,23 @@ Use 'preferences sync' first to ensure you have the latest consent data.`;
     const { flags } = await this.parse(PreferencesGetConsent);
     const client = await this.initClient();
 
-    const entityTypeMap: Record<string, ConsentEntityType> = {
-      inbox_id: ConsentEntityType.InboxId,
-      conversation_id: ConsentEntityType.GroupId,
+    const entityTypeMap: Record<string, ConsentEntityKind> = {
+      inbox_id: "inbox",
+      conversation_id: "conversation",
     };
 
     const consentStateNames: Record<ConsentState, string> = {
-      [ConsentState.Allowed]: "allowed",
-      [ConsentState.Denied]: "denied",
-      [ConsentState.Unknown]: "unknown",
+      ["allowed"]: "allowed",
+      ["denied"]: "denied",
+      ["unknown"]: "unknown",
     };
 
     const entityType = entityTypeMap[flags["entity-type"]];
 
-    const state = await client.preferences.getConsentState(
-      entityType,
-      flags.entity,
+    const state = await client.preferences.consentState(
+      entityType === "inbox"
+        ? { kind: "inbox", inboxId: flags.entity }
+        : { kind: "conversation", conversationId: flags.entity },
     );
 
     this.output({

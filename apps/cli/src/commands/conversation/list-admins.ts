@@ -42,16 +42,14 @@ Note: Super admins are not included in this list. Use the
     const { args } = await this.parse(ConversationListAdmins);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
     }
 
     const group = requireGroup(conversation);
-    const admins = group.listAdmins();
+    const admins = await group.listAdmins();
 
     this.output({
       conversationId: args.id,

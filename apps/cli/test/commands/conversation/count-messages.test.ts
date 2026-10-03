@@ -46,12 +46,12 @@ describe("conversation count-messages", () => {
 
     const output = parseJsonOutput<{
       conversationId: string;
-      messageCount: number;
+      messageCount: string;
     }>(result.stdout);
 
     expect(output.conversationId).toBe(group.id);
     // At least 2 messages (may include membership changes)
-    expect(output.messageCount).toBeGreaterThanOrEqual(2);
+    expect(BigInt(output.messageCount)).toBeGreaterThanOrEqual(2);
   });
 
   it("counts messages with --sync flag", async () => {
@@ -76,8 +76,8 @@ describe("conversation count-messages", () => {
 
     expect(result.exitCode).toBe(0);
 
-    const output = parseJsonOutput<{ messageCount: number }>(result.stdout);
-    expect(output.messageCount).toBeGreaterThanOrEqual(0);
+    const output = parseJsonOutput<{ messageCount: string }>(result.stdout);
+    expect(BigInt(output.messageCount)).toBeGreaterThanOrEqual(0);
   });
 
   it("filters by --kind application", async () => {
@@ -105,7 +105,7 @@ describe("conversation count-messages", () => {
       group.id,
       "--json",
     ]);
-    const all = parseJsonOutput<{ messageCount: number }>(allResult.stdout);
+    const all = parseJsonOutput<{ messageCount: string }>(allResult.stdout);
 
     const appResult = await runWithIdentity(sender, [
       "conversation",
@@ -115,12 +115,14 @@ describe("conversation count-messages", () => {
       "application",
       "--json",
     ]);
-    const app = parseJsonOutput<{ messageCount: number }>(appResult.stdout);
+    const app = parseJsonOutput<{ messageCount: string }>(appResult.stdout);
 
     expect(appResult.exitCode).toBe(0);
     // application-only count should be <= total (which includes membership changes)
-    expect(app.messageCount).toBeLessThanOrEqual(all.messageCount);
-    expect(app.messageCount).toBeGreaterThanOrEqual(1);
+    expect(BigInt(app.messageCount)).toBeLessThanOrEqual(
+      BigInt(all.messageCount),
+    );
+    expect(BigInt(app.messageCount)).toBeGreaterThanOrEqual(1);
   });
 
   it("filters by --content-type", async () => {
@@ -156,7 +158,7 @@ describe("conversation count-messages", () => {
       "text",
       "--json",
     ]);
-    const textCount = parseJsonOutput<{ messageCount: number }>(
+    const textCount = parseJsonOutput<{ messageCount: string }>(
       textOnly.stdout,
     );
 
@@ -170,12 +172,14 @@ describe("conversation count-messages", () => {
       "markdown",
       "--json",
     ]);
-    const bothCount = parseJsonOutput<{ messageCount: number }>(both.stdout);
+    const bothCount = parseJsonOutput<{ messageCount: string }>(both.stdout);
 
     expect(textOnly.exitCode).toBe(0);
     expect(both.exitCode).toBe(0);
-    expect(textCount.messageCount).toBeGreaterThanOrEqual(1);
-    expect(bothCount.messageCount).toBeGreaterThan(textCount.messageCount);
+    expect(BigInt(textCount.messageCount)).toBeGreaterThanOrEqual(1);
+    expect(BigInt(bothCount.messageCount)).toBeGreaterThan(
+      BigInt(textCount.messageCount),
+    );
   });
 
   it("filters by --sent-after", async () => {
@@ -208,8 +212,8 @@ describe("conversation count-messages", () => {
     ]);
 
     expect(result.exitCode).toBe(0);
-    const output = parseJsonOutput<{ messageCount: number }>(result.stdout);
-    expect(output.messageCount).toBe(0);
+    const output = parseJsonOutput<{ messageCount: string }>(result.stdout);
+    expect(BigInt(output.messageCount)).toBe(0n);
   });
 
   it("filters by --exclude-sender", async () => {
@@ -239,7 +243,7 @@ describe("conversation count-messages", () => {
       "application",
       "--json",
     ]);
-    const all = parseJsonOutput<{ messageCount: number }>(allResult.stdout);
+    const all = parseJsonOutput<{ messageCount: string }>(allResult.stdout);
 
     const excludedResult = await runWithIdentity(sender, [
       "conversation",
@@ -251,12 +255,14 @@ describe("conversation count-messages", () => {
       sender.inboxId,
       "--json",
     ]);
-    const excluded = parseJsonOutput<{ messageCount: number }>(
+    const excluded = parseJsonOutput<{ messageCount: string }>(
       excludedResult.stdout,
     );
 
     expect(excludedResult.exitCode).toBe(0);
-    expect(excluded.messageCount).toBeLessThan(all.messageCount);
+    expect(BigInt(excluded.messageCount)).toBeLessThan(
+      BigInt(all.messageCount),
+    );
   });
 
   it("fails for non-existent conversation", async () => {

@@ -137,6 +137,7 @@ def build_context():
             )
         )
         or "_OPENSSL_" in name
+        or name.endswith("_DEPLOYMENT_TARGET")
     }
     return hashlib.sha256(
         json.dumps([compiler, compiler_bytes, flags], sort_keys=True).encode()
@@ -168,6 +169,9 @@ def verify(record):
 
 
 def build(args):
+    if sys.platform == "darwin":
+        os.environ["MACOSX_DEPLOYMENT_TARGET"] = "11.0"
+        os.environ["IPHONEOS_DEPLOYMENT_TARGET"] = "14"
     output = args.artifacts.resolve()
     output.mkdir(parents=True, exist_ok=True)
     index_file = output / "artifacts.json"
@@ -196,6 +200,7 @@ def build(args):
                     args.rust_target if kind == "native" else "",
                     rust_source,
                     generator if kind == "bindgen" else "",
+                    "vendored-static-openssl-v1" if kind == "native" else "",
                 ]
             ).encode()
         ).hexdigest()
@@ -218,13 +223,14 @@ def build(args):
             continue
         cargo_target = output / "build" / kind
         command = [
-            "dev/agent-run",
             "cargo",
             "build",
             "--locked",
             "-p",
             "xmtp-sdk-bindgen" if kind == "bindgen" else "xmtp_sdk",
         ]
+        if sys.platform != "win32":
+            command.insert(0, "dev/agent-run")
         if profile == "release":
             command += ["--release"]
         if features:
@@ -234,6 +240,11 @@ def build(args):
         elif kind == "native" and args.rust_target:
             command += ["--target", args.rust_target]
         env = dict(os.environ, CARGO_TARGET_DIR=str(cargo_target))
+        if kind == "native":
+            # The existing vendored SQLCipher feature supplies OpenSSL. Ship
+            # its static bytes in native products, without build-host dylibs.
+            env["OPENSSL_NO_VENDOR"] = "0"
+            env["OPENSSL_STATIC"] = "1"
         started = time.monotonic()
         run(command, env=env)
         folder = (

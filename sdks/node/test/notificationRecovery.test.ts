@@ -1,19 +1,16 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
 import { createRecoveryProxy } from "@test/recoveryProxy";
+import { ConversationStream, XmtpError, type Client } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Client } from "@/Client";
-
-type NotificationStream = Awaited<
-  ReturnType<Client["conversations"]["stream"]>
->;
+type NotificationStream = ConversationStream;
 
 // Core has a ten-minute outage deadline. Use the production policy.
 const OUTAGE_WAIT = 660_000;
 
 describe("public notification recovery", () => {
   // verifies: PROC-038, PROC-039
-  it(
+  it.skipIf(process.env.XMTP_RECOVERY_BUDGET_TESTS !== "1")(
     "ends once on Core exhaustion and replaces from onError on the same offline client",
     async () => {
       const proxy = await createRecoveryProxy();
@@ -23,33 +20,44 @@ describe("public notification recovery", () => {
       let stopping = false;
       try {
         const sender = await createRegisteredClient(createSigner().signer, {
-          disableDeviceSync: true,
+          deviceSync: false,
         });
         clients.push(sender);
         const receiver = await createRegisteredClient(createSigner().signer, {
-          backendUrl: proxy.url,
-          disableDeviceSync: true,
+          backend: { url: proxy.url },
+          deviceSync: false,
         });
         clients.push(receiver);
         const replacementErrors: Error[] = [];
-        const onRetry = vi.fn();
-        const onError = vi.fn(() => {
+        const onError = vi.fn((_error: unknown) => {
           if (stopping) return;
-          opening = receiver.conversations
-            .stream({
-              onError: (error) => replacementErrors.push(error),
-              onRetry,
-            })
-            .then((stream) => {
-              streams.push(stream);
-              return stream;
-            });
+          opening = (async () => {
+            const replacement = ConversationStream.open(
+              receiver,
+              {},
+              {
+                onClose: (reason) => {
+                  if (reason.kind === "failed")
+                    replacementErrors.push(reason.error as Error);
+                },
+              },
+            );
+            streams.push(replacement);
+            await replacement.ready();
+            return replacement;
+          })();
           void opening.catch(() => undefined);
         });
-        const old = await receiver.conversations.stream({
-          onError,
-          onRetry,
-        });
+        const old = ConversationStream.open(
+          receiver,
+          {},
+          {
+            onClose: (reason) => {
+              if (reason.kind === "failed") onError(reason.error);
+            },
+          },
+        );
+        await old.ready();
         streams.push(old);
         const initial = await sender.conversations.createGroup([
           receiver.inboxId,
@@ -69,14 +77,14 @@ describe("public notification recovery", () => {
           .toBe(1);
         const { error } = await failed;
         expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toContain(
-          "[LocalDeliveryError::NetworkRecoveryExhausted]",
-        );
-        expect(old.isDone).toBe(true);
-        expect(onRetry).not.toHaveBeenCalled();
+        expect(error).toBeInstanceOf(XmtpError.RecoveryExhausted);
+        expect(error).toMatchObject({
+          details: { code: "RecoveryExhausted", category: "stream" },
+        });
+        expect(onError).toHaveBeenCalledWith(error);
+        await expect(old.next()).rejects.toBe(error);
         expect(opening).toBeDefined();
         const replacement = await opening!;
-        expect(replacement.isDone).toBe(false);
         // Old cleanup cannot end the replacement that onError already opened.
         await old.end();
         const pending = replacement.next();
@@ -88,12 +96,11 @@ describe("public notification recovery", () => {
         expect((await pending).value?.id).toBe(resumed.id);
         expect(replacementErrors).toEqual([]);
         expect(onError).toHaveBeenCalledOnce();
-        expect(onRetry).not.toHaveBeenCalled();
       } finally {
         stopping = true;
         if (opening) await opening.catch(() => undefined);
         await Promise.allSettled(streams.map((stream) => stream.end()));
-        await Promise.allSettled(clients.map((client) => client.close()));
+        await Promise.allSettled(clients.map((client) => client.end()));
         await proxy.close();
       }
     },

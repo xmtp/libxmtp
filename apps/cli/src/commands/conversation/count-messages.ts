@@ -71,9 +71,7 @@ Use --exclude-sender to hide messages from specific inbox IDs.`;
     const { args, flags } = await this.parse(ConversationCountMessages);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);

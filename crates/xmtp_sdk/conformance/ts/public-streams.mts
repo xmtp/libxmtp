@@ -265,7 +265,7 @@ await conversations.end();
 
 // Events and listeners receive public ClientEvent values.
 const filter: sdk.EventFilter = {
-  kinds: ["conversationJoined"],
+  kinds: ["conversation.joined"],
   referencesOwnMessages: false,
 };
 const events = await alice.events(filter);
@@ -282,13 +282,13 @@ assert.equal(typeof listener, "bigint");
 await alice.conversations.createGroup([]);
 const event = await events.next();
 assert.equal(event.done, false);
-assert.equal(event.value?.kind, "conversationJoined");
+assert.equal(event.value?.kind, "conversation.joined");
 assert.equal(
-  event.value?.kind === "conversationJoined" && typeof event.value.origin,
+  event.value?.kind === "conversation.joined" && typeof event.value.origin,
   "string",
 );
 await listenerHeard;
-assert.equal(heard[0]?.kind, "conversationJoined");
+assert.equal(heard[0]?.kind, "conversation.joined");
 await alice.stopListener(listener);
 await events.return();
 

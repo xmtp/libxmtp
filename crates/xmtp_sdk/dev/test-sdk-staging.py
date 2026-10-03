@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tarfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -43,11 +44,22 @@ class StagingTests(unittest.TestCase):
     def test_failed_rebuild_preserves_prior_product_and_success_replaces_it(self):
         generated = self.root / "generated/typescript-napi"
         generated.mkdir(parents=True)
-        (generated / "sdk-contract.json").write_text(
-            json.dumps({"contract": "fixture", "generator": "fixture", "files": {}})
-        )
         (generated / "package.json").write_text('{"type":"module"}')
         (generated / "index.ts").write_text("export const marker = 'sdk';")
+        (generated / "sdk-contract.json").write_text(
+            json.dumps(
+                {
+                    "contract": "fixture",
+                    "generator": "fixture",
+                    "files": {
+                        name: hashlib.sha256(
+                            (generated / name).read_bytes()
+                        ).hexdigest()
+                        for name in ("package.json", "index.ts")
+                    },
+                }
+            )
+        )
         for name in ("core", "node"):
             self.runtime(self.root / "runtime", name)
         compiler = self.root / "compiler.mjs"
@@ -137,11 +149,22 @@ class StagingTests(unittest.TestCase):
     def test_flat_and_prebuilt_runtime_products_stage(self):
         generated = self.root / "generated/typescript-napi"
         generated.mkdir(parents=True)
-        (generated / "sdk-contract.json").write_text(
-            json.dumps({"contract": "fixture", "generator": "fixture", "files": {}})
-        )
         (generated / "package.json").write_text('{"type":"module"}')
         (generated / "index.ts").write_text("export const marker = 'sdk';")
+        (generated / "sdk-contract.json").write_text(
+            json.dumps(
+                {
+                    "contract": "fixture",
+                    "generator": "fixture",
+                    "files": {
+                        name: hashlib.sha256(
+                            (generated / name).read_bytes()
+                        ).hexdigest()
+                        for name in ("package.json", "index.ts")
+                    },
+                }
+            )
+        )
         compiler = self.root / "compiler.mjs"
         compiler.write_text(
             "import {writeFileSync} from 'node:fs';\n"
@@ -173,12 +196,28 @@ class StagingTests(unittest.TestCase):
                         "node",
                         str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"),
                         "node",
+                        *(["--public"] if layout == "prebuilt" else []),
                     ],
                     env=env,
                     capture_output=True,
                     text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+                manifest = json.loads((out / "node/package.json").read_text())
+                if layout == "prebuilt":
+                    source = json.loads((ROOT / "sdks/node/package.json").read_text())
+                    self.assertEqual(manifest["name"], source["name"])
+                    self.assertEqual(manifest["version"], source["version"])
+                    self.assertNotIn("private", manifest)
+                    self.assertEqual(
+                        manifest["exports"]["."],
+                        {
+                            "types": "./entry.d.ts",
+                            "import": "./entry.js",
+                        },
+                    )
+                else:
+                    self.assertTrue(manifest["private"])
                 asset = out / "node/node_modules/@ubjs/node/binding.node"
                 self.assertEqual(
                     hashlib.sha256(asset.read_bytes()).hexdigest(), expected
@@ -201,6 +240,49 @@ class StagingTests(unittest.TestCase):
                 (consumer / "package.json").write_text(
                     '{"private":true,"type":"module"}'
                 )
+                if layout == "prebuilt":
+                    for version in (None, "8.0.1-rc.1"):
+                        if version:
+                            subprocess.run(
+                                [
+                                    "node",
+                                    str(ROOT / "crates/xmtp_sdk/dev/stamp-package.mjs"),
+                                    str(out / "node"),
+                                    version,
+                                ],
+                                check=True,
+                                capture_output=True,
+                            )
+                        packed_dir = consumer / (version or "staged")
+                        packed_dir.mkdir()
+                        subprocess.run(
+                            [
+                                "pnpm",
+                                "--config.node-linker=hoisted",
+                                "--config.ignore-scripts=true",
+                                "pack",
+                                "--pack-destination",
+                                str(packed_dir),
+                                "--json",
+                            ],
+                            cwd=out / "node",
+                            check=True,
+                            capture_output=True,
+                        )
+                        (archive_path,) = packed_dir.glob("*.tgz")
+                        with tarfile.open(archive_path) as archive:
+                            receipt = json.load(
+                                archive.extractfile("package/sdk-contract.json")
+                            )
+                            for filename, checksum in receipt["assets"].items():
+                                packed_bytes = archive.extractfile(
+                                    "package/" + filename
+                                ).read()
+                                self.assertEqual(
+                                    hashlib.sha256(packed_bytes).hexdigest(),
+                                    checksum,
+                                    f"pnpm packed asset mismatch after {version or 'stage'}: {filename}",
+                                )
                 packed = json.loads(
                     subprocess.check_output(
                         [
@@ -231,7 +313,7 @@ class StagingTests(unittest.TestCase):
                     check=True,
                     capture_output=True,
                 )
-                installed = consumer / "node_modules/xmtp-sdk"
+                installed = consumer / "node_modules" / manifest["name"]
                 check = [
                     "node",
                     "--input-type=module",

@@ -6,7 +6,8 @@ import { downloadRemoteAttachment } from "@xmtp/agent-sdk/util";
 
 agent.on("attachment", async (ctx) => {
   const receivedAttachment = await downloadRemoteAttachment(
-    ctx.message.content,
+    ctx.client,
+    ctx.content,
   );
   console.log(`Received: ${receivedAttachment.filename}`);
   console.log(`Type: ${receivedAttachment.mimeType}`);

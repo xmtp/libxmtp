@@ -1,9 +1,4 @@
-import {
-  IdentifierKind,
-  type HexString,
-  type Identifier,
-  type Signer,
-} from "@xmtp/node-sdk";
+import type { PublicIdentity, Signer } from "@xmtp/node-sdk";
 import {
   createWalletClient,
   http,
@@ -27,7 +22,7 @@ export type User = {
 };
 
 /** Create a viem wallet, generating a private key when one is not supplied. */
-export const createUser = (key?: HexString, chain: Chain = sepolia): User => {
+export const createUser = (key?: Hex, chain: Chain = sepolia): User => {
   const accountKey = key ?? generatePrivateKey();
   const account = privateKeyToAccount(accountKey);
   return {
@@ -42,23 +37,22 @@ export const createUser = (key?: HexString, chain: Chain = sepolia): User => {
 };
 
 /** Convert a user wallet address to the XMTP identifier shape. */
-export const createIdentifier = (user: User): Identifier => ({
+export const createIdentifier = (user: User): PublicIdentity => ({
   identifier: user.account.address.toLowerCase(),
-  identifierKind: IdentifierKind.Ethereum,
+  kind: "ethereum",
 });
 
 /** Adapt a viem wallet to the byte-returning XMTP signer interface. */
 export const createSigner = (user: User): Signer => {
   const identifier = createIdentifier(user);
   return {
-    type: "EOA",
-    getIdentifier: () => identifier,
-    signMessage: async (message: string) => {
-      const signature = await user.wallet.signMessage({
-        account: user.account,
-        message,
-      });
-      return toBytes(signature);
-    },
+    identity: () => Promise.resolve(identifier),
+    kind: () => Promise.resolve({ kind: "eoa" as const }),
+    sign: async ({ text }) => ({
+      kind: "ecdsa",
+      value: toBytes(
+        await user.wallet.signMessage({ account: user.account, message: text }),
+      ),
+    }),
   };
 };

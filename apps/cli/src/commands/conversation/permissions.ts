@@ -45,16 +45,14 @@ Permissions control who can:
     const { args } = await this.parse(ConversationPermissions);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
     }
 
     const group = requireGroup(conversation);
-    const permissions = group.permissions();
+    const permissions = (await group.state()).permissions;
 
     this.output({
       conversationId: args.id,

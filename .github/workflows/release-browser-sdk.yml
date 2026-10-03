@@ -134,7 +134,7 @@ jobs:
       - uses: ./.github/actions/setup-js
 
       - name: Stage wasm bindings
-        run: just js bindings
+        run: just js bindings-wasm
 
       - name: Install + build browser-sdk
         run: |

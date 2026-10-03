@@ -64,7 +64,7 @@ describe("conversations get-message", () => {
     const result = await runWithIdentity(identity, [
       "conversations",
       "get-message",
-      "non-existent-message-id",
+      "0".repeat(64),
       "--json",
     ]);
 

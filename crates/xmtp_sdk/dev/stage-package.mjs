@@ -20,6 +20,9 @@ import {
 import { dirname, join, resolve, relative, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { stageNodePlatforms, usePlatformPackages } from "./node-platforms.mjs";
+import { checkGeneratedAssets } from "./check-generated-assets.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = resolve(
   process.env.XMTP_SDK_GENERATED_DIR ?? "target/sdk-generated",
@@ -28,8 +31,15 @@ const output = resolve(
   process.env.XMTP_SDK_PACKAGES_DIR ?? "target/sdk-packages",
 );
 const target = process.argv[2];
+const publicPackage = process.argv.includes("--public");
+const platformDirectory = process.env.XMTP_SDK_NODE_PLATFORMS_DIR;
+if (platformDirectory && (target !== "node" || !publicPackage))
+  throw new Error("Node platform assembly requires a public Node product");
 if (!["node", "browser"].includes(target))
   throw new Error("expected node or browser");
+const sourceManifest = publicPackage
+  ? JSON.parse(readFileSync(join(root, "sdks", target, "package.json")))
+  : undefined;
 const trees =
   target === "node"
     ? ["typescript-napi"]
@@ -55,10 +65,7 @@ function files(directory) {
   });
 }
 for (let i = 0; i < trees.length; i++) {
-  for (const [path, expected] of Object.entries(contracts[i].files)) {
-    if (hash(join(generated, trees[i], path)) !== expected)
-      throw new Error(`SDK generated asset mismatch: ${path}`);
-  }
+  checkGeneratedAssets(generated, trees[i], contracts[i]);
 }
 mkdirSync(output, { recursive: true });
 const staging = mkdtempSync(join(output, ".sdk-stage-"));
@@ -106,6 +113,20 @@ try {
     if (manifest.module) manifest.main = manifest.module;
     writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
   }
+  let nodePlatforms;
+  if (platformDirectory) {
+    const cargo = readFileSync(join(root, "Cargo.toml"), "utf8");
+    const runtimeRevision = cargo.match(
+      /\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/,
+    )[1];
+    nodePlatforms = stageNodePlatforms(
+      resolve(platformDirectory),
+      destination,
+      contracts[0],
+      runtimeRevision,
+      sourceManifest.name,
+    );
+  }
   const compile = mkdtempSync(join(output, ".sdk-compile-"));
   try {
     for (const tree of trees)
@@ -113,6 +134,13 @@ try {
         recursive: true,
         filter: (path) => !path.split(/[\\/]/).includes("node_modules"),
       });
+    if (nodePlatforms) {
+      const ffi = join(compile, "typescript-napi/xmtp_sdk-ffi.ts");
+      writeFileSync(
+        ffi,
+        usePlatformPackages(readFileSync(ffi, "utf8"), sourceManifest.name),
+      );
+    }
     symlinkSync(
       join(destination, "node_modules"),
       join(compile, "node_modules"),
@@ -239,9 +267,31 @@ try {
     ),
     bundledDependencies: runtimes.map((name) => `@ubjs/${name}`),
   };
+  if (sourceManifest) {
+    for (const field of [
+      "name",
+      "version",
+      "description",
+      "keywords",
+      "homepage",
+      "bugs",
+      "license",
+      "author",
+      "repository",
+      "publishConfig",
+    ]) {
+      if (sourceManifest[field] !== undefined)
+        manifest[field] = sourceManifest[field];
+    }
+    delete manifest.private;
+    manifest.main = "./entry.js";
+    manifest.types = "./entry.d.ts";
+    manifest.exports["./package.json"] = "./package.json";
+    Object.assign(manifest.exports, nodePlatforms?.exports);
+  }
   writeFileSync(
     join(destination, "package.json"),
-    JSON.stringify(manifest, null, 2) + "\n",
+    JSON.stringify(manifest, null, 2),
   );
   if (target === "browser") {
     const bindings = {
@@ -400,6 +450,12 @@ try {
         generator: contracts[0].generator,
         proof_origin: contracts[0].proof_origin,
         final_gate: contracts[0].final_gate,
+        platform_scope: nodePlatforms
+          ? "supported-matrix"
+          : target === "node"
+            ? "development-host"
+            : "browser",
+        platforms: nodePlatforms?.platforms,
         assets,
       },
       null,

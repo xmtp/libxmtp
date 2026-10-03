@@ -4,7 +4,6 @@ use crate::inbox_state::{InboxState, KeyPackageStatus};
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::collections::HashMap;
-use xmtp_id::InboxId;
 
 #[napi]
 impl Client {
@@ -49,7 +48,7 @@ impl Client {
     &self,
     inbox_ids: Vec<String>,
     refresh_from_network: bool,
-  ) -> Result<HashMap<InboxId, u32>> {
+  ) -> Result<HashMap<String, u32>> {
     let ids = inbox_ids.iter().map(AsRef::as_ref).collect();
     let res = self
       .inner_client()

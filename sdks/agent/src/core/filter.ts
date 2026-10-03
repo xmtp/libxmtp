@@ -1,87 +1,75 @@
 import {
-  contentTypesAreEqual,
-  type ContentCodec,
-} from "@xmtp/content-type-primitives";
-import {
   Dm,
   Group,
+  type AnyContentCodec,
   type Client,
-  type Conversation,
-  type DecodedMessage,
+  type Message,
+  type MessageContent,
 } from "@xmtp/node-sdk";
 
-/** A decoded message whose content is known to be present. */
-export type DecodedMessageWithContent<ContentTypes = unknown> =
-  DecodedMessage<ContentTypes> & {
-    /** The decoded content after the presence check. */
-    content: ContentTypes;
+/** A message with decoded content. */
+export type DecodedMessageWithContent<Content = unknown> = Message & {
+  /** The SDK content record with its decoded value. */
+  readonly content: MessageContent & {
+    /** The decoded value when the content record has one. */
+    readonly value?: Content;
   };
-
-const fromSelf = <ContentTypes>(
-  message: DecodedMessage<ContentTypes>,
-  client: Client<ContentTypes>,
-) => {
-  return message.senderInboxId === client.inboxId;
 };
 
-const hasContent = <ContentTypes>(
-  message: DecodedMessage<ContentTypes>,
-): message is DecodedMessageWithContent<ContentTypes> => {
-  return message.content !== undefined && message.content !== null;
-};
-
-const isDM = (conversation: Conversation): conversation is Dm => {
-  return conversation instanceof Dm;
-};
-
-const isGroup = (conversation: Conversation): conversation is Group => {
-  return conversation instanceof Group;
-};
-
-const isGroupAdmin = (conversation: Conversation, message: DecodedMessage) => {
-  if (isGroup(conversation)) {
-    return conversation.isAdmin(message.senderInboxId);
-  }
-  return false;
-};
-
-const isGroupSuperAdmin = (
-  conversation: Conversation,
-  message: DecodedMessage,
-) => {
-  if (isGroup(conversation)) {
-    return conversation.isSuperAdmin(message.senderInboxId);
-  }
-  return false;
-};
-
-const usesCodec = <T extends ContentCodec>(
-  message: DecodedMessage,
+const fromSelf = (message: Message, client: Client) =>
+  message.senderInboxId === client.inboxId;
+const hasContent = (message: Message): message is DecodedMessageWithContent =>
+  message.content.kind !== "unknown" &&
+  (message.content.kind !== "custom" || "value" in message.content);
+const isDM = (conversation: Group | Dm): conversation is Dm =>
+  conversation instanceof Dm;
+const isGroup = (conversation: Group | Dm): conversation is Group =>
+  conversation instanceof Group;
+const isGroupAdminAsync = (
+  conversation: Group | Dm,
+  message: Message,
+): Promise<boolean> =>
+  isGroup(conversation)
+    ? conversation.isAdmin(message.senderInboxId)
+    : Promise.resolve(false);
+const isGroupSuperAdminAsync = (
+  conversation: Group | Dm,
+  message: Message,
+): Promise<boolean> =>
+  isGroup(conversation)
+    ? conversation.isSuperAdmin(message.senderInboxId)
+    : Promise.resolve(false);
+const usesCodec = <T extends AnyContentCodec>(
+  message: Message,
   codecClass: new () => T,
 ): message is DecodedMessageWithContent<ReturnType<T["decode"]>> => {
-  return contentTypesAreEqual(
-    message.contentType,
-    new codecClass().contentType,
+  const type = new codecClass().type;
+  const actual = message.contentType;
+  return (
+    actual !== undefined &&
+    actual.authorityId === type.authorityId &&
+    actual.typeId === type.typeId &&
+    actual.versionMajor === type.versionMajor &&
+    hasContent(message)
   );
 };
 
-/** Type guards used by Agent middleware to classify messages and conversations. */
+/** Message and conversation tests for agent middleware. */
 export const filter = {
-  /** Return true when a message was sent by the supplied client. */
+  /** Check whether the client sent the message. */
   fromSelf,
-  /** Return true when a message contains decoded content. */
+  /** Check whether the content type is known and has decoded custom content. */
   hasContent,
-  /** Return true when a conversation is a direct message. */
+  /** Check whether the conversation is a direct message. */
   isDM,
-  /** Return true when a conversation is a group. */
+  /** Check whether the conversation is a group. */
   isGroup,
-  /** Return true when the message sender is a group admin. */
-  isGroupAdmin,
-  /** Return true when the message sender is a group super admin. */
-  isGroupSuperAdmin,
-  /** Return true when a message uses the supplied codec. */
+  /** Await this check before granting group admin access. */
+  isGroupAdminAsync,
+  /** Await this check before granting group super admin access. */
+  isGroupSuperAdminAsync,
+  /** Check the codec authority, type name, and major version. */
   usesCodec,
 };
-
-/** Short alias for {@link filter}. */
+/** Short name for the message and conversation filters. */
 export const f = filter;

@@ -1,7 +1,7 @@
-import { ConsentState, type Client } from "@xmtp/node-sdk";
+import type { ConsentState, Client } from "@xmtp/node-sdk";
 
 export async function syncConversations(client: Client) {
-  const consentStates = [ConsentState.Allowed];
+  const consentStates: ConsentState[] = ["allowed"];
   // #region sync
   const summary = await client.conversations.syncAll(consentStates);
   // #endregion sync

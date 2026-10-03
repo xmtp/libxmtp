@@ -46,9 +46,7 @@ Requires appropriate permissions to update the group image URL.`;
     const { args } = await this.parse(ConversationUpdateImageUrl);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);

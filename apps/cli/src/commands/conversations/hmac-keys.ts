@@ -33,7 +33,7 @@ Each key includes the key data and associated metadata.`;
   async run(): Promise<void> {
     const client = await this.initClient();
 
-    const hmacKeys = client.conversations.hmacKeys();
+    const hmacKeys = await client.conversations.hmacKeys();
 
     // Convert the HMAC keys to a serializable format
     const output: Record<
@@ -44,7 +44,7 @@ Each key includes the key data and associated metadata.`;
       }[]
     > = {};
 
-    for (const [conversationId, keys] of Object.entries(hmacKeys)) {
+    for (const [conversationId, keys] of hmacKeys) {
       output[conversationId] = keys.map((k) => ({
         key: Buffer.from(k.key).toString("hex"),
         epoch: k.epoch,

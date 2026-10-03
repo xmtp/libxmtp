@@ -1,0 +1,13 @@
+#!/bin/bash
+# Select the SDK package that the source manifest uses during the cutover.
+source "$(dirname "$0")/.setup"
+target="${1:-}"
+case "$target" in
+  node) legacy=node ;;
+  browser) legacy=wasm ;;
+  *) echo "usage: $0 node|browser" >&2; exit 2 ;;
+esac
+if node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(process.argv[1])); process.exit(p.scripts?.build?.includes("dev/js/sdk-package") ? 0 : 1)' "$ROOT/sdks/$target/package.json"; then
+  exec "$ROOT/dev/js/sdk-package" "$target"
+fi
+exec "$ROOT/dev/js/bindings" "$legacy"

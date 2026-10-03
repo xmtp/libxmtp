@@ -168,6 +168,7 @@ export function createERC20TransferCalls(
         metadata: {
           description,
           transactionType: "transfer",
+          extra: new Map(),
         },
       },
     ],
@@ -196,6 +197,7 @@ export function createNativeTransferCalls(
         metadata: {
           description,
           transactionType: "transfer",
+          extra: new Map(),
         },
       },
     ],

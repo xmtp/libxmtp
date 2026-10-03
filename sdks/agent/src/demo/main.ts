@@ -1,4 +1,4 @@
-import { isHexString } from "@xmtp/node-sdk";
+import { isHex } from "viem";
 
 import { AgentError } from "@/core/index";
 import { logDetails } from "@/debug/log";
@@ -26,18 +26,23 @@ const performanceMonitor = new PerformanceMonitor({
 const commandRouter = new CommandRouter({ helpCommand: "/help" });
 
 commandRouter.command("/version", "Show Agent SDK version", async (ctx) => {
-  await ctx.conversation.sendText(`v${process.env.npm_package_version}`);
+  await ctx.conversation.sendText(`v${process.env.npm_package_version}`, {
+    shouldPush: false,
+  });
 });
 
 commandRouter.command("/test-actions", async (ctx) => {
-  await ctx.conversation.sendActions({
-    id: `actions-${Date.now()}`,
-    description: "Would you like to proceed?",
-    actions: [
-      { id: "action-yes", label: "Yes" },
-      { id: "action-no", label: "No" },
-    ],
-  });
+  await ctx.conversation.sendActions(
+    {
+      id: `actions-${Date.now()}`,
+      description: "Would you like to proceed?",
+      actions: [
+        { id: "action-yes", label: "Yes" },
+        { id: "action-no", label: "No" },
+      ],
+    },
+    { shouldPush: false },
+  );
 });
 
 agent.use(performanceMonitor.middleware());
@@ -45,45 +50,50 @@ agent.use(commandRouter.middleware());
 
 agent.on("attachment", async (ctx) => {
   const receivedAttachment = await downloadRemoteAttachment(
-    ctx.message.content,
+    ctx.client,
+    ctx.content,
   );
   console.log(`Received attachment: ${receivedAttachment.filename}`);
 });
 
 agent.on("text", (ctx) => {
-  console.log("Got text:", ctx.message.content);
+  console.log("Got text:", ctx.content);
 });
 
 agent.on("reaction", (ctx) => {
-  console.log("Got reaction:", ctx.message.content);
+  console.log("Got reaction:", ctx.content);
 });
 
 agent.on("reply", (ctx) => {
-  console.log("Got reply:", ctx.message.content);
+  console.log("Got reply:", ctx.content);
 });
 
 agent.on("intent", async (ctx) => {
-  const { actionId } = ctx.message.content;
-  console.log("Got intent:", ctx.message.content);
-  await ctx.conversation.sendText(`You selected action ID "${actionId}".`);
+  const { actionId } = ctx.content;
+  console.log("Got intent:", ctx.content);
+  await ctx.conversation.sendText(`You selected action ID "${actionId}".`, {
+    shouldPush: false,
+  });
 });
 
 agent.on("text", async (ctx) => {
-  if (ctx.message.content.startsWith("@agent")) {
-    await ctx.conversation.sendText("How can I help you?");
+  if (ctx.content.startsWith("@agent")) {
+    await ctx.conversation.sendText("How can I help you?", {
+      shouldPush: false,
+    });
   }
 });
 
 agent.on("transaction-reference", (ctx) => {
-  const { networkId, reference } = ctx.message.content;
-  if (!isHexString(reference)) {
+  const { networkId, reference } = ctx.content;
+  if (!isHex(reference)) {
     console.warn(`Invalid transaction ID: ${reference}`);
   }
   console.log(`Transaction "${reference}" on network "${networkId}".`);
 });
 
 agent.on("wallet-send-calls", (ctx) => {
-  const { chainId, calls } = ctx.message.content;
+  const { chainId, calls } = ctx.content;
   console.log(
     `Wallet request for "${calls.length}" calls on chain "${chainId}".`,
   );
@@ -116,7 +126,9 @@ agent.on("unknownMessage", (ctx) => {
 });
 
 agent.on("group", async (ctx) => {
-  await ctx.conversation.sendMarkdown("**Hello, World!**");
+  await ctx.conversation.sendMarkdown("**Hello, World!**", {
+    shouldPush: false,
+  });
 });
 
 await agent.start();

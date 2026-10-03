@@ -38,6 +38,12 @@ use xmtp_proto::xmtp::{
     mls::message_contents::EncodedContent,
 };
 
+pub(super) fn log_incoming_preference_updates(
+    updates: &[xmtp_proto::xmtp::device_sync::content::PreferenceUpdate],
+) {
+    tracing::info!(update_count = updates.len(), "Incoming preference updates");
+}
+
 const MAX_ATTEMPTS: i32 = 3;
 type PendingEvent = Arc<Mutex<Option<(u64, xmtp_events::EventEnvelope<InternalEvent>)>>>;
 
@@ -172,13 +178,15 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
-        self.sync_init().await?;
+        // Keep the large startup future off the worker poll stack.
+        Box::pin(self.sync_init()).await?;
         // Receipt must outlive each sync call so remote updates can wake this worker.
         let _receipt = IncomingCoordinator::for_context(&self.client.context)
             .acquire(IncomingScope::DeviceSyncGroups);
         self.metrics.increment_metric(SyncMetric::Init);
 
-        self.run_internal().await
+        // Keep event futures off the containing worker poll stack.
+        Box::pin(self.run_internal()).await
     }
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
@@ -248,7 +256,8 @@ where
         id: u64,
         event: xmtp_events::EventEnvelope<InternalEvent>,
     ) -> Result<(), DeviceSyncError> {
-        self.handle_event(event.clone()).await?;
+        // Pending state stays owned here until the event succeeds.
+        Box::pin(self.handle_event(event.clone())).await?;
         let mut pending = self.pending.lock();
         if pending
             .as_ref()
@@ -259,7 +268,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn", event = ?event))]
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
     async fn handle_event(
         &mut self,
         event: xmtp_events::EventEnvelope<InternalEvent>,
@@ -305,7 +314,8 @@ where
                     Event::DeviceSyncNoPrimarySyncGroup,
                     self.client.context.installation_id()
                 );
-                let sync_group = client.get_sync_group().await?;
+                // Sync-group creation polls membership publication below this call.
+                let sync_group = Box::pin(client.get_sync_group()).await?;
                 log_event!(
                     Event::DeviceSyncCreatedPrimarySyncGroup,
                     self.client.context.installation_id(),
@@ -506,12 +516,10 @@ where
         match content {
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
                 if is_external {
-                    tracing::info!("Incoming preference updates: {updates:?}");
+                    log_incoming_preference_updates(&updates);
                 }
-                tracing::info!(
-                    "{} storing preference updates",
-                    self.context.installation_id()
-                );
+                // implements: PROC-036
+                tracing::info!(update_count = updates.len(), "storing preference updates");
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                 crate::state_tx::state_write_with_events(
                     self.context.mls_storage(),
@@ -569,6 +577,50 @@ mod startup_tests {
     use crate::{tester, worker::WorkerConfig};
     use futures::FutureExt;
     use xmtp_events::EventWriter;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn worker_turn_span_omits_hmac_key() {
+        tester!(alix, disable_workers);
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let key = (1_u8..=42).collect::<Vec<_>>();
+        let key_debug = format!("{key:?}");
+        let event = xmtp_events::EventEnvelope::new(
+            None,
+            Some(InternalEvent::PreferencesChanged {
+                updates: vec![PreferenceUpdate::Hmac {
+                    key,
+                    cycled_at_ns: 1,
+                }],
+                origin: PreferenceOrigin::Sync,
+            }),
+            Default::default(),
+        );
+        let (result, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            worker
+                .handle_event(event)
+                .now_or_never()
+                .expect("the Sync-origin handler must finish without IO")
+        });
+        result?;
+        let span = spans
+            .iter()
+            .find(|span| span.name == "handle_event")
+            .expect("the actual worker handler must export its span");
+        let fields = format!("{:?}", span.attributes);
+        assert!(fields.contains("worker_turn"));
+        assert!(fields.contains("DeviceSync"));
+        assert!(
+            !fields.contains(&key_debug),
+            "worker span must not export the HMAC root key"
+        );
+        alix.close().await?;
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn queued_event_precedes_first_periodic_turn() {

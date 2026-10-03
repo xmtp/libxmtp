@@ -137,13 +137,13 @@ describe("conversation send-text", () => {
     expect(output.text).toBe(specialText);
   });
 
-  it("fails with invalid conversation ID", async () => {
+  it("fails with a missing conversation ID", async () => {
     const sender = await createRegisteredIdentity();
 
     const result = await runWithIdentity(sender, [
       "conversation",
       "send-text",
-      "invalid-conversation-id",
+      "0".repeat(32),
       "Hello",
       "--json",
     ]);

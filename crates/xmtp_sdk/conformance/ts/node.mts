@@ -808,7 +808,7 @@ console.log("Node scenario 9: archive bytes and file passed");
 // verifies: EVENT-050
 // verifies: EVENT-053
 const eventFilter: sdk.EventFilter = {
-  kinds: ["conversationJoined"],
+  kinds: ["conversation.joined"],
   referencesOwnMessages: false,
 };
 const eventReader = await reopened.events(eventFilter);
@@ -818,7 +818,7 @@ const listenerId = await reopened.startListener(eventFilter, async () => {
 });
 await reopened.conversations.createGroup([]);
 const sampleEvent = (await eventReader.next()).value;
-assert.equal(sampleEvent?.kind, "conversationJoined");
+assert.equal(sampleEvent?.kind, "conversation.joined");
 for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
   await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(listenerCalls, 1);

@@ -36,30 +36,22 @@ application instance using your identity.`;
 
     const options = client.options;
     const properties = {
-      address: client.accountIdentifier?.identifier,
+      address: client.identity.identifier,
       inboxId: client.inboxId,
       installationId: client.installationId,
-      isRegistered: client.isRegistered,
+      isRegistered: await client.isRegistered(),
       appVersion: client.appVersion,
       libxmtpVersion: client.libxmtpVersion,
     };
 
     const clientOptions = {
-      env: client.env,
-      backendUrl:
-        options && "backend" in options
-          ? options.backend.backendUrl
-          : options?.backendUrl,
-      dbPath: options?.dbPath,
-      loggingLevel: options?.loggingLevel,
-      structuredLogging: options?.structuredLogging,
-      disableAutoRegister: options?.disableAutoRegister,
-      disableDeviceSync: options?.disableDeviceSync,
-      appVersion:
-        options && "backend" in options
-          ? options.backend.appVersion
-          : options?.appVersion,
-      nonce: options?.nonce,
+      env: this.getConfig().env ?? "local",
+      backendUrl: this.getConfig().backendUrl,
+      storage: options.storage,
+      dbPath: await client.storage.path(),
+      deviceSync: options.deviceSync,
+      registration: options.registration,
+      appVersion: client.appVersion,
     };
 
     if (this.jsonOutput) {

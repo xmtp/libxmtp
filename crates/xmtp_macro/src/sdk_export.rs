@@ -1,13 +1,27 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{ImplItem, Item, ReturnType, TraitItem, Type};
+use syn::{
+    ImplItem, Item, Meta, ReturnType, Token, TraitItem, Type, parse::Parser, punctuated::Punctuated,
+};
 
 pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
     let mut pure = false;
-    let target = if attr.is_empty() {
+    let mut defaults = TokenStream::new();
+    let arguments = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(attr)?;
+    let mut arguments = arguments.into_iter();
+    let target = if arguments.len() == 0 {
         None
     } else {
-        let target: syn::Ident = syn::parse2(attr)?;
+        let first = arguments.next().unwrap();
+        let Meta::Path(path) = first else {
+            return Err(syn::Error::new_spanned(
+                first,
+                "sdk_export requires a target name",
+            ));
+        };
+        let target = path
+            .get_ident()
+            .ok_or_else(|| syn::Error::new_spanned(&path, "sdk_export requires a target name"))?;
         match target.to_string().as_str() {
             "native_only" => Some(quote!(#[cfg(not(target_arch = "wasm32"))])),
             "wasm_only" => Some(quote!(#[cfg(target_arch = "wasm32")])),
@@ -24,6 +38,24 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
         }
     };
 
+    for argument in arguments {
+        match argument {
+            Meta::List(value) if pure && value.path.is_ident("default") && defaults.is_empty() => {
+                defaults = value.tokens;
+            }
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "only pure functions accept one default(...) list",
+                ));
+            }
+        }
+    }
+    let pure_export = if defaults.is_empty() {
+        quote!(uniffi::export)
+    } else {
+        quote!(uniffi::export(default(#defaults)))
+    };
     let mut item: Item = syn::parse2(input)?;
     if pure {
         match &mut item {
@@ -83,7 +115,7 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
 
     let export = if pure {
         quote! {
-            #[cfg_attr(any(not(target_arch = "wasm32"), feature = "pure-only"), uniffi::export)]
+            #[cfg_attr(any(not(target_arch = "wasm32"), feature = "pure-only"), #pure_export)]
         }
     } else if has_async {
         quote! {

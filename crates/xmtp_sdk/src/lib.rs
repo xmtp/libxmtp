@@ -64,7 +64,6 @@ mod metadata;
 mod notifications;
 #[cfg(not(feature = "pure-only"))]
 mod preferences;
-#[cfg(not(feature = "pure-only"))]
 mod signer;
 #[cfg(not(feature = "pure-only"))]
 mod state;
@@ -87,6 +86,12 @@ pub use client::{
     AttachmentOptions, Client, ClientHandlers, ClientOptions, PreAuthenticate,
     PreAuthenticateError, StorageLocation, StorageOptions,
 };
+#[cfg(all(
+    feature = "conformance",
+    not(feature = "pure-only"),
+    not(target_arch = "wasm32")
+))]
+pub use configuration::sdk_conformance_server_configuration_sample;
 #[cfg(not(feature = "pure-only"))]
 pub use configuration::{
     AttachmentsConfiguration, AuthConfiguration, LimitsConfiguration, MlsConfiguration,
@@ -96,11 +101,13 @@ pub use configuration::{
 pub use content::StandardCodecSample;
 pub use content::{
     Action, ActionStyle, Actions, Attachment, Compression, DeleteMessageContent, DeletedBy,
-    DeletedMessage, EncodedContent, GroupUpdated, Intent, LeaveRequest, MetadataFieldChange,
-    MultiRemoteAttachment, Reaction, ReactionAction, ReactionSchema, ReactionV2Content,
-    RemoteAttachment, ReplyContent, SendOptions, StandardContent, StandardContentKind,
-    TransactionMetadata, TransactionReference, WalletCall, WalletCallMetadata, WalletSendCalls,
-    decode_standard, encode_standard, encode_text, standard_content_type,
+    DeletedMessage, EncodedContent, EncryptedEncodedContent, EncryptionKeys, GroupUpdated, Intent,
+    LeaveRequest, MetadataFieldChange, MultiRemoteAttachment, Reaction, ReactionAction,
+    ReactionSchema, ReactionV2Content, RemoteAttachment, ReplyContent, SendOptions,
+    StandardContent, StandardContentKind, TransactionMetadata, TransactionReference, WalletCall,
+    WalletCallMetadata, WalletSendCalls, catalogue_content_type_should_push,
+    decode_encoded_content, decode_standard, encode_encoded_content, encode_standard, encode_text,
+    remote_attachment_from_encrypted, standard_content_type,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use conversation::{Conversation, Conversations, Dm, Group};
@@ -115,17 +122,16 @@ pub use conversations::{
 pub use credentials::{
     Backend, BackendOptions, BackendSource, Credential, CredentialError, CredentialSource,
 };
-#[cfg(not(feature = "pure-only"))]
-pub use crypto::{EncryptedEncodedContent, EncryptionKeys};
 #[cfg(all(test, not(feature = "pure-only")))]
 use delivery as reader;
 #[cfg(not(feature = "pure-only"))]
-pub use delivery::{ConnectionState, ConversationReader, MessageReader};
+pub use delivery::{ConnectionState, ConversationReader, MessageHistorySnapshot, MessageReader};
 #[cfg(not(feature = "pure-only"))]
 pub use diagnostics::{ApiStats, Diagnostics, IdentityStats};
 pub use error::{
     AttachmentFailure, AttachmentFailureCause, CredentialFailureKind, ErrorCategory, ErrorDetails,
-    XmtpError,
+    StreamBarrierCause, StreamBarrierCauseKind, StreamBarrierFailure, StreamBarrierReason,
+    StreamBarrierTopic, StreamFailureDetails, StreamFailureKind, StreamFailureSummary, XmtpError,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use events::{
@@ -161,10 +167,11 @@ pub use notifications::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use preferences::{ConsentEntity, ConsentRecord, ConsentState, Preferences};
+pub use signer::{PublicIdentity, PublicIdentityKind, generate_inbox_id};
 #[cfg(not(feature = "pure-only"))]
 pub use signer::{
-    PublicIdentity, PublicIdentityKind, Signature, Signer, SignerError, SignerKind, SigningRequest,
-    generate_local_signer, local_signer_from_private_key,
+    Signature, Signer, SignerError, SignerKind, SigningRequest, generate_local_signer,
+    local_signer_from_private_key,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use state::{
@@ -195,6 +202,24 @@ uniffi::setup_scaffolding!();
 #[xmtp_macro::sdk_export(pure)]
 pub fn sdk_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
+}
+
+/// Suspend shared process streams and keep their durable progress.
+#[cfg(not(feature = "pure-only"))]
+#[xmtp_macro::sdk_export(native_only)]
+pub async fn suspend_streams() -> Result<(), XmtpError> {
+    xmtp_mls::subscriptions::router_callbacks::suspend_bidi_streams()
+        .await
+        .map_err(XmtpError::from_core)
+}
+
+/// Resume shared process streams from their durable progress.
+#[cfg(not(feature = "pure-only"))]
+#[xmtp_macro::sdk_export(native_only)]
+pub async fn resume_streams() -> Result<(), XmtpError> {
+    xmtp_mls::subscriptions::router_callbacks::resume_bidi_streams()
+        .await
+        .map_err(XmtpError::from_core)
 }
 
 /// An empty asynchronous call for measuring FFI scheduling cost.

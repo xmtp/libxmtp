@@ -1,7 +1,7 @@
 import { Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
-import { hexToBytes } from "@/utils/client";
+import { createEOASigner, installationIdFromHex } from "@/utils/client";
 
 export default class ClientRevokeInstallations extends BaseCommand {
   static description = `Revoke specific installations from the client's inbox.
@@ -56,7 +56,6 @@ be restored. Make sure you have access to at least one other installation.`;
 
   async run(): Promise<void> {
     const { flags } = await this.parse(ClientRevokeInstallations);
-    const client = await this.initClient();
 
     // Support both repeated flags and comma-separated values
     const installationIdStrings = flags["installation-ids"]
@@ -68,19 +67,23 @@ be restored. Make sure you have access to at least one other installation.`;
       this.error("At least one installation ID is required");
     }
 
-    // Validate hex strings before confirming
-    const installationIds = installationIdStrings.map(hexToBytes);
+    // Validate and normalize IDs before client creation or confirmation.
+    const installationIds = installationIdStrings.map(installationIdFromHex);
+    const client = await this.initClient();
 
     await this.confirmAction(
       `Revoking ${installationIdStrings.length} installation(s) is irreversible. They will immediately lose access to send or receive messages.`,
       flags.force,
     );
 
-    await client.revokeInstallations(installationIds);
+    await client.revokeInstallations(
+      createEOASigner(this.getConfig().walletKey!),
+      installationIds,
+    );
 
     this.output({
       success: true,
-      revokedInstallations: installationIdStrings,
+      revokedInstallations: installationIds,
       count: installationIds.length,
       inboxId: client.inboxId,
       message: "Installations successfully revoked",

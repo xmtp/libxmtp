@@ -938,3 +938,53 @@ async fn replay_ack_boundary(
     );
     Ok(())
 }
+
+// verifies: SYNC-005, PROC-026, PROC-034
+#[xmtp_common::test(unwrap_try = true)]
+async fn all_reader_and_snapshot_hide_sync_without_consuming_internal_messages() {
+    use xmtp_db::{diesel::prelude::*, group::ConversationType, schema::groups};
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    let sync = alix.create_group(None, None)?;
+    alix.context.db().raw_query(|conn| {
+        diesel::update(groups::table.find(sync.group_id))
+            .set(groups::conversation_type.eq(ConversationType::Sync))
+            .execute(conn)
+    })?;
+    sync.update_consent_state(ConsentState::Allowed)?;
+    let mut hidden = generate_stored_msg(Cursor(100), sync.group_id);
+    hidden.decrypted_message_bytes = vec![0x6b; 42];
+    hidden.store(&alix.context.db())?;
+    let visible = generate_stored_msg(Cursor(200), group.group_id);
+    visible.store(&alix.context.db())?;
+    let selection = LocalDeliveryFilter {
+        consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+        ..Default::default()
+    };
+    let snapshot =
+        LocalDelivery::history_snapshot(&alix.context, &DeliveryScope::All, &selection, 1)?;
+    assert_eq!(snapshot.messages.len(), 1);
+    assert_eq!(snapshot.messages[0].message.id, visible.id);
+    assert_eq!(
+        snapshot.cursor,
+        alix.context.db().current_delivery_cursor()?
+    );
+    let mut reader = LocalDelivery::new(
+        alix.context.clone(),
+        DeliveryScope::All,
+        selection,
+        None,
+        LocalDeliveryConfig::default(),
+    )?;
+    let item = timeout(Duration::from_secs(2), reader.next_delivery())
+        .await??
+        .unwrap();
+    assert_eq!(item.message.id, visible.id);
+    let explicit = alix
+        .context
+        .db()
+        .get_group_messages(&sync.group_id, &Default::default())?;
+    assert!(explicit.iter().any(|row| row.id == hidden.id));
+    item.acknowledgement.reject();
+    reader.close();
+}

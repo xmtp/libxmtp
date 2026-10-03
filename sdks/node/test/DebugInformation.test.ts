@@ -6,7 +6,7 @@ describe("DebugInformation", () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);
 
-    const apiStats = client.debugInformation.apiStatistics();
+    const apiStats = await client.diagnostics.apiStatistics();
     // Registration publishes identity updates and a key package.
     expect(apiStats.publish).toBeGreaterThanOrEqual(2n);
     expect(apiStats.query).toBeGreaterThanOrEqual(2n);
@@ -16,24 +16,24 @@ describe("DebugInformation", () => {
     expect(apiStats.subscribe).toBe(0n);
     expect(apiStats.subscribeStatic).toBe(0n);
 
-    const apiIdentityStats = client.debugInformation.apiIdentityStatistics();
+    const apiIdentityStats = await client.diagnostics.identityStatistics();
     expect(apiIdentityStats.getInboxIds).toBeGreaterThanOrEqual(1n);
     expect(apiIdentityStats.verifySmartContractWalletSignatures).toBe(0n);
 
-    client.debugInformation.clearAllStatistics();
+    await client.diagnostics.clearStatistics();
 
-    const apiStats2 = client.debugInformation.apiStatistics();
+    const apiStats2 = await client.diagnostics.apiStatistics();
     expect(apiStats2.publish).toBe(0n);
     expect(apiStats2.query).toBe(0n);
     expect(apiStats2.queryNewest).toBe(0n);
     expect(apiStats2.subscribe).toBe(0n);
     expect(apiStats2.subscribeStatic).toBe(0n);
 
-    const apiIdentityStats2 = client.debugInformation.apiIdentityStatistics();
+    const apiIdentityStats2 = await client.diagnostics.identityStatistics();
     expect(apiIdentityStats2.getInboxIds).toBe(0n);
     expect(apiIdentityStats2.verifySmartContractWalletSignatures).toBe(0n);
 
-    const apiAggregateStats = client.debugInformation.apiAggregateStatistics();
+    const apiAggregateStats = await client.diagnostics.aggregateStatistics();
     expect(apiAggregateStats).toBeDefined();
   });
 });

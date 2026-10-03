@@ -1,6 +1,15 @@
 import { Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
+import { installationIdFromHex } from "@/utils/client";
+
+export function installationIdsFromFlags(values: string[]): string[] {
+  return values
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .map(installationIdFromHex);
+}
 
 export default class ClientKeyPackageStatus extends BaseCommand {
   static description = `Fetch key package statuses for installation IDs.
@@ -50,16 +59,13 @@ whether the key package exists and its validity state.`;
     const client = await this.initClient();
 
     // Support both repeated flags and comma-separated values
-    const installationIds = flags["installation-ids"]
-      .flatMap((id) => id.split(","))
-      .map((id) => id.trim())
-      .filter((id) => id.length > 0);
+    const installationIds = installationIdsFromFlags(flags["installation-ids"]);
 
     if (installationIds.length === 0) {
       this.error("At least one installation ID is required");
     }
 
-    const statuses = await client.fetchKeyPackageStatuses(installationIds);
+    const statuses = await client.keyPackageStatuses(installationIds);
 
     this.output({
       installationIds,

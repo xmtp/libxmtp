@@ -4,9 +4,10 @@ root := justfile_directory()
 
 set shell := ["../../dev/nix-shell"]
 
-# Build and stage the local Node and WASM bindings before docs package tasks.
-bindings:
-    ../../dev/js/bindings
+# Stage the selected local SDK products before docs package tasks.
+sdk-products:
+    ../../dev/js/sdk-stage node
+    ../../dev/js/sdk-stage browser
 
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
@@ -15,10 +16,10 @@ browsers:
 dev:
     pnpm --filter @xmtp/docs run dev
 
-build: bindings
+build: sdk-products
     cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run build
 
-check-examples: bindings
+check-examples: sdk-products
     cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run check:examples
 
 check-agent-docs:
@@ -40,7 +41,7 @@ test:
 test-browser:
     pnpm --filter @xmtp/docs run test:browser
 
-typecheck: bindings
+typecheck: sdk-products
     cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run typecheck
 
 compose:

@@ -67,14 +67,20 @@ public final class SDKClient: @unchecked Sendable {
         signer: Signer, options: ClientOptions,
         codecs: [any ContentCodec] = []
     ) async throws -> SDKClient {
-        try await SDKClient(Client.create(signer: signer, options: resolved(options)), codecs: codecs)
+        #if canImport(UIKit)
+            await AppleStreamLifecycle.enableIfNeeded()
+        #endif
+        return try await SDKClient(Client.create(signer: signer, options: resolved(options)), codecs: codecs)
     }
 
     public static func build(
         identity: PublicIdentity, options: ClientOptions, inboxId: InboxId? = nil,
         codecs: [any ContentCodec] = []
     ) async throws -> SDKClient {
-        try await SDKClient(Client.build(identity: identity, options: resolved(options), inboxId: inboxId), codecs: codecs)
+        #if canImport(UIKit)
+            await AppleStreamLifecycle.enableIfNeeded()
+        #endif
+        return try await SDKClient(Client.build(identity: identity, options: resolved(options), inboxId: inboxId), codecs: codecs)
     }
 
     public static func fetchServerConfiguration(backend: BackendSource) async throws -> ServerConfiguration {

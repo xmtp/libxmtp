@@ -28,3 +28,22 @@ export type AnyContentCodec = {
   encode(value: never): EncodedContent;
   decode(encoded: EncodedContent): unknown;
 };
+
+// Both browser trees use this private marker. It stores the exact builtin
+// fallback method on the codec, so a subclass override keeps its hook.
+const rustStandardFallback = Symbol.for("@xmtp/sdk/rust-standard-fallback");
+export function registerRustStandardFallback(
+  codec: object,
+  fallback: unknown,
+): void {
+  Object.defineProperty(codec, rustStandardFallback, { value: fallback });
+}
+export function usesRustStandardFallback(
+  codec: object,
+  fallback: unknown,
+): boolean {
+  return (
+    Reflect.get(codec, rustStandardFallback) === fallback &&
+    Reflect.has(codec, rustStandardFallback)
+  );
+}

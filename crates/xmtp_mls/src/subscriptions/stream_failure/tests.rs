@@ -7,6 +7,7 @@ fn barrier(target: Option<u64>, reason: BarrierFailure) -> BarrierError {
         reason,
         unfinished: vec![BarrierTopic {
             topic: Topic::new_welcome_message([0xab; 32].into()),
+            scope_generation: Some(u64::MAX),
             target: target.map(Cursor),
             received: Cursor(u64::MAX),
             processed: Cursor(u64::MAX - 1),
@@ -27,12 +28,19 @@ fn preserves_missing_targets_and_full_width_cursors() {
         serde_json::from_str(suffix.strip_prefix(STREAM_FAILURE_MARKER)?)?;
     let topic = &json["barriers"][0]["unfinished"][0];
     assert!(topic["target"].is_null());
+    assert_eq!(topic["scopeGeneration"], u64::MAX.to_string());
     assert_eq!(topic["received"], u64::MAX.to_string());
     assert_eq!(topic["processed"], (u64::MAX - 1).to_string());
     assert_eq!(topic["unresolvedWelcomes"][0], "9007199254740993");
     assert_eq!(topic["unresolvedWelcomes"][1], u64::MAX.to_string());
     let details = decode_stream_failure(&format!("[code] message{suffix}"))?;
     assert_eq!(details.barriers[0].unfinished[0].target, None);
+    assert_eq!(
+        details.barriers[0].unfinished[0]
+            .scope_generation
+            .as_deref(),
+        Some("18446744073709551615")
+    );
     assert_eq!(
         details.barriers[0].unfinished[0]
             .cause

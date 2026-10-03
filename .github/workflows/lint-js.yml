@@ -17,10 +17,12 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - name: Stage native bindings
-        run: just js bindings
+      - name: Build and stage selected SDK products
+        run: just js sdk-products
       - name: Typecheck JavaScript workspace
-        run: dev/nix-shell 'pnpm typecheck'
+        # The retained binding tests need a test-utils build. Their test job
+        # checks them against that build.
+        run: dev/nix-shell 'pnpm -r --filter "!@xmtp/node-bindings" run typecheck'
       - name: Oxlint JavaScript workspace
         run: dev/nix-shell 'pnpm lint'
       - name: Check JavaScript formatting

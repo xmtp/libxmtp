@@ -1,10 +1,5 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import {
-  GroupPermissionsOptions,
-  MetadataField,
-  PermissionPolicy,
-  PermissionUpdateType,
-} from "@xmtp/node-bindings";
+import { Timestamp } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
 describe("Group permissions", () => {
@@ -12,19 +7,17 @@ describe("Group permissions", () => {
     const { signer: signer1 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const group = await client1.conversations.createGroup([]);
-    expect(group.permissions().policyType).toBe(
-      GroupPermissionsOptions.Default,
-    );
-    expect(group.permissions().policySet).toEqual({
-      addMemberPolicy: PermissionPolicy.Allow,
-      removeMemberPolicy: PermissionPolicy.Admin,
-      addAdminPolicy: PermissionPolicy.SuperAdmin,
-      removeAdminPolicy: PermissionPolicy.SuperAdmin,
-      updateGroupNamePolicy: PermissionPolicy.Allow,
-      updateGroupDescriptionPolicy: PermissionPolicy.Allow,
-      updateGroupImageUrlSquarePolicy: PermissionPolicy.Allow,
-      updateMessageDisappearingPolicy: PermissionPolicy.Admin,
-      updateAppDataPolicy: PermissionPolicy.Allow,
+    expect((await group.state()).permissions.policyType).toBe("allMembers");
+    expect((await group.state()).permissions.policySet).toEqual({
+      addMember: "allow",
+      removeMember: "admin",
+      addAdmin: "superAdmin",
+      removeAdmin: "superAdmin",
+      updateName: "allow",
+      updateDescription: "allow",
+      updateImage: "allow",
+      updateDisappearing: "admin",
+      updateAppData: "allow",
     });
   });
 
@@ -32,21 +25,19 @@ describe("Group permissions", () => {
     const { signer: signer1 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const group = await client1.conversations.createGroup([], {
-      permissions: GroupPermissionsOptions.AdminOnly,
+      permissions: { kind: "adminOnly" },
     });
-    expect(group.permissions().policyType).toBe(
-      GroupPermissionsOptions.AdminOnly,
-    );
-    expect(group.permissions().policySet).toEqual({
-      addMemberPolicy: PermissionPolicy.Admin,
-      removeMemberPolicy: PermissionPolicy.Admin,
-      addAdminPolicy: PermissionPolicy.SuperAdmin,
-      removeAdminPolicy: PermissionPolicy.SuperAdmin,
-      updateGroupNamePolicy: PermissionPolicy.Admin,
-      updateGroupDescriptionPolicy: PermissionPolicy.Admin,
-      updateGroupImageUrlSquarePolicy: PermissionPolicy.Admin,
-      updateMessageDisappearingPolicy: PermissionPolicy.Admin,
-      updateAppDataPolicy: PermissionPolicy.Admin,
+    expect((await group.state()).permissions.policyType).toBe("adminOnly");
+    expect((await group.state()).permissions.policySet).toEqual({
+      addMember: "admin",
+      removeMember: "admin",
+      addAdmin: "superAdmin",
+      removeAdmin: "superAdmin",
+      updateName: "admin",
+      updateDescription: "admin",
+      updateImage: "admin",
+      updateDisappearing: "admin",
+      updateAppData: "admin",
     });
   });
 
@@ -56,32 +47,32 @@ describe("Group permissions", () => {
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
     const group = await client1.conversations.createGroup([client2.inboxId], {
-      permissions: GroupPermissionsOptions.CustomPolicy,
-      customPermissionPolicySet: {
-        addAdminPolicy: PermissionPolicy.Deny,
-        addMemberPolicy: PermissionPolicy.Allow,
-        removeAdminPolicy: PermissionPolicy.Deny,
-        removeMemberPolicy: PermissionPolicy.Deny,
-        updateGroupNamePolicy: PermissionPolicy.Deny,
-        updateGroupDescriptionPolicy: PermissionPolicy.Deny,
-        updateGroupImageUrlSquarePolicy: PermissionPolicy.Deny,
-        updateMessageDisappearingPolicy: PermissionPolicy.Admin,
-        updateAppDataPolicy: PermissionPolicy.Deny,
+      permissions: {
+        kind: "custom",
+        policySet: {
+          addAdmin: "deny",
+          addMember: "allow",
+          removeAdmin: "deny",
+          removeMember: "deny",
+          updateName: "deny",
+          updateDescription: "deny",
+          updateImage: "deny",
+          updateDisappearing: "admin",
+          updateAppData: "deny",
+        },
       },
     });
-    expect(group.permissions().policyType).toBe(
-      GroupPermissionsOptions.CustomPolicy,
-    );
-    expect(group.permissions().policySet).toEqual({
-      addAdminPolicy: PermissionPolicy.Deny,
-      addMemberPolicy: PermissionPolicy.Allow,
-      removeAdminPolicy: PermissionPolicy.Deny,
-      removeMemberPolicy: PermissionPolicy.Deny,
-      updateGroupNamePolicy: PermissionPolicy.Deny,
-      updateGroupDescriptionPolicy: PermissionPolicy.Deny,
-      updateGroupImageUrlSquarePolicy: PermissionPolicy.Deny,
-      updateMessageDisappearingPolicy: PermissionPolicy.Admin,
-      updateAppDataPolicy: PermissionPolicy.Deny,
+    expect((await group.state()).permissions.policyType).toBe("custom");
+    expect((await group.state()).permissions.policySet).toEqual({
+      addAdmin: "deny",
+      addMember: "allow",
+      removeAdmin: "deny",
+      removeMember: "deny",
+      updateName: "deny",
+      updateDescription: "deny",
+      updateImage: "deny",
+      updateDisappearing: "admin",
+      updateAppData: "deny",
     });
   });
 
@@ -92,72 +83,44 @@ describe("Group permissions", () => {
     const client2 = await createRegisteredClient(signer2);
     const group = await client1.conversations.createGroup([client2.inboxId]);
 
-    expect(group.permissions().policySet).toEqual({
-      addMemberPolicy: PermissionPolicy.Allow,
-      removeMemberPolicy: PermissionPolicy.Admin,
-      addAdminPolicy: PermissionPolicy.SuperAdmin,
-      removeAdminPolicy: PermissionPolicy.SuperAdmin,
-      updateGroupNamePolicy: PermissionPolicy.Allow,
-      updateGroupDescriptionPolicy: PermissionPolicy.Allow,
-      updateGroupImageUrlSquarePolicy: PermissionPolicy.Allow,
-      updateMessageDisappearingPolicy: PermissionPolicy.Admin,
-      updateAppDataPolicy: PermissionPolicy.Allow,
+    expect((await group.state()).permissions.policySet).toEqual({
+      addMember: "allow",
+      removeMember: "admin",
+      addAdmin: "superAdmin",
+      removeAdmin: "superAdmin",
+      updateName: "allow",
+      updateDescription: "allow",
+      updateImage: "allow",
+      updateDisappearing: "admin",
+      updateAppData: "allow",
     });
 
-    await group.updatePermission(
-      PermissionUpdateType.AddMember,
-      PermissionPolicy.Admin,
-    );
+    await group.updatePermission("addMember", "admin", undefined);
 
-    await group.updatePermission(
-      PermissionUpdateType.RemoveMember,
-      PermissionPolicy.SuperAdmin,
-    );
+    await group.updatePermission("removeMember", "superAdmin", undefined);
 
-    await group.updatePermission(
-      PermissionUpdateType.AddAdmin,
-      PermissionPolicy.Admin,
-    );
+    await group.updatePermission("addAdmin", "admin", undefined);
 
-    await group.updatePermission(
-      PermissionUpdateType.RemoveAdmin,
-      PermissionPolicy.Admin,
-    );
+    await group.updatePermission("removeAdmin", "admin", undefined);
 
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Admin,
-      MetadataField.GroupName,
-    );
+    await group.updatePermission("updateMetadata", "admin", "name");
 
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Admin,
-      MetadataField.Description,
-    );
+    await group.updatePermission("updateMetadata", "admin", "description");
 
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Admin,
-      MetadataField.GroupImageUrlSquare,
-    );
+    await group.updatePermission("updateMetadata", "admin", "imageUrl");
 
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Admin,
-      MetadataField.AppData,
-    );
+    await group.updatePermission("updateMetadata", "admin", "appData");
 
-    expect(group.permissions().policySet).toEqual({
-      addMemberPolicy: PermissionPolicy.Admin,
-      removeMemberPolicy: PermissionPolicy.SuperAdmin,
-      addAdminPolicy: PermissionPolicy.Admin,
-      removeAdminPolicy: PermissionPolicy.Admin,
-      updateGroupNamePolicy: PermissionPolicy.Admin,
-      updateGroupDescriptionPolicy: PermissionPolicy.Admin,
-      updateGroupImageUrlSquarePolicy: PermissionPolicy.Admin,
-      updateMessageDisappearingPolicy: PermissionPolicy.Admin,
-      updateAppDataPolicy: PermissionPolicy.Admin,
+    expect((await group.state()).permissions.policySet).toEqual({
+      addMember: "admin",
+      removeMember: "superAdmin",
+      addAdmin: "admin",
+      removeAdmin: "admin",
+      updateName: "admin",
+      updateDescription: "admin",
+      updateImage: "admin",
+      updateDisappearing: "admin",
+      updateAppData: "admin",
     });
   });
 
@@ -179,16 +142,13 @@ describe("Group permissions", () => {
 
     // client2 is a regular member of the group
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
     // adding a member is allowed
     await group2.addMembers([client3.inboxId]);
     expect(await group2.members()).toHaveLength(3);
 
     // update group permissions to allow only admins to add members
-    await group.updatePermission(
-      PermissionUpdateType.AddMember,
-      PermissionPolicy.Admin,
-    );
+    await group.updatePermission("addMember", "admin", undefined);
     // client2 is no longer able to add members
     await expect(() => group2.addMembers([client4.inboxId])).rejects.toThrow();
 
@@ -199,10 +159,7 @@ describe("Group permissions", () => {
     expect(await group2.members()).toHaveLength(4);
 
     // update group permissions to allow only super admins to add members
-    await group.updatePermission(
-      PermissionUpdateType.AddMember,
-      PermissionPolicy.SuperAdmin,
-    );
+    await group.updatePermission("addMember", "superAdmin", undefined);
     // client2 is no longer able to add members
     await expect(() => group2.addMembers([client5.inboxId])).rejects.toThrow();
 
@@ -213,18 +170,12 @@ describe("Group permissions", () => {
     expect(await group2.members()).toHaveLength(5);
 
     // update group permissions to deny adding members
-    await group.updatePermission(
-      PermissionUpdateType.AddMember,
-      PermissionPolicy.Deny,
-    );
+    await group.updatePermission("addMember", "deny", undefined);
     // client2 is no longer able to add members
     await expect(() => group2.addMembers([client6.inboxId])).rejects.toThrow();
 
     // update group permissions to allow anyone to add members
-    await group.updatePermission(
-      PermissionUpdateType.AddMember,
-      PermissionPolicy.Allow,
-    );
+    await group.updatePermission("addMember", "allow", undefined);
     // client2 is able to add members again
     await group2.addMembers([client6.inboxId]);
     expect(await group2.members()).toHaveLength(6);
@@ -251,7 +202,7 @@ describe("Group permissions", () => {
 
     // client2 is a regular member of the group
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
     // removing a member is not allowed
     await expect(() =>
       group2.removeMembers([client3.inboxId]),
@@ -264,10 +215,7 @@ describe("Group permissions", () => {
     expect(await group2.members()).toHaveLength(4);
 
     // update group permissions to allow only super admins to remove members
-    await group.updatePermission(
-      PermissionUpdateType.RemoveMember,
-      PermissionPolicy.SuperAdmin,
-    );
+    await group.updatePermission("removeMember", "superAdmin", undefined);
     // client2 is no longer able to remove members
     await expect(() =>
       group2.removeMembers([client4.inboxId]),
@@ -280,20 +228,14 @@ describe("Group permissions", () => {
     expect(await group2.members()).toHaveLength(3);
 
     // update group permissions to deny removing members
-    await group.updatePermission(
-      PermissionUpdateType.RemoveMember,
-      PermissionPolicy.Deny,
-    );
+    await group.updatePermission("removeMember", "deny", undefined);
     // client2 is no longer able to remove members
     await expect(() =>
       group2.removeMembers([client3.inboxId]),
     ).rejects.toThrow();
 
     // update group permissions to allow anyone to remove members
-    await group.updatePermission(
-      PermissionUpdateType.RemoveMember,
-      PermissionPolicy.Allow,
-    );
+    await group.updatePermission("removeMember", "allow", undefined);
     // client2 is able to remove members again
     await group2.removeMembers([client3.inboxId]);
     expect(await group2.members()).toHaveLength(2);
@@ -314,7 +256,7 @@ describe("Group permissions", () => {
 
     // client2 is a regular member of the group
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
 
     // client2 is not a super admin, so adding an admin should fail
     await expect(() => group2.addAdmin(client3.inboxId)).rejects.toThrow();
@@ -348,7 +290,7 @@ describe("Group permissions", () => {
 
     // client2 is a regular member of the group
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
 
     // client2 is not a super admin, so removing an admin should fail
     await expect(() => group2.removeAdmin(client3.inboxId)).rejects.toThrow();
@@ -374,17 +316,13 @@ describe("Group permissions", () => {
 
     // client2 is a regular member of the group
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
     // updating group name is allowed
     await group2.updateName("new name 1");
-    expect(group2.name).toBe("new name 1");
+    expect((await group2.state()).name).toBe("new name 1");
 
     // update group permissions to allow only admins to update group name
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Admin,
-      MetadataField.GroupName,
-    );
+    await group.updatePermission("updateMetadata", "admin", "name");
     // client2 is no longer able to update group name
     await expect(() => group2.updateName("new name 2")).rejects.toThrow();
 
@@ -392,14 +330,10 @@ describe("Group permissions", () => {
     await group.addAdmin(client2.inboxId);
     // client2 is now able to update group name
     await group2.updateName("new name 2");
-    expect(group2.name).toBe("new name 2");
+    expect((await group2.state()).name).toBe("new name 2");
 
     // update group permissions to allow only super admins to update group name
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.SuperAdmin,
-      MetadataField.GroupName,
-    );
+    await group.updatePermission("updateMetadata", "superAdmin", "name");
     // client2 is no longer able to update group name
     await expect(() => group2.updateName("new name 3")).rejects.toThrow();
 
@@ -407,27 +341,19 @@ describe("Group permissions", () => {
     await group.addSuperAdmin(client2.inboxId);
     // client2 is now able to update group name
     await group2.updateName("new name 3");
-    expect(group2.name).toBe("new name 3");
+    expect((await group2.state()).name).toBe("new name 3");
 
     // update group permissions to deny updating group name
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Deny,
-      MetadataField.GroupName,
-    );
+    await group.updatePermission("updateMetadata", "deny", "name");
     // client2 is no longer able to update group name
     await expect(() => group2.updateName("new name 4")).rejects.toThrow();
 
     // update group permissions to allow anyone to update group name
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Allow,
-      MetadataField.GroupName,
-    );
+    await group.updatePermission("updateMetadata", "allow", "name");
 
     // client2 is able to update group name again
     await group2.updateName("new name 4");
-    expect(group2.name).toBe("new name 4");
+    expect((await group2.state()).name).toBe("new name 4");
   });
 
   it("should enforce update group description policy", async () => {
@@ -440,17 +366,13 @@ describe("Group permissions", () => {
 
     // client2 is a regular member of the group
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
     // updating group description is allowed
     await group2.updateDescription("new description 1");
-    expect(group2.description).toBe("new description 1");
+    expect((await group2.state()).description).toBe("new description 1");
 
     // update group permissions to allow only admins to update group description
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Admin,
-      MetadataField.Description,
-    );
+    await group.updatePermission("updateMetadata", "admin", "description");
     // client2 is no longer able to update group description
     await expect(() =>
       group2.updateDescription("new description 2"),
@@ -460,14 +382,10 @@ describe("Group permissions", () => {
     await group.addAdmin(client2.inboxId);
     // client2 is now able to update group description
     await group2.updateDescription("new description 2");
-    expect(group2.description).toBe("new description 2");
+    expect((await group2.state()).description).toBe("new description 2");
 
     // update group permissions to allow only super admins to update group description
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.SuperAdmin,
-      MetadataField.Description,
-    );
+    await group.updatePermission("updateMetadata", "superAdmin", "description");
     // client2 is no longer able to update group description
     await expect(() =>
       group2.updateDescription("new description 3"),
@@ -477,28 +395,20 @@ describe("Group permissions", () => {
     await group.addSuperAdmin(client2.inboxId);
     // client2 is now able to update group description
     await group2.updateDescription("new description 3");
-    expect(group2.description).toBe("new description 3");
+    expect((await group2.state()).description).toBe("new description 3");
 
     // update group permissions to deny updating group description
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Deny,
-      MetadataField.Description,
-    );
+    await group.updatePermission("updateMetadata", "deny", "description");
     // client2 is no longer able to update group description
     await expect(() =>
       group2.updateDescription("new description 4"),
     ).rejects.toThrow();
 
     // update group permissions to allow anyone to update group description
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Allow,
-      MetadataField.Description,
-    );
+    await group.updatePermission("updateMetadata", "allow", "description");
     // client2 is able to update group description again
     await group2.updateDescription("new description 4");
-    expect(group2.description).toBe("new description 4");
+    expect((await group2.state()).description).toBe("new description 4");
   });
 
   it("should enforce update group image url policy", async () => {
@@ -511,17 +421,15 @@ describe("Group permissions", () => {
 
     // client2 is a regular member of the group
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
     // updating group image url is allowed
     await group2.updateImageUrl("https://example.com/image1.png");
-    expect(group2.imageUrl).toBe("https://example.com/image1.png");
+    expect((await group2.state()).imageUrl).toBe(
+      "https://example.com/image1.png",
+    );
 
     // update group permissions to allow only admins to update group image url
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Admin,
-      MetadataField.GroupImageUrlSquare,
-    );
+    await group.updatePermission("updateMetadata", "admin", "imageUrl");
     // client2 is no longer able to update group image url
     await expect(() =>
       group2.updateImageUrl("https://example.com/image2.png"),
@@ -531,14 +439,12 @@ describe("Group permissions", () => {
     await group.addAdmin(client2.inboxId);
     // client2 is now able to update group image url
     await group2.updateImageUrl("https://example.com/image2.png");
-    expect(group2.imageUrl).toBe("https://example.com/image2.png");
+    expect((await group2.state()).imageUrl).toBe(
+      "https://example.com/image2.png",
+    );
 
     // update group permissions to allow only super admins to update group image url
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.SuperAdmin,
-      MetadataField.GroupImageUrlSquare,
-    );
+    await group.updatePermission("updateMetadata", "superAdmin", "imageUrl");
     // client2 is no longer able to update group image url
     await expect(() =>
       group2.updateImageUrl("https://example.com/image3.png"),
@@ -548,28 +454,24 @@ describe("Group permissions", () => {
     await group.addSuperAdmin(client2.inboxId);
     // client2 is now able to update group image url
     await group2.updateImageUrl("https://example.com/image3.png");
-    expect(group2.imageUrl).toBe("https://example.com/image3.png");
+    expect((await group2.state()).imageUrl).toBe(
+      "https://example.com/image3.png",
+    );
 
     // update group permissions to deny updating group image url
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Deny,
-      MetadataField.GroupImageUrlSquare,
-    );
+    await group.updatePermission("updateMetadata", "deny", "imageUrl");
     // client2 is no longer able to update group image url
     await expect(() =>
       group2.updateImageUrl("https://example.com/image4.png"),
     ).rejects.toThrow();
 
     // update group permissions to allow anyone to update group image url
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Allow,
-      MetadataField.GroupImageUrlSquare,
-    );
+    await group.updatePermission("updateMetadata", "allow", "imageUrl");
     // client2 is able to update group image url again
     await group2.updateImageUrl("https://example.com/image4.png");
-    expect(group2.imageUrl).toBe("https://example.com/image4.png");
+    expect((await group2.state()).imageUrl).toBe(
+      "https://example.com/image4.png",
+    );
   });
 
   it("should enforce update message disappearing policy", async () => {
@@ -582,17 +484,25 @@ describe("Group permissions", () => {
 
     // client2 is a regular member of the group
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
     // updating message disappearing settings is not allowed for regular members
     await expect(() =>
-      group2.updateMessageDisappearingSettings(1n, 1_000_000_000n),
+      group2.updateDisappearingSettings({
+        from: new Timestamp(1n),
+        retentionNs: 1_000_000_000n,
+      }),
     ).rejects.toThrow();
 
     // add client2 as an admin
     await group.addAdmin(client2.inboxId);
     // client2 is now able to update message disappearing settings
-    await group2.updateMessageDisappearingSettings(1n, 1_000_000_000n);
-    expect(group2.isMessageDisappearingEnabled()).toBe(true);
+    await group2.updateDisappearingSettings({
+      from: new Timestamp(1n),
+      retentionNs: 1_000_000_000n,
+    });
+    expect(
+      (await group2.state()).common.disappearingSettings !== undefined,
+    ).toBe(true);
   });
 
   it("should enforce update message disappearing policy with allow policy", async () => {
@@ -603,28 +513,35 @@ describe("Group permissions", () => {
 
     // create group with custom permissions (anyone can update message disappearing)
     const group = await client1.conversations.createGroup([client2.inboxId], {
-      permissions: GroupPermissionsOptions.CustomPolicy,
-      customPermissionPolicySet: {
-        addAdminPolicy: PermissionPolicy.SuperAdmin,
-        addMemberPolicy: PermissionPolicy.Allow,
-        removeAdminPolicy: PermissionPolicy.SuperAdmin,
-        removeMemberPolicy: PermissionPolicy.Admin,
-        updateGroupNamePolicy: PermissionPolicy.Allow,
-        updateGroupDescriptionPolicy: PermissionPolicy.Allow,
-        updateGroupImageUrlSquarePolicy: PermissionPolicy.Allow,
-        updateMessageDisappearingPolicy: PermissionPolicy.Allow,
-        updateAppDataPolicy: PermissionPolicy.Allow,
+      permissions: {
+        kind: "custom",
+        policySet: {
+          addAdmin: "superAdmin",
+          addMember: "allow",
+          removeAdmin: "superAdmin",
+          removeMember: "admin",
+          updateName: "allow",
+          updateDescription: "allow",
+          updateImage: "allow",
+          updateDisappearing: "allow",
+          updateAppData: "allow",
+        },
       },
     });
 
     // verify permissions
-    expect(group.permissions().policySet.updateMessageDisappearingPolicy).toBe(
-      PermissionPolicy.Allow,
+    expect((await group.state()).permissions.policySet.updateDisappearing).toBe(
+      "allow",
     );
 
     // updating message disappearing settings works
-    await group.updateMessageDisappearingSettings(1n, 1_000_000_000n);
-    expect(group.isMessageDisappearingEnabled()).toBe(true);
+    await group.updateDisappearingSettings({
+      from: new Timestamp(1n),
+      retentionNs: 1_000_000_000n,
+    });
+    expect(
+      (await group.state()).common.disappearingSettings !== undefined,
+    ).toBe(true);
   });
 
   it("should deny update message disappearing with deny policy", async () => {
@@ -635,23 +552,28 @@ describe("Group permissions", () => {
 
     // create group with custom permissions (nobody can update message disappearing)
     const group = await client1.conversations.createGroup([client2.inboxId], {
-      permissions: GroupPermissionsOptions.CustomPolicy,
-      customPermissionPolicySet: {
-        addAdminPolicy: PermissionPolicy.SuperAdmin,
-        addMemberPolicy: PermissionPolicy.Allow,
-        removeAdminPolicy: PermissionPolicy.SuperAdmin,
-        removeMemberPolicy: PermissionPolicy.Admin,
-        updateGroupNamePolicy: PermissionPolicy.Allow,
-        updateGroupDescriptionPolicy: PermissionPolicy.Allow,
-        updateGroupImageUrlSquarePolicy: PermissionPolicy.Allow,
-        updateMessageDisappearingPolicy: PermissionPolicy.Deny,
-        updateAppDataPolicy: PermissionPolicy.Allow,
+      permissions: {
+        kind: "custom",
+        policySet: {
+          addAdmin: "superAdmin",
+          addMember: "allow",
+          removeAdmin: "superAdmin",
+          removeMember: "admin",
+          updateName: "allow",
+          updateDescription: "allow",
+          updateImage: "allow",
+          updateDisappearing: "deny",
+          updateAppData: "allow",
+        },
       },
     });
 
     // even super admin (client1) cannot update message disappearing settings
     await expect(() =>
-      group.updateMessageDisappearingSettings(1n, 1_000_000_000n),
+      group.updateDisappearingSettings({
+        from: new Timestamp(1n),
+        retentionNs: 1_000_000_000n,
+      }),
     ).rejects.toThrow();
   });
 
@@ -665,48 +587,42 @@ describe("Group permissions", () => {
 
     // client2 is a regular member of the group
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
     // updating app data is allowed
-    await group2.updateAppData("app data 1");
-    expect(group2.appData).toBe("app data 1");
+    await group2.updateAppData("app data 1", undefined);
+    expect((await group2.state()).appData).toBe("app data 1");
 
     // update group permissions to allow only admins to update app data
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Admin,
-      MetadataField.AppData,
-    );
+    await group.updatePermission("updateMetadata", "admin", "appData");
     // client2 is no longer able to update app data
-    await expect(() => group2.updateAppData("app data 2")).rejects.toThrow();
+    await expect(() =>
+      group2.updateAppData("app data 2", undefined),
+    ).rejects.toThrow();
 
     // add client2 as an admin
     await group.addAdmin(client2.inboxId);
     // client2 is now able to update app data
-    await group2.updateAppData("app data 2");
-    expect(group2.appData).toBe("app data 2");
+    await group2.updateAppData("app data 2", undefined);
+    expect((await group2.state()).appData).toBe("app data 2");
 
     // update group permissions to allow only super admins to update app data
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.SuperAdmin,
-      MetadataField.AppData,
-    );
+    await group.updatePermission("updateMetadata", "superAdmin", "appData");
     // client2 is no longer able to update app data
-    await expect(() => group2.updateAppData("app data 3")).rejects.toThrow();
+    await expect(() =>
+      group2.updateAppData("app data 3", undefined),
+    ).rejects.toThrow();
 
     // add client2 as a super admin
     await group.addSuperAdmin(client2.inboxId);
     // client2 is now able to update app data
-    await group2.updateAppData("app data 3");
-    expect(group2.appData).toBe("app data 3");
+    await group2.updateAppData("app data 3", undefined);
+    expect((await group2.state()).appData).toBe("app data 3");
 
     // update group permissions to deny updating app data
-    await group.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      PermissionPolicy.Deny,
-      MetadataField.AppData,
-    );
+    await group.updatePermission("updateMetadata", "deny", "appData");
     // client2 is no longer able to update app data
-    await expect(() => group2.updateAppData("app data 4")).rejects.toThrow();
+    await expect(() =>
+      group2.updateAppData("app data 4", undefined),
+    ).rejects.toThrow();
   });
 });

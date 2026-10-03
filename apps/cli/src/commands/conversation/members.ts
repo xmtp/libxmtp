@@ -1,6 +1,7 @@
 import { Args, Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
+import { memberDetails } from "@/utils/members";
 
 export default class ConversationMembers extends BaseCommand {
   static description = `List members of a conversation.
@@ -50,9 +51,7 @@ Use --sync to fetch the latest member list from the network before listing.`;
     const { args, flags } = await this.parse(ConversationMembers);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
@@ -64,13 +63,7 @@ Use --sync to fetch the latest member list from the network before listing.`;
 
     const members = await conversation.members();
 
-    const output = members.map((member) => ({
-      inboxId: member.inboxId,
-      accountIdentifiers: member.accountIdentifiers,
-      installationIds: member.installationIds,
-      permissionLevel: member.permissionLevel,
-      consentState: member.consentState,
-    }));
+    const output = await memberDetails(client, members);
 
     this.output(output);
   }

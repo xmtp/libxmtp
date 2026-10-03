@@ -47,9 +47,7 @@ and published via 'conversation publish-messages').`;
     const { args, flags } = await this.parse(ConversationSendReadReceipt);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
@@ -57,6 +55,7 @@ and published via 'conversation publish-messages').`;
 
     const messageId = await conversation.sendReadReceipt({
       optimistic: flags.optimistic,
+      shouldPush: false,
     });
 
     this.output({
@@ -64,6 +63,7 @@ and published via 'conversation publish-messages').`;
       messageId,
       conversationId: args.id,
       optimistic: flags.optimistic,
+      shouldPush: false,
     });
   }
 }

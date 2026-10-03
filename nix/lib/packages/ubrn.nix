@@ -1,6 +1,7 @@
 {
   lib,
   buildNpmPackage,
+  fetchFromGitHub,
   rustPlatform,
   napi-rs-cli,
   nodejs,
@@ -16,9 +17,11 @@ let
     (builtins.fromTOML (builtins.readFile ../../../Cargo.toml)).workspace.metadata."xmtp-sdk-fork".rev;
   rev =
     if lockedRev == expectedRev then lockedRev else throw "SDK fork lock differs from workspace pin";
-  src = builtins.fetchGit {
-    url = "https://github.com/neekolas/uniffi-bindgen-react-native.git";
+  src = fetchFromGitHub {
+    owner = "neekolas";
+    repo = "uniffi-bindgen-react-native";
     inherit rev;
+    hash = "sha256-AQX3KLTKDMOQFmq/w/vdqCRnbpm5xLtz2x7BOJFzZ0A=";
   };
   core = buildNpmPackage {
     pname = "ubjs-core";

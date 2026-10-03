@@ -1,5 +1,5 @@
 import { Flags } from "@oclif/core";
-import { ConsentEntityType } from "@xmtp/node-sdk";
+import type { ConsentEntityKind } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import { consentStateMap } from "@/utils/enums";
@@ -66,9 +66,9 @@ affect push notification behavior across all your installations.`;
     const { flags } = await this.parse(PreferencesSetConsent);
     const client = await this.initClient();
 
-    const entityTypeMap: Record<string, ConsentEntityType> = {
-      inbox_id: ConsentEntityType.InboxId,
-      conversation_id: ConsentEntityType.GroupId,
+    const entityTypeMap: Record<string, ConsentEntityKind> = {
+      inbox_id: "inbox",
+      conversation_id: "conversation",
     };
 
     const entityType = entityTypeMap[flags["entity-type"]];
@@ -76,8 +76,10 @@ affect push notification behavior across all your installations.`;
 
     await client.preferences.setConsentStates([
       {
-        entityType,
-        entity: flags.entity,
+        entity:
+          entityType === "inbox"
+            ? { kind: "inbox", inboxId: flags.entity }
+            : { kind: "conversation", conversationId: flags.entity },
         state,
       },
     ]);

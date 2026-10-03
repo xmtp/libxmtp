@@ -59,7 +59,7 @@ import {
   TransactionReferenceCodec as HostTransactionReference,
   WalletSendCallsCodec as HostWalletSendCalls,
 } from "../codecs";
-import type { ContentCodec } from "./codec";
+import { registerRustStandardFallback, type ContentCodec } from "./codec";
 
 type Convert<From, To> = (value: From, projection: ObjectProjection) => To;
 const same = <T>(value: T): T => value;
@@ -68,11 +68,18 @@ abstract class StandardCodec<Value, Host> implements ContentCodec<Value> {
   readonly type: ContentTypeId;
 
   protected constructor(
-    private readonly host: HostContentCodec<Host>,
+    private readonly host: HostContentCodec<Host> & {
+      shouldPush(value: Host): boolean;
+    },
     private readonly lower: Convert<Value, Host>,
     private readonly lift: Convert<Host, Value>,
   ) {
     this.type = liftContentTypeId(host.type, currentProjection());
+    registerRustStandardFallback(
+      this,
+      Object.getOwnPropertyDescriptor(StandardCodec.prototype, "fallback")
+        ?.value,
+    );
   }
 
   encode(value: Value): EncodedContent {
@@ -82,6 +89,19 @@ abstract class StandardCodec<Value, Host> implements ContentCodec<Value> {
         this.host.encode(this.lower(value, projection)),
         projection,
       );
+    } catch (error) {
+      throw publicError(error);
+    }
+  }
+
+  fallback(value: Value): string | undefined {
+    return this.encode(value).fallback;
+  }
+
+  shouldPush(value: Value): boolean {
+    const projection = currentProjection();
+    try {
+      return this.host.shouldPush(this.lower(value, projection));
     } catch (error) {
       throw publicError(error);
     }

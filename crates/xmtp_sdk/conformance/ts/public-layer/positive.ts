@@ -110,7 +110,10 @@ export async function typedCodecHooks(message: Message): Promise<Client> {
   const widened: ContentCodec<string | number> = textCodec;
   void widened;
   // @ts-expect-error A fallback hook takes the codec's value type.
-  const wrongHook: ContentCodec<Point> = { ...pointCodec, fallback: (text: string) => text };
+  const wrongHook: ContentCodec<Point> = {
+    ...pointCodec,
+    fallback: (text: string) => text,
+  };
   void wrongHook;
   // A codec with hooks still registers with others of any value type.
   return Client.create(signer, {
@@ -142,7 +145,7 @@ export async function streamsAndErrors(client: Client, group: Group) {
     break;
   }
   const events: EventStream = await client.events({
-    kinds: ["conversationJoined"],
+    kinds: ["conversation.joined"],
     referencesOwnMessages: false,
   });
   void events;
@@ -160,11 +163,11 @@ export async function streamsAndErrors(client: Client, group: Group) {
   return attachment.content;
 }
 
-// One code narrows to its subclass and keeps the other codes in the else
-// branch; its `details.code` is the code literal.
+// A named subclass narrows the error. Its details keep the Rust cause code,
+// which can differ from the subclass name.
 export function errorBranches(error: XmtpError | TypeError): string {
   if (error instanceof XmtpError.ClientClosed) {
-    const code: "ClientClosed" = error.details.code;
+    const code: string = error.details.code;
     return code;
   }
   if (error instanceof XmtpError) return error.details.message;

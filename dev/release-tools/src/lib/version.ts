@@ -149,7 +149,7 @@ function isRealUtcStamp(stamp: string): boolean {
 /**
  * Validate a caller-supplied `--timestamp`. Every version computed within one
  * Release run must carry the SAME stamp (the consumer bump PRs assert
- * whole-suffix equality across `@xmtp/node-sdk` and `@xmtp/node-bindings`), so
+ * whole-suffix equality across `@xmtp/agent-sdk` and `@xmtp/node-sdk`), so
  * the run mints one stamp and threads it into every job.
  *
  * Absent/empty means "no run stamp was threaded" — the caller falls back to

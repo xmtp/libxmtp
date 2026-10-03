@@ -1,85 +1,80 @@
+import { readFile } from "node:fs/promises";
+
 import {
-  decryptAttachment,
-  encryptAttachment,
+  AttachmentCodec,
+  encodeEncodedContent,
+  encryptEncodedContent,
+  remoteAttachmentFromEncrypted,
   type Attachment,
-  type EncryptedAttachment,
+  type Client,
+  type EncryptionKeys,
   type RemoteAttachment,
 } from "@xmtp/node-sdk";
 
-/** Uploads encrypted attachment bytes and returns their public URL. */
+/** Bytes and Rust-generated keys for an app-owned upload. */
+export type HostedAttachment = EncryptionKeys & {
+  /** Encrypted bytes to upload. */
+  readonly payload: Uint8Array;
+  /** Original file name, when supplied. */
+  readonly filename?: string;
+};
+/** Upload encrypted bytes to app-owned storage and return its URL. */
 export type AttachmentUploadCallback = (
-  attachment: EncryptedAttachment,
+  attachment: HostedAttachment,
 ) => Promise<string>;
 
-/**
- * Downloads and decrypts a remote attachment.
- *
- * @param remoteAttachment - The remote attachment metadata containing the downloadd URL and encryption keys
- * @returns A promise that resolves with the decrypted attachment
- */
+/** Download and verify an attachment through Rust. */
 export async function downloadRemoteAttachment(
+  client: Client,
   remoteAttachment: RemoteAttachment,
-) {
-  const response = await fetch(remoteAttachment.url);
-  if (!response.ok) {
-    throw new Error(
-      `unable to fetch remote attachment at "${remoteAttachment.url}": [${response.status}] ${response.statusText}`,
-    );
-  }
-  const payload = new Uint8Array(await response.arrayBuffer());
-  return decryptAttachment(payload, remoteAttachment);
+): Promise<Attachment> {
+  const downloaded = await client.attachments.download(remoteAttachment);
+  return {
+    content: new Uint8Array(await readFile(downloaded.path)),
+    mimeType: downloaded.mimeType ?? "application/octet-stream",
+    filename: downloaded.filename,
+  };
 }
 
-/**
- * Creates a remote attachment object from an encrypted attachment and file URL.
- *
- * @param encryptedAttachment - The encrypted attachment containing encryption keys and metadata
- * @param fileUrl - The URL where the encrypted attachment can be downloaded
- * @returns A remote attachment object with all necessary metadata for retrieval and decryption
- */
+/** Use Rust-generated encryption material with an app-owned URL. */
 export function createRemoteAttachment(
-  encryptedAttachment: EncryptedAttachment,
+  encrypted: HostedAttachment,
   fileUrl: string,
 ): RemoteAttachment {
-  const url = new URL(fileUrl);
-
-  return {
-    contentDigest: encryptedAttachment.contentDigest,
-    contentLength: encryptedAttachment.payload.length,
-    filename: encryptedAttachment.filename,
-    nonce: encryptedAttachment.nonce,
-    salt: encryptedAttachment.salt,
-    scheme: url.protocol,
-    secret: encryptedAttachment.secret,
-    url: url.toString(),
-  };
+  return remoteAttachmentFromEncrypted(
+    fileUrl,
+    { ciphertext: encrypted.payload, keys: encrypted },
+    encrypted.filename,
+  );
 }
 
-/**
- * Creates a remote attachment from a file by encrypting it and uploading it to a remote storage.
- * This is a convenience function that combines file processing, encryption, uploading, and
- * remote attachment creation into a single operation.
- *
- * @param unencryptedFile - The unencrypted file to process and upload
- * @param uploadCallback - A callback function that receives the encrypted attachment and returns the URL where it was uploaded
- * @returns A promise that resolves with a remote attachment containing all necessary metadata for retrieval and decryption
- */
+/** Create and upload a file. The optional callback selects app-owned hosting. */
 export async function createRemoteAttachmentFromFile(
-  unencryptedFile: File,
-  uploadCallback: AttachmentUploadCallback,
-) {
-  const arrayBuffer = await unencryptedFile.arrayBuffer();
-  const attachment = new Uint8Array(arrayBuffer);
-
-  const attachmentData: Attachment = {
-    content: attachment,
-    filename: unencryptedFile.name,
-    mimeType: unencryptedFile.type,
+  client: Client,
+  file: File,
+  uploadCallback?: AttachmentUploadCallback,
+): Promise<RemoteAttachment> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!uploadCallback) {
+    const pending = await client.attachments.create({
+      kind: "bytes",
+      bytes,
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+    });
+    await pending.upload();
+    return pending.remoteAttachment;
+  }
+  const encoded = new AttachmentCodec().encode({
+    content: bytes,
+    filename: file.name,
+    mimeType: file.type || "application/octet-stream",
+  });
+  const encrypted = await encryptEncodedContent(encodeEncodedContent(encoded));
+  const hosted = {
+    ...encrypted.keys,
+    payload: encrypted.ciphertext,
+    filename: file.name,
   };
-
-  const encryptedAttachment = encryptAttachment(attachmentData);
-
-  const fileUrl = await uploadCallback(encryptedAttachment);
-
-  return createRemoteAttachment(encryptedAttachment, fileUrl);
+  return createRemoteAttachment(hosted, await uploadCallback(hosted));
 }
