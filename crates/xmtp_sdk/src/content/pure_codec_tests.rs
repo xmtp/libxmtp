@@ -2,6 +2,7 @@ use super::*;
 use xmtp_content_types::ContentCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types as proto;
 
+#[cfg(test)]
 #[xmtp_common::test(unwrap_try = true)]
 fn encoded_content_requires_complete_type_and_preserves_custom_bytes() {
     let sample = |authority: &str, name: &str| EncodedContent {
