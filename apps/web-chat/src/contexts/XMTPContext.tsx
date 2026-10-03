@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 
+import { removeAttachmentDirectory } from "@/helpers/attachment";
 import { backendLabel } from "@/helpers/backend";
 import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
 import { useActions } from "@/stores/inbox/hooks";
@@ -223,11 +224,16 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
 
   const disconnect = useCallback(async () => {
     if (client) {
+      const dbPath = await client.storage.path();
       await client.end();
-      setClient(undefined);
-      setClientSigner(undefined);
-      reset();
-      releaseLock();
+      try {
+        await removeAttachmentDirectory(dbPath);
+      } finally {
+        setClient(undefined);
+        setClientSigner(undefined);
+        reset();
+        releaseLock();
+      }
     }
   }, [client, setClient, releaseLock, reset]);
 

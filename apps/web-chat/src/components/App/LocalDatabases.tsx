@@ -3,6 +3,7 @@ import { Storage, XmtpError } from "@xmtp/browser-sdk";
 import { useState } from "react";
 
 import { Modal } from "@/components/Modal";
+import { removeAttachmentDirectory } from "@/helpers/attachment";
 import { backendLabel } from "@/helpers/backend";
 import { useSettings } from "@/hooks/useSettings";
 
@@ -32,6 +33,7 @@ export const LocalDatabases: React.FC = () => {
           if (!selected || !available.includes(selected))
             throw new Error("Select a local database.");
           await admin.deleteFile(selected);
+          await removeAttachmentDirectory(selected);
           setSelected(null);
         }
         setFiles(
@@ -69,7 +71,7 @@ export const LocalDatabases: React.FC = () => {
         <Stack>
           <Text size="sm">
             Select a database for this backend. Deleting it removes its local
-            messages.
+            messages and attachments.
           </Text>
           <NativeSelect
             label="Database"

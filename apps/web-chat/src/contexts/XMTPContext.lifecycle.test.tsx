@@ -209,7 +209,10 @@ it("shows a second-tab storage error and releases the app lock", async () => {
 
 it("waits for SDK end before releasing the app lock", async () => {
   const held = Promise.withResolvers<void>();
-  mocks.create.mockResolvedValueOnce({ end: () => held.promise });
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => undefined },
+    end: () => held.promise,
+  });
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
   await act(async () => {
     await result.current.initialize({
@@ -230,6 +233,44 @@ it("waits for SDK end before releasing the app lock", async () => {
   });
   expect(mocks.releaseLock).toHaveBeenCalledTimes(1);
   expect(result.current.client).toBeUndefined();
+});
+
+it("removes old local attachment files when the user disconnects", async () => {
+  const deployment = `disconnect-${crypto.randomUUID()}`;
+  const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const path = await backend.getDirectoryHandle(deployment, { create: true });
+  const inbox = await path.getDirectoryHandle("inbox", { create: true });
+  await inbox.getDirectoryHandle("attachments", { create: true });
+  const end = vi.fn(async () => {});
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => dbPath },
+    end,
+  });
+  try {
+    const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    await act(async () => {
+      await result.current.disconnect();
+    });
+    expect(end).toHaveBeenCalledOnce();
+    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
+      {
+        name: "NotFoundError",
+      },
+    );
+    expect(mocks.releaseLock).toHaveBeenCalledOnce();
+  } finally {
+    await backend.removeEntry(deployment, { recursive: true });
+  }
 });
 
 it("disconnects and reports a failed SDK end after lock loss", async () => {

@@ -26,6 +26,38 @@ export type FileValidation =
       error: string;
     };
 
+export const removeAttachmentDirectory = async (dbPath: string | undefined) => {
+  if (dbPath === undefined) return;
+  const parts = dbPath.replace(/^\/+/, "").split("/");
+  if (
+    parts.some(
+      (part) => !part || part === "." || part === ".." || part.includes("\\"),
+    )
+  ) {
+    throw new Error("Invalid local database path.");
+  }
+  const folders =
+    parts.length > 1 && parts.at(-1) === "xmtp.db3"
+      ? [...parts.slice(0, -1), "attachments"]
+      : parts.length === 1 && parts[0].endsWith(".db3")
+        ? [`${parts[0]}.attachments`]
+        : null;
+  if (!folders) throw new Error("Invalid local database path.");
+
+  const name = folders.pop();
+  if (!name) throw new Error("Invalid local database path.");
+  let parent = await navigator.storage.getDirectory();
+  try {
+    for (const folder of folders) {
+      parent = await parent.getDirectoryHandle(folder);
+    }
+    await parent.removeEntry(name, { recursive: true });
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "NotFoundError") return;
+    throw cause;
+  }
+};
+
 export const validateFile = (file: File): FileValidation => {
   if (file.size > MAX_FILE_SIZE) {
     return {
@@ -55,8 +87,12 @@ export const uploadEncryptedAttachment = async (
     mimeType: file.type,
     filename: file.name,
   });
-  await pending.upload();
-  return pending.remoteAttachment;
+  try {
+    await pending.upload();
+    return pending.remoteAttachment;
+  } finally {
+    await client.attachments.deleteLocal(pending.remoteAttachment);
+  }
 };
 
 export const downloadRemoteAttachment = async (
@@ -64,16 +100,22 @@ export const downloadRemoteAttachment = async (
   content: RemoteAttachment,
 ) => {
   const attachment = await client.attachments.download(content);
-  const parts = attachment.path.split("/").filter(Boolean);
-  const filename = parts.pop();
-  if (!filename || parts.includes(".."))
-    throw new Error("Invalid attachment path");
-  let directory = await navigator.storage.getDirectory();
-  for (const part of parts)
-    directory = await directory.getDirectoryHandle(part);
-  const handle = await directory.getFileHandle(filename);
-  const file = await handle.getFile();
-  return file.slice(0, file.size, attachment.mimeType ?? file.type);
+  try {
+    const parts = attachment.path.split("/").filter(Boolean);
+    const filename = parts.pop();
+    if (!filename || parts.includes(".."))
+      throw new Error("Invalid attachment path");
+    let directory = await navigator.storage.getDirectory();
+    for (const part of parts)
+      directory = await directory.getDirectoryHandle(part);
+    const handle = await directory.getFileHandle(filename);
+    const file = await handle.getFile();
+    return new Blob([await file.arrayBuffer()], {
+      type: attachment.mimeType ?? file.type,
+    });
+  } finally {
+    await client.attachments.deleteLocal(content);
+  }
 };
 
 export const getFileType = (filename: string) => {
