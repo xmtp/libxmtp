@@ -38,6 +38,53 @@ async fn incoming_frame(receiver: &mut mpsc::Receiver<IncomingFrame>) -> Incomin
 
 // verifies: EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
+async fn retained_subscription_reports_removal_until_replacement_ack() {
+    let topic = group_topic(&[7; 16]);
+    let (transport, servers) = transport();
+    let lease = transport
+        .lease_ordered(vec![(topic.clone(), 10)], 8, limits())
+        .await?;
+    let mut first = lease.into_incoming_subscription();
+    let mut server = take_server(&servers);
+    let update = server.next_mutate().await;
+    server.ack(update.id, vec![(topic.clone(), 10)]);
+    assert!(matches!(
+        first.events.next().await.transpose()?,
+        Some(IncomingEvent::Registered { .. })
+    ));
+    assert!(first.is_connected());
+
+    let lease = transport
+        .lease_ordered(vec![(topic.clone(), 0)], 8, limits())
+        .await?;
+    let mut second = lease.into_incoming_subscription();
+    let removal = server.next_mutate().await;
+    assert_eq!(removal.removes.len(), 1);
+    assert!(
+        !first.is_connected(),
+        "removing registration still reports connected"
+    );
+    assert!(!second.is_connected());
+    server.ack(removal.id, vec![]);
+    let addition = server.next_mutate().await;
+    assert_eq!(addition.adds.len(), 1);
+    assert_eq!(addition.adds[0].cursor.as_ref()?.sequence_id, 0);
+    assert!(!first.is_connected());
+    server.ack(addition.id, vec![(topic, 10)]);
+    assert!(matches!(
+        first.events.next().await.transpose()?,
+        Some(IncomingEvent::Registered { .. })
+    ));
+    assert!(matches!(
+        second.events.next().await.transpose()?,
+        Some(IncomingEvent::Registered { .. })
+    ));
+    assert!(first.is_connected());
+    assert!(second.is_connected());
+}
+
+// verifies: EVENT-027
+#[xmtp_common::test(unwrap_try = true)]
 async fn retained_subscription_reports_suspension_until_registration_ack() {
     let topic = group_topic(&[7; 16]);
     let (transport, servers) = transport();
