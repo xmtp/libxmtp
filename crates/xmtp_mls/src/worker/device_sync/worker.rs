@@ -178,13 +178,15 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
-        self.sync_init().await?;
+        // Keep the large startup future off the worker poll stack.
+        Box::pin(self.sync_init()).await?;
         // Receipt must outlive each sync call so remote updates can wake this worker.
         let _receipt = IncomingCoordinator::for_context(&self.client.context)
             .acquire(IncomingScope::DeviceSyncGroups);
         self.metrics.increment_metric(SyncMetric::Init);
 
-        self.run_internal().await
+        // Keep event futures off the containing worker poll stack.
+        Box::pin(self.run_internal()).await
     }
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
@@ -254,7 +256,8 @@ where
         id: u64,
         event: xmtp_events::EventEnvelope<InternalEvent>,
     ) -> Result<(), DeviceSyncError> {
-        self.handle_event(event.clone()).await?;
+        // Pending state stays owned here until the event succeeds.
+        Box::pin(self.handle_event(event.clone())).await?;
         let mut pending = self.pending.lock();
         if pending
             .as_ref()
@@ -311,7 +314,8 @@ where
                     Event::DeviceSyncNoPrimarySyncGroup,
                     self.client.context.installation_id()
                 );
-                let sync_group = client.get_sync_group().await?;
+                // Sync-group creation polls membership publication below this call.
+                let sync_group = Box::pin(client.get_sync_group()).await?;
                 log_event!(
                     Event::DeviceSyncCreatedPrimarySyncGroup,
                     self.client.context.installation_id(),
@@ -354,9 +358,17 @@ where
             tracing::info!("Processing {} messages.", unprocessed_messages.len());
         }
 
-        self.client
+        let result = self
+            .client
             .process_sync_group_messages(&self.metrics, unprocessed_messages)
-            .await
+            .await;
+        #[cfg(test)]
+        if result.is_ok()
+            && let Some(turns) = &self.completed_turns
+        {
+            turns[usize::from(is_tick)].fetch_add(1, Ordering::SeqCst);
+        }
+        result
     }
 
     async fn evt_sync_preferences(
