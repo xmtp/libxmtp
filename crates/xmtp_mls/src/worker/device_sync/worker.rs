@@ -268,7 +268,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn", event = ?event))]
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
     async fn handle_event(
         &mut self,
         event: xmtp_events::EventEnvelope<InternalEvent>,
