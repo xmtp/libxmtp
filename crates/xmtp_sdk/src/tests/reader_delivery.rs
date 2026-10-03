@@ -82,6 +82,42 @@ async fn cancel_idle_read_settles() {
     client.end().await?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn client_end_settles_idle_message_read() {
+    use xmtp_common::StreamHandle;
+
+    const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+    const END_TIMEOUT: Duration = Duration::from_secs(2);
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let reader = group.message_reader(None).await?;
+    let idle = reader.idle_read_for_test();
+    let waiting = reader.clone();
+    let (settled, mut settlement) = tokio::sync::oneshot::channel();
+    let pending = xmtp_common::spawn(None, async move {
+        let result = waiting.next().await;
+        let _ = settled.send(());
+        result
+    });
+    xmtp_common::time::timeout(IDLE_TIMEOUT, idle.notified()).await?;
+    assert!(
+        matches!(
+            settlement.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ),
+        "the native read must be active before client end"
+    );
+    xmtp_common::time::timeout(END_TIMEOUT, client.end()).await??;
+    assert!(
+        xmtp_common::time::timeout(END_TIMEOUT, pending.join())
+            .await???
+            .is_none(),
+        "client end must settle the idle message read"
+    );
+    assert!(settlement.try_recv().is_ok(), "the native worker must settle");
+}
+
 // verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
