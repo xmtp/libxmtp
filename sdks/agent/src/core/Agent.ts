@@ -303,15 +303,19 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       fs.mkdirSync(XMTP_DB_DIRECTORY, { recursive: true, mode: 0o700 });
     let storage = options?.storage;
     if (!storage) {
-      const legacyFiles = XMTP_DB_DIRECTORY
-        ? fs
-            .readdirSync(XMTP_DB_DIRECTORY, { withFileTypes: true })
-            .filter(
-              (entry) =>
-                entry.isFile() && /^xmtp-[0-9a-f]{64}\.db3$/i.test(entry.name),
-            )
-            .map((entry) => path.join(XMTP_DB_DIRECTORY, entry.name))
-        : [];
+      const legacyDirectory = XMTP_DB_DIRECTORY || process.cwd();
+      const legacyFiles = fs
+        .readdirSync(legacyDirectory, { withFileTypes: true })
+        .filter((entry) => {
+          if (!entry.isFile()) return false;
+          if (XMTP_DB_DIRECTORY)
+            return /^xmtp-[0-9a-f]{64}\.db3$/i.test(entry.name);
+          const match = /^xmtp-(.+)-[0-9a-f]{64}\.db3$/i.exec(entry.name);
+          return (
+            match !== null && (XMTP_ENV === undefined || match[1] === XMTP_ENV)
+          );
+        })
+        .map((entry) => path.join(legacyDirectory, entry.name));
       if (legacyFiles.length > 1)
         throw new AgentError(
           1000,
@@ -468,7 +472,8 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
               client: this.#client,
               conversation,
             });
-            if (disposition === "unhandled") throw new UnhandledValueError(error);
+            if (disposition === "unhandled")
+              throw new UnhandledValueError(error);
           }
         }
       })
@@ -513,7 +518,8 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
               client: this.#client,
               message,
             });
-            if (disposition === "unhandled") throw new UnhandledValueError(error);
+            if (disposition === "unhandled")
+              throw new UnhandledValueError(error);
           }
         }
       })

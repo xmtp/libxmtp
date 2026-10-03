@@ -312,7 +312,10 @@ describe("Agent stream lifecycle", () => {
     vi.spyOn(ConversationStream, "open").mockImplementation(
       (owner, _selection, options) =>
         new ReaderStream<Conversation>(
-          async () => ({ next: () => conversationRead.promise, end: conversationEnd }),
+          async () => ({
+            next: () => conversationRead.promise,
+            end: conversationEnd,
+          }),
           owner,
           options && { signal: options.signal, onClose: options.onClose },
         ) as ConversationStream,

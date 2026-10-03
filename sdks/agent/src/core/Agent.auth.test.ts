@@ -58,7 +58,7 @@ describe("agent environment storage", () => {
   const key = `0x${"01".repeat(32)}` as const;
   const directories: string[] = [];
 
-  function setup(directory: string) {
+  function setup(directory?: string) {
     vi.stubEnv("XMTP_DB_DIRECTORY", directory);
     vi.stubEnv("XMTP_ENV", "production");
     vi.stubEnv("XMTP_BACKEND_URL", "https://backend.example.com");
@@ -114,6 +114,31 @@ describe("agent environment storage", () => {
     );
   });
 
+  it("reopens one legacy default database from the working directory", async () => {
+    const workingDirectory = directory();
+    fs.mkdirSync(workingDirectory);
+    const dbPath = path.join(
+      workingDirectory,
+      `xmtp-production-${"a".repeat(64)}.db3`,
+    );
+    fs.writeFileSync(dbPath, "legacy database");
+    fs.writeFileSync(
+      path.join(workingDirectory, `xmtp-development-${"b".repeat(64)}.db3`),
+      "other environment",
+    );
+    vi.spyOn(process, "cwd").mockReturnValue(workingDirectory);
+    const { create, stopped } = setup();
+    await expect(Agent.createFromEnv()).rejects.toBe(stopped);
+    expect(create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        storage: expect.objectContaining({
+          location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
+        }),
+      }),
+    );
+  });
+
   it("rejects several legacy databases before opening a new location", async () => {
     const dbDirectory = directory();
     fs.mkdirSync(dbDirectory);
@@ -124,6 +149,23 @@ describe("agent environment storage", () => {
       );
     }
     const { create } = setup(dbDirectory);
+    await expect(Agent.createFromEnv()).rejects.toThrow(
+      "More than one legacy XMTP database exists",
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects several legacy default databases before opening a new location", async () => {
+    const workingDirectory = directory();
+    fs.mkdirSync(workingDirectory);
+    for (const id of ["a", "b"]) {
+      fs.writeFileSync(
+        path.join(workingDirectory, `xmtp-production-${id.repeat(64)}.db3`),
+        "legacy",
+      );
+    }
+    vi.spyOn(process, "cwd").mockReturnValue(workingDirectory);
+    const { create } = setup();
     await expect(Agent.createFromEnv()).rejects.toThrow(
       "More than one legacy XMTP database exists",
     );
@@ -148,48 +190,68 @@ describe("agent environment storage", () => {
     );
   });
 
-  it("opens an encrypted legacy database with the same installation", async () => {
-    const backendUrl = process.env.XMTP_BACKEND_URL;
-    if (!backendUrl) throw new Error("XMTP_BACKEND_URL is required");
-    const dbDirectory = directory();
-    fs.mkdirSync(dbDirectory);
-    const walletKey = generatePrivateKey();
-    const user = createUser(walletKey);
-    const preview = await Client.create(createSigner(user), {
-      backend: { url: backendUrl },
-      deviceSync: false,
-      storage: { location: "inMemory" },
-    });
-    const inboxId = preview.inboxId;
-    await preview.end();
-    const dbPath = path.join(dbDirectory, `xmtp-${inboxId}.db3`);
-    const encryptionKeyHex = "02".repeat(32);
-    const encryptionKey = toBytes(`0x${encryptionKeyHex}`);
-    const first = await Client.create(createSigner(user), {
-      backend: { url: backendUrl },
-      deviceSync: false,
-      storage: {
-        location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
-        encryptionKey,
-      },
-    });
-    expect(first.inboxId).toBe(inboxId);
-    const installationId = first.installationId;
-    await first.end();
-    expect(fs.statSync(dbPath).isFile()).toBe(true);
+  it.each(["directory", "default"] as const)(
+    "opens an encrypted %s legacy database with the same installation",
+    async (location) => {
+      const backendUrl = process.env.XMTP_BACKEND_URL;
+      if (!backendUrl) throw new Error("XMTP_BACKEND_URL is required");
+      const dbDirectory = directory();
+      fs.mkdirSync(dbDirectory);
+      const walletKey = generatePrivateKey();
+      const user = createUser(walletKey);
+      const preview = await Client.create(createSigner(user), {
+        backend: { url: backendUrl },
+        deviceSync: false,
+        storage: { location: "inMemory" },
+      });
+      const inboxId = preview.inboxId;
+      await preview.end();
+      const dbPath = path.join(
+        dbDirectory,
+        location === "directory"
+          ? `xmtp-${inboxId}.db3`
+          : `xmtp-production-${inboxId}.db3`,
+      );
+      const encryptionKeyHex = "02".repeat(32);
+      const encryptionKey = toBytes(`0x${encryptionKeyHex}`);
+      const first = await Client.create(createSigner(user), {
+        backend: { url: backendUrl },
+        deviceSync: false,
+        storage: {
+          location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
+          encryptionKey,
+        },
+      });
+      expect(first.inboxId).toBe(inboxId);
+      const installationId = first.installationId;
+      await first.end();
+      expect(fs.statSync(dbPath).isFile()).toBe(true);
 
-    vi.stubEnv("XMTP_WALLET_KEY", walletKey);
-    vi.stubEnv("XMTP_DB_DIRECTORY", dbDirectory);
-    vi.stubEnv("XMTP_DB_ENCRYPTION_KEY", encryptionKeyHex);
-    vi.stubEnv("XMTP_ENV", "production");
-    vi.stubEnv("XMTP_BACKEND_URL", backendUrl);
-    const agent = await Agent.createFromEnv({ deviceSync: false });
-    try {
-      expect(agent.client.inboxId).toBe(inboxId);
-      expect(agent.client.installationId).toBe(installationId);
-      expect(fs.existsSync(path.join(dbDirectory, "production"))).toBe(false);
-    } finally {
-      await agent.client.end();
-    }
-  });
+      vi.stubEnv("XMTP_WALLET_KEY", walletKey);
+      vi.stubEnv(
+        "XMTP_DB_DIRECTORY",
+        location === "directory" ? dbDirectory : undefined,
+      );
+      if (location === "default")
+        vi.spyOn(process, "cwd").mockReturnValue(dbDirectory);
+      vi.stubEnv("XMTP_DB_ENCRYPTION_KEY", encryptionKeyHex);
+      vi.stubEnv("XMTP_ENV", "production");
+      vi.stubEnv("XMTP_BACKEND_URL", backendUrl);
+      const agent = await Agent.createFromEnv({ deviceSync: false });
+      try {
+        expect(agent.client.inboxId).toBe(inboxId);
+        expect(agent.client.installationId).toBe(installationId);
+        expect(
+          fs.existsSync(
+            path.join(
+              dbDirectory,
+              location === "directory" ? "production" : "xmtp",
+            ),
+          ),
+        ).toBe(false);
+      } finally {
+        await agent.client.end();
+      }
+    },
+  );
 });

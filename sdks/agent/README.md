@@ -100,7 +100,8 @@ const agent = await Agent.createFromEnv();
 
 With `XMTP_DB_DIRECTORY`, a new database uses the current data directory layout.
 If the directory contains one legacy `xmtp-<inbox-id>.db3` file, the Agent opens that file in place.
-If it contains several legacy database files, pass an explicit `storage.location` with `dbPath` and `attachmentsDir` so the Agent opens the intended file.
+Without `XMTP_DB_DIRECTORY`, the Agent also checks the working directory for a legacy `xmtp-<env>-<inbox-id>.db3` file. Set `XMTP_ENV` to select its environment label.
+If several legacy files match, pass an explicit `storage.location` with `dbPath` and `attachmentsDir` so the Agent opens the intended file.
 
 Agents can also recognize the following environment variables:
 
