@@ -22,9 +22,11 @@ let
     cargoLock = ubrnSrc + /Cargo.lock;
     cargoExtraArgs = "--locked -p uniffi-runtime-napi --lib --target ${target}";
     CARGO_BUILD_TARGET = buildTarget;
-    buildPhaseCargoCommand = "cargo ${
-      if isGnu then "zigbuild" else "build"
-    } --release --locked -p uniffi-runtime-napi --lib --target ${buildTarget}";
+    buildPhaseCargoCommand =
+      lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild "
+      + "cargo ${
+        if isGnu then "zigbuild" else "build"
+      } --release --locked -p uniffi-runtime-napi --lib --target ${buildTarget}";
     CARGO_BUILD_JOBS = 2;
     nativeBuildInputs = [
       pkg-config

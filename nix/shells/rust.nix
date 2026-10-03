@@ -7,6 +7,7 @@
   lib,
   mkShell,
   foundry-bin,
+  git,
   just,
   sqlcipher,
   xmtp-pnpm,
@@ -56,6 +57,8 @@ mkShell {
     ++ [
       rust-toolchain
       foundry-bin
+      # In-shell Nix fetchGit must use Nix git with this shell's LD_LIBRARY_PATH.
+      git
       # .envrc auto-loads this shell, so the repo's `just` workflow must resolve here
       just
       sqlcipher
