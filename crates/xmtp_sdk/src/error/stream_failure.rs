@@ -119,7 +119,10 @@ impl StreamBarrierTopic {
     fn from_wire(topic: wire::StreamBarrierTopic) -> Result<Self, StreamFailureProjectionError> {
         Ok(Self {
             topic: hex::decode(topic.topic)?,
-            scope_generation: topic.scope_generation.map(|value| value.parse()).transpose()?,
+            scope_generation: topic
+                .scope_generation
+                .map(|value| value.parse())
+                .transpose()?,
             target: topic.target.map(|value| value.parse()).transpose()?,
             received: topic.received.parse()?,
             processed: topic.processed.parse()?,
@@ -135,7 +138,9 @@ impl StreamBarrierTopic {
 }
 
 impl StreamBarrierFailure {
-    fn from_wire(failure: wire::StreamBarrierFailure) -> Result<Self, StreamFailureProjectionError> {
+    fn from_wire(
+        failure: wire::StreamBarrierFailure,
+    ) -> Result<Self, StreamFailureProjectionError> {
         Ok(Self {
             reason: match failure.reason {
                 wire::StreamBarrierReason::Blocked => StreamBarrierReason::Blocked,
@@ -152,7 +157,9 @@ impl StreamBarrierFailure {
 }
 
 impl StreamFailureDetails {
-    fn from_wire(failure: wire::StreamFailureDetails) -> Result<Self, StreamFailureProjectionError> {
+    fn from_wire(
+        failure: wire::StreamFailureDetails,
+    ) -> Result<Self, StreamFailureProjectionError> {
         let summary = failure
             .summary
             .map(|summary| {

@@ -763,6 +763,8 @@ impl XmtpError {
     fn platform_retryable(error: &xmtp_db::PlatformStorageError) -> bool {
         use xmtp_common::RetryableError;
         match error {
+            #[cfg(target_arch = "wasm32")]
+            xmtp_db::PlatformStorageError::SAH(xmtp_db::OpfsSAHError::NotSupported) => false,
             xmtp_db::PlatformStorageError::DieselResult(query)
                 if Self::query_fails_again(query) =>
             {
