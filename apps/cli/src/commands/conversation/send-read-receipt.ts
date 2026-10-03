@@ -55,7 +55,6 @@ and published via 'conversation publish-messages').`;
 
     const messageId = await conversation.sendReadReceipt({
       optimistic: flags.optimistic,
-      shouldPush: false,
     });
 
     this.output({
@@ -63,7 +62,6 @@ and published via 'conversation publish-messages').`;
       messageId,
       conversationId: args.id,
       optimistic: flags.optimistic,
-      shouldPush: false,
     });
   }
 }

@@ -61,7 +61,6 @@ and published via 'conversation publish-messages').`;
 
     const messageId = await conversation.sendText(args.text, {
       optimistic: flags.optimistic,
-      shouldPush: false,
     });
 
     this.output({
@@ -70,7 +69,6 @@ and published via 'conversation publish-messages').`;
       conversationId: args.id,
       text: args.text,
       optimistic: flags.optimistic,
-      shouldPush: false,
     });
   }
 }

@@ -44,6 +44,7 @@ describe("conversation send-text", () => {
     expect(output.messageId).toBeDefined();
     expect(output.conversationId).toBe(group.id);
     expect(output.text).toBe("Hello, World!");
+    expect(output).not.toHaveProperty("shouldPush");
   });
 
   it("sends a text message to a DM", async () => {

@@ -87,7 +87,6 @@ and published via 'conversation publish-messages').`;
       reaction,
       {
         optimistic: flags.optimistic,
-        shouldPush: false,
       },
     );
 
@@ -96,7 +95,6 @@ and published via 'conversation publish-messages').`;
       messageId,
       conversationId: args.id,
       optimistic: flags.optimistic,
-      shouldPush: false,
       reaction: {
         reference: args.messageId,
         content: args.content,

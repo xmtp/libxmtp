@@ -67,7 +67,6 @@ and published via 'conversation publish-messages').`;
 
     const messageId = await conversation.sendMarkdown(args.markdown, {
       optimistic: flags.optimistic,
-      shouldPush: false,
     });
 
     this.output({
@@ -76,7 +75,6 @@ and published via 'conversation publish-messages').`;
       conversationId: args.id,
       markdown: args.markdown,
       optimistic: flags.optimistic,
-      shouldPush: false,
     });
   }
 }

@@ -36,6 +36,7 @@ describe("conversation send-read-receipt", () => {
     }>(result.stdout);
 
     expect(output.success).toBe(true);
+    expect(output).not.toHaveProperty("shouldPush");
     expect(output.messageId).toBeDefined();
     expect(output.conversationId).toBe(group.id);
     expect(output.optimistic).toBe(false);

@@ -88,7 +88,6 @@ and published via 'conversation publish-messages').`;
       reply.content,
       {
         optimistic: flags.optimistic,
-        shouldPush: false,
       },
     );
 
@@ -102,7 +101,6 @@ and published via 'conversation publish-messages').`;
         text: args.text,
       },
       optimistic: flags.optimistic,
-      shouldPush: false,
     });
   }
 }
