@@ -223,6 +223,9 @@ Android staging dependency inputs:
   route with `--write-locks --write-verification-metadata sha256` and
   `--max-workers=2`. Review the resolved graph, repositories, and SHA256
   entries before acceptance. Keep metadata verification enabled.
+  After refresh, keep each verification `<component>` on one line. Keep all
+  checksum values and policy entries. This keeps the generated inventory within
+  the SDK file-size limit.
 - Record the actual plugin classpath and each resolved release configuration.
   AAR output hashes do not prove dependency input coverage.
 - The switched Android project owns its own graph under Task 14. Do not copy
