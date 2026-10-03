@@ -1,4 +1,5 @@
 import BigInt
+import CryptoSwift
 import Foundation
 
 // Convert between ENS names and addresses.
