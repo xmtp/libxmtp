@@ -58,6 +58,25 @@ test("iterator reads cannot acknowledge a held callback value", async () => {
   }
 });
 
+test("a second iterator cannot acknowledge a held iterator value", async () => {
+  const { stream, reads } = heldReader();
+  const first = stream[Symbol.asyncIterator]();
+  try {
+    await expect(first.next()).resolves.toEqual({ done: false, value: 1 });
+    await expect(
+      (async () => {
+        const second = stream[Symbol.asyncIterator]();
+        return second.next();
+      })(),
+    ).rejects.toThrow(/iterator consumer/);
+    await expect(stream.next()).rejects.toThrow(/iterator consumer/);
+    expect(reads()).toBe(1);
+    await expect(first.next()).resolves.toEqual({ done: false, value: 2 });
+  } finally {
+    await stream.end();
+  }
+});
+
 test("a callback cannot take a stream after an iterator read starts", async () => {
   let releaseRead!: (value: number) => void;
   const firstValue = new Promise<number>((resolve) => {
