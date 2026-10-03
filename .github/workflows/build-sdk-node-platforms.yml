@@ -60,7 +60,6 @@ jobs:
     timeout-minutes: 90
     env:
       SQLX_OFFLINE: "true"
-      CARGO_BUILD_JOBS: 2
     steps:
       - uses: actions/checkout@v6
         with:

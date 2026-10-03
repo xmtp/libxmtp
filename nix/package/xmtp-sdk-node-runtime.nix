@@ -15,19 +15,29 @@ let
   rust = xmtp.craneLib.overrideToolchain (p: xmtp.mkToolchain p [ target ] [ ]);
   isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
   buildTarget = target + lib.optionalString isGnu ".2.27";
+  dummySrc = rust.mkDummySrc {
+    src = ubrnSrc;
+    cargoLock = ubrnSrc + /Cargo.lock;
+    # Crane omits auto-discovered tests. This test-only workspace crate then
+    # has no target, so Cargo cannot resolve the dummy workspace.
+    extraDummyScript = ''
+      mkdir -p $out/crates/ubrn_ts_tests/tests
+      touch $out/crates/ubrn_ts_tests/tests/test_framework.rs
+    '';
+  };
   args = {
     pname = "xmtp-sdk-node-runtime-${nodeTarget}";
     version = runtimeRevision;
     src = ubrnSrc;
     cargoLock = ubrnSrc + /Cargo.lock;
+    inherit dummySrc;
     cargoExtraArgs = "--locked -p uniffi-runtime-napi --lib --target ${target}";
     CARGO_BUILD_TARGET = buildTarget;
     buildPhaseCargoCommand =
-      lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild "
+      lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global "
       + "cargo ${
         if isGnu then "zigbuild" else "build"
       } --release --locked -p uniffi-runtime-napi --lib --target ${buildTarget}";
-    CARGO_BUILD_JOBS = 2;
     nativeBuildInputs = [
       pkg-config
       perl

@@ -54,7 +54,7 @@ let
   // lib.optionalAttrs android { buildInputs = [ ]; }
   // lib.optionalAttrs stdenv.hostPlatform.isMusl { RUSTFLAGS = "-C target-feature=-crt-static"; };
   command =
-    lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild "
+    lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global "
     + "cargo ${
       if isGnu then "zigbuild" else "build"
     } --release --locked -p xmtp_sdk --lib --target ${buildTarget}";
