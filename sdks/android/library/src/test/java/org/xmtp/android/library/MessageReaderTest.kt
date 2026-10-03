@@ -1,399 +1,268 @@
 package org.xmtp.android.library
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
+import org.junit.Assert.*
 import org.junit.Test
-import org.xmtp.android.library.codecs.ContentCodec
-import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
-import org.xmtp.android.library.codecs.EncodedContent
-import org.xmtp.android.library.codecs.TextCodec
-import org.xmtp.android.library.libxmtp.DecodedMessage
-import org.xmtp.android.library.libxmtp.DecodedMessageV2
-import org.xmtp.android.library.libxmtp.Reply
-import uniffi.xmtpv3.FfiContentDecodeFailureKind
-import uniffi.xmtpv3.FfiDecodedMessage
-import uniffi.xmtpv3.FfiDecodedMessageContent
-import uniffi.xmtpv3.FfiDeliveryCursor
-import uniffi.xmtpv3.FfiHistoryMessage
-import uniffi.xmtpv3.FfiMessageHistorySnapshot
-import uniffi.xmtpv3.FfiUndecodableContent
-import uniffi.xmtpv3.NoHandle
+import uniffi.xmtp_sdk.*
 
 private const val MESSAGE_READER_TEST_TIMEOUT_MS = 10_000L
 
 class MessageReaderTest {
-    private class Delivery(
-        val value: Int? = 1,
-        val current: Boolean = true,
-        val acknowledgementError: Throwable? = null,
-        val onCheck: () -> Unit = {},
-        val decodeValue: () -> Int? = { value },
-    ) {
-        var acknowledgements = 0
-        var rejections = 0
-
-        fun queued(): QueuedMessageDelivery<Int> =
-            QueuedMessageDelivery(
-                decode = decodeValue,
-                checkOwner = {
-                    onCheck()
-                    current
-                },
-                acknowledge = {
-                    acknowledgementError?.let { throw it }
-                    acknowledgements++
-                },
-                reject = { rejections++ },
-            )
-    }
-
+    // This checks host call order. Core tests own durable ACK and replay.
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun nextAcknowledgesOnlyThePreviousItemAndCloseRejectsTheLast() =
+    fun flowRequestsNextOnlyAfterThePreviousCollectorReturns() =
         runBlocking {
-            for (value in listOf(1, null)) {
-                val first = Delivery(value)
-                val second = Delivery(2)
-                val items = mutableListOf(first.queued(), second.queued())
-                var ended = 0
-                val reader =
-                    AcknowledgedMessageReader(
-                        read = { items.removeAt(0) },
-                        end = { ended++ },
-                    )
-                if (value != null) {
-                    assertEquals(1, reader.next())
-                    assertEquals(0, first.acknowledgements)
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            var items = 0
+            val reader =
+                RecordingMessageReader {
+                    when (items++) {
+                        0 -> deliveryTestMessage()
+                        1 -> deliveryTestMessage(id = "07".repeat(32))
+                        else -> null
+                    }
                 }
-                assertEquals(2, reader.next())
-                assertEquals(1, first.acknowledgements)
-                assertEquals(0, second.acknowledgements)
-                reader.close()
-                reader.close()
-                assertNull(reader.next())
-                assertEquals(0, first.rejections)
-                assertEquals(1, second.rejections)
-                assertEquals(1, ended)
-            }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            val received = mutableListOf<String>()
+            val job =
+                launch {
+                    client.messages().collect {
+                        received.add(it.id)
+                        if (received.size == 1) {
+                            entered.complete(Unit)
+                            release.await()
+                        }
+                    }
+                }
+            entered.await()
+            assertEquals(1, reader.nextCalls)
+            release.complete(Unit)
+            job.join()
+            assertEquals(listOf("01".repeat(32), "07".repeat(32)), received)
+            assertEquals(3, reader.nextCalls)
+            assertEquals(1, reader.endCalls)
         }
 
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
     fun cancellationWhileWaitingClosesTheReader() =
         runBlocking {
             val started = CompletableDeferred<Unit>()
-            val incoming = CompletableDeferred<QueuedMessageDelivery<Int>?>()
-            var ended = 0
             val reader =
-                AcknowledgedMessageReader(
-                    read = {
-                        started.complete(Unit)
-                        incoming.await()
-                    },
-                    end = { ended++ },
-                )
-            val task = launch { reader.next() }
+                RecordingMessageReader {
+                    started.complete(Unit)
+                    awaitCancellation()
+                }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            val job = launch { client.messages().collect { fail("Waiting read cannot emit") } }
             started.await()
-            task.cancelAndJoin()
-            assertEquals(1, ended)
-            assertNull(reader.next())
+            job.cancelAndJoin()
+            assertEquals(1, reader.nextCalls)
+            assertEquals(1, reader.endCalls)
         }
 
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun cancellationBeforeHandoffRejectsTheCurrentToken() =
+    fun cancellationBeforeHandoffEndsWithoutEmission() =
         runBlocking {
-            for (value in listOf(1, null)) {
-                var ended = 0
-                lateinit var item: Delivery
-                val task =
-                    launch {
-                        val context = coroutineContext
-                        item = Delivery(value, onCheck = { context.cancel() })
-                        val reader =
-                            AcknowledgedMessageReader(
-                                read = { item.queued() },
-                                end = { ended++ },
-                            )
-                        reader.next()
-                    }
-                task.join()
-                assertEquals(1, item.rejections)
-                assertEquals(0, item.acknowledgements)
-                assertEquals(1, ended)
-            }
+            val reader =
+                RecordingMessageReader {
+                    currentCoroutineContext().cancel()
+                    deliveryTestMessage()
+                }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            var delivered = 0
+            val job = launch { client.messages().collect { delivered++ } }
+            job.join()
+            assertEquals(0, delivered)
+            assertEquals(1, reader.nextCalls)
+            assertEquals(1, reader.endCalls)
         }
 
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun selectionChangeDiscardsWithoutAcknowledgingAndReadsFreshSelection() =
+    fun ownershipFailureClosesWithoutAnotherRead() =
         runBlocking {
-            for (value in listOf(1, null)) {
-                val stale = Delivery(value, current = false)
-                val fresh = Delivery(2)
-                val items = mutableListOf(stale.queued(), fresh.queued())
-                val reader = AcknowledgedMessageReader(read = { items.removeAt(0) }, end = {})
-                assertEquals(2, reader.next())
-                assertEquals(1, stale.rejections)
-                assertEquals(0, stale.acknowledgements)
-                assertEquals(0, fresh.acknowledgements)
-                reader.close()
-            }
+            val failure =
+                XmtpException.ConsumerOwned(
+                    ErrorDetails("ConsumerOwned", ErrorCategory.STREAM, false, "selection owner changed"),
+                )
+            val reader = RecordingMessageReader { throw failure }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            assertSame(
+                failure,
+                runCatching {
+                    client.messages().collect { fail("Ownership failure cannot emit") }
+                }.exceptionOrNull(),
+            )
+            assertEquals(1, reader.nextCalls)
+            assertEquals(1, reader.endCalls)
         }
 
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun acknowledgementFailureRetainsTheTokenForExplicitRejection() =
+    fun acknowledgementFailureClosesBeforeAnotherHandoff() =
         runBlocking {
-            for (value in listOf(1, null)) {
-                val error = IllegalStateException("acknowledgement failed")
-                val first = Delivery(value, acknowledgementError = error)
-                var reads = 0
-                var ended = 0
-                val reader =
-                    AcknowledgedMessageReader(
-                        read = {
-                            reads++
-                            first.queued()
-                        },
-                        end = { ended++ },
-                    )
-                if (value != null) assertEquals(1, reader.next())
-                assertSame(error, runCatching { reader.next() }.exceptionOrNull())
-                assertEquals(1, reads)
-                assertEquals(1, first.rejections)
-                assertEquals(0, first.acknowledgements)
-                assertEquals(1, ended)
-                assertNull(reader.next())
-            }
+            val failure = streamFailure()
+            var reads = 0
+            val reader = RecordingMessageReader { if (reads++ == 0) deliveryTestMessage() else throw failure }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            var delivered = 0
+            assertSame(failure, runCatching { client.messages().collect { delivered++ } }.exceptionOrNull())
+            assertEquals(1, delivered)
+            assertEquals(2, reader.nextCalls)
+            assertEquals(1, reader.endCalls)
         }
 
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
     fun decodeFailureIsHandedOffAndReaderContinues() =
         runBlocking {
-            val validCursor = FfiDeliveryCursor(databaseId = ByteArray(16), deliverySequence = 1uL)
-            val snapshotCursor = FfiDeliveryCursor(databaseId = ByteArray(16), deliverySequence = 2uL)
-            val invalidEncoding =
-                TextCodec()
-                    .encode("hi")
-                    .toBuilder()
-                    .putParameters("encoding", "UTF-16")
-                    .build()
-                    .toByteArray()
-            for (content in listOf(byteArrayOf(0x80.toByte()), invalidEncoding)) {
-                val message = deliveryTestMessage(content)
-                val invalid =
-                    Delivery(decodeValue = {
-                        val decoded = DecodedMessage.createForDelivery(message, validCursor)
-                        assertNotNull(decoded)
-                        assertNull(decoded!!.content<String>())
-                        assertEquals(message.id.toHex(), decoded.id)
-                        assertEquals(validCursor, decoded.deliveryCursor)
-                        if (content === invalidEncoding) {
-                            assertArrayEquals(content, decoded.encodedContent.toByteArray())
-                        } else {
-                            assertEquals(EncodedContent.getDefaultInstance(), decoded.encodedContent)
-                        }
-                        1
-                    })
-                val later =
-                    Delivery(decodeValue = {
-                        val decoded =
-                            DecodedMessage.createForDelivery(
-                                deliveryTestMessage(TextCodec().encode("later").toByteArray()),
-                                null,
-                            )
-                        assertEquals("later", decoded!!.content<String>())
-                        2
-                    })
-                val queued = mutableListOf(invalid.queued(), later.queued())
-                val reader =
-                    AcknowledgedMessageReader(
-                        read = { queued.removeFirstOrNull() },
-                        end = {},
-                    )
-                assertEquals(1, reader.next())
-                assertEquals(0, invalid.acknowledgements)
-                assertEquals(2, reader.next())
-                assertEquals(1, invalid.acknowledgements)
-                assertEquals(0, later.acknowledgements)
-                assertNull(reader.next())
-                assertEquals(1, later.acknowledgements)
-                assertEquals(0, invalid.rejections)
-                assertEquals(0, later.rejections)
-
-                val snapshot =
-                    FfiMessageHistorySnapshot(
-                        messages = listOf(FfiHistoryMessage(message = message, cursor = snapshotCursor)),
-                        cursor = snapshotCursor,
-                    ).toMessageHistorySnapshot()
-                assertEquals(listOf(message.id.toHex()), snapshot.messages.map { it.id })
-                assertNull(snapshot.messages.single().content<String>())
-                assertEquals(snapshotCursor, snapshot.cursor)
+            for (raw in listOf(byteArrayOf(0x80.toByte()), byteArrayOf(1, 2, 3))) {
+                val details = ErrorDetails("MalformedEnvelope", ErrorCategory.INPUT, false, "malformed")
+                val unknown = deliveryTestMessage(MessageContent.Unknown(null, raw, details), raw)
+                val later = deliveryTestMessage(MessageContent.Text("later"), id = "08".repeat(32))
+                val rows = mutableListOf(unknown, later)
+                val reader = RecordingMessageReader { rows.removeFirstOrNull() }
+                val client = testSDKClient(RecordingReaderClient { reader })
+                val delivered = mutableListOf<Message>()
+                client.messages().collect { delivered.add(it) }
+                assertEquals(listOf(unknown.id, later.id), delivered.map { it.id })
+                val content = delivered.first().content as SDKMessageContent.Unknown
+                assertArrayEquals(raw, content.rawBytes)
+                assertArrayEquals(raw, delivered.first().rawBytes)
+                assertEquals(details, content.error)
+                assertEquals(unknown.deliveryCursor, delivered.first().deliveryCursor)
+                assertNull(content.encoded)
+                assertEquals("later", (delivered.last().data.content as MessageContent.Text).v1)
+                assertEquals(1, reader.endCalls)
             }
-
-            val validMessage = deliveryTestMessage(TextCodec().encode("hi").toByteArray())
-            val filteredMessage =
-                deliveryTestMessage(
-                    EncodedContent
-                        .newBuilder()
-                        .setType(ContentTypeGroupUpdated)
-                        .build()
-                        .toByteArray(),
-                )
-            assertNull(DecodedMessage.createForDelivery(filteredMessage, null))
-            val snapshot =
-                FfiMessageHistorySnapshot(
-                    messages =
-                        listOf(
-                            FfiHistoryMessage(message = validMessage, cursor = validCursor),
-                            FfiHistoryMessage(message = filteredMessage, cursor = snapshotCursor),
-                        ),
-                    cursor = snapshotCursor,
-                ).toMessageHistorySnapshot()
-            assertEquals(listOf("hi"), snapshot.messages.map { it.body })
-            val deliveredCursor = requireNotNull(snapshot.messages.single().deliveryCursor)
-            assertArrayEquals(validCursor.databaseId, deliveredCursor.databaseId)
-            assertEquals(validCursor.deliverySequence, deliveredCursor.deliverySequence)
-            assertArrayEquals(snapshotCursor.databaseId, snapshot.cursor.databaseId)
-            assertEquals(snapshotCursor.deliverySequence, snapshot.cursor.deliverySequence)
         }
 
+    // PROC-045 requires failed custom content and continued delivery.
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun codecCancellationStopsDeliveryWithoutAcknowledgement() =
-        assertCodecFailureStopsDelivery(CancellationException("codec cancelled"))
+    fun codecCancellationIsContainedAndReaderContinues() =
+        assertCodecFailureIsContained(CancellationException("codec cancelled"))
 
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun codecLinkageErrorStopsDeliveryWithoutAcknowledgement() =
-        assertCodecFailureStopsDelivery(LinkageError("codec dependency missing"))
+    fun codecLinkageErrorIsContainedAndReaderContinues() =
+        assertCodecFailureIsContained(LinkageError("codec dependency missing"))
 
-    private fun assertCodecFailureStopsDelivery(error: Throwable) =
+    private fun assertCodecFailureIsContained(failure: Throwable) =
         runBlocking {
-            val previousRegistry = Client.codecRegistry
-            try {
-                val codec =
-                    object : ContentCodec<String> by TextCodec() {
-                        override val contentType =
-                            TextCodec()
-                                .contentType
-                                .toBuilder()
-                                .setTypeId(
-                                    "control-failure-test",
-                                ).build()
+            val type = ContentTypeId("example.com", "control-failure-test", 1u, 0u)
+            val codec =
+                object : ContentCodec<String> {
+                    override val type = type
 
-                        override fun decode(content: EncodedContent): String = throw error
-                    }
-                Client.codecRegistry = CodecRegistry()
-                Client.register(codec)
-                val message =
-                    deliveryTestMessage(
-                        TextCodec()
-                            .encode("fail")
-                            .toBuilder()
-                            .setType(codec.contentType)
-                            .build()
-                            .toByteArray(),
-                    )
-                val failed =
-                    Delivery(decodeValue = {
-                        DecodedMessage.createForDelivery(message, null)
-                        1
-                    })
-                val later = Delivery(2)
-                val queued = mutableListOf(failed.queued(), later.queued())
-                var reads = 0
-                var ended = 0
-                val reader =
-                    AcknowledgedMessageReader(
-                        read = {
-                            reads++
-                            queued.removeFirstOrNull()
-                        },
-                        end = { ended++ },
-                    )
-                try {
-                    assertSame(error, runCatching { reader.next() }.exceptionOrNull())
-                    assertEquals(1, reads)
-                    assertEquals(0, failed.acknowledgements)
-                    assertEquals(1, failed.rejections)
-                    assertEquals(0, later.acknowledgements)
-                    assertEquals(1, ended)
-                    assertNull(reader.next())
-                } finally {
-                    reader.close()
+                    override fun encode(value: String) = EncodedContent(type, content = value.toByteArray())
+
+                    override fun decode(encoded: EncodedContent): String = throw failure
                 }
-            } finally {
-                Client.codecRegistry = previousRegistry
-            }
-        }
-
-    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun closeDuringOwnershipCheckPreventsHandoff() =
-        runBlocking {
-            for (value in listOf(1, null)) {
-                lateinit var reader: AcknowledgedMessageReader<Int>
-                var ended = 0
-                val item = Delivery(value, onCheck = { reader.close() })
-                reader = AcknowledgedMessageReader(read = { item.queued() }, end = { ended++ })
-                assertNull(reader.next())
-                assertEquals(1, item.rejections)
-                assertEquals(0, item.acknowledgements)
-                assertEquals(1, ended)
-            }
-        }
-
-    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun concurrentNextClosesBothRequests() =
-        runBlocking {
-            val started = CompletableDeferred<Unit>()
-            val incoming = CompletableDeferred<QueuedMessageDelivery<Int>?>()
-            var ended = 0
+            var reads = 0
+            lateinit var rawClient: RecordingReaderClient
+            val encoded = EncodedContent(type, content = byteArrayOf(1))
             val reader =
-                AcknowledgedMessageReader(
-                    read = {
-                        started.complete(Unit)
-                        incoming.await()
-                    },
-                    end = {
-                        ended++
-                        incoming.complete(null)
-                        Unit
+                RecordingMessageReader {
+                    when (reads++) {
+                        0 -> {
+                            deliveryTestMessage(
+                                MessageContent.Custom(encoded, byteArrayOf(2)),
+                                byteArrayOf(2),
+                                encoded = encoded,
+                                clientKey = rawClient.key,
+                            )
+                        }
+
+                        1 -> {
+                            deliveryTestMessage(
+                                MessageContent.Text("later"),
+                                id = "09".repeat(32),
+                                clientKey = rawClient.key,
+                            )
+                        }
+
+                        else -> {
+                            null
+                        }
+                    }
+                }
+            rawClient = RecordingReaderClient { reader }
+            val client = testSDKClient(rawClient, listOf(codec))
+            ClientRegistry.register(client)
+            try {
+                val received = mutableListOf<Message>()
+                client.messages().collect { received.add(it) }
+                assertEquals(2, received.size)
+                val failed = received.first().content as SDKMessageContent.Custom
+                assertNull(failed.value)
+                assertEquals("CodecDecodeFailed", failed.error?.code)
+                assertEquals(ErrorCategory.CALLBACK, failed.error?.category)
+                assertFalse(checkNotNull(failed.error).retryable)
+                assertTrue(checkNotNull(failed.error).message.contains(checkNotNull(failure.message)))
+                assertEquals(encoded, failed.encoded)
+                assertArrayEquals(byteArrayOf(2), failed.rawBytes)
+                assertEquals("later", (received.last().data.content as MessageContent.Text).v1)
+                assertEquals(1, reader.endCalls)
+            } finally {
+                ClientRegistry.remove(client)
+            }
+        }
+
+    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
+    fun clientCloseBeforeReadPreventsNativeRead() =
+        runBlocking {
+            val reader = RecordingMessageReader { deliveryTestMessage() }
+            val raw = RecordingReaderClient { reader }
+            val client = testSDKClient(raw)
+            raw.closed = true
+            assertTrue(
+                runCatching {
+                    client.messages().collect { fail("Closed owner cannot emit") }
+                }.exceptionOrNull() is XmtpException.ClientClosed,
+            )
+            assertEquals(0, reader.nextCalls)
+            assertEquals(1, reader.endCalls)
+        }
+
+    // Each host collection owns its reader. Native competing leases remain core proof.
+    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
+    fun independentCollectionsOwnSeparateReaders() =
+        runBlocking {
+            val opened = CompletableDeferred<Unit>()
+            val readers = mutableListOf<RecordingMessageReader>()
+            val client =
+                testSDKClient(
+                    RecordingReaderClient {
+                        RecordingMessageReader { awaitCancellation() }.also {
+                            synchronized(readers) {
+                                readers.add(it)
+                                if (readers.size == 2) opened.complete(Unit)
+                            }
+                        }
                     },
                 )
-            val first = launch { assertNull(reader.next()) }
-            started.await()
-            assertTrue(runCatching { reader.next() }.exceptionOrNull() is XMTPException)
-            first.join()
-            assertEquals(1, ended)
+            val first = launch { client.messages().collect {} }
+            val second = launch { client.messages().collect {} }
+            opened.await()
+            first.cancelAndJoin()
+            second.cancelAndJoin()
+            assertEquals(2, readers.size)
+            assertNotSame(readers[0], readers[1])
+            assertEquals(listOf(1, 1), readers.map { it.endCalls })
         }
 
-    // verifies: CTYPE-008
+    // verifies: CTYPE-008, CTYPE-009
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun v2UndecodableContentIsNullAndKeepsTheEvidence() {
-        val evidence =
-            FfiUndecodableContent(
-                rawBytes = byteArrayOf(0x80.toByte()),
-                contentType = null,
-                fallback = null,
-                failureKind = FfiContentDecodeFailureKind.MALFORMED_ENVELOPE,
-                failureMessage = "malformed",
-            )
-        val ffi =
-            object : FfiDecodedMessage(NoHandle) {
-                override fun content(): FfiDecodedMessageContent = FfiDecodedMessageContent.Undecodable(evidence)
-            }
-        val decoded = DecodedMessageV2.create(ffi)
-        assertNotNull(decoded)
-        val reply: Reply? = decoded!!.content<Reply>()
-        assertNull(reply)
-        val text: String? = decoded.content<String>()
-        assertNull(text)
-        assertArrayEquals(evidence.rawBytes, decoded.undecodable!!.rawBytes)
-        assertEquals(FfiContentDecodeFailureKind.MALFORMED_ENVELOPE, decoded.undecodable?.failureKind)
+    fun unknownContentKeepsEvidenceAndTypedFailure() {
+        val raw = byteArrayOf(0x80.toByte())
+        val failure = ErrorDetails("MalformedEnvelope", ErrorCategory.INPUT, false, "malformed")
+        val message = deliveryTestMessage(MessageContent.Unknown(null, raw, failure), raw)
+        val content = message.content as SDKMessageContent.Unknown
+        assertArrayEquals(raw, content.rawBytes)
+        assertArrayEquals(raw, message.rawBytes)
+        assertNull(content.encoded)
+        assertEquals("MalformedEnvelope", content.error.code)
+        assertEquals(ErrorCategory.INPUT, content.error.category)
+        assertEquals("malformed", content.error.message)
+        assertFalse(content.error.retryable)
+        assertEquals("cursor-" + message.id, message.deliveryCursor)
     }
 }

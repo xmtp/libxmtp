@@ -1,279 +1,166 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import org.junit.Assert
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
+import org.junit.After
+import org.junit.Assert.*
 import org.junit.Before
-import org.junit.FixMethodOrder
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.junit.runners.MethodSorters
-import org.xmtp.android.library.libxmtp.DecodedMessage
-import org.xmtp.android.library.messages.PrivateKey
-import org.xmtp.android.library.messages.PrivateKeyBuilder
-import uniffi.xmtpv3.FfiConversationMessageKind
-import uniffi.xmtpv3.FfiException
-import java.io.File
+import uniffi.xmtp_sdk.*
 
-@RunWith(AndroidJUnit4::class)
-@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class SmartContractWalletTest : BaseInstrumentedTest() {
     private lateinit var fixtures: TestFixtures
     private lateinit var davonSCW: FakeSCWWallet
-    private lateinit var davonSCWClient: Client
     private lateinit var eriSCW: FakeSCWWallet
-    private lateinit var eriSCWClient: Client
-    private lateinit var boEOAWallet: PrivateKeyBuilder
-    private lateinit var boEOA: PrivateKey
-    private lateinit var boEOAClient: Client
+    private lateinit var davon: SDKClient
+    private lateinit var eri: SDKClient
+    private lateinit var boSigner: Signer
+    private lateinit var bo: SDKClient
 
-    @Before
-    override fun setUp() {
+    @Before override fun setUp() {
         super.setUp()
-        fixtures = runBlocking { createFixtures() }
-
-        // EOA
-        boEOAWallet = createWallet()
-        boEOA = boEOAWallet.getPrivateKey()
-        boEOAClient = runBlocking { createClient(boEOAWallet) }
-
-        // SCW
-        davonSCW = FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_1)
-        davonSCWClient =
-            runBlocking { createClient(davonSCW) }
-
-        // SCW
-        eriSCW = FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_2)
-        eriSCWClient = runBlocking { createClient(eriSCW) }
-    }
-
-    @Test
-    fun test1_CanBuildASCW() {
-        val davonSCWClient2 =
-            runBlocking {
-                Client.build(
-                    publicIdentity = davonSCW.publicIdentity,
-                    createClientOptions(
-                        localApi(),
-                        dbDirectory = File(davonSCWClient.dbPath).parent,
-                        deviceSyncEnabled = false,
-                    ),
-                    davonSCWClient.inboxId,
-                )
-            }
-
-        assertEquals(davonSCWClient.inboxId, davonSCWClient2.inboxId)
-        assertEquals(
-            davonSCWClient2.inboxId,
-            runBlocking { davonSCWClient.inboxIdFromIdentity(davonSCW.publicIdentity) },
-        )
-
         runBlocking {
-            davonSCWClient
-                .canMessage(listOf(boEOAWallet.publicIdentity))[
-                boEOAWallet.publicIdentity.identifier,
-            ]?.let { assert(it) }
-        }
-
-        runBlocking {
-            boEOAClient
-                .canMessage(listOf(davonSCW.publicIdentity))[
-                davonSCW.publicIdentity.identifier,
-            ]?.let { assert(it) }
+            fixtures = createFixtures()
+            boSigner = createWallet()
+            bo = createClient(boSigner)
+            davonSCW = FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_1)
+            davon = createClient(davonSCW)
+            eriSCW = FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_2)
+            eri = createClient(eriSCW)
         }
     }
 
-    @Test
-    fun test2_CanCreateGroup() {
-        val group1 =
-            runBlocking {
-                boEOAClient.conversations.newGroup(listOf(davonSCWClient.inboxId, eriSCWClient.inboxId))
-            }
-        val group2 =
-            runBlocking {
-                davonSCWClient.conversations.newGroup(listOf(boEOAClient.inboxId, eriSCWClient.inboxId))
-            }
-
-        assertEquals(
-            runBlocking { group1.members().map { it.inboxId }.sorted() },
-            listOf(davonSCWClient.inboxId, boEOAClient.inboxId, eriSCWClient.inboxId).sorted(),
-        )
-        assertEquals(
-            runBlocking { group2.members().map { it.identities.first().identifier }.sorted() },
-            listOf(
-                davonSCW.publicIdentity.identifier,
-                boEOAWallet.publicIdentity.identifier,
-                eriSCW.publicIdentity.identifier,
-            ).sorted(),
-        )
+    @After fun closeWallets() {
+        if (::davonSCW.isInitialized) davonSCW.close()
+        if (::eriSCW.isInitialized) eriSCW.close()
     }
 
-    @Test
-    fun test3_CanSendMessages() {
-        val boGroup =
-            runBlocking {
-                boEOAClient.conversations.newGroup(listOf(davonSCWClient.inboxId, eriSCWClient.inboxId))
-            }
-        runBlocking { boGroup.send("howdy") }
-        val messageId = runBlocking { boGroup.send("gm") }
-        runBlocking { boGroup.sync() }
-        assertEquals(runBlocking { boGroup.messages() }.first().body, "gm")
-        assertEquals(runBlocking { boGroup.messages() }.first().id, messageId)
-        assertEquals(
-            runBlocking { boGroup.messages() }.first().deliveryStatus,
-            DecodedMessage.MessageDeliveryStatus.PUBLISHED,
-        )
-        assertEquals(runBlocking { boGroup.messages() }.size, 3)
+    private suspend fun group(
+        client: SDKClient,
+        id: ConversationId,
+    ): Group = (checkNotNull(client.conversations().getById(id)) as Conversation.Group).group
 
-        runBlocking { davonSCWClient.conversations.sync() }
-        val davonGroup = runBlocking { davonSCWClient.conversations.findGroup(boGroup.id)!! }
-        runBlocking { davonGroup.sync() }
-        assertEquals(runBlocking { davonGroup.messages() }.size, 3)
-        assertEquals(runBlocking { davonGroup.messages() }.first().body, "gm")
-        runBlocking { davonGroup.send("from davon") }
+    private fun text(message: Message): String? =
+        ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text)?.v1
 
-        runBlocking { eriSCWClient.conversations.sync() }
-        val eriGroup = runBlocking { davonSCWClient.conversations.findGroup(davonGroup.id) }
-        runBlocking { eriGroup?.sync() }
-        assertEquals(runBlocking { eriGroup?.messages() }?.size, 4)
-        assertEquals(runBlocking { eriGroup?.messages() }?.first()?.body, "from davon")
-        runBlocking { eriGroup?.send("from eri") }
-    }
-
-    @Test
-    fun test4_GroupConsent() {
+    @Test fun test1_CanBuildASCW() =
         runBlocking {
-            val davonGroup =
-                runBlocking {
-                    davonSCWClient.conversations.newGroup(
-                        listOf(boEOAClient.inboxId, eriSCWClient.inboxId),
-                    )
-                }
-            assertEquals(
-                davonSCWClient.preferences.conversationState(davonGroup.id),
-                ConsentState.ALLOWED,
-            )
-            assertEquals(davonGroup.consentState(), ConsentState.ALLOWED)
-
-            davonSCWClient.preferences.setConsentState(
-                listOf(
-                    ConsentRecord(
-                        davonGroup.id,
-                        EntryType.CONVERSATION_ID,
-                        ConsentState.DENIED,
-                    ),
-                ),
-            )
-            assertEquals(
-                davonSCWClient.preferences.conversationState(davonGroup.id),
-                ConsentState.DENIED,
-            )
-            assertEquals(davonGroup.consentState(), ConsentState.DENIED)
-
-            davonGroup.updateConsentState(ConsentState.ALLOWED)
-            assertEquals(
-                davonSCWClient.preferences.conversationState(davonGroup.id),
-                ConsentState.ALLOWED,
-            )
-            assertEquals(davonGroup.consentState(), ConsentState.ALLOWED)
+            val inbox = davon.inboxId()
+            val installation = davon.installationId()
+            val path = davon.storagePath()
+            val identity = davonSCW.identity()
+            val options = davon.options()
+            davon.end()
+            val reopened = trackClient(SDKClient.build(context, identity, options, inbox))
+            assertEquals(inbox, reopened.inboxId())
+            assertEquals(installation, reopened.installationId())
+            assertEquals(path, reopened.storagePath())
+            assertEquals(inbox, reopened.inboxIdFor(identity))
+            assertEquals(true, reopened.canMessage(listOf(boSigner.identity()))[boSigner.identity().identifier])
+            assertEquals(true, bo.canMessage(listOf(identity))[identity.identifier])
         }
-    }
 
-    @Test
-    fun test5_CanAllowAndDenyInboxId() {
+    @Test fun test2_CanCreateGroup() =
         runBlocking {
-            val davonGroup =
-                runBlocking {
-                    davonSCWClient.conversations.newGroup(
-                        listOf(boEOAClient.inboxId, eriSCWClient.inboxId),
-                    )
-                }
+            val first = bo.conversations().createGroup(listOf(davon.inboxId(), eri.inboxId()))
+            val second = davon.conversations().createGroup(listOf(bo.inboxId(), eri.inboxId()))
             assertEquals(
-                davonSCWClient.preferences.inboxIdState(boEOAClient.inboxId),
-                ConsentState.UNKNOWN,
+                setOf(davon.inboxId(), bo.inboxId(), eri.inboxId()),
+                first.members().map { it.inboxId }.toSet(),
             )
-            davonSCWClient.preferences.setConsentState(
-                listOf(
-                    ConsentRecord(
-                        boEOAClient.inboxId,
-                        EntryType.INBOX_ID,
-                        ConsentState.ALLOWED,
-                    ),
-                ),
-            )
-            var alixMember = davonGroup.members().firstOrNull { it.inboxId == boEOAClient.inboxId }
-            assertEquals(alixMember!!.consentState, ConsentState.ALLOWED)
-
             assertEquals(
-                davonSCWClient.preferences.inboxIdState(boEOAClient.inboxId),
-                ConsentState.ALLOWED,
-            )
-
-            davonSCWClient.preferences.setConsentState(
-                listOf(
-                    ConsentRecord(
-                        boEOAClient.inboxId,
-                        EntryType.INBOX_ID,
-                        ConsentState.DENIED,
-                    ),
-                ),
-            )
-            alixMember = davonGroup.members().firstOrNull { it.inboxId == boEOAClient.inboxId }
-            assertEquals(alixMember!!.consentState, ConsentState.DENIED)
-
-            assertEquals(
-                davonSCWClient.preferences.inboxIdState(boEOAClient.inboxId),
-                ConsentState.DENIED,
+                setOf(davonSCW.identity().identifier, boSigner.identity().identifier, eriSCW.identity().identifier),
+                second
+                    .members()
+                    .flatMap { it.identities }
+                    .map { it.identifier }
+                    .toSet(),
             )
         }
-    }
 
-    @Test
-    fun test6_CanStreamAllMessages() =
+    @Test fun test3_CanSendMessages() =
         runBlocking {
-            val group1 =
-                davonSCWClient.conversations.newGroup(listOf(boEOAClient.inboxId, eriSCWClient.inboxId))
-            val group2 =
-                boEOAClient.conversations.newGroup(listOf(davonSCWClient.inboxId, eriSCWClient.inboxId))
-            val dm1 = davonSCWClient.conversations.findOrCreateDm(eriSCWClient.inboxId)
-            val dm2 = boEOAClient.conversations.findOrCreateDm(davonSCWClient.inboxId)
-            davonSCWClient.conversations.sync()
+            val original = bo.conversations().createGroup(listOf(davon.inboxId(), eri.inboxId()))
+            original.sendText("howdy")
+            val id = original.sendText("gm")
+            original.sync()
+            val latest = original.messages().first()
+            assertEquals("gm", text(latest))
+            assertEquals(id, latest.id)
+            assertEquals(DeliveryStatus.PUBLISHED, latest.deliveryStatus)
+            assertEquals(3, original.messages().size)
+            davon.conversations().syncAll(null)
+            val davonGroup = group(davon, original.id())
+            assertEquals(3, davonGroup.messages().size)
+            assertEquals("gm", text(davonGroup.messages().first()))
+            davonGroup.sendText("from davon")
+            eri.conversations().syncAll(null)
+            val eriGroup = group(eri, original.id())
+            eriGroup.sync()
+            assertEquals(4, eriGroup.messages().size)
+            assertEquals("from davon", text(eriGroup.messages().first()))
+            val eriId = eriGroup.sendText("from eri")
+            original.sync()
+            assertEquals(eri.inboxId(), original.messages().single { it.id == eriId }.senderInboxId)
+        }
 
-            val retained = davonSCWClient.conversations.messageHistorySnapshot(10U).messages
+    @Test fun test4_GroupConsent() =
+        runBlocking {
+            val group = davon.conversations().createGroup(listOf(bo.inboxId(), eri.inboxId()))
+            val entity = ConsentEntity.Conversation(group.id())
+            assertEquals(ConsentState.ALLOWED, davon.preferences().consentState(entity))
+            assertEquals(ConsentState.ALLOWED, group.state().common.consentState)
+            davon.preferences().setConsentStates(listOf(ConsentRecord(entity, ConsentState.DENIED)))
+            assertEquals(ConsentState.DENIED, davon.preferences().consentState(entity))
+            assertEquals(ConsentState.DENIED, group.state().common.consentState)
+            group.updateConsentState(ConsentState.ALLOWED)
+            assertEquals(ConsentState.ALLOWED, davon.preferences().consentState(entity))
+            assertEquals(ConsentState.ALLOWED, group.state().common.consentState)
+        }
+
+    @Test fun test5_CanAllowAndDenyInboxId() =
+        runBlocking {
+            val group = davon.conversations().createGroup(listOf(bo.inboxId(), eri.inboxId()))
+            val entity = ConsentEntity.Inbox(bo.inboxId())
+            assertEquals(ConsentState.UNKNOWN, davon.preferences().consentState(entity))
+            for (state in listOf(ConsentState.ALLOWED, ConsentState.DENIED)) {
+                davon.preferences().setConsentStates(listOf(ConsentRecord(entity, state)))
+                assertEquals(state, group.members().single { it.inboxId == bo.inboxId() }.consentState)
+                assertEquals(state, davon.preferences().consentState(entity))
+            }
+        }
+
+    @Test fun test6_CanStreamAllMessages() =
+        runBlocking {
+            val first = davon.conversations().createGroup(listOf(bo.inboxId(), eri.inboxId()))
+            val second = bo.conversations().createGroup(listOf(davon.inboxId(), eri.inboxId()))
+            val firstDm = davon.conversations().createDm(eri.inboxId())
+            val secondDm = bo.conversations().createDm(davon.inboxId())
+            davon.conversations().syncAll(null)
+            val retained = davon.conversations().messageHistorySnapshot(10u).messages
             assertEquals(4, retained.size)
-            assertEquals(setOf(group1.id, group2.id, dm1.id, dm2.id), retained.map { it.conversationId }.toSet())
-            assertTrue(retained.all { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE })
+            assertEquals(
+                setOf(first.id(), second.id(), firstDm.id(), secondDm.id()),
+                retained.map { it.conversationId }.toSet(),
+            )
+            assertTrue(retained.all { it.kind == MessageKind.MEMBERSHIP_CHANGE })
             val messages = StreamTestMessages()
-            val job =
-                launch(Dispatchers.IO) {
-                    davonSCWClient.conversations.streamAllMessages().collect { messages.add(it) }
-                }
+            val job = launch(Dispatchers.IO) { davon.messages().collect { messages.add(it) } }
             try {
                 messages.awaitHistory(retained)
-                val expected = mutableListOf(group1.send("hi") to "hi")
+                val expected = mutableListOf(first.sendText("hi") to "hi")
                 messages.awaitApplications(expected)
-                expected.add(group2.send("hi") to "hi")
+                expected.add(second.sendText("hi") to "hi")
                 messages.awaitApplications(expected)
-                expected.add(dm1.send("hi") to "hi")
+                expected.add(firstDm.sendText("hi") to "hi")
                 messages.awaitApplications(expected)
-                expected.add(dm2.send("hi") to "hi")
+                expected.add(secondDm.sendText("hi") to "hi")
                 messages.awaitApplications(expected)
-
-                val history = davonSCWClient.conversations.messageHistorySnapshot(10U).messages
+                val history = davon.conversations().messageHistorySnapshot(10u).messages
                 assertEquals(retained.size + expected.size, history.size)
                 assertEquals(
                     retained.map { it.id },
-                    history.filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }.map { it.id },
+                    history.filter { it.kind == MessageKind.MEMBERSHIP_CHANGE }.map { it.id },
                 )
                 messages.awaitHistory(history)
             } finally {
@@ -281,84 +168,69 @@ class SmartContractWalletTest : BaseInstrumentedTest() {
             }
         }
 
-    @Test
-    fun test7_CanStreamConversations() =
+    @Test fun test7_CanStreamConversations() =
         runBlocking {
-            val conversations = mutableListOf<Pair<String, String>>()
-            val ready = CompletableDeferred<Unit>()
-
-            fun snapshot(): List<Pair<String, String>> = synchronized(conversations) { conversations.toList() }
-
+            val reader = davon.conversations().conversationReader(null)
+            val received = mutableListOf<Pair<String, String>>()
             val job =
                 launch(Dispatchers.IO) {
-                    davonSCWClient.conversations
-                        .streamWithReadiness(onReady = { ready.complete(Unit) })
-                        .collect { conversation ->
-                            synchronized(conversations) { conversations.add(conversation.id to conversation.topic) }
-                        }
-                }
-            try {
-                withTimeout(30_000) { ready.await() }
-                val group1 =
-                    eriSCWClient.conversations.newGroup(listOf(boEOAClient.inboxId, davonSCWClient.inboxId))
-                val group2 =
-                    boEOAClient.conversations.newGroup(listOf(eriSCWClient.inboxId, davonSCWClient.inboxId))
-                val dm1 = davonSCWClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
-                val dm2 = fixtures.caroClient.conversations.findOrCreateDm(davonSCWClient.inboxId)
-                val expected =
-                    listOf(
-                        group1.id to group1.topic,
-                        group2.id to group2.topic,
-                        dm1.id to dm1.topic,
-                        dm2.id to dm2.topic,
-                    )
-
-                withTimeout(30_000) {
-                    while (snapshot().size < expected.size) {
-                        delay(10)
+                    while (true) {
+                        val conversation = reader.next() ?: break
+                        val row =
+                            when (conversation) {
+                                is Conversation.Group -> conversation.group.id() to conversation.group.topic()
+                                is Conversation.Dm -> conversation.dm.id() to conversation.dm.topic()
+                            }
+                        synchronized(received) { received.add(row) }
                     }
                 }
-                assertEquals(expected.sortedBy { it.first }, snapshot().sortedBy { it.first })
+            try {
+                val first = davon.conversations().createGroup(listOf(bo.inboxId(), eri.inboxId()))
+                val second = bo.conversations().createGroup(listOf(davon.inboxId(), eri.inboxId()))
+                val firstDm = davon.conversations().createDm(fixtures.alixClient.inboxId())
+                val secondDm = fixtures.caroClient.conversations().createDm(davon.inboxId())
+                val expected =
+                    listOf(
+                        first.id() to first.topic(),
+                        second.id() to second.topic(),
+                        firstDm.id() to firstDm.topic(),
+                        secondDm.id() to secondDm.topic(),
+                    )
+                withTimeout(30_000) { while (synchronized(received) { received.size } < expected.size) delay(10) }
+                assertEquals(
+                    expected.sortedBy { it.first },
+                    synchronized(received) { received.toList() }.sortedBy { it.first },
+                )
             } finally {
-                withContext(NonCancellable) { job.cancelAndJoin() }
+                withContext(NonCancellable) {
+                    job.cancelAndJoin()
+                    reader.end()
+                }
             }
         }
 
-    @Test
-    fun test8_AddAndRemovingAccounts() {
-        val davonEOA = PrivateKeyBuilder()
-        val davonSCW2 = FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_3)
-
-        runBlocking { davonSCWClient.addAccount(davonEOA) }
-        runBlocking { davonSCWClient.addAccount(davonSCW2) }
-
-        var state = runBlocking { davonSCWClient.inboxState(true) }
-        assertEquals(state.installations.size, 1)
-        assertEquals(state.identities.size, 3)
-        assertEquals(state.recoveryPublicIdentity.identifier, davonSCW.publicIdentity.identifier)
-        assertEquals(
-            state.identities.map { it.identifier }.sorted(),
-            listOf(
-                davonEOA.publicIdentity.identifier,
-                davonSCW2.publicIdentity.identifier,
-                davonSCW.publicIdentity.identifier,
-            ).sorted(),
-        )
-
-        runBlocking { davonSCWClient.removeAccount(davonSCW, davonSCW2.publicIdentity) }
-        state = runBlocking { davonSCWClient.inboxState(true) }
-        assertEquals(state.identities.size, 2)
-        assertEquals(state.recoveryPublicIdentity.identifier, davonSCW.publicIdentity.identifier)
-        assertEquals(
-            state.identities.map { it.identifier }.sorted(),
-            listOf(davonEOA.publicIdentity.identifier, davonSCW.publicIdentity.identifier)
-                .sorted(),
-        )
-        assertEquals(state.installations.size, 1)
-
-        // Cannot remove the recovery address
-        Assert.assertThrows("Client error: Unknown Signer", FfiException::class.java) {
-            runBlocking { davonSCWClient.removeAccount(davonEOA, davonSCW.publicIdentity) }
+    @Test fun test8_AddAndRemovingAccounts() =
+        runBlocking {
+            val eoa = createWallet()
+            FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_3).use { added ->
+                davon.unsafeAddAccount(eoa, false)
+                davon.unsafeAddAccount(added, false)
+                val recovery = davonSCW.identity()
+                var state = davon.inboxState(true)
+                assertEquals(1, state.installations.size)
+                assertEquals(setOf(recovery, eoa.identity(), added.identity()), state.identities.toSet())
+                assertEquals(recovery, state.recoveryIdentity)
+                davon.removeAccount(davonSCW, added.identity())
+                state = davon.inboxState(true)
+                assertEquals(1, state.installations.size)
+                assertEquals(setOf(recovery, eoa.identity()), state.identities.toSet())
+                assertEquals(recovery, state.recoveryIdentity)
+                try {
+                    davon.removeAccount(eoa, recovery)
+                    fail("A non-recovery signer must not remove the recovery account")
+                } catch (_: XmtpException) {
+                    assertEquals(setOf(recovery, eoa.identity()), davon.inboxState(true).identities.toSet())
+                }
+            }
         }
-    }
 }

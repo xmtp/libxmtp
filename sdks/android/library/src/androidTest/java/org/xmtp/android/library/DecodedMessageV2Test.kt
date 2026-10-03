@@ -1,338 +1,173 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Assert.*
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.xmtp.android.library.codecs.ContentTypeReaction
-import org.xmtp.android.library.codecs.LeaveRequest
-import org.xmtp.android.library.codecs.Reaction
-import org.xmtp.android.library.codecs.ReactionAction
-import org.xmtp.android.library.codecs.ReactionCodec
-import org.xmtp.android.library.codecs.ReactionSchema
-import org.xmtp.android.library.libxmtp.DecodedMessage
+import uniffi.xmtp_sdk.*
 
-@RunWith(AndroidJUnit4::class)
 class DecodedMessageV2Test : BaseInstrumentedTest() {
-    private lateinit var fixtures: TestFixtures
-    private lateinit var alixClient: Client
-    private lateinit var boClient: Client
-    private lateinit var caroClient: Client
+    private fun text(message: Message): String? =
+        ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text)?.v1
 
-    @Before
-    override fun setUp() {
-        super.setUp()
-        fixtures = runBlocking { createFixtures() }
-        alixClient = fixtures.alixClient
-        boClient = fixtures.boClient
-        caroClient = fixtures.caroClient
-
-        Client.register(codec = ReactionCodec())
+    private suspend fun group(): Triple<TestFixtures, Group, Group> {
+        val fixtures = createFixtures()
+        val boGroup = fixtures.boClient.conversations().createGroup(listOf(fixtures.alixClient.inboxId()))
+        fixtures.alixClient.conversations().syncAll(null)
+        val alixGroup =
+            (
+                checkNotNull(
+                    fixtures.alixClient.conversations().getById(boGroup.id()),
+                ) as Conversation.Group
+            ).group
+        return Triple(fixtures, boGroup, alixGroup)
     }
 
-    @Test
-    fun testCanRetrieveEnrichedMessagesFromGroup() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
-        }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-
-        runBlocking {
-            boGroup.send("Hello from Bo")
-            alixGroup.send("Hello from Alix")
-            boGroup.send("Second message from Bo")
-        }
-
-        val messagesV2 = runBlocking { boGroup.enrichedMessages() }
-
-        // Groups include a GroupUpdated message when members are added
-        assertEquals(4, messagesV2.size)
-        assertEquals("Second message from Bo", messagesV2[0].content<String>())
-        assertEquals("Hello from Alix", messagesV2[1].content<String>())
-        assertEquals("Hello from Bo", messagesV2[2].content<String>())
-        // The last message is the GroupUpdated message from group creation
-        assertNotNull(messagesV2[3].content<Any>())
+    private fun assertThreeTexts(messages: List<Message>) {
+        assertEquals(4, messages.size)
+        assertEquals(listOf("Second message from Bo", "Hello from Alix", "Hello from Bo"), messages.take(3).map(::text))
+        assertTrue(messages.last().data.content is MessageContent.GroupUpdated)
     }
 
-    @Test
-    fun testCanRetrieveMessagesV2FromDm() {
-        val boDm = runBlocking { boClient.conversations.newConversation(alixClient.inboxId) }
-        runBlocking { alixClient.conversations.sync() }
-        val alixDm = runBlocking { alixClient.conversations.listDms().first() }
-
+    @Test fun testCanRetrieveEnrichedMessagesFromGroup() =
         runBlocking {
-            boDm.send("Hello from Bo")
-            alixDm.send("Hello from Alix")
-            boDm.send("Second message from Bo")
+            val (_, bo, alix) = group()
+            bo.sendText("Hello from Bo")
+            alix.sendText("Hello from Alix")
+            bo.sendText("Second message from Bo")
+            bo.sync()
+            assertThreeTexts(bo.messages())
         }
 
-        val messagesV2 = runBlocking { boDm.enrichedMessages() }
-
-        // DMs include a GroupUpdated message when the conversation is created
-        assertEquals(4, messagesV2.size)
-        assertEquals("Second message from Bo", messagesV2[0].content<String>())
-        assertEquals("Hello from Alix", messagesV2[1].content<String>())
-        assertEquals("Hello from Bo", messagesV2[2].content<String>())
-        // The last message is the GroupUpdated message from DM creation
-        assertNotNull(messagesV2[3].content<Any>())
-    }
-
-    @Test
-    fun testMessagesV2Pagination() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-
+    @Test fun testCanRetrieveMessagesV2FromDm() =
         runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
+            val fixtures = createFixtures()
+            val bo = fixtures.boClient.conversations().createDm(fixtures.alixClient.inboxId())
+            fixtures.alixClient.conversations().syncAll(null)
+            val alix = checkNotNull(fixtures.alixClient.conversations().getDmByInboxId(fixtures.boClient.inboxId()))
+            bo.sendText("Hello from Bo")
+            alix.sendText("Hello from Alix")
+            bo.sendText("Second message from Bo")
+            bo.sync()
+            assertThreeTexts(bo.messages())
         }
 
+    @Test fun testMessagesV2Pagination() =
         runBlocking {
-            for (i in 1..10) {
-                boGroup.send("Message $i from Bo")
-            }
+            val (_, bo, _) = group()
+            for (i in 1..10) bo.sendText("Message $i from Bo")
+            val limited = bo.messages(ListMessagesOptions(limit = 5u))
+            assertEquals(5, limited.size)
+            val boundary = limited[2].sentAt
+            val before = bo.messages(ListMessagesOptions(sentBefore = boundary))
+            val after = bo.messages(ListMessagesOptions(sentAfter = boundary))
+            assertTrue(before.isNotEmpty())
+            assertTrue(after.isNotEmpty())
+            assertTrue(before.all { it.sentAt.ns < boundary.ns })
+            assertTrue(after.all { it.sentAt.ns > boundary.ns })
+            assertFalse(before.any { it.id == limited[2].id })
+            assertFalse(after.any { it.id == limited[2].id })
         }
 
-        val limitedMessages = runBlocking { boGroup.enrichedMessages(limit = 5) }
-        assertEquals(5, limitedMessages.size)
-
-        val beforeMessages =
-            runBlocking {
-                boGroup.enrichedMessages(beforeNs = limitedMessages[2].sentAtNs)
-            }
-        assertTrue(beforeMessages.all { it.sentAtNs < limitedMessages[2].sentAtNs })
-
-        val afterMessages =
-            runBlocking {
-                boGroup.enrichedMessages(afterNs = limitedMessages[2].sentAtNs)
-            }
-        assertTrue(afterMessages.all { it.sentAtNs > limitedMessages[2].sentAtNs })
-    }
-
-    @Test
-    fun testMessagesV2SortDirection() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
+    @Test fun testMessagesV2SortDirection() =
         runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
+            val (_, bo, _) = group()
+            for (body in listOf("First message", "Second message", "Third message")) {
+                bo.sendText(body)
+                delay(100)
+            }
+            val descending = bo.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING))
+            val ascending = bo.messages(ListMessagesOptions(direction = MessageOrder.ASCENDING))
+            assertEquals(listOf("Third message", "Second message", "First message"), descending.take(3).map(::text))
+            assertTrue(descending.last().data.content is MessageContent.GroupUpdated)
+            assertTrue(ascending.first().data.content is MessageContent.GroupUpdated)
+            assertEquals(listOf("First message", "Second message", "Third message"), ascending.drop(1).map(::text))
+            assertEquals(descending.map { it.id }.reversed(), ascending.map { it.id })
         }
 
+    @Test fun testMessagesV2DeliveryStatus() =
         runBlocking {
-            boGroup.send("First message")
-            Thread.sleep(100)
-            boGroup.send("Second message")
-            Thread.sleep(100)
-            boGroup.send("Third message")
+            val (_, bo, _) = group()
+            val publishedId = bo.sendText("Published message")
+            val unpublishedId = bo.prepareMessage(encodeText("Unpublished message"))
+            assertEquals(3, bo.messages().size)
+            val published = bo.messages(ListMessagesOptions(deliveryStatus = DeliveryStatus.PUBLISHED))
+            assertEquals(2, published.size)
+            assertEquals("Published message", text(published.single { it.id == publishedId }))
+            assertFalse(published.any { it.id == unpublishedId })
+            val unpublished = bo.messages(ListMessagesOptions(deliveryStatus = DeliveryStatus.UNPUBLISHED))
+            assertEquals(unpublishedId, unpublished.single().id)
+            assertEquals("Unpublished message", text(unpublished.single()))
         }
 
-        val descendingMessages =
-            runBlocking {
-                boGroup.enrichedMessages(direction = DecodedMessage.SortDirection.DESCENDING)
-            }
-        // Skip GroupUpdated message, check text messages
-        assertEquals("Third message", descendingMessages[0].content<String>())
-        assertEquals("Second message", descendingMessages[1].content<String>())
-        assertEquals("First message", descendingMessages[2].content<String>())
-
-        val ascendingMessages =
-            runBlocking {
-                boGroup.enrichedMessages(direction = DecodedMessage.SortDirection.ASCENDING)
-            }
-        // First message is GroupUpdated, then text messages
-        assertNotNull(ascendingMessages[0].content<Any>()) // GroupUpdated
-        assertEquals("First message", ascendingMessages[1].content<String>())
-        assertEquals("Second message", ascendingMessages[2].content<String>())
-        assertEquals("Third message", ascendingMessages[3].content<String>())
-    }
-
-    @Test
-    fun testMessagesV2DeliveryStatus() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
+    @Test fun testMessagesV2CustomContentTypes() =
         runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
+            val codec = NumberCodec()
+            val alix = createClient(createWallet(), codecs = listOf(codec))
+            val bo = createClient(createWallet(), codecs = listOf(codec))
+            val group = alix.conversations().createGroup(listOf(bo.inboxId()))
+            val id = group.send(codec, 3.14)
+            val message = group.messages().single { it.id == id }
+            assertEquals(3.14, (message.content as SDKMessageContent.Custom).value)
+            assertEquals(codec.type, message.contentType)
+            assertNull((message.content as SDKMessageContent.Custom).error)
         }
 
+    @Test fun testMessagesV2IncludeReactions() =
         runBlocking {
-            boGroup.send("Published message")
-            boGroup.prepareMessage("Unpublished message")
-        }
-
-        val allMessages =
-            runBlocking {
-                boGroup.enrichedMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL)
-            }
-        // 2 user messages + 1 GroupUpdated message
-        assertEquals(3, allMessages.size)
-
-        val publishedMessages =
-            runBlocking {
-                boGroup.enrichedMessages(
-                    deliveryStatus = DecodedMessage.MessageDeliveryStatus.PUBLISHED,
-                )
-            }
-        // 1 published user message + 1 GroupUpdated message
-        assertEquals(2, publishedMessages.size)
-        assertEquals("Published message", publishedMessages[0].content<String>())
-
-        val unpublishedMessages =
-            runBlocking {
-                boGroup.enrichedMessages(
-                    deliveryStatus = DecodedMessage.MessageDeliveryStatus.UNPUBLISHED,
-                )
-            }
-        assertEquals(1, unpublishedMessages.size)
-        assertEquals("Unpublished message", unpublishedMessages[0].content<String>())
-    }
-
-    @Test
-    fun testMessagesV2CustomContentTypes() =
-        runBlocking {
-            val group = alixClient.conversations.newGroup(listOf(boClient.inboxId))
-
-            Client.register(codec = NumberCodec())
-
-            val myNumber = 3.14
-
-            group.send(
-                content = myNumber,
-                options = SendOptions(contentType = NumberCodec().contentType),
+            val (fixtures, bo, alix) = group()
+            val id = bo.sendText("Hello with reactions")
+            alix.sync()
+            alix.sendReaction(
+                id,
+                fixtures.boClient.inboxId(),
+                Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE),
             )
-
-            val messages = group.enrichedMessages()
-            val content: Double? = messages[0].content<Double>()
-            assertEquals(myNumber, content)
-        }
-
-    @Test
-    fun testMessagesV2IncludeReactions() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
-        }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-
-        runBlocking {
-            val messageId = boGroup.send("Hello with reactions")
-            boGroup.sync()
-            alixGroup.sync()
-
-            alixGroup.send(
-                content =
-                    Reaction(
-                        reference = messageId,
-                        action = ReactionAction.Added,
-                        content = "👍",
-                        schema = ReactionSchema.Unicode,
-                    ),
-                options = SendOptions(contentType = ContentTypeReaction),
+            bo.sendReaction(
+                id,
+                fixtures.boClient.inboxId(),
+                Reaction("❤️", ReactionAction.ADDED, ReactionSchema.UNICODE),
             )
-
-            boGroup.send(
-                content =
-                    Reaction(
-                        reference = messageId,
-                        action = ReactionAction.Added,
-                        content = "❤️",
-                        schema = ReactionSchema.Unicode,
-                    ),
-                options = SendOptions(contentType = ContentTypeReaction),
+            bo.sync()
+            val parent = bo.messages().single { it.id == id }
+            assertEquals(2, parent.reactions.size)
+            assertEquals(setOf("❤️", "👍"), parent.reactions.map { it.reaction.content }.toSet())
+            assertEquals(
+                setOf(fixtures.alixClient.inboxId(), fixtures.boClient.inboxId()),
+                parent.reactions
+                    .map {
+                        it.senderInboxId
+                    }.toSet(),
             )
-            boGroup.sync()
-            alixGroup.sync()
         }
 
-        val messagesV2 = runBlocking { boGroup.enrichedMessages() }
-
-        val messageWithReactions =
-            messagesV2.find { it.content<String>() == "Hello with reactions" }
-        assertNotNull(messageWithReactions)
-        assertTrue(messageWithReactions!!.hasReactions)
-        assertEquals(2, messageWithReactions.reactionCount.toInt())
-        assertEquals(2, messageWithReactions.reactions.size)
-
-        val reactionContents =
-            messageWithReactions
-                .reactions
-                .mapNotNull { it.content<Reaction>()?.content }
-                .sorted()
-        assertEquals(listOf("❤️", "👍"), reactionContents)
-    }
-
-    @Test
-    fun testReactionCountAccuracy() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
+    @Test fun testReactionCountAccuracy() =
         runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
-        }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-
-        runBlocking {
-            val messageId = boGroup.send("Test reaction count")
-            boGroup.sync()
-            alixGroup.sync()
-
+            val (fixtures, bo, alix) = group()
+            val id = bo.sendText("Test reaction count")
+            alix.sync()
             for (i in 1..5) {
-                alixGroup.send(
-                    content =
-                        Reaction(
-                            reference = messageId,
-                            action = ReactionAction.Added,
-                            content = "emoji$i",
-                            schema = ReactionSchema.Unicode,
-                        ),
-                    options = SendOptions(contentType = ContentTypeReaction),
+                alix.sendReaction(
+                    id,
+                    fixtures.boClient.inboxId(),
+                    Reaction("emoji$i", ReactionAction.ADDED, ReactionSchema.UNICODE),
                 )
             }
-            boGroup.sync()
+            bo.sync()
+            val parent = bo.messages().single { it.id == id }
+            assertEquals(5, parent.reactions.size)
+            assertEquals((1..5).map { "emoji$it" }.toSet(), parent.reactions.map { it.reaction.content }.toSet())
         }
 
-        val messagesV2 = runBlocking { boGroup.enrichedMessages() }
-
-        val message = messagesV2.find { it.content<String>() == "Test reaction count" }
-        assertNotNull(message)
-        assertEquals(5, message!!.reactionCount.toInt())
-        assertEquals(5, message.reactions.size)
-    }
-
-    @Test
-    fun testLeaveRequestMessageIsDecodedProperly() =
+    @Test fun testLeaveRequestMessageIsDecodedProperly() =
         runBlocking {
-            val alixGroup = alixClient.conversations.newGroup(listOf(boClient.inboxId))
-
-            boClient.conversations.sync()
-            val boGroup = boClient.conversations.findGroup(alixGroup.id)
-            assertNotNull(boGroup)
-
-            // Bo leaves the group - this creates a LeaveRequest message
-            boGroup!!.leaveGroup()
-
-            // Alix syncs to receive the leave request
-            alixGroup.sync()
-
-            // Get enriched messages - this goes through DecodedMessageV2 which decodes LeaveRequest
-            val messages = alixGroup.enrichedMessages()
-
-            // Find the message from Bo (the leave request)
-            val boMessages = messages.filter { it.senderInboxId == boClient.inboxId }
-            assertTrue("Bo should have sent at least one message", boMessages.isNotEmpty())
-
-            // Find the leave request message
-            val leaveRequestMessage =
-                boMessages.find { msg ->
-                    msg.content<LeaveRequest>() != null
+            val (fixtures, bo, alix) = group()
+            alix.requestRemoval()
+            bo.sync()
+            val leave =
+                bo.messages().single {
+                    it.senderInboxId == fixtures.alixClient.inboxId() && it.data.content is MessageContent.LeaveRequest
                 }
-
-            assertNotNull("LeaveRequest message should be properly decoded", leaveRequestMessage)
-
-            val leaveRequest = leaveRequestMessage!!.content<LeaveRequest>()
-            assertNotNull(leaveRequest)
+            assertNotNull((leave.content as SDKMessageContent.Standard).value as MessageContent.LeaveRequest)
         }
 }

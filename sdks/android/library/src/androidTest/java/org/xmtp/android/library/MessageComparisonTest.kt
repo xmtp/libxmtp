@@ -1,337 +1,173 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.xmtp.android.library.codecs.ContentTypeReaction
-import org.xmtp.android.library.codecs.Reaction
-import org.xmtp.android.library.codecs.ReactionAction
-import org.xmtp.android.library.codecs.ReactionCodec
-import org.xmtp.android.library.codecs.ReactionSchema
-import org.xmtp.android.library.libxmtp.DecodedMessage
+import uniffi.xmtp_sdk.*
 
 @RunWith(AndroidJUnit4::class)
 class MessageComparisonTest : BaseInstrumentedTest() {
     private lateinit var fixtures: TestFixtures
-    private lateinit var alixClient: Client
-    private lateinit var boClient: Client
+    private lateinit var boGroup: Group
+    private lateinit var alixGroup: Group
+    private val options = ListMessagesOptions(limit = 100u, direction = MessageOrder.ASCENDING)
 
-    @Before
-    override fun setUp() {
+    @Before override fun setUp() {
         super.setUp()
-        fixtures = runBlocking { createFixtures() }
-        alixClient = fixtures.alixClient
-        boClient = fixtures.boClient
-
-        Client.register(codec = ReactionCodec())
+        runBlocking {
+            fixtures = createFixtures()
+            boGroup = fixtures.boClient.conversations().createGroup(listOf(fixtures.alixClient.inboxId()))
+            fixtures.alixClient.conversations().sync()
+            alixGroup =
+                fixtures.alixClient
+                    .conversations()
+                    .listGroups(null)
+                    .single()
+        }
     }
 
-    @Test
-    fun testV1VsV2MessageCount() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
-        }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
+    private suspend fun sync() {
+        boGroup.sync()
+        alixGroup.sync()
+    }
 
-        runBlocking {
-            boGroup.send("Message 1")
-            alixGroup.send("Message 2")
-            boGroup.send("Message 3")
+    private fun text(message: Message): String? =
+        ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text)?.v1
 
-            val messageId = boGroup.send("Message with reaction")
-            boGroup.sync()
-            alixGroup.sync()
+    private fun reaction(message: Message): MessageContent.Reaction? =
+        (message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Reaction
 
-            alixGroup.send(
-                content =
-                    Reaction(
-                        reference = messageId,
-                        action = ReactionAction.Added,
-                        content = "👍",
-                        schema = ReactionSchema.Unicode,
-                    ),
-                options = SendOptions(contentType = ContentTypeReaction),
+    private suspend fun replay(count: Int): List<Message> {
+        val reader =
+            boGroup.messageReader(
+                ConversationMessageReaderOptions(
+                    from = fixtures.boClient.conversations().beginningDeliveryCursor(),
+                ),
             )
-            boGroup.sync()
+        return try {
+            withTimeout(10_000) { List(count) { checkNotNull(reader.next()) } }
+        } finally {
+            withContext(NonCancellable) { reader.end() }
         }
-
-        val messagesV1 = runBlocking { boGroup.messages() }
-
-        val messagesV2 = runBlocking { boGroup.enrichedMessages() }
-
-        // V1 also includes system messages now, so filter for text messages only
-        val v1NonReactionMessages =
-            messagesV1.filter { msg ->
-                // Check if it's a reaction first
-                val reaction =
-                    try {
-                        msg.content<Reaction>()
-                    } catch (e: Exception) {
-                        null
-                    }
-
-                if (reaction != null) {
-                    false // It's a reaction, exclude it
-                } else {
-                    // Check if it's text
-                    val text =
-                        try {
-                            msg.content<String>()
-                        } catch (e: Exception) {
-                            null
-                        }
-                    text != null // Include if it's text
-                }
-            }
-
-        // V2 also includes system messages and reactions as separate messages
-        // Filter for text messages only (excluding both reactions and system messages)
-        val v2NonReactionMessages =
-            messagesV2.filter { msg ->
-                // Check if it's a reaction first
-                val reaction =
-                    try {
-                        msg.content<Reaction>()
-                    } catch (e: Exception) {
-                        null
-                    }
-
-                if (reaction != null) {
-                    false // It's a reaction, exclude it
-                } else {
-                    // Check if it's text
-                    val text =
-                        try {
-                            msg.content<String>()
-                        } catch (e: Exception) {
-                            null
-                        }
-                    text != null // Include if it's text
-                }
-            }
-
-        // Both should have the same number of text messages
-        // If v1 is 0, it means messages() is not returning text messages correctly
-        // or all messages are being filtered out
-        assertTrue("V1 should have text messages", v1NonReactionMessages.isNotEmpty())
-        assertTrue("V2 should have text messages", v2NonReactionMessages.isNotEmpty())
-        // Allow for slight differences in how V1 and V2 handle system messages
-        // They should have approximately the same number of text messages (±1)
-        assertTrue(
-            "V1 and V2 should have similar number of text messages",
-            kotlin.math.abs(v1NonReactionMessages.size - v2NonReactionMessages.size) <= 1,
-        )
     }
 
-    @Test
-    fun testV1VsV2ContentEquality() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
+    private fun compare(
+        stored: List<Message>,
+        streamed: List<Message>,
+    ) {
+        assertEquals(stored.map { it.id }, streamed.map { it.id })
+        for ((first, second) in stored.zip(streamed)) {
+            assertEquals(first.senderInboxId, second.senderInboxId)
+            assertEquals(first.conversationId, second.conversationId)
+            assertEquals(first.sentAt, second.sentAt)
+            assertEquals(first.kind, second.kind)
+            assertEquals(first.data.content, second.data.content)
+            assertEquals(first.reactions, second.reactions)
+            assertArrayEquals(first.rawBytes, second.rawBytes)
         }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
+    }
 
-        val testMessages =
-            listOf(
-                "First message",
-                "Second message",
-                "Third message with emoji 🎉",
-                "Fourth message with special chars !@#$%",
+    @Test fun testV1VsV2MessageCount() =
+        runBlocking {
+            boGroup.sendText("Message 1")
+            alixGroup.sendText("Message 2")
+            boGroup.sendText("Message 3")
+            val parent = boGroup.sendText("Message with reaction")
+            sync()
+            alixGroup.sendReaction(
+                parent,
+                fixtures.boClient.inboxId(),
+                Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE),
             )
+            sync()
+            val stored = boGroup.messages(options)
+            val streamed = replay(stored.size)
+            assertEquals(4, stored.count { text(it) != null })
+            assertEquals(4, streamed.count { text(it) != null })
+            assertEquals(1, stored.count { reaction(it) != null })
+            compare(stored, streamed)
+        }
 
+    @Test fun testV1VsV2ContentEquality() =
         runBlocking {
-            for (message in testMessages) {
-                boGroup.send(message)
-            }
-            alixGroup.sync()
+            val expected =
+                listOf(
+                    "First message",
+                    "Second message",
+                    "Third message with emoji 🎉",
+                    "Fourth message with special chars !@#$%",
+                )
+            expected.forEach { boGroup.sendText(it) }
+            sync()
+            val stored = boGroup.messages(options)
+            val streamed = replay(stored.size)
+            val peer = alixGroup.messages(options)
+            assertEquals(expected, stored.mapNotNull(::text))
+            assertEquals(expected, streamed.mapNotNull(::text))
+            assertEquals(expected, peer.mapNotNull(::text))
+            compare(stored, streamed)
+            compare(stored, peer)
         }
 
-        val messagesV1 =
-            runBlocking {
-                boGroup.messages(direction = DecodedMessage.SortDirection.ASCENDING)
-            }
-
-        val messagesV2 =
-            runBlocking {
-                boGroup.enrichedMessages(direction = DecodedMessage.SortDirection.ASCENDING)
-            }
-
-        // V2 includes GroupUpdated message at the beginning, filter to text messages only
-        val v2TextMessages =
-            messagesV2.filter {
-                try {
-                    it.content<String>() != null
-                } catch (e: Exception) {
-                    false
-                }
-            }
-
-        assertEquals(messagesV1.size, v2TextMessages.size)
-
-        // Filter V1 messages to only text messages (not reactions or system messages)
-        val v1TextMessages =
-            messagesV1.filter {
-                try {
-                    val text = it.content<String>()
-                    val reaction = it.content<Reaction>()
-                    text != null && reaction == null
-                } catch (e: Exception) {
-                    false
-                }
-            }
-
-        for (i in v1TextMessages.indices) {
-            val v1Content =
-                try {
-                    v1TextMessages[i].content<String>()
-                } catch (e: Exception) {
-                    fail("Failed to get content from v1 message at index $i: ${e.message}")
-                    null
-                }
-            val v2Content =
-                try {
-                    v2TextMessages[i].content<String>()
-                } catch (e: Exception) {
-                    fail("Failed to get content from v2 message at index $i: ${e.message}")
-                    null
-                }
-            assertEquals(v1Content, v2Content)
-            assertEquals(v1TextMessages[i].id, v2TextMessages[i].id)
-            assertEquals(v1TextMessages[i].senderInboxId, v2TextMessages[i].senderInboxId)
-        }
-    }
-
-    @Test
-    fun testPerformanceComparison() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
-        }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-
+    @Test fun testPerformanceComparison() =
         runBlocking {
             for (i in 1..20) {
-                boGroup.send("Message $i")
+                val parent = boGroup.sendText("Message $i")
                 if (i % 5 == 0) {
-                    val messageId = boGroup.messages(limit = 1).first().id
-                    alixGroup.send(
-                        content =
-                            Reaction(
-                                reference = messageId,
-                                action = ReactionAction.Added,
-                                content = "👍",
-                                schema = ReactionSchema.Unicode,
-                            ),
-                        options = SendOptions(contentType = ContentTypeReaction),
+                    sync()
+                    alixGroup.sendReaction(
+                        parent,
+                        fixtures.boClient.inboxId(),
+                        Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE),
                     )
                 }
             }
-            boGroup.sync()
-            alixGroup.sync()
+            sync()
+            val historyStart = System.nanoTime()
+            val stored = boGroup.messages(options)
+            val historyNs = System.nanoTime() - historyStart
+            val replayStart = System.nanoTime()
+            val streamed = replay(stored.size)
+            val replayNs = System.nanoTime() - replayStart
+            println("Stored history: $historyNs ns; reader replay: $replayNs ns; ${stored.size} messages")
+            assertEquals(20, stored.count { text(it) != null })
+            assertEquals(4, stored.count { it.reactions.isNotEmpty() })
+            compare(stored, streamed)
         }
 
-        val v1StartTime = System.currentTimeMillis()
-        val messagesV1 = runBlocking { boGroup.messages() }
-        val v1EndTime = System.currentTimeMillis()
-        val v1Duration = v1EndTime - v1StartTime
-
-        val v2StartTime = System.currentTimeMillis()
-        val messagesV2 = runBlocking { boGroup.enrichedMessages() }
-        val v2EndTime = System.currentTimeMillis()
-        val v2Duration = v2EndTime - v2StartTime
-
-        println("V1 fetch time: ${v1Duration}ms for ${messagesV1.size} messages")
-        println(
-            "V2 fetch time: ${v2Duration}ms for ${messagesV2.size} messages (excluding embedded reactions)",
-        )
-
-        val v2MessagesWithReactions = messagesV2.filter { it.hasReactions }
-        assertTrue(
-            "V2 should include messages with embedded reactions",
-            v2MessagesWithReactions.isNotEmpty(),
-        )
-    }
-
-    @Test
-    fun testV2ReactionsAreEmbedded() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
+    @Test fun testV2ReactionsAreEmbedded() =
         runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
-        }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-
-        runBlocking {
-            val messageId = boGroup.send("Message for reactions")
-            boGroup.sync()
-            alixGroup.sync()
-
-            alixGroup.send(
-                content =
-                    Reaction(
-                        reference = messageId,
-                        action = ReactionAction.Added,
-                        content = "👍",
-                        schema = ReactionSchema.Unicode,
-                    ),
-                options = SendOptions(contentType = ContentTypeReaction),
+            val parent = boGroup.sendText("Message for reactions")
+            sync()
+            alixGroup.sendReaction(
+                parent,
+                fixtures.boClient.inboxId(),
+                Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE),
             )
-
-            boGroup.send(
-                content =
-                    Reaction(
-                        reference = messageId,
-                        action = ReactionAction.Added,
-                        content = "❤️",
-                        schema = ReactionSchema.Unicode,
-                    ),
-                options = SendOptions(contentType = ContentTypeReaction),
+            boGroup.sendReaction(
+                parent,
+                fixtures.boClient.inboxId(),
+                Reaction("❤️", ReactionAction.ADDED, ReactionSchema.UNICODE),
             )
-            boGroup.sync()
-            alixGroup.sync()
+            sync()
+            val stored = boGroup.messages(options)
+            val streamed = replay(stored.size)
+            assertEquals(2, stored.count { reaction(it) != null })
+            assertEquals(
+                setOf("👍", "❤️"),
+                stored
+                    .single { it.id == parent }
+                    .reactions
+                    .map { it.reaction.content }
+                    .toSet(),
+            )
+            assertEquals(2, streamed.single { it.id == parent }.reactions.size)
+            compare(stored, streamed)
         }
-
-        val messagesV1 = runBlocking { boGroup.messages() }
-
-        val messagesV2 = runBlocking { boGroup.enrichedMessages() }
-
-        // V1 messages include reactions as separate messages
-        // Skip this assertion as messages() may include system messages
-        val v1ReactionMessages = messagesV1.filter { it.content<Reaction>() != null }
-        // Just verify we have some reaction messages
-        assertTrue("V1 should have reaction messages", v1ReactionMessages.isNotEmpty())
-
-        val v2MessageWithReactions =
-            messagesV2.find {
-                try {
-                    it.content<String>() == "Message for reactions"
-                } catch (e: Exception) {
-                    false
-                }
-            }
-        assertEquals(2, v2MessageWithReactions?.reactions?.size)
-        assertTrue(v2MessageWithReactions?.hasReactions ?: false)
-
-        val v2StandaloneReactions =
-            messagesV2.filter {
-                try {
-                    it.content<Reaction>() != null
-                } catch (e: Exception) {
-                    false
-                }
-            }
-        // Note: messagesV2 currently returns reactions as separate messages
-        // This might change in the future to embed them in the messages they react to
-        // For now, we expect the same number of reaction messages as V1
-        assertEquals(2, v2StandaloneReactions.size)
-    }
 }

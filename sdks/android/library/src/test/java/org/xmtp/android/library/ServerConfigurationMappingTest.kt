@@ -2,27 +2,21 @@ package org.xmtp.android.library
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertThrows
 import org.junit.Test
-import uniffi.xmtpv3.FfiAuthConfiguration
-import uniffi.xmtpv3.FfiLimitsConfiguration
-import uniffi.xmtpv3.FfiMlsConfiguration
-import uniffi.xmtpv3.FfiRetentionConfiguration
-import uniffi.xmtpv3.FfiServerConfiguration
-import uniffi.xmtpv3.FfiSigningKeyDescription
+import uniffi.xmtp_sdk.AuthConfiguration
+import uniffi.xmtp_sdk.LimitsConfiguration
+import uniffi.xmtp_sdk.MlsConfiguration
+import uniffi.xmtp_sdk.RetentionConfiguration
+import uniffi.xmtp_sdk.ServerConfiguration
+import uniffi.xmtp_sdk.SigningKeyDescription
 
-/**
- * Spec 006 §7 maps every published `uint64` to [Long] and every `uint32` to
- * [UInt]. This pins the mapping field by field, with a distinct value per field
- * so a crossed wire fails, and pins the failure mode of a value that does not
- * fit: an explicit [XMTPException], never a silent wrap to a negative number.
- */
+/** The generated SDK keeps unsigned wire values without a signed conversion. */
 class ServerConfigurationMappingTest {
     private fun ffiLimits(
         maxEnvelopeBytes: ULong = 1uL,
         maxUpdateFramesPerSecond: UInt = 17u,
-    ): FfiLimitsConfiguration =
-        FfiLimitsConfiguration(
+    ): LimitsConfiguration =
+        LimitsConfiguration(
             maxEnvelopeBytes = maxEnvelopeBytes,
             maxRequestBytes = 2uL,
             maxResponseBytes = 3uL,
@@ -46,28 +40,28 @@ class ServerConfigurationMappingTest {
         )
 
     private fun ffiConfiguration(
-        limits: FfiLimitsConfiguration = ffiLimits(),
-        mls: FfiMlsConfiguration =
-            FfiMlsConfiguration(
+        limits: LimitsConfiguration = ffiLimits(),
+        mls: MlsConfiguration =
+            MlsConfiguration(
                 maxGroupMembers = 250uL,
                 maxInstallationsPerInbox = 10uL,
                 commitLogEnabled = false,
             ),
-    ): FfiServerConfiguration =
-        FfiServerConfiguration(
+    ): ServerConfiguration =
+        ServerConfiguration(
             identifier = "org.xmtp.test",
             serverVersion = "1.2.3",
             minLibxmtpVersion = "1.0.0",
             auth =
-                FfiAuthConfiguration(
+                AuthConfiguration(
                     enabled = true,
-                    keys = listOf(FfiSigningKeyDescription(kid = "key-1", alg = "ES256")),
+                    keys = listOf(SigningKeyDescription(kid = "key-1", alg = "ES256")),
                     audiences = listOf("audience"),
                     issuers = listOf("issuer"),
                     requiredScopes = listOf("scope"),
                 ),
             retention =
-                FfiRetentionConfiguration(
+                RetentionConfiguration(
                     groupMessageSeconds = 100uL,
                     welcomeSeconds = 200uL,
                     keyPackageSeconds = 300uL,
@@ -75,11 +69,13 @@ class ServerConfigurationMappingTest {
             limits = limits,
             mls = mls,
             smartContractWalletChains = listOf("eip155:1", "eip155:31337"),
+            attachments = null,
+            applicationComponents = emptyList(),
         )
 
     @Test
     fun fromFfi_mapsEveryField() {
-        val configuration = ServerConfiguration.fromFfi(ffiConfiguration())
+        val configuration = ffiConfiguration()
 
         assertEquals("org.xmtp.test", configuration.identifier)
         assertEquals("1.2.3", configuration.serverVersion)
@@ -91,28 +87,28 @@ class ServerConfigurationMappingTest {
         assertEquals(listOf("issuer"), configuration.auth.issuers)
         assertEquals(listOf("scope"), configuration.auth.requiredScopes)
 
-        assertEquals(100L, configuration.retention.groupMessageSeconds)
-        assertEquals(200L, configuration.retention.welcomeSeconds)
-        assertEquals(300L, configuration.retention.keyPackageSeconds)
+        assertEquals(100uL, configuration.retention.groupMessageSeconds)
+        assertEquals(200uL, configuration.retention.welcomeSeconds)
+        assertEquals(300uL, configuration.retention.keyPackageSeconds)
 
         assertEquals(
             LimitsConfiguration(
-                maxEnvelopeBytes = 1L,
-                maxRequestBytes = 2L,
-                maxResponseBytes = 3L,
-                maxPublishTopics = 4L,
-                maxQueryTopics = 5L,
-                maxQueryLimit = 6L,
-                defaultQueryLimit = 7L,
-                maxNewestMetadataTopics = 8L,
-                maxNewestFullTopics = 9L,
-                maxUpdateAdds = 10L,
-                maxUpdateRemoves = 11L,
-                maxStreamTopics = 12L,
-                maxStaticTopics = 13L,
-                maxLookupIdentifiers = 14L,
-                maxScwSignatures = 15L,
-                maxIdentityEntries = 16L,
+                maxEnvelopeBytes = 1uL,
+                maxRequestBytes = 2uL,
+                maxResponseBytes = 3uL,
+                maxPublishTopics = 4uL,
+                maxQueryTopics = 5uL,
+                maxQueryLimit = 6uL,
+                defaultQueryLimit = 7uL,
+                maxNewestMetadataTopics = 8uL,
+                maxNewestFullTopics = 9uL,
+                maxUpdateAdds = 10uL,
+                maxUpdateRemoves = 11uL,
+                maxStreamTopics = 12uL,
+                maxStaticTopics = 13uL,
+                maxLookupIdentifiers = 14uL,
+                maxScwSignatures = 15uL,
+                maxIdentityEntries = 16uL,
                 maxUpdateFramesPerSecond = 17u,
                 maxUpdateBurst = 18u,
                 maxPingFramesPerSecond = 19u,
@@ -121,8 +117,8 @@ class ServerConfigurationMappingTest {
             configuration.limits,
         )
 
-        assertEquals(250L, configuration.mls.maxGroupMembers)
-        assertEquals(10L, configuration.mls.maxInstallationsPerInbox)
+        assertEquals(250uL, configuration.mls.maxGroupMembers)
+        assertEquals(10uL, configuration.mls.maxInstallationsPerInbox)
         assertEquals(false, configuration.mls.commitLogEnabled)
 
         assertEquals(listOf("eip155:1", "eip155:31337"), configuration.smartContractWalletChains)
@@ -131,15 +127,13 @@ class ServerConfigurationMappingTest {
     @Test
     fun fromFfi_keepsAbsentCommitLogFlagDistinctFromFalse() {
         val configuration =
-            ServerConfiguration.fromFfi(
-                ffiConfiguration(
-                    mls =
-                        FfiMlsConfiguration(
-                            maxGroupMembers = 250uL,
-                            maxInstallationsPerInbox = 10uL,
-                            commitLogEnabled = null,
-                        ),
-                ),
+            ffiConfiguration(
+                mls =
+                    MlsConfiguration(
+                        maxGroupMembers = 250uL,
+                        maxInstallationsPerInbox = 10uL,
+                        commitLogEnabled = null,
+                    ),
             )
 
         assertNull(configuration.mls.commitLogEnabled)
@@ -155,23 +149,15 @@ class ServerConfigurationMappingTest {
         val fast = Int.MAX_VALUE.toUInt() + 1u
 
         val configuration =
-            ServerConfiguration.fromFfi(ffiConfiguration(limits = ffiLimits(maxUpdateFramesPerSecond = fast)))
+            ffiConfiguration(limits = ffiLimits(maxUpdateFramesPerSecond = fast))
 
         assertEquals(fast, configuration.limits.maxUpdateFramesPerSecond)
     }
 
     @Test
-    fun fromFfi_rejectsAValueThatDoesNotFitInALong() {
+    fun keepsAValueThatDoesNotFitInALong() {
         val tooLarge = Long.MAX_VALUE.toULong() + 1uL
-
-        val error =
-            assertThrows(XMTPException::class.java) {
-                ServerConfiguration.fromFfi(ffiConfiguration(limits = ffiLimits(maxEnvelopeBytes = tooLarge)))
-            }
-
-        assertEquals(
-            "Server configuration limits.maxEnvelopeBytes is $tooLarge, which does not fit in a Long",
-            error.message,
-        )
+        val configuration = ffiConfiguration(limits = ffiLimits(maxEnvelopeBytes = tooLarge))
+        assertEquals(tooLarge, configuration.limits.maxEnvelopeBytes)
     }
 }

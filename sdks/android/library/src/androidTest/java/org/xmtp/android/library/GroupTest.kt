@@ -1,793 +1,449 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
+import kotlinx.coroutines.flow.collect
+import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.xmtp.android.library.Conversations.ConversationFilterType
-import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
-import org.xmtp.android.library.codecs.ContentTypeReaction
-import org.xmtp.android.library.codecs.GroupUpdatedCodec
-import org.xmtp.android.library.codecs.Reaction
-import org.xmtp.android.library.codecs.ReactionAction
-import org.xmtp.android.library.codecs.ReactionCodec
-import org.xmtp.android.library.codecs.ReactionSchema
-import org.xmtp.android.library.libxmtp.DecodedMessage
-import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
-import org.xmtp.android.library.libxmtp.DecodedMessage.SortBy
-import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
-import org.xmtp.android.library.libxmtp.GroupMembershipState
-import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
-import org.xmtp.android.library.libxmtp.IdentityKind
-import org.xmtp.android.library.libxmtp.PermissionOption
-import org.xmtp.android.library.libxmtp.PublicIdentity
-import org.xmtp.android.library.messages.PrivateKey
-import org.xmtp.android.library.messages.PrivateKeyBuilder
-import org.xmtp.android.library.messages.walletAddress
-import org.xmtp.proto.mls.message.contents.TranscriptMessages
-import uniffi.xmtpv3.FfiConversationMessageKind
-import uniffi.xmtpv3.FfiException
+import uniffi.xmtp_sdk.*
 
-@RunWith(AndroidJUnit4::class)
 class GroupTest : BaseInstrumentedTest() {
     private lateinit var fixtures: TestFixtures
-    private lateinit var alixClient: Client
-    private lateinit var boClient: Client
-    private lateinit var caroClient: Client
+    private val alix get() = fixtures.alixClient
+    private val bo get() = fixtures.boClient
+    private val caro get() = fixtures.caroClient
 
-    @Before
-    override fun setUp() {
+    @Before override fun setUp() {
         super.setUp()
         fixtures = runBlocking { createFixtures() }
-        alixClient = fixtures.alixClient
-        boClient = fixtures.boClient
-        caroClient = fixtures.caroClient
     }
 
-    @Test
-    fun testCanCreateAGroupWithDefaultPermissions() {
-        val boGroup =
-            runBlocking {
-                fixtures.boClient.conversations.newGroup(listOf(fixtures.alixClient.inboxId))
-            }
-        runBlocking {
-            fixtures.alixClient.conversations.sync()
-            boGroup.sync()
+    private suspend fun group(
+        members: List<InboxId> = listOf(alix.inboxId()),
+        options: CreateGroupOptions? = null,
+    ) = bo.conversations().createGroup(members, options)
+
+    private suspend fun find(
+        client: SDKClient,
+        id: ConversationId,
+    ): Group = (checkNotNull(client.conversations().getById(id)) as Conversation.Group).group
+
+    private fun text(message: Message): String? =
+        ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text)?.v1
+
+    private suspend fun rejected(action: suspend () -> Unit) {
+        try {
+            action()
+            fail("The operation must fail")
+        } catch (_: XmtpException) {
         }
-        val alixGroup =
-            runBlocking {
-                fixtures.alixClient.conversations
-                    .listGroups()
-                    .first()
-            }
-        assert(boGroup.id.isNotEmpty())
-        assert(alixGroup.id.isNotEmpty())
-
-        runBlocking {
-            alixGroup.addMembers(listOf(fixtures.caroClient.inboxId))
-            boGroup.sync()
-        }
-        assertEquals(runBlocking { alixGroup.members().size }, 3)
-        assertEquals(runBlocking { boGroup.members().size }, 3)
-
-        // All members also defaults remove to admin only now.
-        assertThrows(XMTPException::class.java) {
-            runBlocking {
-                alixGroup.removeMembers(listOf(fixtures.caroClient.inboxId))
-                boGroup.sync()
-            }
-        }
-
-        assertEquals(runBlocking { alixGroup.members().size }, 3)
-        assertEquals(runBlocking { boGroup.members().size }, 3)
-
-        assertEquals(
-            runBlocking { boGroup.permissionPolicySet().addMemberPolicy },
-            PermissionOption.Allow,
-        )
-        assertEquals(
-            runBlocking { alixGroup.permissionPolicySet().addMemberPolicy },
-            PermissionOption.Allow,
-        )
-        assertEquals(runBlocking { boGroup.isSuperAdmin(boClient.inboxId) }, true)
-        assertEquals(runBlocking { boGroup.isSuperAdmin(alixClient.inboxId) }, false)
-        assertEquals(runBlocking { alixGroup.isSuperAdmin(boClient.inboxId) }, true)
-        assertEquals(runBlocking { alixGroup.isSuperAdmin(alixClient.inboxId) }, false)
-        // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
-//       assert(boGroup.isCreator())
-        assert(!runBlocking { alixGroup.isCreator() })
     }
 
-    @Test
-    fun testCanCreateAGroupWithAdminPermissions() {
-        val boGroup =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(alixClient.inboxId),
-                    permissions = GroupPermissionPreconfiguration.ADMIN_ONLY,
-                )
-            }
-        runBlocking { alixClient.conversations.sync() }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-        assert(boGroup.id.isNotEmpty())
-        assert(alixGroup.id.isNotEmpty())
+    private suspend fun defaultPermissions(group: Group) {
+        alix.conversations().sync()
+        val peer = find(alix, group.id())
+        assertTrue(group.id().isNotEmpty())
+        assertTrue(peer.id().isNotEmpty())
+        peer.addMembers(listOf(caro.inboxId()))
+        group.sync()
+        assertEquals(3, peer.members().size)
+        assertEquals(3, group.members().size)
+        rejected { peer.removeMembers(listOf(caro.inboxId())) }
+        group.sync()
+        assertEquals(3, peer.members().size)
+        assertEquals(3, group.members().size)
+        assertEquals(
+            PermissionPolicy.ALLOW,
+            group
+                .state()
+                .permissions.policySet.addMember,
+        )
+        assertEquals(
+            PermissionPolicy.ALLOW,
+            peer
+                .state()
+                .permissions.policySet.addMember,
+        )
+        assertTrue(group.isSuperAdmin(bo.inboxId()))
+        assertFalse(group.isSuperAdmin(alix.inboxId()))
+        assertTrue(peer.isSuperAdmin(bo.inboxId()))
+        assertFalse(peer.isSuperAdmin(alix.inboxId()))
+        assertTrue(group.isCreator())
+        assertFalse(peer.isCreator())
+    }
 
+    @Test fun testCanCreateAGroupWithDefaultPermissions() =
         runBlocking {
+            defaultPermissions(group())
+        }
+
+    @Test fun testCanCreateAGroupWithAdminPermissions() =
+        runBlocking {
+            val original = group(options = CreateGroupOptions(permissions = GroupPermissionMode.AdminOnly))
+            alix.conversations().sync()
+            val peer = find(alix, original.id())
+            assertTrue(original.id().isNotEmpty())
+            assertTrue(peer.id().isNotEmpty())
+            assertEquals(ConsentState.ALLOWED, bo.preferences().consentState(ConsentEntity.Conversation(original.id())))
+            assertEquals(ConsentState.UNKNOWN, alix.preferences().consentState(ConsentEntity.Conversation(peer.id())))
+            original.addMembers(listOf(caro.inboxId()))
+            peer.sync()
+            assertEquals(3, peer.members().size)
+            assertEquals(3, original.members().size)
+            rejected { peer.removeMembers(listOf(caro.inboxId())) }
+            original.sync()
+            assertEquals(3, peer.members().size)
+            assertEquals(3, original.members().size)
+            original.removeMembers(listOf(caro.inboxId()))
+            peer.sync()
+            assertEquals(2, peer.members().size)
+            assertEquals(2, original.members().size)
+            rejected { peer.addMembers(listOf(caro.inboxId())) }
+            original.sync()
+            assertEquals(2, peer.members().size)
+            assertEquals(2, original.members().size)
             assertEquals(
-                boClient.preferences.conversationState(boGroup.id),
-                ConsentState.ALLOWED,
+                PermissionPolicy.ADMIN,
+                original
+                    .state()
+                    .permissions.policySet.addMember,
             )
             assertEquals(
-                alixClient.preferences.conversationState(alixGroup.id),
-                ConsentState.UNKNOWN,
+                PermissionPolicy.ADMIN,
+                peer
+                    .state()
+                    .permissions.policySet.addMember,
             )
+            assertTrue(original.isSuperAdmin(bo.inboxId()))
+            assertFalse(original.isSuperAdmin(alix.inboxId()))
+            assertTrue(peer.isSuperAdmin(bo.inboxId()))
+            assertFalse(peer.isSuperAdmin(alix.inboxId()))
+            assertFalse(peer.isCreator())
         }
 
+    @Test fun testCanCreateAGroupWithInboxIdsDefaultPermissions() =
         runBlocking {
-            boGroup.addMembers(listOf(caroClient.inboxId))
-            alixGroup.sync()
+            defaultPermissions(bo.conversations().createGroup(listOf(fixtures.alix)))
         }
 
-        assertEquals(runBlocking { alixGroup.members().size }, 3)
-        assertEquals(runBlocking { boGroup.members().size }, 3)
-
-        assertThrows(XMTPException::class.java) {
-            runBlocking { alixGroup.removeMembers(listOf(caroClient.inboxId)) }
-        }
-        runBlocking { boGroup.sync() }
-
-        assertEquals(runBlocking { alixGroup.members().size }, 3)
-        assertEquals(runBlocking { boGroup.members().size }, 3)
+    @Test fun testCanListGroupMembers() =
         runBlocking {
-            boGroup.removeMembers(listOf(caroClient.inboxId))
-            alixGroup.sync()
+            val group = group(listOf(alix.inboxId(), caro.inboxId()))
+            assertEquals(
+                setOf(alix.inboxId(), bo.inboxId(), caro.inboxId()),
+                group.members().map { it.inboxId }.toSet(),
+            )
+            assertEquals(setOf(alix.inboxId(), caro.inboxId()), group.peerInboxIds().toSet())
         }
 
-        assertEquals(runBlocking { alixGroup.members().size }, 2)
-        assertEquals(runBlocking { boGroup.members().size }, 2)
-
-        assertThrows(XMTPException::class.java) {
-            runBlocking { alixGroup.addMembers(listOf(caroClient.inboxId)) }
-        }
-        runBlocking { boGroup.sync() }
-
-        assertEquals(runBlocking { alixGroup.members().size }, 2)
-        assertEquals(runBlocking { boGroup.members().size }, 2)
-
-        assertEquals(
-            runBlocking { boGroup.permissionPolicySet().addMemberPolicy },
-            PermissionOption.Admin,
-        )
-        assertEquals(
-            runBlocking { alixGroup.permissionPolicySet().addMemberPolicy },
-            PermissionOption.Admin,
-        )
-        assertEquals(runBlocking { boGroup.isSuperAdmin(boClient.inboxId) }, true)
-        assertEquals(runBlocking { boGroup.isSuperAdmin(alixClient.inboxId) }, false)
-        assertEquals(runBlocking { alixGroup.isSuperAdmin(boClient.inboxId) }, true)
-        assertEquals(runBlocking { alixGroup.isSuperAdmin(alixClient.inboxId) }, false)
-        // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
-//       assert(boGroup.isCreator())
-        assert(!runBlocking { alixGroup.isCreator() })
-    }
-
-    @Test
-    fun testCanCreateAGroupWithInboxIdsDefaultPermissions() {
-        val boGroup =
-            runBlocking {
-                boClient.conversations.newGroupWithIdentities(
-                    listOf(
-                        PublicIdentity(
-                            IdentityKind.ETHEREUM,
-                            fixtures.alix.walletAddress,
-                        ),
-                    ),
-                )
-            }
+    @Test fun testGroupMetadata() =
         runBlocking {
-            alixClient.conversations.sync()
-            boGroup.sync()
-        }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-        assert(boGroup.id.isNotEmpty())
-        assert(alixGroup.id.isNotEmpty())
-
-        runBlocking {
-            alixGroup.addMembers(listOf(caroClient.inboxId))
-            boGroup.sync()
-        }
-        assertEquals(runBlocking { alixGroup.members().size }, 3)
-        assertEquals(runBlocking { boGroup.members().size }, 3)
-
-        // All members also defaults remove to admin only now.
-        assertThrows(XMTPException::class.java) {
-            runBlocking {
-                alixGroup.removeMembers(listOf(caroClient.inboxId))
-                boGroup.sync()
-            }
-        }
-
-        assertEquals(runBlocking { alixGroup.members().size }, 3)
-        assertEquals(runBlocking { boGroup.members().size }, 3)
-
-        assertEquals(
-            runBlocking { boGroup.permissionPolicySet().addMemberPolicy },
-            PermissionOption.Allow,
-        )
-        assertEquals(
-            runBlocking { alixGroup.permissionPolicySet().addMemberPolicy },
-            PermissionOption.Allow,
-        )
-        assertEquals(runBlocking { boGroup.isSuperAdmin(boClient.inboxId) }, true)
-        assertEquals(runBlocking { boGroup.isSuperAdmin(alixClient.inboxId) }, false)
-        assertEquals(runBlocking { alixGroup.isSuperAdmin(boClient.inboxId) }, true)
-        assertEquals(runBlocking { alixGroup.isSuperAdmin(alixClient.inboxId) }, false)
-        assert(!runBlocking { alixGroup.isCreator() })
-    }
-
-    @Test
-    fun testCanListGroupMembers() {
-        val group =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                        caroClient.inboxId,
-                    ),
-                )
-            }
-        assertEquals(
-            runBlocking { group.members().map { it.inboxId }.sorted() },
-            listOf(
-                caroClient.inboxId,
-                alixClient.inboxId,
-                boClient.inboxId,
-            ).sorted(),
-        )
-
-        assertEquals(
-            runBlocking { group.peerInboxIds().map { it }.sorted() },
-            listOf(
-                caroClient.inboxId,
-                alixClient.inboxId,
-            ).sorted(),
-        )
-    }
-
-    @Test
-    fun testGroupMetadata() =
-        runBlocking {
-            val boGroup =
-                boClient.conversations.newGroup(
-                    listOf(alixClient.inboxId),
-                    groupName = "Starting Name",
-                    groupImageUrlSquare = "startingurl.com",
-                )
-            assertEquals("Starting Name", boGroup.name())
-            assertEquals("startingurl.com", boGroup.imageUrl())
-            boGroup.updateName("This Is A Great Group")
-            boGroup.updateImageUrl("thisisanewurl.com")
-            boGroup.sync()
-
-            alixClient.conversations.sync()
-            val alixGroup = alixClient.conversations.listGroups().first()
-            alixGroup.sync()
-            assertEquals("This Is A Great Group", boGroup.name())
-            assertEquals("This Is A Great Group", alixGroup.name())
-            assertEquals("thisisanewurl.com", boGroup.imageUrl())
-            assertEquals("thisisanewurl.com", alixGroup.imageUrl())
-        }
-
-    @Test
-    fun testCanAddGroupMembers() {
-        val group = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        val result = runBlocking { group.addMembers(listOf(caroClient.inboxId)) }
-        assertEquals(caroClient.inboxId, result.addedMembers.first())
-        assertEquals(
-            runBlocking { group.members().map { it.inboxId }.sorted() },
-            listOf(
-                caroClient.inboxId,
-                alixClient.inboxId,
-                boClient.inboxId,
-            ).sorted(),
-        )
-    }
-
-    @Test
-    fun testCannotStartGroupOrAddMembersWithAddressWhenExpectingInboxId() {
-        assertThrows("Invalid inboxId", XMTPException::class.java) {
-            runBlocking { boClient.conversations.newGroup(listOf(fixtures.alix.walletAddress)) }
-        }
-        val group = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        assertThrows("Invalid inboxId", XMTPException::class.java) {
-            runBlocking { group.addMembers(listOf(fixtures.caro.walletAddress)) }
-        }
-        assertThrows("Invalid inboxId", XMTPException::class.java) {
-            runBlocking { group.removeMembers(listOf(fixtures.alix.walletAddress)) }
-        }
-    }
-
-    @Test
-    fun testCanRemoveGroupMembers() {
-        val group =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                        caroClient.inboxId,
-                    ),
-                )
-            }
-        runBlocking { group.removeMembers(listOf(caroClient.inboxId)) }
-        assertEquals(
-            runBlocking { group.members().map { it.inboxId }.sorted() },
-            listOf(
-                alixClient.inboxId,
-                boClient.inboxId,
-            ).sorted(),
-        )
-    }
-
-    @Test
-    fun testCanRemoveGroupMembersWhenNotCreator() {
-        val boGroup =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                        caroClient.inboxId,
-                    ),
-                )
-            }
-        runBlocking {
-            boGroup.addAdmin(alixClient.inboxId)
-            alixClient.conversations.sync()
-        }
-        val group =
-            runBlocking {
-                alixClient.conversations.sync()
-                alixClient.conversations.listGroups().first()
-            }
-        runBlocking {
-            group.removeMembers(listOf(caroClient.inboxId))
+            val group = group(options = CreateGroupOptions(name = "Starting Name", imageUrl = "startingurl.com"))
+            assertEquals("Starting Name", group.state().name)
+            assertEquals("startingurl.com", group.state().imageUrl)
+            group.updateName("This Is A Great Group")
+            group.updateImageUrl("thisisanewurl.com")
             group.sync()
-            boGroup.sync()
-        }
-        assertEquals(
-            runBlocking { boGroup.members().map { it.inboxId }.sorted() },
-            listOf(
-                alixClient.inboxId,
-                boClient.inboxId,
-            ).sorted(),
-        )
-    }
-
-    @Test
-    fun testCanAddGroupMemberIds() {
-        val group = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        val result =
-            runBlocking {
-                group.addMembersByIdentity(
-                    listOf(
-                        PublicIdentity(
-                            IdentityKind.ETHEREUM,
-                            fixtures.caro.walletAddress,
-                        ),
-                    ),
-                )
-            }
-        assertEquals(caroClient.inboxId, result.addedMembers.first())
-        assertEquals(
-            runBlocking { group.members().map { it.inboxId }.sorted() },
-            listOf(
-                caroClient.inboxId,
-                alixClient.inboxId,
-                boClient.inboxId,
-            ).sorted(),
-        )
-    }
-
-    @Test
-    fun testCanRemoveGroupMemberIds() {
-        val group =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                        caroClient.inboxId,
-                    ),
-                )
-            }
-        runBlocking {
-            group.removeMembersByIdentity(
-                listOf(
-                    PublicIdentity(
-                        IdentityKind.ETHEREUM,
-                        fixtures.caro.walletAddress,
-                    ),
-                ),
-            )
-        }
-        assertEquals(
-            runBlocking { group.members().map { it.inboxId }.sorted() },
-            listOf(
-                alixClient.inboxId,
-                boClient.inboxId,
-            ).sorted(),
-        )
-    }
-
-    @Test
-    fun testMessageTimeIsCorrect() {
-        val alixGroup = runBlocking { alixClient.conversations.newGroup(listOf(boClient.inboxId)) }
-        runBlocking { alixGroup.send("Hello") }
-        assertEquals(runBlocking { alixGroup.messages() }.size, 2)
-        runBlocking { alixGroup.sync() }
-        val message2 = runBlocking { alixGroup.messages().last() }
-        runBlocking { alixGroup.sync() }
-        val message3 = runBlocking { alixGroup.messages().last() }
-        assertEquals(message3.id, message2.id)
-        assertEquals(message3.sentAtNs, message2.sentAtNs)
-    }
-
-    @Test
-    fun testIsActiveReturnsCorrectly() {
-        val group =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                        caroClient.inboxId,
-                    ),
-                )
-            }
-        runBlocking { caroClient.conversations.sync() }
-        val caroGroup = runBlocking { caroClient.conversations.listGroups().first() }
-        runBlocking { caroGroup.sync() }
-        assert(runBlocking { caroGroup.isActive() })
-        assert(runBlocking { group.isActive() })
-        runBlocking {
-            group.removeMembers(listOf(caroClient.inboxId))
-            caroGroup.sync()
-        }
-        assert(runBlocking { group.isActive() })
-        assert(!runBlocking { caroGroup.isActive() })
-    }
-
-    @Test
-    fun testAddedByAddress() {
-        runBlocking {
-            alixClient.conversations.newGroup(
-                listOf(
-                    boClient.inboxId,
-                ),
-            )
-        }
-        runBlocking { boClient.conversations.sync() }
-        val boGroup = runBlocking { boClient.conversations.listGroups().first() }
-        assertEquals(runBlocking { boGroup.addedByInboxId() }, alixClient.inboxId)
-    }
-
-    @Test
-    fun testCanListGroups() {
-        runBlocking {
-            boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            boClient.conversations.newGroup(listOf(caroClient.inboxId))
-            boClient.conversations.sync()
-        }
-        val groups = runBlocking { boClient.conversations.listGroups() }
-        assertEquals(groups.size, 2)
-    }
-
-    @Test
-    fun testCanListGroupsAndConversations() {
-        runBlocking {
-            boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            boClient.conversations.newGroup(listOf(caroClient.inboxId))
-            boClient.conversations.newConversation(alixClient.inboxId)
-            boClient.conversations.sync()
-        }
-        val convos = runBlocking { boClient.conversations.list() }
-        assertEquals(convos.size, 3)
-    }
-
-    @Test
-    fun testCannotSendMessageToGroupMemberNotOnV3() {
-        val chuxAccount = PrivateKeyBuilder()
-        val chux: PrivateKey = chuxAccount.getPrivateKey()
-
-        assertThrows(FfiException::class.java) {
-            runBlocking {
-                boClient.conversations.newGroupWithIdentities(
-                    listOf(
-                        PublicIdentity(
-                            IdentityKind.ETHEREUM,
-                            chux.walletAddress,
-                        ),
-                    ),
-                )
+            alix.conversations().sync()
+            val peer = find(alix, group.id())
+            peer.sync()
+            for (value in listOf(group, peer)) {
+                assertEquals("This Is A Great Group", value.state().name)
+                assertEquals("thisisanewurl.com", value.state().imageUrl)
             }
         }
-    }
 
-    @Test
-    fun testCanStartEmptyGroupChat() {
-        val group = runBlocking { boClient.conversations.newGroup(listOf()) }
-        assert(group.id.isNotEmpty())
-    }
-
-    @Test
-    fun testGroupStartsWithAllowedState() {
+    @Test fun testCanAddGroupMembers() =
         runBlocking {
-            val group = boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            group.send("howdy")
-            group.send("gm")
-            group.sync()
-            assertEquals(group.consentState(), ConsentState.ALLOWED)
+            val group = group()
+            assertEquals(caro.inboxId(), group.addMembers(listOf(caro.inboxId())).added.single())
             assertEquals(
-                boClient.preferences.conversationState(group.id),
-                ConsentState.ALLOWED,
+                setOf(alix.inboxId(), bo.inboxId(), caro.inboxId()),
+                group.members().map { it.inboxId }.toSet(),
             )
         }
-    }
 
-    @Test
-    fun testCanStreamAndUpdateNameWithoutForkingGroup() =
+    @Test fun testCannotStartGroupOrAddMembersWithAddressWhenExpectingInboxId() =
+        runBlocking {
+            rejected { group(listOf(fixtures.alix.identifier)) }
+            val group = group()
+            rejected { group.addMembers(listOf(fixtures.caro.identifier)) }
+            rejected { group.removeMembers(listOf(fixtures.alix.identifier)) }
+            assertEquals(setOf(alix.inboxId(), bo.inboxId()), group.members().map { it.inboxId }.toSet())
+        }
+
+    @Test fun testCanRemoveGroupMembers() =
+        runBlocking {
+            val group = group(listOf(alix.inboxId(), caro.inboxId()))
+            group.removeMembers(listOf(caro.inboxId()))
+            assertEquals(setOf(alix.inboxId(), bo.inboxId()), group.members().map { it.inboxId }.toSet())
+        }
+
+    @Test fun testCanRemoveGroupMembersWhenNotCreator() =
+        runBlocking {
+            val group = group(listOf(alix.inboxId(), caro.inboxId()))
+            group.addAdmin(alix.inboxId())
+            alix.conversations().sync()
+            val peer = find(alix, group.id())
+            peer.removeMembers(listOf(caro.inboxId()))
+            peer.sync()
+            group.sync()
+            assertFalse(peer.isCreator())
+            assertEquals(setOf(alix.inboxId(), bo.inboxId()), group.members().map { it.inboxId }.toSet())
+        }
+
+    @Test fun testCanAddGroupMemberIds() =
+        runBlocking {
+            val group = group()
+            assertEquals(caro.inboxId(), group.addMembers(listOf(fixtures.caro)).added.single())
+            assertEquals(
+                setOf(alix.inboxId(), bo.inboxId(), caro.inboxId()),
+                group.members().map { it.inboxId }.toSet(),
+            )
+        }
+
+    @Test fun testCanRemoveGroupMemberIds() =
+        runBlocking {
+            val group = group(listOf(alix.inboxId(), caro.inboxId()))
+            group.removeMembers(listOf(fixtures.caro))
+            assertEquals(setOf(alix.inboxId(), bo.inboxId()), group.members().map { it.inboxId }.toSet())
+        }
+
+    @Test fun testMessageTimeIsCorrect() =
+        runBlocking {
+            val group = alix.conversations().createGroup(listOf(bo.inboxId()))
+            group.sendText("Hello")
+            assertEquals(2, group.messages().size)
+            group.sync()
+            val before = group.messages().last()
+            group.sync()
+            val after = group.messages().last()
+            assertEquals(before.id, after.id)
+            assertEquals(before.sentAt, after.sentAt)
+        }
+
+    @Test fun testIsActiveReturnsCorrectly() =
+        runBlocking {
+            val group = group(listOf(alix.inboxId(), caro.inboxId()))
+            caro.conversations().sync()
+            val peer = find(caro, group.id())
+            peer.sync()
+            assertTrue(peer.state().common.isActive)
+            assertTrue(group.state().common.isActive)
+            group.removeMembers(listOf(caro.inboxId()))
+            peer.sync()
+            assertTrue(group.state().common.isActive)
+            assertFalse(peer.state().common.isActive)
+        }
+
+    @Test fun testAddedByAddress() =
+        runBlocking {
+            val group = alix.conversations().createGroup(listOf(bo.inboxId()))
+            bo.conversations().sync()
+            assertEquals(alix.inboxId(), find(bo, group.id()).addedByInboxId())
+        }
+
+    @Test fun testCanListGroups() =
+        runBlocking {
+            group()
+            group(listOf(caro.inboxId()))
+            bo.conversations().sync()
+            assertEquals(2, bo.conversations().listGroups(null).size)
+        }
+
+    @Test fun testCanListGroupsAndConversations() =
+        runBlocking {
+            group()
+            group(listOf(caro.inboxId()))
+            bo.conversations().createDm(alix.inboxId())
+            bo.conversations().sync()
+            assertEquals(3, bo.conversations().list().size)
+        }
+
+    @Test fun testCannotSendMessageToGroupMemberNotOnV3() =
+        runBlocking {
+            val identity = createWallet().identity()
+            rejected { bo.conversations().createGroup(listOf(identity)) }
+            assertTrue(bo.conversations().listGroups(null).isEmpty())
+        }
+
+    @Test fun testCanStartEmptyGroupChat() =
+        runBlocking {
+            assertTrue(group(emptyList()).id().isNotEmpty())
+        }
+
+    @Test fun testGroupStartsWithAllowedState() =
+        runBlocking {
+            val group = group()
+            group.sendText("howdy")
+            group.sendText("gm")
+            group.sync()
+            assertEquals(ConsentState.ALLOWED, group.state().common.consentState)
+            assertEquals(ConsentState.ALLOWED, bo.preferences().consentState(ConsentEntity.Conversation(group.id())))
+        }
+
+    @Test fun testCanStreamAndUpdateNameWithoutForkingGroup() =
         runBlocking {
             val messages = StreamTestMessages()
-            val expected = mutableListOf<Pair<String, String>>()
-            val job =
-                launch(Dispatchers.IO) {
-                    boClient.conversations.streamAllMessages().collect { messages.add(it) }
-                }
+            val expected = mutableListOf<Pair<MessageId, String>>()
+            val job = launch(Dispatchers.IO) { bo.messages().collect { messages.add(it) } }
             try {
-                val alixGroup = alixClient.conversations.newGroup(listOf(boClient.inboxId))
-                expected.add(alixGroup.send("hello1") to "hello1")
+                val original = alix.conversations().createGroup(listOf(bo.inboxId()))
+                expected.add(original.sendText("hello1") to "hello1")
                 messages.awaitApplications(expected)
-                alixGroup.updateName("hello")
-                boClient.conversations.sync()
-                val boGroups = boClient.conversations.listGroups()
-                assertEquals(1, boGroups.size)
-                val boGroup = boGroups.single()
-                boGroup.sync()
-                assertEquals(3, boGroup.messages().size)
-                assertEquals("hello", boGroup.name())
-
-                expected.add(boGroup.send("hello2") to "hello2")
+                original.updateName("hello")
+                bo.conversations().sync()
+                val groups = bo.conversations().listGroups(null)
+                assertEquals(1, groups.size)
+                val peer = groups.single()
+                peer.sync()
+                assertEquals(3, peer.messages().size)
+                assertEquals("hello", peer.state().name)
+                expected.add(peer.sendText("hello2") to "hello2")
                 messages.awaitApplications(expected)
-                expected.add(boGroup.send("hello3") to "hello3")
+                expected.add(peer.sendText("hello3") to "hello3")
                 messages.awaitApplications(expected)
-                alixGroup.sync()
                 withTimeout(30_000) {
-                    while (alixGroup.messages().size < 5) {
+                    while (original.messages().size < 5) {
+                        original.sync()
                         delay(100)
-                        alixGroup.sync()
                     }
                 }
-                assertEquals(5, alixGroup.messages().size)
-
-                expected.add(alixGroup.send("hello4") to "hello4")
+                assertEquals(5, original.messages().size)
+                expected.add(original.sendText("hello4") to "hello4")
                 messages.awaitApplications(expected)
-                boGroup.sync()
-                val history = boGroup.messageHistorySnapshot(10U).messages
+                peer.sync()
+                val history = peer.messageHistorySnapshot(10u).messages
                 assertEquals(6, history.size)
-                assertEquals(2, history.count { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE })
+                assertEquals(2, history.count { it.kind == MessageKind.MEMBERSHIP_CHANGE })
                 messages.awaitHistory(history)
+                assertFalse(peer.debugInfo().maybeForked)
             } finally {
                 withContext(NonCancellable) { job.cancelAndJoin() }
             }
         }
 
-    @Test
-    fun testsCanListGroupsFiltered() {
-        runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        val group =
-            runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        assertEquals(runBlocking { boClient.conversations.listGroups().size }, 2)
-        assertEquals(
-            runBlocking { boClient.conversations.listGroups(consentStates = listOf(ConsentState.ALLOWED)).size },
-            2,
-        )
-        runBlocking { group.updateConsentState(ConsentState.DENIED) }
-        assertEquals(
-            runBlocking { boClient.conversations.listGroups(consentStates = listOf(ConsentState.ALLOWED)).size },
-            1,
-        )
-        assertEquals(
-            runBlocking { boClient.conversations.listGroups(consentStates = listOf(ConsentState.DENIED)).size },
-            1,
-        )
-        assertEquals(
-            runBlocking {
-                boClient.conversations
-                    .listGroups(
-                        consentStates =
-                            listOf(
-                                ConsentState.ALLOWED,
-                                ConsentState.DENIED,
-                            ),
-                    ).size
-            },
-            2,
-        )
-        assertEquals(runBlocking { boClient.conversations.listGroups().size }, 1)
-    }
-
-    @Test
-    fun testCanListGroupsOrder() {
-        val dm = runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        val group1 =
-            runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        val group2 =
-            runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        runBlocking { dm.send("Howdy") }
-        runBlocking { group2.send("Howdy") }
-        runBlocking { boClient.conversations.syncAllConversations() }
-        val conversations = runBlocking { boClient.conversations.listGroups() }
-        assertEquals(conversations.size, 2)
-        assertEquals(conversations.map { it.id }, listOf(group2.id, group1.id))
-    }
-
-    @Test
-    fun testCanSendMessageToGroup() {
-        val group = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        runBlocking { group.send("howdy") }
-        val messageId = runBlocking { group.send("gm") }
-        runBlocking { group.sync() }
-        assertEquals(runBlocking { group.messages() }.first().body, "gm")
-        assertEquals(runBlocking { group.messages() }.first().id, messageId)
-        assertEquals(
-            runBlocking { group.messages() }.first().deliveryStatus,
-            MessageDeliveryStatus.PUBLISHED,
-        )
-        assertEquals(runBlocking { group.messages() }.size, 3)
-
-        runBlocking { alixClient.conversations.sync() }
-        val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
-        runBlocking { sameGroup.sync() }
-        assertEquals(runBlocking { sameGroup.messages() }.size, 3)
-        assertEquals(runBlocking { sameGroup.messages() }.first().body, "gm")
-    }
-
-    @Test
-    fun testCanListGroupMessages() {
-        val group = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
+    @Test fun testsCanListGroupsFiltered() =
         runBlocking {
-            group.send("howdy")
-            group.send("gm")
+            bo.conversations().createDm(caro.inboxId())
+            group(listOf(caro.inboxId()))
+            val group = group(listOf(caro.inboxId()))
+
+            fun options(vararg states: ConsentState) = ListConversationsOptions(consentStates = states.toList())
+            assertEquals(2, bo.conversations().listGroups(null).size)
+            assertEquals(2, bo.conversations().listGroups(options(ConsentState.ALLOWED)).size)
+            group.updateConsentState(ConsentState.DENIED)
+            assertEquals(1, bo.conversations().listGroups(options(ConsentState.ALLOWED)).size)
+            assertEquals(1, bo.conversations().listGroups(options(ConsentState.DENIED)).size)
+            assertEquals(2, bo.conversations().listGroups(options(ConsentState.ALLOWED, ConsentState.DENIED)).size)
+            assertEquals(1, bo.conversations().listGroups(null).size)
         }
 
-        assertEquals(runBlocking { group.messages() }.size, 3)
-        assertEquals(
-            runBlocking { group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
-            3,
-        )
-        runBlocking { group.sync() }
-        assertEquals(runBlocking { group.messages() }.size, 3)
-        assertEquals(
-            runBlocking { group.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED) }.size,
-            0,
-        )
-        assertEquals(
-            runBlocking { group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
-            3,
-        )
-
-        runBlocking { alixClient.conversations.sync() }
-        val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
-        runBlocking { sameGroup.sync() }
-        assertEquals(
-            runBlocking { sameGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
-            3,
-        )
-    }
-
-    @Test
-    fun testCanListGroupMessagesAfter() {
-        val group = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        val messageId =
-            runBlocking {
-                group.send("howdy")
-                group.send("gm")
-            }
-        val message = runBlocking { boClient.conversations.findMessage(messageId) }
-        assertEquals(runBlocking { group.messages() }.size, 3)
-        assertEquals(runBlocking { group.messages(afterNs = message?.sentAtNs) }.size, 0)
+    @Test fun testCanListGroupsOrder() =
         runBlocking {
-            group.send("howdy")
-            group.send("gm")
+            val dm = bo.conversations().createDm(caro.inboxId())
+            val first = group(listOf(caro.inboxId()))
+            val second = group(listOf(caro.inboxId()))
+            dm.sendText("Howdy")
+            second.sendText("Howdy")
+            bo.conversations().syncAll(null)
+            assertEquals(listOf(second.id(), first.id()), bo.conversations().listGroups(null).map { it.id() })
         }
-        assertEquals(runBlocking { group.messages() }.size, 5)
-        assertEquals(runBlocking { group.messages(afterNs = message?.sentAtNs) }.size, 2)
 
-        runBlocking { alixClient.conversations.sync() }
-        val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
-        runBlocking { sameGroup.sync() }
-        assertEquals(runBlocking { sameGroup.messages() }.size, 5)
-        assertEquals(runBlocking { sameGroup.messages(afterNs = message?.sentAtNs) }.size, 2)
-    }
-
-    @Test
-    fun testCanSendContentTypesToGroup() {
-        Client.register(codec = ReactionCodec())
-
-        val group = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        runBlocking { group.send("gm") }
-        runBlocking { group.sync() }
-        val messageToReact = runBlocking { group.messages() }[0]
-
-        val reaction =
-            Reaction(
-                reference = messageToReact.id,
-                action = ReactionAction.Added,
-                content = "U+1F603",
-                schema = ReactionSchema.Unicode,
-            )
-
+    @Test fun testCanSendMessageToGroup() =
         runBlocking {
-            group.send(
-                content = reaction,
-                options = SendOptions(contentType = ContentTypeReaction),
-            )
+            val group = group()
+            group.sendText("howdy")
+            val id = group.sendText("gm")
+            group.sync()
+            assertEquals("gm", text(group.messages().first()))
+            assertEquals(id, group.messages().first().id)
+            assertEquals(DeliveryStatus.PUBLISHED, group.messages().first().deliveryStatus)
+            assertEquals(3, group.messages().size)
+            alix.conversations().sync()
+            val peer = find(alix, group.id())
+            peer.sync()
+            assertEquals(3, peer.messages().size)
+            assertEquals("gm", text(peer.messages().first()))
         }
-        runBlocking { group.sync() }
 
-        val messages = runBlocking { group.messages() }
-        assertEquals(messages.size, 3)
-        val content: Reaction? = messages.first().content()
-        assertEquals("U+1F603", content?.content)
-        assertEquals(messageToReact.id, content?.reference)
-        assertEquals(ReactionAction.Added, content?.action)
-        assertEquals(ReactionSchema.Unicode, content?.schema)
-    }
-
-    @Test
-    fun testCanStreamGroupMessages() =
+    @Test fun testCanListGroupMessages() =
         runBlocking {
-            Client.register(codec = GroupUpdatedCodec())
-            val membershipChange = TranscriptMessages.GroupUpdated.newBuilder().build()
+            val group = group()
+            group.sendText("howdy")
+            group.sendText("gm")
+            val published = ListMessagesOptions(deliveryStatus = DeliveryStatus.PUBLISHED)
+            assertEquals(3, group.messages().size)
+            assertEquals(3, group.messages(published).size)
+            group.sync()
+            assertEquals(3, group.messages().size)
+            assertEquals(0, group.messages(ListMessagesOptions(deliveryStatus = DeliveryStatus.UNPUBLISHED)).size)
+            assertEquals(3, group.messages(published).size)
+            alix.conversations().sync()
+            val peer = find(alix, group.id())
+            peer.sync()
+            assertEquals(3, peer.messages(published).size)
+        }
 
-            val group = boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            alixClient.conversations.sync()
-            val alixGroup = alixClient.conversations.listGroups().first()
-            val retained = group.messageHistorySnapshot(10U).messages
+    @Test fun testCanListGroupMessagesAfter() =
+        runBlocking {
+            val group = group()
+            group.sendText("howdy")
+            val boundary = group.sendText("gm")
+            val message = checkNotNull(bo.conversations().getMessageById(boundary))
+            val options = ListMessagesOptions(sentAfter = message.sentAt)
+            assertEquals(3, group.messages().size)
+            assertEquals(0, group.messages(options).size)
+            group.sendText("howdy")
+            group.sendText("gm")
+            assertEquals(5, group.messages().size)
+            assertEquals(2, group.messages(options).size)
+            alix.conversations().sync()
+            val peer = find(alix, group.id())
+            peer.sync()
+            assertEquals(5, peer.messages().size)
+            assertEquals(2, peer.messages(options).size)
+        }
+
+    @Test fun testCanSendContentTypesToGroup() =
+        runBlocking {
+            val group = group()
+            val parent = group.sendText("gm")
+            val reaction = Reaction("U+1F603", ReactionAction.ADDED, ReactionSchema.UNICODE)
+            val id = group.sendReaction(parent, bo.inboxId(), reaction)
+            group.sync()
+            val messages = group.messages()
+            assertEquals(3, messages.size)
+            val body = messages.single { it.id == id }.data.content as MessageContent.Reaction
+            assertEquals(parent, body.reference)
+            assertEquals(reaction, body.reaction)
+        }
+
+    @Test fun testCanStreamGroupMessages() =
+        runBlocking {
+            val group = group()
+            alix.conversations().sync()
+            val peer = find(alix, group.id())
+            val retained = group.messageHistorySnapshot(10u).messages
             assertEquals(1, retained.size)
-            assertEquals(FfiConversationMessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
+            assertEquals(MessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
             val messages = StreamTestMessages()
-            val job = launch(Dispatchers.IO) { group.streamMessages().collect { messages.add(it) } }
+            val job = launch(Dispatchers.IO) { bo.messages(group).collect { messages.add(it) } }
             try {
                 messages.awaitHistory(retained)
-                val firstId = alixGroup.send("hi")
-                messages.awaitApplications(listOf(firstId to "hi"))
-                val error =
-                    assertThrows(FfiException.Exception::class.java) {
-                        runBlocking {
-                            alixGroup.send(
-                                content = membershipChange,
-                                options = SendOptions(contentType = ContentTypeGroupUpdated),
-                            )
-                        }
-                    }
-                assertTrue(error.message.orEmpty().contains("GroupError::ReservedTranscriptContentType"))
-                val secondId = alixGroup.send("hi again")
-                messages.awaitApplications(listOf(firstId to "hi", secondId to "hi again"))
+                val first = peer.sendText("hi")
+                messages.awaitApplications(listOf(first to "hi"))
+                try {
+                    peer.send(EncodedContent(GroupUpdatedCodec().type, content = byteArrayOf()))
+                    fail("Applications cannot send reserved membership content")
+                } catch (error: XmtpException.InvalidInput) {
+                    assertEquals("ReservedTranscriptContentType", error.v1.code)
+                    assertEquals(ErrorCategory.INPUT, error.v1.category)
+                    assertFalse(error.v1.retryable)
+                }
+                val second = peer.sendText("hi again")
+                messages.awaitApplications(listOf(first to "hi", second to "hi again"))
                 val history = group.messages().asReversed()
                 assertEquals(3, history.size)
                 messages.awaitHistory(history)
@@ -796,680 +452,332 @@ class GroupTest : BaseInstrumentedTest() {
             }
         }
 
-    @Test
-    fun testCanStreamAllGroupMessages() =
+    @Test fun testCanStreamAllGroupMessages() =
         runBlocking {
-            val group = caroClient.conversations.newGroup(listOf(alixClient.inboxId))
-            val conversation = caroClient.conversations.newConversation(alixClient.inboxId)
-            alixClient.conversations.sync()
+            val first = caro.conversations().createGroup(listOf(alix.inboxId()))
+            val dm = caro.conversations().createDm(alix.inboxId())
+            alix.conversations().sync()
+            val options = MessageReaderOptions(conversationKind = ConversationKind.GROUP)
             val messages = StreamTestMessages()
-            val expected = mutableListOf<Pair<String, String>>()
-            val job =
-                launch(Dispatchers.IO) {
-                    alixClient.conversations
-                        .streamAllMessages(type = ConversationFilterType.GROUPS)
-                        .collect { messages.add(it) }
-                }
+            val expected = mutableListOf<Pair<MessageId, String>>()
+            val job = launch(Dispatchers.IO) { alix.messages(options).collect { messages.add(it) } }
             try {
-                val retained =
-                    alixClient.conversations.messageHistorySnapshot(10U, type = ConversationFilterType.GROUPS).messages
+                val retained = alix.conversations().messageHistorySnapshot(10u, options).messages
                 assertEquals(1, retained.size)
-                assertEquals(FfiConversationMessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
+                assertEquals(MessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
                 messages.awaitHistory(retained)
-                val excludedId = conversation.send(text = "conversation message")
+                val excluded = dm.sendText("conversation message")
                 repeat(2) {
                     val body = "First group message $it"
-                    expected.add(group.send(body) to body)
+                    expected.add(first.sendText(body) to body)
                     messages.awaitApplications(expected)
                 }
-
-                val caroGroup = caroClient.conversations.newGroup(listOf(alixClient.inboxId))
+                val second = caro.conversations().createGroup(listOf(alix.inboxId()))
                 repeat(2) {
                     val body = "Second group message $it"
-                    expected.add(caroGroup.send(body) to body)
+                    expected.add(second.sendText(body) to body)
                     messages.awaitApplications(expected)
                 }
-                val excludedDm = requireNotNull(alixClient.conversations.findDmByInboxId(caroClient.inboxId))
-                excludedDm.sync()
-                assertEquals(true, excludedDm.messages().any { it.id == excludedId })
+                val peerDm = checkNotNull(alix.conversations().getDmByInboxId(caro.inboxId()))
+                peerDm.sync()
+                assertTrue(peerDm.messages().any { it.id == excluded })
                 delay(1000)
-                val history =
-                    alixClient.conversations.messageHistorySnapshot(10U, type = ConversationFilterType.GROUPS).messages
+                val history = alix.conversations().messageHistorySnapshot(10u, options).messages
                 assertEquals(6, history.size)
                 assertEquals(
-                    setOf(group.id, caroGroup.id),
+                    setOf(first.id(), second.id()),
                     history
-                        .filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }
-                        .map { it.conversationId }
+                        .filter {
+                            it.kind == MessageKind.MEMBERSHIP_CHANGE
+                        }.map { it.conversationId }
                         .toSet(),
                 )
-                assertEquals(
-                    false,
-                    messages.snapshot().any {
-                        it.id == excludedId ||
-                            it.conversationId == conversation.id
-                    },
-                )
+                assertFalse(messages.snapshot().any { it.id == excluded || it.conversationId == dm.id() })
                 messages.awaitHistory(history)
             } finally {
                 withContext(NonCancellable) { job.cancelAndJoin() }
             }
         }
 
-    @Test
-    fun testCanStreamGroups() =
-        runBlocking {
-            val notificationTimeoutMs = 3_000L
-            val lifecycleTimeoutMs = 30_000L
-            val ready = CompletableDeferred<Unit>()
+    private suspend fun assertConversationStream(kind: ConversationKind?) =
+        coroutineScope {
+            val reader = alix.conversations().conversationReader(ConversationReaderOptions(kind = kind))
+            val received = Channel<Pair<ConversationId, String>>(Channel.UNLIMITED)
             val closed = CompletableDeferred<Unit>()
-            val conversations = Channel<String>(Channel.UNLIMITED)
             val job =
                 launch(Dispatchers.IO) {
-                    boClient.conversations
-                        .streamWithReadiness(
-                            type = ConversationFilterType.GROUPS,
-                            onClose = { closed.complete(Unit) },
-                            onReady = { ready.complete(Unit) },
-                        ).collect { conversations.send(it.id) }
-                }
-            try {
-                withTimeout(lifecycleTimeoutMs) { ready.await() }
-                val group =
-                    alixClient.conversations.newGroup(listOf(boClient.inboxId))
-                assertEquals(group.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
-                val group2 =
-                    caroClient.conversations.newGroup(listOf(boClient.inboxId))
-                assertEquals(group2.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
-                assertTrue("Unexpected conversation", conversations.tryReceive().isFailure)
-            } finally {
-                withContext(NonCancellable) {
                     try {
-                        withTimeout(lifecycleTimeoutMs) {
-                            job.cancelAndJoin()
-                            if (ready.isCompleted) {
-                                closed.await()
-                            }
+                        while (true) {
+                            val value = reader.next() ?: break
+                            val row =
+                                when (value) {
+                                    is Conversation.Group -> value.group.id() to value.group.topic()
+                                    is Conversation.Dm -> value.dm.id() to value.dm.topic()
+                                }
+                            received.send(row)
                         }
                     } finally {
-                        conversations.cancel()
+                        withContext(NonCancellable) { reader.end() }
+                        closed.complete(Unit)
                     }
                 }
-            }
-        }
-
-    @Test
-    fun testCanStreamGroupsAndConversations() {
-        val allMessages = mutableListOf<String>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    alixClient.conversations
-                        .stream()
-                        .collect { message ->
-                            allMessages.add(message.topic)
-                        }
-                } catch (e: Exception) {
+            try {
+                val expected =
+                    if (kind == null) {
+                        val dm = alix.conversations().createDm(bo.inboxId())
+                        val group = caro.conversations().createGroup(listOf(alix.inboxId()))
+                        listOf(dm.id() to dm.topic(), group.id() to group.topic())
+                    } else {
+                        val first = bo.conversations().createGroup(listOf(alix.inboxId()))
+                        val second = caro.conversations().createGroup(listOf(alix.inboxId()))
+                        listOf(first.id() to first.topic(), second.id() to second.topic())
+                    }
+                val actual = List(2) { withTimeout(3000) { received.receive() } }
+                assertEquals(expected, actual)
+                assertTrue("Unexpected conversation", received.tryReceive().isFailure)
+            } finally {
+                withContext(NonCancellable) {
+                    withTimeout(30_000) {
+                        job.cancelAndJoin()
+                        closed.await()
+                    }
+                    received.cancel()
                 }
             }
-        Thread.sleep(2500)
-
-        runBlocking {
-            alixClient.conversations.newConversation(boClient.inboxId)
-            Thread.sleep(2500)
-            caroClient.conversations.newGroup(listOf(alixClient.inboxId))
         }
 
-        Thread.sleep(2500)
+    @Test fun testCanStreamGroups() = runBlocking { assertConversationStream(ConversationKind.GROUP) }
 
-        assertEquals(2, allMessages.size)
+    @Test fun testCanStreamGroupsAndConversations() = runBlocking { assertConversationStream(null) }
 
-        job.cancel()
-    }
-
-    @Test
-    fun testGroupConsent() {
+    @Test fun testGroupConsent() =
         runBlocking {
-            val group =
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                        caroClient.inboxId,
-                    ),
-                )
-            assertEquals(
-                boClient.preferences.conversationState(group.id),
-                ConsentState.ALLOWED,
-            )
-            assertEquals(group.consentState(), ConsentState.ALLOWED)
-
-            boClient.preferences.setConsentState(
-                listOf(
-                    ConsentRecord(
-                        group.id,
-                        EntryType.CONVERSATION_ID,
-                        ConsentState.DENIED,
-                    ),
-                ),
-            )
-            assertEquals(
-                boClient.preferences.conversationState(group.id),
-                ConsentState.DENIED,
-            )
-            assertEquals(group.consentState(), ConsentState.DENIED)
-
+            val group = group(listOf(alix.inboxId(), caro.inboxId()))
+            val entity = ConsentEntity.Conversation(group.id())
+            assertEquals(ConsentState.ALLOWED, bo.preferences().consentState(entity))
+            assertEquals(ConsentState.ALLOWED, group.state().common.consentState)
+            bo.preferences().setConsentStates(listOf(ConsentRecord(entity, ConsentState.DENIED)))
+            assertEquals(ConsentState.DENIED, bo.preferences().consentState(entity))
+            assertEquals(ConsentState.DENIED, group.state().common.consentState)
             group.updateConsentState(ConsentState.ALLOWED)
-            assertEquals(
-                boClient.preferences.conversationState(group.id),
-                ConsentState.ALLOWED,
-            )
-            assertEquals(group.consentState(), ConsentState.ALLOWED)
+            assertEquals(ConsentState.ALLOWED, bo.preferences().consentState(entity))
+            assertEquals(ConsentState.ALLOWED, group.state().common.consentState)
         }
-    }
 
-    @Test
-    fun testCanAllowAndDenyInboxId() {
+    @Test fun testCanAllowAndDenyInboxId() =
         runBlocking {
-            val boGroup = boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            assertEquals(
-                boClient.preferences.inboxIdState(alixClient.inboxId),
-                ConsentState.UNKNOWN,
-            )
-            boClient.preferences.setConsentState(
-                listOf(
-                    ConsentRecord(
-                        alixClient.inboxId,
-                        EntryType.INBOX_ID,
-                        ConsentState.ALLOWED,
-                    ),
-                ),
-            )
-            var alixMember = boGroup.members().firstOrNull { it.inboxId == alixClient.inboxId }
-            assertEquals(alixMember!!.consentState, ConsentState.ALLOWED)
-
-            assertEquals(
-                boClient.preferences.inboxIdState(alixClient.inboxId),
-                ConsentState.ALLOWED,
-            )
-
-            boClient.preferences.setConsentState(
-                listOf(
-                    ConsentRecord(
-                        alixClient.inboxId,
-                        EntryType.INBOX_ID,
-                        ConsentState.DENIED,
-                    ),
-                ),
-            )
-            alixMember = boGroup.members().firstOrNull { it.inboxId == alixClient.inboxId }
-            assertEquals(alixMember!!.consentState, ConsentState.DENIED)
-
-            assertEquals(
-                boClient.preferences.inboxIdState(alixClient.inboxId),
-                ConsentState.DENIED,
-            )
-        }
-    }
-
-    @Test
-    fun testCanFetchGroupById() {
-        val boGroup =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                        caroClient.inboxId,
-                    ),
-                )
+            val group = group()
+            val entity = ConsentEntity.Inbox(alix.inboxId())
+            assertEquals(ConsentState.UNKNOWN, bo.preferences().consentState(entity))
+            for (state in listOf(ConsentState.ALLOWED, ConsentState.DENIED)) {
+                bo.preferences().setConsentStates(listOf(ConsentRecord(entity, state)))
+                assertEquals(state, group.members().single { it.inboxId == alix.inboxId() }.consentState)
+                assertEquals(state, bo.preferences().consentState(entity))
             }
-        runBlocking { alixClient.conversations.sync() }
-        val alixGroup = runBlocking { alixClient.conversations.findGroup(boGroup.id) }
+        }
 
-        assertEquals(alixGroup?.id, boGroup.id)
-    }
+    @Test fun testCanFetchGroupById() =
+        runBlocking {
+            val group = group(listOf(alix.inboxId(), caro.inboxId()))
+            alix.conversations().sync()
+            assertEquals(group.id(), find(alix, group.id()).id())
+        }
 
-    @Test
-    fun testCanFetchMessageById() {
-        val boGroup =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                        caroClient.inboxId,
-                    ),
-                )
+    @Test fun testCanFetchMessageById() =
+        runBlocking {
+            val group = group(listOf(alix.inboxId(), caro.inboxId()))
+            val id = group.sendText("Hello")
+            alix.conversations().sync()
+            find(alix, group.id()).sync()
+            assertEquals(id, alix.conversations().getMessageById(id)?.id)
+        }
+
+    @Test fun testUnpublishedMessages() =
+        runBlocking {
+            val group = group(listOf(alix.inboxId(), caro.inboxId()))
+            alix.conversations().sync()
+            val peer = find(alix, group.id())
+            assertEquals(ConsentState.UNKNOWN, peer.state().common.consentState)
+            val id = peer.prepareMessage(encodeText("Test text"))
+            assertEquals(2, peer.messages().size)
+            assertEquals(1, peer.messages(ListMessagesOptions(deliveryStatus = DeliveryStatus.PUBLISHED)).size)
+            assertEquals(1, peer.messages(ListMessagesOptions(deliveryStatus = DeliveryStatus.UNPUBLISHED)).size)
+            peer.publishMessages()
+            peer.sync()
+            assertEquals(ConsentState.ALLOWED, peer.state().common.consentState)
+            assertEquals(2, peer.messages(ListMessagesOptions(deliveryStatus = DeliveryStatus.PUBLISHED)).size)
+            assertEquals(0, peer.messages(ListMessagesOptions(deliveryStatus = DeliveryStatus.UNPUBLISHED)).size)
+            assertEquals(2, peer.messages().size)
+            assertEquals(id, peer.messages().first().id)
+        }
+
+    @Test fun testSyncsAllGroupsInParallel() =
+        runBlocking {
+            val first = group()
+            val second = group()
+            alix.conversations().sync()
+            val firstPeer = find(alix, first.id())
+            val secondPeer = find(alix, second.id())
+            assertEquals(1, firstPeer.messages().size)
+            assertEquals(1, secondPeer.messages().size)
+            first.sendText("hi")
+            second.sendText("hi")
+            var summary = alix.conversations().syncAll(null)
+            assertEquals(2, firstPeer.messages().size)
+            assertEquals(2, secondPeer.messages().size)
+            assertEquals(3uL, summary.eligible)
+            second.removeMembers(listOf(alix.inboxId()))
+            repeat(2) {
+                first.sendText("hi")
+                second.sendText("hi")
             }
-        val boMessageId = runBlocking { boGroup.send("Hello") }
-        runBlocking { alixClient.conversations.sync() }
-        val alixGroup = runBlocking { alixClient.conversations.findGroup(boGroup.id) }
-        runBlocking { alixGroup?.sync() }
-        val alixMessage = runBlocking { alixClient.conversations.findMessage(boMessageId) }
-
-        assertEquals(alixMessage?.id, boMessageId)
-    }
-
-    @Test
-    fun testUnpublishedMessages() {
-        val boGroup =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                        caroClient.inboxId,
-                    ),
-                )
-            }
-        runBlocking { alixClient.conversations.sync() }
-        val alixGroup: Group = runBlocking { alixClient.conversations.findGroup(boGroup.id)!! }
-        runBlocking { assertEquals(alixGroup.consentState(), ConsentState.UNKNOWN) }
-        val preparedMessageId = runBlocking { alixGroup.prepareMessage("Test text") }
-        assertEquals(runBlocking { alixGroup.messages() }.size, 2)
-        assertEquals(
-            runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
-            1,
-        )
-        assertEquals(
-            runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED) }.size,
-            1,
-        )
-
-        runBlocking {
-            alixGroup.publishMessages()
-            alixGroup.sync()
-        }
-        runBlocking { assertEquals(alixGroup.consentState(), ConsentState.ALLOWED) }
-        assertEquals(
-            runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
-            2,
-        )
-        assertEquals(
-            runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED) }.size,
-            0,
-        )
-        assertEquals(runBlocking { alixGroup.messages() }.size, 2)
-
-        val message = runBlocking { alixGroup.messages() }.first()
-
-        assertEquals(preparedMessageId, message.id)
-    }
-
-    @Test
-    fun testSyncsAllGroupsInParallel() {
-        val boGroup =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                    ),
-                )
-            }
-        val boGroup2 =
-            runBlocking {
-                boClient.conversations.newGroup(
-                    listOf(
-                        alixClient.inboxId,
-                    ),
-                )
-            }
-        runBlocking { alixClient.conversations.sync() }
-        val alixGroup: Group = runBlocking { alixClient.conversations.findGroup(boGroup.id)!! }
-        val alixGroup2: Group = runBlocking { alixClient.conversations.findGroup(boGroup2.id)!! }
-        var syncSummary: GroupSyncSummary?
-
-        assertEquals(runBlocking { alixGroup.messages() }.size, 1)
-        assertEquals(runBlocking { alixGroup2.messages() }.size, 1)
-
-        runBlocking {
-            boGroup.send("hi")
-            boGroup2.send("hi")
-            syncSummary = alixClient.conversations.syncAllConversations()
+            summary = alix.conversations().syncAll(null)
+            delay(2000)
+            assertEquals(4, firstPeer.messages().size)
+            assertEquals(3, secondPeer.messages().size)
+            assertEquals(3uL, summary.eligible)
+            summary = alix.conversations().syncAll(null)
+            assertEquals(3uL, summary.eligible)
+            assertEquals(2uL, summary.synced)
+            assertFalse(secondPeer.state().common.isActive)
+            assertTrue(firstPeer.state().common.isActive)
         }
 
-        assertEquals(runBlocking { alixGroup.messages() }.size, 2)
-        assertEquals(runBlocking { alixGroup2.messages() }.size, 2)
-        assertEquals(syncSummary?.numEligible, 3UL)
-
+    @Test fun testGroupDisappearingMessages() =
         runBlocking {
-            boGroup2.removeMembers(listOf(alixClient.inboxId))
-            boGroup.send("hi")
-            boGroup.send("hi")
-            boGroup2.send("hi")
-            boGroup2.send("hi")
-            syncSummary = alixClient.conversations.syncAllConversations()
-            Thread.sleep(2000)
-        }
-
-        assertEquals(runBlocking { alixGroup.messages() }.size, 4)
-        assertEquals(runBlocking { alixGroup2.messages() }.size, 3)
-        // First syncAllGroups after remove includes the group you're removed from
-        assertEquals(syncSummary?.numEligible, 3UL)
-
-        runBlocking {
-            syncSummary = alixClient.conversations.syncAllConversations()
-        }
-        // All enrolled groups are eligible. Only the active group and device-sync group reach their targets.
-        assertEquals(3UL, syncSummary?.numEligible)
-        assertEquals(2UL, syncSummary?.numSynced)
-        assertEquals(false, runBlocking { alixGroup2.isActive() })
-        assertEquals(true, runBlocking { alixGroup.isActive() })
-    }
-
-    @Test
-    fun testGroupDisappearingMessages() =
-        runBlocking {
-            val initialSettings =
-                DisappearingMessageSettings(
-                    1_000_000_000,
-                    1_000_000_000, // 1s duration
-                )
-
-            // Create group with disappearing messages enabled
-            val boGroup =
-                boClient.conversations.newGroup(
-                    listOf(alixClient.inboxId),
-                    disappearingMessageSettings = initialSettings,
-                )
-            boGroup.send("howdy")
-            alixClient.conversations.syncAllConversations()
-
-            val alixGroup = alixClient.conversations.findGroup(boGroup.id)
-
-            // Validate messages exist and settings are applied
-            assertEquals(boGroup.messages().size, 2) // memberAdd, howdy
-            assertEquals(alixGroup?.messages()?.size, 2) // memberAdd, howdy
-            assertNotNull(boGroup.disappearingMessageSettings())
-            assertEquals(
-                boGroup.disappearingMessageSettings()!!.retentionDurationInNs,
-                1_000_000_000,
-            )
-            assertEquals(
-                boGroup.disappearingMessageSettings()!!.disappearStartingAtNs,
-                1_000_000_000,
-            )
-            Thread.sleep(5000)
-            // Validate messages are deleted
-            assertEquals(boGroup.messages().size, 1) // memberAdd
-            assertEquals(alixGroup?.messages()?.size, 1) // memberAdd
-
-            // Set message disappearing settings to null
-            boGroup.updateDisappearingMessageSettings(null)
-            boGroup.sync()
-            alixGroup!!.sync()
-
-            assertNull(boGroup.disappearingMessageSettings())
-            assertNull(alixGroup.disappearingMessageSettings())
-            assert(!boGroup.isDisappearingMessagesEnabled())
-            assert(!alixGroup.isDisappearingMessagesEnabled())
-
-            // Send messages after disabling disappearing settings
-            boGroup.send("message after disabling disappearing")
-            alixGroup.send("another message after disabling")
-            boGroup.sync()
-
-            Thread.sleep(1000)
-
-            // Ensure messages persist
-            // memberAdd, disappearing settings 1, disappearing settings 2, boMessage, alixMessage
-            assertEquals(
-                boGroup.messages().size,
-                5,
-            )
-            // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
-            assertEquals(
-                alixGroup.messages().size,
-                5,
-            )
-
-            // Re-enable disappearing messages
-            val updatedSettings =
-                DisappearingMessageSettings(
-                    boGroup.messages().first().sentAtNs + 1_000_000_000, // 1s from now
-                    1_000_000_000, // 1s duration
-                )
-            boGroup.updateDisappearingMessageSettings(updatedSettings)
-            boGroup.sync()
-            alixGroup.sync()
-
-            Thread.sleep(2000)
-
-            assertEquals(
-                boGroup.disappearingMessageSettings()!!.disappearStartingAtNs,
-                updatedSettings.disappearStartingAtNs,
-            )
-            assertEquals(
-                alixGroup.disappearingMessageSettings()!!.disappearStartingAtNs,
-                updatedSettings.disappearStartingAtNs,
-            )
-
-            // Send new messages
-            boGroup.send("this will disappear soon")
-            alixGroup.send("so will this")
-            boGroup.sync()
-
-            // memberAdd, disappearing settings 3, disappearing settings 4, boMessage, alixMessage,
-            // disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
-            assertEquals(
-                boGroup.messages().size,
-                9,
-            )
-            // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage,
-            // disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
-            assertEquals(
-                alixGroup.messages().size,
-                9,
-            )
-
-            Thread.sleep(6000) // Wait for messages to disappear
-
-            // Validate messages were deleted
-            // memberAdd, disappearing settings 3, disappearing settings 4, boMessage, alixMessage,
-            // disappearing settings 5, disappearing settings 6
-            assertEquals(
-                boGroup.messages().size,
-                7,
-            )
-            // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage,
-            // disappearing settings 5, disappearing settings 6
-            assertEquals(
-                alixGroup.messages().size,
-                7,
-            )
-
-            // Final validation that settings persist
-            assertEquals(
-                boGroup.disappearingMessageSettings()!!.retentionDurationInNs,
-                updatedSettings.retentionDurationInNs,
-            )
-            assertEquals(
-                alixGroup.disappearingMessageSettings()!!.retentionDurationInNs,
-                updatedSettings.retentionDurationInNs,
-            )
-            assert(boGroup.isDisappearingMessagesEnabled())
-            assert(alixGroup.isDisappearingMessagesEnabled())
-        }
-
-    @Test
-    fun testGroupPausedForVersionReturnsNone() =
-        runBlocking {
-            val boGroup =
-                boClient.conversations.newGroup(
-                    listOf(alixClient.inboxId),
-                )
-            val pausedForVersionGroup = boGroup.pausedForVersion()
-            assertNull(pausedForVersionGroup)
-
-            val boDm = boClient.conversations.newConversation(alixClient.inboxId)
-            val pausedForVersionDm = boDm.pausedForVersion()
-            assertNull(pausedForVersionDm)
-        }
-
-    @Test
-    fun testCanQueryMessagesByInsertedTime() {
-        runBlocking {
-            val group = boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            group.send("first")
-            group.send("second")
+            val initial = DisappearingSettings(Timestamp(1_000_000_000), 1_000_000_000)
+            val group = group(options = CreateGroupOptions(disappearing = initial))
+            group.sendText("howdy")
+            alix.conversations().syncAll(null)
+            val peer = find(alix, group.id())
+            assertEquals(2, group.messages().size)
+            assertEquals(2, peer.messages().size)
+            assertEquals(initial, group.state().common.disappearingSettings)
+            delay(5000)
+            assertEquals(1, group.messages().size)
+            assertEquals(1, peer.messages().size)
+            group.updateDisappearingSettings(null)
             group.sync()
+            peer.sync()
+            assertNull(group.state().common.disappearingSettings)
+            assertNull(peer.state().common.disappearingSettings)
+            assertFalse(group.state().common.isDisappearingEnabled)
+            assertFalse(peer.state().common.isDisappearingEnabled)
+            group.sendText("message after disabling disappearing")
+            peer.sendText("another message after disabling")
+            group.sync()
+            delay(1000)
+            assertEquals(5, group.messages().size)
+            assertEquals(5, peer.messages().size)
+            val updated =
+                DisappearingSettings(
+                    Timestamp(
+                        group
+                            .messages()
+                            .first()
+                            .sentAt.ns + 1_000_000_000,
+                    ),
+                    1_000_000_000,
+                )
+            group.updateDisappearingSettings(updated)
+            group.sync()
+            peer.sync()
+            delay(2000)
+            assertEquals(updated, group.state().common.disappearingSettings)
+            assertEquals(updated, peer.state().common.disappearingSettings)
+            val first = group.sendText("this will disappear soon")
+            val second = peer.sendText("so will this")
+            group.sync()
+            assertEquals(9, group.messages().size)
+            assertEquals(9, peer.messages().size)
+            delay(6000)
+            assertEquals(7, group.messages().size)
+            assertEquals(7, peer.messages().size)
+            assertTrue(group.messages().none { it.id == first || it.id == second })
+            assertTrue(peer.messages().none { it.id == first || it.id == second })
+            assertEquals(updated, group.state().common.disappearingSettings)
+            assertEquals(updated, peer.state().common.disappearingSettings)
+            assertTrue(group.state().common.isDisappearingEnabled)
+            assertTrue(peer.state().common.isDisappearingEnabled)
+        }
 
+    @Test fun testGroupPausedForVersionReturnsNone() =
+        runBlocking {
+            assertNull(group().state().common.pausedForVersion)
+            assertNull(
+                bo
+                    .conversations()
+                    .createDm(alix.inboxId())
+                    .state()
+                    .pausedForVersion,
+            )
+        }
+
+    @Test fun testCanQueryMessagesByInsertedTime() =
+        runBlocking {
+            val group = group()
+            group.sendText("first")
+            group.sendText("second")
+            group.sync()
             val messages = group.messages()
             assertEquals(3, messages.size)
-
-            // Verify insertedAtNs is populated
-            val firstMessage = messages.last()
-            assert(firstMessage.insertedAtNs > 0)
-
-            // Test insertedAfterNs filter
-            val filteredMessages = group.messages(insertedAfterNs = firstMessage.insertedAtNs)
-            assertEquals(2, filteredMessages.size)
-
-            // Test sortBy parameter
-            val sortedBySent = group.messages(sortBy = SortBy.SENT_TIME)
-            val sortedByInserted = group.messages(sortBy = SortBy.INSERTED_TIME)
-            assertEquals(sortedBySent.size, sortedByInserted.size)
-
-            // Test countMessages with insertedAfterNs
-            val count = group.countMessages(insertedAfterNs = firstMessage.insertedAtNs)
-            assertEquals(2, count)
+            val boundary = messages.last().insertedAt
+            assertTrue(boundary.ns > 0)
+            val filtered = group.messages(ListMessagesOptions(insertedAfter = boundary))
+            assertEquals(2, filtered.size)
+            assertTrue(filtered.all { it.insertedAt.ns > boundary.ns })
+            assertEquals(
+                group.messages(ListMessagesOptions(sortBy = MessageSortBy.SENT_AT)).map { it.id }.toSet(),
+                group.messages(ListMessagesOptions(sortBy = MessageSortBy.INSERTED_AT)).map { it.id }.toSet(),
+            )
+            assertEquals(2uL, group.countMessages(ListMessagesOptions(insertedAfter = boundary)))
         }
-    }
 
-    @Test
-    fun testCountMessagesWithExcludedContentTypes() {
-        Client.register(codec = ReactionCodec())
-
-        val group = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
+    @Test fun testCountMessagesWithExcludedContentTypes() =
         runBlocking {
-            group.send("gm")
+            val group = group()
+            val parent = group.sendText("gm")
             group.sync()
-        }
-        val messageToReact = runBlocking { group.messages() }[0]
-
-        val reaction =
-            Reaction(
-                reference = messageToReact.id,
-                action = ReactionAction.Added,
-                content = "U+1F603",
-                schema = ReactionSchema.Unicode,
-            )
-
-        runBlocking {
-            group.send(
-                content = reaction,
-                options = SendOptions(contentType = ContentTypeReaction),
-            )
+            group.sendReaction(parent, bo.inboxId(), Reaction("U+1F603", ReactionAction.ADDED, ReactionSchema.UNICODE))
+            assertEquals(3uL, group.countMessages(null))
+            val reactionTypes =
+                listOf(ContentTypeId("xmtp.org", "reaction", 1u, 0u), ContentTypeId("xmtp.org", "reaction", 2u, 0u))
+            assertEquals(2uL, group.countMessages(ListMessagesOptions(excludeContentTypes = reactionTypes)))
         }
 
-        // Count without exclusions - should include memberAdd, text message, and reaction
-        val totalCount = runBlocking { group.countMessages() }
-        assertEquals(3, totalCount)
-
-        // Count with reaction exclusion - should only include memberAdd and text message
-        val countWithoutReactions =
-            runBlocking {
-                group.countMessages(
-                    excludeContentTypes =
-                        listOf(
-                            uniffi.xmtpv3.FfiContentType.REACTION,
-                        ),
-                )
-            }
-        assertEquals(2, countWithoutReactions)
-    }
-
-    @Test
-    fun testCanLeaveGroup() =
+    @Test fun testCanLeaveGroup() =
         runBlocking {
-            // Create group with alix and bo and verify we have 2 members and group is active for Alix
-            val boGroup = boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            alixClient.conversations.syncAllConversations()
-            boClient.conversations.syncAllConversations()
-            val alixGroup = alixClient.conversations.findGroup(boGroup.id)
-            assertNotNull(alixGroup)
-            val groupMembers = boGroup.members()
-            assertEquals(2, groupMembers.size)
-            assert(alixGroup!!.isActive())
-
-            // Alix leaves group and bo syncs
-            alixGroup.leaveGroup()
-            alixGroup.sync()
-            boGroup.sync()
-            // Alix Group is still active until worker runs
-            assert(alixGroup.isActive())
-
-            // Delay here so that the removal is processed
-            // Verify 1 member and group is no longer active
-            Thread.sleep(3000) // 3 seconds
-            val groupMembersAfterLeave = boGroup.members()
-            assertEquals(1, groupMembersAfterLeave.size)
-            alixGroup.sync()
-            assert(!alixGroup.isActive())
+            val group = group()
+            alix.conversations().syncAll(null)
+            bo.conversations().syncAll(null)
+            val peer = find(alix, group.id())
+            assertEquals(2, group.members().size)
+            assertTrue(peer.state().common.isActive)
+            peer.requestRemoval()
+            peer.sync()
+            group.sync()
+            assertTrue(peer.state().common.isActive)
+            delay(3000)
+            assertEquals(1, group.members().size)
+            peer.sync()
+            assertFalse(peer.state().common.isActive)
         }
 
-    @Test
-    fun testSelfRemovalWithMembershipState() =
+    @Test fun testSelfRemovalWithMembershipState() =
         runBlocking {
-            // Alix creates a group and adds Bo
-            val alixGroup =
-                alixClient.conversations.newGroup(
-                    listOf(boClient.inboxId),
-                )
-
-            // Bo syncs and gets the group
-            boClient.conversations.sync()
-            val boGroup = boClient.conversations.findGroup(alixGroup.id)
-            assertNotNull("Bo should have received the group", boGroup)
-
-            // Verify Bo's membership state is PENDING when first invited
-            val boStateInitial = boGroup!!.membershipState()
-            assertEquals(
-                "Bo should be in PENDING state when first invited",
-                GroupMembershipState.PENDING,
-                boStateInitial,
-            )
-
-            // Verify Alix's membership state is ALLOWED (creator)
-            val alixState = alixGroup.membershipState()
-            assertEquals(
-                "Alix should be in ALLOWED state as group creator",
-                GroupMembershipState.ALLOWED,
-                alixState,
-            )
-
-            // Bo leaves the group
-            boGroup.leaveGroup()
-
-            // Verify Bo's membership state is PENDING_REMOVE after requesting to leave
-            val boStateAfterLeave = boGroup.membershipState()
-            assertEquals(
-                "Bo should be in PENDING_REMOVE state after leaving",
-                GroupMembershipState.PENDING_REMOVE,
-                boStateAfterLeave,
-            )
-
-            // Alix syncs to process the leave request
-            alixGroup.sync()
-
-            // Wait for admin worker to process the removal
-            Thread.sleep(2000)
-
-            // Bo syncs to get the final removal
-            boGroup.sync()
-
-            // Verify Bo's group is no longer active
-            assert(!boGroup.isActive())
-
-            // Verify Alix's membership state remains ALLOWED
-            val alixStateFinal = alixGroup.membershipState()
-            assertEquals(
-                "Alix should remain in ALLOWED state",
-                GroupMembershipState.ALLOWED,
-                alixStateFinal,
-            )
-
-            // Verify only Alix remains in the group
-            alixGroup.sync()
-            val members = alixGroup.members()
-            assertEquals("Only Alix should remain in the group", 1, members.size)
+            val group = alix.conversations().createGroup(listOf(bo.inboxId()))
+            bo.conversations().sync()
+            val peer = find(bo, group.id())
+            assertEquals(MembershipState.PENDING, peer.state().membershipState)
+            assertEquals(MembershipState.ALLOWED, group.state().membershipState)
+            peer.requestRemoval()
+            assertEquals(MembershipState.PENDING_REMOVE, peer.state().membershipState)
+            group.sync()
+            delay(2000)
+            peer.sync()
+            assertFalse(peer.state().common.isActive)
+            assertEquals(MembershipState.ALLOWED, group.state().membershipState)
+            group.sync()
+            assertEquals("Only the creator remains", 1, group.members().size)
         }
 }

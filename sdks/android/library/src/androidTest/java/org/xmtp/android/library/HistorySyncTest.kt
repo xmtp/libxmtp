@@ -1,234 +1,158 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.xmtp.android.library.messages.PrivateKeyBuilder
+import uniffi.xmtp_sdk.*
 
 @RunWith(AndroidJUnit4::class)
 class HistorySyncTest : BaseInstrumentedTest() {
     private lateinit var fixtures: TestFixtures
-    private lateinit var alixClient: Client
-    private lateinit var boClient: Client
-    private lateinit var caroClient: Client
-    private lateinit var alixWallet: PrivateKeyBuilder
+    private lateinit var alixClient: SDKClient
+    private lateinit var boClient: SDKClient
+    private lateinit var alixWallet: Signer
 
-    @Before
-    override fun setUp() {
+    @Before override fun setUp() {
         super.setUp()
         fixtures = runBlocking { createFixtures() }
         alixClient = fixtures.alixClient
         boClient = fixtures.boClient
-        caroClient = fixtures.caroClient
         alixWallet = fixtures.alixAccount
     }
 
-    private suspend fun waitUntil(
-        timeoutMs: Long = 30_000,
-        intervalMs: Long = 500,
-        condition: suspend () -> Boolean,
-    ) {
-        val start = System.currentTimeMillis()
-        while (System.currentTimeMillis() - start < timeoutMs) {
-            if (condition()) return
-            delay(intervalMs)
+    private suspend fun waitUntil(condition: suspend () -> Boolean) =
+        withTimeout(30_000) {
+            while (!condition()) delay(100)
+        }
+
+    private suspend fun sync(vararg clients: SDKClient) {
+        clients.forEach {
+            it.conversations().syncAll(null)
+            it.preferences().sync()
         }
     }
 
-    @Test
-    fun testSyncConsent() =
+    private suspend fun copiedGroup(
+        id: ConversationId,
+        vararg clients: SDKClient,
+    ): Group {
+        var copied: Group? = null
+        waitUntil {
+            sync(alixClient, *clients)
+            copied =
+                clients
+                    .first()
+                    .conversations()
+                    .listGroups(null)
+                    .find { it.id() == id }
+            copied != null
+        }
+        return checkNotNull(copied)
+    }
+
+    @Test fun testSyncConsent() =
         runBlocking {
-            val boGroup = boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            alixClient.conversations.sync()
-
-            val alixGroup =
-                alixClient.conversations.findGroup(boGroup.id)
-                    ?: throw AssertionError("Failed to find group with ID: ${boGroup.id}")
-            val initialConsent = alixGroup.consentState()
-            assertEquals(initialConsent, ConsentState.UNKNOWN)
-
-            val alixClient2 = createClient(alixWallet)
-
-            val state = alixClient2.inboxState(true)
-            assertEquals(state.installations.size, 2)
-
-            // Sync both installations until client2 can find the group
-            var alixGroup2: Group? = null
-            waitUntil {
-                alixClient.conversations.syncAllConversations()
-                alixClient2.conversations.syncAllConversations()
-                alixClient.preferences.sync()
-                alixClient2.preferences.sync()
-                alixGroup2 = alixClient2.conversations.findGroup(alixGroup.id)
-                alixGroup2 != null
-            }
-            val group2 =
-                alixGroup2
-                    ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
-            assertEquals(group2.consentState(), ConsentState.UNKNOWN)
-
+            val boGroup = boClient.conversations().createGroup(listOf(alixClient.inboxId()))
+            alixClient.conversations().sync()
+            val alixGroup = alixClient.conversations().listGroups(null).single()
+            assertEquals(ConsentState.UNKNOWN, alixGroup.state().common.consentState)
+            val second = createClient(alixWallet)
+            assertEquals(2, second.inboxState(true).installations.size)
+            val copy = copiedGroup(boGroup.id(), second)
+            assertEquals(ConsentState.UNKNOWN, copy.state().common.consentState)
             alixGroup.updateConsentState(ConsentState.DENIED)
-
-            // Sync both clients until consent propagates to client2.
-            // Client1 publishes the worker-queued intent, client2 pulls the update.
             waitUntil {
-                alixClient.preferences.sync()
-                alixClient2.preferences.sync()
-                group2.consentState() == ConsentState.DENIED
+                sync(alixClient, second)
+                copy.state().common.consentState == ConsentState.DENIED
             }
-
-            assertEquals(group2.consentState(), ConsentState.DENIED)
+            assertEquals(ConsentState.DENIED, copy.state().common.consentState)
         }
 
-    @Test
-    fun testStreamConsent() {
-        val alixClient2 =
-            runBlocking {
-                createClient(alixWallet)
-            }
-
-        val alixGroup = runBlocking { alixClient.conversations.newGroup(listOf(boClient.inboxId)) }
+    @Test fun testStreamConsent() =
         runBlocking {
-            alixClient.conversations.syncAllConversations()
-            Thread.sleep(2000)
-            alixClient2.conversations.syncAllConversations()
-            Thread.sleep(2000)
+            val second = createClient(alixWallet)
+            val original = alixClient.conversations().createGroup(listOf(boClient.inboxId()))
+            val copy = copiedGroup(original.id(), second)
+            val changed = CompletableDeferred<ClientEvent.ConsentChanged>()
+            val listener =
+                alixClient.startListener(
+                    EventFilter(listOf(EventKind.CONSENT_CHANGED), null, null, false),
+                    { event ->
+                        if (event is ClientEvent.ConsentChanged && event.entity == original.id() &&
+                            event.state == EventConsentState.DENIED
+                        ) {
+                            changed.complete(event)
+                        }
+                    },
+                )
+            try {
+                copy.updateConsentState(ConsentState.DENIED)
+                waitUntil {
+                    sync(second, alixClient)
+                    changed.isCompleted
+                }
+                assertEquals(original.id(), changed.await().entity)
+                assertEquals(EventConsentState.DENIED, changed.await().state)
+                assertEquals(ConsentState.DENIED, original.state().common.consentState)
+            } finally {
+                withContext(NonCancellable) { alixClient.stopListener(listener) }
+            }
         }
-        val alix2Group = runBlocking { alixClient2.conversations.findGroup(alixGroup.id)!! }
 
-        val consent = mutableListOf<ConsentRecord>()
-        val job1 =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    alixClient.conversations.streamAllMessages().collect {}
-                } catch (e: Exception) {
-                }
-            }
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    alixClient.preferences.streamConsent().collect { entry ->
-                        consent.add(entry)
-                    }
-                } catch (e: Exception) {
-                }
-            }
-
-        Thread.sleep(2000)
-
+    @Test fun testStreamPreferenceUpdates() =
         runBlocking {
-            alix2Group.updateConsentState(ConsentState.DENIED)
-            alixClient2.preferences.sync()
-            Thread.sleep(2000)
-        }
-
-        Thread.sleep(2000)
-        assertEquals(1, consent.size)
-        assertEquals(runBlocking { alixGroup.consentState() }, ConsentState.DENIED)
-        job.cancel()
-        job1.cancel()
-    }
-
-    @Test
-    fun testStreamPreferenceUpdates() {
-        val alixClient2 =
-            runBlocking {
-                createClient(alixWallet)
-            }
-        var preferences = 0
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    alixClient2.preferences.streamPreferenceUpdates().collect { entry ->
-                        preferences++
-                    }
-                } catch (e: Exception) {
+            val second = createClient(alixWallet)
+            val updated = CompletableDeferred<Unit>()
+            val listener =
+                second.startListener(
+                    EventFilter(listOf(EventKind.HMAC_KEYS_UPDATED), null, null, false),
+                    { event -> if (event is ClientEvent.HmacKeysUpdated) updated.complete(Unit) },
+                )
+            try {
+                val third = createClient(alixWallet)
+                waitUntil {
+                    sync(alixClient, second, third)
+                    updated.isCompleted
                 }
-            }
-
-        Thread.sleep(2000)
-
-        runBlocking {
-            val alixClient3 =
-                runBlocking {
-                    createClient(alixWallet)
-                }
-            alixClient3.conversations.syncAllConversations()
-            Thread.sleep(2000)
-            alixClient2.conversations.syncAllConversations()
-            Thread.sleep(2000)
-            alixClient.conversations.syncAllConversations()
-            Thread.sleep(2000)
-        }
-
-        // Wait for the update to arrive rather than for a fixed delay, and
-        // assert at least one: a new installation can legitimately produce
-        // more than one preference update, so an exact count is a race.
-        runBlocking {
-            withTimeout(30_000) {
-                while (preferences < 1) {
-                    delay(100)
-                }
+                assertTrue(updated.isCompleted)
+                assertEquals(3, second.inboxState(true).installations.size)
+            } finally {
+                withContext(NonCancellable) { second.stopListener(listener) }
             }
         }
-        assertTrue(preferences >= 1)
-        job.cancel()
-    }
 
-    @Test
-    fun testV3CanMessageV3() =
+    @Test fun testV3CanMessageV3() =
         runBlocking {
             val wallet = createWallet()
-            val client1 = createClient(wallet)
-            val client2 = createClient(wallet)
-            val client3 = createClient(wallet)
-
-            val group = client1.conversations.newGroup(listOf(boClient.inboxId))
-
-            // Sync all installations until client2 can find the group
-            var client2Group: Group? = null
+            val first = createClient(wallet)
+            val second = createClient(wallet)
+            val third = createClient(wallet)
+            val original = first.conversations().createGroup(listOf(boClient.inboxId()))
+            var copy: Group? = null
             waitUntil {
-                client1.conversations.syncAllConversations()
-                client2.conversations.syncAllConversations()
-                client3.conversations.syncAllConversations()
-                client1.preferences.sync()
-                client2.preferences.sync()
-                client3.preferences.sync()
-                client2Group = client2.conversations.findGroup(group.id)
-                client2Group != null
+                sync(first, second, third)
+                copy = second.conversations().listGroups(null).find { it.id() == original.id() }
+                copy != null
             }
-            val c2Group =
-                client2Group
-                    ?: throw AssertionError("Failed to find group with ID: ${group.id}")
-
-            // Wait for client2 to see the ALLOWED consent state from client1
+            val copied = checkNotNull(copy)
             waitUntil {
-                client1.preferences.sync()
-                client2.preferences.sync()
-                c2Group.consentState() == ConsentState.ALLOWED
+                sync(first, second)
+                copied.state().common.consentState == ConsentState.ALLOWED
             }
-            assertEquals(ConsentState.ALLOWED, c2Group.consentState())
-
-            group.updateConsentState(ConsentState.DENIED)
-
-            // Wait for consent change to propagate to client2
+            assertEquals(ConsentState.ALLOWED, copied.state().common.consentState)
+            original.updateConsentState(ConsentState.DENIED)
             waitUntil {
-                client1.preferences.sync()
-                client2.preferences.sync()
-                c2Group.consentState() == ConsentState.DENIED
+                sync(first, second)
+                copied.state().common.consentState == ConsentState.DENIED
             }
-
-            assertEquals(ConsentState.DENIED, c2Group.consentState())
+            assertEquals(ConsentState.DENIED, copied.state().common.consentState)
         }
 }

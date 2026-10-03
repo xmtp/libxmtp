@@ -1,1326 +1,527 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
+import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.xmtp.android.library.Client.Companion.ffiApplySignatureRequest
-import org.xmtp.android.library.Client.Companion.ffiRevokeInstallations
-import org.xmtp.android.library.libxmtp.IdentityKind
-import org.xmtp.android.library.libxmtp.PublicIdentity
-import org.xmtp.android.library.messages.PrivateKeyBuilder
-import org.xmtp.android.library.messages.walletAddress
-import uniffi.xmtpv3.DbOptions
-import uniffi.xmtpv3.FfiDeviceSyncMode
-import uniffi.xmtpv3.FfiException
-import uniffi.xmtpv3.FfiLogLevel
-import uniffi.xmtpv3.FfiLogRotation
-import uniffi.xmtpv3.FfiWorkerConfig
-import uniffi.xmtpv3.FfiWorkerKind
-import uniffi.xmtpv3.generateInboxId
+import uniffi.xmtp_sdk.*
 import java.io.File
 import java.security.SecureRandom
 import java.util.UUID
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
-import uniffi.xmtpv3.createClient as ffiCreateClient
 
 @RunWith(AndroidJUnit4::class)
 class ClientTest : BaseInstrumentedTest() {
-    @Test
-    fun testCanBeCreatedWithBundle() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fakeWallet = PrivateKeyBuilder()
-        val options =
-            ClientOptions(
-                localApi().copy(env = "custom-db"),
-                appContext = context,
-                dbEncryptionKey = key,
-            )
-        val client = runBlocking { Client.create(account = fakeWallet, options = options) }
+    private suspend fun client(
+        signer: Signer,
+        options: ClientOptions = createClientOptions(),
+    ): SDKClient = trackClient(SDKClient.create(context, signer, options))
 
-        assertEquals("xmtp-custom-db-${client.inboxId}.db3", File(client.dbPath).name)
+    private fun backend() = BackendSource.Options(localApi())
 
-        val clientIdentity = fakeWallet.publicIdentity
+    @Test fun testCanBeCreatedWithBundle() =
         runBlocking {
-            client.canMessage(listOf(clientIdentity))[clientIdentity.identifier]?.let { assert(it) }
+            val signer = createWallet()
+            val options = createClientOptions().let { it.copy(storage = it.storage.copy(label = "custom-db")) }
+            val first = client(signer, options)
+            val path = checkNotNull(first.storage().path())
+            assertEquals("custom-db", first.options().storage.label)
+            assertEquals(true, first.canMessage(listOf(signer.identity()))[signer.identity().identifier])
+            val inbox = first.inboxId()
+            first.end()
+            val reopened = trackClient(SDKClient.build(context, signer.identity(), options))
+            assertEquals(inbox, reopened.inboxId())
+            assertEquals(path, reopened.storage().path())
+            assertEquals(true, reopened.canMessage(listOf(signer.identity()))[signer.identity().identifier])
         }
 
-        val fromBundle = runBlocking { Client.build(clientIdentity, options = options) }
-        assertEquals(client.inboxId, fromBundle.inboxId)
-
-        runBlocking {
-            fromBundle.canMessage(listOf(clientIdentity))[clientIdentity.identifier]?.let {
-                assert(it)
-            }
-        }
-    }
-
-    @Test
-    fun testCanBeBuiltOffline() =
+    @Test fun testCanBeBuiltOffline() =
         runBlocking {
             val fixtures = createFixtures()
-            val wallet = createWallet()
-            val client = createClient(wallet)
-
-            client.debugInformation.clearAllStatistics()
-            println(client.debugInformation.aggregateStatistics)
-
-            val dbDir = File(client.dbPath).parent
-            val builtClient =
-                Client.build(
-                    client.publicIdentity,
-                    ClientOptions(
-                        api = localApi(),
-                        dbEncryptionKey = dbEncryptionKey,
-                        appContext = InstrumentationRegistry.getInstrumentation().targetContext,
-                        dbDirectory = dbDir,
-                    ),
-                    client.inboxId,
-                )
-            println(client.debugInformation.aggregateStatistics)
-            assertEquals(client.inboxId, builtClient.inboxId)
-
-            val group = builtClient.conversations.newGroup(listOf(fixtures.alixClient.inboxId))
-            group.send("howdy")
-            val alixDm = fixtures.alixClient.conversations.newConversation(builtClient.inboxId)
-            alixDm.send("howdy")
-            val boGroup =
-                fixtures.boClient.conversations.newGroupWithIdentities(
-                    listOf(builtClient.publicIdentity),
-                )
-            boGroup.send("howdy")
-            builtClient.conversations.syncAllConversations()
-            val convos = builtClient.conversations.list()
-
-            assertEquals(convos.size, 3)
-        }
-
-    @Test
-    fun testCreatesAClient() =
-        runBlocking {
-            val callbackTimeoutMs = 3_000L
-            val key = SecureRandom().generateSeed(32)
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            for (inMemory in listOf(false, true)) {
-                val fakeWallet = PrivateKeyBuilder()
-                val appDataChange = CompletableDeferred<AppDataChange>()
-                val options =
-                    ClientOptions(
-                        localApi(appVersion = "Testing/0.0.0"),
-                        appContext = context,
-                        dbEncryptionKey = key,
-                        unstableChangeCallbacks =
-                            UnstableChangeCallbacks(
-                                appData =
-                                    object : AppDataChangeHandler {
-                                        override suspend fun onAppDataChanged(change: AppDataChange) {
-                                            appDataChange.complete(change)
-                                        }
-                                    },
-                            ),
-                    )
-                val clientIdentity = fakeWallet.publicIdentity
-                val inboxId = Client.getOrCreateInboxId(options.api, clientIdentity)
-                val client =
-                    if (inMemory) {
-                        Client.createInMemory(account = fakeWallet, options = options)
-                    } else {
-                        Client.create(account = fakeWallet, options = options)
-                    }
-                assertEquals(true, client.canMessage(listOf(clientIdentity))[clientIdentity.identifier])
-                assertTrue(client.installationId.isNotEmpty())
-                assertEquals(inboxId, client.inboxId)
-                assertEquals(fakeWallet.publicIdentity.identifier, client.publicIdentity.identifier)
-                assertEquals(inMemory, client.isInMemory)
-
-                val group = client.conversations.newGroup(emptyList())
-                val newAppData = "client-runtime-options"
-                group.updateAppData(newAppData)
-                val change = withTimeout(callbackTimeoutMs) { appDataChange.await() }
-                assertEquals(group.id, change.groupId)
-                assertEquals(newAppData, change.newValue)
-            }
-        }
-
-    @Test
-    fun testStaticCanMessage() {
-        val fixtures = runBlocking { createFixtures() }
-        val notOnNetwork = PrivateKeyBuilder()
-        val alixPublicIdentity = PublicIdentity(IdentityKind.ETHEREUM, fixtures.alix.walletAddress)
-        val boPublicIdentity = PublicIdentity(IdentityKind.ETHEREUM, fixtures.bo.walletAddress)
-        val notOnNetworkPublicIdentity =
-            PublicIdentity(IdentityKind.ETHEREUM, notOnNetwork.getPrivateKey().walletAddress)
-
-        val canMessageList =
-            runBlocking {
-                Client.canMessage(
-                    listOf(alixPublicIdentity, notOnNetworkPublicIdentity, boPublicIdentity),
-                    localApi(),
-                )
-            }
-
-        val expectedResults =
-            mapOf(
-                alixPublicIdentity to true,
-                notOnNetworkPublicIdentity to false,
-                boPublicIdentity to true,
+            val signer = createWallet()
+            val options = createClientOptions()
+            val original = client(signer, options)
+            val group = original.conversations().createGroup(listOf(fixtures.alixClient.inboxId()))
+            group.sendText("howdy")
+            val inbox = original.inboxId()
+            val groupId = group.id()
+            original.end()
+            val built =
+                trackClient(SDKClient.build(context, signer.identity(), options.copy(allowOffline = true), inbox))
+            assertEquals(inbox, built.inboxId())
+            assertEquals(
+                groupId,
+                (checkNotNull(built.conversations().getById(groupId)) as Conversation.Group).group.id(),
             )
-
-        expectedResults.forEach { (id, expected) ->
-            assertEquals(expected, canMessageList[id.identifier])
+            val dm = fixtures.alixClient.conversations().createDm(built.inboxId())
+            dm.sendText("direct")
+            fixtures.boClient
+                .conversations()
+                .createGroup(listOf(built.inboxId()))
+                .sendText("group")
+            built.conversations().syncAll(null)
+            assertEquals(3, built.conversations().list().size)
         }
-    }
 
-    @Test
-    fun testStaticInboxIds() {
-        val fixtures = runBlocking { createFixtures() }
-        val states =
-            runBlocking {
-                Client.inboxStatesForInboxIds(
-                    listOf(fixtures.boClient.inboxId, fixtures.caroClient.inboxId),
-                    localApi(),
-                )
-            }
-        assertEquals(
-            states.first().recoveryPublicIdentity.identifier,
-            fixtures.boAccount.publicIdentity.identifier,
-        )
-        assertEquals(
-            states.last().recoveryPublicIdentity.identifier,
-            fixtures.caroAccount.publicIdentity.identifier,
-        )
-    }
-
-    @Test
-    fun testCanDeleteDatabase() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fakeWallet = PrivateKeyBuilder()
-        val fakeWallet2 = PrivateKeyBuilder()
-        var client =
-            runBlocking {
-                Client.create(
-                    account = fakeWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-        val client2 =
-            runBlocking {
-                Client.create(
-                    account = fakeWallet2,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-
+    // verifies: META-065
+    @Test fun testCreatesAClient() =
         runBlocking {
-            client.conversations.newGroup(listOf(client2.inboxId))
-            client.conversations.sync()
-            assertEquals(client.conversations.listGroups().size, 1)
-        }
-
-        assert(client.dbPath.isNotEmpty())
-        runBlocking { client.deleteLocalDatabase() }
-
-        client =
-            runBlocking {
-                Client.create(
-                    account = fakeWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
+            for (inMemory in listOf(false, true)) {
+                val signer = createWallet()
+                val initial = createClientOptions(localApi("Testing/0.0.0"))
+                val options =
+                    if (inMemory) {
+                        initial.copy(
+                            storage = StorageOptions(StorageLocation.InMemory),
+                        )
+                    } else {
+                        initial
+                    }
+                val created = client(signer, options)
+                assertEquals(true, created.canMessage(listOf(signer.identity()))[signer.identity().identifier])
+                assertTrue(created.installationId().isNotEmpty())
+                assertEquals(signer.identity(), created.identity())
+                assertEquals(inMemory, created.isInMemory())
+                assertEquals("Testing/0.0.0", created.appVersion())
+                assertNull(created.options().storage.encryptionKey)
+                val group = created.conversations().createGroup(emptyList<InboxId>())
+                val changed = CompletableDeferred<ClientEvent.ConversationMetadataChanged>()
+                val listener =
+                    created.startListener(
+                        EventFilter(listOf(EventKind.CONVERSATION_METADATA_CHANGED), listOf(group.id()), null, false),
+                        { event ->
+                            if (event is ClientEvent.ConversationMetadataChanged &&
+                                event.conversationId == group.id()
+                            ) {
+                                changed.complete(event)
+                            }
+                        },
+                    )
+                try {
+                    group.updateAppData("client-runtime-options", null)
+                    assertEquals(group.id(), withTimeout(5_000) { changed.await() }.conversationId)
+                    assertEquals("client-runtime-options", group.state().appData)
+                } finally {
+                    withContext(NonCancellable) { created.stopListener(listener) }
+                }
             }
-        runBlocking {
-            client.conversations.sync()
-            assertEquals(client.conversations.listGroups().size, 0)
         }
-    }
+
+    @Test fun testStaticCanMessage() =
+        runBlocking {
+            val fixtures = createFixtures()
+            val absent = createWallet().identity()
+            val values = SDKClient.canMessage(listOf(fixtures.alix, absent, fixtures.bo), backend())
+            assertEquals(true, values[fixtures.alix.identifier])
+            assertEquals(true, values[fixtures.bo.identifier])
+            assertEquals(false, values[absent.identifier])
+        }
+
+    @Test fun testStaticInboxIds() =
+        runBlocking {
+            val fixtures = createFixtures()
+            val states =
+                SDKClient.inboxStates(
+                    listOf(fixtures.boClient.inboxId(), fixtures.caroClient.inboxId()),
+                    backend(),
+                )
+            assertEquals(fixtures.bo, states.first().recoveryIdentity)
+            assertEquals(fixtures.caro, states.last().recoveryIdentity)
+        }
+
+    @Test fun testCanDeleteDatabase() =
+        runBlocking {
+            val signer = createWallet()
+            val options = createClientOptions()
+            val original = client(signer, options)
+            original.conversations().createGroup(emptyList<InboxId>())
+            assertEquals(1, original.conversations().listGroups(null).size)
+            val path = checkNotNull(original.storage().path())
+            original.storage().delete()
+            assertFalse(File(path).exists())
+            val replacement = client(signer, options)
+            assertTrue(replacement.conversations().listGroups(null).isEmpty())
+        }
 
     // verifies: IDENT-076
-    @Test
-    fun testPreAuthenticateToInboxCallback() {
-        val fakeWallet = PrivateKeyBuilder()
-        val expectation = CompletableFuture<Unit>()
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-
-        val preAuthenticateToInboxCallback: suspend () -> Unit = { expectation.complete(Unit) }
-
-        val opts =
-            ClientOptions(
-                localApi(),
-                preAuthenticateToInboxCallback = preAuthenticateToInboxCallback,
-                appContext = context,
-                dbEncryptionKey = key,
-            )
-
-        try {
-            runBlocking { Client.create(account = fakeWallet, options = opts) }
-            expectation.get(5, TimeUnit.SECONDS)
-        } catch (e: Exception) {
-            fail("Error: $e")
-        }
-    }
-
-    @Test
-    fun testCanDropReconnectDatabase() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fakeWallet = PrivateKeyBuilder()
-        val fakeWallet2 = PrivateKeyBuilder()
-        val boClient =
-            runBlocking {
-                Client.create(
-                    account = fakeWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-        val alixClient =
-            runBlocking {
-                Client.create(
-                    account = fakeWallet2,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-
+    @Test fun testPreAuthenticateToInboxCallback() =
         runBlocking {
-            boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            boClient.conversations.sync()
-        }
-
-        runBlocking { assertEquals(boClient.conversations.listGroups().size, 1) }
-
-        runBlocking { boClient.dropLocalDatabaseConnection() }
-
-        assertThrows(
-            "Client error: storage error: Pool needs to  reconnect before use",
-            FfiException::class.java,
-        ) { runBlocking { boClient.conversations.listGroups() } }
-
-        runBlocking { boClient.reconnectLocalDatabase() }
-
-        runBlocking { assertEquals(boClient.conversations.listGroups().size, 1) }
-    }
-
-    @Test
-    fun testCanGetAnInboxIdFromAddress() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val alixWallet = PrivateKeyBuilder()
-        val boWallet = PrivateKeyBuilder()
-        val alixClient =
-            runBlocking {
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-        val boClient =
-            runBlocking {
-                Client.create(
-                    account = boWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-        val boInboxId =
-            runBlocking {
-                alixClient.inboxIdFromIdentity(
-                    PublicIdentity(IdentityKind.ETHEREUM, boWallet.getPrivateKey().walletAddress),
-                )
-            }
-        assertEquals(boClient.inboxId, boInboxId)
-    }
-
-    @Test
-    fun testRevokesInstallations() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val alixWallet = PrivateKeyBuilder()
-
-        val alixClient =
-            runBlocking {
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-
-        val alixClient2 =
-            runBlocking {
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                            dbDirectory = context.filesDir.absolutePath.toString(),
-                        ),
-                )
-            }
-
-        val alixClient3 =
-            runBlocking {
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                            dbDirectory =
-                                File(context.filesDir.absolutePath, "xmtp_db3")
-                                    .toPath()
-                                    .toString(),
-                        ),
-                )
-            }
-
-        var state = runBlocking { alixClient3.inboxState(true) }
-        assertEquals(state.installations.size, 3)
-
-        runBlocking {
-            alixClient3.revokeInstallations(alixWallet, listOf(alixClient2.installationId))
-        }
-
-        state = runBlocking { alixClient3.inboxState(true) }
-        assertEquals(state.installations.size, 2)
-    }
-
-    @Test
-    fun testRevokesAllOtherInstallations() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val alixWallet = PrivateKeyBuilder()
-        runBlocking {
-            val alixClient =
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-
-            val alixClient2 =
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                            dbDirectory = context.filesDir.absolutePath.toString(),
-                        ),
-                )
-        }
-
-        val alixClient3 =
-            runBlocking {
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                            dbDirectory =
-                                File(context.filesDir.absolutePath, "xmtp_db3")
-                                    .toPath()
-                                    .toString(),
-                        ),
-                )
-            }
-
-        var state = runBlocking { alixClient3.inboxState(true) }
-        assertEquals(state.installations.size, 3)
-        assert(state.installations.first().createdAt != null)
-
-        runBlocking { alixClient3.revokeAllOtherInstallations(alixWallet) }
-
-        state = runBlocking { alixClient3.inboxState(true) }
-        assertEquals(state.installations.size, 1)
-    }
-
-    @Test
-    fun testsCanFindOthersInboxStates() {
-        val fixtures = runBlocking { createFixtures() }
-        val states =
-            runBlocking {
-                fixtures.alixClient.inboxStatesForInboxIds(
-                    true,
-                    listOf(fixtures.boClient.inboxId, fixtures.caroClient.inboxId),
-                )
-            }
-        assertEquals(states.first().recoveryPublicIdentity.identifier, fixtures.bo.walletAddress)
-        assertEquals(states.last().recoveryPublicIdentity.identifier, fixtures.caro.walletAddress)
-    }
-
-    @Test
-    fun testsCanSeeKeyPackageStatus() {
-        val fixtures = runBlocking { createFixtures() }
-        runBlocking { Client.connectToApiBackend(localApi()) }
-        val inboxState =
-            runBlocking {
-                Client
-                    .inboxStatesForInboxIds(
-                        listOf(fixtures.alixClient.inboxId),
-                        localApi(),
-                    ).first()
-            }
-        val installationIds = inboxState.installations.map { it.installationId }
-        val keyPackageStatus =
-            runBlocking {
-                Client.keyPackageStatusesForInstallationIds(
-                    installationIds,
-                    localApi(),
-                )
-            }
-        for (installationId: String in keyPackageStatus.keys) {
-            val thisKPStatus = keyPackageStatus.get(installationId)!!
-            val notBeforeDate =
-                thisKPStatus.lifetime?.notBefore?.let {
-                    java.time.Instant
-                        .ofEpochSecond(it.toLong())
-                        .toString()
-                }
-                    ?: "null"
-            val notAfterDate =
-                thisKPStatus.lifetime?.notAfter?.let {
-                    java.time.Instant
-                        .ofEpochSecond(it.toLong())
-                        .toString()
-                }
-                    ?: "null"
-            println(
-                "inst: " +
-                    installationId +
-                    " - valid from: " +
-                    notBeforeDate +
-                    " to: " +
-                    notAfterDate,
-            )
-            println("error code: " + thisKPStatus.validationError)
-            val notBefore = thisKPStatus.lifetime?.notBefore
-            val notAfter = thisKPStatus.lifetime?.notAfter
-            if (notBefore != null && notAfter != null) {
-                assertEquals((3600 * 24 * 28 * 3 + 3600).toULong(), notAfter - notBefore)
-            }
-        }
-    }
-
-    @Test
-    fun testsSignatures() {
-        val fixtures = runBlocking { createFixtures() }
-        val signature = fixtures.alixClient.signWithInstallationKey("Testing")
-        assertEquals(fixtures.alixClient.verifySignature("Testing", signature), true)
-        assertEquals(fixtures.alixClient.verifySignature("Not Testing", signature), false)
-
-        val alixInstallationId = fixtures.alixClient.installationId
-        assertEquals(
-            fixtures.alixClient.verifySignatureWithInstallationId(
-                "Testing",
-                signature,
-                alixInstallationId,
-            ),
-            true,
-        )
-        assertEquals(
-            fixtures.alixClient.verifySignatureWithInstallationId(
-                "Not Testing",
-                signature,
-                alixInstallationId,
-            ),
-            false,
-        )
-        assertEquals(
-            fixtures.alixClient.verifySignatureWithInstallationId(
-                "Testing",
-                signature,
-                fixtures.boClient.installationId,
-            ),
-            false,
-        )
-        assertEquals(
-            fixtures.boClient.verifySignatureWithInstallationId(
-                "Testing",
-                signature,
-                alixInstallationId,
-            ),
-            true,
-        )
-        runBlocking { fixtures.alixClient.deleteLocalDatabase() }
-
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val alixClient2 =
-            runBlocking {
-                Client.create(
-                    account = fixtures.alixAccount,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-
-        assertEquals(
-            alixClient2.verifySignatureWithInstallationId(
-                "Testing",
-                signature,
-                alixInstallationId,
-            ),
-            true,
-        )
-        assertEquals(
-            alixClient2.verifySignatureWithInstallationId(
-                "Testing2",
-                signature,
-                alixInstallationId,
-            ),
-            false,
-        )
-    }
-
-    @OptIn(DelicateApi::class)
-    @Test
-    fun testAddAccounts() {
-        val fixtures = runBlocking { createFixtures() }
-        val alix2Wallet = PrivateKeyBuilder()
-        val alix3Wallet = PrivateKeyBuilder()
-        runBlocking { fixtures.alixClient.addAccount(alix2Wallet) }
-        runBlocking { fixtures.alixClient.addAccount(alix3Wallet) }
-
-        val state = runBlocking { fixtures.alixClient.inboxState(true) }
-        assertEquals(state.installations.size, 1)
-        assertEquals(state.identities.size, 3)
-        assertEquals(
-            state.recoveryPublicIdentity.identifier,
-            fixtures.alixAccount.publicIdentity.identifier,
-        )
-        assertEquals(
-            state.identities.map { it.identifier }.sorted(),
-            listOf(
-                alix2Wallet.publicIdentity.identifier,
-                alix3Wallet.publicIdentity.identifier,
-                fixtures.alix.walletAddress,
-            ).sorted(),
-        )
-    }
-
-    @OptIn(DelicateApi::class)
-    @Test
-    fun testAddAccountsWithExistingInboxIds() {
-        val fixtures = runBlocking { createFixtures() }
-
-        assertThrows(
-            "This wallet is already associated with inbox ${fixtures.boClient.inboxId}",
-            XMTPException::class.java,
-        ) { runBlocking { fixtures.alixClient.addAccount(fixtures.boAccount) } }
-
-        assert(fixtures.boClient.inboxId != fixtures.alixClient.inboxId)
-        runBlocking { fixtures.alixClient.addAccount(fixtures.boAccount, true) }
-
-        val state = runBlocking { fixtures.alixClient.inboxState(true) }
-        assertEquals(state.identities.size, 2)
-
-        val inboxId =
-            runBlocking {
-                fixtures.alixClient.inboxIdFromIdentity(
-                    PublicIdentity(IdentityKind.ETHEREUM, fixtures.bo.walletAddress),
-                )
-            }
-        assertEquals(inboxId, fixtures.alixClient.inboxId)
-    }
-
-    @OptIn(DelicateApi::class)
-    @Test
-    fun testRemovingAccounts() {
-        val fixtures = runBlocking { createFixtures() }
-        val alix2Wallet = PrivateKeyBuilder()
-        val alix3Wallet = PrivateKeyBuilder()
-        runBlocking { fixtures.alixClient.addAccount(alix2Wallet) }
-        runBlocking { fixtures.alixClient.addAccount(alix3Wallet) }
-
-        var state = runBlocking { fixtures.alixClient.inboxState(true) }
-        assertEquals(state.identities.size, 3)
-        assertEquals(
-            state.recoveryPublicIdentity.identifier,
-            fixtures.alixAccount.publicIdentity.identifier,
-        )
-
-        runBlocking {
-            fixtures.alixClient.removeAccount(
-                fixtures.alixAccount,
-                PublicIdentity(IdentityKind.ETHEREUM, alix2Wallet.getPrivateKey().walletAddress),
-            )
-        }
-        state = runBlocking { fixtures.alixClient.inboxState(true) }
-        assertEquals(state.identities.size, 2)
-        assertEquals(state.recoveryPublicIdentity.identifier, fixtures.alix.walletAddress)
-        assertEquals(
-            state.identities.map { it.identifier }.sorted(),
-            listOf(
-                alix3Wallet.getPrivateKey().walletAddress,
-                fixtures.alixAccount.publicIdentity.identifier,
-            ).sorted(),
-        )
-        assertEquals(state.installations.size, 1)
-
-        // Cannot remove the recovery address
-        assertThrows("Client error: Unknown Signer", FfiException::class.java) {
-            runBlocking {
-                fixtures.alixClient.removeAccount(alix3Wallet, fixtures.alixAccount.publicIdentity)
-            }
-        }
-    }
-
-    @Test
-    fun testErrorsIfDbEncryptionKeyIsLost() {
-        val key = SecureRandom().generateSeed(32)
-        val badKey = SecureRandom().generateSeed(32)
-
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val alixWallet = PrivateKeyBuilder()
-
-        val alixClient =
-            runBlocking {
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-
-        assertThrows(
-            "Error creating V3 client: Storage error: PRAGMA key or salt has incorrect value",
-            XMTPException::class.java,
-        ) {
-            runBlocking {
-                Client.build(
-                    publicIdentity =
-                        PublicIdentity(
-                            IdentityKind.ETHEREUM,
-                            alixWallet.getPrivateKey().walletAddress,
-                        ),
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = badKey,
-                        ),
-                )
-            }
-        }
-
-        assertThrows(
-            "Error creating V3 client: Storage error: PRAGMA key or salt has incorrect value",
-            XMTPException::class.java,
-        ) {
-            runBlocking {
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = badKey,
-                        ),
-                )
-            }
-        }
-    }
-
-    @Test
-    fun testCreatesAClientManually() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fakeWallet = PrivateKeyBuilder()
-        val options =
-            ClientOptions(
-                localApi(),
-                appContext = context,
-                dbEncryptionKey = key,
-            )
-        val inboxId =
-            runBlocking {
-                Client.getOrCreateInboxId(options.api, fakeWallet.publicIdentity)
-            }
-        val client = runBlocking { Client.ffiCreateClient(fakeWallet.publicIdentity, options) }
-        runBlocking {
-            val sigRequest = client.ffiSignatureRequest()
-            sigRequest?.let { signatureRequest ->
-                signatureRequest.addEcdsaSignature(
-                    fakeWallet.sign(signatureRequest.signatureText()).rawData,
-                )
-                client.ffiRegisterIdentity(signatureRequest)
-            }
-        }
-        runBlocking {
-            client
-                .canMessage(listOf(fakeWallet.publicIdentity))[
-                fakeWallet.publicIdentity.identifier,
-            ]?.let { assert(it) }
-        }
-        assert(client.installationId.isNotEmpty())
-        assertEquals(inboxId, client.inboxId)
-    }
-
-    @Test
-    fun testCanManageAddRemoveManually() =
-        runBlocking {
-            val key = SecureRandom().generateSeed(32)
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val alixWallet = PrivateKeyBuilder()
-            val boWallet = PrivateKeyBuilder()
-
+            val called = CompletableDeferred<Unit>()
             val options =
-                ClientOptions(
-                    localApi(),
-                    appContext = context,
-                    dbEncryptionKey = key,
+                createClientOptions().copy(
+                    handlers =
+                        ClientHandlers(
+                            object : PreAuthenticate {
+                                override suspend fun run() {
+                                    called.complete(Unit)
+                                }
+                            },
+                        ),
                 )
-
-            val alix = Client.create(alixWallet, options)
-
-            var inboxState = alix.inboxState(true)
-            assertEquals(1, inboxState.identities.size)
-
-            val sigRequest = alix.ffiAddIdentity(boWallet.publicIdentity)
-            val signedMessage = boWallet.sign(sigRequest.signatureText()).rawData
-
-            sigRequest.addEcdsaSignature(signedMessage)
-            alix.ffiApplySignatureRequest(sigRequest)
-
-            inboxState = alix.inboxState(true)
-            assertEquals(2, inboxState.identities.size)
-
-            val sigRequest2 = alix.ffiRevokeIdentity(boWallet.publicIdentity)
-            val signedMessage2 = alixWallet.sign(sigRequest2.signatureText()).rawData
-
-            sigRequest2.addEcdsaSignature(signedMessage2)
-            alix.ffiApplySignatureRequest(sigRequest2)
-
-            inboxState = alix.inboxState(true)
-            assertEquals(1, inboxState.identities.size)
+            client(createWallet(), options)
+            withTimeout(5_000) { called.await() }
         }
 
-    @Test
-    fun testCanManageRevokeManually() =
+    @Test fun testCanDropReconnectDatabase() =
         runBlocking {
-            val key = SecureRandom().generateSeed(32)
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val alixWallet = PrivateKeyBuilder()
-            val alix =
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-
-            val alix2 =
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                            dbDirectory = context.filesDir.absolutePath.toString(),
-                        ),
-                )
-            val alix3 =
-                runBlocking {
-                    Client.create(
-                        account = alixWallet,
-                        options =
-                            ClientOptions(
-                                localApi(),
-                                appContext = context,
-                                dbEncryptionKey = key,
-                                dbDirectory =
-                                    File(context.filesDir.absolutePath, "xmtp_db3")
-                                        .toPath()
-                                        .toString(),
-                            ),
+            val signer = createWallet()
+            val options = createClientOptions()
+            val original = client(signer, options)
+            val group = original.conversations().createGroup(emptyList<InboxId>())
+            group.sendText("stored")
+            original.end()
+            assertTrue(
+                runCatching {
+                    original.conversations().listGroups(
+                        null,
                     )
-                }
-
-            var inboxState = alix3.inboxState(true)
-            assertEquals(inboxState.installations.size, 3)
-
-            val sigText = alix.ffiRevokeInstallations(listOf(alix2.installationId.hexToByteArray()))
-            val signedMessage = alixWallet.sign(sigText.signatureText()).rawData
-
-            sigText.addEcdsaSignature(signedMessage)
-            alix.ffiApplySignatureRequest(sigText)
-
-            inboxState = alix.inboxState(true)
-            assertEquals(2, inboxState.installations.size)
-
-            val sigText2 = alix.ffiRevokeAllOtherInstallations()
-            val signedMessage2 = alixWallet.sign(sigText2!!.signatureText()).rawData
-
-            sigText2.addEcdsaSignature(signedMessage2)
-            alix.ffiApplySignatureRequest(sigText2)
-
-            inboxState = alix.inboxState(true)
-            assertEquals(1, inboxState.installations.size)
-        }
-
-    @Test
-    fun testPersistentLogging() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        Client.clearXMTPLogs(context)
-        val fakeWallet = PrivateKeyBuilder()
-
-        // Create a specific log directory for this test
-        val logDirectory = File(context.filesDir, "xmtp_test_logs")
-        if (logDirectory.exists()) {
-            logDirectory.deleteRecursively()
-        }
-        logDirectory.mkdirs()
-
-        try {
-            // Activate persistent logging with a small number of log files
-            Client.activatePersistentLibXMTPLogWriter(
-                context,
-                FfiLogLevel.TRACE,
-                FfiLogRotation.HOURLY,
-                3,
+                }.exceptionOrNull() is XmtpException.ClientClosed,
             )
-
-            // Log the actual log directory path
-            val actualLogDir = File(context.filesDir, "xmtp_logs")
-            println("Log directory path: ${actualLogDir.absolutePath}")
-
-            // Create a client
-            val client =
-                runBlocking {
-                    Client.create(
-                        account = fakeWallet,
-                        options =
-                            ClientOptions(
-                                localApi(),
-                                appContext = context,
-                                dbEncryptionKey = key,
-                            ),
-                    )
-                }
-
-            // Create a group with only the client as a member
-            runBlocking {
-                client.conversations.newGroup(emptyList())
-                client.conversations.sync()
-            }
-
-            // Verify the group was created
-            val groups = runBlocking { client.conversations.listGroups() }
-            assertEquals(1, groups.size)
-
-            // Deactivate logging
-            Client.deactivatePersistentLibXMTPLogWriter()
-
-            // Print log files content to console
-            val logFiles = File(context.filesDir, "xmtp_logs").listFiles()
-            println("Found ${logFiles?.size ?: 0} log files:")
-
-            logFiles?.forEach { file ->
-                println("\n--- Log file: ${file.absolutePath} (${file.length()} bytes) ---")
-                try {
-                    val content = file.readText()
-                    // Print first 1000 chars to avoid overwhelming the console
-                    println(
-                        content.take(1000) +
-                            (if (content.length > 1000) "...(truncated)" else ""),
-                    )
-                } catch (e: Exception) {
-                    println("Error reading log file: ${e.message}")
-                }
-            }
-        } finally {
-            // Make sure logging is deactivated
-            Client.deactivatePersistentLibXMTPLogWriter()
-        }
-        val logFiles = Client.getXMTPLogFilePaths(context)
-        assertEquals(logFiles.size, 1)
-        println(logFiles.get(0))
-        Client.clearXMTPLogs(context)
-        val logFiles2 = Client.getXMTPLogFilePaths(context)
-        assertEquals(logFiles2.size, 0)
-    }
-
-    @Test
-    fun testNetworkDebugInformation() =
-        runBlocking {
-            val wallet = PrivateKeyBuilder()
-            val api = localApi(appVersion = "stats/${UUID.randomUUID()}")
-            // Disable scheduled workers. Receiver work and retries still count as RPC attempts.
-            val ffi =
-                ffiCreateClient(
-                    api = Client.connectToApiBackend(api),
-                    db = DbOptions(db = null, encryptionKey = null, maxDbPoolSize = null, minDbPoolSize = null),
-                    accountIdentifier = wallet.publicIdentity.ffiPrivate,
-                    inboxId = generateInboxId(wallet.publicIdentity.ffiPrivate, 0uL),
-                    nonce = 0uL,
-                    deviceSyncMode = FfiDeviceSyncMode.DISABLED,
-                    allowOffline = false,
-                    forkRecoveryOpts = null,
-                    workerConfig =
-                        FfiWorkerConfig(
-                            defaultIntervalNs = null,
-                            workerIntervalsNs = emptyList(),
-                            workerJittersNs = emptyList(),
-                            disabledWorkers = FfiWorkerKind.entries.toList(),
-                        ),
-                    changeCallbacks = null,
-                )
-            val alix =
-                Client(
-                    ffi,
-                    Client.IN_MEMORY_DB_PATH,
-                    ffi.installationId().toHex(),
-                    ffi.inboxId(),
-                    api.env,
-                    wallet.publicIdentity,
-                )
-            val signature = requireNotNull(alix.ffiSignatureRequest())
-            signature.addEcdsaSignature(wallet.sign(signature.signatureText()).rawData)
-            alix.ffiRegisterIdentity(signature)
-            alix.debugInformation.clearAllStatistics()
-            val resetApiStats = alix.debugInformation.apiStatistics
-            assertEquals("Reset Publish attempts", 0L, resetApiStats.publish)
-            assertEquals("Reset Query attempts", 0L, resetApiStats.query)
-            assertEquals("Reset QueryNewest attempts", 0L, resetApiStats.queryNewest)
-            assertEquals("Reset Subscribe attempts", 0L, resetApiStats.subscribe)
-            assertEquals("Reset SubscribeStatic attempts", 0L, resetApiStats.subscribeStatic)
-            val resetIdentityStats = alix.debugInformation.identityStatistics
-            assertEquals("Reset GetInboxIds attempts", 0L, resetIdentityStats.getInboxIds)
+            val reopened = trackClient(SDKClient.build(context, signer.identity(), options))
+            reopened.storage().reconnect()
             assertEquals(
-                "Reset VerifySmartContractWalletSignatures attempts",
-                0L,
-                resetIdentityStats.verifySmartContractWalletSignatures,
+                group.id(),
+                reopened
+                    .conversations()
+                    .listGroups(null)
+                    .single()
+                    .id(),
             )
+        }
 
-            alix.conversations.sync()
-            val syncStats = alix.debugInformation.apiStatistics
-            assertEquals("Empty Welcome sync does not publish", 0L, syncStats.publish)
-            assertTrue("Welcome sync captures a newest target", syncStats.queryNewest > 0L)
-            assertTrue("Native Welcome sync opens Subscribe", syncStats.subscribe > 0L)
-            assertEquals("Native Welcome sync does not open SubscribeStatic", 0L, syncStats.subscribeStatic)
+    @Test fun testCanGetAnInboxIdFromAddress() =
+        runBlocking {
+            val fixtures = createFixtures()
+            assertEquals(fixtures.boClient.inboxId(), fixtures.alixClient.inboxIdFor(fixtures.bo))
+        }
 
-            val job =
-                launch(Dispatchers.IO) {
-                    alix.conversations.streamAllMessages().collect {}
-                }
+    @Test fun testRevokesInstallations() =
+        runBlocking {
+            val signer = createWallet()
+            val clients = List(3) { client(signer) }
+            assertEquals(
+                3,
+                clients
+                    .last()
+                    .inboxState(true)
+                    .installations.size,
+            )
+            clients.last().revokeInstallations(signer, listOf(clients[1].installationId()))
+            val state = clients.last().inboxState(true)
+            assertEquals(2, state.installations.size)
+            assertFalse(state.installations.any { it.id == clients[1].installationId() })
+        }
+
+    @Test fun testRevokesAllOtherInstallations() =
+        runBlocking {
+            val signer = createWallet()
+            val clients = List(3) { client(signer) }
+            clients.last().revokeAllOtherInstallations(signer)
+            assertEquals(
+                listOf(clients.last().installationId()),
+                clients
+                    .last()
+                    .inboxState(true)
+                    .installations
+                    .map { it.id },
+            )
+        }
+
+    @Test fun testsCanFindOthersInboxStates() =
+        runBlocking {
+            val fixtures = createFixtures()
+            val states =
+                fixtures.alixClient.inboxStates(
+                    listOf(fixtures.boClient.inboxId(), fixtures.caroClient.inboxId()),
+                    true,
+                )
+            assertEquals(fixtures.bo, states.first().recoveryIdentity)
+            assertEquals(fixtures.caro, states.last().recoveryIdentity)
+        }
+
+    @Test fun testsCanSeeKeyPackageStatus() =
+        runBlocking {
+            val fixtures = createFixtures()
+            val ids =
+                fixtures.alixClient
+                    .inboxState(true)
+                    .installations
+                    .map { it.id }
+            val statuses = SDKClient.keyPackageStatuses(ids, backend())
+            assertEquals(ids.toSet(), statuses.keys.toSet())
+            for (status in statuses.values) {
+                assertNull(status.validationError)
+                val lifetime = checkNotNull(status.lifetime)
+                assertEquals((3600 * 24 * 28 * 3 + 3600).toULong(), lifetime.notAfter - lifetime.notBefore)
+            }
+        }
+
+    @Test fun testsSignatures() =
+        runBlocking {
+            val fixtures = createFixtures()
+            val signature = fixtures.alixClient.signWithInstallationKey("Testing")
+            assertTrue(fixtures.alixClient.verifySignedWithInstallationKey("Testing", signature))
+            assertFalse(fixtures.alixClient.verifySignedWithInstallationKey("Not Testing", signature))
+            val publicKey = fixtures.alixClient.installationIdBytes()
+            assertTrue(SDKClient.verifySignedWithPublicKey("Testing", signature, publicKey))
+            assertFalse(SDKClient.verifySignedWithPublicKey("Not Testing", signature, publicKey))
+            assertFalse(
+                SDKClient.verifySignedWithPublicKey("Testing", signature, fixtures.boClient.installationIdBytes()),
+            )
+            fixtures.alixClient.storage().delete()
+            val replacement = client(fixtures.alixAccount)
+            assertTrue(SDKClient.verifySignedWithPublicKey("Testing", signature, publicKey))
+            assertNotEquals(publicKey.toHex(), replacement.installationIdBytes().toHex())
+        }
+
+    @Test fun testAddAccounts() =
+        runBlocking {
+            val fixtures = createFixtures()
+            val second = createWallet()
+            val third = createWallet()
+            fixtures.alixClient.unsafeAddAccount(second, false)
+            fixtures.alixClient.unsafeAddAccount(third, false)
+            val state = fixtures.alixClient.inboxState(true)
+            assertEquals(1, state.installations.size)
+            assertEquals(setOf(fixtures.alix, second.identity(), third.identity()), state.identities.toSet())
+            assertEquals(fixtures.alix, state.recoveryIdentity)
+        }
+
+    @Test fun testAddAccountsWithExistingInboxIds() =
+        runBlocking {
+            val fixtures = createFixtures()
+            assertTrue(
+                runCatching {
+                    fixtures.alixClient.unsafeAddAccount(fixtures.boAccount, false)
+                }.exceptionOrNull() is XmtpException,
+            )
+            assertNotEquals(fixtures.alixClient.inboxId(), fixtures.boClient.inboxId())
+            fixtures.alixClient.unsafeAddAccount(fixtures.boAccount, true)
+            assertEquals(
+                2,
+                fixtures.alixClient
+                    .inboxState(true)
+                    .identities.size,
+            )
+            assertEquals(fixtures.alixClient.inboxId(), fixtures.alixClient.inboxIdFor(fixtures.bo))
+        }
+
+    @Test fun testRemovingAccounts() =
+        runBlocking {
+            val fixtures = createFixtures()
+            val second = createWallet()
+            val third = createWallet()
+            fixtures.alixClient.unsafeAddAccount(second, false)
+            fixtures.alixClient.unsafeAddAccount(third, false)
+            fixtures.alixClient.removeAccount(fixtures.alixAccount, second.identity())
+            val state = fixtures.alixClient.inboxState(true)
+            assertEquals(setOf(fixtures.alix, third.identity()), state.identities.toSet())
+            assertEquals(fixtures.alix, state.recoveryIdentity)
+            assertEquals(1, state.installations.size)
+            assertTrue(
+                runCatching {
+                    fixtures.alixClient.removeAccount(
+                        third,
+                        fixtures.alix,
+                    )
+                }.exceptionOrNull() is XmtpException,
+            )
+        }
+
+    @Test fun testErrorsIfDbEncryptionKeyIsLost() =
+        runBlocking {
+            val signer = createWallet()
+            val options = createClientOptions()
+            client(signer, options).end()
+            val bad = options.copy(storage = options.storage.copy(encryptionKey = SecureRandom().generateSeed(32)))
+            assertTrue(
+                runCatching { SDKClient.build(context, signer.identity(), bad) }.exceptionOrNull() is XmtpException,
+            )
+            assertTrue(runCatching { SDKClient.create(context, signer, bad) }.exceptionOrNull() is XmtpException)
+            assertEquals(
+                signer.identity(),
+                trackClient(SDKClient.build(context, signer.identity(), options)).identity(),
+            )
+        }
+
+    @Test fun testCreatesAClientManually() =
+        runBlocking {
+            val signer = createWallet()
+            val created = client(signer, createClientOptions().copy(registration = RegistrationOptions(auto = false)))
+            assertFalse(created.isRegistered())
+            val request = checkNotNull(created.unsafeCreateInboxSignatureRequest())
+            request.sign(signer)
+            created.unsafeApplySignatureRequest(request)
+            assertTrue(created.isRegistered())
+            assertEquals(true, created.canMessage(listOf(signer.identity()))[signer.identity().identifier])
+            assertTrue(created.installationId().isNotEmpty())
+        }
+
+    @Test fun testCanManageAddRemoveManually() =
+        runBlocking {
+            val signer = createWallet()
+            val other = createWallet()
+            val created = client(signer)
+            val add = created.unsafeAddAccountSignatureRequest(other.identity(), false)
+            add.sign(other)
+            created.unsafeApplySignatureRequest(add)
+            assertEquals(2, created.inboxState(true).identities.size)
+            val remove = created.unsafeRemoveAccountSignatureRequest(other.identity())
+            remove.sign(signer)
+            created.unsafeApplySignatureRequest(remove)
+            assertEquals(listOf(signer.identity()), created.inboxState(true).identities)
+        }
+
+    @Test fun testCanManageRevokeManually() =
+        runBlocking {
+            val signer = createWallet()
+            val clients = List(3) { client(signer) }
+            val request = clients.last().unsafeRevokeInstallationsSignatureRequest(listOf(clients[1].installationId()))
+            request.sign(signer)
+            clients.last().unsafeApplySignatureRequest(request)
+            assertEquals(
+                2,
+                clients
+                    .last()
+                    .inboxState(true)
+                    .installations.size,
+            )
+            val all = checkNotNull(clients.last().unsafeRevokeAllOtherInstallationsSignatureRequest())
+            all.sign(signer)
+            clients.last().unsafeApplySignatureRequest(all)
+            assertEquals(
+                1,
+                clients
+                    .last()
+                    .inboxState(true)
+                    .installations.size,
+            )
+        }
+
+    @Test fun testPersistentLogging() =
+        runBlocking {
+            SDKClient.clearXMTPLogs(context)
+            SDKClient.activatePersistentLibXMTPLogWriter(context, LogLevel.TRACE, LogRotation.HOURLY, 3u)
             try {
-                withTimeout(5_000) {
-                    while (alix.debugInformation.apiStatistics.subscribe <= 0L) {
-                        delay(10)
-                    }
-                }
-                val liveStats = alix.debugInformation.apiStatistics
-                assertTrue("A live stream records Subscribe attempts", liveStats.subscribe > 0L)
-                alix.inboxState(true)
-                val beforeGroup = alix.debugInformation.apiStatistics
-                assertTrue("Inbox refresh records Query attempts", beforeGroup.query > liveStats.query)
-
-                val group = alix.conversations.newGroup(emptyList())
-                val afterGroup = alix.debugInformation.apiStatistics
-                assertTrue("Group creation records Publish attempts", afterGroup.publish > beforeGroup.publish)
-                assertTrue("Group sync records QueryNewest attempts", afterGroup.queryNewest > beforeGroup.queryNewest)
-                group.send("hi")
-                val apiStats = alix.debugInformation.apiStatistics
-                assertTrue("Message send records Publish attempts", apiStats.publish > afterGroup.publish)
-                assertTrue("Live delivery records Subscribe attempts", apiStats.subscribe > 0L)
-                assertEquals("Native delivery does not use SubscribeStatic", 0L, apiStats.subscribeStatic)
-
-                val identityStats = alix.debugInformation.identityStatistics
-                assertEquals("Known inbox IDs do not need GetInboxIds", 0L, identityStats.getInboxIds)
-                assertEquals(
-                    "An EOA does not need VerifySmartContractWalletSignatures",
-                    0L,
-                    identityStats.verifySmartContractWalletSignatures,
-                )
-                assertTrue("Aggregate statistics are exposed", alix.debugInformation.aggregateStatistics.isNotEmpty())
+                val created = client(createWallet())
+                created.conversations().createGroup(emptyList<InboxId>())
+                created.conversations().sync()
             } finally {
-                withContext(NonCancellable) { job.cancelAndJoin() }
+                SDKClient.deactivatePersistentLibXMTPLogWriter()
             }
+            val files = SDKClient.getXMTPLogFilePaths(context)
+            assertEquals(1, files.size)
+            assertTrue(File(files.single()).length() > 0)
+            SDKClient.clearXMTPLogs(context)
+            assertTrue(SDKClient.getXMTPLogFilePaths(context).isEmpty())
         }
 
-    @Test
-    fun testCannotCreateMoreThan10Installations() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val encryptionKey = SecureRandom().generateSeed(32)
-        val wallet = PrivateKeyBuilder()
-
-        val clients = mutableListOf<Client>()
-
-        repeat(10) { i ->
-            val client =
-                runBlocking {
-                    Client.create(
-                        account = wallet,
-                        options =
-                            ClientOptions(
-                                localApi(),
-                                appContext = context,
-                                dbEncryptionKey = encryptionKey,
-                                dbDirectory =
-                                    File(context.filesDir, "xmtp_db_$i").absolutePath,
-                            ),
-                    )
-                }
-            clients.add(client)
-        }
-
-        val state = runBlocking { clients.first().inboxState(true) }
-        assertEquals(10, state.installations.size)
-
-        // Attempt to create a 6th installation, should fail
-        assertThrows(
-            "Error creating V3 client: Client builder error: Cannot register a new installation because the InboxID ${clients[0].inboxId} has already registered 10/10 installations. Please revoke existing installations first.",
-            XMTPException::class.java,
-        ) {
-            runBlocking {
-                Client.create(
-                    account = wallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = encryptionKey,
-                            dbDirectory =
-                                File(context.filesDir, "xmtp_db_10").absolutePath,
-                        ),
-                )
-            }
-        }
-
-        val boWallet = PrivateKeyBuilder()
-        val boClient =
-            runBlocking {
-                Client.create(
-                    account = boWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = SecureRandom().generateSeed(32),
-                            dbDirectory = File(context.filesDir, "xmtp_bo").absolutePath,
-                        ),
-                )
-            }
-
-        val group = runBlocking { boClient.conversations.newGroup(listOf(clients[2].inboxId)) }
-
-        val members = runBlocking { group.members() }
-        val alixMember = members.find { it.inboxId == clients.first().inboxId }
-        assertNotNull(alixMember)
-        val inboxState =
-            runBlocking {
-                boClient.inboxStatesForInboxIds(true, listOf(alixMember!!.inboxId))
-            }
-        assertEquals(10, inboxState.first().installations.size)
-
+    @Test fun testNetworkDebugInformation() =
         runBlocking {
-            clients.first().revokeInstallations(wallet, listOf(clients[9].installationId))
+            val workers = WorkerOptions(intervals = WorkerKind.entries.map { WorkerInterval(it, null, null, false) })
+            val created =
+                client(
+                    createWallet(),
+                    createClientOptions(
+                        localApi("stats/${UUID.randomUUID()}"),
+                        deviceSyncEnabled = false,
+                    ).copy(workers = workers),
+                )
+            created.diagnostics().clearStatistics()
+            val reset = created.diagnostics().apiStatistics()
+            assertEquals(ApiStats(0uL, 0uL, 0uL, 0uL, 0uL), reset)
+            assertEquals(IdentityStats(0uL, 0uL), created.diagnostics().identityStatistics())
+            created.conversations().sync()
+            val synced = created.diagnostics().apiStatistics()
+            assertEquals(0uL, synced.publish)
+            assertTrue(synced.queryNewest > 0uL)
+            assertTrue(synced.subscribe > 0uL)
+            assertEquals(0uL, synced.subscribeStatic)
+            val stream = launch { created.messages().collect {} }
+            try {
+                created.inboxState(true)
+                val before = created.diagnostics().apiStatistics()
+                assertTrue(before.query > synced.query)
+                val group = created.conversations().createGroup(emptyList<InboxId>())
+                val after = created.diagnostics().apiStatistics()
+                assertTrue(after.publish > before.publish)
+                assertTrue(after.queryNewest > before.queryNewest)
+                group.sendText("hi")
+                val sent = created.diagnostics().apiStatistics()
+                assertTrue(sent.publish > after.publish)
+                assertTrue(sent.subscribe > 0uL)
+                assertEquals(0uL, sent.subscribeStatic)
+                assertTrue(created.diagnostics().aggregateStatistics().isNotEmpty())
+            } finally {
+                withContext(NonCancellable) { stream.cancelAndJoin() }
+            }
         }
 
-        val stateAfterRevoke = runBlocking { clients.first().inboxState(true) }
-        assertEquals(9, stateAfterRevoke.installations.size)
-
+    @Test fun testCannotCreateMoreThan10Installations() =
         runBlocking {
-            Client.create(
-                account = wallet,
-                options =
-                    ClientOptions(
-                        localApi(),
-                        appContext = context,
-                        dbEncryptionKey = encryptionKey,
-                        dbDirectory = File(context.filesDir, "xmtp_db_11").absolutePath,
-                    ),
+            val signer = createWallet()
+            val clients = List(10) { client(signer) }
+            assertEquals(
+                10,
+                clients
+                    .first()
+                    .inboxState(true)
+                    .installations.size,
             )
-        }
-        val updatedState = runBlocking { clients.first().inboxState(true) }
-        assertEquals(10, updatedState.installations.size)
-    }
-
-    @Test
-    fun testStaticRevokeOneOfFiveInstallations() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val wallet = PrivateKeyBuilder()
-        val encryptionKey = SecureRandom().generateSeed(32)
-
-        val clients = mutableListOf<Client>()
-        repeat(5) { i ->
-            val client =
-                runBlocking {
-                    Client.create(
-                        account = wallet,
-                        options =
-                            ClientOptions(
-                                localApi(),
-                                appContext = context,
-                                dbEncryptionKey = encryptionKey,
-                                dbDirectory =
-                                    File(context.filesDir, "xmtp_db_$i").absolutePath,
-                            ),
-                    )
-                }
-            clients.add(client)
-        }
-
-        var state = runBlocking { clients.last().inboxState(true) }
-        assertEquals(5, state.installations.size)
-
-        val toRevokeId = clients[1].installationId
-        runBlocking {
-            Client.revokeInstallations(
-                localApi(),
-                wallet,
-                clients.first().inboxId,
-                listOf(toRevokeId),
+            assertTrue(runCatching { client(signer) }.exceptionOrNull() is XmtpException)
+            val other = client(createWallet())
+            val group = other.conversations().createGroup(listOf(clients.first().inboxId()))
+            assertTrue(group.members().any { it.inboxId == clients.first().inboxId() })
+            assertEquals(
+                10,
+                other
+                    .inboxStates(listOf(clients.first().inboxId()), true)
+                    .single()
+                    .installations.size,
+            )
+            clients.first().revokeInstallations(signer, listOf(clients.last().installationId()))
+            assertEquals(
+                9,
+                clients
+                    .first()
+                    .inboxState(true)
+                    .installations.size,
+            )
+            client(signer)
+            assertEquals(
+                10,
+                clients
+                    .first()
+                    .inboxState(true)
+                    .installations.size,
             )
         }
 
-        state = runBlocking { clients.last().inboxState(true) }
-        assertEquals(4, state.installations.size)
-        val remainingIds = state.installations.map { it.installationId }
-        assertFalse(remainingIds.contains(toRevokeId))
-    }
-
-    @Test
-    fun testStaticRevokeInstallationsManually() =
+    @Test fun testStaticRevokeOneOfFiveInstallations() =
         runBlocking {
-            val key = SecureRandom().generateSeed(32)
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val alixWallet = PrivateKeyBuilder()
-            val apiOptions = localApi()
-            val alix =
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            apiOptions,
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
+            val signer = createWallet()
+            val clients = List(5) { client(signer) }
+            val removed = clients[1].installationId()
+            SDKClient.revokeInstallations(signer, clients.first().inboxId(), listOf(removed), backend())
+            val state = clients.last().inboxState(true)
+            assertEquals(4, state.installations.size)
+            assertFalse(state.installations.any { it.id == removed })
+        }
 
-            val alix2 =
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            apiOptions,
-                            appContext = context,
-                            dbEncryptionKey = key,
-                            dbDirectory = context.filesDir.absolutePath.toString(),
-                        ),
-                )
-            val alix3 =
-                runBlocking {
-                    Client.create(
-                        account = alixWallet,
-                        options =
-                            ClientOptions(
-                                apiOptions,
-                                appContext = context,
-                                dbEncryptionKey = key,
-                                dbDirectory =
-                                    File(context.filesDir.absolutePath, "xmtp_db3")
-                                        .toPath()
-                                        .toString(),
-                            ),
-                    )
-                }
-
-            var inboxState = alix3.inboxState(true)
-            assertEquals(inboxState.installations.size, 3)
-
-            val sigText =
-                ffiRevokeInstallations(
-                    apiOptions,
-                    alixWallet.publicIdentity,
-                    alix.inboxId,
-                    listOf(alix2.installationId),
-                )
-            val signedMessage = alixWallet.sign(sigText.signatureText()).rawData
-
-            sigText.addEcdsaSignature(signedMessage)
-            ffiApplySignatureRequest(apiOptions, sigText)
-
-            inboxState = alix.inboxState(true)
-            assertEquals(2, inboxState.installations.size)
+    @Test fun testStaticRevokeInstallationsManually() =
+        runBlocking {
+            val signer = createWallet()
+            val clients = List(3) { client(signer) }
+            val request = clients.first().unsafeRevokeInstallationsSignatureRequest(listOf(clients[1].installationId()))
+            request.sign(signer)
+            clients.last().unsafeApplySignatureRequest(request)
+            assertEquals(
+                2,
+                clients
+                    .last()
+                    .inboxState(true)
+                    .installations.size,
+            )
         }
 }

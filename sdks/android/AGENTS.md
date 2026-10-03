@@ -8,6 +8,8 @@ lifecycle, and file log helpers.
 
 Run from the repository root. Each recipe uses the Android Nix shell.
 Build tools use normal parallelism and preserve caller job settings.
+The format recipe uses strict dependency verification and stops its Gradle daemon.
+The dependency locks include the pinned Spotless formatter graph.
 
 ```bash
 dev/nix-shell 'just android build'

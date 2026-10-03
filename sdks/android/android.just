@@ -22,7 +22,7 @@ lint: build
 
 # Format Kotlin code
 format:
-  ./gradlew -p . spotlessApply
+  ./gradlew -p . spotlessApply --dependency-verification=strict --no-daemon
 
 # Run unit tests
 test: build

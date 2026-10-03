@@ -1,189 +1,102 @@
 package org.xmtp.android.library
 
-import com.google.protobuf.kotlin.toByteStringUtf8
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert
-import org.junit.Ignore
+import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
-import org.xmtp.android.library.codecs.Attachment
-import org.xmtp.android.library.codecs.AttachmentCodec
-import org.xmtp.android.library.codecs.ContentTypeAttachment
-import org.xmtp.android.library.codecs.ContentTypeRemoteAttachment
-import org.xmtp.android.library.codecs.RemoteAttachment
-import org.xmtp.android.library.codecs.RemoteAttachmentCodec
-import org.xmtp.android.library.codecs.decoded
-import org.xmtp.android.library.codecs.id
-import java.io.File
+import org.junit.rules.TemporaryFolder
+import uniffi.xmtp_sdk.*
 import java.net.URL
 
 class RemoteAttachmentTest {
-    @Test
-    fun testEncryptedContentShouldBeDecryptable() {
-        Client.register(codec = AttachmentCodec())
-        val attachment =
-            Attachment(
-                filename = "test.txt",
-                mimeType = "text/plain",
-                data = "hello world".toByteStringUtf8(),
-            )
+    @get:Rule val files = TemporaryFolder()
+    private val attachment = Attachment("test.txt", "text/plain", "hello world".toByteArray())
 
-        val encrypted = RemoteAttachment.encodeEncrypted(attachment, AttachmentCodec())
+    private suspend fun encrypt(): EncryptedEncodedContent =
+        encryptEncodedContent(encodeEncodedContent(AttachmentCodec().encode(attachment)))
 
-        val decrypted = RemoteAttachment.decryptEncoded(encrypted)
-        Assert.assertEquals(ContentTypeAttachment.id, decrypted.type.id)
-
-        val decoded = decrypted.decoded<Attachment>()
-        Assert.assertEquals("test.txt", decoded?.filename)
-        Assert.assertEquals("text/plain", decoded?.mimeType)
-        Assert.assertEquals("hello world", decoded?.data?.toStringUtf8())
+    private fun assertAttachment(actual: Attachment) {
+        assertEquals(attachment.filename, actual.filename)
+        assertEquals(attachment.mimeType, actual.mimeType)
+        assertArrayEquals(attachment.content, actual.content)
     }
 
-    @Test
-    @Ignore("Flaky")
-    fun testCanUseRemoteAttachmentCodec() {
-        val attachment =
-            Attachment(
-                filename = "test.txt",
-                mimeType = "text/plain",
-                data = "hello world".toByteStringUtf8(),
+    private suspend fun load(
+        remote: RemoteAttachment,
+        fetcher: TestFetcher,
+    ): Attachment {
+        val ciphertext = fetcher.fetch(URL(remote.url))
+        val keys =
+            EncryptionKeys(
+                remote.secret,
+                remote.salt,
+                remote.nonce,
+                remote.contentDigest,
+                checkNotNull(remote.contentLength).toULong(),
             )
+        return AttachmentCodec().decode(decodeEncodedContent(decryptBytes(ciphertext, keys)))
+    }
 
-        Client.register(codec = AttachmentCodec())
-        Client.register(codec = RemoteAttachmentCodec())
-
-        val encodedEncryptedContent =
-            RemoteAttachment.encodeEncrypted(
-                content = attachment,
-                codec = AttachmentCodec(),
-            )
-
-        File("abcdefg").writeBytes(encodedEncryptedContent.payload.toByteArray())
-
-        val remoteAttachment =
-            RemoteAttachment.from(
-                url = URL("https://abcdefg"),
-                encryptedEncodedContent = encodedEncryptedContent,
-            )
-
-        remoteAttachment.contentLength = attachment.data.size()
-        remoteAttachment.filename = attachment.filename
-
-        val fixtures = fixtures()
-        val aliceClient = fixtures.aliceClient
-        val aliceConversation =
-            runBlocking {
-                aliceClient.conversations.newConversation(fixtures.bobClient.inboxId)
-            }
-
+    @Test fun testEncryptedContentShouldBeDecryptable() =
         runBlocking {
-            aliceConversation.send(
-                content = remoteAttachment,
-                options = SendOptions(contentType = ContentTypeRemoteAttachment),
-            )
+            val encrypted = encrypt()
+            val decoded = decodeEncodedContent(decryptEncodedContent(encrypted))
+            assertEquals(AttachmentCodec().type, decoded.type)
+            assertAttachment(AttachmentCodec().decode(decoded))
         }
 
-        val messages = runBlocking { aliceConversation.messages() }
-        Assert.assertEquals(messages.size, 1)
-
-        if (messages.size == 1) {
-            val loadedRemoteAttachment: RemoteAttachment = messages[0].content()!!
-            loadedRemoteAttachment.fetcher = TestFetcher()
-            runBlocking {
-                val attachment2: Attachment =
-                    loadedRemoteAttachment.load() ?: throw XMTPException("did not get attachment")
-                Assert.assertEquals("test.txt", attachment2.filename)
-                Assert.assertEquals("text/plain", attachment2.mimeType)
-                Assert.assertEquals("hello world".toByteStringUtf8(), attachment2.data)
-            }
-        }
-    }
-
-    @Test
-    fun testCannotUseNonHTTPSURL() {
-        val attachment =
-            Attachment(
-                filename = "test.txt",
-                mimeType = "text/plain",
-                data = "hello world".toByteStringUtf8(),
-            )
-
-        Client.register(codec = AttachmentCodec())
-        Client.register(codec = RemoteAttachmentCodec())
-
-        val encodedEncryptedContent =
-            RemoteAttachment.encodeEncrypted(
-                content = attachment,
-                codec = AttachmentCodec(),
-            )
-
-        File("abcdefg").writeBytes(encodedEncryptedContent.payload.toByteArray())
-
-        Assert.assertThrows(XMTPException::class.java) {
-            RemoteAttachment.from(
-                url = URL("http://abcdefg"),
-                encryptedEncodedContent = encodedEncryptedContent,
-            )
-        }
-    }
-
-    @Test
-    @Ignore("Flaky")
-    fun testEnsuresContentDigestMatches() {
-        val attachment =
-            Attachment(
-                filename = "test.txt",
-                mimeType = "text/plain",
-                data = "hello world".toByteStringUtf8(),
-            )
-
-        Client.register(codec = AttachmentCodec())
-        Client.register(codec = RemoteAttachmentCodec())
-
-        val encodedEncryptedContent =
-            RemoteAttachment.encodeEncrypted(
-                content = attachment,
-                codec = AttachmentCodec(),
-            )
-
-        File("abcdefg").writeBytes(encodedEncryptedContent.payload.toByteArray())
-
-        val remoteAttachment =
-            RemoteAttachment.from(
-                url = URL("https://abcdefg"),
-                encryptedEncodedContent = encodedEncryptedContent,
-            )
-
-        remoteAttachment.contentLength = attachment.data.size()
-        remoteAttachment.filename = attachment.filename
-
-        val fixtures = fixtures()
-        val aliceClient = fixtures.aliceClient
-        val aliceConversation =
-            runBlocking {
-                aliceClient.conversations.newConversation(fixtures.bobClient.inboxId)
-            }
-
+    @Test fun testCanUseRemoteAttachmentCodec() =
         runBlocking {
-            aliceConversation.send(
-                content = remoteAttachment,
-                options = SendOptions(contentType = ContentTypeRemoteAttachment),
-            )
+            val encrypted = encrypt()
+            val file = files.newFile("ciphertext").also { it.writeBytes(encrypted.ciphertext) }
+            val remote = remoteAttachmentFromEncrypted("https://example.com/attachment", encrypted, attachment.filename)
+            assertEquals(encrypted.ciphertext.size.toUInt(), remote.contentLength)
+            fixtures().use { fixtures ->
+                val dm = fixtures.aliceClient.conversations().createDm(fixtures.bobClient.inboxId())
+                val id = dm.sendRemoteAttachment(remote)
+                val applications = dm.messages(ListMessagesOptions(kind = MessageKind.APPLICATION))
+                assertEquals(1, applications.size)
+                assertEquals(id, applications.single().id)
+                val receivedContent = (applications.single().content as SDKMessageContent.Standard).value
+                val received = (receivedContent as MessageContent.RemoteAttachment).v1
+                assertEquals(remote, received)
+                assertEquals(remote, RemoteAttachmentCodec().decode(RemoteAttachmentCodec().encode(remote)))
+                assertAttachment(load(received, TestFetcher(file)))
+            }
         }
 
-        val messages = runBlocking { aliceConversation.messages() }
-        Assert.assertEquals(messages.size, 1)
+    @Test fun testCannotUseNonHTTPSURL() =
+        runBlocking {
+            val encrypted = encrypt()
+            val error =
+                assertThrows(XmtpException.InvalidArgument::class.java) {
+                    remoteAttachmentFromEncrypted("http://abcdefg", encrypted, attachment.filename)
+                }
+            assertEquals("InvalidArgument", error.v1.code)
+            assertEquals(ErrorCategory.INPUT, error.v1.category)
+            assertFalse(error.v1.retryable)
+        }
 
-        // Tamper with the payload
-        File("abcdefg").writeBytes("sup".toByteArray())
-
-        if (messages.size == 1) {
-            val loadedRemoteAttachment: RemoteAttachment = messages[0].content()!!
-            loadedRemoteAttachment.fetcher = TestFetcher()
-            Assert.assertThrows(XMTPException::class.java) {
-                runBlocking {
-                    val attachment: Attachment? = loadedRemoteAttachment.load()
+    @Test fun testEnsuresContentDigestMatches() =
+        runBlocking {
+            val encrypted = encrypt()
+            val file = files.newFile("ciphertext").also { it.writeBytes(encrypted.ciphertext) }
+            val remote = remoteAttachmentFromEncrypted("https://example.com/attachment", encrypted, attachment.filename)
+            fixtures().use { fixtures ->
+                val dm = fixtures.aliceClient.conversations().createDm(fixtures.bobClient.inboxId())
+                val id = dm.sendRemoteAttachment(remote)
+                val message = dm.messages().single { it.id == id }
+                val received =
+                    ((message.content as SDKMessageContent.Standard).value as MessageContent.RemoteAttachment)
+                        .v1
+                file.writeBytes(encrypted.ciphertext.copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() })
+                try {
+                    load(received, TestFetcher(file))
+                    fail("Changed attachment bytes must fail verification")
+                } catch (error: XmtpException.Unknown) {
+                    assertFalse(error.v1.retryable)
+                    assertTrue(error.v1.message.contains("content digest mismatch"))
                 }
             }
         }
-    }
 }

@@ -1,170 +1,117 @@
 package org.xmtp.android.library
 
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
-import org.xmtp.android.library.messages.PrivateKeyBuilder
-import uniffi.xmtpv3.resumeStreams
+import uniffi.xmtp_sdk.*
 import java.io.File
 import java.security.SecureRandom
 
-/**
- * Base class for instrumented tests that provides automatic resource management
- * and cleanup to prevent memory leaks.
- *
- * This class handles:
- * - Automatic client cleanup after each test
- * - Unique database directories for test isolation
- * - Memory management and garbage collection
- * - Database file cleanup
- */
+/** Each test owns its clients and database directories. */
 abstract class BaseInstrumentedTest {
     private var previousManageStreamLifecycle = true
-    private val createdClients = mutableListOf<Client>()
+    private val createdClients = mutableListOf<SDKClient>()
     private val dbFolders = mutableListOf<String>()
 
-    @get:Rule
-    private val testDbDir = TemporaryFolder()
-    protected val dbEncryptionKey: ByteArray = SecureRandom().generateSeed(32)
-
+    @get:Rule val testDbDir = TemporaryFolder()
+    protected val dbEncryptionKey = SecureRandom().generateSeed(32)
     protected val context = InstrumentationRegistry.getInstrumentation().targetContext
 
-    @Before
-    open fun setUp() {
-        previousManageStreamLifecycle = Client.manageStreamLifecycle
-        // Instrumentation has no foreground Activity to keep native streams active.
-        Client.manageStreamLifecycle = false
-        runBlocking { resumeStreams() }
-        testDbDir.create()
-    }
+    @Before open fun setUp() =
+        runBlocking {
+            previousManageStreamLifecycle = AndroidStreamLifecycle.enabled
+            // Ordinary backend tests do not own a foreground Activity.
+            AndroidStreamLifecycle.enabled = false
+            resumeStreams()
+        }
 
-    @After
-    open fun tearDown() {
+    @After open fun tearDown() {
         try {
-            // Clean up all clients
             runBlocking {
-                createdClients.forEach { client ->
-                    try {
-                        client.dropLocalDatabaseConnection()
-                    } catch (e: Exception) {
-                        // Log but don't fail the test cleanup
-                        println("Warning: Failed to delete database for client: ${e.message}")
-                    }
+                withContext(NonCancellable) {
+                    createdClients.forEach { it.end() }
                 }
             }
-
-            // Clear the client list
             createdClients.clear()
-            dbFolders.forEach {
-                try {
-                    File(it).deleteRecursively()
-                } catch (e: Exception) {
-                }
-            }
+            dbFolders.forEach { File(it).deleteRecursively() }
             dbFolders.clear()
-            // Force garbage collection to help with native memory cleanup
-            System.gc()
         } finally {
-            Client.manageStreamLifecycle = previousManageStreamLifecycle
+            AndroidStreamLifecycle.enabled = previousManageStreamLifecycle
         }
     }
 
-    /**
-     * Creates a client with automatic cleanup tracking.
-     * This is the primary method for creating clients in tests.
-     */
+    protected fun trackClient(client: SDKClient): SDKClient = client.also { createdClients.add(it) }
+
     protected suspend fun createClient(
-        account: SigningKey,
-        api: ClientOptions.Api = localApi(),
+        account: Signer,
+        api: BackendOptions = localApi(),
         deviceSyncEnabled: Boolean = true,
-    ): Client {
-        val options = createClientOptions(api, deviceSyncEnabled = deviceSyncEnabled)
-        val client = Client.create(account = account, options = options)
-        createdClients.add(client)
-        return client
-    }
+        codecs: List<ContentCodec<*>> = emptyList(),
+    ): SDKClient =
+        SDKClient
+            .create(
+                context,
+                account,
+                createClientOptions(api, deviceSyncEnabled = deviceSyncEnabled),
+                codecs,
+            ).let(::trackClient)
 
-    /**
-     * Creates a standard fixtures setup with automatic cleanup.
-     * Returns the 5 standard test clients: alix, bo, caro, davon, eri.
-     */
-    protected suspend fun createFixtures(api: ClientOptions.Api = localApi()): TestFixtures {
-        //  Create accounts
-        val alixAccount = PrivateKeyBuilder()
-        val boAccount = PrivateKeyBuilder()
-        val caroAccount = PrivateKeyBuilder()
-
-        // Create clients concurrently
+    protected suspend fun createFixtures(api: BackendOptions = localApi()): TestFixtures {
+        val alixAccount = generateLocalSigner()
+        val boAccount = generateLocalSigner()
+        val caroAccount = generateLocalSigner()
         val (alixClient, boClient, caroClient) =
             coroutineScope {
-                val alixDeferred = async { createClient(alixAccount, api) }
-                val boDeferred = async { createClient(boAccount, api) }
-                val caroDeferred = async { createClient(caroAccount, api) }
-                Triple(alixDeferred.await(), boDeferred.await(), caroDeferred.await())
+                val alix = async { createClient(alixAccount, api) }
+                val bo = async { createClient(boAccount, api) }
+                val caro = async { createClient(caroAccount, api) }
+                Triple(alix.await(), bo.await(), caro.await())
             }
-
         return TestFixtures(
-            alixAccount = alixAccount,
-            alix = alixAccount.getPrivateKey(),
-            alixClient = alixClient,
-            boAccount = boAccount,
-            bo = boAccount.getPrivateKey(),
-            boClient = boClient,
-            caroAccount = caroAccount,
-            caro = caroAccount.getPrivateKey(),
-            caroClient = caroClient,
+            alixAccount,
+            alixAccount.identity(),
+            alixClient,
+            boAccount,
+            boAccount.identity(),
+            boClient,
+            caroAccount,
+            caroAccount.identity(),
+            caroClient,
         )
     }
 
-    private fun randomSubfolder(): String {
-        val clientDbDir = testDbDir.newFolder()
-        clientDbDir.mkdirs()
-
-        return clientDbDir.absolutePath
-    }
-
-    /**
-     * Creates client options with unique database directory for this test.
-     */
     protected fun createClientOptions(
-        api: ClientOptions.Api,
+        api: BackendOptions = localApi(),
         dbDirectory: String? = null,
-        deviceSyncEnabled: Boolean,
+        deviceSyncEnabled: Boolean = true,
     ): ClientOptions {
-        val finalDbDirectory = dbDirectory ?: randomSubfolder()
-        dbFolders.add(finalDbDirectory)
-
+        val directory = dbDirectory ?: testDbDir.newFolder().absolutePath
+        dbFolders.add(directory)
         return ClientOptions(
-            api = api,
-            dbEncryptionKey = dbEncryptionKey,
-            appContext = context,
-            dbDirectory = finalDbDirectory,
-            deviceSyncEnabled = deviceSyncEnabled,
+            backend = BackendSource.Options(api),
+            storage = StorageOptions(StorageLocation.Directory(directory), encryptionKey = dbEncryptionKey),
+            deviceSync = deviceSyncEnabled,
         )
     }
 
-    /**
-     * Helper method to create a test wallet.
-     */
-    protected fun createWallet(): PrivateKeyBuilder = PrivateKeyBuilder()
+    protected suspend fun createWallet(): Signer = generateLocalSigner()
 }
 
-/**
- * Data class representing the standard test fixtures.
- */
 data class TestFixtures(
-    val alixAccount: PrivateKeyBuilder,
-    val alix: org.xmtp.android.library.messages.PrivateKey,
-    val alixClient: Client,
-    val boAccount: PrivateKeyBuilder,
-    val bo: org.xmtp.android.library.messages.PrivateKey,
-    val boClient: Client,
-    val caroAccount: PrivateKeyBuilder,
-    val caro: org.xmtp.android.library.messages.PrivateKey,
-    val caroClient: Client,
+    val alixAccount: Signer,
+    val alix: PublicIdentity,
+    val alixClient: SDKClient,
+    val boAccount: Signer,
+    val bo: PublicIdentity,
+    val boClient: SDKClient,
+    val caroAccount: Signer,
+    val caro: PublicIdentity,
+    val caroClient: SDKClient,
 )
