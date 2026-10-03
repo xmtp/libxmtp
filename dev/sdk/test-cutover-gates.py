@@ -83,6 +83,8 @@ class CutoverGates(unittest.TestCase):
         self.assertIn("| Swift | 7132 |", built)
         module.OUT.write_text(built)
         self.assertEqual(module.build(), built)
+        with patch.object(sys, "argv", ["inventory.py", "--check"]):
+            module.main()
         public.rename(public.with_suffix(".missing"))
         with self.assertRaisesRegex(
             ValueError, "missing or empty current public projection"
@@ -99,7 +101,11 @@ class CutoverGates(unittest.TestCase):
         sibling.write_text(
             sibling.read_text() + "\nexport const unapprovedSiblingExport = true;\n"
         )
-        self.assertNotEqual(module.build(), built)
+        with patch.object(sys, "argv", ["inventory.py", "--check"]):
+            with self.assertRaisesRegex(
+                SystemExit, "manifest differs from source inventory"
+            ):
+                module.main()
         self.assertIn(module.ledger_section(ledger, "Swift"), built)
 
     def test_browser_inventory_requires_own_main_and_pure_roots(self):
