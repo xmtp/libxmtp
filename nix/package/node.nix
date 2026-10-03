@@ -25,7 +25,9 @@ let
     .${target};
   addon = "uniffi-runtime-napi.${napiTarget}.node";
   library = if stdenv.hostPlatform.isDarwin then "libxmtp_sdk.dylib" else "libxmtp_sdk.so";
-  cctools = buildPackages.darwin.cctools.out;
+  cctoolsPackage = buildPackages.darwin.cctools;
+  cctools = cctoolsPackage.out;
+  cctoolsPrefix = lib.optionalString (lib.hasPrefix "${target}-" cctoolsPackage.pname) "${target}-";
 in
 runCommand "xmtp-sdk-node-${napiTarget}"
   {
@@ -35,7 +37,7 @@ runCommand "xmtp-sdk-node-${napiTarget}"
     ++ lib.optionals stdenv.hostPlatform.isMusl [ patchelf ]
     ++ lib.optionals stdenv.hostPlatform.isDarwin [
       darwin.autoSignDarwinBinariesHook
-      # The spliced cctools default is dev; otool is in out.
+      # The spliced cctools default is dev; the tools are in out.
       cctools
     ];
   }
@@ -57,8 +59,8 @@ runCommand "xmtp-sdk-node-${napiTarget}"
       patchelf --remove-rpath "$out/runtime/${addon}"
     ''
     + lib.optionalString stdenv.hostPlatform.isDarwin ''
-      otool=${cctools}/bin/otool
-      install_name_tool=${cctools}/bin/install_name_tool
+      otool=${cctools}/bin/${cctoolsPrefix}otool
+      install_name_tool=${cctools}/bin/${cctoolsPrefix}install_name_tool
       for binary in "$out/lib/${library}" "$out/runtime/${addon}"; do
         if "$otool" -l "$binary" | awk '/cmd LC_ID_DYLIB/ { found=1 } END { exit !found }'; then
           "$install_name_tool" -id "@loader_path/$(basename "$binary")" "$binary"
