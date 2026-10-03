@@ -39,6 +39,7 @@ fn details(code: &str, category: ErrorCategory, retryable: bool, message: String
         category,
         retryable,
         message,
+        stream_failure: None,
     }
 }
 

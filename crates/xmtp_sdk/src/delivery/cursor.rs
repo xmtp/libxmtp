@@ -20,6 +20,7 @@ pub(crate) fn invalid() -> XmtpError {
         category: ErrorCategory::Stream,
         retryable: false,
         message: "Use an unchanged cursor issued by this database.".into(),
+        stream_failure: None,
     })
 }
 
