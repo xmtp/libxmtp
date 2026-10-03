@@ -1,4 +1,3 @@
-import { usesRustStandardFallback } from "./codec";
 // The host send policy for typed codecs (Ref Public surface, Host codecs).
 // Every codec step runs before the send starts, so a failed step makes no
 // publish attempt.
@@ -8,6 +7,7 @@ import {
   type EncodedContent,
   type SendOptions,
 } from "../../public-values.gen";
+import { usesRustStandardFallback } from "./codec";
 import type { ContentCodec } from "./codec";
 import { isCatalogueContentType } from "./host";
 
