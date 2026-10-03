@@ -69,6 +69,9 @@ pub struct StreamBarrierCause {
 pub struct StreamBarrierTopic {
     /// Complete topic bytes, encoded as hexadecimal.
     pub topic: String,
+    /// Captured owning scope, encoded as an exact decimal u64 string.
+    #[serde(default)]
+    pub scope_generation: Option<String>,
     /// Fixed target H. None means capture failed; "0" is a captured empty target.
     pub target: Option<String>,
     /// Durable receipt cursor F. This is not application delivery progress.
@@ -164,6 +167,9 @@ impl From<&BarrierTopic> for StreamBarrierTopic {
     fn from(topic: &BarrierTopic) -> Self {
         Self {
             topic: hex::encode(topic.topic.cloned_vec()),
+            scope_generation: topic
+                .scope_generation
+                .map(|generation| generation.to_string()),
             target: topic.target.map(|cursor| cursor.0.to_string()),
             received: topic.received.0.to_string(),
             processed: topic.processed.0.to_string(),

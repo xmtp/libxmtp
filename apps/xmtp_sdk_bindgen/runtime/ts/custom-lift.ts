@@ -71,6 +71,7 @@ function codecNotFound(): ErrorDetails {
     category: ErrorCategory.Input,
     retryable: false,
     message: "content type has no registered host codec",
+    streamFailure: undefined,
   };
 }
 
@@ -80,5 +81,6 @@ function clientClosed(): ErrorDetails {
     category: ErrorCategory.Lifecycle,
     retryable: false,
     message: "client is closed",
+    streamFailure: undefined,
   };
 }

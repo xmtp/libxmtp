@@ -105,8 +105,9 @@ pub use content::{
     LeaveRequest, MetadataFieldChange, MultiRemoteAttachment, Reaction, ReactionAction,
     ReactionSchema, ReactionV2Content, RemoteAttachment, ReplyContent, SendOptions,
     StandardContent, StandardContentKind, TransactionMetadata, TransactionReference, WalletCall,
-    WalletCallMetadata, WalletSendCalls, catalogue_content_type_should_push, decode_standard,
-    encode_standard, encode_text, remote_attachment_from_encrypted, standard_content_type,
+    WalletCallMetadata, WalletSendCalls, catalogue_content_type_should_push,
+    decode_encoded_content, decode_standard, encode_encoded_content, encode_standard, encode_text,
+    remote_attachment_from_encrypted, standard_content_type,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use conversation::{Conversation, Conversations, Dm, Group};
@@ -129,7 +130,8 @@ pub use delivery::{ConnectionState, ConversationReader, MessageHistorySnapshot, 
 pub use diagnostics::{ApiStats, Diagnostics, IdentityStats};
 pub use error::{
     AttachmentFailure, AttachmentFailureCause, CredentialFailureKind, ErrorCategory, ErrorDetails,
-    XmtpError,
+    StreamBarrierCause, StreamBarrierCauseKind, StreamBarrierFailure, StreamBarrierReason,
+    StreamBarrierTopic, StreamFailureDetails, StreamFailureKind, StreamFailureSummary, XmtpError,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use events::{

@@ -652,3 +652,108 @@ async fn history_projection_keeps_relations_and_deletions_in_the_cursor_snapshot
     assert_eq!(db.get_deletions_for_messages(vec![parent.id])?.len(), 1);
     assert!(db.current_delivery_cursor()?.delivery_sequence > boundary.delivery_sequence);
 }
+
+// verifies: SYNC-005, PROC-026, PROC-033, PROC-034
+#[xmtp_common::test(unwrap_try = true)]
+async fn all_delivery_hides_sync_before_limits_without_consuming_sync_progress() {
+    use crate::consent_record::StoredConsentRecord;
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let group = generate_group(None);
+    let mut dm = generate_group(None);
+    dm.conversation_type = ConversationType::Dm;
+    let mut sync = generate_group(None);
+    sync.conversation_type = ConversationType::Sync;
+    for group in [&group, &dm, &sync] {
+        group.store(&db)?;
+    }
+    StoredConsentRecord::new(
+        ConsentType::ConversationId,
+        ConsentState::Allowed,
+        hex::encode(sync.id),
+    )
+    .store(&db)?;
+    let start = db.current_delivery_cursor()?;
+    let mut large_sync = generate_message(None, Some(&sync.id), None, None, None, None);
+    large_sync.decrypted_message_bytes = vec![0x5a; 1024 * 1024];
+    large_sync.store(&db)?;
+    let first = generate_message(None, Some(&group.id), None, None, None, None);
+    first.store(&db)?;
+    let mut key_update = generate_message(None, Some(&sync.id), None, None, None, None);
+    key_update.decrypted_message_bytes = vec![0x6b; 42];
+    key_update.store(&db)?;
+    let second = generate_message(None, Some(&dm.id), None, None, None, None);
+    second.store(&db)?;
+    let mut newest_sync = generate_message(None, Some(&sync.id), None, None, None, None);
+    newest_sync.decrypted_message_bytes = vec![0x7c; 42];
+    newest_sync.store(&db)?;
+    let boundary = db.current_delivery_cursor()?;
+    let selection = DeliveryFilter {
+        conversation_type: None,
+        consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+    };
+    let snapshot =
+        db.delivery_history_snapshot_filtered(&DeliveryScope::All, &selection, 0, 2, 8192)?;
+    assert_eq!(
+        snapshot
+            .messages
+            .iter()
+            .map(|row| &row.message.id)
+            .collect::<Vec<_>>(),
+        [&first.id, &second.id]
+    );
+    assert_eq!(snapshot.cursor, boundary);
+    let replay = db.replay_delivery_messages_bounded(start, &DeliveryScope::All, 0, 2, 8192)?;
+    assert_eq!(
+        replay.iter().map(|row| &row.message.id).collect::<Vec<_>>(),
+        [&first.id, &second.id]
+    );
+    let owner = db.acquire_delivery_owner(0, 100)?;
+    let candidates =
+        db.default_delivery_messages_bounded(owner, &DeliveryScope::All, 1, 2, 8192)?;
+    assert_eq!(
+        candidates
+            .iter()
+            .map(|row| &row.message.id)
+            .collect::<Vec<_>>(),
+        [&first.id, &second.id]
+    );
+    assert_eq!(db.current_delivery_cursor()?, boundary);
+    db.acknowledge_delivery(owner, group.id, candidates[0].cursor, 1)?;
+    let remaining = db.default_delivery_messages(owner, &DeliveryScope::All, 1, 2)?;
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].message.id, second.id);
+    // Device-sync reads use the explicit stored-group path, not app delivery.
+    let explicit = db.get_group_messages(&sync.id, &MsgQueryArgs::default())?;
+    assert_eq!(explicit.len(), 3);
+    assert!(explicit.iter().any(|row| row.id == key_update.id));
+    assert!(
+        explicit
+            .iter()
+            .any(|row| row.decrypted_message_bytes == vec![0x6b; 42])
+    );
+    // Even an explicit type on app delivery keeps its existing virtual-group exclusion.
+    let explicit_delivery = db.delivery_history_snapshot_filtered(
+        &DeliveryScope::All,
+        &DeliveryFilter {
+            conversation_type: Some(ConversationType::Sync),
+            ..Default::default()
+        },
+        0,
+        3,
+        2 * 1024 * 1024,
+    )?;
+    assert!(explicit_delivery.messages.is_empty());
+    db.acknowledge_delivery(owner, dm.id, candidates[1].cursor, 1)?;
+    assert!(
+        db.default_delivery_messages(owner, &DeliveryScope::All, 1, 8)?
+            .is_empty()
+    );
+    let explicit_after = db.get_group_messages(&sync.id, &MsgQueryArgs::default())?;
+    assert_eq!(
+        explicit_after.len(),
+        3,
+        "app delivery must not consume or delete Sync messages"
+    );
+    db.release_delivery_owner(owner)?;
+}

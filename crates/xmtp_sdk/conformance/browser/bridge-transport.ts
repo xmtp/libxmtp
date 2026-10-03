@@ -92,7 +92,7 @@ export function registerTransportTests(): void {
 
   it("does not classify rendered ID errors as structured failures", () => {
     const cause =
-      'invalid argument: ErrorDetails { code: "InvalidArgument", category: Input, retryable: false, message: "invalid lowercase hex ID" }';
+      'invalid argument: ErrorDetails { code: "InvalidArgument", category: Input, retryable: false, message: "invalid lowercase hex ID", stream_failure: None }';
     const malformed = new Error(
       `Failed to convert arg 'id':\nLifting custom type \`xmtp_sdk::ids::MessageId\` from FFI type \`alloc::string::String\` failed\n\nCaused by:\n    ${cause}`,
     );

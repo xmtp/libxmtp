@@ -256,6 +256,7 @@ fn subscribe_error(error: SubscribeError) -> XmtpError {
             category: ErrorCategory::Storage,
             retryable,
             message,
+            stream_failure: None,
         }),
         other => XmtpError::from_core(other),
     }
