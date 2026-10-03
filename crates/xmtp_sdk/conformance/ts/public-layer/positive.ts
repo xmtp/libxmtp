@@ -142,7 +142,7 @@ export async function streamsAndErrors(client: Client, group: Group) {
     break;
   }
   const events: EventStream = await client.events({
-    kinds: ["conversationJoined"],
+    kinds: ["conversation.joined"],
     referencesOwnMessages: false,
   });
   void events;

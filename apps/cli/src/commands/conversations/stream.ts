@@ -83,20 +83,19 @@ The stream will continue until:
 
     try {
       for await (const conversation of stream) {
+        const snapshot = await conversation.state();
+        const state = "common" in snapshot ? snapshot.common : snapshot;
         const output: Record<string, unknown> = {
           type: isGroup(conversation) ? "group" : "dm",
           id: conversation.id,
           createdAt: conversation.createdAt.date.toISOString(),
-          isActive: await conversation.state(),
+          isActive: state.isActive,
         };
 
-        if (isGroup(conversation)) {
-          const state = await conversation.state();
-          output.isActive = state.common.isActive;
-          output.name = state.name;
-          output.description = state.description;
+        if ("common" in snapshot) {
+          output.name = snapshot.name;
+          output.description = snapshot.description;
         } else if (isDm(conversation)) {
-          output.isActive = (await conversation.state()).isActive;
           output.peerInboxId = await conversation.peerInboxId();
         }
 

@@ -68,7 +68,7 @@ first if you need a current snapshot before listening for updates.`;
     const timeoutMs = flags.timeout ? flags.timeout * 1000 : undefined;
 
     const stream = await client.events({
-      kinds: ["consentChanged", "hmacKeysUpdated"],
+      kinds: ["consent.changed", "hmac_keys.updated"],
       referencesOwnMessages: false,
     });
 
@@ -88,7 +88,7 @@ first if you need a current snapshot before listening for updates.`;
     try {
       for await (const event of stream) {
         const update =
-          event.kind === "consentChanged"
+          event.kind === "consent.changed"
             ? {
                 type: "ConsentUpdate",
                 entityType: event.entityKind,

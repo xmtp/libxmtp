@@ -159,9 +159,9 @@ try {
       deviceSync: false,
     });
     listener = await eventClient.startListener(
-      { kinds: ["conversationJoined"], referencesOwnMessages: false },
+      { kinds: ["conversation.joined"], referencesOwnMessages: false },
       async (event) => {
-        assert.equal(event.kind, "conversationJoined");
+        assert.equal(event.kind, "conversation.joined");
         assert.ok(
           !joinedIds.has(event.conversationId),
           "duplicate joined event",

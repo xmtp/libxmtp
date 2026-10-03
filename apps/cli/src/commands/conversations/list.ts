@@ -3,7 +3,6 @@ import { Timestamp } from "@xmtp/node-sdk";
 import type { ConversationOrder } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
-import { conversationState } from "@/utils/conversation";
 import { isDm, isGroup } from "@/utils/conversation";
 import { consentStateMap, conversationTypeMap } from "@/utils/enums";
 
@@ -109,7 +108,8 @@ Use --created-after / --created-before to filter by creation time.`;
 
     const output = await Promise.all(
       conversations.map(async (conversation) => {
-        const state = await conversationState(conversation);
+        const snapshot = await conversation.state();
+        const state = "common" in snapshot ? snapshot.common : snapshot;
         const base = {
           id: conversation.id,
           type: isGroup(conversation) ? "group" : "dm",
@@ -118,12 +118,12 @@ Use --created-after / --created-before to filter by creation time.`;
           isActive: state.isActive,
         };
 
-        if (isGroup(conversation)) {
+        if ("common" in snapshot) {
           return {
             ...base,
-            name: (await conversation.state()).name,
-            description: (await conversation.state()).description,
-            imageUrl: (await conversation.state()).imageUrl,
+            name: snapshot.name,
+            description: snapshot.description,
+            imageUrl: snapshot.imageUrl,
           };
         } else if (isDm(conversation)) {
           return {

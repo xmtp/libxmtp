@@ -51,7 +51,7 @@ describe("Preferences", () => {
     const peer = await createRegisteredClient(createSigner().signer);
     const group = await client.conversations.createGroup([peer.inboxId]);
     const events = await client.events({
-      kinds: ["consentChanged"],
+      kinds: ["consent.changed"],
       referencesOwnMessages: false,
     });
     const seen: ClientEvent[] = [];
@@ -63,7 +63,7 @@ describe("Preferences", () => {
       await vi.waitFor(
         () =>
           expect(seen).toContainEqual({
-            kind: "consentChanged",
+            kind: "consent.changed",
             entityKind: "conversation",
             entity: group.id,
             state: "denied",
@@ -80,13 +80,13 @@ describe("Preferences", () => {
       await client.preferences.setConsentStates(records);
       await vi.waitFor(() => {
         expect(seen).toContainEqual({
-          kind: "consentChanged",
+          kind: "consent.changed",
           entityKind: "conversation",
           entity: group.id,
           state: "allowed",
         });
         expect(seen).toContainEqual({
-          kind: "consentChanged",
+          kind: "consent.changed",
           entityKind: "inbox",
           entity: peer.inboxId,
           state: "denied",
@@ -103,7 +103,7 @@ describe("Preferences", () => {
     const peer = await createRegisteredClient(createSigner().signer);
     const group = await client.conversations.createGroup([peer.inboxId]);
     const events = await client.events({
-      kinds: ["consentChanged", "hmacKeysUpdated"],
+      kinds: ["consent.changed", "hmac_keys.updated"],
       referencesOwnMessages: false,
     });
     const seen: ClientEvent[] = [];
@@ -118,10 +118,10 @@ describe("Preferences", () => {
         await client.conversations.syncAll(undefined);
         await second.conversations.syncAll(undefined);
         await third.conversations.syncAll(undefined);
-        expect(seen.some((e) => e.kind === "hmacKeysUpdated")).toBe(true);
+        expect(seen.some((e) => e.kind === "hmac_keys.updated")).toBe(true);
       }, WAIT);
       expect(seen).toContainEqual({
-        kind: "consentChanged",
+        kind: "consent.changed",
         entityKind: "conversation",
         entity: group.id,
         state: "denied",

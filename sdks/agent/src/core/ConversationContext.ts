@@ -71,17 +71,17 @@ export class ConversationContext<
   }
 
   /** Whether the conversation consent state is `allowed`. */
-  get isAllowed() {
-    return this.consentState().then((state) => state === "allowed");
+  async isAllowed(): Promise<boolean> {
+    return (await this.consentState()) === "allowed";
   }
 
   /** Whether the conversation consent state is `denied`. */
-  get isDenied() {
-    return this.consentState().then((state) => state === "denied");
+  async isDenied(): Promise<boolean> {
+    return (await this.consentState()) === "denied";
   }
 
   /** Whether the conversation consent state is `unknown`. */
-  get isUnknown() {
-    return this.consentState().then((state) => state === "unknown");
+  async isUnknown(): Promise<boolean> {
+    return (await this.consentState()) === "unknown";
   }
 }

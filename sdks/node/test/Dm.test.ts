@@ -204,7 +204,7 @@ describe("Dm", () => {
     const client2 = await createRegisteredClient(signer2);
 
     const stream = await client1.events({
-      kinds: ["messageExpired"],
+      kinds: ["message.expired"],
       referencesOwnMessages: false,
     });
 
@@ -264,7 +264,8 @@ describe("Dm", () => {
     for await (const message of stream) {
       count++;
       expect(message).toBeDefined();
-      if (message.kind === "messageExpired") messageIds.push(message.messageId);
+      if (message.kind === "message.expired")
+        messageIds.push(message.messageId);
     }
     expect(count).toBe(2);
     expect(messageIds).toContain(messageId1);

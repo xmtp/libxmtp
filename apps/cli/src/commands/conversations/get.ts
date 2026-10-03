@@ -1,7 +1,6 @@
 import { Args } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
-import { conversationState } from "@/utils/conversation";
 import { isDm, isGroup } from "@/utils/conversation";
 
 export default class ConversationsGet extends BaseCommand {
@@ -54,7 +53,8 @@ Use this to inspect the full details of a specific conversation.`;
       this.error(`Conversation not found: ${args.id}`);
     }
 
-    const state = await conversationState(conversation);
+    const snapshot = await conversation.state();
+    const state = "common" in snapshot ? snapshot.common : snapshot;
     const members = await conversation.members();
 
     const base = {
@@ -76,17 +76,16 @@ Use this to inspect the full details of a specific conversation.`;
       })),
     };
 
-    if (isGroup(conversation)) {
-      const groupState = await conversation.state();
-      const permissions = groupState.permissions;
+    if (isGroup(conversation) && "common" in snapshot) {
+      const permissions = snapshot.permissions;
       const admins = await conversation.listAdmins();
       const superAdmins = await conversation.listSuperAdmins();
 
       this.output({
         ...base,
-        name: (await conversation.state()).name,
-        description: (await conversation.state()).description,
-        imageUrl: (await conversation.state()).imageUrl,
+        name: snapshot.name,
+        description: snapshot.description,
+        imageUrl: snapshot.imageUrl,
         admins,
         superAdmins,
         permissions: {
