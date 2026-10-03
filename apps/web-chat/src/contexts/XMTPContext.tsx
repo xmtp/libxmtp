@@ -1,5 +1,6 @@
 import {
   Client,
+  generateInboxId,
   Storage,
   type BackendSource,
   type CredentialSource,
@@ -40,7 +41,11 @@ const storageLocation = async (
   if (!files.some((path) => path.startsWith(prefix) && path.endsWith(".db3"))) {
     return "default";
   }
-  const inboxId = await Client.inboxIdFor(await signer.identity(), backend);
+  const identity = await signer.identity();
+  const reachable = await Client.canMessage([identity], backend);
+  const inboxId = reachable.get(identity.identifier)
+    ? await Client.inboxIdFor(identity, backend)
+    : generateInboxId(identity);
   const dbPath = `${prefix}${inboxId}.db3`;
   return files.includes(dbPath)
     ? { dbPath, attachmentsDir: `${dbPath}.attachments` }

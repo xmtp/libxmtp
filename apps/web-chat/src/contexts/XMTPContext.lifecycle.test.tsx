@@ -8,7 +8,13 @@ const mocks = vi.hoisted(() => {
   return {
     StorageBusy,
     create: vi.fn(),
+    canMessage: vi
+      .fn()
+      .mockImplementation(([identity]) =>
+        Promise.resolve(new Map([[identity.identifier, true]])),
+      ),
     inboxIdFor: vi.fn().mockResolvedValue("registered-inbox-id"),
+    generateInboxId: vi.fn().mockReturnValue("legacy-nonce-one-id"),
     listFiles: vi.fn().mockResolvedValue([]),
     endAdmin: vi.fn().mockResolvedValue(undefined),
     releaseLock: vi.fn(),
@@ -19,7 +25,12 @@ const mocks = vi.hoisted(() => {
   };
 });
 vi.mock("@xmtp/browser-sdk", () => ({
-  Client: { create: mocks.create, inboxIdFor: mocks.inboxIdFor },
+  Client: {
+    create: mocks.create,
+    canMessage: mocks.canMessage,
+    inboxIdFor: mocks.inboxIdFor,
+  },
+  generateInboxId: mocks.generateInboxId,
   Storage: {
     admin: () =>
       Promise.resolve({ listFiles: mocks.listFiles, end: mocks.endAdmin }),
@@ -107,6 +118,40 @@ it("does not open another inbox's old Browser database", async () => {
     signer,
     expect.objectContaining({
       storage: { location: "default", label: "test" },
+    }),
+  );
+});
+
+it("uses the version 7 nonce for an unregistered old database", async () => {
+  const identity = { identifier: "0x1234", kind: "ethereum" };
+  const signer = { identity: vi.fn().mockResolvedValue(identity) };
+  mocks.listFiles.mockResolvedValueOnce(["xmtp-test-legacy-nonce-one-id.db3"]);
+  mocks.canMessage.mockResolvedValueOnce(
+    new Map([[identity.identifier, false]]),
+  );
+  mocks.create.mockResolvedValueOnce({ end: vi.fn() });
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+
+  await act(async () => {
+    await result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: signer as never,
+    });
+  });
+
+  expect(mocks.generateInboxId).toHaveBeenCalledWith(identity);
+  expect(mocks.inboxIdFor).not.toHaveBeenCalled();
+  expect(mocks.create).toHaveBeenCalledWith(
+    signer,
+    expect.objectContaining({
+      storage: {
+        location: {
+          dbPath: "xmtp-test-legacy-nonce-one-id.db3",
+          attachmentsDir: "xmtp-test-legacy-nonce-one-id.db3.attachments",
+        },
+        label: "test",
+      },
     }),
   );
 });
