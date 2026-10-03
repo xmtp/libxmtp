@@ -53,6 +53,7 @@ export async function notificationBackend(
         if (stream.closed || stream.destroyed) return;
         const frame = Buffer.concat(chunks);
         let payload = Buffer.alloc(0);
+        let status = 0;
         if (String(headers[":path"]).endsWith("/Query")) {
           payload = Buffer.from(
             queryResponse
@@ -92,19 +93,27 @@ export async function notificationBackend(
             },
           ) as (typeof registrations)[number];
           registrations.push(request);
-          payload = Buffer.from(
-            recipient
-              .encode(
-                recipient.fromObject({
-                  channel: request.http ? 3 : request.fcm ? 2 : 1,
-                  expiresAtNs: (
-                    BigInt(Date.now()) * 1_000_000n +
-                    86_400_000_000_000n
-                  ).toString(),
-                }),
-              )
-              .finish(),
-          );
+          if (
+            (request.http && !request.http.url) ||
+            (request.apns && !request.apns.token) ||
+            (request.fcm && !request.fcm.token)
+          ) {
+            status = 3;
+          } else {
+            payload = Buffer.from(
+              recipient
+                .encode(
+                  recipient.fromObject({
+                    channel: request.http ? 3 : request.fcm ? 2 : 1,
+                    expiresAtNs: (
+                      BigInt(Date.now()) * 1_000_000n +
+                      86_400_000_000_000n
+                    ).toString(),
+                  }),
+                )
+                .finish(),
+            );
+          }
         }
         // Other calls see an empty backend: no inbox, messages, or subscriptions.
         const response = Buffer.alloc(5 + payload.length);
@@ -115,7 +124,7 @@ export async function notificationBackend(
           { waitForTrailers: true },
         );
         stream.on("wantTrailers", () =>
-          stream.sendTrailers({ "grpc-status": "0" }),
+          stream.sendTrailers({ "grpc-status": String(status) }),
         );
         stream.end(response);
       };

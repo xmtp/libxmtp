@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { notificationBackend } from "./notificationBackend";
 
 describe("native notification request fields", () => {
-  it("rejects an empty HTTP URL before registration", async () => {
+  it("records an invalid HTTP URL after Register fails", async () => {
     const backend = await notificationBackend();
     let client: Awaited<ReturnType<typeof createClient>> | undefined;
     try {
@@ -17,8 +17,12 @@ describe("native notification request fields", () => {
           channel: { kind: "http", url: "", signingKey: new Uint8Array(16) },
         }),
       ).rejects.toBeInstanceOf(XmtpError.InvalidArgument);
-      expect(backend.registrations).toHaveLength(0);
-      expect(client.notificationState()).toEqual({ kind: "disabled" });
+      expect(backend.registrations).toHaveLength(1);
+      expect(backend.registrations[0]?.http?.url ?? "").toBe("");
+      expect(client.notificationState()).toEqual({
+        kind: "failed",
+        error: "invalidArgument",
+      });
     } finally {
       await client?.end();
       await backend.close();
@@ -103,7 +107,7 @@ describe("native notification request fields", () => {
   );
 
   it.each(["apns", "fcm"] as const)(
-    "rejects an empty %s token before registration",
+    "records an invalid empty %s token after Register fails",
     async (kind) => {
       const backend = await notificationBackend();
       let client: Awaited<ReturnType<typeof createClient>> | undefined;
@@ -114,8 +118,12 @@ describe("native notification request fields", () => {
         await expect(
           client.enableNotifications({ channel: { kind, token: "" } }),
         ).rejects.toBeInstanceOf(XmtpError.InvalidArgument);
-        expect(backend.registrations).toHaveLength(0);
-        expect(client.notificationState()).toEqual({ kind: "disabled" });
+        expect(backend.registrations).toHaveLength(1);
+        expect(backend.registrations[0]?.[kind]?.token ?? "").toBe("");
+        expect(client.notificationState()).toEqual({
+          kind: "failed",
+          error: "invalidArgument",
+        });
       } finally {
         await client?.end();
         await backend.close();

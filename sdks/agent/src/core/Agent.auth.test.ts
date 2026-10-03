@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 
 import { Client } from "@xmtp/node-sdk";
+import { toBytes } from "viem";
+import { generatePrivateKey } from "viem/accounts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createSigner, createUser } from "@/user/User";
@@ -116,7 +118,10 @@ describe("agent environment storage", () => {
     const dbDirectory = directory();
     fs.mkdirSync(dbDirectory);
     for (const id of ["a", "b"]) {
-      fs.writeFileSync(path.join(dbDirectory, `xmtp-${id.repeat(64)}.db3`), "legacy");
+      fs.writeFileSync(
+        path.join(dbDirectory, `xmtp-${id.repeat(64)}.db3`),
+        "legacy",
+      );
     }
     const { create } = setup(dbDirectory);
     await expect(Agent.createFromEnv()).rejects.toThrow(
@@ -129,7 +134,10 @@ describe("agent environment storage", () => {
     const dbDirectory = directory();
     fs.mkdirSync(dbDirectory);
     for (const id of ["a", "b"]) {
-      fs.writeFileSync(path.join(dbDirectory, `xmtp-${id.repeat(64)}.db3`), "legacy");
+      fs.writeFileSync(
+        path.join(dbDirectory, `xmtp-${id.repeat(64)}.db3`),
+        "legacy",
+      );
     }
     const storage = { location: "inMemory" as const };
     const { create, stopped } = setup(dbDirectory);
@@ -138,5 +146,50 @@ describe("agent environment storage", () => {
       expect.anything(),
       expect.objectContaining({ storage }),
     );
+  });
+
+  it("opens an encrypted legacy database with the same installation", async () => {
+    const backendUrl = process.env.XMTP_BACKEND_URL;
+    if (!backendUrl) throw new Error("XMTP_BACKEND_URL is required");
+    const dbDirectory = directory();
+    fs.mkdirSync(dbDirectory);
+    const walletKey = generatePrivateKey();
+    const user = createUser(walletKey);
+    const preview = await Client.create(createSigner(user), {
+      backend: { url: backendUrl },
+      deviceSync: false,
+      storage: { location: "inMemory" },
+    });
+    const inboxId = preview.inboxId;
+    await preview.end();
+    const dbPath = path.join(dbDirectory, `xmtp-${inboxId}.db3`);
+    const encryptionKeyHex = "02".repeat(32);
+    const encryptionKey = toBytes(`0x${encryptionKeyHex}`);
+    const first = await Client.create(createSigner(user), {
+      backend: { url: backendUrl },
+      deviceSync: false,
+      storage: {
+        location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
+        encryptionKey,
+      },
+    });
+    expect(first.inboxId).toBe(inboxId);
+    const installationId = first.installationId;
+    await first.end();
+    expect(fs.statSync(dbPath).isFile()).toBe(true);
+
+    vi.stubEnv("XMTP_WALLET_KEY", walletKey);
+    vi.stubEnv("XMTP_DB_DIRECTORY", dbDirectory);
+    vi.stubEnv("XMTP_DB_ENCRYPTION_KEY", encryptionKeyHex);
+    vi.stubEnv("XMTP_ENV", "production");
+    vi.stubEnv("XMTP_BACKEND_URL", backendUrl);
+    const agent = await Agent.createFromEnv({ deviceSync: false });
+    try {
+      expect(agent.client.inboxId).toBe(inboxId);
+      expect(agent.client.installationId).toBe(installationId);
+      expect(fs.existsSync(path.join(dbDirectory, "production"))).toBe(false);
+    } finally {
+      await agent.client.end();
+    }
   });
 });
