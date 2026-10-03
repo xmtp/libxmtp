@@ -15,6 +15,7 @@ fn barrier(target: Option<u64>) -> BarrierError {
         reason: BarrierFailure::Deadline,
         unfinished: vec![BarrierTopic {
             topic: Topic::new_welcome_message([7; 32].into()),
+            scope_generation: None,
             target: target.map(Cursor),
             received: Cursor(u64::MAX),
             processed: Cursor(9_007_199_254_740_993),

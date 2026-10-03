@@ -479,6 +479,86 @@ impl Drop for IncomingLease {
 mod lease_observer_tests {
     use super::*;
 
+    // verifies: PROC-018
+    #[xmtp_common::test(unwrap_try = true)]
+    fn replacement_failure_keeps_cancelled_scope_generation() {
+        use crate::subscriptions::barrier::{
+            BarrierCause, BarrierError, BarrierFailure, BarrierTopic,
+        };
+        use xmtp_proto::types::Cursor;
+
+        let (commands, _receiver) = mpsc::unbounded_channel();
+        let coordinator = Arc::new(IncomingCoordinator {
+            commands,
+            generations: AtomicU64::new(0),
+            state: Arc::new(SharedState::default()),
+        });
+        let sibling = coordinator.acquire(IncomingScope::AllGroups);
+        let topic = Topic::new_group_message([7; 32]);
+        let lease = coordinator.acquire(IncomingScope::Topics(vec![topic.clone()]));
+        let old_generation = lease.snapshot().scope_generation;
+        coordinator
+            .state
+            .statuses
+            .lock()
+            .get_mut(&lease.id)?
+            .topics
+            .push(IncomingTopicStatus {
+                topic: topic.clone(),
+                scope_generation: old_generation,
+                registration: IncomingRegistration::Active,
+                target: Some(Cursor(9)),
+                received: Cursor(9),
+                processed: Cursor(8),
+                unresolved_welcomes: 0,
+                processing: IncomingProcessing::Pending,
+                blocked: None,
+                error: None,
+            });
+        let previous = lease.replace_scope(IncomingScope::Topics(vec![Topic::new_group_message(
+            [8; 32],
+        )]));
+        let current = lease.snapshot();
+        assert_eq!(previous.scope_generation, old_generation);
+        assert_eq!(previous.processing, IncomingProcessing::Cancelled);
+        assert_eq!(previous.topics[0].scope_generation, old_generation);
+        assert_eq!(previous.topics[0].processing, IncomingProcessing::Cancelled);
+        assert!(current.scope_generation > old_generation);
+        assert_eq!(current.previous.as_ref()?.scope_generation, old_generation);
+        let mut unfinished = BarrierTopic {
+            topic,
+            scope_generation: None,
+            target: Some(Cursor(9)),
+            received: Cursor(9),
+            processed: Cursor(8),
+            unresolved_welcomes: Vec::new(),
+            inactive: false,
+            cause: Some(BarrierCause::ProcessingPending),
+        };
+        unfinished.capture_scope_generation(&previous);
+        let details = crate::subscriptions::stream_failure::StreamBarrierFailure::from(
+            &BarrierError::Incomplete {
+                reason: BarrierFailure::Cancelled,
+                unfinished: vec![unfinished],
+            },
+        );
+        let reported = &details.unfinished[0];
+        assert_eq!(
+            reported.scope_generation.as_deref(),
+            Some(old_generation.to_string().as_str())
+        );
+        assert_ne!(
+            reported.scope_generation.as_deref(),
+            Some(current.scope_generation.to_string().as_str())
+        );
+        assert_eq!(reported.target.as_deref(), Some("9"));
+        assert_eq!(reported.received, "9");
+        assert_eq!(reported.processed, "8");
+        lease.close();
+        assert_eq!(sibling.snapshot().processing, IncomingProcessing::Pending);
+        assert!(coordinator.state.statuses.lock().contains_key(&sibling.id));
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn lease_change_after_snapshot_is_not_lost() {
         let (commands, _receiver) = mpsc::unbounded_channel();

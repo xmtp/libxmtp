@@ -2,6 +2,39 @@ use super::*;
 use xmtp_content_types::ContentCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types as proto;
 
+#[xmtp_common::test(unwrap_try = true)]
+fn encoded_content_requires_complete_type_and_preserves_custom_bytes() {
+    let sample = |authority: &str, name: &str| EncodedContent {
+        r#type: ContentTypeId {
+            authority_id: authority.into(),
+            type_id: name.into(),
+            version_major: u32::MAX,
+            version_minor: 7,
+        },
+        parameters: HashMap::from([("encoding".into(), "opaque".into())]),
+        fallback: Some("custom content".into()),
+        content: vec![0, 0xff, 7, 0],
+    };
+    for (authority, name) in [("", "type"), ("authority", ""), ("", "")] {
+        let error = encode_encoded_content(sample(authority, name)).unwrap_err();
+        let crate::XmtpError::InvalidArgument(details) = error else {
+            panic!("expected InvalidArgument, got {error:?}");
+        };
+        assert_eq!(details.code, "InvalidArgument");
+        assert!(matches!(details.category, crate::ErrorCategory::Input));
+        assert!(!details.retryable);
+    }
+    let content = sample("custom.example", "opaque");
+    let decoded = decode_encoded_content(encode_encoded_content(content.clone())?)?;
+    assert_eq!(decoded.r#type.authority_id, content.r#type.authority_id);
+    assert_eq!(decoded.r#type.type_id, content.r#type.type_id);
+    assert_eq!(decoded.r#type.version_major, content.r#type.version_major);
+    assert_eq!(decoded.r#type.version_minor, content.r#type.version_minor);
+    assert_eq!(decoded.parameters, content.parameters);
+    assert_eq!(decoded.fallback, content.fallback);
+    assert_eq!(decoded.content, content.content);
+}
+
 pub(crate) fn standard_codec_samples()
 -> Result<Vec<(StandardContent, ProtoEncodedContent)>, Box<dyn std::error::Error>> {
     let text = xmtp_content_types::text::TextCodec::encode("hello".into())?;

@@ -1,3 +1,24 @@
+/// Serialize a content envelope with the shared wire format.
+#[xmtp_macro::sdk_export(pure)]
+pub fn encode_encoded_content(content: EncodedContent) -> Result<Vec<u8>, crate::XmtpError> {
+    use prost::Message;
+    if content.r#type.authority_id.is_empty() || content.r#type.type_id.is_empty() {
+        return Err(crate::XmtpError::invalid_argument(
+            "content type identifier is incomplete",
+        ));
+    }
+    Ok(ProtoEncodedContent::from(content).encode_to_vec())
+}
+
+/// Read a content envelope and apply the shared decompression limits.
+#[xmtp_macro::sdk_export(pure)]
+pub fn decode_encoded_content(bytes: Vec<u8>) -> Result<EncodedContent, crate::XmtpError> {
+    use prost::Message;
+    ProtoEncodedContent::decode(bytes.as_slice())
+        .map_err(|error| crate::XmtpError::malformed_envelope(error.to_string()))?
+        .try_into()
+}
+
 impl From<EncodedContent> for ProtoEncodedContent {
     fn from(value: EncodedContent) -> Self {
         Self {
