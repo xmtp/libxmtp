@@ -349,10 +349,7 @@ where
                     GroupMetadataOptions::default(),
                     None,
                 )?;
-                tracing::info!(
-                    "Creating sync group: {}",
-                    hex::encode(sync_group.group_id)
-                );
+                tracing::info!("Creating sync group: {}", hex::encode(sync_group.group_id));
                 if let Err(inline_err) = sync_group.add_missing_installations().await {
                     // The group row is already persisted, so this add is never
                     // re-attempted (later calls take the `Some` branch) — arm
