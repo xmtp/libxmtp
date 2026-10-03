@@ -30,6 +30,7 @@ pub(super) struct Transport {
     pub(super) permanent_failures: u32,
     pub(super) recovery: crate::subscriptions::recovery::RecoverySnapshot,
     pub(super) attempted_open: Option<RequestKey>,
+    has_connected: std::sync::atomic::AtomicBool,
     shared_recovery: Arc<parking_lot::Mutex<crate::subscriptions::recovery::RecoverySnapshot>>,
 }
 
@@ -60,6 +61,7 @@ impl Transport {
             permanent_failures: 0,
             recovery: Default::default(),
             attempted_open: None,
+            has_connected: std::sync::atomic::AtomicBool::new(false),
             shared_recovery,
         }
     }
@@ -225,10 +227,97 @@ impl Transport {
             {
                 IncomingConnection::Failed
             }
-            TransportState::Streaming(_) | TransportState::Unary => IncomingConnection::Connected,
+            TransportState::Streaming(ref subscription) if !subscription.is_connected() => {
+                if self
+                    .has_connected
+                    .load(std::sync::atomic::Ordering::Acquire)
+                {
+                    IncomingConnection::Reconnecting
+                } else {
+                    IncomingConnection::Connecting
+                }
+            }
+            TransportState::Unary
+                if self
+                    .factory
+                    .as_ref()
+                    .is_some_and(|factory| factory.is_suspended()) =>
+            {
+                IncomingConnection::Reconnecting
+            }
+            TransportState::Streaming(_) | TransportState::Unary => {
+                self.has_connected
+                    .store(true, std::sync::atomic::Ordering::Release);
+                IncomingConnection::Connected
+            }
             TransportState::Opening(_) if self.generation == 1 => IncomingConnection::Connecting,
             TransportState::Waiting(_) if self.generation == 0 => IncomingConnection::Connecting,
             _ => IncomingConnection::Reconnecting,
         }
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::subscriptions::connection_state::ConnectionStates;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use xmtp_events::{
+        ClientEvent, ConnectionState, EventBus, EventFilter, EventKind, PublicBusWriter,
+    };
+
+    // verifies: EVENT-027
+    #[xmtp_common::test(unwrap_try = true)]
+    fn retained_source_changes_emit_one_client_connection_transition() {
+        let connected = Arc::new(AtomicBool::new(false));
+        let source = connected.clone();
+        let subscription =
+            IncomingSubscription::<NetworkError>::new(Box::pin(futures::stream::pending()), |_| {})
+                .with_connection_source(move || source.load(Ordering::Acquire))
+                .map_error(|error| error);
+        let mut transport = Transport::new(None, Default::default());
+        transport.state = TransportState::Streaming(subscription);
+        let bus = EventBus::<()>::new();
+        let events = bus.subscribe(
+            EventFilter::new([EventKind::ConnectionStateChanged]),
+            Some(8),
+        );
+        let states = ConnectionStates::default();
+        states.set_writer(Arc::new(PublicBusWriter::new(&bus)));
+        states.open(1);
+        assert_eq!(transport.connection(), IncomingConnection::Connecting);
+        states.update(1, transport.connection());
+        connected.store(true, Ordering::Release);
+        states.update(1, transport.connection());
+        assert_eq!(transport.connection(), IncomingConnection::Connected);
+        connected.store(false, Ordering::Release);
+        assert_eq!(transport.connection(), IncomingConnection::Reconnecting);
+        states.update(1, transport.connection());
+        states.update(1, transport.connection());
+        connected.store(true, Ordering::Release);
+        assert_eq!(transport.connection(), IncomingConnection::Connected);
+        states.update(1, transport.connection());
+        states.update(1, transport.connection());
+        states.close(1);
+        let transitions: Vec<_> = events
+            .drain()
+            .into_iter()
+            .filter_map(|event| match event.client {
+                Some(ClientEvent::ConnectionStateChanged(change)) => {
+                    Some((change.previous, change.current))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            transitions,
+            [
+                (ConnectionState::Closed, ConnectionState::Connecting),
+                (ConnectionState::Connecting, ConnectionState::Connected),
+                (ConnectionState::Connected, ConnectionState::Reconnecting),
+                (ConnectionState::Reconnecting, ConnectionState::Connected),
+                (ConnectionState::Connected, ConnectionState::Closed),
+            ]
+        );
     }
 }
