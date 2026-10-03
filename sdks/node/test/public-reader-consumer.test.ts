@@ -151,9 +151,11 @@ test("an acknowledgement failure ends callbacks and a new reader can replay", as
     { onClose: (reason) => closeReasons.push(reason) },
   );
 
-  await expect(failed.onValue((value) => received.push(value))).rejects.toBe(
-    storageError,
-  );
+  await expect(
+    failed.onValue((value) => {
+      received.push(value);
+    }),
+  ).rejects.toBe(storageError);
   expect(received).toEqual([1]);
   expect(reads).toBe(2);
   expect(ends).toBe(1);
