@@ -2,6 +2,7 @@ import { Args } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
 import { conversationState } from "@/utils/conversation";
+import { memberDetails } from "@/utils/members";
 
 export default class ConversationsGetDm extends BaseCommand {
   static description = `Get a DM conversation by address or inbox ID.
@@ -67,13 +68,7 @@ the local cache is searched directly.`;
       isActive: state.isActive,
       addedByInboxId: dm.addedByInboxId,
       creatorInboxId: dm.creatorInboxId,
-      members: members.map((m) => ({
-        inboxId: m.inboxId,
-        accountIdentifiers: m.identities,
-
-        permissionLevel: m.permissionLevel,
-        consentState: m.consentState,
-      })),
+      members: await memberDetails(client, members),
     });
   }
 }

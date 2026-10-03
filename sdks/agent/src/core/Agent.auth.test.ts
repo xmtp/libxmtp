@@ -190,6 +190,18 @@ describe("agent environment storage", () => {
     );
   });
 
+  it("does not create an environment directory for caller storage", async () => {
+    const dbDirectory = directory();
+    const storage = { location: "inMemory" as const };
+    const { create, stopped } = setup(dbDirectory);
+    await expect(Agent.createFromEnv({ storage })).rejects.toBe(stopped);
+    expect(create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ storage }),
+    );
+    expect(fs.existsSync(dbDirectory)).toBe(false);
+  });
+
   it.each(["directory", "default"] as const)(
     "opens an encrypted %s legacy database with the same installation",
     async (location) => {

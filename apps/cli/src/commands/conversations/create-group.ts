@@ -3,6 +3,7 @@ import type { GroupPermissionMode } from "@xmtp/node-sdk";
 import { type CreateGroupOptions } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
+import { memberDetails } from "@/utils/members";
 
 export default class ConversationsCreateGroup extends BaseCommand {
   static description = `Create a new group conversation.
@@ -118,11 +119,7 @@ Returns the new group's ID and details.`;
       imageUrl: state.imageUrl,
       createdAt: group.createdAt.date.toISOString(),
       memberCount: members.length,
-      members: members.map((m) => ({
-        inboxId: m.inboxId,
-        accountIdentifiers: m.identities,
-        permissionLevel: m.permissionLevel,
-      })),
+      members: await memberDetails(client, members),
     });
   }
 }

@@ -3,6 +3,7 @@ import { Args, Flags } from "@oclif/core";
 import { BaseCommand } from "@/baseCommand";
 import { conversationState } from "@/utils/conversation";
 import { identifierKindMap } from "@/utils/enums";
+import { memberDetails } from "@/utils/members";
 
 export default class ConversationsCreateDm extends BaseCommand {
   static description = `Create a new DM conversation.
@@ -69,11 +70,7 @@ Returns the DM's ID and details.`;
       consentState: state.consentState,
       isActive: state.isActive,
       creatorInboxId: dm.creatorInboxId,
-      members: members.map((m) => ({
-        inboxId: m.inboxId,
-        accountIdentifiers: m.identities,
-        permissionLevel: m.permissionLevel,
-      })),
+      members: await memberDetails(client, members),
     });
   }
 }

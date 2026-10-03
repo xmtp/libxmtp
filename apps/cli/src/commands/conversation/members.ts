@@ -1,6 +1,7 @@
 import { Args, Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
+import { memberDetails } from "@/utils/members";
 
 export default class ConversationMembers extends BaseCommand {
   static description = `List members of a conversation.
@@ -62,13 +63,7 @@ Use --sync to fetch the latest member list from the network before listing.`;
 
     const members = await conversation.members();
 
-    const output = members.map((member) => ({
-      inboxId: member.inboxId,
-      accountIdentifiers: member.identities,
-
-      permissionLevel: member.permissionLevel,
-      consentState: member.consentState,
-    }));
+    const output = await memberDetails(client, members);
 
     this.output(output);
   }

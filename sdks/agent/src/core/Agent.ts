@@ -298,7 +298,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         1000,
         "XMTP_BACKEND_URL or options.backend is required.",
       );
-    if (XMTP_DB_DIRECTORY)
+    if (XMTP_DB_DIRECTORY && !options?.storage)
       fs.mkdirSync(XMTP_DB_DIRECTORY, { recursive: true, mode: 0o700 });
     let storage = options?.storage;
     if (!storage) {

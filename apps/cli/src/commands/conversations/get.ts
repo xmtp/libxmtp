@@ -2,6 +2,7 @@ import { Args } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
 import { isDm, isGroup } from "@/utils/conversation";
+import { memberDetails } from "@/utils/members";
 
 export default class ConversationsGet extends BaseCommand {
   static description = `Get a conversation by ID.
@@ -67,13 +68,7 @@ Use this to inspect the full details of a specific conversation.`;
       addedByInboxId: conversation.addedByInboxId,
       creatorInboxId: conversation.creatorInboxId,
       memberCount: members.length,
-      members: members.map((m) => ({
-        inboxId: m.inboxId,
-        accountIdentifiers: m.identities,
-
-        permissionLevel: m.permissionLevel,
-        consentState: m.consentState,
-      })),
+      members: await memberDetails(client, members),
     };
 
     if (isGroup(conversation) && "common" in snapshot) {
