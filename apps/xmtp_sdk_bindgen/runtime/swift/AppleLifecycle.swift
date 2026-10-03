@@ -135,7 +135,7 @@ final class StreamLifecycleManager: @unchecked Sendable {
     private func restartReconciliationIfNeeded() -> Task<Void, Never>? {
         lock.lock()
         defer { lock.unlock() }
-        if !isReconciling && desiredLive != appliedLive {
+        if !isReconciling, desiredLive != appliedLive {
             isReconciling = true
             reconciliation = Task { await reconcile() }
         }

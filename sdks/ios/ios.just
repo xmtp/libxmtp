@@ -21,8 +21,8 @@ check:
 # Compile both retained example apps against this checkout's SDK.
 check-examples:
     ./dev/bindings
-    xcodebuild build -project XMTPiOSExample/XMTPiOSExample.xcodeproj -scheme XMTPiOSExample -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
-    xcodebuild build -project example/example.xcodeproj -scheme example -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+    env -u LD xcodebuild build -project XMTPiOSExample/XMTPiOSExample.xcodeproj -scheme XMTPiOSExample -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+    env -u LD xcodebuild build -project example/example.xcodeproj -scheme example -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
 
 # Run SwiftLint + SwiftFormat check
 lint:
@@ -42,7 +42,7 @@ build:
 
 # Run the suite on an installed iOS simulator.
 test-simulator destination="platform=iOS Simulator,name=iPhone 17":
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" TEST_RUNNER_XMTP_IOS_PERFORMANCE="${XMTP_IOS_PERFORMANCE:-0}" xcodebuild test -scheme XmtpSdk -destination '{{ destination }}'
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" TEST_RUNNER_XMTP_IOS_PERFORMANCE="${XMTP_IOS_PERFORMANCE:-0}" env -u LD xcodebuild test -scheme XmtpSdk -destination '{{ destination }}'
 
 # Generate a static DocC site. The output path is relative to the repository root.
 docs output="apps/docs/generated/reference/swift":

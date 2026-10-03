@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import os
+import json
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,56 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 class RecipeTests(unittest.TestCase):
+    def test_xcode_recipes_clear_inherited_linker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tools = Path(directory)
+            producer = tools / "xcodebuild"
+            producer.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, sys\n"
+                "assert 'LD' not in os.environ, 'XCODE_LINKER_DRIVER_ENV_RETAINED'\n"
+                "print(json.dumps(sys.argv[1:]))\n"
+            )
+            producer.chmod(0o755)
+            count = 0
+            for recipe in ("check-examples", "test-simulator"):
+                result = subprocess.run(
+                    ["just", "--dry-run", "ios", recipe],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                commands = result.stdout + result.stderr
+                for line in commands.splitlines():
+                    if "xcodebuild " not in line:
+                        continue
+                    # Run the Xcode command with a recording tool. Keep SDK
+                    # generation and backend setup outside this control.
+                    command = line.rsplit("&&", 1)[-1].strip()
+                    count += 1
+                    with self.subTest(recipe=recipe, command=command):
+                        run = subprocess.run(
+                            ["bash", "-euc", command],
+                            cwd=ROOT,
+                            env=dict(
+                                os.environ,
+                                LD="ld",
+                                XMTP_BACKEND_URL="http://fixture.invalid",
+                                PATH=f"{tools}:{os.environ['PATH']}",
+                            ),
+                            capture_output=True,
+                            text=True,
+                        )
+                        self.assertEqual(run.returncode, 0, run.stderr)
+                        args = json.loads(run.stdout)
+                        self.assertEqual(
+                            args[0], "build" if recipe == "check-examples" else "test"
+                        )
+                        if recipe == "check-examples":
+                            self.assertIn("CODE_SIGNING_ALLOWED=NO", args)
+            self.assertEqual(count, 3)
+
     def test_docs_create_output_parent_in_fresh_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             checkout = Path(directory)

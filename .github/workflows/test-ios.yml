@@ -28,7 +28,6 @@ jobs:
       - name: Build and test
         env:
           NIX_DEVSHELL: ios
-          CARGO_BUILD_JOBS: "2"
           XMTP_IOS_PERFORMANCE: "1"
         run: dev/nix-shell 'just backend ci bash -c "just ios test && just ios check-examples && just ios test-simulator"'
       - name: Retain native service logs

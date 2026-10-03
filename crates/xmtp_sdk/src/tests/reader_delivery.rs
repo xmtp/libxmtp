@@ -115,7 +115,10 @@ async fn client_end_settles_idle_message_read() {
             .is_none(),
         "client end must settle the idle message read"
     );
-    assert!(settlement.try_recv().is_ok(), "the native worker must settle");
+    assert!(
+        settlement.try_recv().is_ok(),
+        "the native worker must settle"
+    );
 }
 
 // verifies: PROC-052
