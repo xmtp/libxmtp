@@ -204,7 +204,7 @@ def build(args):
             command += ["--target", "wasm32-unknown-unknown"]
         elif kind == "native" and args.rust_target:
             command += ["--target", args.rust_target]
-        env = dict(os.environ, CARGO_TARGET_DIR=str(cargo_target), CARGO_BUILD_JOBS="2")
+        env = dict(os.environ, CARGO_TARGET_DIR=str(cargo_target))
         started = time.monotonic()
         run(command, env=env)
         folder = (

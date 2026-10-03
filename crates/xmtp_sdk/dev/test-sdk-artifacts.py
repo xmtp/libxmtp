@@ -24,6 +24,7 @@ class ArtifactTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.calls = []
+        self.cargo_environments = []
         self.args = argparse.Namespace(
             artifacts=self.root / "artifacts",
             targets=("node",),
@@ -55,6 +56,7 @@ class ArtifactTests(unittest.TestCase):
     def command(self, command, **kwargs):
         self.calls.append(command)
         if command[0] == "dev/agent-run":
+            self.cargo_environments.append(dict(kwargs["env"]))
             out = Path(kwargs["env"]["CARGO_TARGET_DIR"])
             if "--target" in command:
                 out /= command[command.index("--target") + 1]
@@ -84,6 +86,24 @@ class ArtifactTests(unittest.TestCase):
         artifacts.render(self.args)
         self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
         self.assertFalse((self.args.out / "typescript-wasm").exists())
+
+    def test_cargo_build_preserves_caller_job_count(self):
+        with patch.dict(os.environ, {"CARGO_BUILD_JOBS": "7"}):
+            artifacts.build(self.args)
+        self.assertEqual(len(self.cargo_environments), 2)
+        for environment in self.cargo_environments:
+            self.assertEqual(environment["CARGO_BUILD_JOBS"], "7")
+
+    def test_cargo_build_leaves_unset_job_count_unset(self):
+        with patch.dict(os.environ):
+            os.environ.pop("CARGO_BUILD_JOBS", None)
+            artifacts.build(self.args)
+        self.assertEqual(len(self.cargo_environments), 2)
+        for environment in self.cargo_environments:
+            self.assertFalse(
+                "CARGO_BUILD_JOBS" in environment,
+                "Unset Cargo job count must remain unset",
+            )
 
     def test_compiler_change_rebuilds_artifacts(self):
         artifacts.build(self.args)
