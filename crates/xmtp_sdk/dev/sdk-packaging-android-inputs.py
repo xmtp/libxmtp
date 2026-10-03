@@ -15,7 +15,6 @@ class AndroidDependencyInputs:
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text("fixture dependency input")
 
-
     def test_android_owned_project_override_keeps_common_native_receipts(self):
         self.prepare_mobile_stage("android")
         self.sdk_root = self.root / "owned-worktree/sdks/android"
@@ -23,7 +22,6 @@ class AndroidDependencyInputs:
         self.assemble_mobile("android", sdk_root=self.sdk_root)
         self.assertTrue((self.root / "products/android/xmtp-sdk.aar").exists())
         self.assertFalse((self.root / "sdks/android/library/build").exists())
-
 
     def test_android_dependency_inputs_are_required_before_tool_use(self):
         for name in (
@@ -45,13 +43,15 @@ class AndroidDependencyInputs:
                 self.assertEqual(self.product_files(output), previous)
                 self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
 
-
     def test_android_fixture_inputs_do_not_cover_selected_sdk_root(self):
         output = self.prepare_mobile_stage("android")
         previous = self.product_files(output)
         fixture = self.root / "crates/xmtp_sdk/packaging/android"
-        for name in ("gradle.lockfile", "buildscript-gradle.lockfile",
-                     "gradle/verification-metadata.xml"):
+        for name in (
+            "gradle.lockfile",
+            "buildscript-gradle.lockfile",
+            "gradle/verification-metadata.xml",
+        ):
             path = fixture / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture dependency input")
@@ -64,7 +64,6 @@ class AndroidDependencyInputs:
         self.seed_android_dependency_inputs()
         self.assemble_mobile("android", sdk_root=self.sdk_root)
         self.assertTrue((output / "xmtp-sdk.aar").is_file())
-
 
     def test_android_stage_uses_strict_read_only_dependency_inputs(self):
         self.prepare_mobile_stage("android")
@@ -91,5 +90,3 @@ class AndroidDependencyInputs:
             self.mobile_tool(command, **kwargs)
 
         self.assemble_mobile("android", tool)
-
-

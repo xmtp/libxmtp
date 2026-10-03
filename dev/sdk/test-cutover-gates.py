@@ -120,7 +120,9 @@ class CutoverGates(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing current pure projection"):
                 module.switched_source_rows({"Browser"})
             pure.write_text("export { Timestamp };\n")
-            with self.assertRaisesRegex(ValueError, "pure root misses retained exports"):
+            with self.assertRaisesRegex(
+                ValueError, "pure root misses retained exports"
+            ):
                 module.switched_source_rows({"Browser"})
 
     def test_isolation_admits_only_the_switched_sdk(self):

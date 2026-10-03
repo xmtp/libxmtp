@@ -52,6 +52,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   #closed = false;
   #reads: Promise<void> = Promise.resolve();
   #consumer?: "iterator" | "callback";
+  #iteratorOwner?: "stream" | "adapter";
   #closeReason?: StreamCloseReason;
   #closing?: Promise<void>;
   readonly #abortListener = () => void this.return().catch(reportCallbackError);
@@ -96,7 +97,21 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   }
 
   [Symbol.asyncIterator](): AsyncIterableIterator<T> {
-    return this;
+    if (!this.#closed) {
+      if (this.#consumer === "callback")
+        throw new Error("reader callback consumer is active");
+      if (this.#consumer === "iterator")
+        throw new Error("reader iterator consumer is active");
+      this.#consumer = "iterator";
+      this.#iteratorOwner = "adapter";
+    }
+    return {
+      next: () => this.#next(),
+      return: () => this.return(),
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+    };
   }
 
   #isClosed(): boolean {
@@ -186,7 +201,10 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     if (!this.#closed) {
       if (this.#consumer === "callback")
         return Promise.reject(new Error("reader callback consumer is active"));
+      if (this.#iteratorOwner === "adapter")
+        return Promise.reject(new Error("reader iterator consumer is active"));
       this.#consumer = "iterator";
+      this.#iteratorOwner = "stream";
     }
     return this.#next();
   }

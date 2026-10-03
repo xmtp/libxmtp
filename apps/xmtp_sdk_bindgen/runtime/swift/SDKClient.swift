@@ -125,8 +125,8 @@ public final class SDKClient: @unchecked Sendable {
 
     public func end() async throws {
         listenerGates.stopAll()
-        defer { ClientRegistry.remove(self) }
         try await raw.end()
+        ClientRegistry.remove(self)
     }
 
     /// The reader acknowledges a value when the next read starts.

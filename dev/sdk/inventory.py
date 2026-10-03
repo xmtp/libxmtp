@@ -1075,7 +1075,9 @@ def switched_source_rows(switched: set[str]) -> list[str]:
                 raise ValueError(f"Browser: missing current pure projection {pure}")
             exports = {
                 part.strip().split(" as ")[-1].removeprefix("type ")
-                for group in re.findall(r"export (?:type )?\{([^}]+)\}", pure.read_text())
+                for group in re.findall(
+                    r"export (?:type )?\{([^}]+)\}", pure.read_text()
+                )
                 for part in group.split(",")
                 if part.strip()
             }

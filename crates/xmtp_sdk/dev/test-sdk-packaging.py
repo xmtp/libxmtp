@@ -373,9 +373,8 @@ class PackagingTests(android_inputs.AndroidDependencyInputs, unittest.TestCase):
                     SDK_SHELL_TRACE=str(trace),
                 ),
             )
-        self.assertEqual(
-            trace.read_text().splitlines(), [name + ":rust" for name in names]
-        )
+        expected = [name + ":rust" for name in names]
+        self.assertEqual(trace.read_text().splitlines(), expected)
 
     def command(self, command, **kwargs):
         self.calls.append(command)
@@ -505,12 +504,20 @@ class PackagingTests(android_inputs.AndroidDependencyInputs, unittest.TestCase):
         subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
         expected = (artifacts.source_hash(), artifacts.source_hash(True))
         (self.root / ".git").rename(self.root / ".git-hidden")
-        self.assertEqual(
-            (artifacts.source_hash(), artifacts.source_hash(True)), expected
-        )
+        actual = (artifacts.source_hash(), artifacts.source_hash(True))
+        self.assertEqual(actual, expected)
 
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
-        names = ("CC", "CXX", "AR", "RANLIB", "CFLAGS", "CXXFLAGS", "LDFLAGS", "PERL") + tuple(
+        names = (
+            "CC",
+            "CXX",
+            "AR",
+            "RANLIB",
+            "CFLAGS",
+            "CXXFLAGS",
+            "LDFLAGS",
+            "PERL",
+        ) + tuple(
             prefix + "OPENSSL_" + name
             for prefix in ("", "AARCH64_LINUX_ANDROID_")
             for name in (
@@ -793,9 +800,8 @@ class PackagingTests(android_inputs.AndroidDependencyInputs, unittest.TestCase):
         artifacts.build(self.args)
         self.assertEqual(len(self.calls), calls + 1)
         self.assertIn("xmtp-sdk-bindgen", self.calls[-1])
-        self.assertEqual(
-            json.loads(manifest.read_text())["artifacts"]["native"], native
-        )
+        actual = json.loads(manifest.read_text())["artifacts"]["native"]
+        self.assertEqual(actual, native)
         artifacts.render(self.args)
         binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
         self.assertEqual(binding["artifact"], native)
