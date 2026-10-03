@@ -4,6 +4,26 @@ on:
 env:
   NIX_DEVSHELL: js-node
 jobs:
+  retained-bindings:
+    name: Test retained Node bindings
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          docker-builder: "true"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - name: Start backend
+        run: dev/nix-shell 'just backend up'
+      - name: Run retained binding tests
+        run: dev/nix-shell 'just node test-ci'
+      - name: Typecheck retained binding tests
+        run: dev/nix-shell 'pnpm --filter @xmtp/node-bindings typecheck'
   test:
     name: Test (node-sdk) shard ${{ matrix.shard }}
     runs-on: blacksmith-16vcpu-ubuntu-2404

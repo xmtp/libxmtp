@@ -55,6 +55,10 @@
         node-bindings-js = pkgs.callPackage ./package/node-binding-declarations.nix {
           withJs = true;
         };
+        node-bindings-test = pkgs.callPackage ./package/node-binding-declarations.nix {
+          withJs = true;
+          test = true;
+        };
       }
       // lib.mapAttrs' (target: crossPkgs: {
         name = "xmtp-sdk-node-${pkgs.xmtp.toNapiTarget target}";

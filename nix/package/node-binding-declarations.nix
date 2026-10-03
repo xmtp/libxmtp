@@ -43,19 +43,10 @@ let
       CARGO_BUILD_TARGET = "${stdenv.hostPlatform.rust.rustcTarget}.${targetGlibcVersion}";
     };
 
-  commonArgs =
-    xmtp.base.commonArgs
-    // {
-      inherit version;
-      CARGO_BUILD_JOBS = "2";
-    }
-    // specialArgs;
+  commonArgs = xmtp.base.commonArgs // { inherit version; } // specialArgs;
 
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
     specialArgs
-    // {
-      CARGO_BUILD_JOBS = "2";
-    }
     // lib.optionalAttrs isGnu {
       # override everything for glibc compatibility
       preBuild = "export HOME=$TMPDIR";
