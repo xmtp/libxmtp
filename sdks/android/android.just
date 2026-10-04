@@ -24,9 +24,14 @@ lint: build
 format:
   ./gradlew -p . spotlessApply --dependency-verification=strict --no-daemon
 
-# Run unit tests
-test: build
-  {{ _env }} && ./gradlew -p . library:testDebugUnitTest
+# Stage the matched host library for JVM native calls.
+[private]
+_test-host:
+  env -u LD_LIBRARY_PATH nix build "{{ root }}#xmtp-sdk-libs" --out-link "{{ root }}/sdks/android/.build/test-host"
+
+# Run unit tests with the generated SDK and its matched host library.
+test: build _test-host
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest --dependency-verification=strict --no-daemon
 
 
 # Run unit tests against existing matched generated bindings.

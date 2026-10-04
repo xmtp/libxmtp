@@ -6,8 +6,10 @@ lifecycle, and file log helpers.
 
 ## Commands
 
-For unit tests that call native code, set `JAVA_TOOL_OPTIONS=-Djna.library.path=PATH`
-to the matched host SDK library directory. The test runtime includes host JNA.
+`just android test` stages the matched host SDK library for native JVM calls.
+The test runtime includes host JNA. For `test-unit` with existing generated output,
+set `JAVA_TOOL_OPTIONS=-Djna.library.path=PATH` to the matched host SDK library
+directory.
 
 Run from the repository root. Each recipe uses the Android Nix shell.
 Build tools use normal parallelism and preserve caller job settings.
