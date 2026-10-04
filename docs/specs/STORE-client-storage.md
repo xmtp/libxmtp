@@ -8,9 +8,9 @@ An SDK keeps each client's database and attachments at a location the app names 
 
 ## Scope
 
-In scope: the default directories, how the default location and a directory the app names map to the storage location layouts, the database file name in a data directory, the storage label, the identity needed to build a client from a stored database, and storage lifecycle.
+In scope: the default directories, how the default location and a directory the app names map to the storage location layouts, the database file name in a data directory, the storage label, the identity needed to build a client from a stored database, storage lifecycle, and support for unencrypted databases.
 
-Out of scope: the storage location layouts themselves and the attachments directory (ATCH section 5), database contents, and encryption.
+Out of scope: the storage location layouts themselves and the attachments directory (ATCH section 5), database contents, encryption algorithms, and key management.
 
 ## Terms
 
@@ -51,6 +51,16 @@ The storage interface reports the file in use and controls its connection and re
 | STORE-011 | In-memory storage cannot be deleted | When an app asks to delete in-memory client storage, the SDK MUST fail with a typed invalid-input error. | In-memory storage has no database file to remove. |
 | STORE-017 | Close before file removal | When an app asks to delete file-backed client storage, the SDK MUST close the client before it removes the database file. | A live connection could otherwise write to a file after its name is removed. |
 | STORE-018 | Database file is gone after deletion | When deletion of file-backed client storage completes, the SDK MUST have removed the database file. | An app that deletes a client's storage expects that database file to be gone. |
+
+## 3. Database encryption choice
+
+An app can use a database without an encryption key. When the key is absent,
+the database is not encrypted by the SDK. This choice applies when the app
+creates a database and when it opens that database again.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| STORE-022 | Optional database encryption key | When an app omits the database encryption key, the SDK MUST support creating a database and reopening a database created without a key, without requiring a key. | Requiring a key prevents an app from using or reopening its existing store. |
 
 ## Known limitations
 
