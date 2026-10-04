@@ -15,6 +15,21 @@ test("an empty backend URL fails at the public Browser boundary", async () => {
   await expect(Client.fetchServerConfiguration({ url: "" })).rejects.toThrow();
 });
 
+test("an unreachable backend keeps a public configuration error", async () => {
+  const error = await Client.fetchServerConfiguration({
+    url: "http://127.0.0.1:1",
+  }).then(
+    () => undefined,
+    (cause: unknown) => cause,
+  );
+  expect(error).toBeInstanceOf(XmtpError.ConfigurationUnavailable);
+  expect((error as XmtpError).details).toMatchObject({
+    code: "ConfigurationUnavailable",
+    category: "configuration",
+    retryable: true,
+  });
+});
+
 test("standalone queries keep credential sources separate at one endpoint", async () => {
   const identity = await signer().identity();
   const first = vi.fn(async () => credential());
