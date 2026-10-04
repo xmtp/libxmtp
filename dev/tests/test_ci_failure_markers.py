@@ -86,6 +86,15 @@ class FailureMarkers(unittest.TestCase):
             ],
         )
 
+    def test_gradle_failure_keeps_the_test_name(self):
+        self.assertEqual(
+            self.filtered(
+                "org.xmtp.android.library.GroupTest > testReadd[API_34] FAILED\n"
+                "org.xmtp.android.library.GroupTest > testHealthy[API_34] PASSED\n"
+            ),
+            ["org.xmtp.android.library.GroupTest > testReadd[API_34] FAILED"],
+        )
+
     def test_passing_output_is_empty(self):
         self.assertEqual(
             self.filtered(
