@@ -22,12 +22,6 @@ class ReactionTest : BaseInstrumentedTest() {
                                 "\"reference\":\"$reference\",\"schema\":\"shortcode\"}"
                         ).toByteArray(),
                 )
-            val legacy =
-                EncodedContent(
-                    type,
-                    mapOf("action" to "added", "reference" to reference, "schema" to "shortcode"),
-                    content = "smile".toByteArray(),
-                )
             val expected =
                 MessageContent.Reaction(
                     reference,
@@ -35,10 +29,13 @@ class ReactionTest : BaseInstrumentedTest() {
                     Reaction("smile", ReactionAction.ADDED, ReactionSchema.SHORTCODE),
                 )
             assertEquals(expected, client.decodeContent(canonical))
-            assertEquals(expected, client.decodeContent(legacy))
+            val codec = ReactionV2Codec()
+            val current = ReactionV2Content(reference, null, expected.reaction)
+            assertEquals(ContentTypeId("xmtp.org", "reaction", 2u, 0u), codec.type)
+            assertEquals(current, codec.decode(codec.encode(current)))
         }
 
-    private suspend fun send(v2: Boolean): Pair<Message, Message> {
+    private suspend fun send(v2: Boolean): Pair<ReactionMessage, Message> {
         val fixtures = createFixtures()
         val dm = fixtures.alixClient.conversations().createDm(fixtures.boClient.inboxId())
         val parent = dm.sendText("hey alice 2 bob")
@@ -46,32 +43,30 @@ class ReactionTest : BaseInstrumentedTest() {
             if (v2) {
                 dm.sendReaction(parent, fixtures.alixClient.inboxId(), reaction)
             } else {
-                dm.send(
-                    EncodedContent(
-                        ContentTypeId("xmtp.org", "reaction", 1u, 0u),
-                        mapOf("action" to "added", "reference" to parent, "schema" to "unicode"),
-                        content = reaction.content.toByteArray(),
-                    ),
-                )
+                val codec = ReactionV2Codec()
+                val payload = ReactionV2Content(parent, fixtures.alixClient.inboxId(), reaction)
+                assertEquals(payload, codec.decode(codec.encode(payload)))
+                dm.send(codec, payload)
             }
+        dm.sync()
         val messages = dm.messages()
-        return messages.single { it.id == id } to messages.single { it.id == parent }
+        assertFalse(messages.any { it.id == id })
+        val storedParent = messages.single { it.id == parent }
+        return storedParent.reactions.single { it.id == id } to storedParent
     }
 
     @Test fun testCanUseReactionCodec() =
         runBlocking {
             val (message, parent) = send(false)
-            val content = (message.content as SDKMessageContent.Standard).value as MessageContent.Reaction
-            assertEquals(parent.id, content.reference)
-            assertEquals(reaction, content.reaction)
+            assertEquals(parent.senderInboxId, message.senderInboxId)
+            assertEquals(reaction, message.reaction)
         }
 
     @Test fun testCanUseReactionV2Codec() =
         runBlocking {
             val (message, parent) = send(true)
-            val content = (message.content as SDKMessageContent.Standard).value as MessageContent.Reaction
-            assertEquals(parent.id, content.reference)
-            assertEquals(reaction, content.reaction)
+            assertEquals(parent.senderInboxId, message.senderInboxId)
+            assertEquals(reaction, message.reaction)
             assertEquals(listOf(reaction), parent.reactions.map { it.reaction })
         }
 
@@ -80,14 +75,20 @@ class ReactionTest : BaseInstrumentedTest() {
             val fixtures = createFixtures()
             val dm = fixtures.alixClient.conversations().createDm(fixtures.boClient.inboxId())
             val parent = dm.sendText("parent")
-            dm.sendReaction(parent, fixtures.alixClient.inboxId(), reaction)
-            dm.send(
-                EncodedContent(
-                    ContentTypeId("xmtp.org", "reaction", 1u, 0u),
-                    mapOf("action" to "added", "reference" to parent, "schema" to "unicode"),
-                    content = "U+1F604".toByteArray(),
-                ),
-            )
+            val firstId = dm.sendReaction(parent, fixtures.alixClient.inboxId(), reaction)
+            val secondId =
+                dm.send(
+                    ReactionV2Codec(),
+                    ReactionV2Content(
+                        parent,
+                        fixtures.alixClient.inboxId(),
+                        Reaction("U+1F604", ReactionAction.ADDED, ReactionSchema.UNICODE),
+                    ),
+                )
+            dm.sync()
+            val stored = dm.messages().single { it.id == parent }.reactions
+            assertEquals(2, stored.size)
+            assertEquals(setOf(firstId, secondId), stored.map { it.id }.toSet())
             assertEquals(
                 setOf("U+1F603", "U+1F604"),
                 dm

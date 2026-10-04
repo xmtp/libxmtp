@@ -293,7 +293,7 @@ class DmTest : BaseInstrumentedTest() {
             val reaction = Reaction("U+1F603", ReactionAction.ADDED, ReactionSchema.UNICODE)
             val id = dm.sendReaction(parent, bo.inboxId(), reaction)
             dm.sync()
-            val messages = dm.messages()
+            val messages = dm.messageHistorySnapshot(10u).messages
             assertEquals(3, messages.size)
             val content = (messages.single { it.id == id }.data.content as MessageContent.Reaction)
             assertEquals(parent, content.reference)
@@ -420,7 +420,14 @@ class DmTest : BaseInstrumentedTest() {
             peer.sync()
             val id = peer.sendReadReceipt()
             dm.sync()
-            assertEquals(dm.messages().single { it.id == id }.sentAt, dm.lastReadTimes()[alix.inboxId()])
+            assertEquals(
+                dm
+                    .messageHistorySnapshot(10u)
+                    .messages
+                    .single { it.id == id }
+                    .sentAt,
+                dm.lastReadTimes()[alix.inboxId()],
+            )
         }
 
     @Test fun testDmDisappearingMessages() =
