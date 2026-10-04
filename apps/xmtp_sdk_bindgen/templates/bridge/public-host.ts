@@ -82,9 +82,15 @@ export async function resolveLegacyStorage(
   if (files.length === 0) return options;
 
   const user = await identity();
+  const legacyInboxId =
+    options.registration?.nonce === undefined
+      ? generateInboxId(user, 1n)
+      : undefined;
   const ids = new Set<InboxId>([
     inboxId ?? generateInboxId(user, options.registration?.nonce),
   ]);
+  if (inboxId === undefined && legacyInboxId !== undefined)
+    ids.add(legacyInboxId);
   if (inboxId === undefined && !options.allowOffline)
     ids.add(await inboxIdForWithBackend(options.backend ?? { url: "" }, user));
   const matches = files.filter((entry) => ids.has(entry.inboxId));
@@ -109,6 +115,10 @@ export async function resolveLegacyStorage(
   const dbPath = match.path;
   return {
     ...options,
+    ...(options.registration?.nonce === undefined &&
+    match.inboxId === legacyInboxId
+      ? { registration: { ...options.registration, nonce: 1n } }
+      : {}),
     storage: {
       ...options.storage,
       location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
