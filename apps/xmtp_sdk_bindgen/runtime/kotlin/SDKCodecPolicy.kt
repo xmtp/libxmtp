@@ -51,9 +51,9 @@ internal fun <T : Any> codecType(codec: ContentCodec<T>): ContentTypeId = codecS
 
 // A copy of the codec's envelope with its own type and parameters. The
 // generated record has `var` fields, so a hook that keeps and changes the
-// codec's envelope object cannot change the checked copy. The content bytes
-// are not copied: they do not decide the type or the push policy.
-private fun EncodedContent.snapshot(): EncodedContent = copy(type = type.copy(), parameters = parameters.toMap())
+// codec's envelope object cannot change the checked copy. Copy the content
+// bytes so later codec changes cannot change the send.
+private fun EncodedContent.snapshot(): EncodedContent = copy(type = type.copy(), parameters = parameters.toMap(), content = content.copyOf())
 
 /**
  * The envelope of [value] for a send. An envelope that already has a fallback

@@ -429,7 +429,7 @@ describe("Agent stream lifecycle", () => {
       await h.agent.stop();
     },
   );
-  it("routes a failed message lookup through error middleware and keeps reading", async () => {
+  it("retries a recovered message lookup before accepting the message", async () => {
     const h = harness();
     const cause = new Error("lookup failed");
     h.getById.mockRejectedValueOnce(cause);
@@ -444,10 +444,12 @@ describe("Agent stream lifecycle", () => {
       expect.objectContaining({ client: h.client, message }),
       expect.any(Function),
     );
+    expect(h.getById).toHaveBeenCalledTimes(2);
+    expect(received).toHaveBeenCalledOnce();
     expect(h.messages[0]!.end).not.toHaveBeenCalled();
     expect(h.conversations[0]!.end).not.toHaveBeenCalled();
     await h.messages[0]!.value(message);
-    expect(received).toHaveBeenCalledOnce();
+    expect(received).toHaveBeenCalledTimes(2);
     await h.agent.stop();
   });
   it("rejects an unhandled value so the reader cannot acknowledge it", async () => {
@@ -464,7 +466,7 @@ describe("Agent stream lifecycle", () => {
     expect(unhandled).toHaveBeenCalledWith(cause);
     await h.agent.stop();
   });
-  it.each(["unhandled", "stopped"] as const)(
+  it.each(["unhandled", "stopped", "recovered-but-unresolved"] as const)(
     "does not make an acknowledging read after a %s value",
     async (disposition) => {
       const cause = new Error("lookup failed");
@@ -505,6 +507,8 @@ describe("Agent stream lifecycle", () => {
       const closed = vi.fn();
       agent.on("unhandledError", unhandled);
       if (disposition === "stopped") agent.errors.use(() => undefined);
+      if (disposition === "recovered-but-unresolved")
+        agent.errors.use((_error, _context, next) => next());
       await agent.start({ onClose: closed });
       await vi.waitFor(() => expect(messageEnd).toHaveBeenCalledOnce());
       expect(closed).toHaveBeenCalledWith({
