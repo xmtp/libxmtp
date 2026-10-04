@@ -21,13 +21,13 @@ from [release run 35742600105](https://github.com/xmtp/libxmtp/actions/runs/3574
 on `self-hosted`, at commit `9f72722`. Pin these versions instead of using an
 unversioned install or a moving `dev` tag.
 
-| SDK     | Package or dependency         | Dev version                                                                                                                   |
-| ------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Browser | `@xmtp/browser-sdk`           | [7.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.9f72722)                                           |
-| Node    | `@xmtp/node-sdk`              | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)                                              |
-| Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)                                             |
-| Kotlin  | `org.xmtp:android`              | Build the checked-out source with `dev/nix-shell 'just android build'`. |
-| Swift   | `XMTPiOS` from `xmtp/libxmtp` | [4.12.0-dev.9f72722](https://github.com/xmtp/libxmtp/releases/tag/ios-4.12.0-dev.9f72722)                                     |
+| SDK     | Package or dependency         | Dev version                                                                               |
+| ------- | ----------------------------- | ----------------------------------------------------------------------------------------- |
+| Browser | `@xmtp/browser-sdk`           | [7.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.9f72722)       |
+| Node    | `@xmtp/node-sdk`              | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)          |
+| Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)         |
+| Kotlin  | `org.xmtp:android`            | Build the checked-out source with `dev/nix-shell 'just android build'`.                   |
+| Swift   | `XMTPiOS` from `xmtp/libxmtp` | [4.12.0-dev.9f72722](https://github.com/xmtp/libxmtp/releases/tag/ios-4.12.0-dev.9f72722) |
 
 For example, install Node with
 `npm install @xmtp/node-sdk@6.2.0-dev.9f72722`. For Kotlin, build the current Android source and use its matching AAR. For Swift Package Manager,
@@ -68,7 +68,7 @@ Keep the label and database path stable after migration.
 | Browser | Pass `{ backendUrl: "https://xmtp.example.com" }` to `Client.create` and `Client.build`. A pre-built WASM `Backend` cannot cross the worker boundary.                                 |
 | Node    | Pass `{ backendUrl: "https://xmtp.example.com" }`, or `{ backend }` with a pre-built `Backend`. Do not pass both forms.                                                               |
 | Agent   | Set `XMTP_BACKEND_URL` or pass `backendUrl` to `Agent.createFromEnv`. The environment variable takes precedence. Remove `XMTP_GATEWAY_HOST`. `XMTP_ENV` now labels the database only. |
-| Kotlin  | Import `uniffi.xmtp_sdk.*`. Use `BackendSource.Options(BackendOptions(url = backendUrl))` and `StorageOptions` in `ClientOptions`. |
+| Kotlin  | Import `uniffi.xmtp_sdk.*`. Use `BackendSource.Options(BackendOptions(url = backendUrl))` and `StorageOptions` in `ClientOptions`.                                                    |
 | Swift   | Supply `ClientOptions(api: .init(backendUrl: "https://xmtp.example.com"), ...)`. `env` defaults to `"local"`.                                                                         |
 
 See [Create a client](/sdk/client/#create-a-client) for complete examples.

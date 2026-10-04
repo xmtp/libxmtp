@@ -1,9 +1,13 @@
 package uniffi.xmtp_sdk
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -13,6 +17,58 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AndroidStreamLifecycleTest {
+    @Test
+    fun failedRegistrationCanRetryWithoutChangingExistingWaiters() =
+        runTest {
+            val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+            try {
+                val firstGate = CompletableDeferred<Unit>()
+                val replacementGate = CompletableDeferred<Unit>()
+                val expected = IllegalStateException("transient registration failure")
+                var registrations = 0
+                val applied = mutableListOf<Boolean>()
+                val controller =
+                    StreamLifecycleController(scope, apply = { applied.add(it) }, report = { throw it })
+                val startup =
+                    StreamLifecycleStartup(scope, controller) {
+                        registrations += 1
+                        if (registrations == 1) {
+                            firstGate.await()
+                            throw expected
+                        }
+                        replacementGate.await()
+                        false
+                    }
+                val first = async { runCatching { startup.awaitReady() } }
+                val second = async { runCatching { startup.awaitReady() } }
+                runCurrent()
+                assertEquals(1, registrations)
+                firstGate.complete(Unit)
+                runCurrent()
+                val firstFailure = first.await().exceptionOrNull()
+                val secondFailure = second.await().exceptionOrNull()
+                assertTrue(firstFailure is IllegalStateException)
+                assertTrue(secondFailure is IllegalStateException)
+                assertEquals(expected.message, firstFailure?.message)
+                assertEquals(expected.message, secondFailure?.message)
+                val retry = async { runCatching { startup.awaitReady() } }
+                val concurrentRetry = async { runCatching { startup.awaitReady() } }
+                runCurrent()
+                assertEquals(2, registrations)
+                assertFalse(retry.isCompleted)
+                assertFalse(concurrentRetry.isCompleted)
+                replacementGate.complete(Unit)
+                runCurrent()
+                assertTrue(retry.await().isSuccess)
+                assertTrue(concurrentRetry.await().isSuccess)
+                assertEquals(2, registrations)
+                assertEquals(listOf(false), applied)
+                assertEquals(expected.message, second.await().exceptionOrNull()?.message)
+            } finally {
+                scope.cancel()
+            }
+        }
+
     @Test
     fun newerForegroundCallbackWinsOverBackgroundStartupSnapshot() =
         runTest {

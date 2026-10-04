@@ -3,7 +3,9 @@ package uniffi.xmtp_sdk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 
 /** Register once and share completion of the initial native transition. */
 internal class StreamLifecycleStartup(
@@ -29,11 +31,19 @@ internal class StreamLifecycleStartup(
                     val seedLock = Any()
                     var callbackSeen = false
                     val initial =
-                        register { live ->
-                            synchronized(seedLock) {
-                                callbackSeen = true
-                                controller.setLive(live)
+                        try {
+                            register { live ->
+                                synchronized(seedLock) {
+                                    callbackSeen = true
+                                    controller.setLive(live)
+                                }
                             }
+                        } catch (error: Throwable) {
+                            val failed = currentCoroutineContext()[Job]
+                            synchronized(lock) {
+                                if (startup === failed) startup = null
+                            }
+                            throw error
                         }
                     synchronized(seedLock) {
                         if (!callbackSeen) controller.setLive(initial)
