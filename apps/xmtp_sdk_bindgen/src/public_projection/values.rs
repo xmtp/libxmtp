@@ -13,9 +13,12 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         writeln!(code, "export type {name} = {{")?;
     }
     for field in &record.fields {
-        // A field with a Rust default can be left out; the binding factory
-        // fills it in.
-        let optional = if matches!(field.ty, Type::Optional { .. }) || field.default.is_some() {
+        // The binding factory fills Rust defaults. EVENT-020 has a public
+        // false default that lowering supplies before binding conversion.
+        let optional = if matches!(field.ty, Type::Optional { .. })
+            || field.default.is_some()
+            || (name == "EventFilter" && field.name == "references_own_messages")
+        {
             "?"
         } else {
             ""
@@ -60,7 +63,15 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
                 } else {
                     let source_name = if lower { &public_name } else { &binding_name };
                     let output_name = if lower { &binding_name } else { &public_name };
-                    let converted = convert(&field.ty, &format!("value.{source_name}"), lower);
+                    let source = if lower
+                        && name == "EventFilter"
+                        && field.name == "references_own_messages"
+                    {
+                        format!("(value.{source_name} ?? false)")
+                    } else {
+                        format!("value.{source_name}")
+                    };
+                    let converted = convert(&field.ty, &source, lower);
                     (false, format!("{output_name}: {converted}"))
                 }
             })
@@ -352,6 +363,35 @@ fn public_variant_kind(name: &str, variant: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::public_variant_kind;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn event_filter_omission_has_a_public_false_default() -> anyhow::Result<()> {
+        let mut record = uniffi_meta::RecordMetadata {
+            module_path: "test".into(),
+            name: "EventFilter".into(),
+            orig_name: None,
+            remote: false,
+            fields: vec![uniffi_meta::FieldMetadata {
+                name: "references_own_messages".into(),
+                orig_name: None,
+                ty: uniffi_meta::Type::Boolean,
+                default: None,
+                docstring: None,
+            }],
+            docstring: None,
+        };
+        let mut code = String::new();
+        super::record(&mut code, &record)?;
+        assert!(code.contains("readonly references_own_messages?: boolean;"));
+        assert!(code.contains("referencesOwnMessages: (value.references_own_messages ?? false)"));
+        // A public default must not make unrelated required booleans optional.
+        record.name = "OtherRecord".into();
+        code.clear();
+        super::record(&mut code, &record)?;
+        assert!(code.contains("readonly referencesOwnMessages: boolean;"));
+        assert!(!code.contains("?? false"));
+        Ok(())
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn event_causes_use_specified_public_names() -> anyhow::Result<()> {

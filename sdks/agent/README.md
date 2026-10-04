@@ -115,7 +115,7 @@ Agents can also recognize the following environment variables:
 
 Subscribe only to what you need using Node’s `EventEmitter` interface. Events you can listen for:
 
-For message and conversation events, the agent waits for all listeners to finish before it accepts a stream value. If one listener fails, error middleware receives that error. If more than one listener fails, it receives an `AggregateError` with all failures.
+For message and conversation events, the agent waits for all invoked listeners to finish before it accepts a stream value. A synchronous throw stops later listeners for the same event, as with Node’s `EventEmitter`. Error middleware receives the failure, or an `AggregateError` if multiple invoked listeners fail. Calling `next()` in error middleware accepts the handled failure; it does not invoke listeners skipped by a synchronous throw.
 
 #### Message Events
 
