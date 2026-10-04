@@ -6,14 +6,6 @@ import type { Dirent } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import {
-  XmtpError,
-  generateInboxId,
-  inboxIdForWithBackend,
-  type ClientOptions,
-  type InboxId,
-  type PublicIdentity,
-} from "../../public-values.gen";
 import type { Message as RuntimeMessage } from "../message";
 
 export {
@@ -34,14 +26,16 @@ export function boundMessageOf(value: RuntimeMessage): RuntimeMessage {
 /** Node storage accepts every public storage option. */
 export function checkStorage(_storage: object): void {}
 
-function ambiguousStorage(message: string): XmtpError {
-  return new XmtpError.StorageLocation({
-    code: "StorageLocation",
-    category: "storage",
-    retryable: false,
-    message,
-  });
-}
+export type LegacyStorageMatch =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "location";
+      readonly location: {
+        readonly dbPath: string;
+        readonly attachmentsDir: string;
+      };
+    }
+  | { readonly kind: "ambiguous"; readonly message: string };
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -54,13 +48,8 @@ async function fileExists(path: string): Promise<boolean> {
 
 /** Reuse one old Node database when the caller asks for default storage. */
 export async function resolveLegacyStorage(
-  options: ClientOptions,
-  identity: () => Promise<PublicIdentity>,
-  inboxId?: InboxId,
-): Promise<ClientOptions> {
-  if (options.storage.location !== "default" || options.storage.label)
-    return options;
-
+  inboxIds: () => Promise<readonly string[]>,
+): Promise<LegacyStorageMatch> {
   const directory = process.cwd();
   const files = (await readdir(directory, { withFileTypes: true })).flatMap(
     (entry) => {
@@ -71,20 +60,17 @@ export async function resolveLegacyStorage(
         : [{ name: entry.name, inboxId: match[2].toLowerCase() }];
     },
   );
-  if (files.length === 0) return options;
+  if (files.length === 0) return { kind: "none" };
 
-  const user = await identity();
-  const ids = new Set<InboxId>([
-    inboxId ?? generateInboxId(user, options.registration?.nonce),
-  ]);
-  if (inboxId === undefined && !options.allowOffline)
-    ids.add(await inboxIdForWithBackend(options.backend ?? { url: "" }, user));
+  const ids = new Set((await inboxIds()).map((id) => id.toLowerCase()));
   const matches = files.filter((entry) => ids.has(entry.inboxId));
-  if (matches.length === 0) return options;
+  if (matches.length === 0) return { kind: "none" };
   if (matches.length > 1)
-    throw ambiguousStorage(
-      "More than one legacy XMTP database matches this inbox. Set an explicit storage location.",
-    );
+    return {
+      kind: "ambiguous",
+      message:
+        "More than one legacy XMTP database matches this inbox. Set an explicit storage location.",
+    };
 
   const match = matches[0];
   const root = join(directory, "xmtp");
@@ -100,17 +86,16 @@ export async function resolveLegacyStorage(
       deployment.isDirectory() &&
       (await fileExists(join(root, deployment.name, match.inboxId, "xmtp.db3")))
     )
-      throw ambiguousStorage(
-        "Both legacy and current XMTP databases match this inbox. Set an explicit storage location.",
-      );
+      return {
+        kind: "ambiguous",
+        message:
+          "Both legacy and current XMTP databases match this inbox. Set an explicit storage location.",
+      };
   }
 
   const dbPath = join(directory, match.name);
   return {
-    ...options,
-    storage: {
-      ...options.storage,
-      location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
-    },
+    kind: "location",
+    location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
   };
 }

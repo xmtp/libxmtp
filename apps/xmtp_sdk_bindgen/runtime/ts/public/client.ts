@@ -1,7 +1,10 @@
 import {
   ClientMembers,
+  XmtpError,
   attachClientBinding,
   currentProjection,
+  generateInboxId,
+  inboxIdForWithBackend,
   liftClientEvent,
   liftEncodedContent,
   liftInboxState,
@@ -80,6 +83,39 @@ export function hostOptions(
   };
 }
 
+async function optionsWithLegacyStorage(
+  options: ClientOptions,
+  identity: () => Promise<PublicIdentity>,
+  inboxId?: InboxId,
+): Promise<ClientOptions> {
+  if (options.storage.location !== "default" || options.storage.label)
+    return options;
+
+  const match = await resolveLegacyStorage(async () => {
+    const user = await identity();
+    const ids = new Set<InboxId>([
+      inboxId ?? generateInboxId(user, options.registration?.nonce),
+    ]);
+    if (inboxId === undefined && !options.allowOffline)
+      ids.add(
+        await inboxIdForWithBackend(options.backend ?? { url: "" }, user),
+      );
+    return [...ids];
+  });
+  if (match.kind === "ambiguous")
+    throw new XmtpError.StorageLocation({
+      code: "StorageLocation",
+      category: "storage",
+      retryable: false,
+      message: match.message,
+    });
+  if (match.kind === "none") return options;
+  return {
+    ...options,
+    storage: { ...options.storage, location: match.location },
+  };
+}
+
 const hosts = new WeakMap<Client, HostClient>();
 const clients = new WeakMap<HostClient, Client>();
 let create!: (host: HostClient) => Client;
@@ -129,7 +165,7 @@ export class Client extends ClientMembers {
       HostClient.create(
         lowerSigner(signer, projection),
         hostOptions(
-          await resolveLegacyStorage(options, () => signer.identity()),
+          await optionsWithLegacyStorage(options, () => signer.identity()),
           projection,
         ),
       ),
@@ -147,7 +183,11 @@ export class Client extends ClientMembers {
       HostClient.build(
         lowerPublicIdentity(identity, projection),
         hostOptions(
-          await resolveLegacyStorage(options, () => Promise.resolve(identity), inboxId),
+          await optionsWithLegacyStorage(
+            options,
+            () => Promise.resolve(identity),
+            inboxId,
+          ),
           projection,
         ),
         inboxId,
