@@ -88,6 +88,24 @@ test("the search UI uses the guide ranking", async ({ page }) => {
   }
 });
 
+test("search finds and opens the stream messages guide", async ({ page }) => {
+  await page.goto("/get-started/quickstart/");
+  await page
+    .getByRole("button", { name: /search/i })
+    .first()
+    .click();
+  await page
+    .getByRole("textbox", { name: "Search", exact: true })
+    .fill("stream messages");
+  const guide = page.locator('.pagefind-ui__result-link[href="/sdk/stream/"]');
+  await expect(guide).toBeVisible();
+  await guide.click();
+  await expect(page).toHaveURL(/\/sdk\/stream\/$/);
+  await expect(
+    page.getByRole("heading", { name: "Stream messages", level: 1 }),
+  ).toBeVisible();
+});
+
 test("mobile navigation opens at 390 pixels", async ({ page, viewport }) => {
   await page.goto("/get-started/quickstart/");
   if (viewport.width === 390) {
