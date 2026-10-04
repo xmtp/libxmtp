@@ -765,7 +765,13 @@ async fn explicit_storage_reports_an_unreadable_identity_update_offline() {
     let creator = signer::identity(creator_signer.clone()).await?;
     let client = Client::create(creator_signer, settings.clone()).await?;
     let inbox_id = client.inner.inbox_id().to_owned();
-    let db = client.inner.context.db();
+    client.end().await?;
+
+    relay.refuse();
+    settings.allow_offline = true;
+    let valid = Client::build(creator.clone(), settings.clone(), None).await?;
+    assert_eq!(valid.inner.inbox_id(), inbox_id);
+    let db = valid.inner.context.db();
     let last = db.get_identity_updates(&inbox_id, None, None)?;
     let sequence_id = last.last().expect("the creator's updates").sequence_id + 1;
     db.insert_or_ignore_identity_updates(&[StoredIdentityUpdate::new(
@@ -774,15 +780,25 @@ async fn explicit_storage_reports_an_unreadable_identity_update_offline() {
         0,
         vec![0xff; 8],
     )])?;
-    client.end().await?;
+    valid.end().await?;
 
-    relay.refuse();
-    settings.allow_offline = true;
     let offline = Client::build(creator, settings, None).await;
+    let details = match offline {
+        Err(XmtpError::Unknown(details)) => details,
+        other => panic!("offline build: {:?}", other.err()),
+    };
+    assert_eq!(details.code, "Unknown");
+    assert!(matches!(
+        details.category,
+        crate::error::ErrorCategory::Unknown
+    ));
+    assert!(!details.retryable);
     assert!(
-        matches!(&offline, Err(error) if !matches!(error, XmtpError::IdentityMismatch(_))),
-        "offline build: {:?}",
-        offline.err()
+        details
+            .message
+            .starts_with("Association error: decoding proto"),
+        "offline build cause: {}",
+        details.message
     );
     assert_eq!(relay.connections(), 0, "offline check sent a request");
     std::fs::remove_dir_all(root)?;

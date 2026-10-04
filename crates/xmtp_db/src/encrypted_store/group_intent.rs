@@ -26,6 +26,7 @@ use crate::{
 
 mod error;
 mod prepared;
+mod publish;
 mod types;
 pub use error::*;
 pub use prepared::*;
@@ -260,6 +261,20 @@ pub trait QueryGroupIntent {
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError>;
 
+    /// The last known pending intent at the start of a publication pass.
+    fn last_publish_intent_id(&self, group_id: &[u8])
+    -> Result<Option<ID>, crate::ConnectionError>;
+
+    /// A published state change takes priority over the bounded ordinary cursor.
+    fn next_publish_intent(
+        &self,
+        group_id: &[u8],
+        after: Option<ID>,
+        upper: ID,
+    ) -> Result<Option<StoredGroupIntent>, crate::ConnectionError>;
+
+    fn has_published_group_change(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
     fn set_group_intent_published(
@@ -354,6 +369,26 @@ where
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
         (**self).find_group_intents(group_id, allowed_states, allowed_kinds)
+    }
+
+    fn last_publish_intent_id(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<ID>, crate::ConnectionError> {
+        (**self).last_publish_intent_id(group_id)
+    }
+
+    fn next_publish_intent(
+        &self,
+        group_id: &[u8],
+        after: Option<ID>,
+        upper: ID,
+    ) -> Result<Option<StoredGroupIntent>, crate::ConnectionError> {
+        (**self).next_publish_intent(group_id, after, upper)
+    }
+
+    fn has_published_group_change(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+        (**self).has_published_group_change(group_id)
     }
 
     fn set_group_intent_published(
@@ -481,6 +516,29 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
+    #[xmtp_common::db_span]
+    fn last_publish_intent_id(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<ID>, crate::ConnectionError> {
+        publish::last_publish_intent_id(self, group_id)
+    }
+
+    #[xmtp_common::db_span]
+    fn next_publish_intent(
+        &self,
+        group_id: &[u8],
+        after: Option<ID>,
+        upper: ID,
+    ) -> Result<Option<StoredGroupIntent>, crate::ConnectionError> {
+        publish::next_publish_intent(self, group_id, after, upper)
+    }
+
+    #[xmtp_common::db_span]
+    fn has_published_group_change(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+        Ok(publish::published_group_change_id(self, group_id)?.is_some())
+    }
+
     #[tracing::instrument(level = "debug", skip(self, payload_hash), fields(intent_id = intent_id, payload_hash = hex::encode(payload_hash)))]
     fn set_group_intent_published(
         &self,

@@ -2,6 +2,7 @@ use futures::{Stream, StreamExt};
 use prost::Message;
 use std::sync::Arc;
 use tokio::sync::oneshot;
+use xmtp_common::snippet::Snippet;
 use xmtp_proto::backend_v1::ServerEnvelope;
 
 use tracing::instrument;
@@ -462,7 +463,7 @@ where
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + '_> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
-            installation_id = %self.context.installation_id(),
+            installation_id = self.context.installation_id().as_slice().snippet(),
             conversation_type = ?conversation_type,
             "stream all messages"
         );
@@ -478,7 +479,7 @@ where
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static + use<Context>> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
-            installation_id = %self.context.installation_id(),
+            installation_id = self.context.installation_id().as_slice().snippet(),
             conversation_type = ?conversation_type,
             "stream all messages"
         );
@@ -622,7 +623,7 @@ where
     ) -> Result<impl StreamWithStats<Item = Result<StoredGroupMessage>> + 'static> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
-            installation_id = %self.context.installation_id(),
+            installation_id = self.context.installation_id().as_slice().snippet(),
             conversation_type = ?conversation_type,
             "stream all messages"
         );

@@ -1,6 +1,7 @@
 //! Staging local intents and processing our own messages.
 
 use super::*;
+use xmtp_common::snippet::Snippet;
 
 impl<Context> MlsGroup<Context>
 where
@@ -72,7 +73,7 @@ where
                     if message_epoch != group_epoch {
                         tracing::warn!(
                             inbox_id = self.context.inbox_id(),
-                            installation_id = %self.context.installation_id(),
+                            installation_id = self.context.installation_id().as_slice().snippet(),
                             group_id = %self.group_id,
                             cursor = %cursor,
                             intent_id = intent.id,
@@ -110,7 +111,7 @@ where
                             // or not - if they did apply it, then we are forked.
                             tracing::error!(
                                 inbox_id = self.context.inbox_id(),
-                                installation_id = %self.context.installation_id(),
+                                installation_id = self.context.installation_id().as_slice().snippet(),
                                 group_id = %self.group_id,
                                 cursor = %cursor,
                                 intent_id = intent.id,
@@ -146,7 +147,7 @@ where
                         Err(err) => {
                             tracing::error!(
                                 inbox_id = self.context.inbox_id(),
-                                installation_id = %self.context.installation_id(),
+                                installation_id = self.context.installation_id().as_slice().snippet(),
                                 group_id = %self.group_id,
                                 cursor = %cursor,
                                 intent_id = intent.id,
@@ -236,7 +237,7 @@ where
 
         tracing::debug!(
             inbox_id = self.context.inbox_id(),
-            installation_id = %self.context.installation_id(),
+            installation_id = self.context.installation_id().as_slice().snippet(),
             group_id = %self.group_id,
             cursor = %cursor,
             intent_id = intent.id,

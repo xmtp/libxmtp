@@ -7,6 +7,7 @@
   ubrnNative,
   runtimeRevision,
   jq,
+  coreutils,
   darwin,
   patchelf,
 }:
@@ -33,6 +34,7 @@ runCommand "xmtp-sdk-node-${napiTarget}"
   {
     nativeBuildInputs = [
       jq
+      coreutils
     ]
     ++ lib.optionals stdenv.hostPlatform.isMusl [ patchelf ]
     ++ lib.optionals stdenv.hostPlatform.isDarwin [
@@ -83,5 +85,15 @@ runCommand "xmtp-sdk-node-${napiTarget}"
           exit 1
         fi
       done
+    ''
+    + ''
+      library_sha=$(sha256sum "$out/lib/${library}" | cut -d' ' -f1)
+      addon_sha=$(sha256sum "$out/runtime/${addon}" | cut -d' ' -f1)
+      jq --arg name '${library}' --arg sha "$library_sha" \
+        '.files = {($name): $sha}' "$out/native-provenance.json" > "$out/native-provenance.tmp"
+      mv "$out/native-provenance.tmp" "$out/native-provenance.json"
+      jq --arg name '${addon}' --arg sha "$addon_sha" \
+        '.files = {($name): $sha}' "$out/runtime/runtime-provenance.json" > "$out/runtime/runtime-provenance.tmp"
+      mv "$out/runtime/runtime-provenance.tmp" "$out/runtime/runtime-provenance.json"
     ''
   )

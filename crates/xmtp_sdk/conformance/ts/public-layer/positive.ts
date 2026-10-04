@@ -163,11 +163,11 @@ export async function streamsAndErrors(client: Client, group: Group) {
   return attachment.content;
 }
 
-// One code narrows to its subclass and keeps the other codes in the else
-// branch; its `details.code` is the code literal.
+// The subclass names the failure variant. `details.code` keeps the Rust cause
+// code, which can differ from the variant name.
 export function errorBranches(error: XmtpError | TypeError): string {
   if (error instanceof XmtpError.ClientClosed) {
-    const code: "ClientClosed" = error.details.code;
+    const code: string = error.details.code;
     return code;
   }
   if (error instanceof XmtpError) return error.details.message;

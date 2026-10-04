@@ -348,6 +348,18 @@ where
         // Cycle the HMAC
         self.client.cycle_hmac().await?;
 
+        // Consent can be stored before this primary group is adopted.
+        let updates = self
+            .client
+            .db()
+            .consent_records()?
+            .into_iter()
+            .map(PreferenceUpdate::Consent)
+            .collect::<Vec<_>>();
+        if !updates.is_empty() {
+            self.client.sync_preferences(updates).await?;
+        }
+
         Ok(())
     }
 
@@ -577,6 +589,91 @@ mod startup_tests {
     use crate::{tester, worker::WorkerConfig};
     use futures::FutureExt;
     use xmtp_events::EventWriter;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn consent_published_before_primary_adoption_reaches_new_installation() {
+        use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+
+        tester!(source, disable_workers);
+        let source_sync = source.device_sync_client();
+        let old_primary = source_sync.get_sync_group().await?;
+        let group = source.create_group(None, None)?;
+        let record = StoredConsentRecord {
+            entity_type: ConsentType::ConversationId,
+            state: ConsentState::Denied,
+            entity: hex::encode(group.group_id),
+            consented_at_ns: xmtp_common::time::now_ns(),
+        };
+        source
+            .set_consent_states(std::slice::from_ref(&record))
+            .await?;
+        let record = source
+            .context
+            .db()
+            .get_consent_record(record.entity.clone(), record.entity_type)?
+            .unwrap();
+
+        tester!(copy, from: source, disable_workers);
+        let copy_sync = copy.device_sync_client();
+        let new_primary = copy_sync.get_sync_group().await?;
+        assert_ne!(old_primary.group_id, new_primary.group_id);
+        assert_eq!(
+            source_sync.primary_sync_group()?.unwrap().group_id,
+            old_primary.group_id
+        );
+        assert!(
+            copy.context
+                .db()
+                .find_group(&old_primary.group_id)?
+                .is_none()
+        );
+
+        // Publish before the source can adopt the new installation's group.
+        source_sync
+            .sync_preferences(vec![PreferenceUpdate::Consent(record.clone())])
+            .await?;
+        source.sync_welcomes().await?;
+        assert_eq!(
+            source_sync.primary_sync_group()?.unwrap().group_id,
+            new_primary.group_id
+        );
+        assert!(
+            copy.context
+                .db()
+                .get_consent_record(record.entity.clone(), record.entity_type)?
+                .is_none()
+        );
+
+        // Run the actual welcome handler, then consume its primary-group messages.
+        let source_worker = SyncWorker::new(
+            source.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        source_worker.evt_new_sync_group_from_welcome().await?;
+        new_primary.sync().await?;
+        let copy_worker = SyncWorker::new(
+            copy.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        copy_worker.evt_new_sync_group_msg(false).await?;
+        let received = copy
+            .context
+            .db()
+            .get_consent_record(record.entity.clone(), record.entity_type)?;
+        assert_eq!(
+            received.as_ref(),
+            Some(&record),
+            "a consent published before primary adoption must reach the new installation"
+        );
+        assert_eq!(received.unwrap().consented_at_ns, record.consented_at_ns);
+        source.close().await?;
+        copy.close().await?;
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]

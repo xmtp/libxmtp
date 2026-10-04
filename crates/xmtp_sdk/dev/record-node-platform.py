@@ -24,6 +24,11 @@ PLATFORMS = {
 }
 
 
+def verify_pair_bytes(receipt, name, path, label):
+    if not path.is_file() or receipt.get("files") != {name: artifacts.digest(path)}:
+        raise ValueError(f"Node {label} bytes mismatch")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", choices=PLATFORMS)
@@ -32,9 +37,8 @@ def main():
     native_identity = parser.add_mutually_exclusive_group(required=True)
     native_identity.add_argument("--native-provenance", type=Path)
     native_identity.add_argument("--native-artifacts", type=Path)
-    identity = parser.add_mutually_exclusive_group(required=True)
-    identity.add_argument("--runtime-provenance", type=Path)
-    identity.add_argument("--runtime-source", type=Path)
+    parser.add_argument("--runtime-provenance", type=Path, required=True)
+    parser.add_argument("--runtime-source", type=Path)
     parser.add_argument("--out", type=Path, default=Path("target/sdk-node-platforms"))
     args = parser.parse_args()
     revision = tomllib.loads((artifacts.ROOT / "Cargo.toml").read_text())["workspace"][
@@ -46,6 +50,7 @@ def main():
         native = json.loads(args.native_provenance.read_text())
         if native.get("schema") != 1:
             raise ValueError("invalid Node native provenance schema")
+        verify_pair_bytes(native, library, args.library, "native library")
     else:
         native = json.loads(args.native_artifacts.read_text())["artifacts"]["native"]
         artifacts.verify(native)
@@ -59,6 +64,15 @@ def main():
         or native["profile"] != "release"
     ):
         raise ValueError("Node native library source or build contract mismatch")
+    receipt = json.loads(args.runtime_provenance.read_text())
+    if (
+        receipt.get("schema") != 1
+        or receipt.get("target") != rust_target
+        or receipt.get("addon") != addon
+    ):
+        raise ValueError("Node runtime target provenance mismatch")
+    verify_pair_bytes(receipt, addon, args.addon, "runtime addon")
+    actual = receipt["revision"]
     if args.runtime_source:
         actual = subprocess.check_output(
             ["git", "-C", str(args.runtime_source), "rev-parse", "HEAD"], text=True
@@ -78,15 +92,8 @@ def main():
             ],
             check=True,
         )
-    else:
-        receipt = json.loads(args.runtime_provenance.read_text())
-        if (
-            receipt.get("schema") != 1
-            or receipt.get("target") != rust_target
-            or receipt.get("addon") != addon
-        ):
-            raise ValueError("Node runtime target provenance mismatch")
-        actual = receipt["revision"]
+        if actual != receipt["revision"]:
+            raise ValueError("Node runtime source differs from its build receipt")
     if actual != revision:
         raise ValueError("Node runtime differs from the locked generator fork")
     with artifacts.staged_output(args.out.resolve() / args.target) as output:

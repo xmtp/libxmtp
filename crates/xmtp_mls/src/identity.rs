@@ -21,6 +21,7 @@ use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::ErrorCode;
+use xmtp_common::snippet::Snippet;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
@@ -178,7 +179,7 @@ impl IdentityStrategy {
                 if let Some(stored_identity) = stored_identity {
                     tracing::debug!(
                         installation_id =
-                            hex::encode(stored_identity.installation_keys.public_bytes()),
+                            stored_identity.installation_keys.public_bytes().snippet(),
                         inbox_id = stored_identity.inbox_id,
                         "Found existing identity in store"
                     );
