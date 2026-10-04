@@ -36,11 +36,7 @@ where
         } = self;
 
         let result = xmtp_common::time::timeout(Duration::from_secs(10), fut).await;
-        tracing::info!(
-            "[{}] successfully waited for {metric:?}, {:?}",
-            hex::encode(info.installation_id),
-            result
-        );
+        tracing::info!("successfully waited for {metric:?}, {result:?}");
         if info.count() >= count {
             return Ok(());
         }
@@ -60,15 +56,13 @@ struct Info {
     count: Arc<AtomicUsize>,
     // each Notify is a task waiting on this metric to be incremented
     notify: Arc<Notify>,
-    installation_id: InstallationId,
 }
 
 impl Info {
-    fn new(installation_id: InstallationId) -> Self {
+    fn new() -> Self {
         Self {
             count: Arc::new(AtomicUsize::default()),
             notify: Arc::new(Notify::new()),
-            installation_id,
         }
     }
 
@@ -104,17 +98,15 @@ impl Info {
 #[derive(Debug)]
 pub struct WorkerMetrics<Metric> {
     metrics: Mutex<HashMap<Metric, Info>>,
-    installation_id: InstallationId,
 }
 
 impl<Metric> WorkerMetrics<Metric>
 where
     Metric: PartialEq + Eq + Hash + Clone + Copy + Debug,
 {
-    pub fn new(installation_id: InstallationId) -> Self {
+    pub fn new(_installation_id: InstallationId) -> Self {
         Self {
             metrics: Mutex::default(),
-            installation_id,
         }
     }
 
@@ -122,7 +114,7 @@ where
         self.metrics
             .lock()
             .entry(metric)
-            .or_insert(Info::new(self.installation_id))
+            .or_insert(Info::new())
             .clone()
     }
 
@@ -132,7 +124,7 @@ where
 
     pub(crate) fn increment_metric(&self, metric: Metric) {
         self.info(metric).increment();
-        tracing::trace!("[{}] firing {metric:?}", hex::encode(self.installation_id));
+        tracing::trace!("firing {metric:?}");
         self.info(metric).fire();
     }
 
@@ -178,9 +170,7 @@ where
     {
         let info = {
             let mut m = self.metrics.lock();
-            m.entry(metric)
-                .or_insert(Info::new(self.installation_id))
-                .clone()
+            m.entry(metric).or_insert(Info::new()).clone()
         };
         xmtp_common::time::timeout(Duration::from_secs(20), async {
             while info.count() < count {
@@ -195,7 +185,10 @@ where
         self.metrics
             .lock()
             .entry(metric)
-            .or_insert(Info::new(self.installation_id))
+            .or_insert(Info::new())
             .clear();
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests;

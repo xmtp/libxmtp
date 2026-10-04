@@ -46,6 +46,9 @@ pub struct FfiStreamBarrierCause {
 pub struct FfiStreamBarrierTopic {
     /// Complete encoded topic bytes, including its kind.
     pub topic: Vec<u8>,
+    /// Captured owning scope. None means the obligation was not admitted.
+    #[uniffi(default = None)]
+    pub scope_generation: Option<u64>,
     /// None means target capture failed. Some(0) is a captured empty target.
     pub target: Option<u64>,
     /// Durable receipt cursor F, not application delivery progress.
@@ -106,6 +109,11 @@ impl FfiStreamBarrierTopic {
     fn from_wire(topic: wire::StreamBarrierTopic) -> Option<Self> {
         Some(Self {
             topic: hex::decode(topic.topic).ok()?,
+            scope_generation: topic
+                .scope_generation
+                .map(|generation| generation.parse())
+                .transpose()
+                .ok()?,
             target: topic.target.map(|cursor| cursor.parse()).transpose().ok()?,
             received: topic.received.parse().ok()?,
             processed: topic.processed.parse().ok()?,
