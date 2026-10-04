@@ -299,6 +299,51 @@ describe("Agent stream lifecycle", () => {
     expect(unhandled).toHaveBeenCalledWith(cause);
     await h.agent.stop();
   });
+  it.each(["async", "sync"] as const)(
+    "waits for every listener before handling %s failure",
+    async (failure) => {
+      const h = harness();
+      const gate = deferred<void>();
+      const first = new Error("first listener failed");
+      const second = new Error("second listener failed");
+      const onError = vi.fn((_error, _ctx, next: () => void) => next());
+      h.agent.errors.use(onError);
+      if (failure === "async") {
+        h.agent.on("message", async () => {
+          throw first;
+        });
+      }
+      h.agent.on("message", async () => {
+        await gate.promise;
+        throw second;
+      });
+      if (failure === "sync") {
+        h.agent.on("message", () => {
+          throw first;
+        });
+      }
+      await h.agent.start();
+      const delivery = h.messages[0]!.value(message);
+      const accepted = vi.fn();
+      void Promise.resolve(delivery).then(accepted);
+      await setImmediate();
+      try {
+        expect(onError).not.toHaveBeenCalled();
+        expect(accepted).not.toHaveBeenCalled();
+      } finally {
+        gate.resolve();
+      }
+      await delivery;
+      expect(onError).toHaveBeenCalledOnce();
+      const error = onError.mock.calls[0]![0];
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toEqual(
+        failure === "async" ? [first, second] : [second, first],
+      );
+      expect(accepted).toHaveBeenCalledOnce();
+      await h.agent.stop();
+    },
+  );
   it.each(["unknown", "custom"] as const)(
     "routes %s content through middleware and unknownMessage",
     async (kind) => {

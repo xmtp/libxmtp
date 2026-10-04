@@ -661,19 +661,29 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       | ConversationContext<ContentTypes>,
   ) {
     const pending: Promise<unknown>[] = [];
-    try {
-      for (const listener of this.rawListeners(topic)) {
+    let thrown: { error: unknown } | undefined;
+    for (const listener of this.rawListeners(topic)) {
+      try {
         pending.push(
           Promise.resolve(
             (listener as (value: unknown) => unknown).call(this, context),
           ),
         );
+      } catch (error) {
+        thrown = { error };
+        break;
       }
-    } catch (error) {
-      for (const promise of pending) void promise.catch(() => {});
-      throw error;
     }
-    await Promise.all(pending);
+    const results = await Promise.allSettled(pending);
+    const errors: unknown[] = [];
+    for (const result of results) {
+      if (result.status === "rejected") errors.push(result.reason as unknown);
+    }
+    if (thrown) errors.push(thrown.error);
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new AggregateError(errors, "Agent listeners failed");
+    }
   }
 
   async #runMiddlewareChain(
