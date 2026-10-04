@@ -58,7 +58,7 @@ accept a host-supplied digest for page or stream data.
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `cold_start`         | A fresh `Client.create`, after module load and signer key generation. Browser worker creation occurs inside this operation. |
 | `page`               | Read and normalize 1,000 rich messages in ascending order.                                                                  |
-| `stream`             | Publish and consume 12,500 prepared events for Node, Swift, and Kotlin, or 625 for Browser. Normalize 10,000 or 500 rich primary messages, respectively. |
+| `stream`             | Publish 625 Browser events or 12,500 other events; consume all IDs; normalize 500 or 10,000 rich primary messages.          |
 | `callback_immediate` | Last signer callback entry through completion of client creation. Includes signing and subsequent backend work.             |
 | `callback_slow`      | The same callback boundary with a controlled 25 ms hold before signing.                                                     |
 | `build_clean`        | The declared complete production build after deleting its declared output/cache directory.                                  |
