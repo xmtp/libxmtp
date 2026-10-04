@@ -74,7 +74,8 @@ content digests. Local emulator fixtures need `allowPrivateNetwork = true` and
 Use `client.messages(group)` or `client.messages(dm)` for a Flow. A successful
 collector return permits the next request to acknowledge the prior message.
 Cancellation before ACK commit admission preserves the message for replay.
-If the collector throws, `onClose` receives one `Failed` reason with the original
-`Throwable`. Normal completion and cancellation receive one `Closed` reason.
+If the collector throws, its exception propagates to the caller and `onClose`
+receives one `Closed` reason. Normal completion and cancellation also receive
+one `Closed` reason.
 Close clients and readers in `NonCancellable` teardown. See [development rules](AGENTS.md) for build
 and test commands. The [example](example) uses the same public API.
