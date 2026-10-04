@@ -7,8 +7,11 @@ use super::{EventContentTypeId, EventKind};
 #[derive(Clone, Debug, Default, uniffi::Record)]
 pub struct EventFilter {
     pub kinds: Vec<EventKind>,
+    #[uniffi(default = None)]
     pub group_ids: Option<Vec<Vec<u8>>>,
+    #[uniffi(default = None)]
     pub content_types: Option<Vec<EventContentTypeId>>,
+    #[uniffi(default = false)]
     pub references_own_messages: bool,
 }
 

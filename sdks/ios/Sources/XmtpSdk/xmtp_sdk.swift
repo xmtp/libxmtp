@@ -10765,7 +10765,7 @@ public struct EventFilter: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(kinds: [EventKind], groupIds: [Data]?, contentTypes: [EventContentTypeId]?, referencesOwnMessages: Bool) {
+    public init(kinds: [EventKind], groupIds: [Data]? = nil, contentTypes: [EventContentTypeId]? = nil, referencesOwnMessages: Bool = false) {
         self.kinds = kinds
         self.groupIds = groupIds
         self.contentTypes = contentTypes
@@ -14924,8 +14924,10 @@ public struct StorageOptions: Equatable, Hashable {
     public var label: String?
     /**
      * An optional 32-byte key for native database encryption.
-     * Omitting the key selects unencrypted storage. Store the key securely
-     * and reuse the same key when reopening the database.
+     * No key is required. When the key is absent, the database is not encrypted
+     * by the SDK. Encryption is recommended for stored messages and keys.
+     * If you supply a key, store it securely and use the same key to reopen
+     * the database.
      */
     public var encryptionKey: Data?
     public var pool: StoragePoolOptions?
@@ -14936,8 +14938,10 @@ public struct StorageOptions: Equatable, Hashable {
     public init(location: StorageLocation, label: String? = nil,
         /**
          * An optional 32-byte key for native database encryption.
-         * Omitting the key selects unencrypted storage. Store the key securely
-         * and reuse the same key when reopening the database.
+         * No key is required. When the key is absent, the database is not encrypted
+         * by the SDK. Encryption is recommended for stored messages and keys.
+         * If you supply a key, store it securely and use the same key to reopen
+         * the database.
          */encryptionKey: Data? = nil, pool: StoragePoolOptions? = nil, singleConnection: Bool = false) {
         self.location = location
         self.label = label
