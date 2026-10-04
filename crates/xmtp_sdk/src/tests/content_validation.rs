@@ -15,6 +15,51 @@ fn decode_standard_rejects_out_of_range_actions_expiry() {
     assert!(crate::decode_standard(encoded.try_into()?).is_err());
 }
 
+// verifies: CTYPE-030, PROC-052
+#[xmtp_common::test(unwrap_try = true)]
+async fn out_of_range_actions_remain_readable_and_replay_until_acknowledged() {
+    use prost::Message as _;
+    use xmtp_content_types::{
+        ContentCodec,
+        actions::{Actions, ActionsCodec},
+    };
+    use xmtp_mls::groups::send_message_opts::SendMessageOpts;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let actions: Actions = serde_json::from_str(
+        r#"{"id":"far-future","description":"Choose","expiresAt":"9999-12-31T23:59:59.999Z","actions":[{"id":"one","label":"One"}]}"#,
+    )?;
+    let raw = ActionsCodec::encode(actions)?.encode_to_vec();
+    let id = MessageId::from_bytes(
+        &group
+            .inner
+            .send_message(&raw, SendMessageOpts::default())
+            .await?,
+    )?;
+
+    let reader = group.message_reader(None).await?;
+    let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+        .await??
+        .expect("out-of-range actions handoff");
+    assert_eq!(delivered.0.id, id);
+    assert!(matches!(&delivered.0.content,
+        MessageContent::Unknown { raw_bytes, error, .. }
+            if *raw_bytes == raw && error.code == "CodecDecodeFailed"));
+    reader.end().await?;
+
+    let replacement = group.message_reader(None).await?;
+    let replay = xmtp_common::time::timeout(Duration::from_secs(5), replacement.next())
+        .await??
+        .expect("unacknowledged actions replay");
+    assert_eq!(replay.0.id, id);
+    assert!(matches!(&replay.0.content,
+        MessageContent::Unknown { raw_bytes, error, .. }
+            if *raw_bytes == raw && error.code == "CodecDecodeFailed"));
+    replacement.end().await?;
+    client.end().await?;
+}
+
 // verifies: CTYPE-008, CTYPE-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn unknown_compression_stays_unknown_on_all_read_paths() {
