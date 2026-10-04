@@ -60,8 +60,10 @@ to change how the file is written.
 | `XMTP_APP_VERSION`         | Custom app version                                  | No                                  |
 
 Without `XMTP_DB_PATH`, the CLI stores the `local` database at
-`~/.xmtp/<backend-label>/xmtp-db`. Other `XMTP_ENV` labels use
-`~/.xmtp/<backend-label>/environments/<environment-label>/xmtp-db`. The backend label comes
+`~/.xmtp/<backend-label>/xmtp-db`. A new database with another `XMTP_ENV`
+label uses `~/.xmtp/<backend-label>/environments/<environment-label>/xmtp-db`.
+If the earlier path already has a database, the CLI keeps using it. If both
+paths have databases, set `XMTP_DB_PATH` to select one. The backend label comes
 from the backend origin. `XMTP_ENV` does not select a backend. An explicit
 `XMTP_DB_PATH` stays unchanged.
 

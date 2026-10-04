@@ -2,12 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { Client } from "@xmtp/node-sdk";
+import { Client, generateInboxId } from "@xmtp/node-sdk";
 import { toBytes } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createSigner, createUser } from "@/user/User";
+import { createIdentifier, createSigner, createUser } from "@/user/User";
 
 import { Agent } from "./Agent";
 
@@ -57,6 +57,10 @@ describe("agent backend authentication", () => {
 describe("agent environment storage", () => {
   const key = `0x${"01".repeat(32)}` as const;
   const directories: string[] = [];
+  const inboxId = generateInboxId(createIdentifier(createUser(key)));
+  const otherInboxId = generateInboxId(
+    createIdentifier(createUser(`0x${"02".repeat(32)}`)),
+  );
 
   function setup(directory?: string) {
     vi.stubEnv("XMTP_DB_DIRECTORY", directory);
@@ -65,6 +69,7 @@ describe("agent environment storage", () => {
     vi.stubEnv("XMTP_WALLET_KEY", key);
     const stopped = new Error("client creation reached");
     const create = vi.spyOn(Client, "create").mockRejectedValue(stopped);
+    vi.spyOn(Client, "inboxIdFor").mockResolvedValue(inboxId);
     return { create, stopped };
   }
 
@@ -99,7 +104,7 @@ describe("agent environment storage", () => {
   it("reopens one legacy database through an explicit location", async () => {
     const dbDirectory = directory();
     fs.mkdirSync(dbDirectory);
-    const dbPath = path.join(dbDirectory, `xmtp-${"a".repeat(64)}.db3`);
+    const dbPath = path.join(dbDirectory, `xmtp-${inboxId}.db3`);
     fs.writeFileSync(dbPath, "legacy database");
     fs.writeFileSync(path.join(dbDirectory, "xmtp-not-an-inbox.db3"), "ignore");
     const { create, stopped } = setup(dbDirectory);
@@ -119,11 +124,11 @@ describe("agent environment storage", () => {
     fs.mkdirSync(workingDirectory);
     const dbPath = path.join(
       workingDirectory,
-      `xmtp-production-${"a".repeat(64)}.db3`,
+      `xmtp-production-${inboxId}.db3`,
     );
     fs.writeFileSync(dbPath, "legacy database");
     fs.writeFileSync(
-      path.join(workingDirectory, `xmtp-development-${"b".repeat(64)}.db3`),
+      path.join(workingDirectory, `xmtp-development-${otherInboxId}.db3`),
       "other environment",
     );
     vi.spyOn(process, "cwd").mockReturnValue(workingDirectory);
@@ -139,33 +144,63 @@ describe("agent environment storage", () => {
     );
   });
 
-  it("rejects several legacy databases before opening a new location", async () => {
+  it("ignores unrelated legacy databases in a named directory", async () => {
     const dbDirectory = directory();
     fs.mkdirSync(dbDirectory);
-    for (const id of ["a", "b"]) {
+    for (const id of [inboxId, otherInboxId]) {
+      fs.writeFileSync(path.join(dbDirectory, `xmtp-${id}.db3`), "legacy");
+    }
+    const { create, stopped } = setup(dbDirectory);
+    await expect(Agent.createFromEnv()).rejects.toBe(stopped);
+    const dbPath = path.join(dbDirectory, `xmtp-${inboxId}.db3`);
+    expect(create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        storage: expect.objectContaining({
+          location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
+        }),
+      }),
+    );
+  });
+
+  it("ignores unrelated legacy databases in the working directory", async () => {
+    const workingDirectory = directory();
+    fs.mkdirSync(workingDirectory);
+    for (const id of [inboxId, otherInboxId]) {
       fs.writeFileSync(
-        path.join(dbDirectory, `xmtp-${id.repeat(64)}.db3`),
+        path.join(workingDirectory, `xmtp-production-${id}.db3`),
         "legacy",
       );
     }
-    const { create } = setup(dbDirectory);
-    await expect(Agent.createFromEnv()).rejects.toThrow(
-      "More than one legacy XMTP database exists",
+    vi.spyOn(process, "cwd").mockReturnValue(workingDirectory);
+    const { create, stopped } = setup();
+    await expect(Agent.createFromEnv()).rejects.toBe(stopped);
+    const dbPath = path.join(
+      workingDirectory,
+      `xmtp-production-${inboxId}.db3`,
     );
-    expect(create).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        storage: expect.objectContaining({
+          location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
+        }),
+      }),
+    );
   });
 
-  it("rejects several legacy default databases before opening a new location", async () => {
+  it("rejects two legacy environments for the selected inbox", async () => {
     const workingDirectory = directory();
     fs.mkdirSync(workingDirectory);
-    for (const id of ["a", "b"]) {
+    for (const environment of ["production", "development"]) {
       fs.writeFileSync(
-        path.join(workingDirectory, `xmtp-production-${id.repeat(64)}.db3`),
+        path.join(workingDirectory, `xmtp-${environment}-${inboxId}.db3`),
         "legacy",
       );
     }
     vi.spyOn(process, "cwd").mockReturnValue(workingDirectory);
     const { create } = setup();
+    vi.stubEnv("XMTP_ENV", undefined);
     await expect(Agent.createFromEnv()).rejects.toThrow(
       "More than one legacy XMTP database exists",
     );

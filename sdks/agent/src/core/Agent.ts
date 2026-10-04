@@ -7,6 +7,7 @@ import {
   Client,
   ConversationStream,
   MessageStream,
+  generateInboxId,
   initLogging,
   type AnyContentCodec,
   type Actions,
@@ -32,7 +33,7 @@ import { isHex, toBytes, type Hex } from "viem";
 import { filter } from "@/core/filter";
 import { getInstallationInfo } from "@/debug";
 import { parseLogLevel } from "@/debug/log";
-import { createSigner, createUser } from "@/user/User";
+import { createIdentifier, createSigner, createUser } from "@/user/User";
 import { version as appVersion } from "~/package.json";
 
 import { AgentError, AgentStreamingError } from "./AgentError";
@@ -287,6 +288,8 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     } = process.env;
     if (!XMTP_WALLET_KEY || !isHex(XMTP_WALLET_KEY, { strict: true }))
       throw new AgentError(1000, "XMTP_WALLET_KEY must be a hexadecimal key.");
+    const user = createUser(XMTP_WALLET_KEY);
+    const signer = createSigner(user);
     const backend = XMTP_BACKEND_URL
       ? {
           ...(options?.backend && "url" in options.backend
@@ -305,17 +308,30 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     let storage = options?.storage;
     if (!storage) {
       const legacyDirectory = XMTP_DB_DIRECTORY || process.cwd();
-      const legacyFiles = fs
+      const candidates = fs
         .readdirSync(legacyDirectory, { withFileTypes: true })
-        .filter((entry) => {
-          if (!entry.isFile()) return false;
-          if (XMTP_DB_DIRECTORY)
-            return /^xmtp-[0-9a-f]{64}\.db3$/i.test(entry.name);
-          const match = /^xmtp-(.+)-[0-9a-f]{64}\.db3$/i.exec(entry.name);
-          return (
-            match !== null && (XMTP_ENV === undefined || match[1] === XMTP_ENV)
-          );
-        })
+        .flatMap((entry) => {
+          if (!entry.isFile()) return [];
+          if (XMTP_DB_DIRECTORY) {
+            const match = /^xmtp-([0-9a-f]{64})\.db3$/i.exec(entry.name);
+            return match?.[1] === undefined
+              ? []
+              : [{ name: entry.name, inboxId: match[1].toLowerCase() }];
+          }
+          const match = /^xmtp-(.+)-([0-9a-f]{64})\.db3$/i.exec(entry.name);
+          return match?.[2] !== undefined &&
+            (XMTP_ENV === undefined || match[1] === XMTP_ENV)
+            ? [{ name: entry.name, inboxId: match[2].toLowerCase() }]
+            : [];
+        });
+      const identity = createIdentifier(user);
+      const ids = new Set([
+        generateInboxId(identity, options?.registration?.nonce).toLowerCase(),
+      ]);
+      if (candidates.length > 0 && !options?.allowOffline)
+        ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
+      const legacyFiles = candidates
+        .filter((entry) => ids.has(entry.inboxId))
         .map((entry) => path.join(legacyDirectory, entry.name));
       if (legacyFiles.length > 1)
         throw new AgentError(
@@ -346,7 +362,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         1000,
         "XMTP_DB_ENCRYPTION_KEY must contain 32 bytes.",
       );
-    return this.create(createSigner(createUser(XMTP_WALLET_KEY)), {
+    return this.create(signer, {
       ...options,
       backend,
       storage: {

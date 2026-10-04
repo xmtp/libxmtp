@@ -100,6 +100,74 @@ describe("Client", () => {
     }
   });
 
+  it("reuses only the matching labeled legacy database", async () => {
+    const { signer, identifier } = createSigner();
+    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-labeled-legacy-"));
+    const previousDirectory = process.cwd();
+    process.chdir(directory);
+    try {
+      const inboxId = generateInboxId(identifier);
+      const oldPath = join(directory, `xmtp-production-${inboxId}.db3`);
+      const otherPath = join(directory, `xmtp-local-${inboxId}.db3`);
+      const options = clientOptions({
+        registration: { auto: false },
+        storage: {
+          location: {
+            dbPath: oldPath,
+            attachmentsDir: `${oldPath}.attachments`,
+          },
+        },
+      });
+      const first = await Client.create(signer, options);
+      await first.end();
+      copyFileSync(oldPath, otherPath);
+
+      const reopened = await Client.create(signer, {
+        ...options,
+        storage: { location: "default", label: "production" },
+      });
+      try {
+        expect(reopened.storagePath).toBe(realpathSync(oldPath));
+      } finally {
+        await reopened.end();
+      }
+    } finally {
+      process.chdir(previousDirectory);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a labeled legacy database that conflicts with a current database", async () => {
+    const { signer, identifier } = createSigner();
+    const directory = mkdtempSync(
+      join(tmpdir(), "xmtp-node-labeled-conflict-"),
+    );
+    const previousDirectory = process.cwd();
+    process.chdir(directory);
+    try {
+      const options = clientOptions({
+        registration: { auto: false },
+        storage: { location: "default", label: "production" },
+      });
+      const current = await Client.create(signer, options);
+      const currentPath = current.storagePath;
+      await current.end();
+      if (currentPath === undefined)
+        throw new Error("default database path is missing");
+
+      copyFileSync(
+        currentPath,
+        join(directory, `xmtp-production-${generateInboxId(identifier)}.db3`),
+      );
+      await expect(Client.create(signer, options)).rejects.toThrow(
+        "Both legacy and current XMTP databases",
+      );
+    } finally {
+      process.chdir(previousDirectory);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a legacy database when a current default database also exists", async () => {
     const { signer, identifier } = createSigner();
     const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-conflict-"));

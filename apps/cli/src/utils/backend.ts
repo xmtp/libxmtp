@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -22,7 +23,10 @@ export function parseBackendUrl(value: string): URL {
   return url;
 }
 
-export function parseEnvironmentLabel(value: string): string {
+export function parseEnvironmentLabel(
+  value: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   if (
     value.length === 0 ||
     value === "." ||
@@ -34,6 +38,10 @@ export function parseEnvironmentLabel(value: string): string {
   ) {
     throw new Error(INVALID_ENVIRONMENT_LABEL);
   }
+  if (platform === "win32" && /[. ]$/.test(value))
+    throw new Error(
+      `${INVALID_ENVIRONMENT_LABEL} On Windows, it must not end in a dot or space.`,
+    );
 
   return value;
 }
@@ -52,10 +60,20 @@ export function backendLabel(value: string): string {
 export function defaultDbPath(
   value: string,
   environmentLabel = "local",
+  homeDirectory = homedir(),
 ): string {
   const label = parseEnvironmentLabel(environmentLabel);
-  const backendDirectory = join(homedir(), ".xmtp", backendLabel(value));
-  return label === "local"
-    ? join(backendDirectory, "xmtp-db")
-    : join(backendDirectory, "environments", label, "xmtp-db");
+  const backendDirectory = join(homeDirectory, ".xmtp", backendLabel(value));
+  const oldPath = join(backendDirectory, "xmtp-db");
+  if (label === "local") return oldPath;
+
+  const labeledPath = join(backendDirectory, "environments", label, "xmtp-db");
+  if (existsSync(oldPath)) {
+    if (existsSync(labeledPath))
+      throw new Error(
+        "Both legacy and labeled CLI databases exist. Set XMTP_DB_PATH to select one.",
+      );
+    return oldPath;
+  }
+  return labeledPath;
 }

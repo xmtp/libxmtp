@@ -14,7 +14,7 @@ Deploy the agent on a Node.js host that supports environment variables and persi
 | `XMTP_DB_DIRECTORY`      | Persistent directory for Agent SDK databases               |
 | `XMTP_ENV`               | Optional database file label; it does not select a backend |
 
-`Agent.createFromEnv()` creates `XMTP_DB_DIRECTORY` with owner-only permissions and stores the database there. Mount this directory on a persistent volume. If this directory contains one legacy `xmtp-<inbox-id>.db3` file, the Agent opens it in place. Without `XMTP_DB_DIRECTORY`, it checks the working directory for one legacy `xmtp-<env>-<inbox-id>.db3` file. Set `XMTP_ENV` to select the environment label. If several legacy files match, set an explicit `storage.location` with `dbPath` and `attachmentsDir`.
+`Agent.createFromEnv()` creates `XMTP_DB_DIRECTORY` with owner-only permissions and stores the database there. Mount this directory on a persistent volume. If this directory contains a legacy `xmtp-<inbox-id>.db3` file for the signer, the Agent opens it in place. Without `XMTP_DB_DIRECTORY`, it checks the working directory for a legacy `xmtp-<env>-<inbox-id>.db3` file for the signer. Set `XMTP_ENV` to select the environment label. Files for other inboxes do not block startup. If several files match the signer, set an explicit `storage.location` with `dbPath` and `attachmentsDir`.
 
 Back up these SQLite files for persistent storage:
 

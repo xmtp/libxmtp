@@ -1,5 +1,6 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -62,6 +63,32 @@ describe("backend utilities", () => {
     expect(defaultDbPath(url, "xmtp-db")).not.toBe(defaultDbPath(url));
   });
 
+  it("reuses an existing CLI database and rejects two possible paths", () => {
+    const home = mkdtempSync(join(tmpdir(), "xmtp-cli-legacy-"));
+    const url = "https://example.com";
+    const oldPath = join(home, ".xmtp", backendLabel(url), "xmtp-db");
+    const newPath = join(
+      home,
+      ".xmtp",
+      backendLabel(url),
+      "environments",
+      "production",
+      "xmtp-db",
+    );
+    try {
+      mkdirSync(dirname(oldPath), { recursive: true });
+      writeFileSync(oldPath, "old database");
+      expect(defaultDbPath(url, "production", home)).toBe(oldPath);
+      mkdirSync(dirname(newPath), { recursive: true });
+      writeFileSync(newPath, "new database");
+      expect(() => defaultDbPath(url, "production", home)).toThrow(
+        "Both legacy and labeled CLI databases exist",
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     ["http://example.com", "http://example.com/"],
     ["http://example.com", "http://example.com/path"],
@@ -86,6 +113,16 @@ describe("backend utilities", () => {
       expect(() => parseEnvironmentLabel(label)).toThrow(
         "Environment label must be non-empty",
       );
+    },
+  );
+
+  it.each(["name.", "name "])(
+    "rejects a Windows environment label ending in a dot or space: %s",
+    (label) => {
+      expect(() => parseEnvironmentLabel(label, "win32")).toThrow(
+        "Environment label must be non-empty",
+      );
+      expect(parseEnvironmentLabel(label, "darwin")).toBe(label);
     },
   );
 });

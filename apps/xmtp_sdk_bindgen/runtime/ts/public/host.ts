@@ -58,7 +58,15 @@ export async function resolveLegacyStorage(
   identity: () => Promise<PublicIdentity>,
   inboxId?: InboxId,
 ): Promise<ClientOptions> {
-  if (options.storage.location !== "default" || options.storage.label)
+  if (options.storage.location !== "default") return options;
+  const label = options.storage.label || undefined;
+  if (
+    label &&
+    (label === "." ||
+      label === ".." ||
+      /[\\/:\0]/.test(label) ||
+      (process.platform === "win32" && /[. ]$/.test(label)))
+  )
     return options;
 
   const directory = process.cwd();
@@ -68,7 +76,13 @@ export async function resolveLegacyStorage(
       const match = /^xmtp-(.+)-([0-9a-f]{64})\.db3$/i.exec(entry.name);
       return match === null
         ? []
-        : [{ name: entry.name, inboxId: match[2].toLowerCase() }];
+        : [
+            {
+              name: entry.name,
+              environment: match[1],
+              inboxId: match[2].toLowerCase(),
+            },
+          ];
     },
   );
   if (files.length === 0) return options;
@@ -79,7 +93,11 @@ export async function resolveLegacyStorage(
   ]);
   if (inboxId === undefined && !options.allowOffline)
     ids.add(await inboxIdForWithBackend(options.backend ?? { url: "" }, user));
-  const matches = files.filter((entry) => ids.has(entry.inboxId));
+  const matches = files.filter(
+    (entry) =>
+      ids.has(entry.inboxId) &&
+      (label === undefined || entry.environment === label),
+  );
   if (matches.length === 0) return options;
   if (matches.length > 1)
     throw ambiguousStorage(
@@ -87,7 +105,10 @@ export async function resolveLegacyStorage(
     );
 
   const match = matches[0];
-  const root = join(directory, "xmtp");
+  const root =
+    label === undefined
+      ? join(directory, "xmtp")
+      : join(directory, "xmtp", label);
   let deployments: Dirent[];
   try {
     deployments = await readdir(root, { withFileTypes: true });
