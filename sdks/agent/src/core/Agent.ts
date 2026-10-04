@@ -303,6 +303,17 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         1000,
         "XMTP_BACKEND_URL or options.backend is required.",
       );
+    if (
+      !options?.storage &&
+      XMTP_ENV !== undefined &&
+      (XMTP_ENV === "." ||
+        XMTP_ENV === ".." ||
+        XMTP_ENV.includes("/") ||
+        XMTP_ENV.includes("\\") ||
+        XMTP_ENV.includes(":") ||
+        XMTP_ENV.includes("\0"))
+    )
+      throw new AgentError(1000, "XMTP_ENV must be a safe storage label.");
     if (XMTP_DB_DIRECTORY && !options?.storage)
       fs.mkdirSync(XMTP_DB_DIRECTORY, { recursive: true, mode: 0o700 });
     let storage = options?.storage;
