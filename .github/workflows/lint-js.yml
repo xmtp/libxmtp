@@ -20,9 +20,9 @@ jobs:
       - name: Build and stage selected SDK products
         run: just js sdk-products
       - name: Typecheck JavaScript workspace
-        # The retained binding tests need a test-utils build. Their test job
-        # checks them against that build.
-        run: dev/nix-shell 'pnpm -r --filter "!@xmtp/node-bindings" run typecheck'
+        # Retained binding tests need generated output. Their test jobs build
+        # that output and typecheck the tests against it.
+        run: dev/nix-shell 'pnpm -r --filter "!@xmtp/node-bindings" --filter "!@xmtp/wasm-bindings" run typecheck'
       - name: Oxlint JavaScript workspace
         run: dev/nix-shell 'pnpm lint'
       - name: Check JavaScript formatting

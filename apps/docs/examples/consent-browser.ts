@@ -9,7 +9,7 @@ export async function streamConsent(
   // #region stream
   const stream = await client.events({
     kinds: ["consent.changed"],
-    referencesOwnMessages: false,
+    references_own_messages: false,
   });
   const receive = (async () => {
     for await (const event of stream) {
