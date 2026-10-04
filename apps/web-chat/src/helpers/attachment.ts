@@ -145,6 +145,42 @@ export const cleanSessionAttachments = async (dbPath: string | undefined) => {
   }
 };
 
+// Check every app-owned attachment directory before a new session starts.
+export const cleanStoredSessionAttachments = async () => {
+  const root = await navigator.storage.getDirectory();
+  for await (const [name, handle] of root.entries()) {
+    if (handle.kind !== "directory") continue;
+    if (name !== "xmtp-sdk") {
+      if (name.endsWith(".attachments")) {
+        const dbPath = name.slice(0, -".attachments".length);
+        if (isLegacyDatabasePath(dbPath)) {
+          await removePlaintextAttachmentDirectories(dbPath);
+        }
+      }
+      continue;
+    }
+    for await (const [label, backend] of (
+      handle as FileSystemDirectoryHandle
+    ).entries()) {
+      if (backend.kind !== "directory") continue;
+      for await (const [database, deployment] of (
+        backend as FileSystemDirectoryHandle
+      ).entries()) {
+        if (deployment.kind !== "directory") continue;
+        for await (const [inbox, directory] of (
+          deployment as FileSystemDirectoryHandle
+        ).entries()) {
+          if (directory.kind !== "directory") continue;
+          const dbPath = `xmtp-sdk/${label}/${database}/${inbox}/xmtp.db3`;
+          if (isCurrentDatabasePath(dbPath)) {
+            await removePlaintextAttachmentDirectories(dbPath);
+          }
+        }
+      }
+    }
+  }
+};
+
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB
 
 const ALLOWED_FILE_TYPES = [

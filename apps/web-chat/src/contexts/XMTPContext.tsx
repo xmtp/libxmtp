@@ -21,6 +21,7 @@ import {
 
 import {
   cleanSessionAttachments,
+  cleanStoredSessionAttachments,
   isCurrentDatabasePath,
   pendingAttachmentCleanupPaths,
   retryPendingDatabaseDeletions,
@@ -215,6 +216,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
           for (const dbPath of pendingPaths) {
             await cleanSessionAttachments(dbPath);
           }
+          await cleanStoredSessionAttachments();
           attachmentDbPath.current = undefined;
           // create a new XMTP client
           await initLogging({ level: loggingLevel ?? "warn" });

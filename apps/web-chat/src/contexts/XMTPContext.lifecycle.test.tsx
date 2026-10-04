@@ -289,7 +289,6 @@ it("removes local plaintext but keeps staged ciphertext on disconnect", async ()
     create: true,
   });
   const key = "a".repeat(64);
-  await attachments.getDirectoryHandle(key, { create: true });
   const staged = await attachments.getDirectoryHandle(".staged", {
     create: true,
   });
@@ -309,6 +308,7 @@ it("removes local plaintext but keeps staged ciphertext on disconnect", async ()
         signer: mocks.signer as never,
       });
     });
+    await attachments.getDirectoryHandle(key, { create: true });
     await act(async () => {
       await result.current.disconnect();
     });
@@ -336,7 +336,6 @@ it("records pagehide cleanup and removes plaintext before a new account starts",
     create: true,
   });
   const key = "f".repeat(64);
-  await attachments.getDirectoryHandle(key, { create: true });
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
     end: vi.fn(async () => {}),
@@ -351,6 +350,7 @@ it("records pagehide cleanup and removes plaintext before a new account starts",
         signer: mocks.signer as never,
       });
     });
+    await attachments.getDirectoryHandle(key, { create: true });
     const getDirectory = vi
       .spyOn(navigator.storage, "getDirectory")
       .mockRejectedValueOnce(new Error("OPFS busy"));
@@ -399,7 +399,6 @@ it("removes pagehide plaintext when the cleanup journal write fails", async () =
     create: true,
   });
   const key = "d".repeat(64);
-  await attachments.getDirectoryHandle(key, { create: true });
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
     end: vi.fn(async () => {}),
@@ -424,6 +423,7 @@ it("removes pagehide plaintext when the cleanup journal write fails", async () =
         signer: mocks.signer as never,
       });
     });
+    await attachments.getDirectoryHandle(key, { create: true });
     await act(async () => {
       await mocks.pageHide?.();
     });
@@ -454,6 +454,122 @@ it("removes pagehide plaintext when the cleanup journal write fails", async () =
   }
 });
 
+it("cleans orphan plaintext before another inbox starts after both pagehide safeguards fail", async () => {
+  const deployment = `orphan-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
+  const legacyDbPath = `xmtp-test-${"b".repeat(64)}.db3`;
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => dbPath },
+    end: vi.fn(async () => {}),
+  });
+  const first = renderHook(useXMTP, { wrapper: XMTPProvider });
+  await act(async () => {
+    await first.result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: mocks.signer as never,
+    });
+  });
+
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const database = await backend.getDirectoryHandle(deployment, {
+    create: true,
+  });
+  const inbox = await database.getDirectoryHandle(inboxId, { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const plaintext = "c".repeat(64);
+  await attachments.getDirectoryHandle(plaintext, { create: true });
+  const staged = await attachments.getDirectoryHandle(".staged", {
+    create: true,
+  });
+  await staged.getFileHandle("ciphertext", { create: true });
+  await inbox.getFileHandle("xmtp.db3", { create: true });
+  const legacy = await root.getDirectoryHandle(`${legacyDbPath}.attachments`, {
+    create: true,
+  });
+  await legacy.getDirectoryHandle(plaintext, { create: true });
+  const unrelatedName = `unrelated-${crypto.randomUUID()}`;
+  const unrelated = await root.getDirectoryHandle(unrelatedName, {
+    create: true,
+  });
+  await unrelated.getDirectoryHandle(plaintext, { create: true });
+
+  const setItem = Storage.prototype.setItem;
+  const storageSpy = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation(function (this: Storage, name, value) {
+      if (name === "XMTP_PENDING_ATTACHMENT_CLEANUP") {
+        throw new Error("Cleanup journal unavailable");
+      }
+      return setItem.call(this, name, value);
+    });
+  const opfsSpy = vi
+    .spyOn(navigator.storage, "getDirectory")
+    .mockRejectedValueOnce(new Error("OPFS busy"));
+  try {
+    await expect(mocks.pageHide?.()).rejects.toThrow("OPFS busy");
+    expect(localStorage.getItem("XMTP_PENDING_ATTACHMENT_CLEANUP")).toBeNull();
+    expect(await attachments.getDirectoryHandle(plaintext)).toBeDefined();
+    storageSpy.mockRestore();
+    opfsSpy.mockRestore();
+    first.unmount();
+
+    const otherSigner = {};
+    mocks.create.mockImplementationOnce(async () => {
+      await expect(
+        attachments.getDirectoryHandle(plaintext),
+      ).rejects.toMatchObject({
+        name: "NotFoundError",
+      });
+      await expect(legacy.getDirectoryHandle(plaintext)).rejects.toMatchObject({
+        name: "NotFoundError",
+      });
+      return {
+        storage: { path: async () => undefined },
+        end: vi.fn(async () => {}),
+      };
+    });
+    const second = renderHook(useXMTP, { wrapper: XMTPProvider });
+    const stillBusy = vi
+      .spyOn(navigator.storage, "getDirectory")
+      .mockRejectedValueOnce(new Error("OPFS still busy"));
+    await act(async () => {
+      await expect(
+        second.result.current.initialize({
+          backendUrl: "https://example.com",
+          env: "test",
+          signer: otherSigner as never,
+        }),
+      ).rejects.toThrow("OPFS still busy");
+    });
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    stillBusy.mockRestore();
+
+    await act(async () => {
+      await second.result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: otherSigner as never,
+      });
+    });
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(await staged.getFileHandle("ciphertext")).toBeDefined();
+    expect(await inbox.getFileHandle("xmtp.db3")).toBeDefined();
+    expect(await unrelated.getDirectoryHandle(plaintext)).toBeDefined();
+  } finally {
+    storageSpy.mockRestore();
+    opfsSpy.mockRestore();
+    await backend.removeEntry(deployment, { recursive: true });
+    await root.removeEntry(`${legacyDbPath}.attachments`, { recursive: true });
+    await root.removeEntry(unrelatedName, { recursive: true });
+  }
+});
+
 it("keeps the app lock until failed attachment cleanup is retried", async () => {
   const deployment = `retry-disconnect-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
   const inboxId = "a".repeat(64);
@@ -467,24 +583,24 @@ it("keeps the app lock until failed attachment cleanup is retried", async () => 
     create: true,
   });
   const key = "c".repeat(64);
-  await attachments.getDirectoryHandle(key, { create: true });
   const end = vi.fn(async () => {});
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
     end,
   });
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+  await act(async () => {
+    await result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: mocks.signer as never,
+    });
+  });
+  await attachments.getDirectoryHandle(key, { create: true });
   const getDirectory = vi
     .spyOn(navigator.storage, "getDirectory")
     .mockRejectedValueOnce(new Error("OPFS busy"));
   try {
-    const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
-    await act(async () => {
-      await result.current.initialize({
-        backendUrl: "https://example.com",
-        env: "test",
-        signer: mocks.signer as never,
-      });
-    });
     await act(async () => {
       await expect(result.current.disconnect()).rejects.toThrow("OPFS busy");
     });
@@ -539,7 +655,6 @@ it("removes old local attachment files after lock loss even if storage path look
     create: true,
   });
   const key = "d".repeat(64);
-  await attachments.getDirectoryHandle(key, { create: true });
   const end = vi.fn(async () => {});
   let pathLookupFails = false;
   mocks.create.mockResolvedValueOnce({
@@ -560,6 +675,7 @@ it("removes old local attachment files after lock loss even if storage path look
         signer: mocks.signer as never,
       });
     });
+    await attachments.getDirectoryHandle(key, { create: true });
     pathLookupFails = true;
     act(() => mocks.lockLost?.());
     await waitFor(() => expect(result.current.client).toBeUndefined());
@@ -585,7 +701,6 @@ it("removes attachment files after lock loss when the journal write fails", asyn
     create: true,
   });
   const key = "e".repeat(64);
-  await attachments.getDirectoryHandle(key, { create: true });
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
     end: vi.fn(async () => {}),
@@ -608,6 +723,7 @@ it("removes attachment files after lock loss when the journal write fails", asyn
         signer: mocks.signer as never,
       });
     });
+    await attachments.getDirectoryHandle(key, { create: true });
     act(() => mocks.lockLost?.());
     await waitFor(() => expect(result.current.client).toBeUndefined());
     await expect(attachments.getDirectoryHandle(key)).rejects.toMatchObject({
@@ -632,7 +748,6 @@ it("removes attachment files on the next start if lock-loss cleanup fails", asyn
     create: true,
   });
   const key = "f".repeat(64);
-  await attachments.getDirectoryHandle(key, { create: true });
   const end = vi.fn(async () => {});
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
@@ -642,18 +757,19 @@ it("removes attachment files on the next start if lock-loss cleanup fails", asyn
     storage: { path: async () => undefined },
     end: vi.fn(async () => {}),
   });
+  const { result, unmount } = renderHook(useXMTP, { wrapper: XMTPProvider });
+  await act(async () => {
+    await result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: mocks.signer as never,
+    });
+  });
+  await attachments.getDirectoryHandle(key, { create: true });
   const getDirectory = vi
     .spyOn(navigator.storage, "getDirectory")
     .mockRejectedValueOnce(new Error("OPFS busy"));
   try {
-    const { result, unmount } = renderHook(useXMTP, { wrapper: XMTPProvider });
-    await act(async () => {
-      await result.current.initialize({
-        backendUrl: "https://example.com",
-        env: "test",
-        signer: mocks.signer as never,
-      });
-    });
     act(() => mocks.lockLost?.());
     await waitFor(() => expect(result.current.client).toBeUndefined());
     expect(result.current.error?.message).toBe("OPFS busy");
