@@ -283,3 +283,17 @@ extension Credential: CustomStringConvertible, CustomDebugStringConvertible {
         description
     }
 }
+
+extension NotificationChannel: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        switch self {
+        case .apns: "NotificationChannel.apns(<redacted>)"
+        case .fcm: "NotificationChannel.fcm(<redacted>)"
+        case .http: "NotificationChannel.http(<redacted>)"
+        }
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}
