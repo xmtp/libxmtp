@@ -31,7 +31,7 @@ async fn device_sync_creation_logs_omit_full_private_ids() {
         "group creation log contains the full installation ID"
     );
     assert!(
-        !event.contains(&hex::encode(&group.group_id)),
+        !event.contains(&hex::encode(group.group_id)),
         "group creation log contains the full sync group ID"
     );
 }

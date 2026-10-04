@@ -1,11 +1,21 @@
 use crate::{Client, ConsentState, XmtpError};
 use xmtp_mls::client::notifications as core;
 
-#[derive(Clone, Debug, uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum NotificationChannel {
     Apns { token: String },
     Fcm { token: String },
     Http { url: String, signing_key: Vec<u8> },
+}
+
+impl std::fmt::Debug for NotificationChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Apns { .. } => "Apns",
+            Self::Fcm { .. } => "Fcm",
+            Self::Http { .. } => "Http",
+        })
+    }
 }
 
 impl From<NotificationChannel> for core::NotificationChannel {
@@ -119,5 +129,38 @@ impl Client {
             .notification_state()
             .map(Into::into)
             .map_err(XmtpError::from_core)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn notification_debug_redacts_credentials() {
+        for channel in [
+            NotificationChannel::Apns {
+                token: "secret-token".into(),
+            },
+            NotificationChannel::Fcm {
+                token: "secret-token".into(),
+            },
+            NotificationChannel::Http {
+                url: "https://secret.example".into(),
+                signing_key: b"signing-key".to_vec(),
+            },
+        ] {
+            let config = NotificationConfig {
+                channel,
+                consent_states: None,
+                include_welcomes: None,
+                include_sync_groups: None,
+                include_commits: None,
+            };
+            let debug = format!("{config:?}");
+            assert!(!debug.contains("secret-token"));
+            assert!(!debug.contains("secret.example"));
+            assert!(!debug.contains("115, 105, 103, 110"));
+        }
     }
 }

@@ -1138,3 +1138,50 @@ async fn test_admin_removal_without_pending_shows_as_removed() {
         "Should have 0 left inboxes"
     );
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn creator_readd_preserves_welcome_stream_cursor() {
+    use xmtp_db::prelude::QueryGroup;
+    tester!(creator);
+    tester!(admin);
+    let group = creator
+        .create_group_with_members(&[admin.inbox_id().to_string()], None, None)
+        .await?;
+    admin.sync_welcomes().await?;
+    let admin_group = admin.find_groups(GroupQueryArgs::default())?.remove(0);
+    group
+        .update_admin_list(UpdateAdminListType::AddSuper, admin.inbox_id().to_string())
+        .await?;
+    group
+        .update_admin_list(
+            UpdateAdminListType::RemoveSuper,
+            creator.inbox_id().to_string(),
+        )
+        .await?;
+    group.sync().await?;
+    admin_group.sync().await?;
+    group.leave_group().await?;
+    assert_eq!(
+        group.membership_state()?,
+        GroupMembershipState::PendingRemove
+    );
+    group.sync().await?;
+    let mut removed = false;
+    for _ in 0..20 {
+        xmtp_common::time::sleep(std::time::Duration::from_millis(250)).await;
+        admin_group.sync().await.ok();
+        group.sync().await.ok();
+        if !group.is_active()? {
+            removed = true;
+            break;
+        }
+    }
+    assert!(removed, "creator must leave before the re-add");
+    admin_group.add_members(&[creator.inbox_id()]).await?;
+    admin_group.sync().await?;
+    creator.sync_welcomes().await?;
+    let cursors = creator.db().group_cursors()?;
+    assert_eq!(cursors.len(), 1);
+    let stream = creator.stream_conversations(None, false).await?;
+    drop(stream);
+}
