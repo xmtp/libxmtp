@@ -1,6 +1,7 @@
 //! Post-commit work: installations, welcomes, and HMAC keys.
 
 use super::*;
+use xmtp_common::snippet::Snippet;
 
 impl<Context> MlsGroup<Context>
 where
@@ -60,7 +61,7 @@ where
 
         debug!(
             inbox_id = self.context.inbox_id(),
-            installation_id = %self.context.installation_id(),
+            installation_id = self.context.installation_id().as_slice().snippet(),
             "Adding missing installations {:?}",
             intent_data
         );

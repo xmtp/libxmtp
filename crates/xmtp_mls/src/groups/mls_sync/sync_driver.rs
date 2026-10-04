@@ -1,6 +1,7 @@
 //! Sync entry points and the intent-resolution loop.
 
 use super::*;
+use xmtp_common::snippet::Snippet;
 
 impl<Context> MlsGroup<Context>
 where
@@ -27,7 +28,7 @@ where
         let epoch = self.epoch().await?;
         tracing::debug!(
             inbox_id = self.context.inbox_id(),
-            installation_id = %self.context.installation_id(),
+            installation_id = self.context.installation_id().as_slice().snippet(),
             group_id = self.group_id.short_hex(),
             epoch,
             "syncing group",

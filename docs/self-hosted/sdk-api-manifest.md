@@ -3430,9 +3430,9 @@ The SDK tables above keep the approved pre-switch retention ledger. Its source b
 | --- | --- | ---: | --- |
 | Browser | TypeScript root export names | 229 | current generated public product |
 | Browser | TypeScript /pure root export names | 83 | current generated public product |
-| Node | TypeScript root export names | 266 | current generated public product |
 | Swift | Swift source declarations | 3661 | current generated public product |
-| Kotlin | Kotlin source declarations | 4336 | current generated public product |
+| Kotlin | Kotlin source declarations | 4337 | current generated public product |
+| Node | TypeScript root export names | 288 | current generated public product |
 
 ## Open items
 

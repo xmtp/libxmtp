@@ -11,6 +11,17 @@ device() {
 # The backend uses the host clock. A slow guest clock delays message expiry.
 device root
 device wait-for-device
+# The settings service can start after adbd accepts commands.
+for attempt in {1..30}; do
+  if device shell service check settings | grep -q ': found'; then
+    break
+  fi
+  if ((attempt == 30)); then
+    echo "Android settings service did not become ready ($serial)" >&2
+    exit 1
+  fi
+  sleep 1
+done
 device shell settings put global auto_time 0
 
 # Retry a small transport delay. Fail before tests if the clock stays wrong.
