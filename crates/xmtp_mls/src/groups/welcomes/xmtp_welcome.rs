@@ -24,7 +24,7 @@ use crate::{
 use derive_builder::Builder;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
-use xmtp_common::time::now_ns;
+use xmtp_common::{snippet::Snippet, time::now_ns};
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
 use xmtp_db::TransactionOutcome::{Continue, Rollback};
@@ -717,7 +717,7 @@ where
 
         tracing::debug!(
             inbox_id = %current_inbox_id,
-            installation_id = %self.context.installation_id(),
+            installation_id = %self.context.installation_id().as_slice().snippet(),
             group_id = %group.group_id,
             welcome_id = welcome.cursor.0,
 

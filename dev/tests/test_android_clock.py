@@ -25,8 +25,15 @@ if args in (["root"], ["wait-for-device"]):
     pass
 elif args == ["shell", "service", "check", "settings"]:
     state["checks"] += 1
-    state["ready"] = state["mode"] != "missing" and state["checks"] > state["delay"]
+    state["ready"] = state["mode"] not in ("missing", "api23") and state["checks"] > state["delay"]
     print("Service settings: " + ("found" if state["ready"] else "not found"))
+elif args == ["shell", "settings", "get", "global", "auto_time"]:
+    state["checks"] += 1
+    state["ready"] = state["mode"] != "missing" and state["checks"] > state["delay"]
+    if state["ready"]:
+        print("1\r")
+    else:
+        print("Error while accessing settings provider", file=sys.stderr)
 elif args == ["shell", "settings", "put", "global", "auto_time", "0"]:
     if not state["ready"]:
         print("cmd: Can't find service: settings", file=sys.stderr)
@@ -82,6 +89,11 @@ class AndroidClockTest(unittest.TestCase):
                 timeout=15,
             )
             return result, json.loads(state.read_text())
+
+    def test_api23_content_provider_without_settings_binder_service(self):
+        result, state = self.run_clock("api23")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((state["writes"], state["sets"], state["reads"]), (1, 1, 1))
 
     def test_delayed_settings_service(self):
         result, state = self.run_clock("ready", delay=2)
