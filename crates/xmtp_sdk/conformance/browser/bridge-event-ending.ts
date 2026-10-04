@@ -138,7 +138,7 @@ export function registerEventEndingTests(): void {
         if (delivered) {
           // A for-await break calls return after the loop body ends its client.
           for await (const event of stream) {
-            expect(event).toEqual({ kind: "archiveRestored", complete: true });
+            expect(event).toEqual({ kind: "archive.restored", complete: true });
             session.fenceOwner(owner);
             session.closeOwner(owner, []);
             break;
