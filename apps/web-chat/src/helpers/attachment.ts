@@ -1,5 +1,47 @@
 import { type Client, type RemoteAttachment } from "@xmtp/browser-sdk";
 
+const pendingAttachmentCleanupKey = "XMTP_PENDING_ATTACHMENT_CLEANUP";
+
+export const pendingAttachmentCleanupPaths = (): string[] => {
+  const stored = localStorage.getItem(pendingAttachmentCleanupKey);
+  if (!stored) return [];
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (Array.isArray(parsed)) {
+      const paths: unknown[] = parsed;
+      if (paths.every((path): path is string => typeof path === "string")) {
+        return paths;
+      }
+    }
+  } catch {
+    // Older versions stored one path as plain text.
+  }
+  return [stored];
+};
+
+export const markAttachmentCleanupPending = (dbPath: string) => {
+  const pending = new Set(pendingAttachmentCleanupPaths());
+  pending.add(dbPath);
+  localStorage.setItem(
+    pendingAttachmentCleanupKey,
+    JSON.stringify([...pending]),
+  );
+};
+
+export const cleanAttachmentDirectory = async (dbPath: string | undefined) => {
+  if (dbPath === undefined) return;
+  markAttachmentCleanupPending(dbPath);
+  await removeAttachmentDirectory(dbPath);
+  const pending = pendingAttachmentCleanupPaths().filter(
+    (path) => path !== dbPath,
+  );
+  if (pending.length) {
+    localStorage.setItem(pendingAttachmentCleanupKey, JSON.stringify(pending));
+  } else {
+    localStorage.removeItem(pendingAttachmentCleanupKey);
+  }
+};
+
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB
 
 const ALLOWED_FILE_TYPES = [

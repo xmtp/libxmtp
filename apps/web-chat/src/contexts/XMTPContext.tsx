@@ -19,21 +19,13 @@ import {
   useState,
 } from "react";
 
-import { removeAttachmentDirectory } from "@/helpers/attachment";
+import {
+  cleanAttachmentDirectory,
+  pendingAttachmentCleanupPaths,
+} from "@/helpers/attachment";
 import { backendLabel } from "@/helpers/backend";
 import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
 import { useActions } from "@/stores/inbox/hooks";
-
-const pendingAttachmentCleanupKey = "XMTP_PENDING_ATTACHMENT_CLEANUP";
-
-const cleanAttachmentDirectory = async (dbPath: string | undefined) => {
-  if (dbPath === undefined) return;
-  localStorage.setItem(pendingAttachmentCleanupKey, dbPath);
-  await removeAttachmentDirectory(dbPath);
-  if (localStorage.getItem(pendingAttachmentCleanupKey) === dbPath) {
-    localStorage.removeItem(pendingAttachmentCleanupKey);
-  }
-};
 
 const storageLocation = async (
   signer: Signer,
@@ -194,7 +186,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
         try {
           const pendingPaths = new Set([
             attachmentDbPath.current,
-            localStorage.getItem(pendingAttachmentCleanupKey) ?? undefined,
+            ...pendingAttachmentCleanupPaths(),
           ]);
           for (const dbPath of pendingPaths) {
             await cleanAttachmentDirectory(dbPath);

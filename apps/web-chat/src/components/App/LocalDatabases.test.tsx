@@ -119,3 +119,64 @@ it("deletes only a selected database for this backend and awaits admin end", asy
     await root.removeEntry(legacyFiles, { recursive: true }).catch(() => {});
   }
 });
+
+it("retries attachment cleanup after the database file is deleted", async () => {
+  const deployment = `cleanup-retry-${crypto.randomUUID()}`;
+  const selected = `/xmtp-sdk/selected-backend/${deployment}/inbox/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("selected-backend", {
+    create: true,
+  });
+  const directory = await backend.getDirectoryHandle(deployment, {
+    create: true,
+  });
+  const inbox = await directory.getDirectoryHandle("inbox", { create: true });
+  await inbox.getDirectoryHandle("attachments", { create: true });
+  mocks.list
+    .mockResolvedValueOnce([selected])
+    .mockResolvedValueOnce([selected])
+    .mockResolvedValue([]);
+  mocks.admin.mockResolvedValue({
+    listFiles: mocks.list,
+    deleteFile: mocks.remove,
+    end: mocks.end,
+  });
+  const storageSpy = vi
+    .spyOn(navigator.storage, "getDirectory")
+    .mockRejectedValueOnce(new Error("OPFS cleanup failed"))
+    .mockResolvedValue(root);
+  try {
+    render(
+      <MantineProvider>
+        <LocalDatabases />
+      </MantineProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Local databases" }));
+    await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByRole("combobox", { name: "Database" }), {
+      target: { value: selected },
+    });
+    const remove = screen.getByRole("button", {
+      name: "Delete selected database",
+    });
+    fireEvent.click(remove);
+    await screen.findByText("OPFS cleanup failed");
+    expect(mocks.remove).toHaveBeenCalledExactlyOnceWith(selected);
+    await expect(
+      inbox.getDirectoryHandle("attachments"),
+    ).resolves.toBeDefined();
+
+    fireEvent.click(remove);
+    await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(3));
+    expect(mocks.remove).toHaveBeenCalledExactlyOnceWith(selected);
+    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
+      {
+        name: "NotFoundError",
+      },
+    );
+  } finally {
+    storageSpy.mockRestore();
+    await backend.removeEntry(deployment, { recursive: true });
+  }
+});

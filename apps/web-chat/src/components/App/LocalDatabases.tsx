@@ -3,7 +3,11 @@ import { Storage, XmtpError } from "@xmtp/browser-sdk";
 import { useState } from "react";
 
 import { Modal } from "@/components/Modal";
-import { removeAttachmentDirectory } from "@/helpers/attachment";
+import {
+  cleanAttachmentDirectory,
+  markAttachmentCleanupPending,
+  pendingAttachmentCleanupPaths,
+} from "@/helpers/attachment";
 import { backendLabel } from "@/helpers/backend";
 import { useSettings } from "@/hooks/useSettings";
 
@@ -19,6 +23,11 @@ export const LocalDatabases: React.FC = () => {
     setLoading(true);
     setError(undefined);
     try {
+      if (!remove) {
+        for (const dbPath of pendingAttachmentCleanupPaths()) {
+          await cleanAttachmentDirectory(dbPath);
+        }
+      }
       const label = await backendLabel(backendUrl);
       const admin = await Storage.admin();
       try {
@@ -30,10 +39,16 @@ export const LocalDatabases: React.FC = () => {
               file.endsWith(".db3")),
         );
         if (remove) {
-          if (!selected || !available.includes(selected))
+          const pending =
+            selected !== null &&
+            pendingAttachmentCleanupPaths().includes(selected);
+          if (!selected || (!available.includes(selected) && !pending))
             throw new Error("Select a local database.");
-          await admin.deleteFile(selected);
-          await removeAttachmentDirectory(selected);
+          if (!pending) {
+            await admin.deleteFile(selected);
+            markAttachmentCleanupPending(selected);
+          }
+          await cleanAttachmentDirectory(selected);
           setSelected(null);
         }
         setFiles(
