@@ -29,7 +29,7 @@ export async function checkEventEnd(backendURL: string): Promise<void> {
     );
     const events = await client.events({
       kinds: ["conversation.joined"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     });
     control.worker.holdEvent();
     const read = events.next();
@@ -163,7 +163,7 @@ export async function checkAttachmentEnd(
       let deletions = 0;
       const first = signal();
       const listener = await reopened.startListener(
-        { kinds: ["attachment.deleted"], referencesOwnMessages: false },
+        { kinds: ["attachment.deleted"], references_own_messages: false },
         () => {
           deletions++;
           first.resolve();
@@ -193,7 +193,7 @@ export async function checkAttachmentEnd(
         const event = (await within(deleted.next(), "deletion")).value;
         if (event?.kind !== "attachment.deleted")
           throw new Error("not a deletion");
-        equal(event.attachment.url, expected.url, "deletion order");
+        equal(event.attachment_deleted.url, expected.url, "deletion order");
       }
       await deleted.return();
     } finally {

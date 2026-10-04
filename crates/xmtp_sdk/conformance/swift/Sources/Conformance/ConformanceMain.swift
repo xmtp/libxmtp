@@ -792,7 +792,7 @@ struct Conformance {
         // verifies: EVENT-050
         // verifies: EVENT-053
         let eventFilter = EventFilter(
-            kinds: [.conversationJoined], conversationIds: nil,
+            kinds: [.conversationJoined], groupIds: nil,
             contentTypes: nil, referencesOwnMessages: false
         )
         var eventReader: SDKEventStream.Iterator? = try await reopened.events(eventFilter).makeAsyncIterator()

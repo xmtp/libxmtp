@@ -147,6 +147,14 @@ impl Group {
             .into_iter()
             .map(InboxId::into_checked)
             .collect::<Result<Vec<_>, _>>()?;
+        if ids
+            .iter()
+            .any(|id| id.starts_with("0x") || id.starts_with("0X"))
+        {
+            return Err(XmtpError::invalid_argument(
+                "Inbox IDs cannot start with '0x'.",
+            ));
+        }
         on_sdk_worker(
             self.inner.context.clone(),
             Box::pin(async move {

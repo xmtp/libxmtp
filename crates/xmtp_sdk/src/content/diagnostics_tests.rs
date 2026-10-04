@@ -122,3 +122,42 @@ fn attachment_diagnostics_hide_core_encrypted_attachment_secret() {
     assert_eq!(encrypted.secret, secret());
     assert_eq!(encrypted.payload, vec![4; 64]);
 }
+
+// verifies: LOG-010
+#[xmtp_common::test(unwrap_try = true)]
+fn encoded_content_diagnostics_hide_secret_parameter() {
+    let canary = "encoded-content-decryption-secret";
+    let content = EncodedContent {
+        r#type: ContentTypeId {
+            authority_id: "xmtp.org".into(),
+            type_id: "remoteStaticAttachment".into(),
+            version_major: 1,
+            version_minor: 0,
+        },
+        parameters: HashMap::from([
+            ("secret".into(), canary.into()),
+            ("filename".into(), "attachment.txt".into()),
+        ]),
+        fallback: Some("attachment".into()),
+        content: vec![1, 2, 3],
+    };
+    let diagnostics = [
+        ("direct", format!("{content:?}")),
+        ("nested", format!("{:?}", vec![content.clone()])),
+    ];
+    let leaked: Vec<_> = diagnostics
+        .iter()
+        .filter(|(_, value)| value.contains(canary))
+        .map(|(scope, _)| *scope)
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "EncodedContent secret exposed in {leaked:?}"
+    );
+    for (_, diagnostic) in diagnostics {
+        assert!(diagnostic.contains("<redacted>"));
+        assert!(diagnostic.contains("attachment.txt"));
+    }
+    assert_eq!(content.parameters["secret"], canary);
+    assert_eq!(content.content, vec![1, 2, 3]);
+}

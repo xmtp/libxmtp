@@ -7,7 +7,7 @@ final class AttachmentEventDiagnosticsTests: XCTestCase {
 		let attachment = AttachmentRef(attachmentKey: "attachment", url: url, contentDigest: "digest")
 		let failed = AttachmentFailed(
 			attachmentKey: attachment.attachmentKey, url: url,
-			contentDigest: attachment.contentDigest, cause: .localStorage,
+			contentDigest: attachment.contentDigest, cause: "local_storage",
 		)
 		let events: [ClientEvent] = [
 			.attachmentUploadStarted(attachmentUploadStarted: attachment),
@@ -31,6 +31,6 @@ final class AttachmentEventDiagnosticsTests: XCTestCase {
 		XCTAssertEqual(failed.url, url)
 		XCTAssertEqual(attachment.attachmentKey, "attachment")
 		XCTAssertEqual(failed.contentDigest, "digest")
-		XCTAssertEqual(failed.cause, .localStorage)
+		XCTAssertEqual(failed.cause, "local_storage")
 	}
 }

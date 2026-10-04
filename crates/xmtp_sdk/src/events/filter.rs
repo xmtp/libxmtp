@@ -1,26 +1,29 @@
-use crate::{ContentTypeId, ConversationId, XmtpError, client::CoreClient};
+use crate::{XmtpError, client::CoreClient};
 use xmtp_mls::subscriptions::internal::InternalEvent;
 use xmtp_mls::{client::ClientError, mls_store::MlsStoreError};
 
-use super::EventKind;
+use super::{EventContentTypeId, EventKind};
 
 #[derive(Clone, Debug, Default, uniffi::Record)]
 pub struct EventFilter {
     pub kinds: Vec<EventKind>,
-    pub conversation_ids: Option<Vec<ConversationId>>,
-    pub content_types: Option<Vec<ContentTypeId>>,
+    pub group_ids: Option<Vec<Vec<u8>>>,
+    pub content_types: Option<Vec<EventContentTypeId>>,
     pub references_own_messages: bool,
 }
 
 impl EventFilter {
-    /// Checks every conversation ID. Call this before any client or database
+    /// Checks every group ID. Call this before any client or database
     /// access, so a malformed ID returns `InvalidArgument`.
     pub(crate) fn checked(self) -> Result<CheckedEventFilter, XmtpError> {
         let group_ids = self
-            .conversation_ids
+            .group_ids
             .map(|ids| {
                 ids.into_iter()
-                    .map(xmtp_proto::types::GroupId::try_from)
+                    .map(|id| {
+                        xmtp_proto::types::GroupId::try_from(id)
+                            .map_err(|_| XmtpError::invalid_argument("invalid event group ID"))
+                    })
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
@@ -33,11 +36,11 @@ impl EventFilter {
     }
 }
 
-/// An event filter whose conversation IDs are valid.
+/// An event filter whose group IDs are valid.
 pub(crate) struct CheckedEventFilter {
     kinds: Vec<EventKind>,
     group_ids: Option<Vec<xmtp_proto::types::GroupId>>,
-    content_types: Option<Vec<ContentTypeId>>,
+    content_types: Option<Vec<EventContentTypeId>>,
     references_own_messages: bool,
 }
 

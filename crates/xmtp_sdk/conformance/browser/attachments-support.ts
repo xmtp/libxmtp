@@ -15,8 +15,29 @@ export const ATTACHMENT_KINDS: sdk.EventKind[] = [
 
 export type AttachmentEvent = Extract<
   sdk.ClientEvent,
-  { readonly attachment: unknown }
+  { readonly kind: `attachment.${string}` }
 >;
+
+export function attachmentPayload(
+  event: AttachmentEvent,
+): sdk.AttachmentRef | sdk.AttachmentFailed {
+  switch (event.kind) {
+    case "attachment.upload_started":
+      return event.attachment_upload_started;
+    case "attachment.upload_completed":
+      return event.attachment_upload_completed;
+    case "attachment.upload_failed":
+      return event.attachment_upload_failed;
+    case "attachment.download_started":
+      return event.attachment_download_started;
+    case "attachment.download_completed":
+      return event.attachment_download_completed;
+    case "attachment.download_failed":
+      return event.attachment_download_failed;
+    case "attachment.deleted":
+      return event.attachment_deleted;
+  }
+}
 
 /** Browser options for a client in an OPFS directory, allowed to reach loopback storage. */
 export function fileOptions(
@@ -58,7 +79,11 @@ export function failure(
 }
 
 /** Compare plain values: records, arrays, and bigints. */
-export function same(actual: unknown, expected: unknown, message: string): void {
+export function same(
+  actual: unknown,
+  expected: unknown,
+  message: string,
+): void {
   const text = (value: unknown) =>
     JSON.stringify(value, (_key, field: unknown) =>
       typeof field === "bigint" ? `${field}n` : field,
@@ -106,7 +131,7 @@ export function attachmentFilter(
 ): sdk.EventFilter {
   return {
     kinds: [...kinds, "conversation.joined"],
-    referencesOwnMessages: false,
+    references_own_messages: false,
   };
 }
 
@@ -148,20 +173,35 @@ export async function drain(
     const next = await within(stream.next(), "attachment events");
     expect(!next.done, "the event stream ended");
     const event = next.value;
-    if (event.kind === "conversation.joined") {
-      if (event.conversationId === marker) return events;
-      continue;
+    switch (event.kind) {
+      case "conversation.joined":
+        if (hexBytes(event.conversation_joined.group_id) === marker)
+          return events;
+        break;
+      case "attachment.upload_started":
+      case "attachment.upload_completed":
+      case "attachment.upload_failed":
+      case "attachment.download_started":
+      case "attachment.download_completed":
+      case "attachment.download_failed":
+      case "attachment.deleted":
+        events.push(event);
+        break;
+      default:
+        throw new Error(`unexpected ${event.kind} event`);
     }
-    expect("attachment" in event, `unexpected ${event.kind} event`);
-    events.push(event);
   }
+}
+
+function hexBytes(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes));
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  return hexBytes(new Uint8Array(digest));
 }
 
 /** The directory core names for a deployment with a file-safe identifier. */
@@ -218,7 +258,9 @@ export async function writeOpfs(path: string, text: string): Promise<void> {
 export async function removeOpfs(path: string): Promise<void> {
   const names = segments(path);
   const name = names.pop()!;
-  await (await opfsDirectory(names, false)).removeEntry(name, {
+  await (
+    await opfsDirectory(names, false)
+  ).removeEntry(name, {
     recursive: true,
   });
 }
