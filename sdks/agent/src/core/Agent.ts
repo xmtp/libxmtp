@@ -578,25 +578,29 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     void conversations
       .onValue(async (conversation) => {
         if (!isCurrent()) return;
-        try {
-          const context = new ConversationContext<ContentTypes>({
-            conversation,
-            client: this.#client,
-          });
-          await this.#emitValue("conversation", context);
-          if (!isCurrent()) return;
-          if (context.isGroup()) await this.#emitValue("group", context);
-          else if (context.isDm()) await this.#emitValue("dm", context);
-        } catch (error) {
-          if (error instanceof UnacceptedValueError) throw error;
-          if (isCurrent()) {
-            const disposition = await this.#runErrorChain(error, {
-              client: this.#client,
-              conversation,
-            });
-            if (disposition !== "resume") throw new UnacceptedValueError(error);
+        const context = new ConversationContext<ContentTypes>({
+          conversation,
+          client: this.#client,
+        });
+        const emit = async (topic: "conversation" | "group" | "dm") => {
+          try {
+            await this.#emitValue(topic, context);
+          } catch (error) {
+            if (error instanceof UnacceptedValueError) throw error;
+            if (isCurrent()) {
+              const disposition = await this.#runErrorChain(error, {
+                client: this.#client,
+                conversation,
+              });
+              if (disposition !== "resume")
+                throw new UnacceptedValueError(error);
+            }
           }
-        }
+        };
+        await emit("conversation");
+        if (!isCurrent()) return;
+        if (context.isGroup()) await emit("group");
+        else if (context.isDm()) await emit("dm");
       })
       .catch((error) => this.#handleStreamError(error, generation));
     const messages = MessageStream.open(this.#client, undefined, {

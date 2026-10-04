@@ -5,6 +5,7 @@ import {
   ConversationStream,
   MessageStream,
   Group,
+  Dm,
   type Client,
   type Conversation,
   type Message,
@@ -561,6 +562,53 @@ describe("Agent stream lifecycle", () => {
       await h.agent.stop();
     },
   );
+  it.each(["group", "dm"] as const)(
+    "dispatches the %s event after awaited conversation error recovery",
+    async (kind) => {
+      const h = harness();
+      const recoveryStarted = deferred<void>();
+      const recovery = deferred<void>();
+      const cause = new Error("conversation listener failed");
+      const kindListener = vi.fn();
+      const conversation =
+        kind === "group" ? h.group : (Object.create(Dm.prototype) as Dm);
+      h.agent.on(kind, kindListener);
+      h.agent.on("conversation", () => {
+        throw cause;
+      });
+      h.agent.errors.use(async (_error, _ctx, next) => {
+        recoveryStarted.resolve();
+        await recovery.promise;
+        await next();
+      });
+      await h.agent.start();
+      const delivery = h.conversations[0]!.value(conversation);
+      await recoveryStarted.promise;
+      expect(kindListener).not.toHaveBeenCalled();
+      recovery.resolve();
+      await delivery;
+      expect(kindListener).toHaveBeenCalledOnce();
+      expect(kindListener).toHaveBeenCalledWith(
+        expect.objectContaining({ conversation }),
+      );
+      await h.agent.stop();
+    },
+  );
+  it("does not dispatch the kind event when conversation recovery stops the agent", async () => {
+    const h = harness();
+    const kindListener = vi.fn();
+    h.agent.on("group", kindListener);
+    h.agent.on("conversation", () => {
+      throw new Error("conversation listener failed");
+    });
+    h.agent.errors.use(async (_error, _ctx, next) => {
+      await h.agent.stop();
+      await next();
+    });
+    await h.agent.start();
+    await h.conversations[0]!.value(h.group);
+    expect(kindListener).not.toHaveBeenCalled();
+  });
   it("routes a throwing conversation listener through error middleware", async () => {
     const h = harness();
     const cause = new Error("listener failed");

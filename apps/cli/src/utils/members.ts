@@ -1,6 +1,6 @@
 import type { Client, Member } from "@xmtp/node-sdk";
 
-/** Add current installation IDs to conversation member output. */
+/** Add cached installation IDs to conversation member output. */
 export async function memberDetails(
   client: Pick<Client, "inboxStates">,
   members: Member[],
@@ -8,7 +8,7 @@ export async function memberDetails(
   if (members.length === 0) return [];
 
   const inboxIds = [...new Set(members.map((member) => member.inboxId))];
-  const states = await client.inboxStates(inboxIds, true);
+  const states = await client.inboxStates(inboxIds, false);
   const installationsByInboxId = new Map(
     states.map((state) => [
       state.inboxId,
