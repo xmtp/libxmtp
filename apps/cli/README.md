@@ -86,6 +86,12 @@ The `conversation messages` command accepts named standard content types with
 removed. The CLI rejects `--content-type custom` and
 `--exclude-content-type custom` instead of returning an unfiltered list.
 
+The version 8 `preferences stream` command reports an HMAC invalidation as
+`{"type":"HmacKeyUpdate","keys":{"<group-id>":[{"key":"<hex>","epoch":"<integer>"}]}}`
+inside `updates`. The `keys` object is a current snapshot by conversation ID.
+Each key is lowercase hex. JSON epochs are decimal strings. This replaces the
+old per-update `key` field because the SDK event contains no key payload.
+
 ## Links
 
 - [libxmtp repository](https://github.com/xmtp/libxmtp)

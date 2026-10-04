@@ -82,6 +82,45 @@ describe("preferences stream", () => {
     expect(hmacKeys).toHaveBeenCalledOnce();
   });
 
+  it("outputs the HMAC snapshot with hex keys and string epochs", async () => {
+    const hmacKeys = vi.fn(
+      async () =>
+        new Map([
+          ["abcd", [{ key: new Uint8Array([0, 15, 128, 255]), epoch: 3n }]],
+          ["ef01", [{ key: new Uint8Array([18, 52]), epoch: 4n }]],
+        ]),
+    );
+    const client = {
+      events: vi.fn(async () =>
+        (async function* () {
+          yield { kind: "hmac_keys.updated", hmac_keys_updated: {} };
+        })(),
+      ),
+      conversations: { hmacKeys },
+    };
+    const log = vi.fn();
+    const command = Object.assign(Object.create(PreferencesStream.prototype), {
+      parse: vi.fn(async () => ({ flags: { count: 1 } })),
+      initClient: vi.fn(async () => client),
+      jsonOutput: true,
+      log,
+    }) as PreferencesStream;
+
+    await command.run();
+
+    expect(log).toHaveBeenCalledOnce();
+    expect(JSON.parse(log.mock.calls[0]![0]).updates).toEqual([
+      {
+        type: "HmacKeyUpdate",
+        keys: {
+          abcd: [{ key: "000f80ff", epoch: "3" }],
+          ef01: [{ key: "1234", epoch: "4" }],
+        },
+      },
+    ]);
+    expect(hmacKeys).toHaveBeenCalledOnce();
+  });
+
   it("streams with timeout and exits cleanly", async () => {
     const user = await createRegisteredIdentity();
 

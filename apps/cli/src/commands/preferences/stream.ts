@@ -107,9 +107,18 @@ first if you need a current snapshot before listening for updates.`;
             state: event.consent_changed.state,
           };
         } else if (event.kind === "hmac_keys.updated") {
+          const snapshot = await client.conversations.hmacKeys();
           update = {
             type: "HmacKeyUpdate",
-            keys: await client.conversations.hmacKeys(),
+            keys: Object.fromEntries(
+              [...snapshot].map(([groupId, keys]) => [
+                groupId,
+                keys.map(({ key, epoch }) => ({
+                  key: Buffer.from(key).toString("hex"),
+                  epoch,
+                })),
+              ]),
+            ),
           };
         } else {
           throw new Error(`Unexpected preference event: ${event.kind}`);

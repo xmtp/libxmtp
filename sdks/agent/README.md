@@ -468,7 +468,10 @@ Other agents can then download and decrypt the attachment using the `"attachment
 import { downloadRemoteAttachment } from "@xmtp/agent-sdk";
 
 agent.on("attachment", async (ctx) => {
-  const receivedAttachment = await downloadRemoteAttachment(ctx.client, ctx.content);
+  const receivedAttachment = await downloadRemoteAttachment(
+    ctx.client,
+    ctx.content,
+  );
   console.log(`Received attachment: ${receivedAttachment.filename}`);
 });
 ```
