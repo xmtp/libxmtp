@@ -65,14 +65,23 @@ export const clearDatabaseDeletionPending = (dbPath: string) => {
 const validSegment = (part: string) =>
   part !== "" && part !== "." && part !== ".." && !part.includes("\\");
 
+export const isCurrentDatabasePath = (dbPath: string, label?: string) => {
+  const parts = dbPath.replace(/^\/+/, "").split("/");
+  return (
+    parts.length === 5 &&
+    parts[0] === "xmtp-sdk" &&
+    validSegment(parts[1]) &&
+    (label === undefined || parts[1] === label) &&
+    /^[^/\\]{1,190}-[0-9a-f]{64}$/.test(parts[2]) &&
+    /^[0-9a-f]{64}$/.test(parts[3]) &&
+    parts[4] === "xmtp.db3"
+  );
+};
+
 export const retryPendingDatabaseDeletions = async () => {
   for (const dbPath of pendingDatabaseDeletionPaths()) {
     const parts = dbPath.replace(/^\/+/, "").split("/");
-    const current =
-      parts.length === 5 &&
-      parts[0] === "xmtp-sdk" &&
-      parts.slice(1, 4).every(validSegment) &&
-      parts[4] === "xmtp.db3";
+    const current = isCurrentDatabasePath(dbPath);
     const legacy =
       parts.length === 1 && /^xmtp-.+-[0-9a-f]{64}\.db3$/i.test(parts[0]);
     if (!current && !legacy) throw new Error("Invalid local database path.");
@@ -95,6 +104,22 @@ export const cleanAttachmentDirectory = async (dbPath: string | undefined) => {
     // Remove the files now even when the journal cannot be written.
   }
   await removeAttachmentDirectory(dbPath);
+  try {
+    clearPending(pendingAttachmentCleanupKey, dbPath);
+  } catch {
+    // A stale path causes one more safe cleanup attempt.
+  }
+};
+
+// End a session without removing ciphertext needed by pending uploads.
+export const cleanSessionAttachments = async (dbPath: string | undefined) => {
+  if (dbPath === undefined) return;
+  try {
+    markAttachmentCleanupPending(dbPath);
+  } catch {
+    // Try the OPFS cleanup even if the journal is unavailable.
+  }
+  await removePlaintextAttachmentDirectories(dbPath);
   try {
     clearPending(pendingAttachmentCleanupKey, dbPath);
   } catch {
@@ -128,8 +153,7 @@ export type FileValidation =
       error: string;
     };
 
-export const removeAttachmentDirectory = async (dbPath: string | undefined) => {
-  if (dbPath === undefined) return;
+const attachmentFolders = (dbPath: string): string[] => {
   const parts = dbPath.replace(/^\/+/, "").split("/");
   if (
     parts.some(
@@ -145,6 +169,40 @@ export const removeAttachmentDirectory = async (dbPath: string | undefined) => {
         ? [`${parts[0]}.attachments`]
         : null;
   if (!folders) throw new Error("Invalid local database path.");
+  return folders;
+};
+
+export const removePlaintextAttachmentDirectories = async (
+  dbPath: string | undefined,
+) => {
+  if (dbPath === undefined) return;
+  const folders = attachmentFolders(dbPath);
+  let parent = await navigator.storage.getDirectory();
+  try {
+    for (const folder of folders) {
+      parent = await parent.getDirectoryHandle(folder);
+    }
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "NotFoundError") return;
+    throw cause;
+  }
+  const names: string[] = [];
+  for await (const [name, entry] of parent.entries()) {
+    if (
+      entry.kind === "directory" &&
+      (name === ".tmp" || /^[0-9a-f]{64}$/.test(name))
+    ) {
+      names.push(name);
+    }
+  }
+  for (const name of names) {
+    await parent.removeEntry(name, { recursive: true });
+  }
+};
+
+export const removeAttachmentDirectory = async (dbPath: string | undefined) => {
+  if (dbPath === undefined) return;
+  const folders = attachmentFolders(dbPath);
 
   const name = folders.pop();
   if (!name) throw new Error("Invalid local database path.");

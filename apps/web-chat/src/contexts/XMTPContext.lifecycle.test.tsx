@@ -98,6 +98,7 @@ it("opens the app's matching old Browser database", async () => {
         },
         label: "test",
       },
+      registration: { nonce: 1n },
     }),
   );
   expect(mocks.endAdmin).toHaveBeenCalledTimes(1);
@@ -162,6 +163,7 @@ it("opens an unregistered version 7 database with its nonce-one inbox", async ()
         },
         label: "test",
       },
+      registration: { nonce: 1n },
     }),
   );
 });
@@ -213,7 +215,7 @@ it("waits for SDK end before releasing the app lock", async () => {
   expect(result.current.client).toBeUndefined();
 });
 
-it("removes old local attachment files when the user disconnects", async () => {
+it("removes local plaintext but keeps staged ciphertext on disconnect", async () => {
   const deployment = `disconnect-${crypto.randomUUID()}`;
   const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
@@ -221,7 +223,16 @@ it("removes old local attachment files when the user disconnects", async () => {
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
   const inbox = await path.getDirectoryHandle("inbox", { create: true });
-  await inbox.getDirectoryHandle("attachments", { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const key = "a".repeat(64);
+  await attachments.getDirectoryHandle(key, { create: true });
+  const staged = await attachments.getDirectoryHandle(".staged", {
+    create: true,
+  });
+  const digest = "b".repeat(64);
+  await staged.getFileHandle(digest, { create: true });
   const end = vi.fn(async () => {});
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
@@ -240,11 +251,10 @@ it("removes old local attachment files when the user disconnects", async () => {
       await result.current.disconnect();
     });
     expect(end).toHaveBeenCalledOnce();
-    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
-      {
-        name: "NotFoundError",
-      },
-    );
+    await expect(attachments.getDirectoryHandle(key)).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
+    expect(await staged.getFileHandle(digest)).toBeDefined();
     expect(mocks.releaseLock).toHaveBeenCalledOnce();
   } finally {
     await backend.removeEntry(deployment, { recursive: true });
@@ -259,7 +269,11 @@ it("keeps the app lock until failed attachment cleanup is retried", async () => 
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
   const inbox = await path.getDirectoryHandle("inbox", { create: true });
-  await inbox.getDirectoryHandle("attachments", { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const key = "c".repeat(64);
+  await attachments.getDirectoryHandle(key, { create: true });
   const end = vi.fn(async () => {});
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
@@ -288,9 +302,9 @@ it("keeps the app lock until failed attachment cleanup is retried", async () => 
     });
     expect(end).toHaveBeenCalledOnce();
     expect(mocks.releaseLock).toHaveBeenCalledOnce();
-    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
-      { name: "NotFoundError" },
-    );
+    await expect(attachments.getDirectoryHandle(key)).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
   } finally {
     getDirectory.mockRestore();
     await backend.removeEntry(deployment, { recursive: true });
@@ -326,7 +340,11 @@ it("removes old local attachment files after lock loss even if storage path look
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
   const inbox = await path.getDirectoryHandle("inbox", { create: true });
-  await inbox.getDirectoryHandle("attachments", { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const key = "d".repeat(64);
+  await attachments.getDirectoryHandle(key, { create: true });
   const end = vi.fn(async () => {});
   let pathLookupFails = false;
   mocks.create.mockResolvedValueOnce({
@@ -351,11 +369,9 @@ it("removes old local attachment files after lock loss even if storage path look
     act(() => mocks.lockLost?.());
     await waitFor(() => expect(result.current.client).toBeUndefined());
     expect(end).toHaveBeenCalledOnce();
-    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
-      {
-        name: "NotFoundError",
-      },
-    );
+    await expect(attachments.getDirectoryHandle(key)).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
   } finally {
     await backend.removeEntry(deployment, { recursive: true });
   }
@@ -369,7 +385,11 @@ it("removes attachment files after lock loss when the journal write fails", asyn
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
   const inbox = await path.getDirectoryHandle("inbox", { create: true });
-  await inbox.getDirectoryHandle("attachments", { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const key = "e".repeat(64);
+  await attachments.getDirectoryHandle(key, { create: true });
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
     end: vi.fn(async () => {}),
@@ -394,11 +414,9 @@ it("removes attachment files after lock loss when the journal write fails", asyn
     });
     act(() => mocks.lockLost?.());
     await waitFor(() => expect(result.current.client).toBeUndefined());
-    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
-      {
-        name: "NotFoundError",
-      },
-    );
+    await expect(attachments.getDirectoryHandle(key)).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
   } finally {
     storageSpy.mockRestore();
     await backend.removeEntry(deployment, { recursive: true });
@@ -413,7 +431,11 @@ it("removes attachment files on the next start if lock-loss cleanup fails", asyn
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
   const inbox = await path.getDirectoryHandle("inbox", { create: true });
-  await inbox.getDirectoryHandle("attachments", { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const key = "f".repeat(64);
+  await attachments.getDirectoryHandle(key, { create: true });
   const end = vi.fn(async () => {});
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
@@ -448,9 +470,9 @@ it("removes attachment files on the next start if lock-loss cleanup fails", asyn
         signer: mocks.signer as never,
       });
     });
-    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
-      { name: "NotFoundError" },
-    );
+    await expect(attachments.getDirectoryHandle(key)).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
     expect(mocks.create).toHaveBeenCalledTimes(2);
   } finally {
     getDirectory.mockRestore();

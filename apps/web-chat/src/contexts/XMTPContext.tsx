@@ -20,7 +20,7 @@ import {
 } from "react";
 
 import {
-  cleanAttachmentDirectory,
+  cleanSessionAttachments,
   pendingAttachmentCleanupPaths,
   retryPendingDatabaseDeletions,
 } from "@/helpers/attachment";
@@ -154,7 +154,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
         setError(cause instanceof Error ? cause : new Error(String(cause)));
       }
       try {
-        await cleanAttachmentDirectory(dbPath);
+        await cleanSessionAttachments(dbPath);
         attachmentDbPath.current = undefined;
       } catch (cause) {
         setError(cause instanceof Error ? cause : new Error(String(cause)));
@@ -211,7 +211,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
             ...pendingAttachmentCleanupPaths(),
           ]);
           for (const dbPath of pendingPaths) {
-            await cleanAttachmentDirectory(dbPath);
+            await cleanSessionAttachments(dbPath);
           }
           attachmentDbPath.current = undefined;
           // create a new XMTP client
@@ -228,6 +228,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
           }
           xmtpClient = await Client.create(signer, {
             backend,
+            registration: { nonce: location === "default" ? 0n : 1n },
             storage: {
               location,
               label,
@@ -282,7 +283,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
         await client.end();
         endedClient.current = client;
       }
-      await cleanAttachmentDirectory(dbPath);
+      await cleanSessionAttachments(dbPath);
       attachmentDbPath.current = undefined;
       endedClient.current = undefined;
       setClient(undefined);

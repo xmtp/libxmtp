@@ -46,6 +46,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
       if (file) {
         const validation = validateFile(file);
         if (validation.valid) {
+          remoteAttachmentRef.current = null;
           setAttachment(file);
         } else {
           setError(validation.error);
@@ -154,6 +155,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
               file={attachment}
               disabled={isSending}
               onCancel={() => {
+                remoteAttachmentRef.current = null;
                 setAttachment(null);
               }}
             />

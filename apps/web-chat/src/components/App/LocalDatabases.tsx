@@ -5,7 +5,9 @@ import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import {
   cleanAttachmentDirectory,
+  cleanSessionAttachments,
   clearDatabaseDeletionPending,
+  isCurrentDatabasePath,
   markDatabaseDeletionPending,
   pendingAttachmentCleanupPaths,
   pendingDatabaseDeletionPaths,
@@ -29,7 +31,7 @@ export const LocalDatabases: React.FC = () => {
       if (!remove) {
         await retryPendingDatabaseDeletions();
         for (const dbPath of pendingAttachmentCleanupPaths()) {
-          await cleanAttachmentDirectory(dbPath);
+          await cleanSessionAttachments(dbPath);
         }
       }
       const label = await backendLabel(backendUrl);
@@ -38,14 +40,7 @@ export const LocalDatabases: React.FC = () => {
         const available = (await admin.listFiles()).filter((file) => {
           const path = file.replace(/^\/+/, "");
           const parts = path.split("/");
-          if (parts.length === 5) {
-            return (
-              parts[0] === "xmtp-sdk" &&
-              parts[1] === label &&
-              Boolean(parts[2] && parts[3]) &&
-              parts[4] === "xmtp.db3"
-            );
-          }
+          if (parts.length === 5) return isCurrentDatabasePath(path, label);
           const prefix = `xmtp-${label}-`;
           return (
             parts.length === 1 &&

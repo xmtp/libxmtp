@@ -32,11 +32,14 @@ afterEach(() => {
 });
 
 it("deletes only a selected database for this backend and awaits admin end", async () => {
-  const deployment = `deletion-test-${crypto.randomUUID()}`;
-  const selected = `/xmtp-sdk/selected-backend/${deployment}/inbox/xmtp.db3`;
-  const retained = `/xmtp-sdk/selected-backend/${deployment}/other/xmtp.db3`;
-  const foreign = `/xmtp-sdk/other-backend/${deployment}/inbox/xmtp.db3`;
-  const foreignInbox = `/xmtp-sdk/other-backend/${deployment}/selected-backend/xmtp.db3`;
+  const deployment = `deletion-test-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const selectedInbox = "a".repeat(64);
+  const retainedInbox = "b".repeat(64);
+  const selected = `/xmtp-sdk/selected-backend/${deployment}/${selectedInbox}/xmtp.db3`;
+  const retained = `/xmtp-sdk/selected-backend/${deployment}/${retainedInbox}/xmtp.db3`;
+  const foreign = `/xmtp-sdk/other-backend/${deployment}/${selectedInbox}/xmtp.db3`;
+  const foreignInbox = `/xmtp-sdk/other-backend/${deployment}/${retainedInbox}/xmtp.db3`;
+  const unrelated = `/xmtp-sdk/selected-backend/arbitrary/arbitrary/xmtp.db3`;
   const inboxId = crypto.randomUUID().replaceAll("-", "").repeat(2);
   const legacy = `xmtp-selected-backend-${inboxId}.db3`;
   const nestedLegacy = `/unrelated/${legacy}`;
@@ -47,8 +50,8 @@ it("deletes only a selected database for this backend and awaits admin end", asy
       directory = await directory.getDirectoryHandle(segment, { create: true });
     }
   };
-  const selectedFiles = `xmtp-sdk/selected-backend/${deployment}/inbox/attachments`;
-  const retainedFiles = `xmtp-sdk/selected-backend/${deployment}/other/attachments`;
+  const selectedFiles = `xmtp-sdk/selected-backend/${deployment}/${selectedInbox}/attachments`;
+  const retainedFiles = `xmtp-sdk/selected-backend/${deployment}/${retainedInbox}/attachments`;
   const legacyFiles = `${legacy}.attachments`;
   await Promise.all([
     makeDirectory(selectedFiles),
@@ -60,6 +63,7 @@ it("deletes only a selected database for this backend and awaits admin end", asy
     retained,
     foreign,
     foreignInbox,
+    unrelated,
     legacy,
     nestedLegacy,
   ]);
@@ -93,7 +97,7 @@ it("deletes only a selected database for this backend and awaits admin end", asy
         .getDirectoryHandle("xmtp-sdk")
         .then((sdk) => sdk.getDirectoryHandle("selected-backend"))
         .then((backend) => backend.getDirectoryHandle(deployment))
-        .then((path) => path.getDirectoryHandle("inbox"))
+        .then((path) => path.getDirectoryHandle(selectedInbox))
         .then((inbox) => inbox.getDirectoryHandle("attachments")),
     ).rejects.toMatchObject({ name: "NotFoundError" });
     expect(
@@ -104,7 +108,7 @@ it("deletes only a selected database for this backend and awaits admin end", asy
         .getDirectoryHandle("xmtp-sdk")
         .then((sdk) => sdk.getDirectoryHandle("selected-backend"))
         .then((backend) => backend.getDirectoryHandle(deployment))
-        .then((path) => path.getDirectoryHandle("other"))
+        .then((path) => path.getDirectoryHandle(retainedInbox))
         .then((other) => other.getDirectoryHandle("attachments")),
     ).resolves.toBeDefined();
 
@@ -124,8 +128,9 @@ it("deletes only a selected database for this backend and awaits admin end", asy
 });
 
 it("retries attachment cleanup after the database file is deleted", async () => {
-  const deployment = `cleanup-retry-${crypto.randomUUID()}`;
-  const selected = `/xmtp-sdk/selected-backend/${deployment}/inbox/xmtp.db3`;
+  const deployment = `cleanup-retry-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "c".repeat(64);
+  const selected = `/xmtp-sdk/selected-backend/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("selected-backend", {
@@ -134,7 +139,7 @@ it("retries attachment cleanup after the database file is deleted", async () => 
   const directory = await backend.getDirectoryHandle(deployment, {
     create: true,
   });
-  const inbox = await directory.getDirectoryHandle("inbox", { create: true });
+  const inbox = await directory.getDirectoryHandle(inboxId, { create: true });
   await inbox.getDirectoryHandle("attachments", { create: true });
   mocks.list
     .mockResolvedValueOnce([selected])
@@ -185,7 +190,7 @@ it("retries attachment cleanup after the database file is deleted", async () => 
 });
 
 it("keeps the database when the deletion intent cannot be saved", async () => {
-  const selected = `/xmtp-sdk/selected-backend/deployment/inbox/xmtp.db3`;
+  const selected = `/xmtp-sdk/selected-backend/deployment-${"d".repeat(64)}/${"e".repeat(64)}/xmtp.db3`;
   mocks.list.mockResolvedValue([selected]);
   mocks.admin.mockResolvedValue({
     listFiles: mocks.list,
@@ -223,8 +228,9 @@ it("keeps the database when the deletion intent cannot be saved", async () => {
 });
 
 it("retries a saved deletion intent after the database delete fails", async () => {
-  const deployment = `delete-retry-${crypto.randomUUID()}`;
-  const selected = `/xmtp-sdk/selected-backend/${deployment}/inbox/xmtp.db3`;
+  const deployment = `delete-retry-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "f".repeat(64);
+  const selected = `/xmtp-sdk/selected-backend/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("selected-backend", {
@@ -233,7 +239,7 @@ it("retries a saved deletion intent after the database delete fails", async () =
   const directory = await backend.getDirectoryHandle(deployment, {
     create: true,
   });
-  const inbox = await directory.getDirectoryHandle("inbox", { create: true });
+  const inbox = await directory.getDirectoryHandle(inboxId, { create: true });
   await inbox.getDirectoryHandle("attachments", { create: true });
   mocks.list
     .mockResolvedValueOnce([selected])
