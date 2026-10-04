@@ -168,8 +168,8 @@ mls/tests/streaming.rs	test_can_stream_and_update_name_without_forking_group	fa�
 mls/tests/streaming.rs	test_stream_all_messages_with_optimistic_group_creation	binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests
 mls/tests/streaming.rs	test_stream_message_deletions_with_full_message_details	binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests
 mls/tests/test_self_removal.rs	test_self_removal_with_pending_state	core: `crates/xmtp_mls/src/groups/tests/test_self_removal.rs::test_self_removal_single_installations`
-mls/tests/test_self_removal.rs	test_membership_state_after_readd	core: `crates/xmtp_mls/src/groups/tests/test_self_removal.rs::test_self_removal_with_late_installation`
-mls/tests/test_self_removal.rs	test_creator_leave_and_readd_does_not_abort_welcome_stream	core: `crates/xmtp_mls/src/groups/tests/test_self_removal.rs::test_self_removal_with_late_installation`
+mls/tests/test_self_removal.rs	test_membership_state_after_readd	core: `crates/xmtp_mls/src/groups/tests/test_self_removal.rs::test_membership_state_after_readd`
+mls/tests/test_self_removal.rs	test_creator_leave_and_readd_does_not_abort_welcome_stream	core: `crates/xmtp_mls/src/groups/tests/test_self_removal.rs::creator_readd_preserves_welcome_stream_cursor`
 mls/tests/test_self_removal.rs	test_leave_request_message_is_visible	core: `crates/xmtp_mls/src/groups/tests/test_self_removal.rs::test_self_removal_group_update_message`
 stream_failure/tests.rs	flat_group_error_keeps_missing_target_and_typed_cursors	binding only: mobile stream error flattening; the façade uses typed reader errors
 stream_failure/tests.rs	flat_client_error_keeps_published_failure_and_zero_target	binding only: mobile stream error flattening; the façade uses typed reader errors
