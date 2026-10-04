@@ -57,6 +57,23 @@ class AttachmentFormattingTest {
     }
 
     @Test
+    fun encodedRemoteAttachmentTextKeepsUrlStructured() {
+        val attachment =
+            RemoteAttachment(url, "digest", byteArrayOf(1, 2), byteArrayOf(3), byteArrayOf(4), "https", 2u, "file.txt")
+        val codec = RemoteAttachmentCodec()
+        val encoded = codec.encode(attachment)
+        val reply = ReplyContent("message", null, encoded)
+        val urlBytes = url.toByteArray()
+        for (text in listOf(encoded.toString(), reply.toString(), listOf(reply).toString())) {
+            assertFalse("Encoded diagnostics expose the URL", text.contains(url))
+            assertFalse("Encoded diagnostics expose URL bytes", text.contains(urlBytes.joinToString(", ")))
+            assertTrue(text.contains("contentBytes=${encoded.content.size}"))
+        }
+        assertArrayEquals(urlBytes, encoded.content)
+        assertEquals(url, codec.decode(encoded).url)
+    }
+
+    @Test
     fun attachmentRefTextPreservesStructuredUrl() {
         val value = AttachmentRef("key", url, "digest")
         checkUrlText(value, ClientEvent.AttachmentUploadStarted(value))
