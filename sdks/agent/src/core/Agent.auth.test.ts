@@ -154,6 +154,24 @@ describe("agent environment storage", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it.each([".", "..", "../outside", "outside\\nested", "outside:label"])(
+    "rejects unsafe environment storage label %j before filesystem lookup",
+    async (label) => {
+      const dbDirectory = directory();
+      fs.mkdirSync(dbDirectory);
+      fs.writeFileSync(path.join(dbDirectory, `xmtp-${inboxId}.db3`), "legacy");
+      const { create } = setup(dbDirectory);
+      vi.stubEnv("XMTP_ENV", label);
+      const readdir = vi.spyOn(fs, "readdirSync");
+
+      await expect(Agent.createFromEnv()).rejects.toThrow(
+        "XMTP_ENV must be a safe storage label.",
+      );
+      expect(readdir).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+    },
+  );
+
   it("reopens one legacy default database from the working directory", async () => {
     const workingDirectory = directory();
     fs.mkdirSync(workingDirectory);
