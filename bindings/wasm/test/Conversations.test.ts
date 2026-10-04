@@ -60,7 +60,7 @@ describe("Conversations", () => {
 
     // Same content + same key => same id, deduplicated (no new stored message).
     const id1 = await conversation.sendText("gm", { idempotencyKey: "key-1" });
-    const countAfterFirst = (await conversation.findMessages()).length;
+    const countAfterFirst: number = (await conversation.findMessages()).length;
     const id2 = await conversation.sendText("gm", { idempotencyKey: "key-1" });
     expect(id2).toBe(id1);
     expect((await conversation.findMessages()).length).toBe(countAfterFirst);
