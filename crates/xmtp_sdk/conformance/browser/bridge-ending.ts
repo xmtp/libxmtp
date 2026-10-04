@@ -90,7 +90,7 @@ export function registerEndingTests(): void {
         context.settled?.();
         entered.resolve();
         await release.promise;
-        return { kind: "conversationJoined" };
+        return { kind: "conversation.joined" };
       }
       return undefined;
     });
@@ -122,7 +122,7 @@ export function registerEndingTests(): void {
       const { engine, session } = host(async (key) => {
         if (key === "EventReader.next") {
           reads++;
-          return { kind: "conversationJoined" };
+          return { kind: "conversation.joined" };
         }
         return undefined;
       });
@@ -142,7 +142,7 @@ export function registerEndingTests(): void {
       expect(reads).toBe(0);
       if (outcome === "rollback") {
         session.unfenceOwner(owner.owner);
-        expect(await read).toEqual({ value: { kind: "conversationJoined" } });
+        expect(await read).toEqual({ value: { kind: "conversation.joined" } });
         expect(reads).toBe(1);
       } else {
         session.terminate();
