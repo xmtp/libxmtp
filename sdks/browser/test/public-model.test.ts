@@ -12,7 +12,7 @@ import { backend, create, signer } from "./helpers";
 
 beforeAll(() => initPureWasm());
 
-test("consent records keep entity types and listener values", async () => {
+test("consent records keep entity types and listener values with an omitted own-message filter", async () => {
   const client = await create();
   const peer = await create();
   const group = await client.conversations.createGroup([peer.inboxId]);
@@ -23,7 +23,7 @@ test("consent records keep entity types and listener values", async () => {
   const inbox = { kind: "inbox", inboxId: peer.inboxId } as const;
   const changes: ClientEvent[] = [];
   const listener = await client.startListener(
-    { kinds: ["consent.changed"], references_own_messages: false },
+    { kinds: ["consent.changed"] },
     (event) => {
       changes.push(event);
     },
