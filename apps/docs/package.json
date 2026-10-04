@@ -33,7 +33,6 @@
     "@types/node": "catalog:node26",
     "@xmtp/agent-sdk": "workspace:*",
     "@xmtp/browser-sdk": "workspace:*",
-    "@xmtp/content-type-primitives": "catalog:",
     "@xmtp/node-sdk": "workspace:*",
     "chrome-launcher": "^1.2.1",
     "expressive-code": "0.41.7",

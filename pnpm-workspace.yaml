@@ -51,7 +51,6 @@ catalog:
   "@vitest/browser": "^4.1.10"
   "@vitest/browser-playwright": "^4.1.10"
   "@vitest/coverage-v8": "^4.1.10"
-  "@xmtp/content-type-primitives": "3.0.1"
   "@xmtp/content-type-remote-attachment": "^2.0.3"
   "fast-glob": "^3.3.3"
   "oxfmt": "0.68.0"

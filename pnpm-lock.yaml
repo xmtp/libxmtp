@@ -21,9 +21,6 @@ catalogs:
     '@vitest/coverage-v8':
       specifier: ^4.1.10
       version: 4.1.11
-    '@xmtp/content-type-primitives':
-      specifier: 3.0.1
-      version: 3.0.1
     fast-glob:
       specifier: ^3.3.3
       version: 3.3.3
@@ -181,9 +178,6 @@ importers:
       '@xmtp/browser-sdk':
         specifier: workspace:*
         version: link:../../sdks/browser
-      '@xmtp/content-type-primitives':
-        specifier: 'catalog:'
-        version: 3.0.1
       '@xmtp/node-sdk':
         specifier: workspace:*
         version: link:../../sdks/node
@@ -3590,13 +3584,6 @@ packages:
 
   '@walletconnect/window-metadata@1.0.1':
     resolution: {integrity: sha512-9koTqyGrM2cqFRW517BPY/iEtUDx2r1+Pwwu5m7sJ7ka79wi3EyqhqcICk/yDmv6jAS1rjKgTKXlEhanYjijcA==}
-
-  '@xmtp/content-type-primitives@3.0.1':
-    resolution: {integrity: sha512-qM8d3+9A2aKwYuHkkl84BnnECtKop21PMzu7l8NYsTX1qvEkM+sfIqCwiLw4CgYD87OMAzDVCxDNGj1E/g/pWg==}
-
-  '@xmtp/node-bindings@1.9.1':
-    resolution: {integrity: sha512-0cnAq7j8dPvxDZ5d7JpdbWTgSIKDiN421dxZj4sy1qw7QLOH4yTUKuuMY7CxoChoGa7/QPZGm+0sIIx/Gs2bAg==}
-    engines: {node: '>=22'}
 
   '@yuku-codegen/binding-android-arm64@0.9.5':
     resolution: {integrity: sha512-jrOY5WM+AaAqkv51fHP1x28ifto4WgcZVzodLUyMU1jMWn5Sq+VciRdk/n8E0Ey5w4p4cWWE+m5GfXWOYh7Kzw==}
@@ -12561,12 +12548,6 @@ snapshots:
     dependencies:
       '@walletconnect/window-getters': 1.0.1
       tslib: 1.14.1
-
-  '@xmtp/content-type-primitives@3.0.1':
-    dependencies:
-      '@xmtp/node-bindings': 1.9.1
-
-  '@xmtp/node-bindings@1.9.1': {}
 
   '@yuku-codegen/binding-android-arm64@0.9.5':
     optional: true
