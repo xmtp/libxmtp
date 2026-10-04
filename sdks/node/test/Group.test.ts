@@ -498,7 +498,7 @@ describe("Group", () => {
         },
       ],
     });
-    await group.sendReadReceipt();
+    const receiptId = await group.sendReadReceipt();
     await group.sendRemoteAttachment({
       url: "https://foo/bar.png",
       contentDigest: "1234567890",
@@ -528,6 +528,7 @@ describe("Group", () => {
     // read receipts and reactions are automatically filtered; the self-remove
     // commit adds one GroupUpdated message on top of the original 13.
     expect(messages.length).toBe(14);
+    expect(messages.map((message) => message.id)).not.toContain(receiptId);
     expect(messages.map((message) => message.contentType)).not.toContainEqual(
       standardContentType("readReceipt"),
     );
