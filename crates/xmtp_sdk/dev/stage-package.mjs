@@ -19,8 +19,9 @@ import {
 } from "node:fs";
 import { dirname, join, resolve, relative, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stageNodePlatforms, usePlatformPackages } from "./node-platforms.mjs";
+
 import { checkGeneratedAssets } from "./check-generated-assets.mjs";
+import { stageNodePlatforms, usePlatformPackages } from "./node-platforms.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = resolve(
@@ -102,6 +103,12 @@ try {
     cpSync(runtimeSource, join(destination, "node_modules/@ubjs", name), {
       recursive: true,
       dereference: true,
+      // These paths are outside both runtime packages' files lists. Windows
+      // npm installs can leave links to missing test build directories here.
+      filter: (path) =>
+        !relative(runtimeSource, path)
+          .split(/[\\/]/)
+          .some((part) => part === "tests" || part === "node_modules"),
     });
     const runtime = join(destination, "node_modules/@ubjs", name);
     for (const path of files(runtime)) chmodSync(path, 0o644);
@@ -116,7 +123,7 @@ try {
   if (platformDirectory) {
     const cargo = readFileSync(join(root, "Cargo.toml"), "utf8");
     const runtimeRevision = cargo.match(
-      /\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/,
+      /\[workspace\.metadata\.xmtp-sdk-fork\][^[]*rev\s*=\s*"([0-9a-f]{40})"/,
     )[1];
     nodePlatforms = stageNodePlatforms(
       resolve(platformDirectory),
