@@ -113,6 +113,8 @@ describe("Client", () => {
       const current = await Client.create(signer, options);
       const currentPath = current.storagePath;
       await current.end();
+      if (currentPath === undefined)
+        throw new Error("default database path is missing");
 
       copyFileSync(
         currentPath,
