@@ -5,6 +5,40 @@ import org.junit.Test
 
 /** Check the generated JNI route without a client or a host transfer helper. */
 class AndroidRemoteProjectionTest {
+    @Test fun missingRequiredParametersFailThroughNativeDecoder() {
+        val original =
+            RemoteAttachment(
+                "https://example.org/file?signature=value",
+                "digest",
+                ByteArray(32) { 1 },
+                ByteArray(32) { 2 },
+                ByteArray(12) { 3 },
+                "https://",
+                12u,
+                "file",
+            )
+        val encoded = encodeStandard(StandardContent.RemoteAttachment(original))
+        assertEquals(original, (decodeStandard(encoded) as StandardContent.RemoteAttachment).v1)
+        for (field in listOf("contentDigest", "salt", "nonce", "secret", "scheme")) {
+            val malformed = encoded.copy(parameters = encoded.parameters - field)
+            val error =
+                assertThrows("Missing $field must fail", XmtpException.CodecDecodeFailed::class.java) {
+                    decodeStandard(malformed)
+                }
+            assertTrue(error.v1.message.contains("missing $field parameter"))
+            assertFalse(error.v1.retryable)
+            assertEquals(original, (decodeStandard(encoded) as StandardContent.RemoteAttachment).v1)
+        }
+        val optional = encoded.copy(parameters = encoded.parameters - setOf("contentLength", "filename"))
+        val decoded = (decodeStandard(optional) as StandardContent.RemoteAttachment).v1
+        assertNull(decoded.contentLength)
+        assertNull(decoded.filename)
+        assertEquals(original.url, decoded.url)
+        assertArrayEquals(original.secret, decoded.secret)
+        assertArrayEquals(original.salt, decoded.salt)
+        assertArrayEquals(original.nonce, decoded.nonce)
+    }
+
     @Test fun encryptedProjectionKeepsCiphertextFieldsAndNestedCodecRecords() {
         fun encrypted() =
             EncryptedEncodedContent(
