@@ -19,6 +19,9 @@ pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String>
         if record.name == "StorageOptions" {
             output = storage_display(&output, record)?;
         }
+        if record.name == "EncodedContent" {
+            output = encoded_display(&output, record)?;
+        }
         if record.name == "HmacKey" {
             output = hmac_display(&output, record)?;
         }
@@ -345,6 +348,43 @@ fn hmac_display(source: &str, record: &RecordMetadata) -> Result<String> {
     }
     let mut output = source.to_owned();
     output.insert_str(body, HMAC_DISPLAY);
+    Ok(output)
+}
+
+const ENCODED_DISPLAY: &str = r#"    override fun toString(): String = "EncodedContent(type=$type, parameters=${parameters.mapValues { (name, value) -> if (name == "secret") "<redacted>" else value }}, fallback=$fallback, content=${content.contentToString()})"
+
+"#;
+
+fn encoded_display(source: &str, record: &RecordMetadata) -> Result<String> {
+    if record.fields.iter().map(|field| field.name.as_str()).ne([
+        "type",
+        "parameters",
+        "fallback",
+        "content",
+    ]) {
+        bail!("EncodedContent: expected the four envelope fields");
+    }
+    let anchor = "data class EncodedContent (";
+    if source.matches(anchor).count() != 1 {
+        bail!("EncodedContent: expected one generated data class");
+    }
+    let start = source.find(anchor).expect("one admitted record");
+    let body = source[start..]
+        .find("){\n")
+        .map(|at| start + at + 3)
+        .context("EncodedContent: generated record has no body")?;
+    let end = source[body..]
+        .find("\n}")
+        .map(|at| body + at)
+        .context("EncodedContent: generated record has no end")?;
+    if source[body..end].contains(ENCODED_DISPLAY) {
+        return Ok(source.to_owned());
+    }
+    if source[body..end].contains("fun toString(") {
+        bail!("EncodedContent: generated display already exists");
+    }
+    let mut output = source.to_owned();
+    output.insert_str(body, ENCODED_DISPLAY);
     Ok(output)
 }
 
