@@ -5,9 +5,11 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import signal
 import shutil
 from pathlib import Path
+import subprocess
 import tempfile
 from unittest.mock import patch
 import unittest
@@ -23,7 +25,6 @@ mobile_spec = importlib.util.spec_from_file_location(
 )
 mobile = importlib.util.module_from_spec(mobile_spec)
 mobile_spec.loader.exec_module(mobile)
-
 
 class ArtifactTests(unittest.TestCase):
     def test_android_targets_vendor_openssl_with_inherited_host_libraries(self):
@@ -890,6 +891,74 @@ class ArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "generator contract mismatch"):
             artifacts.render(self.args)
         self.assertEqual(len(self.calls), before)
+
+
+class NodePlatformReceiptTests(unittest.TestCase):
+    def test_final_library_and_addon_bytes_must_match_pair_receipts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            library = root / "libxmtp_sdk.so"
+            addon = root / "uniffi-runtime-napi.linux-x64-gnu.node"
+            library.write_bytes(b"built SDK library")
+            addon.write_bytes(b"built pinned runtime")
+            native = root / "native-provenance.json"
+            runtime = root / "runtime-provenance.json"
+            revision = re.search(
+                r'\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"',
+                (artifacts.ROOT / "Cargo.toml").read_text(),
+            ).group(1)
+            native.write_text(
+                json.dumps(
+                    {
+                        "schema": 1,
+                        "source": artifacts.source_hash(),
+                        "generator": artifacts.source_hash(True),
+                        "target": "x86_64-unknown-linux-gnu",
+                        "features": "",
+                        "profile": "release",
+                        "files": {library.name: artifacts.digest(library)},
+                    }
+                )
+            )
+            runtime.write_text(
+                json.dumps(
+                    {
+                        "schema": 1,
+                        "target": "x86_64-unknown-linux-gnu",
+                        "addon": addon.name,
+                        "revision": revision,
+                        "files": {addon.name: artifacts.digest(addon)},
+                    }
+                )
+            )
+            args = [
+                "python3.11",
+                str(Path(__file__).with_name("record-node-platform.py")),
+                "linux-x64-gnu",
+                "--library",
+                str(library),
+                "--addon",
+                str(addon),
+                "--native-provenance",
+                str(native),
+                "--runtime-provenance",
+                str(runtime),
+                "--out",
+                str(root / "out"),
+            ]
+            def record():
+                return subprocess.run(args, cwd=artifacts.ROOT, capture_output=True, text=True)
+
+            self.assertEqual(record().returncode, 0)
+            library.write_bytes(b"replaced SDK library")
+            rejected = record()
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("native library bytes mismatch", rejected.stderr)
+            library.write_bytes(b"built SDK library")
+            addon.write_bytes(b"replaced runtime addon")
+            rejected = record()
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("runtime addon bytes mismatch", rejected.stderr)
 
 
 if __name__ == "__main__":
