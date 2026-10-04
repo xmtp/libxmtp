@@ -212,6 +212,7 @@ internal class EventQueue private constructor(
     suspend fun end() = job.cancelAndJoin()
 
     /** Read attachment events up to the group this creates, which marks the end. */
+    @OptIn(ExperimentalStdlibApi::class)
     suspend fun drain(client: SDKClient): List<AttachmentEvent> {
         val marker = client.conversations().createGroup(emptyList(), null).id()
         val events = mutableListOf<AttachmentEvent>()
