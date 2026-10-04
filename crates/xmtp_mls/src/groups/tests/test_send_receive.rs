@@ -837,6 +837,17 @@ async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
         hex::encode(bo.context.installation_id()),
         hex::encode(alix.context.installation_id()),
     ];
+    let pending_is_retained = || {
+        assert_eq!(
+            bo.context
+                .db()
+                .pending_envelope(&topic, Cursor(1))?
+                .unwrap()
+                .envelope,
+            retained.envelope
+        );
+        Ok::<_, GroupError>(())
+    };
     let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
     let capture = LogCapture::with_sink(Level::Debug, Some(sink.clone()));
     let stream = bo
@@ -860,14 +871,7 @@ async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
         get_latest_message(&receiver).await.decrypted_message_bytes,
         payload
     );
-    assert_eq!(
-        bo.context
-            .db()
-            .pending_envelope(&topic, Cursor(1))?
-            .unwrap()
-            .envelope,
-        retained.envelope
-    );
+    pending_is_retained()?;
     QueueIntent::metadata_update()
         .data(UpdateMetadataIntentData::new_update_group_name(
             "pending log group".into(),
@@ -952,14 +956,32 @@ async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
         .maybe_update_installations(Some(0))
         .with_subscriber(capture.dispatch())
         .await?;
-    assert_eq!(
-        bo.context
-            .db()
-            .pending_envelope(&topic, Cursor(1))?
-            .unwrap()
-            .envelope,
-        retained.envelope
-    );
+    pending_is_retained()?;
+    let welcome_sender = alix.create_group(None, None)?;
+    welcome_sender.add_members(&[bo.inbox_id()]).await?;
+    let welcome = bo
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await?
+        .into_iter()
+        .max_by_key(|welcome| welcome.cursor)
+        .unwrap();
+    let pending =
+        crate::groups::welcome_sync::pending_welcome_for_test(&bo.context, &welcome).await?;
+    let joined = crate::groups::welcomes::XmtpWelcome::builder()
+        .context(bo.context.clone())
+        .welcome(&welcome)
+        .pending(pending)
+        .validator(crate::groups::welcomes::InitialMembershipValidator::new(
+            bo.context.clone(),
+        ))
+        .process()
+        .with_subscriber(capture.dispatch())
+        .await?
+        .unwrap();
+    assert_eq!(joined.group_id, welcome_sender.group_id);
+    pending_is_retained()?;
     let records = sink.0.lock();
     assert!(
         records
@@ -971,6 +993,11 @@ async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
             .iter()
             .any(|record| record.message.starts_with("Adding missing installations"))
     );
+    let welcome_record = records
+        .iter()
+        .find(|record| record.message == "updated message cursor from welcome metadata")
+        .expect("actual Welcome processing emits the cursor record");
+    assert!(welcome_record.fields.contains_key("installation_id"));
     let json = capture.output();
     let json_disclosures = full_ids
         .iter()
