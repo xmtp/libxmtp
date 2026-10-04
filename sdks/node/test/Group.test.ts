@@ -528,6 +528,9 @@ describe("Group", () => {
     // read receipts and reactions are automatically filtered; the self-remove
     // commit adds one GroupUpdated message on top of the original 13.
     expect(messages.length).toBe(14);
+    expect(messages.map((message) => message.contentType)).not.toContainEqual(
+      standardContentType("readReceipt"),
+    );
 
     // default sort order
     expect(messages[0].contentType).toEqual(
