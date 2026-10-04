@@ -4,13 +4,13 @@ import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { equal, expect } from "./suite-support";
 
 export const ATTACHMENT_KINDS: sdk.EventKind[] = [
-  "attachmentUploadStarted",
-  "attachmentUploadCompleted",
-  "attachmentUploadFailed",
-  "attachmentDownloadStarted",
-  "attachmentDownloadCompleted",
-  "attachmentDownloadFailed",
-  "attachmentDeleted",
+  "attachment.upload_started",
+  "attachment.upload_completed",
+  "attachment.upload_failed",
+  "attachment.download_started",
+  "attachment.download_completed",
+  "attachment.download_failed",
+  "attachment.deleted",
 ];
 
 export type AttachmentEvent = Extract<
@@ -58,7 +58,11 @@ export function failure(
 }
 
 /** Compare plain values: records, arrays, and bigints. */
-export function same(actual: unknown, expected: unknown, message: string): void {
+export function same(
+  actual: unknown,
+  expected: unknown,
+  message: string,
+): void {
   const text = (value: unknown) =>
     JSON.stringify(value, (_key, field: unknown) =>
       typeof field === "bigint" ? `${field}n` : field,
@@ -105,7 +109,7 @@ export function attachmentFilter(
   kinds: sdk.EventKind[] = ATTACHMENT_KINDS,
 ): sdk.EventFilter {
   return {
-    kinds: [...kinds, "conversationJoined"],
+    kinds: [...kinds, "conversation.joined"],
     referencesOwnMessages: false,
   };
 }
@@ -148,7 +152,7 @@ export async function drain(
     const next = await within(stream.next(), "attachment events");
     expect(!next.done, "the event stream ended");
     const event = next.value;
-    if (event.kind === "conversationJoined") {
+    if (event.kind === "conversation.joined") {
       if (event.conversationId === marker) return events;
       continue;
     }
@@ -218,7 +222,9 @@ export async function writeOpfs(path: string, text: string): Promise<void> {
 export async function removeOpfs(path: string): Promise<void> {
   const names = segments(path);
   const name = names.pop()!;
-  await (await opfsDirectory(names, false)).removeEntry(name, {
+  await (
+    await opfsDirectory(names, false)
+  ).removeEntry(name, {
     recursive: true,
   });
 }

@@ -28,7 +28,7 @@ export async function checkEventEnd(backendURL: string): Promise<void> {
       fileOptions(backendURL, `event-end-${crypto.randomUUID()}`),
     );
     const events = await client.events({
-      kinds: ["conversationJoined"],
+      kinds: ["conversation.joined"],
       referencesOwnMessages: false,
     });
     control.worker.holdEvent();
@@ -77,7 +77,7 @@ export async function checkAttachmentEnd(
     const pending = await attachments.create(bytesSource("held upload"));
     const remote = pending.remoteAttachment;
     const events = await client.events(
-      attachmentFilter(["attachmentUploadStarted"]),
+      attachmentFilter(["attachment.upload_started"]),
     );
     const abort = new AbortController();
     // Public upload has no AbortSignal option. This case cancels the actual
@@ -94,7 +94,7 @@ export async function checkAttachmentEnd(
     await within(held.command("entered"), "held PUT");
     equal(
       (await within(events.next(), "upload start")).value?.kind,
-      "attachmentUploadStarted",
+      "attachment.upload_started",
       "upload start",
     );
     if (cancel) {
@@ -163,14 +163,14 @@ export async function checkAttachmentEnd(
       let deletions = 0;
       const first = signal();
       const listener = await reopened.startListener(
-        { kinds: ["attachmentDeleted"], referencesOwnMessages: false },
+        { kinds: ["attachment.deleted"], referencesOwnMessages: false },
         () => {
           deletions++;
           first.resolve();
         },
       );
       const deleted = await reopened.events(
-        attachmentFilter(["attachmentDeleted"]),
+        attachmentFilter(["attachment.deleted"]),
       );
       await resumed.deleteLocal(remote);
       await within(first.promise, "first deletion callback");
@@ -191,7 +191,7 @@ export async function checkAttachmentEnd(
       );
       for (const expected of [remote, small.remoteAttachment]) {
         const event = (await within(deleted.next(), "deletion")).value;
-        if (event?.kind !== "attachmentDeleted")
+        if (event?.kind !== "attachment.deleted")
           throw new Error("not a deletion");
         equal(event.attachment.url, expected.url, "deletion order");
       }
@@ -260,7 +260,7 @@ export async function checkAttachmentWorkerDeath(
     await within(held.command("download-entered"), "held download");
     equal(
       (await within(events.next(), "download start")).value?.kind,
-      "attachmentDownloadStarted",
+      "attachment.download_started",
       "download start",
     );
     const waiting = events.next();
