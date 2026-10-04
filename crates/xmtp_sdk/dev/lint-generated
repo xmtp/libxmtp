@@ -38,7 +38,7 @@ node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-pure/"*.
 sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions "$generated/typescript-pure/index.ts"
 node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module esnext --moduleResolution bundler \
   crates/xmtp_sdk/conformance/ts/logging.typecheck.ts
-node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module preserve --moduleResolution bundler \
+node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --typeRoots sdks/node/node_modules/@types --types node \
   crates/xmtp_sdk/conformance/ts/parity.test-d.ts
 python3 crates/xmtp_sdk/dev/check-parity-signatures.py
 node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --allowImportingTsExtensions \
