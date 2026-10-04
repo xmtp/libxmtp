@@ -102,4 +102,36 @@ mod tests {
              install() can validate before the irreversible global init"
         );
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn file_writer_appends_records() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let directory = std::env::temp_dir().join(format!(
+            "xmtp-file-records-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+        let cfg = FileConfig {
+            dir: directory.to_string_lossy().into_owned(),
+            rotation: Rotation::Never,
+            max_files: 1,
+            process_type: ProcessType::Main,
+            level: Level::Info,
+        };
+        let (writer, guard) = file_writer(&cfg)?;
+        let mut writer = EmptyOrFileWriter::File(writer);
+        writer.write_all(b"retained-file-record\n")?;
+        writer.flush()?;
+        drop(writer);
+        drop(guard);
+        let mut contents = String::new();
+        for entry in std::fs::read_dir(&directory)? {
+            contents.push_str(&std::fs::read_to_string(entry?.path())?);
+        }
+        std::fs::remove_dir_all(directory)?;
+        assert!(contents.contains("retained-file-record"));
+        Ok(())
+    }
 }
