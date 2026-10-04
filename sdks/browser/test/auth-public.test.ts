@@ -8,6 +8,13 @@ const credential = () => ({
   expiresAtSeconds: BigInt(Math.floor(Date.now() / 1000) + 3600),
 });
 
+test("an empty backend URL fails at the public Browser boundary", async () => {
+  // @ts-expect-error A backend source must include a URL or a Backend instance.
+  const missing: Parameters<typeof Client.fetchServerConfiguration>[0] = {};
+  void missing;
+  await expect(Client.fetchServerConfiguration({ url: "" })).rejects.toThrow();
+});
+
 test("standalone queries keep credential sources separate at one endpoint", async () => {
   const identity = await signer().identity();
   const first = vi.fn(async () => credential());
