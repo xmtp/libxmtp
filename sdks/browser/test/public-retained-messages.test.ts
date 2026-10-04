@@ -137,7 +137,7 @@ test("local deletion delivers one exact public event and removes the local messa
       kind: "message.deleted",
       conversationId: group.id,
       messageId: id,
-      cause: "deletedLocally",
+      cause: "deleted_locally",
     });
     expect(await client.conversations.getMessageById(id)).toBeUndefined();
     expect((await group.messages()).some((message) => message.id === id)).toBe(
