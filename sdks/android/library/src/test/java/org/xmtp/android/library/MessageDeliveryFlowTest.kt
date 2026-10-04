@@ -214,7 +214,7 @@ class MessageDeliveryFlowTest {
             )
             assertEquals(1, blocked.nextCalls)
             assertEquals(1, blocked.endCalls)
-            assertSame(collectorError, (closes.single() as SDKStreamCloseReason.Failed).error)
+            assertEquals(listOf(SDKStreamCloseReason.Closed), closes)
         }
 
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
@@ -275,5 +275,25 @@ class MessageDeliveryFlowTest {
             assertEquals(ErrorCategory.STORAGE, (received as XmtpException.Storage).v1.category)
             assertTrue(received.v1.retryable)
             assertEquals(1, reader.endCalls)
+        }
+
+    // PROC-041 keeps collector failures separate from native reader failures.
+    @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
+    fun collectorExceptionsPropagateWithClosedOnce() =
+        runBlocking {
+            for (failure in listOf(IllegalStateException("collector failed"), AssertionError("collector failed"))) {
+                val reader = RecordingMessageReader { deliveryTestMessage() }
+                val client = testSDKClient(RecordingReaderClient { reader })
+                val closes = mutableListOf<SDKStreamCloseReason>()
+                assertSame(
+                    failure,
+                    runCatching {
+                        client.messages(onClose = { closes.add(it) }).collect { throw failure }
+                    }.exceptionOrNull(),
+                )
+                assertEquals(1, reader.nextCalls)
+                assertEquals(1, reader.endCalls)
+                assertEquals(listOf(SDKStreamCloseReason.Closed), closes)
+            }
         }
 }

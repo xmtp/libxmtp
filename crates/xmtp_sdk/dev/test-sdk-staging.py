@@ -67,6 +67,10 @@ class StagingTests(unittest.TestCase):
             (cjs / "old.js").write_text("old build")
             cjs.chmod(0o555)
             cjs.parent.chmod(0o555)
+            for excluded in ("tests", "node_modules"):
+                folder = self.root / "runtime" / name / excluded
+                folder.mkdir()
+                (folder / "not-shipped.js").write_text("excluded build file")
             cjs.parent.parent.chmod(0o555)
         compiler = self.root / "compiler.mjs"
         compiler.write_text(
@@ -97,6 +101,12 @@ class StagingTests(unittest.TestCase):
             self.assertFalse(
                 (output / "node/node_modules/@ubjs/core/dist/cjs").exists()
             )
+            for name in ("core", "node"):
+                runtime = output / "node/node_modules/@ubjs" / name
+                self.assertTrue(runtime.stat().st_mode & 0o200)
+                self.assertTrue((runtime / "dist").stat().st_mode & 0o200)
+                self.assertFalse((runtime / "tests").exists())
+                self.assertFalse((runtime / "node_modules").exists())
         finally:
             for path in self.root.rglob("*"):
                 if path.is_dir():
