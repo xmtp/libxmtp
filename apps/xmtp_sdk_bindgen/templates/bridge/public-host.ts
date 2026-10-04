@@ -40,19 +40,10 @@ export function checkStorage(storage: object): void {
 }
 
 /** Browser storage has no Node database to find. */
-export type LegacyStorageMatch =
-  | { readonly kind: "none" }
-  | {
-      readonly kind: "location";
-      readonly location: {
-        readonly dbPath: string;
-        readonly attachmentsDir: string;
-      };
-    }
-  | { readonly kind: "ambiguous"; readonly message: string };
-
-export function resolveLegacyStorage(
-  _inboxIds: () => Promise<readonly string[]>,
-): Promise<LegacyStorageMatch> {
-  return Promise.resolve({ kind: "none" });
+export function resolveLegacyStorage<T>(
+  options: T,
+  _identity: () => Promise<unknown>,
+  _inboxId?: string,
+): T {
+  return options;
 }
