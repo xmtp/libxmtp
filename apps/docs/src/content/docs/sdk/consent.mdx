@@ -73,8 +73,14 @@ client.events(EventFilter(
 </TabItem><TabItem label="Swift">
 
 ```swift
-for try await consent in client.preferences.streamConsent() {
-  handleConsent(consent)
+let filter = EventFilter(
+  kinds: [.consentChanged], conversationIds: nil,
+  contentTypes: nil, referencesOwnMessages: false
+)
+for try await event in try await client.events(filter) {
+  if case let .consentChanged(entityKind, entity, state) = event {
+    handleConsent(entityKind, entity, state)
+  }
 }
 ```
 

@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-
-swift test -q --parallel --num-workers=2
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+exec dev/nix-shell 'just ios test'

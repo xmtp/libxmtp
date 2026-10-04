@@ -85,8 +85,10 @@ class CutoverGates(unittest.TestCase):
         self.assertEqual(module.build(), built)
         source_only = module.build(source_only=True)
         self.assertEqual(module.source_only_manifest(built), source_only)
-        public.rename(public.with_suffix(".missing"))
         self.assertEqual(module.build(source_only=True), source_only)
+        with patch.object(sys, "argv", ["inventory.py", "--check"]):
+            module.main()
+        public.rename(public.with_suffix(".missing"))
         with self.assertRaisesRegex(
             ValueError, "missing or empty current public projection"
         ):
@@ -106,6 +108,11 @@ class CutoverGates(unittest.TestCase):
         )
         self.assertNotEqual(module.build(), built)
         self.assertNotEqual(module.build(source_only=True), source_only)
+        with patch.object(sys, "argv", ["inventory.py", "--check"]):
+            with self.assertRaisesRegex(
+                SystemExit, "manifest differs from source inventory"
+            ):
+                module.main()
         self.assertIn(module.ledger_section(ledger, "Swift"), built)
 
     def test_browser_inventory_requires_own_main_and_pure_roots(self):

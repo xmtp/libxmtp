@@ -116,33 +116,29 @@ withDemoClients(applicationContext, "https://xmtp.example.com") { client, recipi
 </TabItem>
 <TabItem label="Swift">
 
+Load each client's stored 32-byte database key before the calls below. Generate a
+new key securely for a new database, store it securely, and reuse it on reopen.
+Omitting the key selects unencrypted storage.
+
 ```swift
 import Foundation
-import Security
-import XMTPiOS
+import XmtpSdk
 
-func createDemoClient(backendUrl: String) async throws -> Client {
-  let signingKey = try PrivateKey.generate()
-  var keyBytes = Data(count: 32)
-  let status = keyBytes.withUnsafeMutableBytes { bytes in
-    SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress!)
-  }
-  guard status == errSecSuccess else {
-    throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-  }
-  return try await Client.create(
-    account: signingKey,
+func createDemoClient(backendUrl: String, databaseKey: Data) async throws -> SDKClient {
+  let signer = await generateLocalSigner()
+  return try await SDKClient.create(
+    signer: signer,
     options: ClientOptions(
-      api: .init(backendUrl: backendUrl),
-      dbEncryptionKey: keyBytes
+      backend: .options(options: BackendOptions(url: backendUrl)),
+      storage: StorageOptions(location: .default, encryptionKey: databaseKey)
     )
   )
 }
 
 // Run from an async context, such as a SwiftUI task.
 let backendUrl = "https://xmtp.example.com"
-let client = try await createDemoClient(backendUrl: backendUrl)
-let recipient = try await createDemoClient(backendUrl: backendUrl)
+let client = try await createDemoClient(backendUrl: backendUrl, databaseKey: clientDatabaseKey)
+let recipient = try await createDemoClient(backendUrl: backendUrl, databaseKey: recipientDatabaseKey)
 ```
 
 </TabItem>
@@ -181,8 +177,8 @@ group.sendText("Hello everyone")
 <TabItem label="Swift">
 
 ```swift
-let group = try await client.conversations.newGroup(with: [recipient.inboxID])
-try await group.send(content: "Hello everyone")
+let group = try await client.conversations().createGroup(members: [recipient.inboxId()])
+try await group.sendText(text: "Hello everyone", options: nil)
 ```
 
 </TabItem>
@@ -222,8 +218,7 @@ client.messages().collect { message ->
 <TabItem label="Swift">
 
 ```swift
-try await client.conversations.syncAllConversations()
-for try await message in try await client.conversations.streamAllMessages() {
+for try await message in try await client.messages() {
   print("New message: \(message)")
 }
 ```

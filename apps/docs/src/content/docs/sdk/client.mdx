@@ -17,11 +17,11 @@ When you call `Client.create()`, the following steps happen under the hood:
 
 ### Keep the database encryption key safe
 
-Generate a secure 32-byte encryption key and store it so the app can use the same key on every launch. If the key changes or is lost, the client creates a new installation and cannot read the former local database.
+Generate a secure 32-byte encryption key and store it so the app can use the same key on every launch. If the key changes or is lost, the client cannot read the former encrypted database. Keep the same key when reopening it.
 
 ### The database is the installation
 
-`dbEncryptionKey` and the database path decide whether a client reopens its installation. If either changes, the client creates a new installation without reporting that the old installation was replaced. The new installation needs a signature and counts against the limit of 10.
+The database key and path select the stored installation. A different path can select a new database. In Swift, the wrong key fails to open an existing encrypted database with a typed storage error. It does not replace the stored key. A new installation needs a signature and counts against the limit of 10.
 
 Store the key and path as durable app state. Keep the same `env` value because it selects the default file name. An agent deployment must mount durable storage for `XMTP_DB_DIRECTORY`.
 
@@ -60,7 +60,9 @@ If you want to inspect the database visually, you can use [DB Browser for SQLite
 
 ## Create a client
 
-`Client.create()` takes a signer and a `backendUrl`. The remaining options are optional except for the database encryption key on Kotlin and Swift.
+`Client.create()` takes a signer and a `backendUrl` on JavaScript and Kotlin.
+Swift uses `SDKClient.create(signer:options:)` with `BackendOptions` and
+`StorageOptions`. Use the platform example below.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -91,17 +93,32 @@ val client = SDKClient.create(context = appContext, signer = signingKey, options
 <TabItem label="Swift">
 
 ```swift
-let options = ClientOptions(
-  api: .init(backendUrl: "https://xmtp.example.com"),
-  dbEncryptionKey: keyBytes
-)
-let client = try await Client.create(account: signingKey, options: options)
+func createClient(signer: Signer, databaseKey: Data) async throws -> SDKClient {
+  let options = ClientOptions(
+    backend: .options(options: BackendOptions(url: "https://xmtp.example.com")),
+    storage: StorageOptions(location: .default, encryptionKey: databaseKey)
+  )
+  return try await SDKClient.create(signer: signer, options: options)
+}
 ```
 
 </TabItem>
 </Tabs>
 
 ### Client options
+
+For persistent Swift storage, pass a securely generated or caller-stored 32-byte
+`databaseKey: Data`. Store it securely and reuse it when reopening the same
+database. Omitting `encryptionKey` selects unencrypted storage. Pass the key for
+all persistent locations: `StorageOptions(location: .default, encryptionKey:
+databaseKey)`, `StorageOptions(location: .directory(directory: directory),
+encryptionKey: databaseKey)`, or `StorageOptions(location: .explicit(dbPath:
+dbPath, attachmentsDir: attachmentsDir), encryptionKey: databaseKey)`.
+
+The table below describes JavaScript and Kotlin options. Swift uses the
+`ClientOptions` record. Set `backend` to `.options(options: BackendOptions(...))`
+and set the database location and key through `storage`. `allowOffline` selects
+offline build behavior. Pass custom codecs to the create or build method.
 
 | Option                                                           | Default                                | Purpose                                                               |
 | ---------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------- |
@@ -181,20 +198,50 @@ Pass this API configuration to `ClientOptions.api`.
 <TabItem label="Swift">
 
 ```swift
-func authenticatedApi(
-  fetchToken: @escaping @Sendable () async throws -> (String, Int64)
-) -> ClientOptions.Api {
-  ClientOptions.Api(
-    backendUrl: "https://xmtp.example.com",
-    authCallback: {
-      let (token, expiresAtSeconds) = try await fetchToken()
-      return Credential(value: "Bearer \(token)", expiresAtSeconds: expiresAtSeconds)
+import XmtpSdk
+
+final class AppCredentials: CredentialSource {
+    private let load: @Sendable () async throws -> Credential
+
+    init(load: @escaping @Sendable () async throws -> Credential) {
+        self.load = load
     }
-  )
+
+    func credential() async throws -> Credential {
+        try await load()
+    }
+}
+
+func createAppClient(
+    signer: Signer,
+    databaseKey: Data,
+    loadCredential: @escaping @Sendable () async throws -> Credential
+) async throws -> SDKClient {
+    let options = ClientOptions(
+        backend: .options(options: BackendOptions(
+            url: "https://backend.example",
+            credentials: AppCredentials(load: loadCredential)
+        )),
+        storage: StorageOptions(location: .default, encryptionKey: databaseKey)
+    )
+    return try await SDKClient.create(signer: signer, options: options)
+}
+
+func reopenAppClient(
+    identity: PublicIdentity, options: ClientOptions, databaseKey: Data
+) async throws -> SDKClient {
+    var persistent = options
+    persistent.storage.encryptionKey = databaseKey
+    return try await SDKClient.build(identity: identity, options: persistent)
+}
+
+func bearerCredential(token: String, expiresAtSeconds: Int64) -> Credential {
+    Credential(name: nil, value: "Bearer \(token)", expiresAtSeconds: expiresAtSeconds)
 }
 ```
 
-Pass this API configuration to `ClientOptions.api`.
+Pass the credential source in `BackendOptions.credentials` and pass those options
+through `ClientOptions.backend`.
 
 </TabItem>
 </Tabs>
@@ -210,11 +257,14 @@ cache. See [backend auth configuration](/get-started/run-the-backend/#auth).
 
 Build, or resume, an existing client (created using [`Client.create()`](#create-a-client)) that's logged in and has an existing local database.
 
-For Android and iOS SDKs, when building a client with an existing `inboxId`, the client automatically operates in offline mode since no backend request is needed to check the identity ledger. In offline mode, the client:
+For the Kotlin SDK, when building a client with an existing `inboxId`, the client automatically operates in offline mode since no backend request is needed to check the identity ledger. In offline mode, the client:
 
 - Skips all backend requests, including preference sync and inbox validation
 - Works entirely from the local database
 - Can be synchronized later with `syncAllConversations()` or by recreating the client without the offline flag
+
+For Swift, set `ClientOptions.allowOffline` explicitly when local-only build
+behavior is required. An `inboxId` alone does not select offline mode.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -241,7 +291,7 @@ val client = SDKClient.build(context = appContext, identity = identity, options 
 <TabItem label="Swift">
 
 ```swift
-let client = try await Client.build(identity: identity, options: options)
+let client = try await SDKClient.build(identity: identity, options: options)
 ```
 
 </TabItem>
@@ -282,7 +332,9 @@ storage.delete()
 <TabItem label="Swift">
 
 ```swift
-try await client.deleteLocalDatabase()
+let storage = client.storage()
+try await client.end()
+try await storage.delete()
 ```
 
 </TabItem>

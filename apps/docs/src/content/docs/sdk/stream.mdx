@@ -42,7 +42,7 @@ client.conversationStream().collect(::handleConversation)
 </TabItem><TabItem label="Swift">
 
 ```swift
-for try await conversation in client.conversations.stream(type: .all) {
+for try await conversation in try await client.conversationStream() {
   handleConversation(conversation)
 }
 ```

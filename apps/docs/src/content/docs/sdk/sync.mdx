@@ -37,7 +37,7 @@ val summary = client.conversations().syncAll(consentStates)
 </TabItem><TabItem label="Swift">
 
 ```swift
-let summary = try await client.conversations.syncAllConversations(consentStates: consentStates)
+let summary = try await client.conversations().syncAll(consentStates: consentStates)
 ```
 
 </TabItem>

@@ -8,6 +8,7 @@ import {
   type EncodedContent,
   type SendOptions,
 } from "../../public-values.gen";
+import { usesRustStandardFallback } from "./codec";
 import type { ContentCodec } from "./codec";
 import { isCatalogueContentType } from "./host";
 

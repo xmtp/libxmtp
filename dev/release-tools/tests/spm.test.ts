@@ -1,113 +1,54 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { updateSpmChecksum } from "../src/lib/spm";
 
-const SAMPLE_PACKAGE_SWIFT = `// swift-tools-version: 5.6
-import Foundation
-import PackageDescription
-
-let thisPackagePath = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-let useLocalBinary = FileManager.default.fileExists(
-    atPath: "\\(thisPackagePath)/.build/LibXMTPSwiftFFI.xcframework"
-)
-
-let package = Package(
-    name: "XMTPiOS",
-    platforms: [.iOS(.v14), .macOS(.v11)],
-    targets: [
-        useLocalBinary
-            ? .binaryTarget(
-                name: "LibXMTPSwiftFFI",
-                path: ".build/LibXMTPSwiftFFI.xcframework"
-            )
-            : .binaryTarget(
-                name: "LibXMTPSwiftFFI",
-                url: "https://github.com/xmtp/libxmtp/releases/download/ios-4.9.0-libxmtp/LibXMTPSwiftFFI.xcframework.zip",
-                checksum: "oldchecksum123"
-            ),
-    ]
-)
-`;
-
-describe("updateSpmChecksum", () => {
-  let tmpDir: string;
+describe("the shared Apple archive receipt", () => {
+  let root: string;
   let packagePath: string;
+  const url = "https://example.com/releases/ios-8.0.0/XmtpSdkFFI.zip";
+  const checksum = createHash("sha256")
+    .update("test archive bytes")
+    .digest("hex");
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-spm-"));
-    packagePath = path.join(tmpDir, "Package.swift");
-    fs.writeFileSync(packagePath, SAMPLE_PACKAGE_SWIFT);
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-spm-"));
+    fs.mkdirSync(path.join(root, "sdks/ios"), { recursive: true });
+    packagePath = path.join(root, "Package.swift");
+    fs.writeFileSync(packagePath, "// consumer manifest remains unchanged\n");
   });
 
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true });
-  });
+  afterEach(() => fs.rmSync(root, { recursive: true }));
 
-  it("updates the url and checksum", () => {
-    updateSpmChecksum(
-      packagePath,
-      "https://github.com/xmtp/libxmtp/releases/download/ios-4.10.0-libxmtp/LibXMTPSwiftFFI.xcframework.zip",
-      "newchecksum456",
+  it("writes the supplied archive identity for both package managers", () => {
+    updateSpmChecksum(packagePath, url, checksum.toUpperCase());
+    const receipt = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "sdks/ios/ReleaseArtifacts.json"),
+        "utf-8",
+      ),
     );
-    const content = fs.readFileSync(packagePath, "utf-8");
-    expect(content).toContain("ios-4.10.0-libxmtp");
-    expect(content).toContain('checksum: "newchecksum456"');
-    expect(content).not.toContain("oldchecksum123");
-    expect(content).not.toContain("ios-4.9.0-libxmtp");
-  });
-
-  it("preserves the local binary target path", () => {
-    updateSpmChecksum(packagePath, "https://example.com/new.zip", "abc");
-    const content = fs.readFileSync(packagePath, "utf-8");
-    expect(content).toContain('path: ".build/LibXMTPSwiftFFI.xcframework"');
-  });
-
-  it("preserves the conditional logic", () => {
-    updateSpmChecksum(packagePath, "https://example.com/new.zip", "abc");
-    const content = fs.readFileSync(packagePath, "utf-8");
-    expect(content).toContain("useLocalBinary");
-    expect(content).toContain("FileManager.default.fileExists");
-  });
-
-  it("handles widely spaced multiline formatting", () => {
-    const widelySpaced = `// swift-tools-version: 5.6
-import PackageDescription
-
-let package = Package(
-    targets: [
-        .binaryTarget(
-            name: "LibXMTPSwiftFFI",
-
-            url:
-                "https://github.com/xmtp/libxmtp/releases/download/ios-4.9.0-libxmtp/LibXMTPSwiftFFI.xcframework.zip",
-
-            checksum:
-                "oldchecksum123"
-        ),
-    ]
-)
-`;
-    fs.writeFileSync(packagePath, widelySpaced);
-    updateSpmChecksum(
-      packagePath,
-      "https://example.com/new.zip",
-      "newchecksum",
+    expect(receipt).toEqual({ url, sha256: checksum });
+    expect(fs.readFileSync(packagePath, "utf-8")).toBe(
+      "// consumer manifest remains unchanged\n",
     );
-    const content = fs.readFileSync(packagePath, "utf-8");
-    expect(content).toContain('"https://example.com/new.zip"');
-    expect(content).toContain('"newchecksum"');
-    expect(content).not.toContain("oldchecksum123");
-    expect(content).not.toContain("ios-4.9.0-libxmtp");
   });
 
-  it("throws if url pattern is not found", () => {
-    fs.writeFileSync(packagePath, "no url here\n");
+  it("rejects the old split archive and an invalid checksum before writing", () => {
     expect(() =>
-      updateSpmChecksum(packagePath, "https://example.com/new.zip", "abc"),
+      updateSpmChecksum(
+        packagePath,
+        "https://example.com/LibXMTPSwiftFFI.zip",
+        checksum,
+      ),
     ).toThrow();
+    expect(() => updateSpmChecksum(packagePath, url, "missing")).toThrow();
+    expect(
+      fs.existsSync(path.join(root, "sdks/ios/ReleaseArtifacts.json")),
+    ).toBe(false);
   });
 });

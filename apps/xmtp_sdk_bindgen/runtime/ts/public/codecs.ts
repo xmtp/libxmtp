@@ -68,12 +68,18 @@ abstract class StandardCodec<Value, Host> implements ContentCodec<Value> {
   readonly type: ContentTypeId;
 
   protected constructor(
-    private readonly host: HostContentCodec<Host>,
+    private readonly host: HostContentCodec<Host> & {
+      shouldPush(value: Host): boolean;
+    },
     private readonly lower: Convert<Value, Host>,
     private readonly lift: Convert<Host, Value>,
   ) {
     this.type = liftContentTypeId(host.type, currentProjection());
-    registerRustStandardFallback(this, StandardCodec.prototype.fallback);
+    registerRustStandardFallback(
+      this,
+      Object.getOwnPropertyDescriptor(StandardCodec.prototype, "fallback")
+        ?.value,
+    );
   }
 
   encode(value: Value): EncodedContent {
@@ -95,7 +101,7 @@ abstract class StandardCodec<Value, Host> implements ContentCodec<Value> {
   shouldPush(value: Value): boolean {
     const projection = currentProjection();
     try {
-      return this.host.shouldPush!(this.lower(value, projection));
+      return this.host.shouldPush(this.lower(value, projection));
     } catch (error) {
       throw publicError(error);
     }

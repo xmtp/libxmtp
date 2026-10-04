@@ -116,9 +116,9 @@ client.revokeAllOtherInstallations(signer)
 
 ```swift
 let state = try await client.inboxState(refreshFromNetwork: true)
-let states = try await Client.inboxStatesForInboxIds(inboxIds: inboxIds, api: api)
-try await client.revokeInstallations(installationIds: installationIds)
-try await client.revokeAllOtherInstallations()
+let states = try await SDKClient.inboxStates(inboxIds, backend: backend)
+try await client.revokeInstallations(signer: signer, ids: installationIds)
+try await client.revokeAllOtherInstallations(signer: signer)
 ```
 
 </TabItem>

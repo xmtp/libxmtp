@@ -37,7 +37,11 @@ export type ContentTypeId = {
   versionMajor: number;
   versionMinor: number;
 };
-export type EncodedContent = { type: ContentTypeId; content: ArrayBuffer };
+export type EncodedContent = {
+  type: ContentTypeId;
+  content: ArrayBuffer;
+  fallback?: string;
+};
 export type Attachment = object;
 export type RemoteAttachment = object;
 export type MultiRemoteAttachment = object;
@@ -168,6 +172,11 @@ export const StandardContent = {
     }
   },
 };
+export function catalogueContentTypeShouldPush(
+  _contentType: ContentTypeId,
+): boolean {
+  throw new Error("lint only");
+}
 export function standardContentType(_kind: StandardContentKind): ContentTypeId {
   throw new Error("lint only");
 }

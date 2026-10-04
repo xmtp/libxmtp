@@ -52,10 +52,20 @@ class AppSigner(
 <TabItem label="Swift">
 
 ```swift
-struct AppSigner: SigningKey {
-  var type: SignerType = .EOA
-  var identity: PublicIdentity
-  func sign(_ message: String) async throws -> SignedData { signedData }
+final class AppSigner: Signer {
+  private let publicIdentity: PublicIdentity
+  private let signRequest: @Sendable (SigningRequest) async throws -> Signature
+
+  init(identity: PublicIdentity, signRequest: @escaping @Sendable (SigningRequest) async throws -> Signature) {
+    self.publicIdentity = identity
+    self.signRequest = signRequest
+  }
+
+  func identity() async throws -> PublicIdentity { publicIdentity }
+  func kind() async throws -> SignerKind { .eoa }
+  func sign(request: SigningRequest) async throws -> Signature {
+    try await signRequest(request)
+  }
 }
 ```
 

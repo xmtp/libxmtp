@@ -49,10 +49,10 @@ client.archives().exportToFile(
 <TabItem label="Swift">
 
 ```swift
-try await client.createArchive(
+try await client.archives().exportToFile(
   path: "/path/to/archive.xmtp",
-  encryptionKey: encryptionKey,
-  opts: ArchiveOptions(excludeDisappearingMessages: true)
+  keyBytes: encryptionKey,
+  options: ArchiveOptions(excludeDisappearingMessages: true)
 )
 ```
 
@@ -90,7 +90,7 @@ client.archives().importFromFile(path = "/path/to/archive.xmtp", keyBytes = encr
 <TabItem label="Swift">
 
 ```swift
-try await client.importArchive(path: "/path/to/archive.xmtp", encryptionKey: encryptionKey)
+try await client.archives().importFromFile(path: "/path/to/archive.xmtp", keyBytes: encryptionKey)
 ```
 
 </TabItem>

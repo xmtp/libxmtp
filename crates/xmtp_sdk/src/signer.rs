@@ -39,7 +39,7 @@ impl From<Identifier> for PublicIdentity {
 }
 
 /// Calculate an inbox ID from a public identity and a nonce.
-/// An omitted nonce is 1. This operation does not use a backend or storage.
+/// An omitted nonce is 0, as in client creation. This operation does not use a backend or storage.
 #[xmtp_macro::sdk_export(pure, default(nonce = None))]
 pub fn generate_inbox_id(
     identity: PublicIdentity,
@@ -48,7 +48,7 @@ pub fn generate_inbox_id(
     let id = identity
         .to_core()
         .map_err(|_| XmtpError::invalid_argument("invalid public identity"))?
-        .inbox_id(nonce.unwrap_or(1))
+        .inbox_id(nonce.unwrap_or(0))
         .map_err(|_| XmtpError::invalid_argument("invalid public identity"))?;
     InboxId::try_from(id)
 }
@@ -120,7 +120,7 @@ mod pure_identity_tests {
                 generate_inbox_id(identity.clone(), Some(nonce))?.into_checked()?,
                 expected
             );
-            if nonce == 1 {
+            if nonce == 0 {
                 assert_eq!(generate_inbox_id(identity, None)?.into_checked()?, expected);
             }
         }
@@ -142,7 +142,7 @@ mod pure_identity_tests {
             let core = identity.to_core()?;
             assert_eq!(
                 generate_inbox_id(identity.clone(), None)?.into_checked()?,
-                core.inbox_id(1).map_err(XmtpError::from_core)?
+                core.inbox_id(0).map_err(XmtpError::from_core)?
             );
             for nonce in [0, 1, 9_007_199_254_740_993, u64::MAX] {
                 assert_eq!(
@@ -151,7 +151,7 @@ mod pure_identity_tests {
                 );
             }
             assert_ne!(
-                generate_inbox_id(identity.clone(), Some(0))?.into_checked()?,
+                generate_inbox_id(identity.clone(), Some(1))?.into_checked()?,
                 generate_inbox_id(identity, None)?.into_checked()?
             );
         }

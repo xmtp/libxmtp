@@ -12,7 +12,7 @@ root := justfile_directory()
 # by dev/worktree-env, so the suites reach this worktree's own backend.
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-# Verify iOS SDK builds (bindings + Swift)
+# Build the generated SDK and Apple package
 
 # Package.swift is at repo root, so cd there for swift commands
 check:
@@ -21,8 +21,8 @@ check:
 # Compile both retained example apps against this checkout's SDK.
 check-examples:
     ./dev/bindings
-    env -u LD xcodebuild build -project XMTPiOSExample/XMTPiOSExample.xcodeproj -scheme XMTPiOSExample -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
-    env -u LD xcodebuild build -project example/example.xcodeproj -scheme example -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+    env -u LD xcodebuild build -project XMTPiOSExample/XMTPiOSExample.xcodeproj -scheme XMTPiOSExample -destination 'generic/platform=iOS Simulator' ARCHS=arm64 CODE_SIGNING_ALLOWED=NO
+    env -u LD xcodebuild build -project example/example.xcodeproj -scheme example -destination 'generic/platform=iOS Simulator' ARCHS=arm64 CODE_SIGNING_ALLOWED=NO
 
 # Run SwiftLint + SwiftFormat check
 lint:
@@ -34,7 +34,7 @@ format:
 
 # Run Swift tests on macOS. XMTP_BACKEND_URL selects the backend.
 test:
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel --num-workers=2 -q
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q
 
 # Build iOS native bindings (xcframework)
 build:
@@ -42,7 +42,7 @@ build:
 
 # Run the suite on an installed iOS simulator.
 test-simulator destination="platform=iOS Simulator,name=iPhone 17":
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" env -u LD xcodebuild test -scheme XMTPiOS -destination '{{ destination }}'
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" TEST_RUNNER_XMTP_IOS_PERFORMANCE="${XMTP_IOS_PERFORMANCE:-0}" env -u LD xcodebuild test -scheme XmtpSdk -destination '{{ destination }}'
 
 # Generate a static DocC site. The output path is relative to the repository root.
 docs output="apps/docs/generated/reference/swift":

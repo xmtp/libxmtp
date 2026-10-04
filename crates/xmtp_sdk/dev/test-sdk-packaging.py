@@ -14,6 +14,8 @@ import zipfile
 from unittest.mock import Mock, patch
 import unittest
 
+from mobile_package_test_fixtures import MobilePackageTestFixtures
+
 
 def load(name, file):
     spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(file))
@@ -28,7 +30,9 @@ mobile = load("mobile", "mobile-package.py")
 android_inputs = load("android_inputs", "sdk-packaging-android-inputs.py")
 
 
-class PackagingTests(android_inputs.AndroidDependencyInputs, unittest.TestCase):
+class PackagingTests(
+    android_inputs.AndroidDependencyInputs, MobilePackageTestFixtures, unittest.TestCase
+):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name).resolve()
@@ -139,13 +143,6 @@ class PackagingTests(android_inputs.AndroidDependencyInputs, unittest.TestCase):
             ),
         ):
             mobile.main()
-
-    def product_files(self, output):
-        return {
-            str(path.relative_to(output)): path.read_bytes()
-            for path in output.rglob("*")
-            if path.is_file()
-        }
 
     def test_mobile_late_tool_failure_preserves_prior_and_cleans_fresh_stage(self):
         for target in ("ios", "android"):
@@ -754,7 +751,7 @@ class PackagingTests(android_inputs.AndroidDependencyInputs, unittest.TestCase):
             path: path.read_bytes()
             for path in (self.root / "mobile").rglob("artifacts.json")
         }
-        self.assertEqual(len(original_receipts), 6)
+        self.assertEqual(len(original_receipts), 7)
         (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
         for platform in ("ios", "android"):
             output = self.root / "products" / platform
@@ -785,7 +782,7 @@ class PackagingTests(android_inputs.AndroidDependencyInputs, unittest.TestCase):
             path: path.read_bytes()
             for path in (self.root / "mobile").rglob("artifacts.json")
         }
-        self.assertEqual(len(native_receipts), 6)
+        self.assertEqual(len(native_receipts), 7)
         manifest = self.args.artifacts / "artifacts.json"
         native = json.loads(manifest.read_text())["artifacts"]["native"]
         source = artifacts.source_hash()

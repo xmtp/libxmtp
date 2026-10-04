@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
-IOS = ("aarch64-apple-ios", "aarch64-apple-ios-sim")
+IOS = ("aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin")
 ANDROID = {
     "arm64-v8a": "aarch64-linux-android",
     "armeabi-v7a": "armv7-linux-androideabi",
@@ -247,7 +247,7 @@ def main():
             )
             (output / "Package.swift").write_text("""// swift-tools-version: 6.1
 import PackageDescription
-let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
+let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14), .macOS(.v11)],
     products: [.library(name: "XmtpSdk", targets: ["XmtpSdk"])],
     targets: [.binaryTarget(name: "xmtp_sdkFFI", path: "XmtpSdkFFI.xcframework"),
               .target(name: "XmtpSdk", dependencies: ["xmtp_sdkFFI"])],
