@@ -41,7 +41,9 @@ const clearPending = (key: string, dbPath: string) => {
 
 export const pendingAttachmentCleanupPaths = (): string[] => {
   try {
-    return pendingPaths(pendingAttachmentCleanupKey);
+    return pendingPaths(pendingAttachmentCleanupKey).filter(
+      (path) => isCurrentDatabasePath(path) || isLegacyDatabasePath(path),
+    );
   } catch {
     return [];
   }
@@ -78,12 +80,21 @@ export const isCurrentDatabasePath = (dbPath: string, label?: string) => {
   );
 };
 
+export const isLegacyDatabasePath = (dbPath: string, label?: string) => {
+  const path = dbPath.replace(/^\/+/, "");
+  const match = /^xmtp-(.+)-[0-9a-f]{64}\.db3$/i.exec(path);
+  return (
+    !path.includes("/") &&
+    match !== null &&
+    validSegment(match[1]) &&
+    (label === undefined || match[1] === label)
+  );
+};
+
 export const retryPendingDatabaseDeletions = async () => {
   for (const dbPath of pendingDatabaseDeletionPaths()) {
-    const parts = dbPath.replace(/^\/+/, "").split("/");
     const current = isCurrentDatabasePath(dbPath);
-    const legacy =
-      parts.length === 1 && /^xmtp-.+-[0-9a-f]{64}\.db3$/i.test(parts[0]);
+    const legacy = isLegacyDatabasePath(dbPath);
     if (!current && !legacy) throw new Error("Invalid local database path.");
     const admin = await Storage.admin();
     try {
@@ -98,6 +109,7 @@ export const retryPendingDatabaseDeletions = async () => {
 
 export const cleanAttachmentDirectory = async (dbPath: string | undefined) => {
   if (dbPath === undefined) return;
+  attachmentFolders(dbPath);
   try {
     markAttachmentCleanupPending(dbPath);
   } catch {
@@ -114,6 +126,7 @@ export const cleanAttachmentDirectory = async (dbPath: string | undefined) => {
 // End a session without removing ciphertext needed by pending uploads.
 export const cleanSessionAttachments = async (dbPath: string | undefined) => {
   if (dbPath === undefined) return;
+  attachmentFolders(dbPath);
   try {
     markAttachmentCleanupPending(dbPath);
   } catch {
@@ -154,22 +167,11 @@ export type FileValidation =
     };
 
 const attachmentFolders = (dbPath: string): string[] => {
-  const parts = dbPath.replace(/^\/+/, "").split("/");
-  if (
-    parts.some(
-      (part) => !part || part === "." || part === ".." || part.includes("\\"),
-    )
-  ) {
-    throw new Error("Invalid local database path.");
-  }
-  const folders =
-    parts.length > 1 && parts.at(-1) === "xmtp.db3"
-      ? [...parts.slice(0, -1), "attachments"]
-      : parts.length === 1 && parts[0].endsWith(".db3")
-        ? [`${parts[0]}.attachments`]
-        : null;
-  if (!folders) throw new Error("Invalid local database path.");
-  return folders;
+  const path = dbPath.replace(/^\/+/, "");
+  if (isCurrentDatabasePath(dbPath))
+    return [...path.split("/").slice(0, -1), "attachments"];
+  if (isLegacyDatabasePath(dbPath)) return [`${path}.attachments`];
+  throw new Error("Invalid local database path.");
 };
 
 export const removePlaintextAttachmentDirectories = async (
@@ -247,12 +249,13 @@ export const uploadEncryptedAttachment = async (
     mimeType: file.type,
     filename: file.name,
   });
+  await pending.upload();
   try {
-    await pending.upload();
-    return pending.remoteAttachment;
-  } finally {
     await client.attachments.deleteLocal(pending.remoteAttachment);
+  } catch {
+    // The upload is complete. Keep its remote record available to send.
   }
+  return pending.remoteAttachment;
 };
 
 export const downloadRemoteAttachment = async (
@@ -274,7 +277,11 @@ export const downloadRemoteAttachment = async (
       type: attachment.mimeType ?? file.type,
     });
   } finally {
-    await client.attachments.deleteLocal(content);
+    try {
+      await client.attachments.deleteLocal(content);
+    } catch {
+      // A local cleanup error must not discard a completed download.
+    }
   }
 };
 

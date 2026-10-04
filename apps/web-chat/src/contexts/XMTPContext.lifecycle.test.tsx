@@ -111,7 +111,7 @@ it("stops when old and current app databases match one inbox", async () => {
   mocks.inboxIdFor.mockResolvedValueOnce(inboxId);
   mocks.listFiles.mockResolvedValueOnce([
     `xmtp-test-${inboxId}.db3`,
-    `xmtp-sdk/test/deployment/${inboxId}/xmtp.db3`,
+    `xmtp-sdk/test/deployment-${"c".repeat(64)}/${inboxId}/xmtp.db3`,
   ]);
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
 
@@ -125,6 +125,41 @@ it("stops when old and current app databases match one inbox", async () => {
     ).rejects.toThrow("Both old and current databases match this inbox");
   });
   expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it("ignores a malformed current path beside a matching old database", async () => {
+  const identity = { identifier: "0x1234", kind: "ethereum" };
+  const signer = { identity: vi.fn().mockResolvedValue(identity) };
+  const inboxId = "b".repeat(64);
+  mocks.inboxIdFor.mockResolvedValueOnce(inboxId);
+  mocks.listFiles.mockResolvedValueOnce([
+    `xmtp-test-${inboxId}.db3`,
+    `xmtp-sdk/test/deployment/${inboxId}/xmtp.db3`,
+  ]);
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => undefined },
+    end: vi.fn(),
+  });
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+  await act(async () => {
+    await result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: signer as never,
+    });
+  });
+  expect(mocks.create).toHaveBeenCalledWith(
+    signer,
+    expect.objectContaining({
+      storage: {
+        location: {
+          dbPath: `xmtp-test-${inboxId}.db3`,
+          attachmentsDir: `xmtp-test-${inboxId}.db3.attachments`,
+        },
+        label: "test",
+      },
+    }),
+  );
 });
 
 it("opens an unregistered version 7 database with its nonce-one inbox", async () => {
@@ -215,14 +250,35 @@ it("waits for SDK end before releasing the app lock", async () => {
   expect(result.current.client).toBeUndefined();
 });
 
+it("ends an injected client when its storage path lookup fails", async () => {
+  const end = vi.fn(async () => {});
+  const injected = {
+    storage: { path: vi.fn().mockRejectedValue(new Error("Storage closed")) },
+    end,
+  };
+  const { result } = renderHook(useXMTP, {
+    wrapper: ({ children }) => (
+      <XMTPProvider client={injected as never}>{children}</XMTPProvider>
+    ),
+  });
+  await act(async () => {
+    await result.current.disconnect();
+  });
+  expect(end).toHaveBeenCalledOnce();
+  expect(result.current.client).toBeUndefined();
+  expect(mocks.reset).toHaveBeenCalledOnce();
+  expect(mocks.releaseLock).toHaveBeenCalledOnce();
+});
+
 it("removes local plaintext but keeps staged ciphertext on disconnect", async () => {
-  const deployment = `disconnect-${crypto.randomUUID()}`;
-  const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
+  const deployment = `disconnect-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
-  const inbox = await path.getDirectoryHandle("inbox", { create: true });
+  const inbox = await path.getDirectoryHandle(inboxId, { create: true });
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
@@ -262,13 +318,14 @@ it("removes local plaintext but keeps staged ciphertext on disconnect", async ()
 });
 
 it("keeps the app lock until failed attachment cleanup is retried", async () => {
-  const deployment = `retry-disconnect-${crypto.randomUUID()}`;
-  const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
+  const deployment = `retry-disconnect-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
-  const inbox = await path.getDirectoryHandle("inbox", { create: true });
+  const inbox = await path.getDirectoryHandle(inboxId, { create: true });
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
@@ -333,13 +390,14 @@ it("disconnects and reports a failed SDK end after lock loss", async () => {
 });
 
 it("removes old local attachment files after lock loss even if storage path lookup fails", async () => {
-  const deployment = `lock-loss-${crypto.randomUUID()}`;
-  const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
+  const deployment = `lock-loss-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
-  const inbox = await path.getDirectoryHandle("inbox", { create: true });
+  const inbox = await path.getDirectoryHandle(inboxId, { create: true });
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
@@ -378,13 +436,14 @@ it("removes old local attachment files after lock loss even if storage path look
 });
 
 it("removes attachment files after lock loss when the journal write fails", async () => {
-  const deployment = `journal-failure-${crypto.randomUUID()}`;
-  const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
+  const deployment = `journal-failure-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
-  const inbox = await path.getDirectoryHandle("inbox", { create: true });
+  const inbox = await path.getDirectoryHandle(inboxId, { create: true });
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
@@ -424,13 +483,14 @@ it("removes attachment files after lock loss when the journal write fails", asyn
 });
 
 it("removes attachment files on the next start if lock-loss cleanup fails", async () => {
-  const deployment = `retry-lock-loss-${crypto.randomUUID()}`;
-  const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
+  const deployment = `retry-lock-loss-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("test", { create: true });
   const path = await backend.getDirectoryHandle(deployment, { create: true });
-  const inbox = await path.getDirectoryHandle("inbox", { create: true });
+  const inbox = await path.getDirectoryHandle(inboxId, { create: true });
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });

@@ -21,6 +21,7 @@ import {
 
 import {
   cleanSessionAttachments,
+  isCurrentDatabasePath,
   pendingAttachmentCleanupPaths,
   retryPendingDatabaseDeletions,
 } from "@/helpers/attachment";
@@ -60,17 +61,10 @@ const storageLocation = async (
   const dbPath = `${prefix}${inboxId}.db3`;
   if (!legacyFiles.includes(dbPath)) return "default";
 
-  const currentExists = files.some((path) => {
-    const parts = path.split("/");
-    return (
-      parts.length === 5 &&
-      parts[0] === "xmtp-sdk" &&
-      parts[1] === label &&
-      Boolean(parts[2]) &&
-      parts[3] === inboxId &&
-      parts[4] === "xmtp.db3"
-    );
-  });
+  const currentExists = files.some(
+    (path) =>
+      isCurrentDatabasePath(path, label) && path.split("/")[3] === inboxId,
+  );
   if (currentExists)
     throw new Error("Both old and current databases match this inbox.");
 
@@ -277,7 +271,14 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
 
   const disconnect = useCallback(async () => {
     if (client) {
-      const dbPath = attachmentDbPath.current ?? (await client.storage.path());
+      let dbPath = attachmentDbPath.current;
+      if (dbPath === undefined) {
+        try {
+          dbPath = await client.storage.path();
+        } catch {
+          // End the client even if its storage worker cannot read the path.
+        }
+      }
       attachmentDbPath.current = dbPath;
       if (endedClient.current !== client) {
         await client.end();

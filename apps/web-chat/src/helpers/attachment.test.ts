@@ -2,7 +2,9 @@ import type { Client, RemoteAttachment } from "@xmtp/browser-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  cleanAttachmentDirectory,
   downloadRemoteAttachment,
+  pendingAttachmentCleanupPaths,
   uploadEncryptedAttachment,
 } from "./attachment";
 
@@ -41,6 +43,23 @@ describe("remote attachments", () => {
   });
 });
 
+it("does not use an invalid cleanup journal path for OPFS removal", async () => {
+  const key = "XMTP_PENDING_ATTACHMENT_CLEANUP";
+  const malformed = "xmtp-sdk/test/../other/xmtp.db3";
+  localStorage.setItem(key, JSON.stringify([malformed]));
+  const getDirectory = vi.spyOn(navigator.storage, "getDirectory");
+  try {
+    expect(pendingAttachmentCleanupPaths()).toEqual([]);
+    await expect(cleanAttachmentDirectory(malformed)).rejects.toThrow(
+      "Invalid local database path",
+    );
+    expect(getDirectory).not.toHaveBeenCalled();
+  } finally {
+    localStorage.removeItem(key);
+    getDirectory.mockRestore();
+  }
+});
+
 it("creates and uploads through the SDK before returning the remote record", async () => {
   const file = new File(["payload"], "photo.png", { type: "image/png" });
   const remote = { url: "https://example.com/attachment" } as RemoteAttachment;
@@ -67,7 +86,7 @@ it("creates and uploads through the SDK before returning the remote record", asy
   expect(deleteLocal).toHaveBeenCalledExactlyOnceWith(remote);
 });
 
-it("deletes the local attachment when upload fails", async () => {
+it("keeps the local attachment when upload fails", async () => {
   const remote = { url: "https://example.com/failed" } as RemoteAttachment;
   const failure = new Error("upload failed");
   const deleteLocal = vi.fn(async () => {});
@@ -82,5 +101,46 @@ it("deletes the local attachment when upload fails", async () => {
   } as unknown as Client;
   const file = new File(["payload"], "photo.png", { type: "image/png" });
   await expect(uploadEncryptedAttachment(client, file)).rejects.toBe(failure);
+  expect(deleteLocal).not.toHaveBeenCalled();
+});
+
+it("returns a completed upload when local cleanup fails", async () => {
+  const remote = { url: "https://example.com/uploaded" } as RemoteAttachment;
+  const upload = vi.fn(async () => {});
+  const deleteLocal = vi.fn().mockRejectedValue(new Error("OPFS busy"));
+  const client = {
+    attachments: {
+      create: vi.fn(async () => ({ upload, remoteAttachment: remote })),
+      deleteLocal,
+    },
+  } as unknown as Client;
+  const file = new File(["payload"], "photo.png", { type: "image/png" });
+  await expect(uploadEncryptedAttachment(client, file)).resolves.toBe(remote);
+  expect(upload).toHaveBeenCalledOnce();
   expect(deleteLocal).toHaveBeenCalledExactlyOnceWith(remote);
+});
+
+it("returns downloaded bytes when local cleanup fails", async () => {
+  const directory = await navigator.storage.getDirectory();
+  const name = `web-chat-${crypto.randomUUID()}.bin`;
+  const handle = await directory.getFileHandle(name, { create: true });
+  const writer = await handle.createWritable();
+  await writer.write("downloaded bytes");
+  await writer.close();
+  const remote = { url: "https://example.com/downloaded" } as RemoteAttachment;
+  const deleteLocal = vi.fn().mockRejectedValue(new Error("OPFS busy"));
+  const client = {
+    attachments: {
+      download: vi.fn(async () => ({ path: name, mimeType: "text/plain" })),
+      deleteLocal,
+    },
+  } as unknown as Client;
+  try {
+    const blob = await downloadRemoteAttachment(client, remote);
+    expect(await blob.text()).toBe("downloaded bytes");
+    expect(blob.type).toBe("text/plain");
+    expect(deleteLocal).toHaveBeenCalledExactlyOnceWith(remote);
+  } finally {
+    await directory.removeEntry(name).catch(() => {});
+  }
 });
