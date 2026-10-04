@@ -48,7 +48,7 @@ class LeaveRequestTest : BaseInstrumentedTest() {
     @Test fun testLeaveRequestCodecShouldPush() = assertFalse(LeaveRequestCodec().shouldPush(LeaveRequest(null)))
 
     @Test fun testLeaveRequestCodecContentType() =
-        assertEquals(ContentTypeId("xmtp.org", "leaveRequest", 1u, 0u), LeaveRequestCodec().type)
+        assertEquals(ContentTypeId("xmtp.org", "leave_request", 1u, 0u), LeaveRequestCodec().type)
 
     @Test fun testLeaveRequestCreateNormalizesEmptyByteArray() {
         val codec = LeaveRequestCodec()

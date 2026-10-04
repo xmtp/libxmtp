@@ -237,7 +237,7 @@ func checkAttachmentFailures(backend: BackendOptions) async throws {
     }
     let failed = try await events.drain(client)
     guard failed.map(\.kind) == [.attachmentUploadStarted, .attachmentUploadFailed],
-          failed[1] == failed[0].with(.attachmentUploadFailed, cause: .stagedUnusable),
+          failed[1] == failed[0].with(.attachmentUploadFailed, cause: "staged_unusable"),
           failed[1].contentDigest == remote.contentDigest
     else { throw ConformanceFailure("upload events \(failed)") }
     // A source the SDK cannot read fails create.
@@ -289,7 +289,7 @@ func checkAttachmentFailures(backend: BackendOptions) async throws {
     }
     let downloadFailures = try await downloadEvents.drain(downloader)
     let failedCauses = downloadFailures.filter { $0.kind == .attachmentDownloadFailed }.map(\.cause)
-    guard failedCauses == [.httpStatus, .digestMismatch, .decryptionFailed] else {
+    guard failedCauses == ["http_status", "digest_mismatch", "decryption_failed"] else {
         throw ConformanceFailure("download events \(downloadFailures)")
     }
     try await downloader.end()
@@ -470,7 +470,7 @@ func checkAttachmentEnd(backend: BackendOptions) async throws {
         let first = AttachmentSignal()
         let deletions = TestCounter()
         let listener = try await reopened.startListener(
-            EventFilter(kinds: [.attachmentDeleted], conversationIds: nil, contentTypes: nil, referencesOwnMessages: false)
+            EventFilter(kinds: [.attachmentDeleted], groupIds: nil, contentTypes: nil, referencesOwnMessages: false)
         ) { _ in deletions.increment(); await first.mark() }
         let deleted = try await EventQueue(reopened, attachmentFilter([.attachmentDeleted]))
         try await resumed.deleteLocal(remote: remote)

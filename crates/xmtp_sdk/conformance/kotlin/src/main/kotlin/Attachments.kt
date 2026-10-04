@@ -202,7 +202,7 @@ suspend fun checkAttachmentFailures(backend: BackendOptions) =
             failed[1] ==
                 failed[0].copy(
                     kind = EventKind.ATTACHMENT_UPLOAD_FAILED,
-                    cause = AttachmentFailureCause.STAGED_UNUSABLE,
+                    cause = "staged_unusable",
                 ),
         )
         check(failed[1].contentDigest == remote.contentDigest)
@@ -245,11 +245,7 @@ suspend fun checkAttachmentFailures(backend: BackendOptions) =
         val downloadFailures = downloadEvents.drain(downloader)
         check(
             downloadFailures.filter { it.kind == EventKind.ATTACHMENT_DOWNLOAD_FAILED }.map { it.cause } ==
-                listOf(
-                    AttachmentFailureCause.HTTP_STATUS,
-                    AttachmentFailureCause.DIGEST_MISMATCH,
-                    AttachmentFailureCause.DECRYPTION_FAILED,
-                ),
+                listOf("http_status", "digest_mismatch", "decryption_failed"),
         ) { "download events $downloadFailures" }
         downloadEvents.end()
         downloader.end()

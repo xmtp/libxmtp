@@ -137,7 +137,7 @@ internal val attachmentKinds =
 internal fun attachmentFilter(kinds: List<EventKind> = attachmentKinds) =
     EventFilter(
         kinds = kinds + EventKind.CONVERSATION_JOINED,
-        conversationIds = null,
+        groupIds = null,
         contentTypes = null,
         referencesOwnMessages = false,
     )
@@ -148,7 +148,7 @@ internal data class AttachmentEvent(
     val attachmentKey: String,
     val url: String,
     val contentDigest: String,
-    val cause: AttachmentFailureCause? = null,
+    val cause: String? = null,
 )
 
 private fun AttachmentRef.event(kind: EventKind) = AttachmentEvent(kind, attachmentKey, url, contentDigest)
@@ -218,7 +218,7 @@ internal class EventQueue private constructor(
         while (true) {
             val event = next()
             if (event is ClientEvent.ConversationJoined) {
-                if (event.conversationJoined.conversationId == marker) return events
+                if (event.conversationJoined.groupId.contentEquals(marker.hexToByteArray())) return events
                 continue
             }
             events.add(checkNotNull(attachmentEvent(event)) { "unexpected event $event" })

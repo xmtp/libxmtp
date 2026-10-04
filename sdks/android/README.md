@@ -38,6 +38,10 @@ Set `allowOffline = true` and pass the known `inboxId` to permit startup from
 stored state when the backend is unavailable. Supply a storage label to keep
 separate local instances.
 
+Pass an app-owned 32-byte `encryptionKey` for encrypted persistent storage.
+Reuse that key when you reopen the database. Omitting the key selects
+unencrypted storage.
+
 Process lifecycle control is on by default. Set
 `AndroidStreamLifecycle.enabled = false` before the first Context factory call
 to manage the native transport yourself with `resumeStreams()` and

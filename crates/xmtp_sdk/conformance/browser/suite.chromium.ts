@@ -588,7 +588,7 @@ export async function runBrowserBridgeConformance(
 
     const eventFilter: sdk.EventFilter = {
       kinds: ["conversation.joined"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     };
     const eventReader = await reopened.events(eventFilter);
     let listenerCalls = 0;

@@ -17,11 +17,6 @@ macro_rules! validated_id {
 
         #[cfg_attr(feature = "pure-only", allow(dead_code))]
         impl $name {
-            /// Wraps text that the SDK produced. It is not validated.
-            pub(crate) fn unchecked(value: String) -> Self {
-                Self(value)
-            }
-
             /// Returns the ID text, or `InvalidArgument` if it is malformed.
             pub fn checked(&self) -> Result<&str, XmtpError> {
                 ($validate)(self.0.as_str())?;
@@ -71,6 +66,34 @@ validated_id!(
     MessageId,
     |value| validate_hex_id(value, 32)
 );
+
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
+impl InboxId {
+    /// Wraps text that the SDK produced. It is not validated.
+    pub(crate) fn unchecked(value: String) -> Self {
+        Self(value)
+    }
+}
+
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
+impl InstallationId {
+    /// Wraps text that the SDK produced. It is not validated.
+    pub(crate) fn unchecked(value: String) -> Self {
+        Self(value)
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "conformance",
+    not(feature = "pure-only"),
+    not(target_arch = "wasm32")
+))]
+impl ConversationId {
+    pub(crate) fn unchecked(value: String) -> Self {
+        Self(value)
+    }
+}
 
 #[cfg_attr(feature = "pure-only", allow(dead_code))]
 impl InstallationId {

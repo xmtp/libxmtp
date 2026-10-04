@@ -1230,6 +1230,8 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         self.raw_query(|conn| {
             dsl::group_messages
+                .inner_join(groups::table)
+                .filter(groups_dsl::conversation_type.ne(ConversationType::Sync))
                 .filter(dsl::id.eq(id.as_ref()))
                 .filter(
                     dsl::expire_at_ns

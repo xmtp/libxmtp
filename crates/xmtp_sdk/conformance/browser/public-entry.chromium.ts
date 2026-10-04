@@ -382,7 +382,7 @@ export async function exercise(): Promise<string[]> {
     await joined.end();
     const events = await alice.events({
       kinds: ["conversation.joined"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     });
     await conversations.createGroup([]);
     const event = await events.next();
@@ -398,7 +398,7 @@ export async function exercise(): Promise<string[]> {
     const openJoined = sdk.ConversationStream.open(alice);
     const openEvents = await alice.events({
       kinds: ["conversation.joined"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     });
     const opaqueBackend = await sdk.Backend.connect(backend);
     const opaqueAdmin = await sdk.Storage.admin();

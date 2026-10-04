@@ -809,7 +809,7 @@ console.log("Node scenario 9: archive bytes and file passed");
 // verifies: EVENT-053
 const eventFilter: sdk.EventFilter = {
   kinds: ["conversation.joined"],
-  referencesOwnMessages: false,
+  references_own_messages: false,
 };
 const eventReader = await reopened.events(eventFilter);
 let listenerCalls = 0;

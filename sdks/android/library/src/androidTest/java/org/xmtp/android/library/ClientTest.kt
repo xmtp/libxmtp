@@ -95,10 +95,15 @@ class ClientTest : BaseInstrumentedTest() {
                 val changed = CompletableDeferred<ClientEvent.ConversationMetadataChanged>()
                 val listener =
                     created.startListener(
-                        EventFilter(listOf(EventKind.CONVERSATION_METADATA_CHANGED), listOf(group.id()), null, false),
+                        EventFilter(
+                            listOf(EventKind.CONVERSATION_METADATA_CHANGED),
+                            listOf(group.id().hexToByteArray()),
+                            null,
+                            false,
+                        ),
                         { event ->
                             if (event is ClientEvent.ConversationMetadataChanged &&
-                                event.metadataChanged.conversationId == group.id()
+                                event.metadataChanged.groupId.contentEquals(group.id().hexToByteArray())
                             ) {
                                 changed.complete(event)
                             }
@@ -106,7 +111,10 @@ class ClientTest : BaseInstrumentedTest() {
                     )
                 try {
                     group.updateAppData("client-runtime-options", null)
-                    assertEquals(group.id(), withTimeout(5_000) { changed.await() }.metadataChanged.conversationId)
+                    assertArrayEquals(
+                        group.id().hexToByteArray(),
+                        withTimeout(5_000) { changed.await() }.metadataChanged.groupId,
+                    )
                     assertEquals("client-runtime-options", group.state().appData)
                 } finally {
                     withContext(NonCancellable) { created.stopListener(listener) }

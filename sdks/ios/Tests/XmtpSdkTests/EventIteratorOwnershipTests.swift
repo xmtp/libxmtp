@@ -12,7 +12,7 @@ final class EventIteratorOwnershipTests: XCTestCase {
 		)
 		let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
 		let stream = try await client.events(EventFilter(
-			kinds: [.conversationJoined], conversationIds: nil,
+			kinds: [.conversationJoined], groupIds: nil,
 			contentTypes: nil, referencesOwnMessages: true,
 		))
 		let first = stream.makeAsyncIterator()
@@ -41,8 +41,8 @@ final class EventIteratorOwnershipTests: XCTestCase {
 			try await client.end()
 			return XCTFail("Dropping a rejected iterator closed the active event reader")
 		}
-		XCTAssertEqual(firstJoined.conversationId, group.id())
-		XCTAssertEqual(secondJoined.conversationId, another.id())
+		XCTAssertEqual(firstJoined.groupId.map { String(format: "%02x", $0) }.joined(), group.id())
+		XCTAssertEqual(secondJoined.groupId.map { String(format: "%02x", $0) }.joined(), another.id())
 		try await client.end()
 	}
 }
