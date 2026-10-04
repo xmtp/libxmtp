@@ -82,10 +82,64 @@ export const deploymentHash = async (identifier: string): Promise<string> => {
     .join("");
 };
 
+const truncateUtf8 = (value: string, limit: number): string => {
+  let result = "";
+  let bytes = 0;
+  for (const character of value) {
+    const width = new TextEncoder().encode(character).length;
+    if (bytes + width > limit) break;
+    result += character;
+    bytes += width;
+  }
+  return result;
+};
+
+export const deploymentComponent = async (
+  identifier: string,
+): Promise<string> => {
+  const part = identifier.split(/[\\/]/).at(-1) ?? "";
+  let name = Array.from(part)
+    .filter((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return !(
+        code <= 0x1f ||
+        (code >= 0x7f && code <= 0x9f) ||
+        (code >= 0x202a && code <= 0x202e) ||
+        (code >= 0x2066 && code <= 0x2069) ||
+        '<>:"|?*'.includes(character)
+      );
+    })
+    .join("")
+    .replace(/^[. ]+|[. ]+$/g, "");
+  const stem = (name.split(".")[0] ?? "").replace(/[a-z]/g, (letter) =>
+    letter.toUpperCase(),
+  );
+  if (/^(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(?:COM|LPT)[1-9¹²³])$/.test(stem)) {
+    name = `_${name}`;
+  }
+  const encoder = new TextEncoder();
+  if (encoder.encode(name).length > 190) {
+    const dot = name.lastIndexOf(".");
+    if (dot > 0) {
+      const suffix = name.slice(dot);
+      const suffixBytes = encoder.encode(suffix).length;
+      name =
+        suffixBytes >= 190
+          ? truncateUtf8(suffix, 190)
+          : truncateUtf8(name.slice(0, dot), 190 - suffixBytes) + suffix;
+    } else {
+      name = truncateUtf8(name, 190);
+    }
+  }
+  name = name.replace(/^[. ]+|[. ]+$/g, "") || "attachment";
+  name = name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  return `${name}-${await deploymentHash(identifier)}`;
+};
+
 export const isCurrentDatabasePath = (
   dbPath: string,
   label?: string,
-  deploymentDigest?: string,
+  deploymentName?: string,
 ) => {
   const parts = dbPath.replace(/^\/+/, "").split("/");
   return (
@@ -94,8 +148,7 @@ export const isCurrentDatabasePath = (
     validSegment(parts[1]) &&
     (label === undefined || parts[1] === label) &&
     /^[^/\\]{1,190}-[0-9a-f]{64}$/.test(parts[2]) &&
-    (deploymentDigest === undefined ||
-      parts[2].endsWith(`-${deploymentDigest}`)) &&
+    (deploymentName === undefined || parts[2] === deploymentName) &&
     /^[0-9a-f]{64}$/.test(parts[3]) &&
     parts[4] === "xmtp.db3"
   );
@@ -117,6 +170,8 @@ export const retryPendingDatabaseDeletions = async () => {
     const current = isCurrentDatabasePath(dbPath);
     const legacy = isLegacyDatabasePath(dbPath);
     if (!current && !legacy) throw new Error("Invalid local database path.");
+    // A legacy file name does not identify its backend deployment.
+    if (legacy) continue;
     const admin = await Storage.admin();
     try {
       await admin.deleteFile(dbPath);

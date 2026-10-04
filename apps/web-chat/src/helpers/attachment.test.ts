@@ -7,10 +7,25 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   cleanAttachmentDirectory,
+  deploymentComponent,
+  deploymentHash,
   downloadRemoteAttachment,
   pendingAttachmentCleanupPaths,
   uploadEncryptedAttachment,
 } from "./attachment";
+
+it("uses the SDK deployment file name for the complete identifier", async () => {
+  for (const [identifier, name] of [
+    ["selected-deployment", "selected-deployment"],
+    ["https://example.com/a", "a"],
+    ["CON.txt", "_con.txt"],
+    ["X".repeat(256), "x".repeat(190)],
+  ]) {
+    expect(await deploymentComponent(identifier)).toBe(
+      `${name}-${await deploymentHash(identifier)}`,
+    );
+  }
+});
 
 describe("remote attachments", () => {
   it("reads the SDK download path and preserves its MIME type", async () => {

@@ -22,7 +22,7 @@ import {
 import {
   cleanSessionAttachments,
   cleanStoredSessionAttachments,
-  deploymentHash,
+  deploymentComponent,
   isCurrentDatabasePath,
   pendingAttachmentCleanupPaths,
   retryPendingDatabaseDeletions,
@@ -71,13 +71,13 @@ const storageLocation = async (
     (path) =>
       isCurrentDatabasePath(path, label) && path.split("/")[3] === inboxId,
   );
-  const selectedDeploymentHash = currentCandidates.length
-    ? await deploymentHash(
+  const selectedDeploymentName = currentCandidates.length
+    ? await deploymentComponent(
         (await Client.fetchServerConfiguration(backend)).identifier,
       )
     : undefined;
   const currentExists = currentCandidates.some((path) =>
-    isCurrentDatabasePath(path, label, selectedDeploymentHash),
+    isCurrentDatabasePath(path, label, selectedDeploymentName),
   );
   if (currentExists)
     throw new Error("Both old and current databases match this inbox.");

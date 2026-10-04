@@ -11,6 +11,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { LocalDatabases } from "./LocalDatabases";
 
 const mocks = vi.hoisted(() => ({
+  backendUrl: "https://example.com",
   list: vi.fn(),
   remove: vi.fn(),
   end: vi.fn(),
@@ -25,7 +26,7 @@ vi.mock("@xmtp/browser-sdk", () => ({
   XmtpError: { StorageBusy: class extends Error {} },
 }));
 vi.mock("@/hooks/useSettings", () => ({
-  useSettings: () => ({ backendUrl: "https://example.com" }),
+  useSettings: () => ({ backendUrl: mocks.backendUrl }),
 }));
 vi.mock("@/helpers/backend", () => ({
   backendLabel: async () => "selected-backend",
@@ -33,6 +34,7 @@ vi.mock("@/helpers/backend", () => ({
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  mocks.backendUrl = "https://example.com";
   mocks.fetchServerConfiguration.mockResolvedValue({
     identifier: "selected-deployment",
   });
@@ -104,7 +106,7 @@ it("deletes only a selected database for this backend and awaits admin end", asy
     const select = screen.getByRole("combobox", { name: "Database" });
     expect(
       [...select.querySelectorAll("option")].map((option) => option.value),
-    ).toEqual(["", selected, retained, legacy]);
+    ).toEqual(["", selected, retained]);
     fireEvent.change(select, { target: { value: selected } });
     fireEvent.click(remove);
     await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(2));
@@ -119,7 +121,7 @@ it("deletes only a selected database for this backend and awaits admin end", asy
     ).rejects.toMatchObject({ name: "NotFoundError" });
     expect(
       [...select.querySelectorAll("option")].map((option) => option.value),
-    ).toEqual(["", retained, legacy]);
+    ).toEqual(["", retained]);
     await expect(
       root
         .getDirectoryHandle("xmtp-sdk")
@@ -129,13 +131,8 @@ it("deletes only a selected database for this backend and awaits admin end", asy
         .then((other) => other.getDirectoryHandle("attachments")),
     ).resolves.toBeDefined();
 
-    fireEvent.change(select, { target: { value: legacy } });
-    fireEvent.click(remove);
-    await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(3));
-    expect(mocks.remove).toHaveBeenLastCalledWith(legacy);
-    await expect(root.getDirectoryHandle(legacyFiles)).rejects.toMatchObject({
-      name: "NotFoundError",
-    });
+    expect(mocks.remove).not.toHaveBeenCalledWith(legacy);
+    await expect(root.getDirectoryHandle(legacyFiles)).resolves.toBeDefined();
   } finally {
     const sdk = await root.getDirectoryHandle("xmtp-sdk");
     const backend = await sdk.getDirectoryHandle("selected-backend");
@@ -145,11 +142,15 @@ it("deletes only a selected database for this backend and awaits admin end", asy
 });
 
 it("does not list or delete a database from another deployment at the same origin", async () => {
+  mocks.backendUrl = "https://example.com/b";
   const selectedDeployment = await deploymentComponent("selected-deployment");
   const otherDeployment = await deploymentComponent("other-deployment");
   const inboxId = "a".repeat(64);
   const selected = `/xmtp-sdk/selected-backend/${selectedDeployment}/${inboxId}/xmtp.db3`;
   const other = `/xmtp-sdk/selected-backend/${otherDeployment}/${inboxId}/xmtp.db3`;
+  const forgedDeployment = `forged-${selectedDeployment.slice("selected-deployment-".length)}`;
+  const forged = `/xmtp-sdk/selected-backend/${forgedDeployment}/${inboxId}/xmtp.db3`;
+  const ambiguousLegacy = `xmtp-selected-backend-${inboxId}.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("selected-backend", {
@@ -169,7 +170,14 @@ it("does not list or delete a database from another deployment at the same origi
     create: true,
   });
   await otherInbox.getDirectoryHandle("attachments", { create: true });
-  mocks.list.mockResolvedValue([selected, other]);
+  const forgedDir = await backend.getDirectoryHandle(forgedDeployment, {
+    create: true,
+  });
+  const forgedInbox = await forgedDir.getDirectoryHandle(inboxId, {
+    create: true,
+  });
+  await forgedInbox.getDirectoryHandle("attachments", { create: true });
+  mocks.list.mockResolvedValue([selected, other, forged, ambiguousLegacy]);
   mocks.admin.mockResolvedValue({
     listFiles: mocks.list,
     deleteFile: mocks.remove,
@@ -196,13 +204,19 @@ it("does not list or delete a database from another deployment at the same origi
     await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(2));
     expect(mocks.remove).toHaveBeenCalledWith(selected);
     expect(mocks.remove).not.toHaveBeenCalledWith(other);
+    expect(mocks.remove).not.toHaveBeenCalledWith(forged);
+    expect(mocks.remove).not.toHaveBeenCalledWith(ambiguousLegacy);
     expect(localStorage.getItem("XMTP_PENDING_DATABASE_DELETION")).toBeNull();
     await expect(
       otherInbox.getDirectoryHandle("attachments"),
     ).resolves.toBeDefined();
+    await expect(
+      forgedInbox.getDirectoryHandle("attachments"),
+    ).resolves.toBeDefined();
   } finally {
     await backend.removeEntry(selectedDeployment, { recursive: true });
     await backend.removeEntry(otherDeployment, { recursive: true });
+    await backend.removeEntry(forgedDeployment, { recursive: true });
   }
 });
 
@@ -226,6 +240,36 @@ it("does not offer deletion when the selected deployment cannot be resolved", as
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
+});
+
+it("does not retry an ambiguous legacy deletion intent", async () => {
+  mocks.backendUrl = "https://example.com/b";
+  const legacy = `xmtp-selected-backend-${"a".repeat(64)}.db3`;
+  localStorage.setItem(
+    "XMTP_PENDING_DATABASE_DELETION",
+    JSON.stringify([legacy]),
+  );
+  mocks.list.mockResolvedValue([legacy]);
+  mocks.admin.mockResolvedValue({
+    listFiles: mocks.list,
+    deleteFile: mocks.remove,
+    end: mocks.end,
+  });
+  try {
+    render(
+      <MantineProvider>
+        <LocalDatabases />
+      </MantineProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Local databases" }));
+    await waitFor(() => expect(mocks.end).toHaveBeenCalled());
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(localStorage.getItem("XMTP_PENDING_DATABASE_DELETION")).toBe(
+      JSON.stringify([legacy]),
+    );
+  } finally {
+    localStorage.removeItem("XMTP_PENDING_DATABASE_DELETION");
+  }
 });
 
 it("retries attachment cleanup after the database file is deleted", async () => {

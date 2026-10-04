@@ -7,9 +7,8 @@ import {
   cleanAttachmentDirectory,
   cleanSessionAttachments,
   clearDatabaseDeletionPending,
-  deploymentHash,
+  deploymentComponent,
   isCurrentDatabasePath,
-  isLegacyDatabasePath,
   markDatabaseDeletionPending,
   pendingAttachmentCleanupPaths,
   pendingDatabaseDeletionPaths,
@@ -37,23 +36,18 @@ export const LocalDatabases: React.FC = () => {
         }
       }
       const label = await backendLabel(backendUrl);
-      const selectedDeploymentHash = await deploymentHash(
+      const selectedDeploymentName = await deploymentComponent(
         (await Client.fetchServerConfiguration({ url: backendUrl })).identifier,
       );
       const admin = await Storage.admin();
       try {
-        const available = (await admin.listFiles()).filter((file) => {
-          const path = file.replace(/^\/+/, "");
-          const parts = path.split("/");
-          if (parts.length === 5)
-            return isCurrentDatabasePath(path, label, selectedDeploymentHash);
-          return isLegacyDatabasePath(path, label);
-        });
+        const available = (await admin.listFiles()).filter((file) =>
+          isCurrentDatabasePath(file, label, selectedDeploymentName),
+        );
         if (remove) {
           const pending =
             selected !== null &&
-            (isCurrentDatabasePath(selected, label, selectedDeploymentHash) ||
-              isLegacyDatabasePath(selected, label)) &&
+            isCurrentDatabasePath(selected, label, selectedDeploymentName) &&
             pendingDatabaseDeletionPaths().includes(selected);
           if (!selected || (!available.includes(selected) && !pending))
             throw new Error("Select a local database.");
