@@ -9,3 +9,20 @@
 # test runs. They're text, but not hand-authored prose — they're
 # checked in only so the seeds persist across machines.
 **/proptest-regressions/** linguist-generated=true
+
+# The SDK build receipt hashes source bytes. Use the same line endings on
+# Windows and Unix for each input in sdk-artifacts.py:source_hash.
+*.rs text=auto eol=lf
+*.proto text=auto eol=lf
+*.sql text=auto eol=lf
+Cargo.toml text=auto eol=lf
+Cargo.lock text=auto eol=lf
+flake.lock text=auto eol=lf
+rust-toolchain.toml text=auto eol=lf
+.cargo/config.toml text=auto eol=lf
+crates/xmtp_sdk/uniffi.toml text=auto eol=lf
+crates/xmtp_attachments/src/address-registry.txt text=auto eol=lf
+crates/xmtp_id/src/scw_verifier/chain_urls_default.json text=auto eol=lf
+crates/xmtp_id/src/scw_verifier/signature_validation.hex text=auto eol=lf
+apps/xmtp_sdk_bindgen/** text=auto eol=lf
+crates/xmtp_configuration/** text=auto eol=lf
