@@ -99,6 +99,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
     private var opening = false
     private var openingTask: Task<Void, Never>?
     private var stopped = false
+    private var readInFlight = false
     private var waiters: [CheckedContinuation<StreamHandle<Value>, Error>] = []
     private var monitor: Task<Void, Never>?
     private var teardown: Task<Void, Never>?
@@ -244,8 +245,28 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         return task
     }
 
+    private func beginRead() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !readInFlight else {
+            throw XmtpError.ConsumerOwned(ErrorDetails(
+                code: "ConsumerOwned", category: .stream, retryable: false,
+                message: "reader iterator read is active"
+            ))
+        }
+        readInFlight = true
+    }
+
+    private func finishRead() {
+        lock.lock()
+        readInFlight = false
+        lock.unlock()
+    }
+
     public func next() async throws -> Value? {
-        try await withTaskCancellationHandler(operation: {
+        try beginRead()
+        defer { finishRead() }
+        return try await withTaskCancellationHandler(operation: {
             do {
                 let currentHandle = try await acquire()
                 if Task.isCancelled {
