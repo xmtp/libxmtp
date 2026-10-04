@@ -19,6 +19,9 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
         fixtures = runBlocking { createFixtures() }
     }
 
+    private fun updateOrNull(message: Message): GroupUpdated? =
+        ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.GroupUpdated)?.v1
+
     private fun update(message: Message): GroupUpdated =
         ((message.content as SDKMessageContent.Standard).value as MessageContent.GroupUpdated).v1
 
@@ -40,7 +43,7 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
             group.removeMembers(listOf(caro.inboxId()))
             assertEquals(2, group.messages().size)
             assertEquals(2, group.members().size)
-            val value = update(group.messages().first())
+            val value = update(group.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first())
             assertEquals(listOf(caro.inboxId()), value.removedInboxes)
             assertTrue(value.addedInboxes.isEmpty())
         }
@@ -114,7 +117,7 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
             var value: GroupUpdated? = null
             while (value == null) {
                 group.sync()
-                value = group.messages().map(::update).firstOrNull { bo.inboxId() in it.leftInboxes }
+                value = group.messages().mapNotNull(::updateOrNull).firstOrNull { bo.inboxId() in it.leftInboxes }
                 if (value == null) delay(50)
             }
             value
@@ -140,7 +143,7 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
             val reopened = trackClient(SDKClient.build(context, fixtures.alix, options))
             assertEquals(inboxId, reopened.inboxId())
             val restored = reopened.conversations().listGroups(null).single { it.id() == groupId }
-            val retained = restored.messages().map(::update).single { bo.inboxId() in it.leftInboxes }
+            val retained = restored.messages().mapNotNull(::updateOrNull).single { bo.inboxId() in it.leftInboxes }
             assertEquals(listOf(bo.inboxId()), retained.leftInboxes)
             assertTrue(retained.removedInboxes.isEmpty())
             reopened.end()

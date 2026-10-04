@@ -438,17 +438,19 @@ where
     ) -> Result<EnrichedDeliverySnapshot> {
         let settings = context.incoming_runtime().policy();
         let filter = effective_filter(scope, filter);
-        Ok(context.db().delivery_history_snapshot_projected(
-            scope,
-            &filter,
-            now_ns(),
-            limit.min(settings.max_local_read_rows),
-            settings.max_local_read_bytes,
-            |conn, snapshot| {
-                let storage = conn.key_store();
-                enrich_delivery_snapshot(storage.db(), snapshot)
-            },
-        )?)
+        Ok(context
+            .db()
+            .delivery_history_snapshot_projected_with_clock(
+                scope,
+                &filter,
+                now_ns,
+                limit.min(settings.max_local_read_rows),
+                settings.max_local_read_bytes,
+                |conn, snapshot| {
+                    let storage = conn.key_store();
+                    enrich_delivery_snapshot(storage.db(), snapshot)
+                },
+            )?)
     }
 
     /// Read history and its resume boundary in one database snapshot.
@@ -460,13 +462,16 @@ where
     ) -> Result<DeliverySnapshot> {
         let settings = context.incoming_runtime().policy();
         let filter = effective_filter(scope, filter);
-        Ok(context.db().delivery_history_snapshot_filtered(
-            scope,
-            &filter,
-            now_ns(),
-            limit.min(settings.max_local_read_rows),
-            settings.max_local_read_bytes,
-        )?)
+        Ok(context
+            .db()
+            .delivery_history_snapshot_projected_with_clock(
+                scope,
+                &filter,
+                now_ns,
+                limit.min(settings.max_local_read_rows),
+                settings.max_local_read_bytes,
+                |_, snapshot| Ok(snapshot),
+            )?)
     }
 }
 

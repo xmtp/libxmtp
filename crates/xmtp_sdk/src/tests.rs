@@ -125,25 +125,25 @@ fn assert_attachment_kinds(events: &[ClientEvent]) {
     };
     let [
         ClientEvent::AttachmentUploadStarted {
-            attachment: started,
+            attachment_upload_started: started,
         },
         ClientEvent::AttachmentUploadCompleted {
-            attachment: uploaded,
+            attachment_upload_completed: uploaded,
         },
         ClientEvent::AttachmentUploadFailed {
-            attachment: upload_failed,
+            attachment_upload_failed: upload_failed,
         },
         ClientEvent::AttachmentDownloadStarted {
-            attachment: downloading,
+            attachment_download_started: downloading,
         },
         ClientEvent::AttachmentDownloadCompleted {
-            attachment: downloaded,
+            attachment_download_completed: downloaded,
         },
         ClientEvent::AttachmentDownloadFailed {
-            attachment: download_failed,
+            attachment_download_failed: download_failed,
         },
         ClientEvent::AttachmentDeleted {
-            attachment: deleted,
+            attachment_deleted: deleted,
         },
     ] = events
     else {

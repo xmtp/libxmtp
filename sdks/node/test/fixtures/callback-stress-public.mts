@@ -163,10 +163,10 @@ try {
       async (event) => {
         assert.equal(event.kind, "conversation.joined");
         assert.ok(
-          !joinedIds.has(event.conversationId),
+          !joinedIds.has(event.conversation_joined.conversationId),
           "duplicate joined event",
         );
-        joinedIds.add(event.conversationId);
+        joinedIds.add(event.conversation_joined.conversationId);
         await invoke(calls);
       },
     );

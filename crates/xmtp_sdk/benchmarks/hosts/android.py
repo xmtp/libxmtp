@@ -25,6 +25,8 @@ def main():
     if request["phase"] == "setup":
         call("install", "-r", config["apk"])
     call("shell", "mkdir", "-p", destination)
+    # A shell-created directory must permit the release app to write its result.
+    call("shell", "chmod", "0777", destination)
     local = root / "android-request.json"
     local.write_text(json.dumps(request))
     host = root / "android-host.json"

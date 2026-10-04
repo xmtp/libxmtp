@@ -19,15 +19,27 @@ internal class ListenerGates {
     private val lock = Any()
     private val active = mutableMapOf<ListenerId, ListenerStartGate>()
     private val pending = mutableSetOf<ListenerStartGate>()
+    private var closed = false
 
-    fun pending(gate: ListenerStartGate) = synchronized(lock) { pending.add(gate) }
+    fun pending(gate: ListenerStartGate) =
+        synchronized(lock) {
+            if (closed) {
+                gate.stop()
+            } else {
+                pending.add(gate)
+            }
+        }
 
     fun registered(
         id: ListenerId,
         gate: ListenerStartGate,
     ) = synchronized(lock) {
         pending.remove(gate)
-        active[id] = gate
+        if (closed) {
+            gate.stop()
+        } else {
+            active[id] = gate
+        }
     }
 
     fun discard(gate: ListenerStartGate) = synchronized(lock) { pending.remove(gate) }
@@ -36,6 +48,7 @@ internal class ListenerGates {
 
     fun stopAll() =
         synchronized(lock) {
+            closed = true
             active.values.forEach { it.stop() }
             pending.forEach { it.stop() }
             active.clear()

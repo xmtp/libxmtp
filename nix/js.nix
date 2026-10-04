@@ -7,6 +7,7 @@
   geckodriver,
   xmtp-pnpm,
   nodejs_26,
+  watchexec,
   pkg-config,
   playwright-driver,
   playwright,
@@ -31,6 +32,7 @@ mkShell {
     playwright-driver.browsers
     xmtp-pnpm
     nodejs_26
+    watchexec
   ]
   ++ lib.optionals stdenv.isDarwin [
     darwin.cctools

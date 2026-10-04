@@ -39,7 +39,7 @@ impl std::fmt::Debug for RemoteAttachment {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("RemoteAttachment")
-            .field("url", &self.url)
+            .field("url", &"<redacted>")
             .field("content_digest", &self.content_digest)
             .field("secret", &"<redacted>")
             .field("salt", &self.salt)

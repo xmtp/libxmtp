@@ -64,9 +64,11 @@ describe("Preferences", () => {
         () =>
           expect(seen).toContainEqual({
             kind: "consent.changed",
-            entityKind: "conversation",
-            entity: group.id,
-            state: "denied",
+            consent_changed: {
+              entityKind: "conversation",
+              entity: group.id,
+              state: "denied",
+            },
           }),
         WAIT,
       );
@@ -81,15 +83,19 @@ describe("Preferences", () => {
       await vi.waitFor(() => {
         expect(seen).toContainEqual({
           kind: "consent.changed",
-          entityKind: "conversation",
-          entity: group.id,
-          state: "allowed",
+          consent_changed: {
+            entityKind: "conversation",
+            entity: group.id,
+            state: "allowed",
+          },
         });
         expect(seen).toContainEqual({
           kind: "consent.changed",
-          entityKind: "inbox",
-          entity: peer.inboxId,
-          state: "denied",
+          consent_changed: {
+            entityKind: "inbox",
+            entity: peer.inboxId,
+            state: "denied",
+          },
         });
       }, WAIT);
     } finally {
@@ -122,9 +128,11 @@ describe("Preferences", () => {
       }, WAIT);
       expect(seen).toContainEqual({
         kind: "consent.changed",
-        entityKind: "conversation",
-        entity: group.id,
-        state: "denied",
+        consent_changed: {
+          entityKind: "conversation",
+          entity: group.id,
+          state: "denied",
+        },
       });
       await group.updateConsentState("allowed");
       const keys = await client.conversations.hmacKeys();

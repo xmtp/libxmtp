@@ -16,8 +16,7 @@ android {
         targetSdk 35
     }
     sourceSets.main {
-        java.srcDirs = ['.']
-        java.include 'Benchmark.kt', 'Live.kt', side == 'old' ? 'Old.kt' : 'New.kt'
+        java.srcDirs = []
         manifest.srcFile 'src/main/AndroidManifest.xml'
     }
     buildTypes.release {
@@ -26,13 +25,17 @@ android {
         signingConfig signingConfigs.debug
     }
     compileOptions {
+        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = '17' }
     packaging.resources.excludes += ['META-INF/AL2.0', 'META-INF/LGPL2.1']
 }
+kotlin.sourceSets.getByName('main').kotlin.setSrcDirs(['.'])
+kotlin.sourceSets.getByName('main').kotlin.include('Benchmark.kt', 'Live.kt', side == 'old' ? 'Old.kt' : 'New.kt')
 dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     // The frozen closure must contain the SDK and all of its runtime AAR/JAR files.
     implementation fileTree(dir: packageRoot, include: ['**/*.aar', '**/*.jar'])
 }
