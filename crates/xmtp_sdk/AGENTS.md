@@ -48,7 +48,7 @@ Run commands from the repository root in the Nix shell. Run
 - `dev/nix-shell 'just sdk cutover-bench-ios-prepare <config> <output>'` prepares a Release
   UIKit app for the installed old or new public Swift product. Then run
   `NIX_DEVSHELL=ios dev/nix-shell 'just sdk cutover-bench-ios-build <output> <simulator-udid> <derived-data>'`.
-  Use separate side directories.
+  Use separate side directories. Xcode uses its normal job count.
   `dev/nix-shell 'just sdk cutover-bench-ios-controls <host-config> <output>'` checks real app
   memory, signer HTTP, identity rejection, timing scope, and timeout cleanup.
   See `benchmarks/README.md` for the HTTP signer and app launch configuration.
