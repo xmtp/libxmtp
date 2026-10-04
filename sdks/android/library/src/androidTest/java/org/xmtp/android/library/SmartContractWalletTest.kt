@@ -49,15 +49,23 @@ class SmartContractWalletTest : BaseInstrumentedTest() {
             val installation = davon.installationId()
             val path = davon.storagePath()
             val identity = davonSCW.identity()
-            val options = davon.options()
+            val options =
+                davon.options().let {
+                    it.copy(storage = it.storage.copy(encryptionKey = dbEncryptionKey))
+                }
             davon.end()
             val reopened = trackClient(SDKClient.build(context, identity, options, inbox))
             assertEquals(inbox, reopened.inboxId())
             assertEquals(installation, reopened.installationId())
             assertEquals(path, reopened.storagePath())
             assertEquals(inbox, reopened.inboxIdFor(identity))
-            assertEquals(true, reopened.canMessage(listOf(boSigner.identity()))[boSigner.identity().identifier])
-            assertEquals(true, bo.canMessage(listOf(identity))[identity.identifier])
+            assertEquals(
+                true,
+                reopened.canMessage(
+                    listOf(boSigner.identity()),
+                )["ethereum:${boSigner.identity().identifier.lowercase()}"],
+            )
+            assertEquals(true, bo.canMessage(listOf(identity))["ethereum:${identity.identifier.lowercase()}"])
         }
 
     @Test fun test2_CanCreateGroup() =
@@ -84,7 +92,7 @@ class SmartContractWalletTest : BaseInstrumentedTest() {
             original.sendText("howdy")
             val id = original.sendText("gm")
             original.sync()
-            val latest = original.messages().first()
+            val latest = original.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first()
             assertEquals("gm", text(latest))
             assertEquals(id, latest.id)
             assertEquals(DeliveryStatus.PUBLISHED, latest.deliveryStatus)
@@ -92,13 +100,19 @@ class SmartContractWalletTest : BaseInstrumentedTest() {
             davon.conversations().syncAll(null)
             val davonGroup = group(davon, original.id())
             assertEquals(3, davonGroup.messages().size)
-            assertEquals("gm", text(davonGroup.messages().first()))
+            assertEquals(
+                "gm",
+                text(davonGroup.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first()),
+            )
             davonGroup.sendText("from davon")
             eri.conversations().syncAll(null)
             val eriGroup = group(eri, original.id())
             eriGroup.sync()
             assertEquals(4, eriGroup.messages().size)
-            assertEquals("from davon", text(eriGroup.messages().first()))
+            assertEquals(
+                "from davon",
+                text(eriGroup.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first()),
+            )
             val eriId = eriGroup.sendText("from eri")
             original.sync()
             assertEquals(eri.inboxId(), original.messages().single { it.id == eriId }.senderInboxId)

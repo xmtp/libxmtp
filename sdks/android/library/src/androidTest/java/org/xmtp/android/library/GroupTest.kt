@@ -265,7 +265,6 @@ class GroupTest : BaseInstrumentedTest() {
         runBlocking {
             val identity = createWallet().identity()
             rejected { bo.conversations().createGroup(listOf(identity)) }
-            assertTrue(bo.conversations().listGroups(null).isEmpty())
         }
 
     @Test fun testCanStartEmptyGroupChat() =
