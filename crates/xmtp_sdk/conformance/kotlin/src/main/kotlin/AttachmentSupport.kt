@@ -137,7 +137,7 @@ internal val attachmentKinds =
 internal fun attachmentFilter(kinds: List<EventKind> = attachmentKinds) =
     EventFilter(
         kinds = kinds + EventKind.CONVERSATION_JOINED,
-        conversationIds = null,
+        groupIds = null,
         contentTypes = null,
         referencesOwnMessages = false,
     )
@@ -148,7 +148,7 @@ internal data class AttachmentEvent(
     val attachmentKey: String,
     val url: String,
     val contentDigest: String,
-    val cause: AttachmentFailureCause? = null,
+    val cause: String? = null,
 )
 
 private fun AttachmentRef.event(kind: EventKind) = AttachmentEvent(kind, attachmentKey, url, contentDigest)
@@ -157,14 +157,47 @@ private fun AttachmentFailed.event(kind: EventKind) = AttachmentEvent(kind, atta
 
 internal fun attachmentEvent(event: ClientEvent): AttachmentEvent? =
     when (event) {
-        is ClientEvent.AttachmentUploadStarted -> event.attachment.event(EventKind.ATTACHMENT_UPLOAD_STARTED)
-        is ClientEvent.AttachmentUploadCompleted -> event.attachment.event(EventKind.ATTACHMENT_UPLOAD_COMPLETED)
-        is ClientEvent.AttachmentUploadFailed -> event.attachment.event(EventKind.ATTACHMENT_UPLOAD_FAILED)
-        is ClientEvent.AttachmentDownloadStarted -> event.attachment.event(EventKind.ATTACHMENT_DOWNLOAD_STARTED)
-        is ClientEvent.AttachmentDownloadCompleted -> event.attachment.event(EventKind.ATTACHMENT_DOWNLOAD_COMPLETED)
-        is ClientEvent.AttachmentDownloadFailed -> event.attachment.event(EventKind.ATTACHMENT_DOWNLOAD_FAILED)
-        is ClientEvent.AttachmentDeleted -> event.attachment.event(EventKind.ATTACHMENT_DELETED)
-        else -> null
+        is ClientEvent.AttachmentUploadStarted -> {
+            event.attachmentUploadStarted.event(
+                EventKind.ATTACHMENT_UPLOAD_STARTED,
+            )
+        }
+
+        is ClientEvent.AttachmentUploadCompleted -> {
+            event.attachmentUploadCompleted.event(
+                EventKind.ATTACHMENT_UPLOAD_COMPLETED,
+            )
+        }
+
+        is ClientEvent.AttachmentUploadFailed -> {
+            event.attachmentUploadFailed.event(EventKind.ATTACHMENT_UPLOAD_FAILED)
+        }
+
+        is ClientEvent.AttachmentDownloadStarted -> {
+            event.attachmentDownloadStarted.event(
+                EventKind.ATTACHMENT_DOWNLOAD_STARTED,
+            )
+        }
+
+        is ClientEvent.AttachmentDownloadCompleted -> {
+            event.attachmentDownloadCompleted.event(
+                EventKind.ATTACHMENT_DOWNLOAD_COMPLETED,
+            )
+        }
+
+        is ClientEvent.AttachmentDownloadFailed -> {
+            event.attachmentDownloadFailed.event(
+                EventKind.ATTACHMENT_DOWNLOAD_FAILED,
+            )
+        }
+
+        is ClientEvent.AttachmentDeleted -> {
+            event.attachmentDeleted.event(EventKind.ATTACHMENT_DELETED)
+        }
+
+        else -> {
+            null
+        }
     }
 
 /** Events of one reader, read one at a time with a bound on the wait. */
@@ -185,7 +218,7 @@ internal class EventQueue private constructor(
         while (true) {
             val event = next()
             if (event is ClientEvent.ConversationJoined) {
-                if (event.conversationId == marker) return events
+                if (event.conversationJoined.groupId.contentEquals(marker.hexToByteArray())) return events
                 continue
             }
             events.add(checkNotNull(attachmentEvent(event)) { "unexpected event $event" })

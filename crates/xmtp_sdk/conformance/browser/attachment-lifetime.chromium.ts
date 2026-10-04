@@ -29,7 +29,7 @@ export async function checkEventEnd(backendURL: string): Promise<void> {
     );
     const events = await client.events({
       kinds: ["conversation.joined"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     });
     control.worker.holdEvent();
     const read = events.next();
@@ -163,7 +163,7 @@ export async function checkAttachmentEnd(
       let deletions = 0;
       const first = signal();
       const listener = await reopened.startListener(
-        { kinds: ["attachment.deleted"], referencesOwnMessages: false },
+        { kinds: ["attachment.deleted"], references_own_messages: false },
         () => {
           deletions++;
           first.resolve();

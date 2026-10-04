@@ -57,7 +57,7 @@ private func eventLifetimeCycle(_ backend: BackendOptions, _ ownEnd: Bool) async
     }
     do {
         try id.set(await client.startListener(
-            filter: EventFilter(kinds: [.hmacKeysUpdated], conversationIds: nil, contentTypes: nil, referencesOwnMessages: false),
+            filter: EventFilter(kinds: [.hmacKeysUpdated], groupIds: nil, contentTypes: nil, referencesOwnMessages: false),
             listener: OperationListener(hold)
         ))
         _ = try client.sdkConformanceEmitHmacEvents(count: 1)

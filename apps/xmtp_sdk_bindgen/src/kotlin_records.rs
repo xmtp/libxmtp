@@ -22,6 +22,7 @@ pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String>
         if record.name == "StreamBarrierTopic" {
             output = topic_display(&output, record)?;
         }
+        output = attachment_display(&output, record)?;
         if !record.fields.iter().any(|field| byte_field(&field.ty)) {
             continue;
         }
@@ -47,6 +48,73 @@ pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String>
             output = notification_display(&output, value)?;
         }
     }
+    Ok(output)
+}
+
+fn attachment_display(source: &str, record: &RecordMetadata) -> Result<String> {
+    let (fields, text): (&[&str], &str) = match record.name.as_str() {
+        "RemoteAttachment" => (
+            &[
+                "url",
+                "content_digest",
+                "secret",
+                "salt",
+                "nonce",
+                "scheme",
+                "content_length",
+                "filename",
+            ],
+            "RemoteAttachment(url=<redacted>, contentDigest=$contentDigest, secret=<redacted>, salt=${salt.contentToString()}, nonce=${nonce.contentToString()}, scheme=$scheme, contentLength=$contentLength, filename=$filename)",
+        ),
+        "AttachmentRef" => (
+            &["attachment_key", "url", "content_digest"],
+            "AttachmentRef(attachmentKey=$attachmentKey, url=<redacted>, contentDigest=$contentDigest)",
+        ),
+        "AttachmentFailed" => (
+            &["attachment_key", "url", "content_digest", "cause"],
+            "AttachmentFailed(attachmentKey=$attachmentKey, url=<redacted>, contentDigest=$contentDigest, cause=$cause)",
+        ),
+        _ => return Ok(source.to_owned()),
+    };
+    if record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .ne(fields.iter().copied())
+        || !record
+            .fields
+            .iter()
+            .any(|field| field.name == "url" && field.ty == Type::String)
+        || (record.name == "RemoteAttachment"
+            && !record
+                .fields
+                .iter()
+                .any(|field| field.name == "secret" && field.ty == Type::Bytes))
+    {
+        bail!("{}: expected the attachment fields and URL", record.name);
+    }
+    let anchor = format!("data class {} (", record.name);
+    if source.matches(&anchor).count() != 1 {
+        bail!("{}: expected one generated data class", record.name);
+    }
+    let start = source.find(&anchor).expect("one admitted record");
+    let body = source[start..]
+        .find("){\n")
+        .map(|at| start + at + 3)
+        .with_context(|| format!("{}: generated record has no body", record.name))?;
+    let end = source[body..]
+        .find("\n}")
+        .map(|at| body + at)
+        .with_context(|| format!("{}: generated record has no end", record.name))?;
+    let display = format!("    override fun toString(): String = \"{text}\"\n\n");
+    if source[body..end].contains(&display) {
+        return Ok(source.to_owned());
+    }
+    if source[body..end].contains("fun toString(") {
+        bail!("{}: generated display already exists", record.name);
+    }
+    let mut output = source.to_owned();
+    output.insert_str(body, &display);
     Ok(output)
 }
 
@@ -89,7 +157,7 @@ fn notification_display(source: &str, value: &EnumMetadata) -> Result<String> {
     for (name, text) in [
         ("Apns", "Apns(token=<redacted>)"),
         ("Fcm", "Fcm(token=<redacted>)"),
-        ("Http", "Http(url=$url, signingKey=<redacted>)"),
+        ("Http", "Http(url=<redacted>, signingKey=<redacted>)"),
     ] {
         let anchor = format!("data class {name}(");
         if block.matches(&anchor).count() != 1 {

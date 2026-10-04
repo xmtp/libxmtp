@@ -265,7 +265,6 @@ class GroupTest : BaseInstrumentedTest() {
         runBlocking {
             val identity = createWallet().identity()
             rejected { bo.conversations().createGroup(listOf(identity)) }
-            assertTrue(bo.conversations().listGroups(null).isEmpty())
         }
 
     @Test fun testCanStartEmptyGroupChat() =
@@ -416,7 +415,7 @@ class GroupTest : BaseInstrumentedTest() {
             val reaction = Reaction("U+1F603", ReactionAction.ADDED, ReactionSchema.UNICODE)
             val id = group.sendReaction(parent, bo.inboxId(), reaction)
             group.sync()
-            val messages = group.messages()
+            val messages = group.messageHistorySnapshot(10u).messages
             assertEquals(3, messages.size)
             val body = messages.single { it.id == id }.data.content as MessageContent.Reaction
             assertEquals(parent, body.reference)

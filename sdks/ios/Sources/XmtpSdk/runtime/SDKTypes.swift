@@ -310,3 +310,40 @@ extension RemoteAttachment: CustomStringConvertible, CustomDebugStringConvertibl
         description
     }
 }
+
+extension AttachmentRef: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        "AttachmentRef(attachmentKey: \(String(reflecting: attachmentKey)), "
+            + "url: <redacted>, contentDigest: \(String(reflecting: contentDigest)))"
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}
+
+extension AttachmentFailed: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        "AttachmentFailed(attachmentKey: \(String(reflecting: attachmentKey)), "
+            + "url: <redacted>, contentDigest: \(String(reflecting: contentDigest)), "
+            + "cause: \(String(reflecting: cause)))"
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}
+
+extension EncodedContent: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        var diagnosticParameters = parameters
+        if diagnosticParameters["secret"] != nil {
+            diagnosticParameters["secret"] = "<redacted>"
+        }
+        return "EncodedContent(type: \(String(reflecting: type)), parameters: \(String(reflecting: diagnosticParameters)), fallback: \(String(reflecting: fallback)), content: \(String(reflecting: content)))"
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}

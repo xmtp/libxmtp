@@ -95,10 +95,15 @@ class ClientTest : BaseInstrumentedTest() {
                 val changed = CompletableDeferred<ClientEvent.ConversationMetadataChanged>()
                 val listener =
                     created.startListener(
-                        EventFilter(listOf(EventKind.CONVERSATION_METADATA_CHANGED), listOf(group.id()), null, false),
+                        EventFilter(
+                            listOf(EventKind.CONVERSATION_METADATA_CHANGED),
+                            listOf(group.id().hexToByteArray()),
+                            null,
+                            false,
+                        ),
                         { event ->
                             if (event is ClientEvent.ConversationMetadataChanged &&
-                                event.conversationId == group.id()
+                                event.metadataChanged.groupId.contentEquals(group.id().hexToByteArray())
                             ) {
                                 changed.complete(event)
                             }
@@ -106,7 +111,10 @@ class ClientTest : BaseInstrumentedTest() {
                     )
                 try {
                     group.updateAppData("client-runtime-options", null)
-                    assertEquals(group.id(), withTimeout(5_000) { changed.await() }.conversationId)
+                    assertArrayEquals(
+                        group.id().hexToByteArray(),
+                        withTimeout(5_000) { changed.await() }.metadataChanged.groupId,
+                    )
                     assertEquals("client-runtime-options", group.state().appData)
                 } finally {
                     withContext(NonCancellable) { created.stopListener(listener) }
@@ -453,7 +461,9 @@ class ClientTest : BaseInstrumentedTest() {
                 val group = created.conversations().createGroup(emptyList<InboxId>())
                 val after = created.diagnostics().apiStatistics()
                 assertTrue(after.publish > before.publish)
-                assertTrue(after.queryNewest > before.queryNewest)
+                created.conversations().sync()
+                val queried = created.diagnostics().apiStatistics()
+                assertTrue(queried.queryNewest > after.queryNewest)
                 group.sendText("hi")
                 val sent = created.diagnostics().apiStatistics()
                 assertTrue(sent.publish > after.publish)

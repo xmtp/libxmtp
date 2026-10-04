@@ -131,7 +131,7 @@ export function attachmentFilter(
 ): sdk.EventFilter {
   return {
     kinds: [...kinds, "conversation.joined"],
-    referencesOwnMessages: false,
+    references_own_messages: false,
   };
 }
 
@@ -175,7 +175,8 @@ export async function drain(
     const event = next.value;
     switch (event.kind) {
       case "conversation.joined":
-        if (event.conversation_joined.conversationId === marker) return events;
+        if (hexBytes(event.conversation_joined.group_id) === marker)
+          return events;
         break;
       case "attachment.upload_started":
       case "attachment.upload_completed":
@@ -192,11 +193,15 @@ export async function drain(
   }
 }
 
+function hexBytes(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
+}
+
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes));
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  return hexBytes(new Uint8Array(digest));
 }
 
 /** The directory core names for a deployment with a file-safe identifier. */

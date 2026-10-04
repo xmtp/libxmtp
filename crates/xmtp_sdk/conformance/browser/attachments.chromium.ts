@@ -140,7 +140,7 @@ export async function checkAttachmentFlow(
     );
     equal(attachmentPayload(uploaded[0]!).url, remote.url, "upload event URL");
     equal(
-      attachmentPayload(uploaded[0]!).contentDigest,
+      attachmentPayload(uploaded[0]!).content_digest,
       remote.contentDigest,
       "upload event digest",
     );
@@ -243,7 +243,7 @@ export async function checkAttachmentFlow(
     same(
       downloads.map((event) => [
         event.kind,
-        attachmentPayload(event).contentDigest,
+        attachmentPayload(event).content_digest,
       ]),
       [
         ["attachment.download_started", received.contentDigest],
@@ -260,8 +260,8 @@ export async function checkAttachmentFlow(
       "download event URL",
     );
     expect(
-      attachmentPayload(downloads[0]!).attachmentKey !==
-        attachmentPayload(downloads[2]!).attachmentKey,
+      attachmentPayload(downloads[0]!).attachment_key !==
+        attachmentPayload(downloads[2]!).attachment_key,
       "two downloads share a key",
     );
     same(

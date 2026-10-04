@@ -314,7 +314,7 @@ async fn attachment_failures_carry_one_record_in_errors_and_status() {
         [
             ClientEvent::AttachmentUploadStarted { .. },
             ClientEvent::AttachmentUploadFailed { attachment_upload_failed: attachment },
-        ] if attachment.cause == AttachmentFailureCause::StagedUnusable
+        ] if attachment.cause == "staged_unusable"
             && attachment.content_digest == digest
     ));
 
@@ -416,17 +416,13 @@ async fn attachment_failures_carry_one_record_in_errors_and_status() {
         .filter_map(|event| match event {
             ClientEvent::AttachmentDownloadFailed {
                 attachment_download_failed: attachment,
-            } => Some(attachment.cause),
+            } => Some(attachment.cause.as_str()),
             _ => None,
         })
         .collect();
     assert_eq!(
         causes,
-        [
-            AttachmentFailureCause::HttpStatus,
-            AttachmentFailureCause::DigestMismatch,
-            AttachmentFailureCause::DecryptionFailed,
-        ]
+        ["http_status", "digest_mismatch", "decryption_failed",]
     );
     events.end().await?;
     downloader.end().await?;

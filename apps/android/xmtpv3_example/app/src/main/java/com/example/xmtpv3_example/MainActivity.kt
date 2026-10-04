@@ -26,7 +26,7 @@ class MainActivity : AppCompatActivity() {
                                         BackendSource.Options(
                                             BackendOptions(url = BuildConfig.XMTP_BACKEND_URL),
                                         ),
-                                    storage = StorageOptions(location = StorageLocation.Default),
+                                    storage = StorageOptions(location = StorageLocation.InMemory),
                                 ),
                             )
                         try {

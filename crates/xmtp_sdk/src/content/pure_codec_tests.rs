@@ -218,6 +218,26 @@ fn standard_codec_bytes_match_the_core_send_codecs() {
 }
 
 #[cfg(test)]
+// verifies: CTYPE-014
+#[xmtp_common::test(unwrap_try = true)]
+fn remote_attachment_requires_each_catalogue_parameter() {
+    let (_, encoded) = standard_codec_samples()?
+        .into_iter()
+        .find(|(value, _)| matches!(value, StandardContent::RemoteAttachment(_)))
+        .expect("remote attachment sample");
+    let encoded: EncodedContent = encoded.try_into()?;
+    for parameter in ["contentDigest", "secret", "salt", "nonce", "scheme"] {
+        let mut missing = encoded.clone();
+        assert!(missing.parameters.remove(parameter).is_some());
+        let result = decode_standard(missing);
+        assert!(
+            matches!(result, Err(crate::XmtpError::CodecDecodeFailed(_))),
+            "missing {parameter} decoded as {result:?}"
+        );
+    }
+}
+
+#[cfg(test)]
 // verifies: CTYPE-011
 // verifies: CTYPE-024
 #[xmtp_common::test(unwrap_try = true)]

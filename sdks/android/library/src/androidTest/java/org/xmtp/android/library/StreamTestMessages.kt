@@ -25,6 +25,22 @@ internal class StreamTestMessages {
         assertEquals(expected, applications())
     }
 
+    suspend fun awaitApplicationsAcrossConversations(
+        expected: List<Pair<String, String>>,
+        localHistory: suspend () -> List<Message>,
+    ) {
+        withTimeout(30_000) {
+            while (applications().size < expected.size) delay(10)
+        }
+        val actual = applications()
+        assertEquals(expected.size, actual.size)
+        assertEquals(actual.size, actual.map { it.first }.toSet().size)
+        assertEquals(expected.toSet(), actual.toSet())
+        val expectedIds = expected.map { it.first }.toSet()
+        val storedOrder = localHistory().filter { it.id in expectedIds }.map { it.id }
+        assertEquals("local delivery order", storedOrder, actual.map { it.first })
+    }
+
     private fun applications(): List<Pair<String, String>> =
         snapshot()
             .filter { it.kind == MessageKind.APPLICATION }

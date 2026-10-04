@@ -10,15 +10,19 @@ describe("preferences stream", () => {
         (async function* () {
           yield {
             kind: "consent.changed",
-            entityKind: "inbox",
-            entity: "inbox-1",
-            state: "allowed",
+            consent_changed: {
+              entityKind: "inbox",
+              entity: "inbox-1",
+              state: "allowed",
+            },
           };
           yield {
             kind: "consent.changed",
-            entityKind: "conversation",
-            entity: "group-1",
-            state: "denied",
+            consent_changed: {
+              entityKind: "conversation",
+              entity: "group-1",
+              state: "denied",
+            },
           };
         })(),
       ),
@@ -32,9 +36,20 @@ describe("preferences stream", () => {
 
     await command.run();
 
-    expect(
-      output.mock.calls.map(([value]) => value.updates[0].entityType),
-    ).toEqual(["inbox_id", "conversation_id"]);
+    expect(output.mock.calls.map(([value]) => value.updates[0])).toEqual([
+      {
+        type: "ConsentUpdate",
+        entityType: "inbox_id",
+        entity: "inbox-1",
+        state: "allowed",
+      },
+      {
+        type: "ConsentUpdate",
+        entityType: "conversation_id",
+        entity: "group-1",
+        state: "denied",
+      },
+    ]);
   });
 
   it("reports discarded events without claiming an HMAC update", async () => {
@@ -42,8 +57,8 @@ describe("preferences stream", () => {
     const client = {
       events: vi.fn(async () =>
         (async function* () {
-          yield { kind: "lagged", discarded: 3n };
-          yield { kind: "hmac_keys.updated" };
+          yield { kind: "lagged", lagged: { discarded: 3n } };
+          yield { kind: "hmac_keys.updated", hmac_keys_updated: {} };
         })(),
       ),
       conversations: { hmacKeys },

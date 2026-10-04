@@ -8,13 +8,34 @@ import uniffi.xmtp_sdk.*
 class DeleteMessageCodecTest : BaseInstrumentedTest() {
     private val value = DeleteMessageContent("ab".repeat(32))
 
+    private fun assertDeletedParent(
+        messages: List<Message>,
+        parentId: String,
+        actionId: String,
+    ) {
+        assertTrue(actionId.isNotEmpty())
+        assertNotEquals(parentId, actionId)
+        assertFalse(messages.any { it.id == actionId })
+        val parent = messages.single { it.id == parentId }
+        val content = ((parent.content as SDKMessageContent.Standard).value as MessageContent.DeletedMessage).v1
+        assertTrue(content.deletedBy is DeletedBy.Sender)
+        assertEquals(ContentTypeId("xmtp.org", "deletedMessage", 1u, 0u), parent.contentType)
+    }
+
     @Test fun testCanUseDeleteMessageCodec() =
         runBlocking {
             val fixtures = createFixtures()
             val dm = fixtures.alixClient.conversations().createDm(fixtures.boClient.inboxId())
-            val id = dm.send(DeleteMessageCodec(), value)
-            val message = dm.messages().single { it.id == id }
-            assertEquals(value, DeleteMessageCodec().decode(checkNotNull(message.encoded)))
+            fixtures.boClient.conversations().syncAll(null)
+            val received = (checkNotNull(fixtures.boClient.conversations().getById(dm.id())) as Conversation.Dm).dm
+            val parentId = dm.sendText("Delete this message")
+            received.sync()
+            val payload = DeleteMessageContent(parentId)
+            val codec = DeleteMessageCodec()
+            assertEquals(payload, codec.decode(codec.encode(payload)))
+            val actionId = dm.send(codec, payload)
+            received.sync()
+            assertDeletedParent(received.messages(), parentId, actionId)
         }
 
     @Test fun testDeleteMessageCodecEncodeDecode() {
@@ -41,19 +62,31 @@ class DeleteMessageCodecTest : BaseInstrumentedTest() {
                         fixtures.boClient.conversations().getById(group.id()),
                     ) as Conversation.Group
                 ).group
-            val id = group.send(DeleteMessageCodec(), value)
+            val parentId = group.sendText("Delete this message")
             received.sync()
-            val message = received.messages().single { it.id == id }
-            assertEquals(value, DeleteMessageCodec().decode(checkNotNull(message.encoded)))
+            val payload = DeleteMessageContent(parentId)
+            val codec = DeleteMessageCodec()
+            assertEquals(payload, codec.decode(codec.encode(payload)))
+            val actionId = group.send(codec, payload)
+            received.sync()
+            assertDeletedParent(received.messages(), parentId, actionId)
         }
 
     @Test fun testDeleteMessageContentTypeInListMessages() =
         runBlocking {
             val fixtures = createFixtures()
             val dm = fixtures.alixClient.conversations().createDm(fixtures.boClient.inboxId())
-            val id = dm.send(DeleteMessageCodec(), value)
-            val message = dm.messages().single { it.id == id }
-            assertEquals(DeleteMessageCodec().type, message.contentType)
-            assertEquals(value, DeleteMessageCodec().decode(checkNotNull(message.encoded)))
+            fixtures.boClient.conversations().syncAll(null)
+            val received = (checkNotNull(fixtures.boClient.conversations().getById(dm.id())) as Conversation.Dm).dm
+            val parentId = dm.sendText("Delete this message")
+            received.sync()
+            val payload = DeleteMessageContent(parentId)
+            val codec = DeleteMessageCodec()
+            val encoded = codec.encode(payload)
+            assertEquals(codec.type, encoded.type)
+            assertEquals(payload, codec.decode(encoded))
+            val actionId = dm.send(codec, payload)
+            received.sync()
+            assertDeletedParent(received.messages(), parentId, actionId)
         }
 }
