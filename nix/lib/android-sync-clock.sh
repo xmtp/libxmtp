@@ -11,9 +11,10 @@ device() {
 # The backend uses the host clock. A slow guest clock delays message expiry.
 device root
 device wait-for-device
-# The settings service can start after adbd accepts commands.
+# Settings can start after adbd accepts commands. API 23 uses a content provider.
 for attempt in {1..30}; do
-  if device shell service check settings | grep -q ': found'; then
+  if auto_time=$(device shell settings get global auto_time | tr -d '\r') &&
+    [[ "$auto_time" =~ ^[01]$ ]]; then
     break
   fi
   if ((attempt == 30)); then
