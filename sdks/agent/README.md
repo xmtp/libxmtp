@@ -115,7 +115,7 @@ Agents can also recognize the following environment variables:
 
 Subscribe only to what you need using Node’s `EventEmitter` interface. Events you can listen for:
 
-For message and conversation events, the agent waits for async listeners before it accepts a stream value. A rejected listener goes through error middleware.
+For message and conversation events, the agent waits for all listeners to finish before it accepts a stream value. If one listener fails, error middleware receives that error. If more than one listener fails, it receives an `AggregateError` with all failures.
 
 #### Message Events
 
