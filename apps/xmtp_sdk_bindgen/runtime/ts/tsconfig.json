@@ -1,0 +1,10 @@
+{
+  "extends": "../../../../dev/js/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "WebWorker"],
+    "target": "ES2024",
+    "typeRoots": ["../../../../sdks/node/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}

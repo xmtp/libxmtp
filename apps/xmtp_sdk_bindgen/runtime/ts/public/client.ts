@@ -147,7 +147,11 @@ export class Client extends ClientMembers {
       HostClient.build(
         lowerPublicIdentity(identity, projection),
         hostOptions(
-          await resolveLegacyStorage(options, () => Promise.resolve(identity), inboxId),
+          await resolveLegacyStorage(
+            options,
+            () => Promise.resolve(identity),
+            inboxId,
+          ),
           projection,
         ),
         inboxId,
