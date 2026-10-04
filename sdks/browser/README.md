@@ -39,6 +39,20 @@ other tab, then retry. Await `client.end()` before another client takes storage.
 Use `Storage.admin()` to inspect or restore storage before a client exists.
 Await `admin.end()` when the operation ends.
 
+Only one message reader without `from` can be active per client database. A
+second reader fails with `XmtpError.ConsumerOwned`, even for a different group,
+DM, or filter. End the first reader before opening another. An explicit `from`
+cursor starts independent replay and live delivery. It does not advance default
+delivery progress or create another durable consumer checkpoint. Save the last
+processed message's `deliveryCursor` in the app and use it only with the same
+database.
+
+Requesting the next item acknowledges the previous item. Await message handling
+before the next read, and return or await asynchronous work in an `onValue`
+callback. Queued or unawaited work does not delay acknowledgement. `end()` and
+iterator `return()` do not acknowledge the last item. They cannot undo an
+acknowledgement after its commit has been admitted.
+
 Messages have a `content.kind` discriminator. For example, text is
 `{ kind: "text", value: "hello" }`. A message returns its public client through
 `message.client()`. Timestamps use `Timestamp` and nanoseconds use `.ns`.
