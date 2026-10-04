@@ -31,13 +31,24 @@ export const LocalDatabases: React.FC = () => {
       const label = await backendLabel(backendUrl);
       const admin = await Storage.admin();
       try {
-        const available = (await admin.listFiles()).filter(
-          (file) =>
-            (file.replace(/^\/+/, "").startsWith(`xmtp-sdk/${label}/`) &&
-              file.endsWith("/xmtp.db3")) ||
-            (file.split("/").at(-1)?.startsWith(`xmtp-${label}-`) &&
-              file.endsWith(".db3")),
-        );
+        const available = (await admin.listFiles()).filter((file) => {
+          const path = file.replace(/^\/+/, "");
+          const parts = path.split("/");
+          if (parts.length === 5) {
+            return (
+              parts[0] === "xmtp-sdk" &&
+              parts[1] === label &&
+              Boolean(parts[2] && parts[3]) &&
+              parts[4] === "xmtp.db3"
+            );
+          }
+          const prefix = `xmtp-${label}-`;
+          return (
+            parts.length === 1 &&
+            path.startsWith(prefix) &&
+            /^[0-9a-f]{64}\.db3$/i.test(path.slice(prefix.length))
+          );
+        });
         if (remove) {
           const pending =
             selected !== null &&

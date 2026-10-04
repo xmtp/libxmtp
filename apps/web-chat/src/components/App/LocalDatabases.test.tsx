@@ -37,7 +37,9 @@ it("deletes only a selected database for this backend and awaits admin end", asy
   const retained = `/xmtp-sdk/selected-backend/${deployment}/other/xmtp.db3`;
   const foreign = `/xmtp-sdk/other-backend/${deployment}/inbox/xmtp.db3`;
   const foreignInbox = `/xmtp-sdk/other-backend/${deployment}/selected-backend/xmtp.db3`;
-  const legacy = `xmtp-selected-backend-${deployment}.db3`;
+  const inboxId = crypto.randomUUID().replaceAll("-", "").repeat(2);
+  const legacy = `xmtp-selected-backend-${inboxId}.db3`;
+  const nestedLegacy = `/unrelated/${legacy}`;
   const root = await navigator.storage.getDirectory();
   const makeDirectory = async (path: string) => {
     let directory = root;
@@ -59,6 +61,7 @@ it("deletes only a selected database for this backend and awaits admin end", asy
     foreign,
     foreignInbox,
     legacy,
+    nestedLegacy,
   ]);
   mocks.admin.mockResolvedValue({
     listFiles: mocks.list,
