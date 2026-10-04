@@ -120,6 +120,7 @@ jobs:
               - '.github/actions/setup-nix/**'
               - '.github/actions/setup-js/**'
               - '.github/workflows/test-sdk.yml'
+              - '.github/workflows/build-sdk-node-platforms.yml'
             sdk_swift:
               - 'dev/worktree-env'
               - 'dev/docker/load-env'
