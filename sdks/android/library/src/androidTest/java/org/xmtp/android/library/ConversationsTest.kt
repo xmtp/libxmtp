@@ -227,7 +227,7 @@ class ConversationsTest : BaseInstrumentedTest() {
         runBlocking {
             val dms = List(5) { alix.conversations().createDm(createClient(createWallet()).inboxId()) }
             val keys = alix.conversations().hmacKeys()
-            assertTrue(keys.keys.containsAll(dms.map { it.topic() }))
+            assertTrue(keys.keys.containsAll(dms.map { it.id() }))
         }
 
     @Test fun testHmacKeysIncludeDuplicateDms() =
@@ -246,7 +246,8 @@ class ConversationsTest : BaseInstrumentedTest() {
             val dmKeys = dm1.hmacKeys()
             assertEquals(3, allKeys.size)
             assertEquals(2, listed.size)
-            assertEquals(2, dmKeys.size)
+            assertEquals(3, dmKeys.size)
+            assertEquals(listOf(dmKeys[1].epoch - 1, dmKeys[1].epoch, dmKeys[1].epoch + 1), dmKeys.map { it.epoch })
             assertTrue(allKeys.values.flatten().containsAll(dmKeys))
         }
 
