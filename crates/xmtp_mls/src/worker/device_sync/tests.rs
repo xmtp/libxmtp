@@ -9,7 +9,7 @@ use xmtp_db::{
 // verifies: PROC-036
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
-async fn device_sync_logs_omit_installation_id_on_group_creation() {
+async fn device_sync_creation_logs_omit_full_private_ids() {
     use tracing::instrument::WithSubscriber;
     use xmtp_logging::{Level, test_logging::LogCapture};
 
@@ -17,7 +17,8 @@ async fn device_sync_logs_omit_installation_id_on_group_creation() {
     let sync = alix.context.device_sync_client();
     assert!(sync.primary_sync_group()?.is_none());
     let capture = LogCapture::new(Level::Trace);
-    sync.get_sync_group()
+    let group = sync
+        .get_sync_group()
         .with_subscriber(capture.dispatch())
         .await?;
     let output = capture.output();
@@ -28,6 +29,10 @@ async fn device_sync_logs_omit_installation_id_on_group_creation() {
     assert!(
         !event.contains(&hex::encode(alix.context.installation_id())),
         "group creation log contains the full installation ID"
+    );
+    assert!(
+        !event.contains(&hex::encode(&group.group_id)),
+        "group creation log contains the full sync group ID"
     );
 }
 
