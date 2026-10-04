@@ -71,9 +71,22 @@ record through its own attachment store. The SDK checks transfer limits and
 content digests. Local emulator fixtures need `allowPrivateNetwork = true` and
 `adb reverse` for the backend's advertised loopback attachment port.
 
-Use `client.messages(group)` or `client.messages(dm)` for a Flow. A successful
-collector return permits the next request to acknowledge the prior message.
+Use `client.messages(group)` or `client.messages(dm)` for a Flow. The next native
+read acknowledges the previous message after `emit` returns. With direct
+sequential collection, the collector callback finishes before
+that acknowledgement starts. A buffer or another asynchronous operator can let
+`emit` return before downstream processing ends. Cancellation after
+acknowledgement does not restore the message to default progress. The Flow does
+not provide durable acknowledgements for each downstream consumer.
 Cancellation before ACK commit admission preserves the message for replay.
+
+Only one default message reader can own progress in a client database. Different
+group or DM scopes do not create separate default owners. A second active default
+message reader fails with `XmtpException.ConsumerOwned`. Set the reader option
+`from` to an explicit snapshot cursor for independent replay/live reading. These readers do
+not advance default progress or create a durable consumer checkpoint. End the
+current default reader before opening another default reader.
+
 If the collector throws, its exception propagates to the caller and `onClose`
 receives one `Closed` reason. Normal completion and cancellation also receive
 one `Closed` reason.
