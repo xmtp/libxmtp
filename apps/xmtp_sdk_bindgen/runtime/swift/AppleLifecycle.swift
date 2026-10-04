@@ -161,9 +161,9 @@ final class StreamLifecycleManager: @unchecked Sendable {
                 }
             } catch {
                 os_log(
-                    "Stream %{public}@ failed: %{public}@",
+                    "Stream %{public}@ failed",
                     log: OSLog.default, type: .error,
-                    target ? "resume" : "suspend", error.localizedDescription
+                    target ? "resume" : "suspend"
                 )
                 if !target {
                     markApplied(false)
