@@ -33,11 +33,25 @@ for (const [stream, expectedRows, expectedReactions] of [
   );
 }
 
+const browserStream = seedRows(
+  { ...fixture, stream_keys: fixture.stream_keys.slice(0, 500) },
+  true,
+);
+assert.equal(browserStream.length, 500);
+assert.equal(
+  browserStream.reduce((count, row) => count + row.reactions.length, 0),
+  125,
+);
+assert.equal(
+  browserStream.reduce((count, row) => count + 1 + row.reactions.length, 0),
+  625,
+);
+
 assert.throws(
   () => seedRows({ ...fixture, page_keys: ["1"] }, false),
   /Invalid benchmark seed row 1/,
 );
 
 console.log(
-  "Page seeds 1,000 primary and 250 reaction events; stream seeds 10,000 and 2,500.",
+  "Page seeds 1,000 primary and 250 reactions; stream seeds 10,000/2,500, or Browser 500/125.",
 );

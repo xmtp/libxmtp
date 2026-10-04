@@ -12,7 +12,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fixtures import canonical, dataset, digest, expected_observation
+from fixtures import (
+    canonical,
+    dataset,
+    digest,
+    expected_observation,
+    expected_stream_counts,
+)
 from packages import inventory
 from ios_cleanup import terminate_registered
 from benchmark_stats import LIMIT, MIN_PAIRS, paired_summary, percentile
@@ -125,6 +131,13 @@ def validate_measurement(row, fixture, target):
     response = row["response"]
     if response.get("observation") != expected_observation(fixture, row["workload"]):
         raise ValueError("Incorrect or incomplete observed public values")
+    if target == "browser" and row["workload"] == "stream":
+        primary, events = expected_stream_counts(fixture)
+        if (response.get("streamed_primary"), response.get("streamed_events")) != (
+            primary,
+            events,
+        ):
+            raise ValueError("Incorrect Browser stream event counts")
     if set(response.get("safety", {})) != set(SAFETY):
         raise ValueError("Missing independent correctness or lifetime outcome")
     if any(
@@ -164,7 +177,7 @@ def validate_mobile(row):
 def summarize(ledger):
     config = ledger["config"]
     validate_config(config)
-    fixture = dataset()
+    fixture = dataset(config["target"])
     if ledger.get("fixture_sha256") != digest(fixture):
         raise ValueError("Dataset hash mismatch")
     rows = ledger["samples"]
@@ -351,7 +364,7 @@ def run(config_path, output, target=None):
         raise ValueError("Target entry point does not match the configuration")
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
-    fixture = dataset()
+    fixture = dataset(config["target"])
     write_json(output / "fixture.json", fixture)
     packages = {
         side: inventory(config[side]["root"], config[side]["assets"], config["target"])
@@ -481,9 +494,10 @@ def main():
     command.add_argument("output")
     command = sub.add_parser("fixture")
     command.add_argument("output")
+    command.add_argument("--target", choices=TARGETS)
     args = parser.parse_args()
     if args.action == "fixture":
-        write_json(args.output, dataset())
+        write_json(args.output, dataset(args.target))
         return 0
     if args.action == "analyze":
         report = summarize(json.loads(Path(args.ledger).read_text()))

@@ -14,7 +14,8 @@ def digest(value):
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
-def dataset():
+def dataset(target=None):
+    browser = target == "browser"
     messages = []
     for index in range(10000):
         # IDs are local fixture keys. Adapters map them to real published IDs.
@@ -39,21 +40,44 @@ def dataset():
             }
         )
     return {
-        "schema": 1,
-        "seed": "xmtp-cutover-v1",
+        "schema": 2 if browser else 1,
+        "seed": "xmtp-cutover-browser-stream-500-v2" if browser else "xmtp-cutover-v1",
         "messages": messages,
         "page_keys": [str(i) for i in range(1000)],
-        "stream_keys": [str(i) for i in range(10000)],
+        "stream_keys": [str(i) for i in range(500 if browser else 10000)],
         "enrichment": ["decoded_content", "reply_parent", "reactions", "attachments"],
         "callback_delay_ms": 25,
     }
 
 
+def stream_rows(fixture):
+    by_key = {row["key"]: row for row in fixture["messages"]}
+    keys = fixture["stream_keys"]
+    selected = set(keys)
+    if len(keys) != len(selected):
+        raise ValueError("Stream fixture keys must be unique")
+    rows = [by_key[key] for key in keys]
+    if any(
+        row["reply_to"] is not None and row["reply_to"] not in selected
+        for row in rows
+    ):
+        raise ValueError("Stream fixture is missing a reply parent")
+    return rows
+
+
+def expected_stream_counts(fixture):
+    rows = stream_rows(fixture)
+    return len(rows), sum(1 + len(row["reactions"]) for row in rows)
+
+
 def expected_observation(fixture, workload):
     if workload in {"page", "stream", "mobile_record"}:
-        count = 1000 if workload != "stream" else 10000
-        rows = fixture["messages"][:count]
-        return {"count": count, "semantic_sha256": digest(rows)}
+        rows = (
+            stream_rows(fixture)
+            if workload == "stream"
+            else fixture["messages"][:1000]
+        )
+        return {"count": len(rows), "semantic_sha256": digest(rows)}
     return {
         "count": 1,
         "semantic_sha256": digest({"workload": workload, "completed": True}),
