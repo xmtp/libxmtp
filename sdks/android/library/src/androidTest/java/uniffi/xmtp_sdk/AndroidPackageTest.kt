@@ -473,4 +473,16 @@ class AndroidPackageTest {
             assertTrue(SDKClient.clearXMTPLogs(context) >= 1)
             assertFalse(marker.exists())
         }
+
+    // verifies: PROC-036
+    @Test fun hmacKeyDiagnosticsKeepDataAndHideBytes() {
+        val sentinel = byteArrayOf(19, -42, 67, 11)
+        val value = HmacKey(sentinel, 42L)
+        assertArrayEquals(sentinel, value.key)
+        assertEquals(42L, value.epoch)
+        val forms = listOf(value.toString(), listOf(value).toString(), mapOf("scope" to listOf(value)).toString())
+        println("HMAC test-sentinel diagnostics: $forms")
+        val leaked = forms.count { it.contains("19, -42, 67, 11") }
+        assertEquals("HMAC diagnostics expose test bytes", 0, leaked)
+    }
 }
