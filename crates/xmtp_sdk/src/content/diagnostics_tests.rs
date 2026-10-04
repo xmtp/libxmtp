@@ -6,7 +6,7 @@ fn secret() -> Vec<u8> {
 
 fn remote_attachment() -> RemoteAttachment {
     RemoteAttachment {
-        url: "https://example.invalid/attachment".into(),
+        url: "https://example.invalid/attachment?token=attachment-access-token".into(),
         content_digest: "digest".into(),
         secret: secret(),
         salt: vec![2; 32],
@@ -18,6 +18,10 @@ fn remote_attachment() -> RemoteAttachment {
 }
 
 fn assert_redacted(diagnostic: String) {
+    assert!(
+        !diagnostic.contains("attachment-access-token"),
+        "attachment URL in {diagnostic}"
+    );
     assert!(
         !diagnostic.contains(&format!("{:?}", secret())),
         "secret in {diagnostic}"
@@ -31,6 +35,10 @@ fn attachment_diagnostics_hide_sdk_remote_secret() {
     let remote = remote_attachment();
     assert_redacted(format!("{remote:?}"));
     assert_eq!(remote.secret, secret());
+    assert_eq!(
+        remote.url,
+        "https://example.invalid/attachment?token=attachment-access-token"
+    );
     assert_eq!(remote.content_length, Some(64));
     assert!(format!("{remote:?}").contains("attachment.txt"));
 }

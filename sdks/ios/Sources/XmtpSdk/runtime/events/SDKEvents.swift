@@ -21,17 +21,26 @@ final class ListenerGates: @unchecked Sendable {
     private let lock = NSLock()
     private var active: [ListenerId: ListenerStartGate] = [:]
     private var pending: [ListenerStartGate] = []
+    private var closed = false
 
     func addPending(_ gate: ListenerStartGate) {
         lock.lock()
-        pending.append(gate)
+        if closed {
+            gate.stop()
+        } else {
+            pending.append(gate)
+        }
         lock.unlock()
     }
 
     func registered(_ id: ListenerId, gate: ListenerStartGate) {
         lock.lock()
         pending.removeAll { $0 === gate }
-        active[id] = gate
+        if closed {
+            gate.stop()
+        } else {
+            active[id] = gate
+        }
         lock.unlock()
     }
 
@@ -49,6 +58,7 @@ final class ListenerGates: @unchecked Sendable {
 
     func stopAll() {
         lock.lock()
+        closed = true
         active.values.forEach { $0.stop() }
         pending.forEach { $0.stop() }
         active.removeAll()
