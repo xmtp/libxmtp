@@ -347,6 +347,7 @@ try {
       category: B.ErrorCategory.Lifecycle,
       retryable: false,
       message: "client is closed",
+      streamFailure: undefined,
     });
     return true;
   });
