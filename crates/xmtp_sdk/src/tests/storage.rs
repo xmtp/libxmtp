@@ -1,5 +1,26 @@
 use super::*;
 
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test]
+async fn storage_options_debug_redacts_direct_and_nested_key() {
+    let key = vec![193, 47, 128, 219];
+    let storage = crate::StorageOptions {
+        encryption_key: Some(key.clone()),
+        label: Some("saved-store".into()),
+        ..Default::default()
+    };
+    for text in [format!("{storage:?}"), format!("{:?}", Some(&storage))] {
+        assert!(
+            !text.contains("193"),
+            "storage diagnostic contains key bytes"
+        );
+        assert!(text.contains("[redacted]"));
+        assert!(text.contains("saved-store"));
+    }
+    assert_eq!(storage.encryption_key, Some(key));
+    assert!(format!("{:?}", crate::StorageOptions::default()).contains("encryption_key: None"));
+}
+
 // verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_path_keeps_opened_relative_file_after_chdir() {
