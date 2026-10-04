@@ -1,7 +1,6 @@
 # Migrate to the generated SDK
 
-This guide describes the approved generated SDK contract. The public packages
-still use the old bindings. Use the staged Phase 1 packages to check a migration.
+This guide describes the approved generated SDK contract. The public package sources now use generated bindings. Use staged packages to check a migration.
 The [cutover handoff](handoff.md) records the checks that must pass before a
 package switch. Every switched SDK targets version **8.0.0**. This work changes
 no package version and publishes no package.
@@ -21,8 +20,8 @@ Do not access `.raw` or import a private binding path.
 
 ## Change names directly
 
-The [existing manifest](../sdk-api-manifest.md) is the complete rename and
-removal list. Use its final names. The new major version has no rename aliases.
+The generated public declarations define the final names. The new major
+version has no rename aliases. The temporary cutover inventory is retired.
 These common changes apply on every host; native object members are methods.
 
 | Old form                                                | Swift and Kotlin                                        | Node and browser                                |

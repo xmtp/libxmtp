@@ -27,8 +27,5 @@ watch=(
   --watch dev/js/sdk-package
   --watch dev/js/sdk-watch
 )
-if [[ "$target" == browser ]]; then
-  watch+=(--watch bindings/wasm/src --watch bindings/wasm/Cargo.toml)
-fi
 exec watchexec --on-busy-update queue --debounce 300ms "${watch[@]}" \
   --shell=none -- bash dev/js/sdk-package "$target"

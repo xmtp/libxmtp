@@ -61,10 +61,6 @@ cp -R "$packages/browser" "$browser_package"
 cp -R "$fixtures/node/src" "$fixtures/node/negative" "$fixtures/node/root" "$node_consumer/"
 cp -R "$fixtures/browser/src" "$fixtures/browser/negative" "$browser_consumer/"
 
-# The retained Client members come from the SDK API manifest, not from the
-# generator, so a forwarder that generation omits fails here.
-python3 crates/xmtp_sdk/dev/check-public-members.py
-
 log="$(mktemp)"
 swift_negative="$fixtures/swift/Sources/PublicConsumer/RawAccess.swift"
 kotlin_negative="$fixtures/kotlin/consumer/src/main/kotlin/RawAccess.kt"

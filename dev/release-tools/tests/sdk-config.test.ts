@@ -44,7 +44,7 @@ describe("SDK configs", () => {
 
   it("throws for unknown SDK with available options", () => {
     expect(() => getSdkConfig("unknown")).toThrow(
-      "Unknown SDK: unknown. Available: ios, android, wasm-bindings, browser-sdk, node-sdk, agent-sdk, cli, libxmtp",
+      "Unknown SDK: unknown. Available: ios, android, browser-sdk, node-sdk, agent-sdk, cli, libxmtp",
     );
   });
 
@@ -155,7 +155,6 @@ describe("SDK configs", () => {
   });
 
   it("declares a version track for every SDK", () => {
-    expect(getSdkConfig("wasm-bindings").versionTrack).toBe("follows-libxmtp");
     expect(getSdkConfig("ios").versionTrack).toBe("independent");
     expect(getSdkConfig("android").versionTrack).toBe("independent");
     expect(getSdkConfig("browser-sdk").versionTrack).toBe("independent");

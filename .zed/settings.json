@@ -140,9 +140,6 @@
             "unresolved-proc-macro",
             "macro-error"
           ]
-        },
-        "files": {
-          "exclude": ["bindings/wasm"]
         }
       }
     }

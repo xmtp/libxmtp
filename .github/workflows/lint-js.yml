@@ -22,10 +22,10 @@ jobs:
       - name: Typecheck JavaScript workspace
         # Retained binding tests need generated output. Their test jobs build
         # that output and typecheck the tests against it.
-        run: dev/nix-shell 'pnpm -r --filter "!@xmtp/node-bindings" --filter "!@xmtp/wasm-bindings" run typecheck'
+        run: dev/nix-shell 'pnpm -r run typecheck'
       - name: Oxlint JavaScript workspace
         # Retained binding tests import declarations from a test-utils addon.
         # Its test job builds that addon and lints those tests there.
-        run: dev/nix-shell 'pnpm -r --filter "!@xmtp/node-bindings" run lint'
+        run: dev/nix-shell 'pnpm -r run lint'
       - name: Check JavaScript formatting
         run: just lint-js-format

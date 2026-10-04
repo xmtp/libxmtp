@@ -18,8 +18,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     versionTrack: "independent",
     notesIncludeGlobs: ["crates/**", "apps/xmtp_sdk_bindgen/**", "sdks/ios/**"],
     notesExcludeGlobs: [
-      "bindings/wasm/**",
-      "bindings/node/**",
       "sdks/android/**",
     ],
     releaseWorkflow: "release-ios.yml",
@@ -39,20 +37,8 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
       "apps/xmtp_sdk_bindgen/**",
       "sdks/android/**",
     ],
-    notesExcludeGlobs: ["bindings/wasm/**", "bindings/node/**", "sdks/ios/**"],
+    notesExcludeGlobs: ["sdks/ios/**"],
     releaseWorkflow: "release-android.yml",
-    channels: ["nightly", "rc", "final"],
-  },
-  [Sdk.WasmBindings]: {
-    name: "WASM",
-    manifestPath: "bindings/wasm/package.json",
-    tagPrefix: "wasm-bindings-",
-    artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider("bindings/wasm/package.json"),
-    versionTrack: "follows-libxmtp",
-    notesIncludeGlobs: ["crates/**", "bindings/wasm/**"],
-    notesExcludeGlobs: ["bindings/node/**"],
-    releaseWorkflow: "release-wasm.yml",
     channels: ["nightly", "rc", "final"],
   },
   [Sdk.BrowserSdk]: {
@@ -68,8 +54,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
       "sdks/browser/**",
     ],
     notesExcludeGlobs: [
-      "bindings/node/**",
-      "bindings/mobile/**",
       "sdks/node/**",
     ],
     releaseWorkflow: "release-browser-sdk.yml",
@@ -88,8 +72,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
       "sdks/node/**",
     ],
     notesExcludeGlobs: [
-      "bindings/wasm/**",
-      "bindings/mobile/**",
       "sdks/browser/**",
     ],
     releaseWorkflow: "release-node-sdk.yml",
@@ -105,7 +87,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     notesIncludeGlobs: ["sdks/agent/**"],
     notesExcludeGlobs: [
       "crates/**",
-      "bindings/**",
       "sdks/node/**",
       "sdks/browser/**",
     ],
@@ -122,7 +103,6 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     notesIncludeGlobs: ["apps/cli/**"],
     notesExcludeGlobs: [
       "crates/**",
-      "bindings/**",
       "sdks/node/**",
       "sdks/browser/**",
       "sdks/agent/**",
@@ -137,7 +117,7 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createCargoManifestProvider("Cargo.toml"),
     versionTrack: "follows-libxmtp",
-    notesIncludeGlobs: ["crates/**", "bindings/**"],
+    notesIncludeGlobs: ["crates/**", "apps/xmtp_sdk_bindgen/**"],
     notesExcludeGlobs: [],
     releaseWorkflow: "",
     channels: ["nightly", "rc", "final"],

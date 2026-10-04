@@ -16,12 +16,5 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - name: Generate current public projections
-        run: |
-          for target in node browser; do
-            if python3 dev/sdk/switches.py | grep -Fxq "sdks/$target/"; then
-              just sdk generate "$target"
-            fi
-          done
       - name: Lint config files (TOML, Nix, shell)
         run: just lint-config

@@ -60,8 +60,6 @@ jobs:
               - 'rust-toolchain.toml'
               - 'apps/**/Cargo.toml'
               - 'apps/**/build.rs'
-              - 'bindings/**/Cargo.toml'
-              - 'bindings/**/build.rs'
               - 'docs/schemas/backend-v1.json'
               - 'nix/**'
               - 'flake.nix'
@@ -71,7 +69,6 @@ jobs:
             workspace:
               - 'proto/**'
               - 'crates/**'
-              - 'bindings/**'
               - 'apps/backend/**'
               - 'apps/db_tools/**'
               - 'apps/error_glossary/**'
@@ -154,7 +151,6 @@ jobs:
               - 'apps/backend/**'
               - 'crates/**'
               - 'proto/**'
-              - 'bindings/wasm/**'
               - 'sdks/browser/**'
               - 'sdks/node/**'
               - 'sdks/agent/**'
@@ -167,7 +163,6 @@ jobs:
               - '.github/workflows/test-browser-sdk.yml'
             wasm:
               - 'crates/**'
-              - 'bindings/wasm/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.config/nextest.toml'

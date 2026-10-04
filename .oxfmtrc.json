@@ -19,12 +19,6 @@
     "apps/docs/src/content/docs/reference/node-sdk/**",
     "apps/docs/test-results/**",
     "apps/web-chat/dist/**",
-    "bindings/node/dist/**",
-    "bindings/node/scripts/**",
-    "bindings/node/target/**",
-    "bindings/wasm/build/**",
-    "bindings/wasm/dist/**",
-    "bindings/wasm/target/**",
     "dev/release-tools/dist/**",
     "sdks/*/dist/**",
     // Stock ubrn output has any and as casts; see apps/xmtp_sdk_bindgen/GENERATED_LINT.md.

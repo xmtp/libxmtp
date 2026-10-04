@@ -1,6 +1,6 @@
 # libxmtp
 
-Rust workspace. MLS messaging. Bindings: `bindings/{node,wasm}`. SDKs: `sdks/{agent,android,browser,ios,node}`.
+Rust workspace. MLS messaging. SDKs: `sdks/{agent,android,browser,ios,node}`.
 
 ## Read first
 
@@ -53,7 +53,7 @@ and port block, so run `just backend status` for the checkout you are in. See th
 `working-with-worktrees` skill.
 `just test` excludes backend database tests; run them with `just backend test`.
 
-`default-members` = `apps/backend`, `bindings/*`, `crates/*`. Other apps: see their `AGENTS.md`.
+`default-members` = `apps/backend`, `crates/*`. Other apps: see their `AGENTS.md`.
 
 ## Rules
 
@@ -66,7 +66,7 @@ and port block, so run `just backend status` for the checkout you are in. See th
 - Update the relevant directory `AGENTS.md` when its commands change.
 - `CLAUDE.md` is only a pointer (`@AGENTS.md`). Content goes in `AGENTS.md`.
 - When a Ref plan is required, describe added or changed public types exposed
-  through `bindings/*` or `sdks/*` in it. If new surface is needed during
+  through `sdks/*` in it. If new surface is needed during
   implementation, update the plan and keep going. Default to constants; a
   configuration knob should name the caller that needs a non-default value.
 - Before a broad source read, use `just outline <path>`. Use `just show <file>
@@ -76,9 +76,6 @@ and port block, so run `just backend status` for the checkout you are in. See th
   diagnostic, repeat the same recipe with `XMTP_RTK=0`. See `docs/agent-tools.md`.
 - For CI results use `just ci-status <pr>` and `just ci-failures <job>`, never a
   raw log fetch. See the `check-ci` skill.
-- `dev/nix-shell 'just sdk-manifest-check'` checks retention and source rows.
-  After generation, use `dev/nix-shell 'python3.11 dev/sdk/inventory.py --check'`
-  to also check the current generated public declaration counts.
 - After changes to the CI failure filter, run
   `dev/nix-shell 'just ci-failures-filter-test'`. It checks local log fixtures.
 

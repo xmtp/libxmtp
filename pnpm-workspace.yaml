@@ -1,6 +1,4 @@
 packages:
-  - bindings/node
-  - bindings/wasm
   - sdks/node
   - sdks/browser
   - sdks/agent
@@ -12,7 +10,6 @@ packages:
 includeWorkspaceRoot: false
 
 # Native artifacts are staged by Just/Nix before JavaScript tasks run.
-# The bindings have no generic build script: their native scripts are explicit.
 tasks:
   build:
     dependsOn: ["^build"]
@@ -44,7 +41,6 @@ allowBuilds:
   utf-8-validate: true
 
 overrides:
-  "@xmtp/node-bindings": workspace:*
   # Must match nixpkgs playwright-driver and the catalog below.
   playwright: 1.61.1
   playwright-core: 1.61.1

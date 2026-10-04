@@ -6,28 +6,21 @@ All `nix build .#<package>` outputs defined in `flake.nix`.
 
 | Package                          | Command                                      | Description                                 |
 | -------------------------------- | -------------------------------------------- | ------------------------------------------- |
-| `wasm-bindings`                  | `nix build .#wasm-bindings`                  | WASM compiled bindings (wasm-pack output)   |
+| `xmtp-sdk-wasm`                  | `nix build .#xmtp-sdk-wasm`                  | Generated worker WASM   |
 | `android-sdk-libs`               | `nix build .#android-sdk-libs`               | All Android targets (.so + Kotlin bindings) |
 | `android-sdk-libs-fast`          | `nix build .#android-sdk-libs-fast`          | Host-matching Android target only           |
 | `ios-libs`                       | `nix build .#ios-libs`                       | All iOS targets (macOS only)                |
 | `ios-libs-fast`                  | `nix build .#ios-libs-fast`                  | Simulator + host macOS only                 |
-| `node-bindings-linux-x64-gnu`    | `nix build .#node-bindings-linux-x64-gnu`    | Per-target .node binary                     |
-| `node-bindings-linux-x64-musl`   | `nix build .#node-bindings-linux-x64-musl`   | Per-target .node binary                     |
-| `node-bindings-linux-arm64-gnu`  | `nix build .#node-bindings-linux-arm64-gnu`  | Per-target .node binary                     |
-| `node-bindings-linux-arm64-musl` | `nix build .#node-bindings-linux-arm64-musl` | Per-target .node binary                     |
-| `node-bindings-darwin-arm64`     | `nix build .#node-bindings-darwin-arm64`     | Per-target .node binary                     |
-| `node-bindings-fast`             | `nix build .#node-bindings-fast`             | Host-matching .node only                    |
-| `node-bindings-js`               | `nix build .#node-bindings-js`               | Generated index.js + index.d.ts             |
 | `wasm-bindgen-cli`               | `nix build .#wasm-bindgen-cli`               | WASM bindings CLI tool                      |
 
 ## Key Files
 
 | File                        | Purpose                                                    |
 | --------------------------- | ---------------------------------------------------------- |
-| `nix/package/wasm.nix`      | WASM build derivation + dev shell                          |
+| `nix/package/xmtp-sdk.nix`      | Generated SDK WASM build                          |
 | `nix/package/android.nix`   | Android build derivation (all targets + aggregate)         |
 | `nix/package/ios.nix`       | iOS build derivation (all targets + aggregate, macOS only) |
-| `nix/package/node.nix`      | Node.js per-target builds + JS/TS generation               |
+| `nix/package/xmtp-sdk-native.nix`      | Native SDK shared libraries               |
 | `nix/lib/mobile-common.nix` | Shared build args for iOS/Android                          |
 | `nix/lib/filesets.nix`      | Source filtering for hermetic builds                       |
 
@@ -36,11 +29,11 @@ All `nix build .#<package>` outputs defined in `flake.nix`.
 Node builds use the crane two-phase pattern (same as iOS/Android):
 
 1. `buildDepsOnly` — compile dependencies (cached per target)
-2. `buildPackage` — build the `.node` file using cached deps
+2. `buildPackage` — build the SDK shared library using cached deps
 
-Target mapping (Rust triple -> NAPI platform name):
+Target mapping (Rust triple -> package platform name):
 
-| Rust Target                  | NAPI Name          |
+| Rust Target                  | Platform          |
 | ---------------------------- | ------------------ |
 | `x86_64-unknown-linux-gnu`   | `linux-x64-gnu`    |
 | `x86_64-unknown-linux-musl`  | `linux-x64-musl`   |
@@ -49,5 +42,3 @@ Target mapping (Rust triple -> NAPI platform name):
 | `aarch64-apple-darwin`       | `darwin-arm64`     |
 
 Windows targets are excluded from Nix (built separately in CI).
-
-The `node-bindings-js` package uses `__noChroot = true` (requires network for `yarn install`). Must run on macOS in CI since Linux enforces `sandbox=true`.

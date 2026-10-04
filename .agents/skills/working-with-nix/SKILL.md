@@ -36,7 +36,7 @@ Rust is pinned via `flake.nix` → `rust-manifest` (1.97.1 as of 2026-07; check 
 
 ### Playwright Versions Must Match EXACTLY
 
-The `playwright` pin in `bindings/wasm/package.json` (`=X.Y.Z`) must equal nixpkgs' playwright version. The js shell provides browsers via `PLAYWRIGHT_BROWSERS_PATH` (`nix/js.nix`), and npm playwright looks them up by its own per-version browser revisions — any skew fails WASM tests with `browserType.launch: Executable doesn't exist at .../chromium_headless_shell-NNNN/...`.
+The `playwright` pin in `package.json` (`=X.Y.Z`) must equal nixpkgs' playwright version. The js shell provides browsers via `PLAYWRIGHT_BROWSERS_PATH` (`nix/js.nix`), and npm playwright looks them up by its own per-version browser revisions — any skew fails WASM tests with `browserType.launch: Executable doesn't exist at .../chromium_headless_shell-NNNN/...`.
 
 After every nixpkgs (flake.lock) bump:
 
@@ -71,7 +71,7 @@ shell-common.nix   → shared building blocks (rustBase, wasmEnv, tool groups)
   ├── android.nix  → Android cross-compilation
   └── ios.nix      → iOS cross-compilation (macOS only)
 js.nix             → JavaScript/browser testing (Node.js 26 and pnpm 11; no Rust)
-package/wasm.nix   → WASM shell + package build
+shells/wasm.nix    → WASM development shell
 ```
 
 ## Essential Commands
@@ -86,10 +86,10 @@ nix develop .#js         # JavaScript shell
 nix develop .#wasm       # WASM shell
 
 # Build packages
-nix build .#wasm-bindings                    # WASM compiled bindings
-nix build .#node-bindings-fast               # Host-matching .node binary
-nix build .#node-bindings-js                 # Generated JS/TS bindings
-nix build .#node-bindings-linux-x64-gnu      # Per-target .node (example)
+nix build .#xmtp-sdk-wasm                    # WASM compiled bindings
+nix build .#xmtp-sdk-node-darwin-arm64               # Host-matching .node binary
+nix build .#xmtp-sdk-generated                 # Generated JS/TS bindings
+nix build .#xmtp-sdk-node-linux-x64-gnu      # Per-target .node (example)
 nix build .#android-sdk-libs                     # All Android targets
 nix build .#ios-libs                         # All iOS targets (macOS only)
 
@@ -127,7 +127,7 @@ nix develop --show-trace  # Verbose error output
 | `nix/shells/android.nix`          | Android dev shell                                              |
 | `nix/shells/ios.nix`              | iOS dev shell (macOS only)                                     |
 | `nix/js.nix`                      | JavaScript shell                                               |
-| `nix/package/wasm.nix`            | WASM shell + package build                                     |
+| `nix/shells/wasm.nix`            | WASM development shell                                     |
 | `nix/package/node.nix`            | Node.js per-target builds + JS/TS generation                   |
 | `nix/package/xmtp-sdk-native.nix` | Native SDK release build derivation                            |
 | `nix/package/ios.nix`             | iOS release build derivation                                   |

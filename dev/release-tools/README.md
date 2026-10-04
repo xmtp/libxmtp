@@ -73,7 +73,6 @@ Orchestrate a full release branch — bumps versions, scaffolds release notes, a
 | `--android`     | `major` \| `minor` \| `patch` \| `none` | no       | Android SDK version bump type (default: `none`) |
 | `--node-sdk`    | `major` \| `minor` \| `patch` \| `none` | no       | Node SDK version bump type (default: `none`)    |
 | `--browser-sdk` | `major` \| `minor` \| `patch` \| `none` | no       | Browser SDK version bump type (default: `none`) |
-| `--wasm`        | boolean                                 | no       | Include WASM bindings in release                |
 | `--base`        | string                                  | no       | Base ref to branch from (default: `HEAD`)       |
 
 ```bash
@@ -84,12 +83,11 @@ pnpm --filter @xmtp/release-tools cli create-release-branch \
   --android patch \
   --node-sdk minor \
   --browser-sdk minor \
-  --wasm
 ```
 
 ## Supported SDKs
 
-The SDK release targets are: `ios`, `android`, `wasm-bindings`, `node-sdk`, `browser-sdk`, and `libxmtp`. SDK definitions live in `src/lib/sdk-config.ts`.
+The SDK release targets are: `ios`, `android`, `node-sdk`, `browser-sdk`, `agent-sdk`, `cli`, and `libxmtp`. SDK definitions live in `src/lib/sdk-config.ts`.
 
 ## Development
 

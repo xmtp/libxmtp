@@ -4,44 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **11 crates** with **412 total error codes**.
-
-## node
-
-### BackendBuilderError <sub>struct</sub>
-
-<small>`bindings/node/src/client/backend.rs`</small>
-
-Backend configuration failed. This error is not retryable.
-
-**Error code:** `BackendBuilderError`
-
-## wasm
-
-### BackendBuilderError <sub>struct</sub>
-
-<small>`bindings/wasm/src/client/backend.rs`</small>
-
-Backend configuration failed. This error is not retryable.
-
-**Error code:** `BackendBuilderError`
-
-### ContentTypeError <sub>enum</sub>
-
-<small>`bindings/wasm/src/content_types/mod.rs`</small>
-
-Error type for content type conversion failures in WASM bindings.
-
-Provides structured error codes via `ErrorCode` derive, ensuring
-all content type errors are prefixed with `[ContentTypeError::Variant]`
-when surfaced to JavaScript.
-
-| Error Code | Description |
-|:-----------|:------------|
-| `ContentTypeError::InvalidData` | Invalid data. Content type data failed validation. Not retryable. |
-| `ContentTypeError::TimestampOutOfRange` | Timestamp out of range. Timestamp value is outside the representable range. Not retryable. |
-| `ContentTypeError::Codec` | Codec error. Content type codec encoding or decoding failed. Not retryable. |
-| `ContentTypeError::Crypto` | Crypto error. Cryptographic operation for content type failed. Not retryable. |
+**35 error types** across **9 crates** with **406 total error codes**.
 
 ## xmtp_api
 

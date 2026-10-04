@@ -37,7 +37,6 @@ clap_builder = { version = "4", default-features = false, features = ["color", "
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["getrandom"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["getrandom", "std"] }
-ctor = { version = "1" }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
@@ -130,7 +129,6 @@ clap_builder = { version = "4", default-features = false, features = ["color", "
 const-hex = { version = "1", features = ["core-error", "serde"] }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["getrandom"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["getrandom", "std"] }
-ctor = { version = "1" }
 derive_more = { version = "2", default-features = false, features = ["add", "add_assign", "as_ref", "deref", "deref_mut", "display", "from", "from_str", "index", "index_mut", "into", "into_iterator", "not", "std"] }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["32-column-tables", "returning_clauses_for_sqlite_3_35", "serde_json"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", features = ["32-column-tables", "sqlite"] }

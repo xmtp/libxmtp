@@ -36,30 +36,16 @@ owning SDK PR. Do not change versions or run a release workflow in Phase 1.
 
 ## File ownership and consumer audit
 
-Run this audit from the repository root at each candidate:
-
-```sh
-dev/nix-shell 'python3 docs/self-hosted/sdk-migration/audit.py target/sdk-migration-audit'
-```
-
-The checked-in [path-owners.tsv](path-owners.tsv) is the start-checkpoint
-receipt. Regenerate it from `paths.tsv` after an integrated-base change.
-`paths.tsv` assigns each affected tracked path to exactly one writer. It covers
-all old SDKs, bindings, target conformance, docs, examples, workflows, release
-helpers, Nix files, and other tracked consumers found by legacy import/path
-search. `manifest-rows.tsv` assigns every existing manifest row, including grouped
-Swift source families and old binding package re-exports. `mobile-tests.tsv`
-assigns every existing mobile test-map row to its retained-test audit and
-same-PR deletion writer. `summary.json` records the source commit and input
-hashes. These are generated receipts, not a second hand-maintained API database.
-Do not edit output rows by hand. Update the assignment rule and regenerate.
+The temporary cutover audit and its path ledger are retired. The owner map
+below records the original lane scope. Current public consumer fixtures and
+target tests remain in the repository.
 
 | Writer | Scope and exact assignment rule |
 | --- | --- |
 | iOS, PR F | `sdks/ios/**`, `Package.swift`, Apple `Package.resolved`, `nix/package/ios.nix`, `crates/xmtp_sdk/conformance/swift/**`; workflows `lint-ios.yml`, `release-ios.yml`, `test-ios.yml` |
 | Android, PR G | `sdks/android/**`, `apps/android/xmtpv3_example/**`, `nix/package/android.nix`, `crates/xmtp_sdk/conformance/kotlin/**`; workflows `lint-android.yml`, `release-android.yml`, `test-android.yml` |
 | Node plus agent, PR H | `sdks/node/**`, `sdks/agent/**`, `apps/cli/**`, `nix/package/node.nix`, `crates/xmtp_sdk/conformance/ts/**`; workflows `lint-node.yml`, `release-agent-sdk.yml`, `release-cli.yml`, `release-node-sdk.yml`, `test-agent-sdk.yml`, `test-node-sdk.yml`; docs examples ending `-node.ts` and starting `agents-` |
-| Browser, PR I | `sdks/browser/**`, `apps/web-chat/**`, `nix/package/wasm.nix`, `nix/package/wasm-nextest.nix`, `crates/xmtp_sdk/conformance/browser/**`; workflows `deploy-web-chat.yml`, `release-browser-sdk.yml`, `test-browser-sdk.yml`; docs examples ending `-browser.ts` |
+| Browser, PR I | `sdks/browser/**`, `apps/web-chat/**`, `nix/shells/wasm.nix`, `nix/package/wasm-nextest.nix`, `crates/xmtp_sdk/conformance/browser/**`; workflows `deploy-web-chat.yml`, `release-browser-sdk.yml`, `test-browser-sdk.yml`; docs examples ending `-browser.ts` |
 | Root, integration writer | All remaining audited paths, including every shared `.mdx`, common example, legacy binding, public consumer fixture, migration fixture, mixed workflow, lockfile, workspace, Just recipe, release helper, waiver, manifest and test-map edit |
 
 Every shared `.mdx` has one owner: Root. Platform examples are separate source
@@ -119,7 +105,6 @@ Existing commands from the repository root:
 ```sh
 dev/nix-shell 'just sdk generate'
 dev/nix-shell 'just sdk public-consumer'
-dev/nix-shell 'just sdk manifest-check'
 dev/nix-shell 'just sdk conformance swift'
 dev/nix-shell 'just sdk conformance kotlin'
 dev/nix-shell 'just sdk conformance node'

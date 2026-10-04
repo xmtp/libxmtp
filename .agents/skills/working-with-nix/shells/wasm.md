@@ -2,7 +2,7 @@
 
 For WebAssembly builds and testing. Uses `fenix.stable` Rust (not the project-pinned 1.92.0).
 
-**Source:** `nix/package/wasm.nix` (the `devShell` attribute)
+**Source:** `nix/shells/wasm.nix`
 
 ## Environment Variables
 
@@ -44,8 +44,8 @@ Uses `fenix.stable` toolchain (not the project-pinned version) with:
 
 ```bash
 # In the WASM shell
-wasm-pack build --target web bindings/wasm
+dev/nix-shell 'just js build-browser-sdk'
 
 # Or build as Nix package
-nix build .#wasm-bindings
+nix build .#xmtp-sdk-wasm
 ```

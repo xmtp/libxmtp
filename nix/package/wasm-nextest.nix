@@ -23,7 +23,7 @@ let
     inherit root;
     fileset = unions [
       xmtp.filesets.libraries
-      # All bindings and apps cargo sources so the full workspace resolves
+      # Include SDK sources so the full workspace resolves
       # with --locked. crane replaces source with dummies for buildDepsOnly.
       (commonCargoSources (root + /crates/xmtp_sdk))
       # db snapshots

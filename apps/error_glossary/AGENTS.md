@@ -1,7 +1,6 @@
 # error_glossary
 
-Generate `docs/error_glossary.md` from public `ErrorCode` types in `crates/` and
-`bindings/`. Keep the output order stable when types have the same name.
+Generate `docs/error_glossary.md` from public `ErrorCode` types in `crates/`. Keep the output order stable when types have the same name.
 
 ## Commands
 

@@ -79,11 +79,6 @@ codec-author target="types":
     {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/codec-author" {{ target }}
 
 # Run `just sdk generate` first: the root check reads the generated roots.
-manifest-check:
-    cd "{{ root }}" && just sdk-manifest-check
-    cd "{{ root }}" && python3.11 dev/sdk/inventory.py --check
-    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-manifest-roots.py
-
 # Build once. Later render calls reuse the recorded artifact hashes.
 build targets="swift,kotlin,node,browser" *args:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --targets "{{ targets }}" {{ args }}

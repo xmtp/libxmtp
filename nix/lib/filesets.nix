@@ -36,7 +36,6 @@ let
     (src + /proto)
     # All Cargo.toml and build.rs files in the workspace
     (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /crates))
-    (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /bindings))
     apps
   ];
 
@@ -45,10 +44,8 @@ let
     (src + /Cargo.lock)
     (src + /.cargo/config.toml)
 
-    # include folders for apps/bindings so cargo workspace globs are satisfied
     # One-off files that are needed outside of cargo sources
     (src + /apps/.gitkeep)
-    (src + /bindings/.gitkeep)
     (src + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
@@ -73,7 +70,6 @@ let
   ]);
   binaries = unions (flatten [
     (commonCargoSources (src + /apps/android/xmtpv3_example))
-    (crateSources (src + /bindings))
     (crateSources (src + /apps))
   ]);
   forCrate =

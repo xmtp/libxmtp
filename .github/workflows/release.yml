@@ -126,12 +126,7 @@ jobs:
         env:
           REF: ${{ steps.resolve.outputs.ref }}
         run: echo "branch=${REF#refs/heads/}" >> "$GITHUB_OUTPUT"
-      # ONE stamp for the whole run. Each SDK computes its version in its own
-      # job, minutes apart — if each called `date` itself, `@xmtp/node-sdk` and
-      # `@xmtp/node-bindings` from a single run would carry different
-      # `pre.<ts>.…` suffixes and break the consumers' same-suffix lockstep
-      # guards (they assert whole-suffix equality). Minted once here and
-      # threaded into every fan-out below.
+      # Use one timestamp for all SDK versions in this release run.
       #
       # Second precision, not minute: the stamp is the semver ordering key, so
       # two runs sharing one stamp fall through to comparing `dev` vs `nightly`

@@ -136,7 +136,7 @@ jobs:
             - The SDK source and generator directories (crates/xmtp_sdk, apps/xmtp_sdk_bindgen and sdks/ios for iOS)
 
             Exclude changes to:
-            - Other SDK bindings (e.g., bindings/wasm, bindings/node for an iOS release)
+            - Other SDK packages (e.g., sdks/browser, sdks/node for an iOS release)
             - CI/CD workflows, dev tooling, documentation, and repo infrastructure
             - Test-only changes with no user-facing impact
 
@@ -233,7 +233,7 @@ jobs:
             - The SDK source and generator directories (crates/xmtp_sdk, apps/xmtp_sdk_bindgen and sdks/ios for iOS)
 
             Exclude changes to:
-            - Other SDK bindings (e.g., bindings/wasm, bindings/node for an iOS release)
+            - Other SDK packages (e.g., sdks/browser, sdks/node for an iOS release)
             - CI/CD workflows, dev tooling, documentation, and repo infrastructure
             - Test-only changes with no user-facing impact
 

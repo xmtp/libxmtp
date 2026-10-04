@@ -14,7 +14,6 @@ pub fn filter_directive(level: &str) -> EnvFilter {
         xmtp_common={level},xmtp_api_backend={level},\
         xmtp_content_types={level},xmtp_cryptography={level},\
         xmtp_user_preferences={level},xmtpv3={level},xmtp_db={level},xmtp_sdk={level},\
-        bindings_wasm={level},bindings_node={level},\
         opentelemetry_sdk=warn,opentelemetry_otlp=warn"
     );
     EnvFilter::builder()

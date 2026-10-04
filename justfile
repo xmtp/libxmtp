@@ -3,8 +3,7 @@ mod backend 'apps/backend/backend.just'
 mod android 'sdks/android/android.just'
 mod ios 'sdks/ios/ios.just'
 mod sdk 'crates/xmtp_sdk/sdk.just'
-mod node 'bindings/node/node.just'
-mod wasm 'bindings/wasm/wasm.just'
+mod wasm 'dev/wasm.just'
 mod js 'sdks/js.just'
 mod docs 'apps/docs/docs.just'
 mod cli 'apps/cli/cli.just'
@@ -85,14 +84,9 @@ lint-rust:
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
 
-# Config linting: TOML, Nix, shell scripts, and the SDK API manifest
-lint-config: lint-treefmt sdk-manifest-check
+# Config linting: TOML, Nix, and shell scripts.
+lint-config: lint-treefmt
     python3.11 dev/tests/test_android_clock.py
-
-# Check retention and source rows without requiring generated SDK products.
-sdk-manifest-check:
-    python3.11 dev/sdk/inventory.py --check-source
-    python3.11 dev/sdk/test-cutover-gates.py
 
 lint-toml:
     taplo format --check --diff
