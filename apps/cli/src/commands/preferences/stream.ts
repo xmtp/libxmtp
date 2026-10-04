@@ -70,7 +70,7 @@ first if you need a current snapshot before listening for updates.`;
 
     const stream = await client.events({
       kinds: ["consent.changed", "hmac_keys.updated"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     });
 
     // Set up timeout if specified
@@ -100,7 +100,7 @@ first if you need a current snapshot before listening for updates.`;
           update = {
             type: "ConsentUpdate",
             entityType:
-              event.consent_changed.entityKind === "inbox"
+              event.consent_changed.entity_kind === "inbox"
                 ? "inbox_id"
                 : "conversation_id",
             entity: event.consent_changed.entity,

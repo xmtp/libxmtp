@@ -10,7 +10,7 @@ export async function checkStreamOptions(client: Client): Promise<void> {
   ConversationStream.open(client, undefined, { disableSync: true });
   await client.events({
     kinds: ["consent.changed"],
-    referencesOwnMessages: false,
+    references_own_messages: false,
     // @ts-expect-error Event filters have no pre-sync switch.
     disableSync: true,
   });

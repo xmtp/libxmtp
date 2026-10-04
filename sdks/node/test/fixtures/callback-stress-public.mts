@@ -159,14 +159,18 @@ try {
       deviceSync: false,
     });
     listener = await eventClient.startListener(
-      { kinds: ["conversation.joined"], referencesOwnMessages: false },
+      { kinds: ["conversation.joined"], references_own_messages: false },
       async (event) => {
         assert.equal(event.kind, "conversation.joined");
         assert.ok(
-          !joinedIds.has(event.conversation_joined.conversationId),
+          !joinedIds.has(
+            Buffer.from(event.conversation_joined.group_id).toString("hex"),
+          ),
           "duplicate joined event",
         );
-        joinedIds.add(event.conversation_joined.conversationId);
+        joinedIds.add(
+          Buffer.from(event.conversation_joined.group_id).toString("hex"),
+        );
         await invoke(calls);
       },
     );

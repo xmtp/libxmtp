@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import process from "node:process";
 
 import { createRegisteredClient, createSigner } from "@test/helpers";
@@ -135,6 +136,30 @@ describe("server configuration", () => {
     await expect(
       Client.fetchServerConfiguration({ url: "  " }),
     ).rejects.toThrow("relative URL without a base");
+  });
+
+  it("reports an unreachable backend as ConfigurationUnavailable", async () => {
+    const server = createServer();
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("Expected a TCP port");
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    await expect(
+      Client.fetchServerConfiguration({
+        url: `http://127.0.0.1:${address.port}`,
+      }),
+    ).rejects.toMatchObject({
+      details: {
+        code: "ConfigurationUnavailable",
+        category: "configuration",
+        retryable: true,
+      },
+    });
   });
 
   it("should refresh without changing the snapshot the client holds", async () => {

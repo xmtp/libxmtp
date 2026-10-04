@@ -6,12 +6,12 @@ import {
 } from "@test/helpers";
 import {
   MessageStream,
+  Group,
   Timestamp,
   standardContentType,
   encodeText,
   type DisappearingSettings,
   type Message,
-  type Group,
   type MessageContent,
 } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
@@ -22,6 +22,52 @@ import { describe, expect, it, vi } from "vitest";
 const WAIT = { timeout: 30_000, interval: 1000 };
 
 describe("Group", () => {
+  it("reports creator and invited membership states", async () => {
+    const creator = await createRegisteredClient(createSigner().signer);
+    const invited = await createRegisteredClient(createSigner().signer);
+    try {
+      const group = await creator.conversations.createGroup([invited.inboxId]);
+      expect((await group.state()).membershipState).toBe("allowed");
+      await invited.conversations.sync();
+      const received = await invited.conversations.getById(group.id);
+      expect(received).toBeInstanceOf(Group);
+      if (!(received instanceof Group)) throw new Error("Expected a group");
+      expect((await received.state()).membershipState).toBe("pending");
+    } finally {
+      await creator.end();
+      await invited.end();
+    }
+  });
+  it("delivers a deletion event for the removed message", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    const group = await client.conversations.createGroup([]);
+    const messageId = await group.sendText("delete this message");
+    const events = await client.events({
+      kinds: ["message.deleted"],
+      references_own_messages: false,
+    });
+    try {
+      const message = await client.conversations.getMessageById(messageId);
+      if (!message) throw new Error("Expected the sent message");
+      await message.delete();
+      const next = await events.next();
+      expect(next.done).toBe(false);
+      if (next.done || next.value.kind !== "message.deleted")
+        throw new Error("Expected a deletion event");
+      expect(Buffer.from(next.value.message_deleted.group_id)).toEqual(
+        Buffer.from(group.id, "hex"),
+      );
+      expect(Buffer.from(next.value.message_deleted.message_id)).toEqual(
+        Buffer.from(messageId, "hex"),
+      );
+      expect(
+        (await client.conversations.getMessageById(messageId))?.content.kind,
+      ).toBe("deletedMessage");
+    } finally {
+      await events.return();
+      await client.end();
+    }
+  });
   it("should create a group", async () => {
     const { signer: signer1 } = createSigner();
     const { signer: signer2 } = createSigner();
@@ -759,7 +805,7 @@ describe("Group", () => {
 
     const stream = await client1.events({
       kinds: ["message.expired"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     });
 
     // create message disappearing settings so that messages are deleted after 1 second
@@ -818,7 +864,9 @@ describe("Group", () => {
       count++;
       expect(message).toBeDefined();
       if (message.kind === "message.expired")
-        messageIds.push(message.message_expired.messageId);
+        messageIds.push(
+          Buffer.from(message.message_expired.message_id).toString("hex"),
+        );
     }
     expect(count).toBe(2);
     expect(messageIds).toContain(messageId1);

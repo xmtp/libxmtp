@@ -223,7 +223,7 @@ async function eventContinuation(reason) {
   let id;
   try {
     id = await client.startListener(
-      { kinds: ["conversation.joined"], referencesOwnMessages: false },
+      { kinds: ["conversation.joined"], references_own_messages: false },
       () => {
         calls++;
         return calls === 1 ? Promise.reject(reason) : Promise.resolve();
