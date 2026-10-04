@@ -14,8 +14,16 @@ export { encodeText } from "../../../typescript-pure/xmtp_sdk.js";
 // The one catalogue predicate for the send push default (Decision 24). It is
 // a pure function, so the main thread calls the pure module.
 export { isCatalogueContentType } from "../../../typescript-pure/public-values.gen.js";
+import { generateInboxId } from "../../../typescript-pure/public-values.gen.js";
 import { Message as BoundMessage } from "../../host-message.gen.js";
-import { XmtpError } from "../../public-values.gen.js";
+import {
+  Storage,
+  XmtpError,
+  inboxIdForWithBackend,
+  type ClientOptions,
+  type InboxId,
+  type PublicIdentity,
+} from "../../public-values.gen.js";
 import type { Message as RuntimeMessage } from "../message.js";
 
 /** A binding message from a worker proxy is always the host Message. */
@@ -39,11 +47,71 @@ export function checkStorage(storage: object): void {
     });
 }
 
-/** Browser storage has no Node database to find. */
-export function resolveLegacyStorage<T>(
-  options: T,
-  _identity: () => Promise<unknown>,
-  _inboxId?: string,
-): T {
-  return options;
+function ambiguousStorage(message: string): XmtpError {
+  return new XmtpError.StorageLocation({
+    code: "StorageLocation",
+    category: "storage",
+    retryable: false,
+    message,
+  });
+}
+
+/** Reuse one version 7 OPFS database when the caller asks for default storage. */
+export async function resolveLegacyStorage(
+  options: ClientOptions,
+  identity: () => Promise<PublicIdentity>,
+  inboxId?: InboxId,
+): Promise<ClientOptions> {
+  if (options.storage.location !== "default" || options.storage.label)
+    return options;
+
+  const admin = await Storage.admin();
+  let paths: string[];
+  try {
+    paths = await admin.listFiles();
+  } finally {
+    await admin.end();
+  }
+  const files = paths.flatMap((path) => {
+    const name = path.replace(/^\/+/, "");
+    const match = /^xmtp-(.+)-([0-9a-f]{64})\.db3$/i.exec(name);
+    return match === null
+      ? []
+      : [{ path: name, inboxId: match[2].toLowerCase() }];
+  });
+  if (files.length === 0) return options;
+
+  const user = await identity();
+  const ids = new Set<InboxId>([
+    inboxId ?? generateInboxId(user, options.registration?.nonce),
+  ]);
+  if (inboxId === undefined && !options.allowOffline)
+    ids.add(await inboxIdForWithBackend(options.backend ?? { url: "" }, user));
+  const matches = files.filter((entry) => ids.has(entry.inboxId));
+  if (matches.length === 0) return options;
+  if (matches.length > 1)
+    throw ambiguousStorage(
+      "More than one legacy XMTP database matches this inbox. Set an explicit storage location.",
+    );
+
+  const match = matches[0];
+  if (
+    paths.some((path) =>
+      new RegExp(`^/?xmtp-sdk/[^/]+/${match.inboxId}/xmtp\\.db3$`, "i").test(
+        path,
+      ),
+    )
+  )
+    throw ambiguousStorage(
+      "Both legacy and current XMTP databases match this inbox. Set an explicit storage location.",
+    );
+
+  const dbPath = match.path;
+  return {
+    ...options,
+    storage: {
+      ...options.storage,
+      location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
+    },
+  };
 }
