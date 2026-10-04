@@ -99,11 +99,25 @@ public extension SDKClient {
     }
 }
 
-/// Each iterator request reads one event from the Rust subscription.
+private final class EventIteratorClaim {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func acquire() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
+}
+
+/// The first iterator owns this event subscription.
 public struct SDKEventStream: AsyncSequence {
     public typealias Element = ClientEvent
     private let reader: EventReader
     private let owner: SDKClient
+    private let claim = EventIteratorClaim()
 
     fileprivate init(reader: EventReader, owner: SDKClient) {
         self.reader = reader
@@ -111,20 +125,28 @@ public struct SDKEventStream: AsyncSequence {
     }
 
     public func makeAsyncIterator() -> Iterator {
-        Iterator(reader: reader, owner: owner)
+        Iterator(reader: reader, owner: owner, ownsReader: claim.acquire())
     }
 
     public final class Iterator: AsyncIteratorProtocol {
         private let reader: EventReader
         private let owner: SDKClient
+        private let ownsReader: Bool
         private var closed = false
 
-        fileprivate init(reader: EventReader, owner: SDKClient) {
+        fileprivate init(reader: EventReader, owner: SDKClient, ownsReader: Bool) {
             self.reader = reader
             self.owner = owner
+            self.ownsReader = ownsReader
         }
 
         public func next() async throws -> ClientEvent? {
+            guard ownsReader else {
+                throw XmtpError.ConsumerOwned(ErrorDetails(
+                    code: "ConsumerOwned", category: .stream, retryable: false,
+                    message: "event subscription already has an iterator"
+                ))
+            }
             if closed {
                 return nil
             }
@@ -138,6 +160,7 @@ public struct SDKEventStream: AsyncSequence {
         }
 
         deinit {
+            guard ownsReader else { return }
             let reader = reader
             Task { try? await reader.end() }
         }
