@@ -10,6 +10,12 @@ import { create } from "./helpers";
 
 beforeAll(() => initPureWasm());
 
+function bytesFromHex(value: string): Uint8Array {
+  if (!/^(?:[0-9a-fA-F]{2})+$/.test(value)) throw new Error("invalid hex ID");
+  const pairs = value.match(/.{2}/g) ?? [];
+  return Uint8Array.from(pairs, (pair) => Number.parseInt(pair, 16));
+}
+
 test("message list and lookup retain identity, kind, delivery, and ordered limits", async () => {
   const sender = await create();
   const peer = await create();
@@ -125,7 +131,7 @@ test("local deletion delivers one exact public event and removes the local messa
   );
   const events: ClientEvent[] = [];
   const listener = await client.startListener(
-    { kinds: ["message.deleted"], referencesOwnMessages: true },
+    { kinds: ["message.deleted"], references_own_messages: true },
     (event) => {
       events.push(event);
     },
@@ -136,8 +142,8 @@ test("local deletion delivers one exact public event and removes the local messa
     expect(events[0]).toEqual({
       kind: "message.deleted",
       message_deleted: {
-        conversationId: group.id,
-        messageId: id,
+        group_id: bytesFromHex(group.id),
+        message_id: bytesFromHex(id),
         cause: "deleted_locally",
       },
     });

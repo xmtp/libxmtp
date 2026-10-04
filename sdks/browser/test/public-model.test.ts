@@ -23,7 +23,7 @@ test("consent records keep entity types and listener values", async () => {
   const inbox = { kind: "inbox", inboxId: peer.inboxId } as const;
   const changes: ClientEvent[] = [];
   const listener = await client.startListener(
-    { kinds: ["consent.changed"], referencesOwnMessages: false },
+    { kinds: ["consent.changed"], references_own_messages: false },
     (event) => {
       changes.push(event);
     },
@@ -41,7 +41,7 @@ test("consent records keep entity types and listener values", async () => {
           expect.objectContaining({
             kind: "consent.changed",
             consent_changed: {
-              entityKind: "conversation",
+              entity_kind: "conversation",
               entity: group.id,
               state: "denied",
             },
@@ -51,7 +51,7 @@ test("consent records keep entity types and listener values", async () => {
           expect.objectContaining({
             kind: "consent.changed",
             consent_changed: {
-              entityKind: "inbox",
+              entity_kind: "inbox",
               entity: peer.inboxId,
               state: "allowed",
             },
