@@ -74,6 +74,8 @@ private fun <T, R> readerFlow(
                         failure = error
                         throw error
                     } ?: break
+                // The next read can acknowledge after emit returns. A downstream
+                // buffer can return here before its consumer finishes processing.
                 emit(value)
             }
         } finally {

@@ -76,8 +76,17 @@ End clients in `withContext(NonCancellable)`.
 
 ## Message delivery
 
-A native reader acknowledges the previous message at the next `next()` call.
-The direct Flow collector return is the collection boundary. App buffering has
-its own boundary. Cancellation closes the reader in `NonCancellable` and keeps
-unacknowledged messages available for replay. Use the generated reader options
-for scopes, filters, and replay. Keep typed errors and `ULong` values.
+A native message reader acknowledges the previous message at the next `next()`
+call. With direct sequential Flow collection, the collector callback finishes
+before acknowledgement starts. A buffer or another asynchronous operator
+can let `emit` return before downstream processing ends. Cancellation after the
+acknowledgement does not restore the message to default progress. Do not claim
+durable acknowledgements for each downstream consumer. Cancellation closes the
+reader in `NonCancellable`; replay is preserved before ACK commit admission.
+
+Only one default message reader can own progress in a client database. Different
+group or DM scopes do not create separate default owners. A second active default
+message reader fails with `XmtpException.ConsumerOwned`. Explicit `from` cursors
+permit independent replay/live readers that do not advance default progress. Use the
+generated reader options for scopes, filters, and replay. Keep typed errors and
+`ULong` values.
