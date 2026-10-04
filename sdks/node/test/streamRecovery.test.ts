@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { appendFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { createRegisteredClient, createSigner } from "@test/helpers";
@@ -237,8 +238,24 @@ describe("public message stream recovery", () => {
           });
         }
         const sendStage = async (stage: number) => {
-          for (const [index, group] of groups.entries())
-            await group.sendText(`request:${index}:${stage}`);
+          for (const [index, group] of groups.entries()) {
+            const timingPath = process.env.XMTP_RECOVERY_BACKEND_TIMING_PATH;
+            const trace = (event: string) => {
+              if (timingPath)
+                appendFileSync(
+                  timingPath,
+                  `recovery publication ${Date.now()} stage=${stage} group=${index} ${event}\n`,
+                );
+            };
+            trace("start");
+            try {
+              await group.sendText(`request:${index}:${stage}`);
+              trace("done");
+            } catch (error) {
+              trace("failed");
+              throw error;
+            }
+          }
         };
         await sendStage(0);
         await expect
@@ -281,13 +298,19 @@ describe("public message stream recovery", () => {
             await sleep(6_000);
           }
           const during = cycle * 2 + 1;
-          await sendStage(during);
           if (backend) {
             expect(received).toHaveLength(GROUP_COUNT * during);
             // A state callback can take longer than the recovery budget.
-            // Restart the drained backend before waiting for that callback.
-            await backend.start();
-          }
+            // Start the restart while the outage sends are still in progress.
+            const publication = sendStage(during);
+            const restart = backend.start();
+            const [published, restarted] = await Promise.allSettled([
+              publication,
+              restart,
+            ]);
+            if (restarted.status === "rejected") throw restarted.reason;
+            if (published.status === "rejected") throw published.reason;
+          } else await sendStage(during);
           await expect
             .poll(async () => {
               const current = streamStateSnapshot(stream).current;
