@@ -8,7 +8,7 @@ use super::{camel, convert, policy::cursor_type, public_type};
 pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
     let name = &record.name;
     if record.fields.is_empty() {
-        writeln!(code, "export type {name} = Record<string, never>;")?;
+        writeln!(code, "export type {name} = Record<string, never>;\n")?;
     } else {
         writeln!(code, "export type {name} = {{")?;
     }

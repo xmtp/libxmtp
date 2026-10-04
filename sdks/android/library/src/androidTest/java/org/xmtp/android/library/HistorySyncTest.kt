@@ -86,8 +86,8 @@ class HistorySyncTest : BaseInstrumentedTest() {
                 alixClient.startListener(
                     EventFilter(listOf(EventKind.CONSENT_CHANGED), null, null, false),
                     { event ->
-                        if (event is ClientEvent.ConsentChanged && event.entity == original.id() &&
-                            event.state == EventConsentState.DENIED
+                        if (event is ClientEvent.ConsentChanged && event.consentChanged.entity == original.id() &&
+                            event.consentChanged.state == EventConsentState.DENIED
                         ) {
                             changed.complete(event)
                         }
@@ -99,8 +99,8 @@ class HistorySyncTest : BaseInstrumentedTest() {
                     sync(second, alixClient)
                     changed.isCompleted
                 }
-                assertEquals(original.id(), changed.await().entity)
-                assertEquals(EventConsentState.DENIED, changed.await().state)
+                assertEquals(original.id(), changed.await().consentChanged.entity)
+                assertEquals(EventConsentState.DENIED, changed.await().consentChanged.state)
                 assertEquals(ConsentState.DENIED, original.state().common.consentState)
             } finally {
                 withContext(NonCancellable) { alixClient.stopListener(listener) }

@@ -150,7 +150,9 @@ class ConversationsTest : BaseInstrumentedTest() {
             try {
                 messages.awaitHistory(bo.conversations().messageHistorySnapshot(10u).messages)
                 val expected = listOf(group.sendText("hi") to "hi", dm.sendText("hi") to "hi")
-                messages.awaitApplications(expected)
+                messages.awaitApplicationsAcrossConversations(expected) {
+                    bo.conversations().messageHistorySnapshot(10u).messages
+                }
             } finally {
                 withContext(NonCancellable) { job.cancelAndJoin() }
             }
@@ -419,7 +421,11 @@ class ConversationsTest : BaseInstrumentedTest() {
                 bo.startListener(
                     EventFilter(listOf(EventKind.MESSAGE_EXPIRED), null, null, false),
                     { event ->
-                        if (event is ClientEvent.MessageExpired) synchronized(deleted) { deleted.add(event.messageId) }
+                        if (event is ClientEvent.MessageExpired) {
+                            synchronized(
+                                deleted,
+                            ) { deleted.add(event.messageExpired.messageId) }
+                        }
                     },
                 )
             try {

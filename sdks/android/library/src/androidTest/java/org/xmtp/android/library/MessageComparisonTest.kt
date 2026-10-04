@@ -86,7 +86,7 @@ class MessageComparisonTest : BaseInstrumentedTest() {
                 Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE),
             )
             sync()
-            val stored = boGroup.messages(options)
+            val stored = boGroup.messageHistorySnapshot(100u).messages
             val streamed = replay(stored.size)
             assertEquals(4, stored.count { text(it) != null })
             assertEquals(4, streamed.count { text(it) != null })
@@ -103,16 +103,17 @@ class MessageComparisonTest : BaseInstrumentedTest() {
                     "Third message with emoji 🎉",
                     "Fourth message with special chars !@#$%",
                 )
-            expected.forEach { boGroup.sendText(it) }
+            val expectedIds = expected.map { boGroup.sendText(it) }
             sync()
-            val stored = boGroup.messages(options)
+            val stored = boGroup.messageHistorySnapshot(100u).messages
             val streamed = replay(stored.size)
             val peer = alixGroup.messages(options)
             assertEquals(expected, stored.mapNotNull(::text))
             assertEquals(expected, streamed.mapNotNull(::text))
             assertEquals(expected, peer.mapNotNull(::text))
             compare(stored, streamed)
-            compare(stored, peer)
+            assertEquals(expectedIds, peer.filter { it.id in expectedIds }.map { it.id })
+            compare(stored.filter { it.id in expectedIds }, peer.filter { it.id in expectedIds })
         }
 
     @Test fun testPerformanceComparison() =
@@ -130,7 +131,7 @@ class MessageComparisonTest : BaseInstrumentedTest() {
             }
             sync()
             val historyStart = System.nanoTime()
-            val stored = boGroup.messages(options)
+            val stored = boGroup.messageHistorySnapshot(100u).messages
             val historyNs = System.nanoTime() - historyStart
             val replayStart = System.nanoTime()
             val streamed = replay(stored.size)
@@ -156,7 +157,7 @@ class MessageComparisonTest : BaseInstrumentedTest() {
                 Reaction("❤️", ReactionAction.ADDED, ReactionSchema.UNICODE),
             )
             sync()
-            val stored = boGroup.messages(options)
+            val stored = boGroup.messageHistorySnapshot(100u).messages
             val streamed = replay(stored.size)
             assertEquals(2, stored.count { reaction(it) != null })
             assertEquals(

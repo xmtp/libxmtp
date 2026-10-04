@@ -36,7 +36,19 @@ class NotificationChannelFormattingTest {
         val key = ByteArray(32) { (it + 65).toByte() }
         val channel = NotificationChannel.Http("https://example.test/push", key)
         checkText(channel, key.contentToString(), "signingKey")
-        assertTrue(channel.toString().contains(channel.url))
+        assertTrue(channel.url == "https://example.test/push")
         assertArrayEquals(key, channel.signingKey)
+    }
+
+    @Test
+    fun httpTextKeepsSignedUrlInStructuredField() {
+        val url = "https://example.test/push?signature=http-url-bearer-sentinel"
+        val channel = NotificationChannel.Http(url, ByteArray(32) { 65 })
+        for (text in listOf(channel.toString(), NotificationConfig(channel).toString())) {
+            assertFalse(text.contains(url))
+            assertFalse(text.contains("http-url-bearer-sentinel"))
+            assertTrue(text.contains("url=<redacted>"))
+        }
+        assertTrue(channel.url == url)
     }
 }

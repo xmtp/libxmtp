@@ -58,7 +58,10 @@ class DeleteMessageTest : BaseInstrumentedTest() {
 
         runBlocking { alixGroup.sync() }
         messages = runBlocking { alixGroup.messages() }
-        assertTrue(messages.any { it.id == deletionMessageId })
+        assertTrue(deletionMessageId.isNotEmpty())
+        assertFalse(messages.any { it.id == deletionMessageId })
+        val parent = messages.single { it.id == messageId }
+        assertTrue(deleted(parent)?.deletedBy is DeletedBy.Sender)
     }
 
     @Test
@@ -173,7 +176,10 @@ class DeleteMessageTest : BaseInstrumentedTest() {
 
         runBlocking { alixDm.sync() }
         messages = runBlocking { alixDm.messages() }
-        assertTrue(messages.any { it.id == deletionMessageId })
+        assertTrue(deletionMessageId.isNotEmpty())
+        assertFalse(messages.any { it.id == deletionMessageId })
+        val parent = messages.single { it.id == messageId }
+        assertTrue(deleted(parent)?.deletedBy is DeletedBy.Sender)
     }
 
     @Test
