@@ -1,4 +1,4 @@
-import { Client } from "@xmtp/browser-sdk";
+import { Client, XmtpError } from "@xmtp/browser-sdk";
 import { expect, test, vi } from "vitest";
 
 import { backend, create, options, signer } from "./helpers";
@@ -51,7 +51,19 @@ test("the real worker keeps private credential failures out of public errors", a
     ...options,
     backend: { ...backend, credentials: { credential: callback } },
   });
-  await expect(creation).rejects.not.toThrow("private refresh response");
+  const error = await creation.then(
+    () => undefined,
+    (cause: unknown) => cause,
+  );
+  expect(error).toBeInstanceOf(XmtpError.CredentialCallbackFailed);
+  expect((error as XmtpError).details).toMatchObject({
+    code: "CredentialCallbackFailed",
+    category: "callback",
+    retryable: true,
+  });
+  expect((error as XmtpError).details.message).not.toContain(
+    "private refresh response",
+  );
   expect(callback).toHaveBeenCalled();
 });
 
