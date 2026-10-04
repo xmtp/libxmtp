@@ -419,7 +419,11 @@ class ConversationsTest : BaseInstrumentedTest() {
                 bo.startListener(
                     EventFilter(listOf(EventKind.MESSAGE_EXPIRED), null, null, false),
                     { event ->
-                        if (event is ClientEvent.MessageExpired) synchronized(deleted) { deleted.add(event.messageId) }
+                        if (event is ClientEvent.MessageExpired) {
+                            synchronized(
+                                deleted,
+                            ) { deleted.add(event.messageExpired.messageId) }
+                        }
                     },
                 )
             try {

@@ -422,7 +422,7 @@ suspend fun checkAttachmentEnd(backend: BackendOptions) =
             for (expected in listOf(remote, small.remoteAttachment())) {
                 val next = deleted.next()
                 check(
-                    next is ClientEvent.AttachmentDeleted && next.attachment.url == expected.url,
+                    next is ClientEvent.AttachmentDeleted && next.attachmentDeleted.url == expected.url,
                 ) { "not a deletion: $next" }
             }
             check(deletions.get() == 1) { "a stopped listener saw a deletion" }

@@ -98,7 +98,7 @@ class ClientTest : BaseInstrumentedTest() {
                         EventFilter(listOf(EventKind.CONVERSATION_METADATA_CHANGED), listOf(group.id()), null, false),
                         { event ->
                             if (event is ClientEvent.ConversationMetadataChanged &&
-                                event.conversationId == group.id()
+                                event.metadataChanged.conversationId == group.id()
                             ) {
                                 changed.complete(event)
                             }
@@ -106,7 +106,7 @@ class ClientTest : BaseInstrumentedTest() {
                     )
                 try {
                     group.updateAppData("client-runtime-options", null)
-                    assertEquals(group.id(), withTimeout(5_000) { changed.await() }.conversationId)
+                    assertEquals(group.id(), withTimeout(5_000) { changed.await() }.metadataChanged.conversationId)
                     assertEquals("client-runtime-options", group.state().appData)
                 } finally {
                     withContext(NonCancellable) { created.stopListener(listener) }
