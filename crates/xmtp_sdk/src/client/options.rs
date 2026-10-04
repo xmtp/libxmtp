@@ -24,8 +24,10 @@ pub struct StorageOptions {
     #[uniffi(default = None)]
     pub label: Option<String>,
     /// An optional 32-byte key for native database encryption.
-    /// Omitting the key selects unencrypted storage. Store the key securely
-    /// and reuse the same key when reopening the database.
+    /// No key is required. When the key is absent, the database is not encrypted
+    /// by the SDK. Encryption is recommended for stored messages and keys.
+    /// If you supply a key, store it securely and use the same key to reopen
+    /// the database.
     #[cfg(not(target_arch = "wasm32"))]
     #[uniffi(default = None)]
     pub encryption_key: Option<Vec<u8>>,

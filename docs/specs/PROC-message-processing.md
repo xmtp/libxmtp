@@ -154,6 +154,8 @@ Message handoff is the SDK's per-reader admission check that releases one messag
 
 An app callback or iterator can sit behind a binding queue. A successful enqueue is not an acknowledgement: the app must reach the acknowledgement boundary. A crash after app handling and before durable acknowledgement can repeat the item.
 
+An app can place a queue after the SDK iterator. When that queue requests the next item, it reaches the iterator acknowledgement boundary even if later app processing is incomplete. Cancellation after final commit admission does not make that item eligible again.
+
 For an iterator acknowledgement, cancellation and final commit admission have one atomic order. Writer acquisition and tentative progress changes do not admit the commit. Cancellation that wins that order retains the prior item; a commit already admitted can finish without starting another handoff for the cancelled read.
 
 A reader's selection can include a Restored placeholder; when the reader selects it, PROC-051 keeps its topic out of network interest until activation. Scope and filter have different effects. A group outside scope keeps its backlog. A filter excludes a candidate inside scope and consumes it for default delivery. Conversation callbacks are live notifications; message replay does not replay conversation discovery or later message edits and deletions.

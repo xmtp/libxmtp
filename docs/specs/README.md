@@ -32,7 +32,7 @@ A requirement without a proving test needs a waiver under SPEC-055, SPEC-094, an
 | `SYNC` | [Device sync](SYNC-device-sync.md) | The sync group, preference updates, trust of sync invitations | draft |
 | `ARCH` | [Archive format](ARCH-archive-format.md) | The backup export and import format and its compatibility promise | draft |
 | `CTYPE` | [Content types](CTYPE-content-types.md) | Content type ids, the encoded-content envelope, the standard catalogue | draft |
-| `STORE` | [Client storage](STORE-client-storage.md) | Client database locations and storage lifecycle | draft |
+| `STORE` | [Client storage](STORE-client-storage.md) | Client database locations, storage lifecycle, and unencrypted database support | draft |
 | `ATCH` | [Remote attachments](ATCH-remote-attachments.md) | Published attachment storage, download URLs, the upload request, pending attachments, local attachment files, downloads | draft |
 | `EVENT` | [Client events](EVENT-client-events.md) | Live event kinds, payloads, filters, delivery, and subscriptions | approved |
 | `LOG` | [Client logging](LOG-client-logging.md) | Client diagnostic logs and app sinks | draft |

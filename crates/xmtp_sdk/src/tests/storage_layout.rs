@@ -123,7 +123,7 @@ async fn default_storage_requires_a_host_location() {
     ));
 }
 
-// verifies: STORE-009
+// verifies: STORE-009, STORE-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn labelled_directory_opens_the_deployment_layout_offline_from_its_record() {
     let relay = CountingRelay::start().await?;
