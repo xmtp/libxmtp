@@ -306,6 +306,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     if (XMTP_DB_DIRECTORY && !options?.storage)
       fs.mkdirSync(XMTP_DB_DIRECTORY, { recursive: true, mode: 0o700 });
     let storage = options?.storage;
+    let useOldDefaultNonce = false;
     if (!storage) {
       const legacyDirectory = XMTP_DB_DIRECTORY || process.cwd();
       const candidates = fs
@@ -325,9 +326,16 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
             : [];
         });
       const identity = createIdentifier(user);
-      const ids = new Set([
-        generateInboxId(identity, options?.registration?.nonce).toLowerCase(),
-      ]);
+      const generatedInboxId = generateInboxId(
+        identity,
+        options?.registration?.nonce,
+      ).toLowerCase();
+      const oldDefaultInboxId =
+        options?.registration?.nonce === undefined
+          ? generateInboxId(identity, 1n).toLowerCase()
+          : undefined;
+      const ids = new Set([generatedInboxId]);
+      if (oldDefaultInboxId !== undefined) ids.add(oldDefaultInboxId);
       if (candidates.length > 0 && !options?.allowOffline)
         ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
       const legacyMatches = candidates.filter((entry) =>
@@ -339,6 +347,11 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           "More than one legacy XMTP database exists. Pass an explicit storage location.",
         );
       const legacyMatch = legacyMatches[0];
+      useOldDefaultNonce =
+        legacyMatch !== undefined &&
+        oldDefaultInboxId !== undefined &&
+        legacyMatch.inboxId === oldDefaultInboxId &&
+        legacyMatch.inboxId !== generatedInboxId;
       const legacyPath = legacyMatch
         ? path.join(legacyDirectory, legacyMatch.name)
         : undefined;
@@ -399,6 +412,9 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       );
     return this.create(signer, {
       ...options,
+      ...(useOldDefaultNonce
+        ? { registration: { ...options?.registration, nonce: 1n } }
+        : {}),
       backend,
       storage: {
         ...storage,

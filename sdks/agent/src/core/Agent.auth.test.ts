@@ -144,6 +144,33 @@ describe("agent environment storage", () => {
     );
   });
 
+  it("selects an unregistered legacy database with the old default nonce", async () => {
+    const workingDirectory = directory();
+    fs.mkdirSync(workingDirectory);
+    const legacyInboxId = generateInboxId(
+      createIdentifier(createUser(key)),
+      1n,
+    );
+    const dbPath = path.join(
+      workingDirectory,
+      `xmtp-production-${legacyInboxId}.db3`,
+    );
+    fs.writeFileSync(dbPath, "legacy database");
+    vi.spyOn(process, "cwd").mockReturnValue(workingDirectory);
+    const { create, stopped } = setup();
+
+    await expect(Agent.createFromEnv()).rejects.toBe(stopped);
+    expect(create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        registration: expect.objectContaining({ nonce: 1n }),
+        storage: expect.objectContaining({
+          location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
+        }),
+      }),
+    );
+  });
+
   it.each(["directory", "default"] as const)(
     "rejects a %s legacy database when current storage has the same inbox",
     async (location) => {

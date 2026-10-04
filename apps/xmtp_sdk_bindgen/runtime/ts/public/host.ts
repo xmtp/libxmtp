@@ -98,9 +98,14 @@ export async function resolveLegacyStorage(
       message: "Signer identity could not be read.",
     });
   }
-  const ids = new Set<InboxId>([
-    inboxId ?? generateInboxId(user, options.registration?.nonce),
-  ]);
+  const generatedInboxId =
+    inboxId ?? generateInboxId(user, options.registration?.nonce);
+  const oldDefaultInboxId =
+    inboxId === undefined && options.registration?.nonce === undefined
+      ? generateInboxId(user, 1n)
+      : undefined;
+  const ids = new Set<InboxId>([generatedInboxId]);
+  if (oldDefaultInboxId !== undefined) ids.add(oldDefaultInboxId);
   if (inboxId === undefined && !options.allowOffline)
     ids.add(await inboxIdForWithBackend(options.backend ?? { url: "" }, user));
   const matches = files.filter(
@@ -137,8 +142,15 @@ export async function resolveLegacyStorage(
   }
 
   const dbPath = join(directory, match.name);
+  const useOldDefaultNonce =
+    oldDefaultInboxId !== undefined &&
+    match.inboxId === oldDefaultInboxId &&
+    match.inboxId !== generatedInboxId;
   return {
     ...options,
+    ...(useOldDefaultNonce
+      ? { registration: { ...options.registration, nonce: 1n } }
+      : {}),
     storage: {
       ...options.storage,
       location: { dbPath, attachmentsDir: `${dbPath}.attachments` },

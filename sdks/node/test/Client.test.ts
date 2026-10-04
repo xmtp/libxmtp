@@ -64,6 +64,47 @@ describe("Client", () => {
     }
   });
 
+  it("reopens an unregistered legacy database with the old default nonce", async () => {
+    const { signer, identifier } = createSigner();
+    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-nonce-"));
+    const previousDirectory = process.cwd();
+    process.chdir(directory);
+    try {
+      const inboxId = generateInboxId(identifier, 1n);
+      const oldPath = join(directory, `xmtp-production-${inboxId}.db3`);
+      const first = await Client.create(
+        signer,
+        clientOptions({
+          registration: { auto: false, nonce: 1n },
+          storage: {
+            location: {
+              dbPath: oldPath,
+              attachmentsDir: `${oldPath}.attachments`,
+            },
+          },
+        }),
+      );
+      await first.end();
+
+      const reopened = await Client.create(
+        signer,
+        clientOptions({
+          registration: { auto: false },
+          storage: { location: "default", label: "production" },
+        }),
+      );
+      try {
+        expect(reopened.storagePath).toBe(realpathSync(oldPath));
+        expect(reopened.inboxId).toBe(inboxId);
+      } finally {
+        await reopened.end();
+      }
+    } finally {
+      process.chdir(previousDirectory);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reuses the legacy default database and rejects ambiguous matches", async () => {
     const { signer, identifier } = createSigner();
     const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-"));
