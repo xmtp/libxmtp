@@ -89,7 +89,8 @@ jobs:
               - '.github/workflows/lint-ios*'
             android:
               - 'sdks/android/**'
-              - 'bindings/mobile/**'
+              - 'crates/xmtp_sdk/**'
+              - 'apps/xmtp_sdk_bindgen/**'
               - '.github/workflows/lint-android*'
             config:
               - '**/*.toml'

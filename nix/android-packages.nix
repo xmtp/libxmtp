@@ -46,10 +46,8 @@
       );
 
       crossPkgs = self.lib.mkCrossPkgs system (lib.mapAttrsToList (_: t: t // sdkConfig) androidTargets);
-      mkAndroidBindings = p: p.callPackage ./package/android.nix;
 
       # Per-target dylibs keyed by config name
-      androidDylibs = lib.mapAttrs (_: p: (mkAndroidBindings p { }).dylib) crossPkgs;
       sdkDylibs = lib.mapAttrs (
         _: p: p.callPackage ./package/xmtp-sdk-native.nix { android = true; }
       ) crossPkgs;
@@ -73,64 +71,25 @@
           path = "${dylib}/lib/libxmtp_sdk.so";
         }) targets;
 
-      # Kotlin bindings from host build
-      inherit (mkAndroidBindings pkgs { }) kotlin-bindings;
-
       fastAbi =
         if pkgs.stdenv.hostPlatform.isx86_64 then
           "x86_64"
         else if pkgs.stdenv.hostPlatform.isAarch64 then
           "arm64-v8a"
         else
-          throw "Unsupported host architecture for android-libs-fast";
+          throw "Unsupported host architecture for android-sdk-libs-fast";
 
       fastTarget = androidTargets.${fastAbi};
-      fastDylib = androidDylibs.${fastTarget.config};
 
       android-sdk-libs-fast = pkgs.linkFarm "xmtp-sdk-android-fast" (
         sdkSources ++ sdkLibraries { ${fastTarget.config} = sdkDylibs.${fastTarget.config}; }
       );
       android-sdk-libs = pkgs.linkFarm "xmtp-sdk-android" (sdkSources ++ sdkLibraries sdkDylibs);
 
-      android-libs-fast = pkgs.linkFarm "xmtpv3-android-fast" [
-        {
-          name = "jniLibs/${fastAbi}/libuniffi_xmtpv3.so";
-          path = "${fastDylib}/libuniffi_xmtpv3.so";
-        }
-        {
-          name = "java/uniffi/xmtpv3/xmtpv3.kt";
-          path = "${kotlin-bindings}/kotlin/uniffi/xmtpv3/xmtpv3.kt";
-        }
-        {
-          name = "libxmtp-version.txt";
-          path = "${kotlin-bindings}/libxmtp-version.txt";
-        }
-      ];
-
-      # Aggregate all targets + Kotlin bindings into a Gradle-ready layout
-      android-libs = pkgs.linkFarm "xmtpv3-android" (
-        lib.mapAttrsToList (config: dylib: {
-          name = "jniLibs/${configToAbi.${config}}/libuniffi_xmtpv3.so";
-          path = "${dylib}/libuniffi_xmtpv3.so";
-        }) androidDylibs
-        ++ [
-          {
-            name = "java/uniffi/xmtpv3/xmtpv3.kt";
-            path = "${kotlin-bindings}/kotlin/uniffi/xmtpv3/xmtpv3.kt";
-          }
-          {
-            name = "libxmtp-version.txt";
-            path = "${kotlin-bindings}/libxmtp-version.txt";
-          }
-        ]
-      );
     in
     {
       packages = {
         inherit
-          android-libs
-          android-libs-fast
-          kotlin-bindings
           android-sdk-libs
           android-sdk-libs-fast
           ;
@@ -138,10 +97,6 @@
       // lib.mapAttrs' (config: crossPkgs: {
         name = "xmtp-sdk-android-${configToAbi.${config}}";
         value = sdkDylibs.${config};
-      }) crossPkgs
-      // lib.mapAttrs' (config: dylib: {
-        name = "android-bindings-${configToAbi.${config}}";
-        value = dylib;
-      }) androidDylibs;
+      }) crossPkgs;
     };
 }
