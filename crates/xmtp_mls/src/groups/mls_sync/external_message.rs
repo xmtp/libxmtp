@@ -1,6 +1,7 @@
 //! Validating and processing messages from other members.
 
 use super::*;
+use xmtp_common::snippet::Snippet;
 use xmtp_mls_validation::commit::CommitRuleError;
 
 impl<Context> MlsGroup<Context>
@@ -109,8 +110,9 @@ where
 
         tracing::info!(
             inbox_id = self.context.inbox_id(),
-            installation_id = %self.context.installation_id(),sender_inbox_id = sender_inbox_id,
-            sender_installation_id = hex::encode(&sender_installation_id),
+            installation_id = self.context.installation_id().as_slice().snippet(),
+            sender_inbox_id = sender_inbox_id,
+            sender_installation_id = sender_installation_id.snippet(),
             group_id = %self.group_id,
             group_epoch = mls_group.epoch().as_u64(),
             message_epoch = processed_message.epoch().as_u64(),
@@ -342,7 +344,7 @@ where
             ProcessedMessageContent::ProposalMessage(proposal_ptr) => {
                 tracing::debug!(
                     inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
+                    installation_id = self.context.installation_id().as_slice().snippet(),
                     group_id = %self.group_id,
                     proposal_type = ?proposal_ptr.proposal().proposal_type(),
                     "Received and storing proposal in proposal store"
@@ -367,7 +369,7 @@ where
                 // decryption error.
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
+                    installation_id = self.context.installation_id().as_slice().snippet(),
                     group_id = %self.group_id,
                     cursor = %cursor,
                     "skipping own fanned-back private message without a matching intent"
