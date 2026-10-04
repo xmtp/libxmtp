@@ -21,13 +21,13 @@ from [release run 35742600105](https://github.com/xmtp/libxmtp/actions/runs/3574
 on `self-hosted`, at commit `9f72722`. Pin these versions instead of using an
 unversioned install or a moving `dev` tag.
 
-| SDK     | Package or dependency         | Dev version                                                                               |
-| ------- | ----------------------------- | ----------------------------------------------------------------------------------------- |
-| Browser | `@xmtp/browser-sdk`           | [7.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.9f72722)       |
-| Node    | `@xmtp/node-sdk`              | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)          |
-| Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)         |
-| Kotlin  | `org.xmtp:android`            | Build the checked-out source with `dev/nix-shell 'just android build'`.                   |
-| Swift   | Swift package product `XmtpSdk` | Build the checked-out source with `dev/nix-shell 'just ios build'`. |
+| SDK     | Package or dependency           | Dev version                                                                         |
+| ------- | ------------------------------- | ----------------------------------------------------------------------------------- |
+| Browser | `@xmtp/browser-sdk`             | [7.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.9f72722) |
+| Node    | `@xmtp/node-sdk`                | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)    |
+| Agent   | `@xmtp/agent-sdk`               | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)   |
+| Kotlin  | `org.xmtp:android`              | Build the checked-out source with `dev/nix-shell 'just android build'`.             |
+| Swift   | Swift package product `XmtpSdk` | Build the checked-out source with `dev/nix-shell 'just ios build'`.                 |
 
 For example, install Node with
 `npm install @xmtp/node-sdk@6.2.0-dev.9f72722`. For Kotlin, build the current Android source and use its matching AAR. For Swift, build the current source and add the `XmtpSdk` product. Keep its Swift source and native archive from the same build.
