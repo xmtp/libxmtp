@@ -97,7 +97,7 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
             assertEquals(1, group.messages().size)
             group.updateName("Group Name")
             assertEquals(2, group.messages().size)
-            val value = update(group.messages().first())
+            val value = update(group.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first())
             assertEquals("Start Name", value.metadataFieldChanges.first().oldValue)
             assertEquals("Group Name", value.metadataFieldChanges.first().newValue)
             val debug = group.debugInfo()

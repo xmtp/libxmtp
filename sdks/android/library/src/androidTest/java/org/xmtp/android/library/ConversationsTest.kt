@@ -150,7 +150,9 @@ class ConversationsTest : BaseInstrumentedTest() {
             try {
                 messages.awaitHistory(bo.conversations().messageHistorySnapshot(10u).messages)
                 val expected = listOf(group.sendText("hi") to "hi", dm.sendText("hi") to "hi")
-                messages.awaitApplications(expected)
+                messages.awaitApplicationsAcrossConversations(expected) {
+                    bo.conversations().messageHistorySnapshot(10u).messages
+                }
             } finally {
                 withContext(NonCancellable) { job.cancelAndJoin() }
             }
