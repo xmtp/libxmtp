@@ -135,8 +135,14 @@ pub use error::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use events::{
-    AttachmentFailed, AttachmentRef, ClientEvent, EventFilter, EventKind, EventListener,
-    EventReader, ListenerError, ListenerId,
+    ArchiveRestored, AttachmentFailed, AttachmentRef, ClientEvent, ClientRejectedByServer,
+    ConnectionStateChanged, ConsentChanged, ConsentEntityKind, ConversationJoined,
+    ConversationPaused, ConversationRemoved, DeletionCause, EventConsentState,
+    EventConversationType, EventFilter, EventKind, EventListener, EventMessageStatus, EventReader,
+    GroupRef, HmacKeysUpdated, IdentityRegistered, InstallationRef, InstallationRevoked,
+    JoinOrigin, Lagged, ListenerError, ListenerId, LockoutChange, LockoutChanged,
+    MembershipChanged, MessageDeleted, MessageReceived, MessageRef, MessageStatusChanged,
+    MetadataChanged, NotificationsFailed, RejectionCause, RemovalCause,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use identity::{

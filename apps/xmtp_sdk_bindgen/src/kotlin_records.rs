@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use heck::ToLowerCamelCase;
-use uniffi_meta::{FieldMetadata, Metadata, MetadataGroupMap, RecordMetadata, Type};
+use uniffi_meta::{EnumMetadata, FieldMetadata, Metadata, MetadataGroupMap, RecordMetadata, Type};
 
 /// Kotlin's generated data classes compare ByteArray by reference.
 pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String> {
@@ -40,7 +40,80 @@ pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String>
         let code = overrides(&record.name, &record.fields);
         output.insert_str(body, &code);
     }
+    for value in groups.values().flat_map(|group| &group.items) {
+        if let Metadata::Enum(value) = value
+            && value.name == "NotificationChannel"
+        {
+            output = notification_display(&output, value)?;
+        }
+    }
     Ok(output)
+}
+
+fn notification_display(source: &str, value: &EnumMetadata) -> Result<String> {
+    let expected = [
+        ("Apns", vec![("token", Type::String)]),
+        ("Fcm", vec![("token", Type::String)]),
+        (
+            "Http",
+            vec![("url", Type::String), ("signing_key", Type::Bytes)],
+        ),
+    ];
+    if value.variants.len() != expected.len()
+        || value
+            .variants
+            .iter()
+            .zip(&expected)
+            .any(|(variant, (name, fields))| {
+                variant.name != *name
+                    || variant.fields.len() != fields.len()
+                    || variant
+                        .fields
+                        .iter()
+                        .zip(fields)
+                        .any(|(field, (name, ty))| field.name != *name || field.ty != *ty)
+            })
+    {
+        bail!("NotificationChannel: expected APNS, FCM and HTTP credential fields");
+    }
+    let anchor = "sealed class NotificationChannel {";
+    if source.matches(anchor).count() != 1 {
+        bail!("NotificationChannel: expected one generated enum");
+    }
+    let start = source.find(anchor).expect("one admitted enum");
+    let end = source[start..]
+        .find("\n}\n")
+        .map(|at| start + at)
+        .context("NotificationChannel: generated enum has no end")?;
+    let mut block = source[start..end].to_owned();
+    for (name, text) in [
+        ("Apns", "Apns(token=<redacted>)"),
+        ("Fcm", "Fcm(token=<redacted>)"),
+        ("Http", "Http(url=$url, signingKey=<redacted>)"),
+    ] {
+        let anchor = format!("data class {name}(");
+        if block.matches(&anchor).count() != 1 {
+            bail!("NotificationChannel: expected one {name} variant");
+        }
+        let start = block.find(&anchor).expect("one admitted variant");
+        let body = block[start..]
+            .find("\n    {")
+            .map(|at| start + at + "\n    {".len())
+            .context("NotificationChannel: generated variant has no body")?;
+        let end = block[body..]
+            .find("companion object")
+            .map(|at| body + at)
+            .context("NotificationChannel: generated variant has no companion")?;
+        let display = format!("\n        override fun toString(): String = \"{text}\"\n");
+        if block[body..end].contains(&display) {
+            continue;
+        }
+        if block[body..end].contains("fun toString(") {
+            bail!("NotificationChannel: generated variant display already exists");
+        }
+        block.insert_str(body, &display);
+    }
+    Ok(format!("{}{block}{}", &source[..start], &source[end..]))
 }
 
 const CREDENTIAL_DISPLAY: &str = "    // Keep credential values out of diagnostic text.\n    override fun toString(): String = \"Credential(name=$name, value=<redacted>, expiresAtSeconds=$expiresAtSeconds)\"\n\n";

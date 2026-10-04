@@ -182,8 +182,8 @@ final class EventQueue {
         var events: [AttachmentEvent] = []
         while true {
             let event = try await next()
-            if case let .conversationJoined(conversationId, _, _, _) = event {
-                if conversationId == marker {
+            if case let .conversationJoined(conversationJoined: joined) = event {
+                if joined.conversationId == marker {
                     return events
                 }
                 continue
