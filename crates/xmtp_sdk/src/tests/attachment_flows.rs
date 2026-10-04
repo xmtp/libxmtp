@@ -76,7 +76,7 @@ async fn drain_attachment_events(
             .await
             .map_err(XmtpError::unknown)??
         {
-            Some(ClientEvent::HmacKeysUpdated) | None => return Ok(events),
+            Some(ClientEvent::HmacKeysUpdated { .. }) | None => return Ok(events),
             Some(event) => events.push(event),
         }
     }
@@ -159,10 +159,10 @@ async fn attachment_uploads_after_its_record_is_sent_and_downloads_on_another_cl
     let uploaded = drain_attachment_events(&sender, &events).await?;
     let [
         ClientEvent::AttachmentUploadStarted {
-            attachment: started,
+            attachment_upload_started: started,
         },
         ClientEvent::AttachmentUploadCompleted {
-            attachment: completed,
+            attachment_upload_completed: completed,
         },
     ] = uploaded.as_slice()
     else {
@@ -246,7 +246,12 @@ async fn attachment_uploads_after_its_record_is_sent_and_downloads_on_another_cl
     assert_eq!(receiving.list_local().await?.len(), 1);
     assert!(!std::path::Path::new(&downloaded.path).exists());
     let deleted = drain_attachment_events(&receiver, &deletions).await?;
-    let [ClientEvent::AttachmentDeleted { attachment }] = deleted.as_slice() else {
+    let [
+        ClientEvent::AttachmentDeleted {
+            attachment_deleted: attachment,
+        },
+    ] = deleted.as_slice()
+    else {
         panic!("expected one deletion, got {deleted:?}");
     };
     assert_eq!(attachment.url, received.url);
@@ -308,7 +313,7 @@ async fn attachment_failures_carry_one_record_in_errors_and_status() {
         failed.as_slice(),
         [
             ClientEvent::AttachmentUploadStarted { .. },
-            ClientEvent::AttachmentUploadFailed { attachment },
+            ClientEvent::AttachmentUploadFailed { attachment_upload_failed: attachment },
         ] if attachment.cause == AttachmentFailureCause::StagedUnusable
             && attachment.content_digest == digest
     ));
@@ -409,7 +414,9 @@ async fn attachment_failures_carry_one_record_in_errors_and_status() {
     let causes: Vec<_> = failed
         .iter()
         .filter_map(|event| match event {
-            ClientEvent::AttachmentDownloadFailed { attachment } => Some(attachment.cause),
+            ClientEvent::AttachmentDownloadFailed {
+                attachment_download_failed: attachment,
+            } => Some(attachment.cause),
             _ => None,
         })
         .collect();

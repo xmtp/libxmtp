@@ -22,16 +22,19 @@ async fn reader_counts_taken_event() {
         emit_hmac(&client);
     }
     gate.release.notify_one();
-    assert!(matches!(read.await?, Some(ClientEvent::HmacKeysUpdated)));
+    assert!(matches!(
+        read.await?,
+        Some(ClientEvent::HmacKeysUpdated { .. })
+    ));
     for _ in 0..1023 {
         assert!(matches!(
             reader.next().await?,
-            Some(ClientEvent::HmacKeysUpdated)
+            Some(ClientEvent::HmacKeysUpdated { .. })
         ));
     }
     assert!(matches!(
         reader.next().await?,
-        Some(ClientEvent::Lagged { discarded: 2 })
+        Some(ClientEvent::Lagged { lagged }) if lagged.discarded == 2
     ));
     reader.end().await?;
     client.end().await?;
@@ -61,11 +64,11 @@ async fn listener_calls_are_sequential() {
     emit_hmac(&client);
     assert!(matches!(
         other.next().await?,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     assert!(matches!(
         other.next().await?,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     let early = tokio::time::timeout(Duration::from_millis(20), started.recv()).await;
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -224,7 +227,7 @@ async fn blocked_listener_counts_running_event_in_queue_bound() {
     emit_hmac(&client);
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), events.recv()).await?,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     for _ in 0..1030 {
         emit_hmac(&client);
@@ -234,12 +237,12 @@ async fn blocked_listener_counts_running_event_in_queue_bound() {
         for _ in 0..1023 {
             assert!(matches!(
                 events.recv().await,
-                Some(ClientEvent::HmacKeysUpdated)
+                Some(ClientEvent::HmacKeysUpdated { .. })
             ));
         }
         assert!(matches!(
             events.recv().await,
-            Some(ClientEvent::Lagged { discarded: 7 })
+            Some(ClientEvent::Lagged { lagged }) if lagged.discarded == 7
         ));
     })
     .await?;
