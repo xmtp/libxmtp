@@ -1,13 +1,7 @@
 import { randomUUID } from "node:crypto";
-import {
-  copyFileSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import {
   buildClient,
@@ -26,56 +20,20 @@ import { uint8ArrayToHex } from "uint8array-extras";
 import { describe, expect, it } from "vitest";
 
 describe("Client", () => {
-  it("does not expose a signer error while checking legacy storage", async () => {
-    const { signer } = createSigner();
-    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-signer-error-"));
-    const previousDirectory = process.cwd();
-    process.chdir(directory);
-    try {
-      writeFileSync(
-        join(directory, `xmtp-production-${"a".repeat(64)}.db3`),
-        "legacy candidate",
-      );
-      const privateText = "wallet-private-error-text";
-      const failingSigner = {
-        ...signer,
-        identity: async () => {
-          throw new Error(privateText);
-        },
-      };
-      let failure: unknown;
-      try {
-        await Client.create(
-          failingSigner,
-          clientOptions({
-            allowOffline: true,
-            storage: { location: "default" },
-          }),
-        );
-      } catch (error) {
-        failure = error;
-      }
-      expect(failure).toBeInstanceOf(XmtpError.InvalidArgument);
-      expect(JSON.stringify(failure)).not.toContain(privateText);
-      expect(String(failure)).not.toContain(privateText);
-    } finally {
-      process.chdir(previousDirectory);
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("reopens an unregistered legacy database with the old default nonce", async () => {
+  it("keeps default storage in the current data directory when an old database exists", async () => {
     const { signer, identifier } = createSigner();
-    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-nonce-"));
+    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-default-"));
     const previousDirectory = process.cwd();
     process.chdir(directory);
     try {
-      const inboxId = generateInboxId(identifier, 1n);
-      const oldPath = join(directory, `xmtp-production-${inboxId}.db3`);
-      const first = await Client.create(
+      const oldPath = join(
+        directory,
+        `xmtp-production-${generateInboxId(identifier)}.db3`,
+      );
+      const oldClient = await Client.create(
         signer,
         clientOptions({
-          registration: { auto: false, nonce: 1n },
+          registration: { auto: false },
           storage: {
             location: {
               dbPath: oldPath,
@@ -84,198 +42,25 @@ describe("Client", () => {
           },
         }),
       );
-      await first.end();
+      await oldClient.end();
 
-      const reopened = await Client.create(
+      const current = await Client.create(
         signer,
         clientOptions({
           registration: { auto: false },
-          storage: { location: "default", label: "production" },
+          storage: { location: "default" },
         }),
       );
       try {
-        expect(reopened.storagePath).toBe(realpathSync(oldPath));
-        expect(reopened.inboxId).toBe(inboxId);
+        expect(current.storagePath).not.toBe(realpathSync(oldPath));
+        expect(
+          current.storagePath?.startsWith(
+            `${join(realpathSync(directory), "xmtp")}${sep}`,
+          ),
+        ).toBe(true);
       } finally {
-        await reopened.end();
+        await current.end();
       }
-    } finally {
-      process.chdir(previousDirectory);
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("reuses the legacy default database and rejects ambiguous matches", async () => {
-    const { signer, identifier } = createSigner();
-    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-"));
-    const previousDirectory = process.cwd();
-    process.chdir(directory);
-    try {
-      const inboxId = generateInboxId(identifier);
-      const oldPath = join(directory, `xmtp-production-${inboxId}.db3`);
-      const otherPath = join(directory, `xmtp-local-${inboxId}.db3`);
-      const options = clientOptions({
-        registration: { auto: false },
-        storage: {
-          location: {
-            dbPath: oldPath,
-            attachmentsDir: `${oldPath}.attachments`,
-          },
-        },
-      });
-      const first = await Client.create(signer, options);
-      await first.end();
-
-      const withDefault = {
-        ...options,
-        storage: { location: "default" as const },
-      };
-      const reopened = await Client.create(signer, withDefault);
-      try {
-        expect(reopened.storagePath).toBe(realpathSync(oldPath));
-      } finally {
-        await reopened.end();
-      }
-
-      copyFileSync(oldPath, otherPath);
-      await expect(Client.create(signer, withDefault)).rejects.toThrow(
-        "More than one legacy XMTP database",
-      );
-    } finally {
-      process.chdir(previousDirectory);
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("builds from a registered legacy default database", async () => {
-    const { signer, identifier } = createSigner();
-    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-build-"));
-    const previousDirectory = process.cwd();
-    process.chdir(directory);
-    try {
-      const oldPath = join(
-        directory,
-        `xmtp-local-${generateInboxId(identifier)}.db3`,
-      );
-      const options = clientOptions({
-        storage: {
-          location: {
-            dbPath: oldPath,
-            attachmentsDir: `${oldPath}.attachments`,
-          },
-        },
-      });
-      const registered = await Client.create(signer, options);
-      const inboxId = registered.inboxId;
-      await registered.end();
-
-      const built = await Client.build(
-        identifier,
-        { ...options, storage: { location: "default" } },
-        inboxId,
-      );
-      try {
-        expect(built.storagePath).toBe(realpathSync(oldPath));
-      } finally {
-        await built.end();
-      }
-    } finally {
-      process.chdir(previousDirectory);
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("reuses only the matching labeled legacy database", async () => {
-    const { signer, identifier } = createSigner();
-    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-labeled-legacy-"));
-    const previousDirectory = process.cwd();
-    process.chdir(directory);
-    try {
-      const inboxId = generateInboxId(identifier);
-      const oldPath = join(directory, `xmtp-production-${inboxId}.db3`);
-      const otherPath = join(directory, `xmtp-local-${inboxId}.db3`);
-      const options = clientOptions({
-        registration: { auto: false },
-        storage: {
-          location: {
-            dbPath: oldPath,
-            attachmentsDir: `${oldPath}.attachments`,
-          },
-        },
-      });
-      const first = await Client.create(signer, options);
-      await first.end();
-      copyFileSync(oldPath, otherPath);
-
-      const reopened = await Client.create(signer, {
-        ...options,
-        storage: { location: "default", label: "production" },
-      });
-      try {
-        expect(reopened.storagePath).toBe(realpathSync(oldPath));
-      } finally {
-        await reopened.end();
-      }
-    } finally {
-      process.chdir(previousDirectory);
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects a labeled legacy database that conflicts with a current database", async () => {
-    const { signer, identifier } = createSigner();
-    const directory = mkdtempSync(
-      join(tmpdir(), "xmtp-node-labeled-conflict-"),
-    );
-    const previousDirectory = process.cwd();
-    process.chdir(directory);
-    try {
-      const options = clientOptions({
-        registration: { auto: false },
-        storage: { location: "default", label: "production" },
-      });
-      const current = await Client.create(signer, options);
-      const currentPath = current.storagePath;
-      await current.end();
-      if (currentPath === undefined)
-        throw new Error("default database path is missing");
-
-      copyFileSync(
-        currentPath,
-        join(directory, `xmtp-production-${generateInboxId(identifier)}.db3`),
-      );
-      await expect(Client.create(signer, options)).rejects.toThrow(
-        "Both legacy and current XMTP databases",
-      );
-    } finally {
-      process.chdir(previousDirectory);
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects a legacy database when a current default database also exists", async () => {
-    const { signer, identifier } = createSigner();
-    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-conflict-"));
-    const previousDirectory = process.cwd();
-    process.chdir(directory);
-    try {
-      const options = clientOptions({
-        registration: { auto: false },
-        storage: { location: "default" },
-      });
-      const current = await Client.create(signer, options);
-      const currentPath = current.storagePath;
-      await current.end();
-      if (currentPath === undefined)
-        throw new Error("default database path is missing");
-
-      copyFileSync(
-        currentPath,
-        join(directory, `xmtp-production-${generateInboxId(identifier)}.db3`),
-      );
-      await expect(Client.create(signer, options)).rejects.toThrow(
-        "Both legacy and current XMTP databases",
-      );
     } finally {
       process.chdir(previousDirectory);
       rmSync(directory, { recursive: true, force: true });
