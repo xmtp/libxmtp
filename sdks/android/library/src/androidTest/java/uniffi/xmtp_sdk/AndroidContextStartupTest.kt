@@ -18,7 +18,7 @@ import java.io.File
 import java.security.SecureRandom
 import java.util.UUID
 
-/** Run each first factory case in a fresh Android process. */
+/** Check both Context factories in one process with one shared registration. */
 @RunWith(AndroidJUnit4::class)
 class AndroidContextStartupTest {
     private val context
@@ -54,73 +54,79 @@ class AndroidContextStartupTest {
         assertEquals("SQLCipher salt size", 32L, salt.length())
     }
 
-    @Test fun firstContextCreateWaitsForMainLifecycleRegistration() =
+    @Test fun contextFactoriesShareMainLifecycleRegistration() =
         runBlocking {
-            withTimeout(30_000) {
+            val expectedObserverCount =
                 withContext(Dispatchers.Main) {
-                    assertSame(Looper.getMainLooper(), Looper.myLooper())
-                    assertTrue("process lifecycle control must be enabled", AndroidStreamLifecycle.enabled)
-                    val lifecycle = ProcessLifecycleOwner.get().lifecycle as LifecycleRegistry
-                    val before = lifecycle.observerCount
-                    val configuration = options("main-create-${UUID.randomUUID()}")
-                    val client = SDKClient.create(context, generateLocalSigner(), configuration)
-                    try {
-                        assertSame(Looper.getMainLooper(), Looper.myLooper())
-                        assertEquals(
-                            "Context create must register its process observer before return",
-                            before + 1,
-                            lifecycle.observerCount,
-                        )
-                        checkStorage(client, configuration)
-                    } finally {
-                        withContext(NonCancellable + Dispatchers.IO) { client.storage().delete() }
-                    }
+                    (ProcessLifecycleOwner.get().lifecycle as LifecycleRegistry).observerCount + 1
                 }
-            }
+            firstContextCreateWaitsForMainLifecycleRegistration(expectedObserverCount)
+            firstContextBuildWaitsForMainLifecycleRegistration(expectedObserverCount)
         }
 
-    @Test fun firstContextBuildWaitsForMainLifecycleRegistration() =
-        runBlocking {
-            withTimeout(30_000) {
-                val signer = generateLocalSigner()
-                val configuration = options("main-build-${UUID.randomUUID()}")
-                val fixture =
-                    withContext(Dispatchers.IO) {
-                        SDKClient.create(
-                            signer,
-                            configuration.copy(
-                                storage = configuration.storage.copy(location = StorageOptions(context).location),
-                            ),
-                        )
-                    }
-                val inbox: InboxId
-                val path: String
+    private suspend fun firstContextCreateWaitsForMainLifecycleRegistration(expectedObserverCount: Int) {
+        withTimeout(30_000) {
+            withContext(Dispatchers.Main) {
+                assertSame(Looper.getMainLooper(), Looper.myLooper())
+                assertTrue("process lifecycle control must be enabled", AndroidStreamLifecycle.enabled)
+                val lifecycle = ProcessLifecycleOwner.get().lifecycle as LifecycleRegistry
+                val configuration = options("main-create-${UUID.randomUUID()}")
+                val client = SDKClient.create(context, generateLocalSigner(), configuration)
                 try {
-                    inbox = fixture.inboxId()
-                    path = checkNotNull(fixture.storage().path())
-                } finally {
-                    withContext(NonCancellable + Dispatchers.IO) { fixture.end() }
-                }
-                withContext(Dispatchers.Main) {
                     assertSame(Looper.getMainLooper(), Looper.myLooper())
-                    assertTrue("process lifecycle control must be enabled", AndroidStreamLifecycle.enabled)
-                    val lifecycle = ProcessLifecycleOwner.get().lifecycle as LifecycleRegistry
-                    val before = lifecycle.observerCount
-                    val client = SDKClient.build(context, signer.identity(), configuration, inboxId = inbox)
-                    try {
-                        assertSame(Looper.getMainLooper(), Looper.myLooper())
-                        assertEquals(
-                            "Context build must register its process observer before return",
-                            before + 1,
-                            lifecycle.observerCount,
-                        )
-                        assertEquals(inbox, client.inboxId())
-                        assertEquals(path, client.storage().path())
-                        checkStorage(client, configuration)
-                    } finally {
-                        withContext(NonCancellable + Dispatchers.IO) { client.storage().delete() }
-                    }
+                    assertEquals(
+                        "Context create must register its process observer before return",
+                        expectedObserverCount,
+                        lifecycle.observerCount,
+                    )
+                    checkStorage(client, configuration)
+                } finally {
+                    withContext(NonCancellable + Dispatchers.IO) { client.storage().delete() }
                 }
             }
         }
+    }
+
+    private suspend fun firstContextBuildWaitsForMainLifecycleRegistration(expectedObserverCount: Int) {
+        withTimeout(30_000) {
+            val signer = generateLocalSigner()
+            val configuration = options("main-build-${UUID.randomUUID()}")
+            val fixture =
+                withContext(Dispatchers.IO) {
+                    SDKClient.create(
+                        signer,
+                        configuration.copy(
+                            storage = configuration.storage.copy(location = StorageOptions(context).location),
+                        ),
+                    )
+                }
+            val inbox: InboxId
+            val path: String
+            try {
+                inbox = fixture.inboxId()
+                path = checkNotNull(fixture.storage().path())
+            } finally {
+                withContext(NonCancellable + Dispatchers.IO) { fixture.end() }
+            }
+            withContext(Dispatchers.Main) {
+                assertSame(Looper.getMainLooper(), Looper.myLooper())
+                assertTrue("process lifecycle control must be enabled", AndroidStreamLifecycle.enabled)
+                val lifecycle = ProcessLifecycleOwner.get().lifecycle as LifecycleRegistry
+                val client = SDKClient.build(context, signer.identity(), configuration, inboxId = inbox)
+                try {
+                    assertSame(Looper.getMainLooper(), Looper.myLooper())
+                    assertEquals(
+                        "Context build must reuse the registered process observer before return",
+                        expectedObserverCount,
+                        lifecycle.observerCount,
+                    )
+                    assertEquals(inbox, client.inboxId())
+                    assertEquals(path, client.storage().path())
+                    checkStorage(client, configuration)
+                } finally {
+                    withContext(NonCancellable + Dispatchers.IO) { client.storage().delete() }
+                }
+            }
+        }
+    }
 }

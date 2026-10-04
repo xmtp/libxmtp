@@ -110,6 +110,7 @@ android {
 def generatedRoot = System.getenv("XMTP_SDK_GENERATED_DIR")
 def contractSource = generatedRoot ? "${generatedRoot}/kotlin/sdk-contract.json" : "${projectDir.parentFile}/.build/bindings/sdk-contract.json"
 tasks.register("stageSDKContract", Copy) {
+    fileMode = 0644
     from contractSource
     into "${buildDir}/generated/contract"
 }
