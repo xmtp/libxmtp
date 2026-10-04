@@ -915,7 +915,7 @@ fun main() =
         val eventFilter =
             EventFilter(
                 kinds = listOf(EventKind.CONVERSATION_JOINED),
-                conversationIds = null,
+                groupIds = null,
                 contentTypes = null,
                 referencesOwnMessages = false,
             )
