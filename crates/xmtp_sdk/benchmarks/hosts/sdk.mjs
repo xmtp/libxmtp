@@ -46,7 +46,9 @@ export function publicApi(sdk, pure, side, target, backend, accounts) {
         deviceSync: false,
         storage: {
           location: { dbPath: path, attachmentsDir: `${path}-attachments` },
-          encryptionKey: new Uint8Array(32).fill(7),
+          ...(target === "browser"
+            ? {}
+            : { encryptionKey: new Uint8Array(32).fill(7) }),
         },
       };
     return {
