@@ -143,11 +143,32 @@ public struct SDKEventStream: AsyncSequence {
         private let owner: SDKClient
         private let ownsReader: Bool
         private var closed = false
+        private let readLock = NSLock()
+        private var readInFlight = false
 
         fileprivate init(reader: EventReader, owner: SDKClient, ownsReader: Bool) {
             self.reader = reader
             self.owner = owner
             self.ownsReader = ownsReader
+        }
+
+        // implements: EVENT-015
+        private func beginRead() throws {
+            readLock.lock()
+            defer { readLock.unlock() }
+            guard !readInFlight else {
+                throw XmtpError.ConsumerOwned(ErrorDetails(
+                    code: "ConsumerOwned", category: .stream, retryable: false,
+                    message: "event iterator read is active"
+                ))
+            }
+            readInFlight = true
+        }
+
+        private func finishRead() {
+            readLock.lock()
+            readInFlight = false
+            readLock.unlock()
         }
 
         public func next() async throws -> ClientEvent? {
@@ -157,6 +178,8 @@ public struct SDKEventStream: AsyncSequence {
                     message: "event subscription already has an iterator"
                 ))
             }
+            try beginRead()
+            defer { finishRead() }
             if closed {
                 return nil
             }

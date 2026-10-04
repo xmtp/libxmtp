@@ -30,6 +30,9 @@ Run commands from the repository root in the Nix shell. Run
   plus a real WASM trap from a test-only panic fixture in Vitest Playwright
   Chromium, then checks real OPFS and worker behavior. Its recipe builds the
   pure codec and panic fixtures in the Rust shell before the JS shell.
+  Kotlin JVM conformance uses small Android platform stand-ins for the storage
+  helper and cleaner. It selects the JNA cleaner branch. Installed Android tests
+  use the platform classes.
   Scenario 7 checks readers and streams. Scenario 8 checks events and listeners.
   The browser run also checks storage layouts and attachments, with failure
   records in the conformance-featured panic fixture. Worker death uses the
