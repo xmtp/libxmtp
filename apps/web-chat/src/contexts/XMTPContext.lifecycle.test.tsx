@@ -110,6 +110,42 @@ it("opens the app's matching old Browser database", async () => {
   expect(mocks.endAdmin).toHaveBeenCalledTimes(1);
 });
 
+it("opens an uppercase old Browser database by its stored path", async () => {
+  const identity = { identifier: "0x1234", kind: "ethereum" };
+  const signer = { identity: vi.fn().mockResolvedValue(identity) };
+  const inboxId = "abcdef0123456789".repeat(4);
+  const storedPath = `xmtp-test-${inboxId.toUpperCase()}.db3`;
+  mocks.inboxIdFor.mockResolvedValueOnce(inboxId);
+  mocks.listFiles.mockResolvedValueOnce([storedPath]);
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => storedPath },
+    end: vi.fn(),
+  });
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+
+  await act(async () => {
+    await result.current.initialize({
+      backendUrl: "https://example.com",
+      env: "test",
+      signer: signer as never,
+    });
+  });
+
+  expect(mocks.create).toHaveBeenCalledWith(
+    signer,
+    expect.objectContaining({
+      storage: {
+        location: {
+          dbPath: storedPath,
+          attachmentsDir: `${storedPath}.attachments`,
+        },
+        label: "test",
+      },
+      registration: { nonce: 1n },
+    }),
+  );
+});
+
 it("stops when old and current app databases match one inbox", async () => {
   const identity = { identifier: "0x1234", kind: "ethereum" };
   const signer = { identity: vi.fn().mockResolvedValue(identity) };
@@ -274,6 +310,24 @@ it("ends an injected client when its storage path lookup fails", async () => {
   expect(result.current.client).toBeUndefined();
   expect(mocks.reset).toHaveBeenCalledOnce();
   expect(mocks.releaseLock).toHaveBeenCalledOnce();
+});
+
+it("ends an injected client on pagehide when its storage path lookup fails", async () => {
+  const end = vi.fn(async () => {});
+  const path = vi.fn().mockRejectedValue(new Error("Storage closed"));
+  const injected = { storage: { path }, end };
+  renderHook(useXMTP, {
+    wrapper: ({ children }) => (
+      <XMTPProvider client={injected as never}>{children}</XMTPProvider>
+    ),
+  });
+
+  await act(async () => {
+    await mocks.pageHide?.();
+  });
+
+  expect(path).toHaveBeenCalledOnce();
+  expect(end).toHaveBeenCalledOnce();
 });
 
 it("removes local plaintext but keeps staged ciphertext on disconnect", async () => {

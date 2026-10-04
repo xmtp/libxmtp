@@ -59,8 +59,12 @@ const storageLocation = async (
   const inboxId = registered
     ? await Client.inboxIdFor(identity, backend)
     : generateInboxId(identity, 1n);
-  const dbPath = `${prefix}${inboxId}.db3`;
-  if (!legacyFiles.includes(dbPath)) return "default";
+  const dbPath = legacyFiles.find(
+    (path) =>
+      path.slice(prefix.length).toLowerCase() ===
+      `${inboxId}.db3`.toLowerCase(),
+  );
+  if (!dbPath) return "default";
 
   const currentExists = files.some(
     (path) =>
@@ -163,7 +167,14 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
   }, [reset, setClient]);
   const handlePageHide = useCallback(async () => {
     const current = clientRef.current;
-    const dbPath = attachmentDbPath.current ?? (await current?.storage.path());
+    let dbPath = attachmentDbPath.current;
+    if (dbPath === undefined) {
+      try {
+        dbPath = await current?.storage.path();
+      } catch {
+        // End the client. The next startup scan can find its attachment path.
+      }
+    }
     await current?.end();
     await cleanSessionAttachments(dbPath);
   }, []);
