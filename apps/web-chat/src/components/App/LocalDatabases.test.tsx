@@ -449,6 +449,7 @@ it("retries a saved deletion intent after the database delete fails", async () =
   mocks.list
     .mockResolvedValueOnce([selected])
     .mockResolvedValueOnce([selected])
+    .mockResolvedValueOnce([selected])
     .mockResolvedValue([]);
   mocks.remove
     .mockRejectedValueOnce(new Error("Database delete failed"))

@@ -399,7 +399,7 @@ it("ends an injected client on pagehide when its storage path lookup fails", asy
   expect(end).toHaveBeenCalledOnce();
 });
 
-it("removes local plaintext but keeps staged ciphertext on disconnect", async () => {
+it("removes temporary files but keeps completed downloads and staged ciphertext on disconnect", async () => {
   const deployment = `disconnect-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
   const inboxId = "a".repeat(64);
   const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
@@ -411,10 +411,19 @@ it("removes local plaintext but keeps staged ciphertext on disconnect", async ()
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const key = "a".repeat(64);
+  const key = ".tmp";
   const staged = await attachments.getDirectoryHandle(".staged", {
     create: true,
   });
+  const completed = await attachments.getDirectoryHandle("c".repeat(64), {
+    create: true,
+  });
+  const completedFile = await completed.getFileHandle("download", {
+    create: true,
+  });
+  const completedWriter = await completedFile.createWritable();
+  await completedWriter.write("retained download");
+  await completedWriter.close();
   const digest = "b".repeat(64);
   await staged.getFileHandle(digest, { create: true });
   const end = vi.fn(async () => {});
@@ -440,13 +449,16 @@ it("removes local plaintext but keeps staged ciphertext on disconnect", async ()
       name: "NotFoundError",
     });
     expect(await staged.getFileHandle(digest)).toBeDefined();
+    expect(await (await completedFile.getFile()).text()).toBe(
+      "retained download",
+    );
     expect(mocks.releaseLock).toHaveBeenCalledOnce();
   } finally {
     await backend.removeEntry(deployment, { recursive: true });
   }
 });
 
-it("records pagehide cleanup and removes plaintext before a new account starts", async () => {
+it("records pagehide cleanup and removes temporary files before a new account starts", async () => {
   const identifier = `pagehide-${crypto.randomUUID()}`;
   const deployment = await deploymentComponent(identifier);
   const inboxId = "a".repeat(64);
@@ -470,7 +482,7 @@ it("records pagehide cleanup and removes plaintext before a new account starts",
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const key = "f".repeat(64);
+  const key = ".tmp";
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
     end: vi.fn(async () => {}),
@@ -501,6 +513,7 @@ it("records pagehide cleanup and removes plaintext before a new account starts",
       storage: { path: async () => undefined },
       end: vi.fn(async () => {}),
     });
+    mocks.listFiles.mockResolvedValueOnce([dbPath]);
     const second = renderHook(useXMTP, { wrapper: XMTPProvider });
     await act(async () => {
       await second.result.current.initialize({
@@ -522,7 +535,7 @@ it("records pagehide cleanup and removes plaintext before a new account starts",
   }
 });
 
-it("removes pagehide plaintext when the cleanup journal write fails", async () => {
+it("removes pagehide temporary files when the cleanup journal write fails", async () => {
   const deployment = `pagehide-failure-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
   const inboxId = "a".repeat(64);
   const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
@@ -534,7 +547,7 @@ it("removes pagehide plaintext when the cleanup journal write fails", async () =
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const key = "d".repeat(64);
+  const key = ".tmp";
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
     end: vi.fn(async () => {}),
@@ -590,7 +603,7 @@ it("removes pagehide plaintext when the cleanup journal write fails", async () =
   }
 });
 
-it("waits for in-flight work before pagehide removes plaintext", async () => {
+it("waits for in-flight work before pagehide removes temporary files", async () => {
   const deployment = `pagehide-flight-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
   const inboxId = "a".repeat(64);
   const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
@@ -604,11 +617,11 @@ it("waits for in-flight work before pagehide removes plaintext", async () => {
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const plaintext = "d".repeat(64);
+  const temporary = ".tmp";
   const finishDownload = Promise.withResolvers<void>();
   const end = vi.fn(async () => {
     await finishDownload.promise;
-    await attachments.getDirectoryHandle(plaintext, { create: true });
+    await attachments.getDirectoryHandle(temporary, { create: true });
   });
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
@@ -626,7 +639,7 @@ it("waits for in-flight work before pagehide removes plaintext", async () => {
     const hidden = mocks.pageHide?.();
     expect(end).toHaveBeenCalledOnce();
     await expect(
-      attachments.getDirectoryHandle(plaintext),
+      attachments.getDirectoryHandle(temporary),
     ).rejects.toMatchObject({
       name: "NotFoundError",
     });
@@ -636,7 +649,7 @@ it("waits for in-flight work before pagehide removes plaintext", async () => {
       await hidden;
     });
     await expect(
-      attachments.getDirectoryHandle(plaintext),
+      attachments.getDirectoryHandle(temporary),
     ).rejects.toMatchObject({
       name: "NotFoundError",
     });
@@ -660,7 +673,7 @@ it("keeps pagehide cleanup incomplete when client shutdown fails", async () => {
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const plaintext = "e".repeat(64);
+  const temporary = ".tmp";
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
     end: vi.fn().mockRejectedValue(new Error("Shutdown failed")),
@@ -674,16 +687,16 @@ it("keeps pagehide cleanup incomplete when client shutdown fails", async () => {
         signer: mocks.signer as never,
       });
     });
-    await attachments.getDirectoryHandle(plaintext, { create: true });
+    await attachments.getDirectoryHandle(temporary, { create: true });
     await expect(mocks.pageHide?.()).rejects.toThrow("Shutdown failed");
-    expect(await attachments.getDirectoryHandle(plaintext)).toBeDefined();
+    expect(await attachments.getDirectoryHandle(temporary)).toBeDefined();
     expect(localStorage.getItem("XMTP_PENDING_ATTACHMENT_CLEANUP")).toBeNull();
   } finally {
     await backend.removeEntry(deployment, { recursive: true });
   }
 });
 
-it("cleans orphan plaintext before another inbox starts after both pagehide safeguards fail", async () => {
+it("cleans orphan temporary files before another inbox starts after both pagehide safeguards fail", async () => {
   const identifier = `orphan-${crypto.randomUUID()}`;
   const deployment = await deploymentComponent(identifier);
   const inboxId = "a".repeat(64);
@@ -723,8 +736,8 @@ it("cleans orphan plaintext before another inbox starts after both pagehide safe
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const plaintext = "c".repeat(64);
-  await attachments.getDirectoryHandle(plaintext, { create: true });
+  const temporary = ".tmp";
+  await attachments.getDirectoryHandle(temporary, { create: true });
   const staged = await attachments.getDirectoryHandle(".staged", {
     create: true,
   });
@@ -733,12 +746,12 @@ it("cleans orphan plaintext before another inbox starts after both pagehide safe
   const legacy = await root.getDirectoryHandle(`${legacyDbPath}.attachments`, {
     create: true,
   });
-  await legacy.getDirectoryHandle(plaintext, { create: true });
+  await legacy.getDirectoryHandle(temporary, { create: true });
   const unrelatedName = `unrelated-${crypto.randomUUID()}`;
   const unrelated = await root.getDirectoryHandle(unrelatedName, {
     create: true,
   });
-  await unrelated.getDirectoryHandle(plaintext, { create: true });
+  await unrelated.getDirectoryHandle(temporary, { create: true });
 
   const setItem = Storage.prototype.setItem;
   const storageSpy = vi
@@ -755,7 +768,7 @@ it("cleans orphan plaintext before another inbox starts after both pagehide safe
   try {
     await expect(mocks.pageHide?.()).rejects.toThrow("OPFS busy");
     expect(localStorage.getItem("XMTP_PENDING_ATTACHMENT_CLEANUP")).toBeNull();
-    expect(await attachments.getDirectoryHandle(plaintext)).toBeDefined();
+    expect(await attachments.getDirectoryHandle(temporary)).toBeDefined();
     storageSpy.mockRestore();
     opfsSpy.mockRestore();
     first.unmount();
@@ -763,16 +776,17 @@ it("cleans orphan plaintext before another inbox starts after both pagehide safe
     const otherSigner = {};
     mocks.create.mockImplementationOnce(async () => {
       await expect(
-        attachments.getDirectoryHandle(plaintext),
+        attachments.getDirectoryHandle(temporary),
       ).rejects.toMatchObject({
         name: "NotFoundError",
       });
-      await expect(legacy.getDirectoryHandle(plaintext)).resolves.toBeDefined();
+      await expect(legacy.getDirectoryHandle(temporary)).resolves.toBeDefined();
       return {
         storage: { path: async () => undefined },
         end: vi.fn(async () => {}),
       };
     });
+    mocks.listFiles.mockResolvedValueOnce([dbPath]);
     const second = renderHook(useXMTP, { wrapper: XMTPProvider });
     const stillBusy = vi
       .spyOn(navigator.storage, "getDirectory")
@@ -800,7 +814,7 @@ it("cleans orphan plaintext before another inbox starts after both pagehide safe
     expect(mocks.create).toHaveBeenCalledTimes(2);
     expect(await staged.getFileHandle("ciphertext")).toBeDefined();
     expect(await inbox.getFileHandle("xmtp.db3")).toBeDefined();
-    expect(await unrelated.getDirectoryHandle(plaintext)).toBeDefined();
+    expect(await unrelated.getDirectoryHandle(temporary)).toBeDefined();
   } finally {
     storageSpy.mockRestore();
     opfsSpy.mockRestore();
@@ -823,7 +837,7 @@ it("keeps the app lock until failed attachment cleanup is retried", async () => 
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const key = "c".repeat(64);
+  const key = ".tmp";
   const end = vi.fn(async () => {});
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
@@ -883,7 +897,7 @@ it("disconnects and reports a failed SDK end after lock loss", async () => {
   expect(mocks.releaseLock).not.toHaveBeenCalled();
 });
 
-it("removes old local attachment files after lock loss even if storage path lookup fails", async () => {
+it("removes old temporary attachment files after lock loss even if storage path lookup fails", async () => {
   const deployment = `lock-loss-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
   const inboxId = "a".repeat(64);
   const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
@@ -895,7 +909,7 @@ it("removes old local attachment files after lock loss even if storage path look
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const key = "d".repeat(64);
+  const key = ".tmp";
   const end = vi.fn(async () => {});
   let pathLookupFails = false;
   mocks.create.mockResolvedValueOnce({
@@ -929,7 +943,7 @@ it("removes old local attachment files after lock loss even if storage path look
   }
 });
 
-it("removes attachment files after lock loss when the journal write fails", async () => {
+it("removes temporary attachment files after lock loss when the journal write fails", async () => {
   const deployment = `journal-failure-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
   const inboxId = "a".repeat(64);
   const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
@@ -941,7 +955,7 @@ it("removes attachment files after lock loss when the journal write fails", asyn
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const key = "e".repeat(64);
+  const key = ".tmp";
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
     end: vi.fn(async () => {}),
@@ -976,7 +990,7 @@ it("removes attachment files after lock loss when the journal write fails", asyn
   }
 });
 
-it("removes attachment files on the next start if lock-loss cleanup fails", async () => {
+it("removes temporary attachment files on the next start if lock-loss cleanup fails", async () => {
   const identifier = `retry-lock-loss-${crypto.randomUUID()}`;
   const deployment = await deploymentComponent(identifier);
   const inboxId = "a".repeat(64);
@@ -1000,7 +1014,7 @@ it("removes attachment files on the next start if lock-loss cleanup fails", asyn
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const key = "f".repeat(64);
+  const key = ".tmp";
   const end = vi.fn(async () => {});
   mocks.create.mockResolvedValueOnce({
     storage: { path: async () => dbPath },
@@ -1028,6 +1042,7 @@ it("removes attachment files on the next start if lock-loss cleanup fails", asyn
     expect(result.current.error?.message).toBe("OPFS busy");
     unmount();
     getDirectory.mockRestore();
+    mocks.listFiles.mockResolvedValueOnce([dbPath]);
     const next = renderHook(useXMTP, { wrapper: XMTPProvider });
     await act(async () => {
       await next.result.current.initialize({

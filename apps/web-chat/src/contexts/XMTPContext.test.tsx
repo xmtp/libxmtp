@@ -37,7 +37,7 @@ describe("XMTPProvider", () => {
     await initialized.client?.end();
   });
 
-  it("cleans real default-storage orphan plaintext before another inbox starts", async () => {
+  it("preserves completed downloads and cleans temporary files before another inbox starts", async () => {
     const backendUrl = import.meta.env.XMTP_BACKEND_URL;
     if (!backendUrl) throw new Error("XMTP_BACKEND_URL is required");
     const first = renderHook(() => useXMTP(), { wrapper: XMTPProvider });
@@ -70,7 +70,17 @@ describe("XMTPProvider", () => {
         create: true,
       });
       const plaintext = "a".repeat(64);
-      await attachmentDirectory.getDirectoryHandle(plaintext, { create: true });
+      const completed = await attachmentDirectory.getDirectoryHandle(
+        plaintext,
+        { create: true },
+      );
+      const downloaded = await completed.getFileHandle("download", {
+        create: true,
+      });
+      const writer = await downloaded.createWritable();
+      await writer.write("retained download");
+      await writer.close();
+      await attachmentDirectory.getDirectoryHandle(".tmp", { create: true });
       const staged = await attachmentDirectory.getDirectoryHandle(".staged", {
         create: true,
       });
@@ -87,9 +97,12 @@ describe("XMTPProvider", () => {
         });
         secondPath = await secondClient?.storage.path();
         await expect(
-          attachmentDirectory.getDirectoryHandle(plaintext),
+          attachmentDirectory.getDirectoryHandle(".tmp"),
         ).rejects.toMatchObject({ name: "NotFoundError" });
         expect(await staged.getFileHandle("ciphertext")).toBeDefined();
+        expect(await (await downloaded.getFile()).text()).toBe(
+          "retained download",
+        );
         const admin = await Storage.admin();
         try {
           expect(await admin.fileExists(firstPath)).toBe(true);

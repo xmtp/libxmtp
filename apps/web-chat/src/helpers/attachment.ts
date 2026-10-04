@@ -53,14 +53,13 @@ export const pendingAttachmentCleanupPaths = async (): Promise<string[]> => {
   } catch {
     return [];
   }
-  const legacyDatabases = paths.some((path) => isLegacyDatabasePath(path))
-    ? await listedDatabasePaths()
-    : new Set<string>();
+  if (paths.length === 0) return [];
+  const databases = await listedDatabasePaths();
   const admitted = await Promise.all(
-    paths.map(async (path) =>
-      isLegacyDatabasePath(path)
-        ? legacyDatabases.has(path.replace(/^\/+/, ""))
-        : await hasRecordedDeployment(path),
+    paths.map(
+      async (path) =>
+        databases.has(path.replace(/^\/+/, "")) &&
+        (isLegacyDatabasePath(path) || (await hasRecordedDeployment(path))),
     ),
   );
   return paths.filter((_, index) => admitted[index]);
@@ -70,8 +69,15 @@ export const markAttachmentCleanupPending = (dbPath: string) => {
   markPending(pendingAttachmentCleanupKey, dbPath);
 };
 
-export const pendingDatabaseDeletionPaths = (): string[] =>
-  pendingPaths(pendingDatabaseDeletionKey);
+export const pendingDatabaseDeletionPaths = (): string[] => {
+  try {
+    return pendingPaths(pendingDatabaseDeletionKey).filter(
+      (path) => isCurrentDatabasePath(path) || isLegacyDatabasePath(path),
+    );
+  } catch {
+    return [];
+  }
+};
 
 export const markDatabaseDeletionPending = (dbPath: string) => {
   markPending(pendingDatabaseDeletionKey, dbPath);
@@ -255,12 +261,25 @@ export const retryPendingDatabaseDeletions = async () => {
   for (const dbPath of pendingDatabaseDeletionPaths()) {
     const current = isCurrentDatabasePath(dbPath);
     const legacy = isLegacyDatabasePath(dbPath);
-    if (!current && !legacy) throw new Error("Invalid local database path.");
+    if (!current && !legacy) continue;
     // A legacy file name does not identify its backend deployment.
     if (legacy) continue;
     if (!(await hasRecordedDeployment(dbPath))) continue;
     const admin = await Storage.admin();
     try {
+      let listed: string[];
+      try {
+        listed = await admin.listFiles();
+      } catch {
+        // Keep the deletion intent and files when ownership is unknown.
+        continue;
+      }
+      if (
+        !listed.some(
+          (path) => path.replace(/^\/+/, "") === dbPath.replace(/^\/+/, ""),
+        )
+      )
+        continue;
       await admin.deleteFile(dbPath);
     } finally {
       await admin.end();
@@ -286,7 +305,7 @@ export const cleanAttachmentDirectory = async (dbPath: string | undefined) => {
   }
 };
 
-// End a session without removing ciphertext needed by pending uploads.
+// Remove unfinished transfers; keep completed files and staged uploads.
 export const cleanSessionAttachments = async (dbPath: string | undefined) => {
   if (dbPath === undefined) return;
   attachmentFolders(dbPath);
@@ -295,7 +314,7 @@ export const cleanSessionAttachments = async (dbPath: string | undefined) => {
   } catch {
     // Try the OPFS cleanup even if the journal is unavailable.
   }
-  await removePlaintextAttachmentDirectories(dbPath);
+  await removeTemporaryAttachmentDirectory(dbPath);
   try {
     clearPending(pendingAttachmentCleanupKey, dbPath);
   } catch {
@@ -319,7 +338,7 @@ export const cleanStoredSessionAttachments = async () => {
       if (name.endsWith(".attachments")) {
         const dbPath = name.slice(0, -".attachments".length);
         if (isLegacyDatabasePath(dbPath) && (await hasListedDatabase(dbPath))) {
-          await removePlaintextAttachmentDirectories(dbPath);
+          await removeTemporaryAttachmentDirectory(dbPath);
         }
       }
       continue;
@@ -345,7 +364,7 @@ export const cleanStoredSessionAttachments = async () => {
             isCurrentDatabasePath(dbPath) &&
             (await hasListedDatabase(dbPath))
           ) {
-            await removePlaintextAttachmentDirectories(dbPath);
+            await removeTemporaryAttachmentDirectory(dbPath);
           }
         }
       }
@@ -387,7 +406,7 @@ const attachmentFolders = (dbPath: string): string[] => {
   throw new Error("Invalid local database path.");
 };
 
-export const removePlaintextAttachmentDirectories = async (
+export const removeTemporaryAttachmentDirectory = async (
   dbPath: string | undefined,
 ) => {
   if (dbPath === undefined) return;
@@ -403,10 +422,7 @@ export const removePlaintextAttachmentDirectories = async (
   }
   const names: string[] = [];
   for await (const [name, entry] of parent.entries()) {
-    if (
-      entry.kind === "directory" &&
-      (name === ".tmp" || /^[0-9a-f]{64}$/.test(name))
-    ) {
+    if (entry.kind === "directory" && name === ".tmp") {
       names.push(name);
     }
   }
@@ -490,15 +506,8 @@ export const downloadRemoteAttachment = async (
     directory = await directory.getDirectoryHandle(part);
   const handle = await directory.getFileHandle(filename);
   const file = await handle.getFile();
-  const blob = new Blob([await file.arrayBuffer()], {
-    type: attachment.mimeType ?? file.type,
-  });
-  try {
-    await client.attachments.deleteLocal(content);
-  } catch {
-    // A local cleanup error must not discard a completed download.
-  }
-  return blob;
+  // Keep the SDK file and record so later views can use the local copy.
+  return file.slice(0, file.size, attachment.mimeType ?? file.type);
 };
 
 export const getFileType = (filename: string) => {

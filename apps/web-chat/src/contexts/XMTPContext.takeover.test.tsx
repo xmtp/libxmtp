@@ -55,7 +55,7 @@ it("ends and cleans the old tab before the new owner connects", async () => {
   const attachments = await inbox.getDirectoryHandle("attachments", {
     create: true,
   });
-  const plaintext = "b".repeat(64);
+  const temporary = ".tmp";
   const staged = await attachments.getDirectoryHandle(".staged", {
     create: true,
   });
@@ -83,7 +83,7 @@ it("ends and cleans the old tab before the new owner connects", async () => {
         signer: signer as never,
       });
     });
-    await attachments.getDirectoryHandle(plaintext, { create: true });
+    await attachments.getDirectoryHandle(temporary, { create: true });
     const oldLockId = localStorage.getItem(APP_LOCK_ID_KEY);
 
     const second = renderHook(useXMTP, { wrapper: XMTPProvider });
@@ -105,7 +105,7 @@ it("ends and cleans the old tab before the new owner connects", async () => {
       });
       await waitFor(() => expect(firstEnd).toHaveBeenCalledOnce());
       await new Promise<void>((resolve) => setTimeout(resolve, 100));
-      expect(await attachments.getDirectoryHandle(plaintext)).toBeDefined();
+      expect(await attachments.getDirectoryHandle(temporary)).toBeDefined();
       expect(mocks.reset).not.toHaveBeenCalled();
       expect(second.result.current.lockState).toBe("active");
 
@@ -115,7 +115,7 @@ it("ends and cleans the old tab before the new owner connects", async () => {
       });
       await waitFor(() => expect(first.result.current.client).toBeUndefined());
       await expect(
-        attachments.getDirectoryHandle(plaintext),
+        attachments.getDirectoryHandle(temporary),
       ).rejects.toMatchObject({ name: "NotFoundError" });
       expect(await staged.getFileHandle("ciphertext")).toBeDefined();
       expect(mocks.reset).toHaveBeenCalledOnce();
