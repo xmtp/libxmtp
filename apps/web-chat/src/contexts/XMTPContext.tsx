@@ -1,12 +1,8 @@
 import {
   Client,
-  generateInboxId,
-  Storage,
-  type BackendSource,
   type CredentialSource,
   type LogLevel,
   initLogging,
-  type StorageLocation,
   XmtpError,
   type Signer,
 } from "@xmtp/browser-sdk";
@@ -27,35 +23,6 @@ import {
 import { backendLabel } from "@/helpers/backend";
 import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
 import { useActions } from "@/stores/inbox/hooks";
-
-const storageLocation = async (
-  signer: Signer,
-  backend: BackendSource,
-  label: string,
-): Promise<StorageLocation> => {
-  const admin = await Storage.admin();
-  let files: string[];
-  try {
-    files = await admin.listFiles();
-  } finally {
-    await admin.end();
-  }
-
-  // Version 7 kept its database at the OPFS pool root.
-  const prefix = `xmtp-${label}-`;
-  if (!files.some((path) => path.startsWith(prefix) && path.endsWith(".db3"))) {
-    return "default";
-  }
-  const identity = await signer.identity();
-  const reachable = await Client.canMessage([identity], backend);
-  const inboxId = reachable.get(`${identity.kind}:${identity.identifier}`)
-    ? await Client.inboxIdFor(identity, backend)
-    : generateInboxId(identity, 1n);
-  const dbPath = `${prefix}${inboxId}.db3`;
-  return files.includes(dbPath)
-    ? { dbPath, attachmentsDir: `${dbPath}.attachments` }
-    : "default";
-};
 
 export type InitializeClientOptions = {
   authCallback?: CredentialSource;
@@ -202,14 +169,13 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
             appVersion: "xmtp.chat/0",
           };
           const label = env ?? (await backendLabel(backendUrl));
-          const location = await storageLocation(signer, backend, label);
           if (lockLossEpoch.current !== startingLockEpoch || !ownsLock()) {
             throw new Error("App lock was lost during XMTP initialization");
           }
           xmtpClient = await Client.create(signer, {
             backend,
             storage: {
-              location,
+              location: "default",
               label,
             },
           });
