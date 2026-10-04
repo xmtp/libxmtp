@@ -47,7 +47,7 @@ class AttachmentFormattingTest {
 
     @Test
     fun attachmentFailureTextPreservesStructuredUrl() {
-        val value = AttachmentFailed("key", url, "digest", AttachmentFailureCause.NETWORK)
+        val value = AttachmentFailed("key", url, "digest", "network")
         checkUrlText(value, ClientEvent.AttachmentUploadFailed(value))
         assertEquals(url, value.url)
     }

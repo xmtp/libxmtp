@@ -424,7 +424,7 @@ class ConversationsTest : BaseInstrumentedTest() {
                         if (event is ClientEvent.MessageExpired) {
                             synchronized(
                                 deleted,
-                            ) { deleted.add(event.messageExpired.messageId) }
+                            ) { deleted.add(event.messageExpired.messageId.toHex()) }
                         }
                     },
                 )
