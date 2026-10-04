@@ -297,3 +297,16 @@ extension NotificationChannel: CustomStringConvertible, CustomDebugStringConvert
         description
     }
 }
+
+extension RemoteAttachment: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        "RemoteAttachment(url: <redacted>, contentDigest: \(String(reflecting: contentDigest)), "
+            + "secret: <redacted>, salt: \(String(reflecting: salt)), "
+            + "nonce: \(String(reflecting: nonce)), scheme: \(String(reflecting: scheme)), "
+            + "contentLength: \(String(reflecting: contentLength)), filename: \(String(reflecting: filename)))"
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}

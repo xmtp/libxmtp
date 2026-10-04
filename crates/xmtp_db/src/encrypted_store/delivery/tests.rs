@@ -382,6 +382,92 @@ struct AdvanceClockOnConnection<C> {
     next_time: i64,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+struct AwaitHistoryConnection<C> {
+    inner: C,
+    waiting: std::sync::mpsc::SyncSender<()>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<C: ConnectionExt> ConnectionExt for AwaitHistoryConnection<C> {
+    fn raw_query<T, F>(&self, work: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut diesel::SqliteConnection) -> Result<T, diesel::result::Error>,
+    {
+        self.waiting.send(()).expect("history query started");
+        self.inner.raw_query(work)
+    }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        self.inner.disconnect()
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        self.inner.reconnect()
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn history_excludes_message_expired_while_waiting_for_connection() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+        mpsc::sync_channel,
+    };
+
+    let store = TestDb::create_ephemeral_store().await;
+    let db = store.db();
+    let group = generate_group(None);
+    group.store(&db)?;
+    let mut expired = generate_message(None, Some(&group.id), Some(1), None, None, None);
+    expired.expire_at_ns = Some(100);
+    expired.store(&db)?;
+    let retained = generate_message(None, Some(&group.id), Some(2), None, None, None);
+    retained.store(&db)?;
+
+    let (held_tx, held_rx) = sync_channel(0);
+    let (release_tx, release_rx) = sync_channel(0);
+    let held_db = db.clone();
+    let holder = std::thread::spawn(move || {
+        held_db.raw_query(|_| {
+            held_tx.send(()).expect("connection held");
+            release_rx.recv().expect("release connection");
+            Ok(())
+        })
+    });
+    held_rx.recv()?;
+    let clock = Arc::new(AtomicI64::new(99));
+    let read_clock = Arc::clone(&clock);
+    let (waiting_tx, waiting_rx) = sync_channel(0);
+    let delayed = AwaitHistoryConnection {
+        inner: db.clone(),
+        waiting: waiting_tx,
+    };
+    let reader = std::thread::spawn(move || {
+        delayed.delivery_history_snapshot_projected_with_clock(
+            &DeliveryScope::All,
+            &DeliveryFilter::default(),
+            || read_clock.load(Ordering::SeqCst),
+            8,
+            u64::MAX,
+            |_, snapshot| Ok(snapshot),
+        )
+    });
+    waiting_rx.recv()?;
+    clock.store(101, Ordering::SeqCst);
+    release_tx.send(())?;
+    holder.join().expect("connection holder")?;
+    let snapshot = reader.join().expect("history reader")?;
+    assert_eq!(
+        snapshot.messages.len(),
+        1,
+        "history returned expired content"
+    );
+    assert_eq!(snapshot.messages[0].message.id, retained.id);
+    assert!(db.get_group_message(&expired.id)?.is_some());
+}
+
 impl<C: ConnectionExt> ConnectionExt for AdvanceClockOnConnection<C> {
     fn raw_query<T, F>(&self, work: F) -> Result<T, crate::ConnectionError>
     where

@@ -357,15 +357,18 @@ class GroupTest : BaseInstrumentedTest() {
             group.sendText("howdy")
             val id = group.sendText("gm")
             group.sync()
-            assertEquals("gm", text(group.messages().first()))
-            assertEquals(id, group.messages().first().id)
-            assertEquals(DeliveryStatus.PUBLISHED, group.messages().first().deliveryStatus)
-            assertEquals(3, group.messages().size)
+            assertEquals("gm", text(group.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first()))
+            assertEquals(id, group.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first().id)
+            assertEquals(
+                DeliveryStatus.PUBLISHED,
+                group.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first().deliveryStatus,
+            )
+            assertEquals(3, group.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).size)
             alix.conversations().sync()
             val peer = find(alix, group.id())
             peer.sync()
-            assertEquals(3, peer.messages().size)
-            assertEquals("gm", text(peer.messages().first()))
+            assertEquals(3, peer.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).size)
+            assertEquals("gm", text(peer.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first()))
         }
 
     @Test fun testCanListGroupMessages() =
@@ -444,7 +447,7 @@ class GroupTest : BaseInstrumentedTest() {
                 }
                 val second = peer.sendText("hi again")
                 messages.awaitApplications(listOf(first to "hi", second to "hi again"))
-                val history = group.messages().asReversed()
+                val history = group.messages()
                 assertEquals(3, history.size)
                 messages.awaitHistory(history)
             } finally {
@@ -608,7 +611,7 @@ class GroupTest : BaseInstrumentedTest() {
             assertEquals(2, peer.messages(ListMessagesOptions(deliveryStatus = DeliveryStatus.PUBLISHED)).size)
             assertEquals(0, peer.messages(ListMessagesOptions(deliveryStatus = DeliveryStatus.UNPUBLISHED)).size)
             assertEquals(2, peer.messages().size)
-            assertEquals(id, peer.messages().first().id)
+            assertEquals(id, peer.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first().id)
         }
 
     @Test fun testSyncsAllGroupsInParallel() =
@@ -719,7 +722,7 @@ class GroupTest : BaseInstrumentedTest() {
             group.sendText("first")
             group.sendText("second")
             group.sync()
-            val messages = group.messages()
+            val messages = group.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING))
             assertEquals(3, messages.size)
             val boundary = messages.last().insertedAt
             assertTrue(boundary.ns > 0)

@@ -448,3 +448,34 @@ fn construction_causes_keep_their_typed_action() {
         assert!(!details.retryable);
     }
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn commit_permission_causes_remain_typed() {
+    use xmtp_mls::{
+        client::ClientError,
+        groups::{GroupError, summary::SyncSummary, validated_commit::CommitValidationError},
+        mls_validation::commit::CommitRuleError,
+    };
+
+    let core = || {
+        GroupError::CommitValidation(CommitValidationError::Rule(
+            CommitRuleError::InsufficientPermissions,
+        ))
+    };
+    let mut summary = SyncSummary::default();
+    summary.add_publish_err(core());
+    for error in [
+        XmtpError::from_group(core()),
+        XmtpError::from_group_write(core()),
+        XmtpError::from_core(ClientError::Group(Box::new(core()))),
+        XmtpError::from_group_write(GroupError::Sync(Box::new(summary))),
+    ] {
+        let XmtpError::PermissionDenied(details) = error else {
+            panic!("expected PermissionDenied, got {error:?}");
+        };
+        assert_eq!(details.code, "PermissionDenied");
+        assert!(matches!(details.category, ErrorCategory::Conversation));
+        assert!(!details.retryable);
+        assert_eq!(details.message, "Insufficient permissions");
+    }
+}

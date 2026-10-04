@@ -36,7 +36,7 @@ class DecodedMessageV2Test : BaseInstrumentedTest() {
             alix.sendText("Hello from Alix")
             bo.sendText("Second message from Bo")
             bo.sync()
-            assertThreeTexts(bo.messages())
+            assertThreeTexts(bo.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)))
         }
 
     @Test fun testCanRetrieveMessagesV2FromDm() =
@@ -49,7 +49,7 @@ class DecodedMessageV2Test : BaseInstrumentedTest() {
             alix.sendText("Hello from Alix")
             bo.sendText("Second message from Bo")
             bo.sync()
-            assertThreeTexts(bo.messages())
+            assertThreeTexts(bo.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)))
         }
 
     @Test fun testMessagesV2Pagination() =
