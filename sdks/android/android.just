@@ -9,8 +9,8 @@ root := justfile_directory()
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 # Verify Android SDK builds (bindings + Gradle)
-check: build
-  ./gradlew -p . build
+check: build _test-host
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . build --dependency-verification=strict --no-daemon
 
 # Compile the library, example, and instrumented tests.
 assemble: build

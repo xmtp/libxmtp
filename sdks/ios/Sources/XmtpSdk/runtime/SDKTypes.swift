@@ -246,18 +246,18 @@ private final class WeakClient {
     }
 }
 
-public enum ClientRegistry {
+enum ClientRegistry {
     private static let lock = NSLock()
     /// Every access to this map holds lock.
     private nonisolated(unsafe) static var entries: [UInt64: WeakClient] = [:]
 
-    public static func register(_ client: SDKClient) {
+    static func register(_ client: SDKClient) {
         lock.lock()
         defer { lock.unlock() }
         entries[client.raw.clientKey()] = WeakClient(client)
     }
 
-    public static func get(_ key: UInt64) -> SDKClient? {
+    static func get(_ key: UInt64) -> SDKClient? {
         lock.lock()
         defer { lock.unlock() }
         let value = entries[key]?.value
@@ -267,7 +267,7 @@ public enum ClientRegistry {
         return value
     }
 
-    public static func remove(_ client: SDKClient) {
+    static func remove(_ client: SDKClient) {
         lock.lock()
         defer { lock.unlock() }
         entries.removeValue(forKey: client.raw.clientKey())
@@ -277,6 +277,20 @@ public enum ClientRegistry {
 extension Credential: CustomStringConvertible, CustomDebugStringConvertible {
     public var description: String {
         "Credential(<redacted>)"
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}
+
+extension NotificationChannel: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        switch self {
+        case .apns: "NotificationChannel.apns(<redacted>)"
+        case .fcm: "NotificationChannel.fcm(<redacted>)"
+        case .http: "NotificationChannel.http(<redacted>)"
+        }
     }
 
     public var debugDescription: String {

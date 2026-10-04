@@ -48,7 +48,7 @@ internal suspend fun checkReaderReadFailuresEndExactlyOnce(owner: SDKClient) {
     println("Kotlin retained reader read failures preserve Throwable and close once without handoff")
 }
 
-// verifies: PROC-028, PROC-041
+// verifies: PROC-041
 internal suspend fun checkReaderCollectorCloseReasons(owner: SDKClient) {
     for (failure in listOf(IllegalStateException("collector failed"), AssertionError("collector assertion failed"))) {
         val reads = AtomicInteger()
@@ -80,8 +80,8 @@ internal suspend fun checkReaderCollectorCloseReasons(owner: SDKClient) {
                 }
             }.exceptionOrNull()
         check(thrown === failure && values == listOf(1) && reads.get() == 1 && ends.get() == 1)
-        check(closes.size == 1 && (closes.single() as? SDKStreamCloseReason.Failed)?.error === failure) {
-            "collector failure did not close once with the original error"
+        check(closes == listOf(SDKStreamCloseReason.Closed)) {
+            "collector failure did not close once with Closed"
         }
     }
     for (earlyExit in listOf(false, true)) {
@@ -113,7 +113,7 @@ internal suspend fun checkReaderCollectorCloseReasons(owner: SDKClient) {
     println("Kotlin reader collector errors keep the original Throwable; normal exits close once")
 }
 
-// verifies: PROC-028, PROC-041
+// verifies: PROC-052, PROC-041
 internal suspend fun checkReaderCollectorBoundarySurvivesDatabaseReopen(backend: BackendOptions) =
     coroutineScope {
         withTimeout(30_000) {
@@ -181,10 +181,9 @@ internal suspend fun checkReaderCollectorBoundarySurvivesDatabaseReopen(backend:
                     }.exceptionOrNull()
                 check(thrown === appFailure && consumed == listOf(firstId, secondId))
                 check(
-                    secondCloses.size == 1 &&
-                        (secondCloses.single() as? SDKStreamCloseReason.Failed)?.error === appFailure,
+                    secondCloses == listOf(SDKStreamCloseReason.Closed),
                 ) {
-                    "collector failure did not close once with the original error"
+                    "collector failure did not close once with Closed"
                 }
                 check(owner.conversations().sdkConformanceDeliveryPosition(groupId) == firstPosition) {
                     "collector failure changed the last completed acknowledgement"

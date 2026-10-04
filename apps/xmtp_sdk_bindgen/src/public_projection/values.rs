@@ -247,7 +247,7 @@ fn public_variant_kind(name: &str, variant: &str) -> Result<String> {
     if name != "EventKind" && name != "ClientEvent" {
         return Ok(camel(variant));
     }
-    // EVENT-020: The filter kind and emitted event kind use the same public string.
+    // The filter kind and emitted event kind use the same public string.
     let kind = match variant {
         "ConversationJoined" => "conversation.joined",
         "ConversationRemoved" => "conversation.removed",

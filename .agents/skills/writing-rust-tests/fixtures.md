@@ -84,25 +84,7 @@ async fn test_sync() {
 }
 ```
 
-## `bindings/mobile` fixtures
+## SDK fixtures
 
-Mobile tests build an `FfiXmtpClient`. Existing tests may keep
-`#[tokio::test]`; new ones use the project macro.
-
-```rust
-use crate::mls::test_utils::{LocalBuilder, LocalTester};   // traits
-let alex = TesterBuilder::new().sync_worker().stream().build().await;
-let client = new_test_client().await;                       // crate-private, in mls/tests/mod.rs
-```
-
-Streaming tests use `RustStreamCallback` from `bindings/mobile/src/mls/tests/mod.rs`:
-
-```rust
-let cb = Arc::new(RustStreamCallback::default());
-let stream = bo.conversations().stream_all_messages(cb.clone(), None).await;
-stream.wait_for_ready().await;
-alix_group.send(b"hello".to_vec(), FfiSendMessageOpts::default()).await?;
-cb.wait_for_delivery(None).await.unwrap();
-assert_eq!(cb.message_count(), 1);
-stream.end_and_wait().await.unwrap();
-```
+Use the helpers in `crates/xmtp_sdk/src/tests` for public façade tests.
+Use core fixtures for storage and protocol tests.

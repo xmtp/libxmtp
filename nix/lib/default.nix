@@ -7,10 +7,9 @@
 let
   patches = import ./patches.nix;
 
-  # napi + uniffi builders live in the crane scope
+  # The NAPI builder lives in the crane scope
   craneConfig = final: prev: {
     napiBuild = final.callPackage ./napiBuild.nix { };
-    uniffiGenerate = final.callPackage ./uniffiGenerate.nix { };
     # askama_derive 0.16 canonicalizes the askama.toml path through crane's
     # symlinked vendor dir, then emits include_bytes! with a lexical relative
     # path that resolves through the symlink target's real parents and lands
@@ -42,7 +41,6 @@ let
   # tools stay host-built). `final` is the current pkgset — use it for
   # anything that must follow the target (toolchain, stdenv, crane).
   xmtpOverlay = host: final: _: rec {
-    ffi-uniffi-bindgen = host.callPackage ./packages/uniffi-bindgen.nix { };
     wasm-bindgen-cli = host.callPackage ./packages/wasm-bindgen-cli.nix { };
     napi-rs-cli = host.callPackage ./packages/napi-rs-cli { };
     swiftlint = host.callPackage ./packages/swiftlint.nix { };
@@ -52,7 +50,6 @@ let
     rtk = host.callPackage ./packages/rtk.nix { };
     xmtp-pnpm = host.callPackage ./packages/pnpm.nix { };
     xmtp = {
-      inherit ffi-uniffi-bindgen;
       filesets = host.callPackage ./filesets.nix { };
       mkToolchain = final.callPackage ./mkToolchain.nix { inherit inputs; };
       mkNativeToolchain = xmtp.mkToolchain final;
