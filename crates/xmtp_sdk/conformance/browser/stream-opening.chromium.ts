@@ -146,7 +146,7 @@ function heldOpeningConnection() {
   };
 }
 
-// verifies: PROC-028, PROC-031, PROC-046
+// verifies: PROC-041, PROC-042, PROC-052
 export async function checkLateReaderOpen(backendURL: string): Promise<void> {
   const gate = heldOpeningConnection();
   let client: sdk.Client | undefined;
@@ -245,7 +245,7 @@ export async function checkLateReaderOpen(backendURL: string): Promise<void> {
   }
 }
 
-// verifies: PROC-028, PROC-040
+// verifies: PROC-031, PROC-041, PROC-042, PROC-052
 export async function checkClientEndDuringReaderOpen(
   backendURL: string,
 ): Promise<void> {
