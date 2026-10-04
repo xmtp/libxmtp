@@ -87,7 +87,17 @@ export async function resolveLegacyStorage(
   );
   if (files.length === 0) return options;
 
-  const user = await identity();
+  let user: PublicIdentity;
+  try {
+    user = await identity();
+  } catch {
+    throw new XmtpError.InvalidArgument({
+      code: "InvalidArgument",
+      category: "input",
+      retryable: false,
+      message: "Signer identity could not be read.",
+    });
+  }
   const ids = new Set<InboxId>([
     inboxId ?? generateInboxId(user, options.registration?.nonce),
   ]);

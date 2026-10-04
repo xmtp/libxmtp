@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { copyFileSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -20,6 +26,44 @@ import { uint8ArrayToHex } from "uint8array-extras";
 import { describe, expect, it } from "vitest";
 
 describe("Client", () => {
+  it("does not expose a signer error while checking legacy storage", async () => {
+    const { signer } = createSigner();
+    const directory = mkdtempSync(join(tmpdir(), "xmtp-node-signer-error-"));
+    const previousDirectory = process.cwd();
+    process.chdir(directory);
+    try {
+      writeFileSync(
+        join(directory, `xmtp-production-${"a".repeat(64)}.db3`),
+        "legacy candidate",
+      );
+      const privateText = "wallet-private-error-text";
+      const failingSigner = {
+        ...signer,
+        identity: async () => {
+          throw new Error(privateText);
+        },
+      };
+      let failure: unknown;
+      try {
+        await Client.create(
+          failingSigner,
+          clientOptions({
+            allowOffline: true,
+            storage: { location: "default" },
+          }),
+        );
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(XmtpError.InvalidArgument);
+      expect(JSON.stringify(failure)).not.toContain(privateText);
+      expect(String(failure)).not.toContain(privateText);
+    } finally {
+      process.chdir(previousDirectory);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reuses the legacy default database and rejects ambiguous matches", async () => {
     const { signer, identifier } = createSigner();
     const directory = mkdtempSync(join(tmpdir(), "xmtp-node-legacy-"));

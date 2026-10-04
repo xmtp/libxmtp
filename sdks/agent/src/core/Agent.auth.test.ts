@@ -144,6 +144,44 @@ describe("agent environment storage", () => {
     );
   });
 
+  it.each(["directory", "default"] as const)(
+    "rejects a %s legacy database when current storage has the same inbox",
+    async (location) => {
+      const dbDirectory = directory();
+      fs.mkdirSync(dbDirectory);
+      if (location === "default")
+        vi.spyOn(process, "cwd").mockReturnValue(dbDirectory);
+      else vi.stubEnv("XMTP_DB_DIRECTORY", dbDirectory);
+      const legacyRoot = dbDirectory;
+      const dbPath = path.join(
+        legacyRoot,
+        location === "default"
+          ? `xmtp-production-${inboxId}.db3`
+          : `xmtp-${inboxId}.db3`,
+      );
+      fs.writeFileSync(dbPath, "legacy database");
+      const currentRoot =
+        location === "default" ? path.join(dbDirectory, "xmtp") : dbDirectory;
+      const currentPath = path.join(
+        currentRoot,
+        "production",
+        "deployment",
+        inboxId,
+        "xmtp.db3",
+      );
+      fs.mkdirSync(path.dirname(currentPath), { recursive: true });
+      fs.writeFileSync(currentPath, "current database");
+      const { create } = setup(
+        location === "directory" ? dbDirectory : undefined,
+      );
+
+      await expect(Agent.createFromEnv()).rejects.toThrow(
+        "Both legacy and current XMTP databases",
+      );
+      expect(create).not.toHaveBeenCalled();
+    },
+  );
+
   it("ignores unrelated legacy databases in a named directory", async () => {
     const dbDirectory = directory();
     fs.mkdirSync(dbDirectory);

@@ -330,15 +330,50 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       ]);
       if (candidates.length > 0 && !options?.allowOffline)
         ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
-      const legacyFiles = candidates
-        .filter((entry) => ids.has(entry.inboxId))
-        .map((entry) => path.join(legacyDirectory, entry.name));
-      if (legacyFiles.length > 1)
+      const legacyMatches = candidates.filter((entry) =>
+        ids.has(entry.inboxId),
+      );
+      if (legacyMatches.length > 1)
         throw new AgentError(
           1000,
           "More than one legacy XMTP database exists. Pass an explicit storage location.",
         );
-      const legacyPath = legacyFiles[0];
+      const legacyMatch = legacyMatches[0];
+      const legacyPath = legacyMatch
+        ? path.join(legacyDirectory, legacyMatch.name)
+        : undefined;
+      if (legacyMatch) {
+        const root = XMTP_DB_DIRECTORY || path.join(process.cwd(), "xmtp");
+        const dataDirectory = XMTP_ENV ? path.join(root, XMTP_ENV) : root;
+        let deployments: fs.Dirent[];
+        try {
+          deployments = fs.readdirSync(dataDirectory, { withFileTypes: true });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          deployments = [];
+        }
+        const currentExists = deployments.some((deployment) => {
+          if (!deployment.isDirectory()) return false;
+          const currentPath = path.join(
+            dataDirectory,
+            deployment.name,
+            legacyMatch.inboxId,
+            "xmtp.db3",
+          );
+          try {
+            return fs.statSync(currentPath).isFile();
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT")
+              return false;
+            throw error;
+          }
+        });
+        if (currentExists)
+          throw new AgentError(
+            1000,
+            "Both legacy and current XMTP databases match this inbox. Pass an explicit storage location.",
+          );
+      }
       storage = legacyPath
         ? {
             location: {
