@@ -30,7 +30,7 @@ export const ConnectXMTP: React.FC = () => {
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
 
   const handleConnectClick = useCallback(() => {
-    if (lockState !== "available") {
+    if (lockState === "locked") {
       setShowLockModal(true);
       return;
     }

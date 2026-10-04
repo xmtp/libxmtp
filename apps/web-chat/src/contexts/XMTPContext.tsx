@@ -99,7 +99,7 @@ export type XMTPContextValue = {
   error: Error | null;
   disconnect: () => Promise<void>;
   lockState: AppLockState;
-  acquireLock: () => void;
+  acquireLock: (force?: boolean) => boolean;
   releaseLock: () => void;
 };
 

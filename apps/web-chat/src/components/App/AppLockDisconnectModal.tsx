@@ -33,15 +33,15 @@ export const AppLockDisconnectModal: React.FC<AppLockDisconnectModalProps> = ({
       size="sm"
       padding={0}>
       <ContentLayout
-        title="xmtp.chat session disconnected"
+        title="xmtp.chat session takeover requested"
         maxHeight={contentHeight}
         footer={footer}
         withScrollFade={false}
         withScrollAreaPadding={false}>
         <Box p="md">
           <Text mb="md">
-            Your other xmtp.chat session has been disconnected. You can now
-            connect to a new session.
+            This tab has taken the app lock. Wait for the other tab to close its
+            client, then connect.
           </Text>
         </Box>
       </ContentLayout>
