@@ -269,3 +269,13 @@ public enum ClientRegistry {
         entries.removeValue(forKey: client.raw.clientKey())
     }
 }
+
+extension Credential: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        "Credential(<redacted>)"
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}
