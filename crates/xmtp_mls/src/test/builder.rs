@@ -569,7 +569,7 @@ async fn client_creation_logs_omit_full_id_with_retained_envelope() {
     client.context.db().admit_ordered_batch(
         &topic,
         Cursor(0),
-        &[retained.clone()],
+        std::slice::from_ref(&retained),
         IncomingLimits {
             batch: budget,
             topic: budget,
@@ -607,23 +607,24 @@ async fn client_creation_logs_omit_full_id_with_retained_envelope() {
             .envelope,
         retained.envelope
     );
-    let records = sink.0.lock();
-    let event = records
-        .iter()
-        .find(|record| {
-            record
-                .message
-                .contains(xmtp_common::Event::ClientCreated.metadata().doc)
-        })
-        .expect("reopen emits the creation event");
-    let json_has_full_id = capture.output().contains(&full_id);
-    let app_has_full_id = event.message.contains(&full_id)
-        || event.fields.values().any(|value| value.contains(&full_id));
-    assert_eq!(
-        (json_has_full_id, app_has_full_id),
-        (false, false),
-        "creation logs include the full ID while an envelope remains pending"
-    );
-    drop(records);
+    {
+        let records = sink.0.lock();
+        let event = records
+            .iter()
+            .find(|record| {
+                record
+                    .message
+                    .contains(xmtp_common::Event::ClientCreated.metadata().doc)
+            })
+            .expect("reopen emits the creation event");
+        let json_has_full_id = capture.output().contains(&full_id);
+        let app_has_full_id = event.message.contains(&full_id)
+            || event.fields.values().any(|value| value.contains(&full_id));
+        assert_eq!(
+            (json_has_full_id, app_has_full_id),
+            (false, false),
+            "creation logs include the full ID while an envelope remains pending"
+        );
+    }
     reopened.close().await?;
 }
