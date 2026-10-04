@@ -3,6 +3,7 @@ import {
   MessageStream,
   type Client,
   type ConnectionState,
+  type EventFilter,
 } from "@xmtp/node-sdk";
 
 export async function checkStreamOptions(client: Client): Promise<void> {
@@ -38,4 +39,14 @@ export async function checkStreamOptions(client: Client): Promise<void> {
     },
   });
   await stream.end();
+}
+
+// EVENT-020 permits omission of references_own_messages.
+export async function checkEventFilterDefault(client: Client) {
+  const filter: EventFilter = {
+    kinds: ["conversation.joined"],
+  };
+  const events = await client.events(filter);
+  await events.return();
+  await client.startListener(filter, () => {});
 }

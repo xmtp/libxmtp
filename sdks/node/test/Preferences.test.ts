@@ -6,13 +6,32 @@ import {
 import { type ClientEvent, type ConsentRecord } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  currentProjection,
+  lowerEventFilter,
+} from "../dist/public-values.gen.js";
+
 const WAIT = { timeout: 30_000, interval: 100 };
 describe("Preferences", () => {
+  it("defaults the omitted own-message event filter before binding conversion", () => {
+    const projection = currentProjection();
+    expect(
+      lowerEventFilter({ kinds: ["conversation.joined"] }, projection)
+        .referencesOwnMessages,
+    ).toBe(false);
+    for (const selected of [false, true]) {
+      expect(
+        lowerEventFilter(
+          { kinds: ["message.received"], references_own_messages: selected },
+          projection,
+        ).referencesOwnMessages,
+      ).toBe(selected);
+    }
+  });
   it("uses byte group IDs in the named event payload", async () => {
     const client = await createRegisteredClient(createSigner().signer);
     const events = await client.events({
       kinds: ["conversation.joined"],
-      references_own_messages: false,
     });
     try {
       const group = await client.conversations.createGroup([]);
