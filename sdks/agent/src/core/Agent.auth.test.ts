@@ -119,6 +119,41 @@ describe("agent environment storage", () => {
     );
   });
 
+  it("reopens a symlinked legacy database through its existing path", async () => {
+    const dbDirectory = directory();
+    fs.mkdirSync(dbDirectory);
+    const targetPath = path.join(dbDirectory, "legacy-target.db3");
+    fs.writeFileSync(targetPath, "legacy database");
+    const dbPath = path.join(dbDirectory, `xmtp-${inboxId}.db3`);
+    fs.symlinkSync(targetPath, dbPath);
+    const { create, stopped } = setup(dbDirectory);
+
+    await expect(Agent.createFromEnv()).rejects.toBe(stopped);
+    expect(create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        storage: expect.objectContaining({
+          location: { dbPath, attachmentsDir: `${dbPath}.attachments` },
+        }),
+      }),
+    );
+  });
+
+  it("rejects a dangling legacy database symlink before client creation", async () => {
+    const dbDirectory = directory();
+    fs.mkdirSync(dbDirectory);
+    fs.symlinkSync(
+      path.join(dbDirectory, "missing.db3"),
+      path.join(dbDirectory, `xmtp-${inboxId}.db3`),
+    );
+    const { create } = setup(dbDirectory);
+
+    await expect(Agent.createFromEnv()).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("reopens one legacy default database from the working directory", async () => {
     const workingDirectory = directory();
     fs.mkdirSync(workingDirectory);

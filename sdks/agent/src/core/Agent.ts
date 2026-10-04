@@ -312,16 +312,23 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       const candidates = fs
         .readdirSync(legacyDirectory, { withFileTypes: true })
         .flatMap((entry) => {
-          if (!entry.isFile()) return [];
           if (XMTP_DB_DIRECTORY) {
             const match = /^xmtp-([0-9a-f]{64})\.db3$/i.exec(entry.name);
-            return match?.[1] === undefined
+            return match?.[1] === undefined ||
+              (!entry.isFile() &&
+                !(
+                  entry.isSymbolicLink() &&
+                  fs.statSync(path.join(legacyDirectory, entry.name)).isFile()
+                ))
               ? []
               : [{ name: entry.name, inboxId: match[1].toLowerCase() }];
           }
           const match = /^xmtp-(.+)-([0-9a-f]{64})\.db3$/i.exec(entry.name);
           return match?.[2] !== undefined &&
-            (XMTP_ENV === undefined || match[1] === XMTP_ENV)
+            (XMTP_ENV === undefined || match[1] === XMTP_ENV) &&
+            (entry.isFile() ||
+              (entry.isSymbolicLink() &&
+                fs.statSync(path.join(legacyDirectory, entry.name)).isFile()))
             ? [{ name: entry.name, inboxId: match[2].toLowerCase() }]
             : [];
         });
@@ -634,17 +641,36 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       return;
     }
 
-    const conversation = await this.#client.conversations.getById(
-      message.conversationId,
-    );
-    if (!isCurrent()) return;
-
-    if (!conversation) {
-      throw new AgentError(
-        1003,
-        `Failed to process message ID "${message.id}" for conversation ID "${message.conversationId}" because the conversation could not be found.`,
+    const lookup = async () => {
+      const conversation = await this.#client.conversations.getById(
+        message.conversationId,
       );
+      if (!conversation)
+        throw new AgentError(
+          1003,
+          `Failed to process message ID "${message.id}" for conversation ID "${message.conversationId}" because the conversation could not be found.`,
+        );
+      return conversation;
+    };
+    let conversation: Conversation;
+    try {
+      conversation = await lookup();
+    } catch (error) {
+      if (!isCurrent()) return;
+      const disposition = await this.#runErrorChain(error, {
+        client: this.#client,
+        message,
+      }).catch((handlerError: unknown) => {
+        throw new UnacceptedValueError(handlerError);
+      });
+      if (disposition !== "resume") throw new UnacceptedValueError(error);
+      try {
+        conversation = await lookup();
+      } catch (retryError) {
+        throw new UnacceptedValueError(retryError);
+      }
     }
+    if (!isCurrent()) return;
 
     const context = new MessageContext({
       message,
