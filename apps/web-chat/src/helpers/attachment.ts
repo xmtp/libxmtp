@@ -278,13 +278,19 @@ export const retryPendingDatabaseDeletions = async () => {
         !listed.some(
           (path) => path.replace(/^\/+/, "") === dbPath.replace(/^\/+/, ""),
         )
-      )
+      ) {
+        // A completed deletion can leave only its journal entry after a crash.
+        if (!(await hasAttachmentDirectory(dbPath))) {
+          clearDatabaseDeletionPending(dbPath);
+        }
         continue;
+      }
+      // Keep the listed database as ownership proof until its files are gone.
+      await cleanAttachmentDirectory(dbPath);
       await admin.deleteFile(dbPath);
     } finally {
       await admin.end();
     }
-    await cleanAttachmentDirectory(dbPath);
     clearDatabaseDeletionPending(dbPath);
   }
 };
@@ -428,6 +434,23 @@ export const removeTemporaryAttachmentDirectory = async (
   }
   for (const name of names) {
     await parent.removeEntry(name, { recursive: true });
+  }
+};
+
+export const hasAttachmentDirectory = async (
+  dbPath: string,
+): Promise<boolean> => {
+  const folders = attachmentFolders(dbPath);
+  let directory = await navigator.storage.getDirectory();
+  try {
+    for (const folder of folders) {
+      directory = await directory.getDirectoryHandle(folder);
+    }
+    return true;
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "NotFoundError")
+      return false;
+    throw cause;
   }
 };
 

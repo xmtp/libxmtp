@@ -320,7 +320,7 @@ it("does not retry a database deletion outside recorded deployments", async () =
   }
 });
 
-it("retries attachment cleanup after the database file is deleted", async () => {
+it("keeps the database listed until attachment cleanup succeeds", async () => {
   const deployment = await deploymentComponent("selected-deployment");
   const inboxId = "c".repeat(64);
   const selected = `/xmtp-sdk/selected-backend/${deployment}/${inboxId}/xmtp.db3`;
@@ -335,6 +335,7 @@ it("retries attachment cleanup after the database file is deleted", async () => 
   const inbox = await directory.getDirectoryHandle(inboxId, { create: true });
   await inbox.getDirectoryHandle("attachments", { create: true });
   mocks.list
+    .mockResolvedValueOnce([selected])
     .mockResolvedValueOnce([selected])
     .mockResolvedValueOnce([selected])
     .mockResolvedValue([]);
@@ -363,7 +364,7 @@ it("retries attachment cleanup after the database file is deleted", async () => 
     });
     fireEvent.click(remove);
     await screen.findByText("OPFS cleanup failed");
-    expect(mocks.remove).toHaveBeenCalledExactlyOnceWith(selected);
+    expect(mocks.remove).not.toHaveBeenCalled();
     await expect(
       inbox.getDirectoryHandle("attachments"),
     ).resolves.toBeDefined();
@@ -477,9 +478,9 @@ it("retries a saved deletion intent after the database delete fails", async () =
     expect(localStorage.getItem("XMTP_PENDING_DATABASE_DELETION")).toContain(
       selected,
     );
-    await expect(
-      inbox.getDirectoryHandle("attachments"),
-    ).resolves.toBeDefined();
+    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
+      { name: "NotFoundError" },
+    );
 
     cleanup();
     render(

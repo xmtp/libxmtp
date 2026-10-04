@@ -459,7 +459,14 @@ it("keeps downloaded bytes without invoking local deletion", async () => {
   }
 });
 
-it.each(["listed", "unlisted", "unavailable"])(
+it.each([
+  "listed",
+  "unlisted",
+  "unavailable",
+  "before-delete",
+  "after-delete",
+  "cleanup-failed",
+])(
   "replays database deletion only with listed ownership: %s",
   async (listing) => {
     const label = `delete-${crypto.randomUUID()}`;
@@ -492,11 +499,41 @@ it.each(["listed", "unlisted", "unavailable"])(
     const bytes = await file.createWritable();
     await bytes.write("keep until ownership is proved");
     await bytes.close();
+    let databaseExists = !["unlisted", "unavailable"].includes(listing);
     const listFiles = vi.fn(async () => {
       if (listing === "unavailable") throw new Error("listing failed");
-      return listing === "listed" ? [`/${dbPath}`] : [];
+      return databaseExists ? [`/${dbPath}`] : [];
     });
-    const deleteFile = vi.fn(async () => {});
+    const deleteFile = vi.fn(async () => {
+      await expect(
+        directory.getDirectoryHandle("attachments"),
+      ).rejects.toMatchObject({ name: "NotFoundError" });
+      databaseExists = false;
+    });
+    if (listing === "before-delete" || listing === "after-delete") {
+      deleteFile.mockImplementationOnce(async () => {
+        await expect(
+          directory.getDirectoryHandle("attachments"),
+        ).rejects.toMatchObject({ name: "NotFoundError" });
+        if (listing === "after-delete") databaseExists = false;
+        throw new Error("interrupted deletion");
+      });
+    }
+    const removeEntry = FileSystemDirectoryHandle.prototype.removeEntry;
+    const removal =
+      listing === "cleanup-failed"
+        ? vi
+            .spyOn(FileSystemDirectoryHandle.prototype, "removeEntry")
+            .mockImplementationOnce(async function (
+              this: FileSystemDirectoryHandle,
+              name,
+              options,
+            ) {
+              if (name === "attachments")
+                throw new Error("interrupted cleanup");
+              return removeEntry.call(this, name, options);
+            })
+        : undefined;
     const end = vi.fn(async () => {});
     const admin = vi
       .spyOn(Storage, "admin")
@@ -508,11 +545,27 @@ it.each(["listed", "unlisted", "unavailable"])(
       JSON.stringify([dbPath]),
     );
     try {
+      if (
+        ["before-delete", "after-delete", "cleanup-failed"].includes(listing)
+      ) {
+        await expect(retryPendingDatabaseDeletions()).rejects.toThrow(
+          "interrupted",
+        );
+        expect(
+          JSON.parse(localStorage.getItem("XMTP_PENDING_DATABASE_DELETION")!),
+        ).toEqual([dbPath]);
+        if (listing === "cleanup-failed") {
+          expect(deleteFile).not.toHaveBeenCalled();
+          expect(await (await file.getFile()).text()).toBe(
+            "keep until ownership is proved",
+          );
+        }
+        removal?.mockRestore();
+      }
       await retryPendingDatabaseDeletions();
-      expect(listFiles).toHaveBeenCalledOnce();
-      expect(end).toHaveBeenCalledOnce();
-      if (listing === "listed") {
-        expect(deleteFile).toHaveBeenCalledExactlyOnceWith(dbPath);
+      expect(end).toHaveBeenCalledTimes(listFiles.mock.calls.length);
+      if (!["unlisted", "unavailable"].includes(listing)) {
+        expect(deleteFile).toHaveBeenCalledWith(dbPath);
         expect(
           localStorage.getItem("XMTP_PENDING_DATABASE_DELETION"),
         ).toBeNull();
@@ -529,6 +582,7 @@ it.each(["listed", "unlisted", "unavailable"])(
         );
       }
     } finally {
+      removal?.mockRestore();
       admin.mockRestore();
       localStorage.removeItem("XMTP_PENDING_DATABASE_DELETION");
       await sdk.removeEntry(label, { recursive: true });

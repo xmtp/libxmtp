@@ -8,6 +8,7 @@ import {
   cleanSessionAttachments,
   clearDatabaseDeletionPending,
   deploymentComponent,
+  hasAttachmentDirectory,
   isCurrentDatabasePath,
   markDatabaseDeletionPending,
   pendingAttachmentCleanupPaths,
@@ -53,9 +54,14 @@ export const LocalDatabases: React.FC = () => {
             throw new Error("Select a local database.");
           if (!pending) markDatabaseDeletionPending(selected);
           if (available.includes(selected)) {
+            // Keep ownership proof until attachment cleanup completes.
+            await cleanAttachmentDirectory(selected);
             await admin.deleteFile(selected);
+          } else if (await hasAttachmentDirectory(selected)) {
+            throw new Error(
+              "The database is no longer listed. Its local files were kept.",
+            );
           }
-          await cleanAttachmentDirectory(selected);
           clearDatabaseDeletionPending(selected);
           setSelected(null);
         }
