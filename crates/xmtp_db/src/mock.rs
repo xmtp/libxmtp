@@ -311,6 +311,20 @@ mock! {
             allowed_kinds: Option<Vec<crate::group_intent::IntentKind>>,
         ) -> Result<Vec<crate::group_intent::StoredGroupIntent>, crate::ConnectionError>;
 
+        fn last_publish_intent_id(
+            &self,
+            group_id: &[u8],
+        ) -> Result<Option<crate::group_intent::ID>, crate::ConnectionError>;
+
+        fn next_publish_intent(
+            &self,
+            group_id: &[u8],
+            after: Option<crate::group_intent::ID>,
+            upper: crate::group_intent::ID,
+        ) -> Result<Option<crate::group_intent::StoredGroupIntent>, crate::ConnectionError>;
+
+        fn has_published_group_change(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+
         fn set_group_intent_published(
             &self,
             intent_id: crate::group_intent::ID,

@@ -7,13 +7,13 @@ import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/
 // @ts-ignore The fixture uses the published viem JavaScript build.
 import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
 import {
-  CONTRACT_HASH,
-  PROTOCOL_VERSION,
-} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/contract.gen";
-import {
   Message,
   MessageStream,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/binding";
+import {
+  CONTRACT_HASH,
+  PROTOCOL_VERSION,
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/contract.gen";
 // Transport tests use the worker proxy Client with their own session.
 import { Client } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/proxy.gen";
 import { MainSession } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/main/session";
@@ -406,10 +406,20 @@ export async function checkWorkerAdmission(
         expect(await pending).toEqual({ done: true, value: undefined });
         await stream.end();
       } else if (mode === "overlap-end") {
-        // A second read while the first value is in transit must not reach
-        // the worker: its read would acknowledge the first value, which the
-        // end below abandons.
-        const second = stream.next();
+        // A second read while the first value is in transit must reject.
+        // It must not acknowledge the first value before the end below.
+        // Catch the error before the test runner checks for unhandled errors.
+        const second = stream.next().then(
+          () => ({ accepted: true as const }),
+          (error: unknown) => ({ accepted: false as const, error }),
+        );
+        const secondResult = await second;
+        if (secondResult.accepted)
+          throw new Error("overlapping read succeeded");
+        expect(secondResult.error).toBeInstanceOf(Error);
+        expect((secondResult.error as Error).message).toBe(
+          "reader iterator read is active",
+        );
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
         expect(await session.call("__f3Counts", [])).toMatchObject({
           nextCalls: 2,
@@ -418,7 +428,6 @@ export async function checkWorkerAdmission(
         client = undefined;
         await stream.end();
         expect(await pending).toEqual({ done: true, value: undefined });
-        expect(await second).toEqual({ done: true, value: undefined });
         const check = await Client.build(session, identity, options, inbox);
         expect(
           await check.conversations().sdkConformanceDeliveryPosition(groupId),

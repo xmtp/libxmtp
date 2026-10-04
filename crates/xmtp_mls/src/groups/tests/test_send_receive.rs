@@ -748,6 +748,7 @@ async fn test_optimistic_send() {
 async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
     use crate::groups::mls_sync::GroupHeadOutcome;
     use std::sync::Arc;
+    use tracing::instrument::WithSubscriber;
 
     use crate::groups::intents::{QueueIntent, UpdateMetadataIntentData};
     use xmtp_db::incoming_envelope::{
@@ -837,7 +838,17 @@ async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
         hex::encode(alix.context.installation_id()),
     ];
     let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
-    let capture = LogCapture::with_sink(Level::Info, Some(sink.clone()));
+    let capture = LogCapture::with_sink(Level::Debug, Some(sink.clone()));
+    let stream = bo
+        .stream_all_messages(None, None)
+        .with_subscriber(capture.dispatch())
+        .await?;
+    drop(stream);
+    let stream = bo
+        .stream_all_messages_owned(None, None)
+        .with_subscriber(capture.dispatch())
+        .await?;
+    drop(stream);
     let outcome = tracing::dispatcher::with_default(&capture.dispatch(), || {
         receiver.process_pending_group_head(None)
     })?;
@@ -900,6 +911,18 @@ async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
         }
     }
     let records = sink.0.lock();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record.message == "stream all messages")
+            .count(),
+        2
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record.message.contains("processing own message for intent"))
+    );
     let extracted = records
         .iter()
         .find(|record| record.message.contains("extracted sender inbox id"))
