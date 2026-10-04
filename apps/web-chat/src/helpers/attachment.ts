@@ -285,13 +285,35 @@ export const cleanSessionAttachments = async (dbPath: string | undefined) => {
 
 // Check every app-owned attachment directory before a new session starts.
 export const cleanStoredSessionAttachments = async () => {
+  let legacyDatabases: Set<string> | undefined;
+  const hasListedLegacyDatabase = async (dbPath: string): Promise<boolean> => {
+    if (legacyDatabases === undefined) {
+      try {
+        const admin = await Storage.admin();
+        try {
+          legacyDatabases = new Set(
+            (await admin.listFiles()).map((path) => path.replace(/^\/+/, "")),
+          );
+        } finally {
+          await admin.end();
+        }
+      } catch {
+        // Keep legacy files when database ownership cannot be checked.
+        legacyDatabases = new Set();
+      }
+    }
+    return legacyDatabases.has(dbPath);
+  };
   const root = await navigator.storage.getDirectory();
   for await (const [name, handle] of root.entries()) {
     if (handle.kind !== "directory") continue;
     if (name !== "xmtp-sdk") {
       if (name.endsWith(".attachments")) {
         const dbPath = name.slice(0, -".attachments".length);
-        if (isLegacyDatabasePath(dbPath)) {
+        if (
+          isLegacyDatabasePath(dbPath) &&
+          (await hasListedLegacyDatabase(dbPath))
+        ) {
           await removePlaintextAttachmentDirectories(dbPath);
         }
       }
@@ -451,26 +473,24 @@ export const downloadRemoteAttachment = async (
   content: RemoteAttachment,
 ) => {
   const attachment = await client.attachments.download(content);
+  const parts = attachment.path.split("/").filter(Boolean);
+  const filename = parts.pop();
+  if (!filename || parts.includes(".."))
+    throw new Error("Invalid attachment path");
+  let directory = await navigator.storage.getDirectory();
+  for (const part of parts)
+    directory = await directory.getDirectoryHandle(part);
+  const handle = await directory.getFileHandle(filename);
+  const file = await handle.getFile();
+  const blob = new Blob([await file.arrayBuffer()], {
+    type: attachment.mimeType ?? file.type,
+  });
   try {
-    const parts = attachment.path.split("/").filter(Boolean);
-    const filename = parts.pop();
-    if (!filename || parts.includes(".."))
-      throw new Error("Invalid attachment path");
-    let directory = await navigator.storage.getDirectory();
-    for (const part of parts)
-      directory = await directory.getDirectoryHandle(part);
-    const handle = await directory.getFileHandle(filename);
-    const file = await handle.getFile();
-    return new Blob([await file.arrayBuffer()], {
-      type: attachment.mimeType ?? file.type,
-    });
-  } finally {
-    try {
-      await client.attachments.deleteLocal(content);
-    } catch {
-      // A local cleanup error must not discard a completed download.
-    }
+    await client.attachments.deleteLocal(content);
+  } catch {
+    // A local cleanup error must not discard a completed download.
   }
+  return blob;
 };
 
 export const getFileType = (filename: string) => {

@@ -1,7 +1,8 @@
-import type {
-  Client,
-  PendingAttachment,
-  RemoteAttachment,
+import {
+  Storage,
+  type Client,
+  type PendingAttachment,
+  type RemoteAttachment,
 } from "@xmtp/browser-sdk";
 import { describe, expect, it, vi } from "vitest";
 
@@ -79,6 +80,56 @@ it("cleans recorded plaintext and keeps an unknown deployment directory", async 
   }
 });
 
+it("keeps legacy plaintext without a listed database", async () => {
+  const dbPath = `xmtp-${crypto.randomUUID()}-${"a".repeat(64)}.db3`;
+  const plaintext = "b".repeat(64);
+  const root = await navigator.storage.getDirectory();
+  const attachments = await root.getDirectoryHandle(`${dbPath}.attachments`, {
+    create: true,
+  });
+  await attachments.getDirectoryHandle(plaintext, { create: true });
+  try {
+    await cleanStoredSessionAttachments();
+    await expect(
+      attachments.getDirectoryHandle(plaintext),
+    ).resolves.toBeDefined();
+  } finally {
+    await root.removeEntry(`${dbPath}.attachments`, { recursive: true });
+  }
+});
+
+it("cleans legacy plaintext for a listed database", async () => {
+  const dbPath = `xmtp-${crypto.randomUUID()}-${"a".repeat(64)}.db3`;
+  const plaintext = "b".repeat(64);
+  const root = await navigator.storage.getDirectory();
+  await root.getFileHandle(dbPath, { create: true });
+  const attachments = await root.getDirectoryHandle(`${dbPath}.attachments`, {
+    create: true,
+  });
+  await attachments.getDirectoryHandle(plaintext, { create: true });
+  const listFiles = vi.fn(async () => [dbPath]);
+  const end = vi.fn(async () => {});
+  const admin = vi
+    .spyOn(Storage, "admin")
+    .mockResolvedValue({ listFiles, end } as unknown as Awaited<
+      ReturnType<typeof Storage.admin>
+    >);
+  try {
+    await cleanStoredSessionAttachments();
+    expect(listFiles).toHaveBeenCalledOnce();
+    expect(end).toHaveBeenCalledOnce();
+    await expect(
+      attachments.getDirectoryHandle(plaintext),
+    ).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
+  } finally {
+    admin.mockRestore();
+    await root.removeEntry(`${dbPath}.attachments`, { recursive: true });
+    await root.removeEntry(dbPath);
+  }
+});
+
 it("admits only recorded current paths from the cleanup journal", async () => {
   const label = `journal-${crypto.randomUUID()}`;
   const identifier = "selected-deployment";
@@ -144,6 +195,41 @@ describe("remote attachments", () => {
       expect(result.type).toBe("text/plain");
     } finally {
       await directory.removeEntry(name).catch(() => {});
+    }
+  });
+
+  it("keeps a local copy when OPFS reading fails", async () => {
+    const root = await navigator.storage.getDirectory();
+    const name = `web-chat-${crypto.randomUUID()}.bin`;
+    await root.getFileHandle(name, { create: true });
+    const remote = {
+      url: "https://example.com/attachment",
+    } as RemoteAttachment;
+    const download = vi.fn(async () => ({
+      path: name,
+      mimeType: "text/plain",
+    }));
+    const deleteLocal = vi.fn(async () => root.removeEntry(name));
+    const client = {
+      attachments: { download, deleteLocal },
+    } as unknown as Client;
+    const getRoot = vi
+      .spyOn(navigator.storage, "getDirectory")
+      .mockResolvedValue(root);
+    const read = vi
+      .spyOn(root, "getFileHandle")
+      .mockRejectedValueOnce(new Error("OPFS read failed"));
+    try {
+      await expect(downloadRemoteAttachment(client, remote)).rejects.toThrow(
+        "OPFS read failed",
+      );
+      expect(download).toHaveBeenCalledExactlyOnceWith(remote);
+      expect(deleteLocal).not.toHaveBeenCalled();
+      await expect(root.getFileHandle(name)).resolves.toBeDefined();
+    } finally {
+      read.mockRestore();
+      getRoot.mockRestore();
+      await root.removeEntry(name).catch(() => {});
     }
   });
 });

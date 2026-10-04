@@ -767,9 +767,7 @@ it("cleans orphan plaintext before another inbox starts after both pagehide safe
       ).rejects.toMatchObject({
         name: "NotFoundError",
       });
-      await expect(legacy.getDirectoryHandle(plaintext)).rejects.toMatchObject({
-        name: "NotFoundError",
-      });
+      await expect(legacy.getDirectoryHandle(plaintext)).resolves.toBeDefined();
       return {
         storage: { path: async () => undefined },
         end: vi.fn(async () => {}),
