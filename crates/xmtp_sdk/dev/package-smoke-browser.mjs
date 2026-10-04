@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { resolve, join } from "node:path";
-import { packageAsset } from "./package-smoke-path.mjs";
 
 import { chromium } from "../../../sdks/browser/node_modules/playwright/index.mjs";
+import { packageAsset } from "./package-smoke-path.mjs";
 const packageRoot = resolve(process.argv[2]);
-const metadataFile = join(packageRoot, "sdk-contract.json");
-const original = readFileSync(metadataFile, "utf8");
 const runtimeEntry = (name) => {
   const manifest = JSON.parse(
     readFileSync(join(packageRoot, "node_modules/@ubjs", name, "package.json")),
@@ -28,8 +26,10 @@ const html = `<!doctype html><script type="importmap">${JSON.stringify({
     "/typescript-pure/": { "#xmtp/binding": "/typescript-pure/xmtp_sdk.js" },
   },
 })}</script>`;
+const requests = [];
 const server = createServer((request, response) => {
   const path = new URL(request.url, "http://localhost").pathname;
+  requests.push(path);
   if (path === "/") {
     response.setHeader("Content-Type", "text/html");
     response.end(html);
@@ -104,27 +104,12 @@ try {
     }
   };
   await load();
-  const metadata = JSON.parse(original);
-  metadata.contract = "deliberate-mismatch";
-  writeFileSync(metadataFile, JSON.stringify(metadata));
-  await assert.rejects(load, /SDK contract mismatch/);
-  writeFileSync(metadataFile, original);
-  await load();
-  const wasmFile = join(packageRoot, "typescript-pure/xmtp_sdk.wasm");
-  const wasm = readFileSync(wasmFile);
-  try {
-    const wrong = Buffer.from(wasm);
-    wrong[wrong.length - 1] ^= 1;
-    writeFileSync(wasmFile, wrong);
-    await assert.rejects(load, /SDK asset mismatch/);
-  } finally {
-    writeFileSync(wasmFile, wasm);
-  }
+  assert.ok(!requests.some((path) => path.endsWith("sdk-contract.json")));
+  assert.ok(!requests.some((path) => path.endsWith("contract-check.js")));
   console.log(
-    "Installed browser pure/worker load and contract/asset mismatch passed",
+    "Installed browser pure and worker load passed without package receipt requests",
   );
 } finally {
-  writeFileSync(metadataFile, original);
   await browser.close();
   await new Promise((done) => server.close(done));
 }

@@ -41,6 +41,67 @@ class StagingTests(unittest.TestCase):
         if name == "node":
             (folder / "binding.node").write_bytes(b"fixture native asset")
 
+    def test_browser_entries_do_not_read_build_receipts(self):
+        generated = self.root / "generated"
+        for tree in ("typescript-wasm", "typescript-pure"):
+            source = generated / tree
+            source.mkdir(parents=True)
+            (source / "package.json").write_text('{"type":"module"}')
+            (source / "index.ts").write_text("export const marker = 'sdk';")
+            (source / "sdk-contract.json").write_text(
+                json.dumps({
+                    "contract": "fixture",
+                    "generator": "fixture",
+                    "files": {
+                        name: hashlib.sha256((source / name).read_bytes()).hexdigest()
+                        for name in ("package.json", "index.ts")
+                    },
+                })
+            )
+        for name in ("core", "wasm"):
+            self.runtime(self.root / "runtime", name)
+        compiler = self.root / "compiler.mjs"
+        compiler.write_text(
+            "import {writeFileSync} from 'node:fs';\n"
+            "const {default: config} = await import(process.argv[3]);\n"
+            "writeFileSync(config.outDir + '/index.js', \"export const marker = 'sdk';\");\n"
+            "writeFileSync(config.outDir + '/index.d.ts', 'export declare const marker: string;');\n"
+        )
+        output = self.root / "packages"
+        env = dict(
+            os.environ,
+            XMTP_SDK_GENERATED_DIR=str(generated),
+            XMTP_SDK_PACKAGES_DIR=str(output),
+            XMTP_SDK_RUNTIME_DIR=str(self.root / "runtime"),
+            XMTP_SDK_TSDOWN_CLI=str(compiler),
+        )
+        command = ["node", str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"), "browser"]
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        product = output / "browser"
+        (product / "sdk-contract.json").unlink()
+        result = subprocess.run(
+            [
+                "node", "--input-type=module", "-e",
+                "globalThis.fetch = () => { throw new Error('unexpected fetch'); }; "
+                "await import('./entry.js'); await import('./pure.js');",
+            ],
+            cwd=product,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in ("sdk-contract-check.js", "sdk-pure-contract-check.js"):
+            self.assertFalse((product / name).exists())
+        # A mismatched generated configuration must still fail during staging.
+        receipt = generated / "typescript-pure/sdk-contract.json"
+        metadata = json.loads(receipt.read_text())
+        metadata["contract"] = "different"
+        receipt.write_text(json.dumps(metadata))
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SDK generated contract mismatch", result.stderr)
+
     def test_read_only_runtime_directories_stage(self):
         generated = self.root / "generated/typescript-napi"
         generated.mkdir(parents=True)
@@ -209,7 +270,7 @@ class StagingTests(unittest.TestCase):
         self.assertNotEqual(snapshot(), before)
         self.assertIn("marker='new'", (output / "node/index.js").read_text())
         check = subprocess.run(
-            ["node", "--input-type=module", "-e", "import './sdk-contract-check.js';"],
+            ["node", "--input-type=module", "-e", "import './entry.js';"],
             cwd=output / "node",
             capture_output=True,
             text=True,
@@ -389,23 +450,13 @@ class StagingTests(unittest.TestCase):
                     "node",
                     "--input-type=module",
                     "-e",
-                    "import './sdk-contract-check.js';",
+                    "import './entry.js';",
                 ]
                 subprocess.run(check, cwd=installed, check=True, capture_output=True)
-                for filename in (
-                    "node_modules/@ubjs/core/index.js",
-                    "node_modules/@ubjs/node/binding.node",
-                ):
-                    runtime = installed / filename
-                    original = runtime.read_bytes()
-                    runtime.write_bytes(original + b"changed")
-                    failed = subprocess.run(
-                        check, cwd=installed, capture_output=True, text=True
-                    )
-                    self.assertNotEqual(failed.returncode, 0)
-                    self.assertIn("SDK asset mismatch: " + filename, failed.stderr)
-                    runtime.write_bytes(original)
+                # The receipt describes the build. Import must not need it.
+                (installed / "sdk-contract.json").unlink()
                 subprocess.run(check, cwd=installed, check=True, capture_output=True)
+                self.assertFalse((installed / "sdk-contract-check.js").exists())
                 for name in ("core", "node"):
                     entry = products / name / "index.js"
                     original_entry = entry.read_bytes()

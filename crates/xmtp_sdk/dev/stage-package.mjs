@@ -240,16 +240,13 @@ try {
     throw new Error("SDK Node package has no native runtime binary");
   }
   const entry = target === "node" ? "./index.js" : "./typescript-wasm/index.js";
-  // Public imports wait for the contract check. The SDK root stays private.
-  writeFileSync(
-    join(destination, "entry.js"),
-    `import './sdk-contract-check.js';\nexport * from '${entry}';\n`,
-  );
+  // Public entries expose the compiled package roots.
+  writeFileSync(join(destination, "entry.js"), `export * from '${entry}';\n`);
   writeFileSync(join(destination, "entry.d.ts"), `export * from '${entry}';\n`);
   if (target === "browser") {
     writeFileSync(
       join(destination, "pure.js"),
-      "import './sdk-pure-contract-check.js';\nexport * from './typescript-pure/index.js';\n",
+      "export * from './typescript-pure/index.js';\n",
     );
     writeFileSync(
       join(destination, "pure.d.ts"),
@@ -478,47 +475,6 @@ try {
       2,
     ) + "\n",
   );
-  if (target === "node") {
-    writeFileSync(
-      join(destination, "sdk-contract-check.js"),
-      `
-import { readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-const metadata = JSON.parse(readFileSync(new URL('./sdk-contract.json', import.meta.url)));
-if (metadata.contract !== '${contract}' || metadata.generator !== '${contracts[0].generator}') throw new Error('SDK contract mismatch');
-for (const [path, expected] of Object.entries(metadata.assets)) {
-  const actual = createHash('sha256').update(readFileSync(new URL(path, import.meta.url))).digest('hex');
-  if (actual !== expected) throw new Error('SDK asset mismatch: ' + path);
-}
-`.trim() + "\n",
-    );
-  } else {
-    // Bundlers can transform JS modules. Check the bytes of the WASM assets
-    // through static URLs, so bundlers can copy and rename each binary.
-    const browserCheck = (selected) => `
-const metadata = await (await fetch(new URL('./sdk-contract.json', import.meta.url))).json();
-if (metadata.contract !== '${contract}' || metadata.generator !== '${contracts[0].generator}') throw new Error('SDK contract mismatch');
-const assets = [${selected.map((path) => `{path: ${JSON.stringify(path)}, expected: ${JSON.stringify(assets[path])}, url: new URL(${JSON.stringify(`./${path}`)}, import.meta.url)}`).join(",")}];
-await Promise.all(assets.map(async ({ path, expected, url }) => {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('SDK missing asset: ' + path);
-  const hash = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
-  const actual = [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  if (actual !== expected || metadata.assets[path] !== expected) throw new Error('SDK asset mismatch: ' + path);
-}));
-`;
-    writeFileSync(
-      join(destination, "sdk-contract-check.js"),
-      browserCheck([
-        "typescript-wasm/xmtp_sdk.wasm",
-        "typescript-pure/xmtp_sdk.wasm",
-      ]).trim() + "\n",
-    );
-    writeFileSync(
-      join(destination, "sdk-pure-contract-check.js"),
-      browserCheck(["typescript-pure/xmtp_sdk.wasm"]).trim() + "\n",
-    );
-  }
   // Keep the prior product until compilation and all package checks succeed.
   if (existsSync(product)) renameSync(product, previous);
   try {

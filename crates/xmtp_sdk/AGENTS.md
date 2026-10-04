@@ -169,8 +169,9 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
 - `dev/nix-shell 'just sdk stage node'` and `dev/nix-shell 'just sdk stage browser'` compile ESM products with
   tsdown. They copy the pinned runtimes, native library, worker, pure WASM,
   loaders, and snippets. `dev/nix-shell 'just sdk package-smoke node|browser'` packs each product
-  and installs it in an empty consumer. It checks a codec round trip and rejects
-  a changed contract before an operation. Browser smoke also loads its worker.
+  and installs it in an empty consumer. It checks a codec round trip without
+  package receipts or runtime asset hashes. Browser smoke also loads its worker.
+  Package configuration and asset identity are checked during staging and tests.
   Switched SDK package builds use `bash ../../dev/js/sdk-package node|browser`
   from the SDK directory. The helper stages a public manifest and copies the
   complete product into the SDK's `dist` directory for workspace imports.
