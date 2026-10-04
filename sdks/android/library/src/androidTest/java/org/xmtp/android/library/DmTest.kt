@@ -254,15 +254,18 @@ class DmTest : BaseInstrumentedTest() {
             dm.sendText("howdy")
             val id = dm.sendText("gm")
             dm.sync()
-            assertEquals("gm", text(dm.messages().first()))
-            assertEquals(id, dm.messages().first().id)
-            assertEquals(DeliveryStatus.PUBLISHED, dm.messages().first().deliveryStatus)
-            assertEquals(3, dm.messages().size)
+            assertEquals("gm", text(dm.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first()))
+            assertEquals(id, dm.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first().id)
+            assertEquals(
+                DeliveryStatus.PUBLISHED,
+                dm.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first().deliveryStatus,
+            )
+            assertEquals(3, dm.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).size)
             alix.conversations().sync()
             val peer = find(alix, bo.inboxId())
             peer.sync()
-            assertEquals(3, peer.messages().size)
-            assertEquals("gm", text(peer.messages().first()))
+            assertEquals(3, peer.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).size)
+            assertEquals("gm", text(peer.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first()))
         }
 
     @Test fun testCanListDmMessages() =

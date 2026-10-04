@@ -20,6 +20,12 @@ class ClientTest : BaseInstrumentedTest() {
 
     private fun backend() = BackendSource.Options(localApi())
 
+    private fun availabilityKey(identity: PublicIdentity): String =
+        when (identity.kind) {
+            PublicIdentityKind.ETHEREUM -> "ethereum:${identity.identifier.lowercase()}"
+            PublicIdentityKind.PASSKEY -> "passkey:${identity.identifier.lowercase()}"
+        }
+
     @Test fun testCanBeCreatedWithBundle() =
         runBlocking {
             val signer = createWallet()
@@ -27,13 +33,13 @@ class ClientTest : BaseInstrumentedTest() {
             val first = client(signer, options)
             val path = checkNotNull(first.storage().path())
             assertEquals("custom-db", first.options().storage.label)
-            assertEquals(true, first.canMessage(listOf(signer.identity()))[signer.identity().identifier])
+            assertEquals(true, first.canMessage(listOf(signer.identity()))[availabilityKey(signer.identity())])
             val inbox = first.inboxId()
             first.end()
             val reopened = trackClient(SDKClient.build(context, signer.identity(), options))
             assertEquals(inbox, reopened.inboxId())
             assertEquals(path, reopened.storage().path())
-            assertEquals(true, reopened.canMessage(listOf(signer.identity()))[signer.identity().identifier])
+            assertEquals(true, reopened.canMessage(listOf(signer.identity()))[availabilityKey(signer.identity())])
         }
 
     @Test fun testCanBeBuiltOffline() =
@@ -79,7 +85,7 @@ class ClientTest : BaseInstrumentedTest() {
                         initial
                     }
                 val created = client(signer, options)
-                assertEquals(true, created.canMessage(listOf(signer.identity()))[signer.identity().identifier])
+                assertEquals(true, created.canMessage(listOf(signer.identity()))[availabilityKey(signer.identity())])
                 assertTrue(created.installationId().isNotEmpty())
                 assertEquals(signer.identity(), created.identity())
                 assertEquals(inMemory, created.isInMemory())
@@ -113,9 +119,9 @@ class ClientTest : BaseInstrumentedTest() {
             val fixtures = createFixtures()
             val absent = createWallet().identity()
             val values = SDKClient.canMessage(listOf(fixtures.alix, absent, fixtures.bo), backend())
-            assertEquals(true, values[fixtures.alix.identifier])
-            assertEquals(true, values[fixtures.bo.identifier])
-            assertEquals(false, values[absent.identifier])
+            assertEquals(true, values[availabilityKey(fixtures.alix)])
+            assertEquals(true, values[availabilityKey(fixtures.bo)])
+            assertEquals(false, values[availabilityKey(absent)])
         }
 
     @Test fun testStaticInboxIds() =
@@ -354,7 +360,7 @@ class ClientTest : BaseInstrumentedTest() {
             request.sign(signer)
             created.unsafeApplySignatureRequest(request)
             assertTrue(created.isRegistered())
-            assertEquals(true, created.canMessage(listOf(signer.identity()))[signer.identity().identifier])
+            assertEquals(true, created.canMessage(listOf(signer.identity()))[availabilityKey(signer.identity())])
             assertTrue(created.installationId().isNotEmpty())
         }
 
@@ -401,6 +407,7 @@ class ClientTest : BaseInstrumentedTest() {
 
     @Test fun testPersistentLogging() =
         runBlocking {
+            initLogging(LoggingOptions(level = LogLevel.TRACE))
             SDKClient.clearXMTPLogs(context)
             SDKClient.activatePersistentLibXMTPLogWriter(context, LogLevel.TRACE, LogRotation.HOURLY, 3u)
             try {
@@ -515,7 +522,7 @@ class ClientTest : BaseInstrumentedTest() {
             val clients = List(3) { client(signer) }
             val request = clients.first().unsafeRevokeInstallationsSignatureRequest(listOf(clients[1].installationId()))
             request.sign(signer)
-            clients.last().unsafeApplySignatureRequest(request)
+            clients.first().unsafeApplySignatureRequest(request)
             assertEquals(
                 2,
                 clients
