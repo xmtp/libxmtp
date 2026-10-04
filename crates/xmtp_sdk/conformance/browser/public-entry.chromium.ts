@@ -8,12 +8,12 @@ import { generatePrivateKey } from "../../../../sdks/browser/node_modules/viem/_
 import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js";
 // @ts-ignore The browser fixture uses the published JavaScript build of viem.
 import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
-import { waitForLog } from "../ts/logging-wait.js";
 import * as pure from "../../../../target/sdk-generated/typescript-pure/index";
 import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { RemoteObject } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import { BridgeError } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
+import { waitForLog } from "../ts/logging-wait.js";
 
 function check(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -381,12 +381,12 @@ export async function exercise(): Promise<string[]> {
     check(next.value.id === created.id, "wrong joined Group");
     await joined.end();
     const events = await alice.events({
-      kinds: ["conversationJoined"],
-      referencesOwnMessages: false,
+      kinds: ["conversation.joined"],
+      references_own_messages: false,
     });
     await conversations.createGroup([]);
     const event = await events.next();
-    check(event.value?.kind === "conversationJoined", "no public event");
+    check(event.value?.kind === "conversation.joined", "no public event");
     await events.return();
     results.push("streams and events");
 
@@ -397,8 +397,8 @@ export async function exercise(): Promise<string[]> {
     const openStream = sdk.MessageStream.openGroup(alice, group);
     const openJoined = sdk.ConversationStream.open(alice);
     const openEvents = await alice.events({
-      kinds: ["conversationJoined"],
-      referencesOwnMessages: false,
+      kinds: ["conversation.joined"],
+      references_own_messages: false,
     });
     const opaqueBackend = await sdk.Backend.connect(backend);
     const opaqueAdmin = await sdk.Storage.admin();

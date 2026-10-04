@@ -333,3 +333,17 @@ extension AttachmentFailed: CustomStringConvertible, CustomDebugStringConvertibl
         description
     }
 }
+
+extension EncodedContent: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        var diagnosticParameters = parameters
+        if diagnosticParameters["secret"] != nil {
+            diagnosticParameters["secret"] = "<redacted>"
+        }
+        return "EncodedContent(type: \(String(reflecting: type)), parameters: \(String(reflecting: diagnosticParameters)), fallback: \(String(reflecting: fallback)), content: \(String(reflecting: content)))"
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}

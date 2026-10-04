@@ -111,7 +111,7 @@ fn emit_attachment_kinds(client: &Client) {
 }
 
 fn assert_attachment_kinds(events: &[ClientEvent]) {
-    use crate::{AttachmentFailed, AttachmentFailureCause, AttachmentRef};
+    use crate::{AttachmentFailed, AttachmentRef};
     let reference = |key: &str| AttachmentRef {
         attachment_key: key.into(),
         url: format!("https://example.com/{key}"),
@@ -153,13 +153,13 @@ fn assert_attachment_kinds(events: &[ClientEvent]) {
     assert_eq!(uploaded, &reference("up"));
     assert_eq!(
         upload_failed,
-        &failed("rejected", AttachmentFailureCause::BackendRejected)
+        &failed("rejected", "backend_rejected".into())
     );
     assert_eq!(downloading, &reference("down"));
     assert_eq!(downloaded, &reference("down"));
     assert_eq!(
         download_failed,
-        &failed("corrupt", AttachmentFailureCause::DigestMismatch)
+        &failed("corrupt", "digest_mismatch".into())
     );
     assert_eq!(deleted, &reference("down"));
 }
@@ -644,3 +644,5 @@ mod storage_retry;
 mod transparent_wrappers;
 
 mod reader_cursor;
+
+mod by_id_privacy;

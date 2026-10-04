@@ -137,7 +137,7 @@ pub use error::{
 pub use events::{
     ArchiveRestored, AttachmentFailed, AttachmentRef, ClientEvent, ClientRejectedByServer,
     ConnectionStateChanged, ConsentChanged, ConsentEntityKind, ConversationJoined,
-    ConversationPaused, ConversationRemoved, DeletionCause, EventConsentState,
+    ConversationPaused, ConversationRemoved, DeletionCause, EventConsentState, EventContentTypeId,
     EventConversationType, EventFilter, EventKind, EventListener, EventMessageStatus, EventReader,
     GroupRef, HmacKeysUpdated, IdentityRegistered, InstallationRef, InstallationRevoked,
     JoinOrigin, Lagged, ListenerError, ListenerId, LockoutChange, LockoutChanged,

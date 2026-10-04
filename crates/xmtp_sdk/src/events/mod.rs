@@ -7,10 +7,7 @@ pub use filter::EventFilter;
 pub use listener::{EventListener, ListenerError};
 pub use reader::EventReader;
 
-use crate::{
-    AttachmentFailureCause, ConnectionState, ContentTypeId, ConversationId, InboxId,
-    InstallationId, MessageId,
-};
+use crate::{ConnectionState, InboxId};
 use xmtp_events as core;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -131,7 +128,7 @@ pub struct AttachmentFailed {
     pub attachment_key: String,
     pub url: String,
     pub content_digest: String,
-    pub cause: AttachmentFailureCause,
+    pub cause: String,
 }
 
 impl std::fmt::Debug for AttachmentRef {
@@ -167,23 +164,18 @@ impl From<core::AttachmentRef> for AttachmentRef {
 
 impl From<core::AttachmentFailed> for AttachmentFailed {
     fn from(value: core::AttachmentFailed) -> Self {
-        let cause =
-            xmtp_attachments::AttachmentFailureCause::parse(&value.cause).unwrap_or_else(|| {
-                tracing::warn!(cause = %value.cause, "unknown attachment event failure cause");
-                xmtp_attachments::AttachmentFailureCause::LocalStorage
-            });
         Self {
             attachment_key: value.attachment_key,
             url: value.url,
             content_digest: value.content_digest,
-            cause: cause.into(),
+            cause: value.cause,
         }
     }
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ConversationJoined {
-    pub conversation_id: ConversationId,
+    pub group_id: Vec<u8>,
     pub conversation_type: EventConversationType,
     pub origin: JoinOrigin,
     pub adder_inbox_id: Option<InboxId>,
@@ -191,56 +183,63 @@ pub struct ConversationJoined {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ConversationRemoved {
-    pub conversation_id: ConversationId,
+    pub group_id: Vec<u8>,
     pub cause: RemovalCause,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MembershipChanged {
-    pub conversation_id: ConversationId,
+    pub group_id: Vec<u8>,
     pub added_inbox_ids: Vec<InboxId>,
     pub removed_inbox_ids: Vec<InboxId>,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MetadataChanged {
-    pub conversation_id: ConversationId,
+    pub group_id: Vec<u8>,
     pub changed: Vec<String>,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ConversationPaused {
-    pub conversation_id: ConversationId,
+    pub group_id: Vec<u8>,
     pub floor: String,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct EventContentTypeId {
+    pub authority_id: String,
+    pub type_id: String,
+    pub version_major: u32,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct MessageReceived {
-    pub conversation_id: ConversationId,
-    pub message_id: MessageId,
-    pub content_type: Option<ContentTypeId>,
+    pub group_id: Vec<u8>,
+    pub message_id: Vec<u8>,
+    pub content_type: Option<EventContentTypeId>,
     pub sender_inbox_id: InboxId,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MessageStatusChanged {
-    pub conversation_id: ConversationId,
-    pub message_id: MessageId,
+    pub group_id: Vec<u8>,
+    pub message_id: Vec<u8>,
     pub previous: EventMessageStatus,
     pub current: EventMessageStatus,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MessageDeleted {
-    pub conversation_id: ConversationId,
-    pub message_id: MessageId,
+    pub group_id: Vec<u8>,
+    pub message_id: Vec<u8>,
     pub cause: DeletionCause,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MessageRef {
-    pub conversation_id: ConversationId,
-    pub message_id: MessageId,
+    pub group_id: Vec<u8>,
+    pub message_id: Vec<u8>,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -256,17 +255,17 @@ pub struct HmacKeysUpdated {}
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct IdentityRegistered {
     pub inbox_id: InboxId,
-    pub installation_id: InstallationId,
+    pub installation_key: Vec<u8>,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct InstallationRef {
-    pub installation_id: InstallationId,
+    pub installation_key: Vec<u8>,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct InstallationRevoked {
-    pub installation_id: InstallationId,
+    pub installation_key: Vec<u8>,
     pub is_this_installation: bool,
 }
 
@@ -283,7 +282,7 @@ pub struct LockoutChanged {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct GroupRef {
-    pub conversation_id: ConversationId,
+    pub group_id: Vec<u8>,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -395,21 +394,11 @@ pub enum ClientEvent {
     },
 }
 
-fn conversation_id(bytes: Vec<u8>) -> ConversationId {
-    ConversationId::unchecked(hex::encode(bytes))
-}
-fn message_id(bytes: Vec<u8>) -> MessageId {
-    MessageId::unchecked(hex::encode(bytes))
-}
-fn installation_id(bytes: Vec<u8>) -> InstallationId {
-    InstallationId::unchecked(hex::encode(bytes))
-}
-fn content_type(value: xmtp_events::ContentTypeId) -> ContentTypeId {
-    ContentTypeId {
+fn content_type(value: xmtp_events::ContentTypeId) -> EventContentTypeId {
+    EventContentTypeId {
         authority_id: value.authority_id,
         type_id: value.type_id,
         version_major: value.version_major,
-        version_minor: 0,
     }
 }
 
@@ -418,7 +407,7 @@ impl ClientEvent {
         match value {
             core::ClientEvent::ConversationJoined(v) => Self::ConversationJoined {
                 conversation_joined: ConversationJoined {
-                    conversation_id: conversation_id(v.group_id),
+                    group_id: v.group_id,
                     conversation_type: v.conversation_type.into(),
                     origin: v.origin.into(),
                     adder_inbox_id: v.adder_inbox_id.map(InboxId::unchecked),
@@ -426,14 +415,14 @@ impl ClientEvent {
             },
             core::ClientEvent::ConversationRemoved(v) => Self::ConversationRemoved {
                 conversation_removed: ConversationRemoved {
-                    conversation_id: conversation_id(v.group_id),
+                    group_id: v.group_id,
                     cause: v.cause.into(),
                 },
             },
             core::ClientEvent::ConversationMembershipChanged(v) => {
                 Self::ConversationMembershipChanged {
                     membership_changed: MembershipChanged {
-                        conversation_id: conversation_id(v.group_id),
+                        group_id: v.group_id,
                         added_inbox_ids: v
                             .added_inbox_ids
                             .into_iter()
@@ -450,44 +439,44 @@ impl ClientEvent {
             core::ClientEvent::ConversationMetadataChanged(v) => {
                 Self::ConversationMetadataChanged {
                     metadata_changed: MetadataChanged {
-                        conversation_id: conversation_id(v.group_id),
+                        group_id: v.group_id,
                         changed: v.changed,
                     },
                 }
             }
             core::ClientEvent::ConversationPaused(v) => Self::ConversationPaused {
                 conversation_paused: ConversationPaused {
-                    conversation_id: conversation_id(v.group_id),
+                    group_id: v.group_id,
                     floor: v.floor,
                 },
             },
             core::ClientEvent::MessageReceived(v) => Self::MessageReceived {
                 message_received: MessageReceived {
-                    conversation_id: conversation_id(v.group_id),
-                    message_id: message_id(v.message_id),
+                    group_id: v.group_id,
+                    message_id: v.message_id,
                     content_type: v.content_type.map(content_type),
                     sender_inbox_id: InboxId::unchecked(v.sender_inbox_id),
                 },
             },
             core::ClientEvent::MessageStatusChanged(v) => Self::MessageStatusChanged {
                 message_status_changed: MessageStatusChanged {
-                    conversation_id: conversation_id(v.group_id),
-                    message_id: message_id(v.message_id),
+                    group_id: v.group_id,
+                    message_id: v.message_id,
                     previous: v.previous.into(),
                     current: v.current.into(),
                 },
             },
             core::ClientEvent::MessageDeleted(v) => Self::MessageDeleted {
                 message_deleted: MessageDeleted {
-                    conversation_id: conversation_id(v.group_id),
-                    message_id: message_id(v.message_id),
+                    group_id: v.group_id,
+                    message_id: v.message_id,
                     cause: v.cause.into(),
                 },
             },
             core::ClientEvent::MessageExpired(v) => Self::MessageExpired {
                 message_expired: MessageRef {
-                    conversation_id: conversation_id(v.group_id),
-                    message_id: message_id(v.message_id),
+                    group_id: v.group_id,
+                    message_id: v.message_id,
                 },
             },
             core::ClientEvent::ConsentChanged(v) => Self::ConsentChanged {
@@ -503,20 +492,20 @@ impl ClientEvent {
             core::ClientEvent::IdentityRegistered(v) => Self::IdentityRegistered {
                 identity_registered: IdentityRegistered {
                     inbox_id: InboxId::unchecked(v.inbox_id),
-                    installation_id: installation_id(v.installation_key),
+                    installation_key: v.installation_key,
                 },
             },
             core::ClientEvent::IdentityOwnInstallationAdded(v) => {
                 Self::IdentityOwnInstallationAdded {
                     own_installation_added: InstallationRef {
-                        installation_id: installation_id(v.installation_key),
+                        installation_key: v.installation_key,
                     },
                 }
             }
             core::ClientEvent::IdentityOwnInstallationRevoked(v) => {
                 Self::IdentityOwnInstallationRevoked {
                     own_installation_revoked: InstallationRevoked {
-                        installation_id: installation_id(v.installation_key),
+                        installation_key: v.installation_key,
                         is_this_installation: v.is_this_installation,
                     },
                 }
@@ -534,7 +523,7 @@ impl ClientEvent {
             },
             core::ClientEvent::ConversationForkDetected(v) => Self::ConversationForkDetected {
                 conversation_fork_detected: GroupRef {
-                    conversation_id: conversation_id(v.group_id),
+                    group_id: v.group_id,
                 },
             },
             core::ClientEvent::NotificationsFailed(v) => Self::NotificationsFailed {
@@ -585,3 +574,6 @@ impl ClientEvent {
 
 #[cfg(test)]
 mod diagnostics;
+
+#[cfg(test)]
+mod schema_tests;

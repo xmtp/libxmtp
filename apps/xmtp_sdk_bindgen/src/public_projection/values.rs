@@ -23,7 +23,7 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         writeln!(
             code,
             "readonly {}{optional}: {};",
-            camel(&field.name),
+            public_record_field(name, &field.name),
             cursor_type(name, &camel(&field.name), public_type(&field.ty))
         )?;
     }
@@ -41,7 +41,8 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
             .fields
             .iter()
             .map(|field| {
-                let field_name = camel(&field.name);
+                let binding_name = camel(&field.name);
+                let public_name = public_record_field(name, &field.name);
                 if defaults && field.default.is_some() {
                     // An explicit undefined would replace the factory default,
                     // so a left-out field stays out.
@@ -49,16 +50,18 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
                         Type::Optional { inner_type } => inner_type,
                         ty => ty,
                     };
-                    let converted = convert(ty, &format!("value.{field_name}"), lower);
+                    let converted = convert(ty, &format!("value.{public_name}"), lower);
                     (
                         true,
                         format!(
-                            "value.{field_name} === undefined ? {{}} : {{ {field_name}: {converted} }}"
+                            "value.{public_name} === undefined ? {{}} : {{ {binding_name}: {converted} }}"
                         ),
                     )
                 } else {
-                    let converted = convert(&field.ty, &format!("value.{field_name}"), lower);
-                    (false, format!("{field_name}: {converted}"))
+                    let source_name = if lower { &public_name } else { &binding_name };
+                    let output_name = if lower { &binding_name } else { &public_name };
+                    let converted = convert(&field.ty, &format!("value.{source_name}"), lower);
+                    (false, format!("{output_name}: {converted}"))
                 }
             })
             .collect::<Vec<_>>();
@@ -93,6 +96,41 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+fn public_record_field(record: &str, field: &str) -> String {
+    if matches!(
+        record,
+        "AttachmentRef"
+            | "AttachmentFailed"
+            | "ConversationJoined"
+            | "ConversationRemoved"
+            | "MembershipChanged"
+            | "MetadataChanged"
+            | "ConversationPaused"
+            | "EventContentTypeId"
+            | "MessageReceived"
+            | "MessageStatusChanged"
+            | "MessageDeleted"
+            | "MessageRef"
+            | "ConsentChanged"
+            | "HmacKeysUpdated"
+            | "IdentityRegistered"
+            | "InstallationRef"
+            | "InstallationRevoked"
+            | "ClientRejectedByServer"
+            | "LockoutChanged"
+            | "GroupRef"
+            | "NotificationsFailed"
+            | "ArchiveRestored"
+            | "ConnectionStateChanged"
+            | "Lagged"
+            | "EventFilter"
+    ) {
+        field.to_owned()
+    } else {
+        camel(field)
+    }
 }
 
 pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()> {

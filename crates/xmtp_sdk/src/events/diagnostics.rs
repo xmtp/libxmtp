@@ -12,7 +12,7 @@ fn event_attachment_diagnostics_hide_signed_urls() {
         attachment_key: attachment.attachment_key.clone(),
         url: attachment.url.clone(),
         content_digest: attachment.content_digest.clone(),
-        cause: AttachmentFailureCause::LocalStorage,
+        cause: "local_storage".into(),
     };
     let forms = [
         format!("{attachment:?}"),
@@ -44,5 +44,5 @@ fn event_attachment_diagnostics_hide_signed_urls() {
     }
     assert_eq!(attachment.url, url);
     assert_eq!(failed.url, url);
-    assert_eq!(failed.cause, AttachmentFailureCause::LocalStorage);
+    assert_eq!(failed.cause, "local_storage");
 }

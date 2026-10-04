@@ -16,7 +16,7 @@ private func eventCancellationCase(_ backend: BackendOptions, _ mode: String, _ 
         options.storage = StorageOptions(location: .explicit(dbPath: directory.appendingPathComponent("xmtp.db3").path, attachmentsDir: directory.appendingPathComponent("attachments").path), singleConnection: true)
     }
     let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
-    let filter = EventFilter(kinds: [.hmacKeysUpdated], conversationIds: nil, contentTypes: nil, referencesOwnMessages: false)
+    let filter = EventFilter(kinds: [.hmacKeysUpdated], groupIds: nil, contentTypes: nil, referencesOwnMessages: false)
     let reader = try await client.raw.events(filter: filter)
     let iterator = try await client.events(filter).makeAsyncIterator()
     await sdkConformanceSwiftEventGate.release()
@@ -112,7 +112,7 @@ private func eventCancellationCase(_ backend: BackendOptions, _ mode: String, _ 
 
 private func eventMemoryDeleteRejected(_ backend: BackendOptions) async throws {
     let client = try await SDKClient.create(signer: generateLocalSigner(), options: lifetimeOptions(backend))
-    let filter = EventFilter(kinds: [.hmacKeysUpdated], conversationIds: nil, contentTypes: nil, referencesOwnMessages: false)
+    let filter = EventFilter(kinds: [.hmacKeysUpdated], groupIds: nil, contentTypes: nil, referencesOwnMessages: false)
     let reader = try await client.raw.events(filter: filter)
     do {
         do {
@@ -157,7 +157,7 @@ private func eventCloseCancellation(_ backend: BackendOptions, _ deletion: Bool,
     let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
     let probe = await SdkConformanceConstructorProbe.open()
     probe.observeClient(client: client.raw)
-    let filter = EventFilter(kinds: [.hmacKeysUpdated], conversationIds: nil, contentTypes: nil, referencesOwnMessages: false)
+    let filter = EventFilter(kinds: [.hmacKeysUpdated], groupIds: nil, contentTypes: nil, referencesOwnMessages: false)
     let raw = try await client.raw.events(filter: filter)
     let iterator = try await client.events(filter).makeAsyncIterator()
     await sdkConformanceSwiftEventGate.release()
@@ -268,7 +268,7 @@ private func eventDeleteBeforeAdmission(_ backend: BackendOptions) async throws 
     do { try await callerValue(call, "delete before path cancellation"); throw ConformanceFailure("delete before admission returned") }
     catch is CancellationError {}
     _ = try client.raw.sdkConformanceEmitHmacEvents(count: 0)
-    let filter = EventFilter(kinds: [.hmacKeysUpdated], conversationIds: nil, contentTypes: nil, referencesOwnMessages: false)
+    let filter = EventFilter(kinds: [.hmacKeysUpdated], groupIds: nil, contentTypes: nil, referencesOwnMessages: false)
     let reader = try await client.raw.events(filter: filter)
     guard !reader.sdkEventReadGate.isEnded() else { throw ConformanceFailure("pre-admission cancellation stopped Event gates") }
     try await reader.end()

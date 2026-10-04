@@ -211,10 +211,9 @@ async fn malformed_host_ids_fail_operations_with_invalid_argument() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn malformed_event_filter_ids_fail_before_client_access() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let valid: ConversationId = host_id(&"ab".repeat(16));
     let filter = || EventFilter {
         kinds: vec![EventKind::MessageReceived],
-        conversation_ids: Some(vec![valid.clone(), host_id(&uppercase_hex(16))]),
+        group_ids: Some(vec![vec![0xab; 16], vec![]]),
         ..EventFilter::default()
     };
     client.end().await?;

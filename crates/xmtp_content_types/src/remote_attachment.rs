@@ -4,7 +4,6 @@ use crate::{
     CodecError, ContentCodec,
     attachment::{Attachment, AttachmentCodec},
     encryption::{self, EncryptionKeys},
-    utils::get_param_or_default,
 };
 
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -159,15 +158,20 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
     fn decode(encoded: EncodedContent) -> Result<RemoteAttachment, CodecError> {
         // Extract parameters
         let parameters: &HashMap<String, String> = &encoded.parameters;
+        let required = |name| {
+            parameters
+                .get(name)
+                .ok_or_else(|| CodecError::Decode(format!("missing {name} parameter")))
+        };
 
-        let content_digest = get_param_or_default(parameters, "contentDigest").to_string();
-        let salt = hex::decode(get_param_or_default(parameters, "salt"))
+        let content_digest = required("contentDigest")?.clone();
+        let salt = hex::decode(required("salt")?)
             .map_err(|e| CodecError::Decode(format!("invalid hex in salt parameter: {e}")))?;
-        let nonce = hex::decode(get_param_or_default(parameters, "nonce"))
+        let nonce = hex::decode(required("nonce")?)
             .map_err(|e| CodecError::Decode(format!("invalid hex in nonce parameter: {e}")))?;
-        let secret = hex::decode(get_param_or_default(parameters, "secret"))
+        let secret = hex::decode(required("secret")?)
             .map_err(|e| CodecError::Decode(format!("invalid hex in secret parameter: {e}")))?;
-        let scheme = get_param_or_default(parameters, "scheme").to_string();
+        let scheme = required("scheme")?.clone();
         let content_length = parameters
             .get("contentLength")
             .map(|s| {
