@@ -127,7 +127,7 @@ nix develop --show-trace  # Verbose error output
 | `nix/shells/android.nix`          | Android dev shell                                              |
 | `nix/shells/ios.nix`              | iOS dev shell (macOS only)                                     |
 | `nix/js.nix`                      | JavaScript shell                                               |
-| `nix/shells/wasm.nix`            | WASM development shell                                     |
+| `nix/shells/wasm.nix`             | WASM development shell                                         |
 | `nix/package/node.nix`            | Node.js per-target builds + JS/TS generation                   |
 | `nix/package/xmtp-sdk-native.nix` | Native SDK release build derivation                            |
 | `nix/package/ios.nix`             | iOS release build derivation                                   |

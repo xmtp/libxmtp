@@ -40,7 +40,6 @@ describe("create-release-branch", () => {
       `[workspace.package]\nversion = "0.0.0"\n`,
     );
 
-
     // Create JS SDK structures
     fs.mkdirSync(path.join(tmpDir, "sdks/node"), { recursive: true });
     fs.writeFileSync(
@@ -314,7 +313,6 @@ describe("create-release-branch", () => {
     ).toBe(true);
   });
 
-
   it("creates branch with all SDKs", async () => {
     const { handler } =
       await import("../../src/commands/create-release-branch");
@@ -349,7 +347,6 @@ describe("create-release-branch", () => {
       "utf-8",
     );
     expect(gradle).toContain("version=1.1.0");
-
 
     const nodeSdkPackageJson = JSON.parse(
       fs.readFileSync(path.join(tmpDir, "sdks/node/package.json"), "utf-8"),
