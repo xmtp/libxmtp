@@ -53,10 +53,14 @@ export const pendingAttachmentCleanupPaths = async (): Promise<string[]> => {
   } catch {
     return [];
   }
+  const legacyDatabases = paths.some((path) => isLegacyDatabasePath(path))
+    ? await listedLegacyDatabasePaths()
+    : new Set<string>();
   const admitted = await Promise.all(
-    paths.map(
-      async (path) =>
-        isLegacyDatabasePath(path) || (await hasRecordedDeployment(path)),
+    paths.map(async (path) =>
+      isLegacyDatabasePath(path)
+        ? legacyDatabases.has(path.replace(/^\/+/, ""))
+        : await hasRecordedDeployment(path),
     ),
   );
   return paths.filter((_, index) => admitted[index]);
@@ -171,6 +175,22 @@ export const isLegacyDatabasePath = (dbPath: string, label?: string) => {
     validSegment(match[1]) &&
     (label === undefined || match[1] === label)
   );
+};
+
+const listedLegacyDatabasePaths = async (): Promise<Set<string>> => {
+  try {
+    const admin = await Storage.admin();
+    try {
+      return new Set(
+        (await admin.listFiles()).map((path) => path.replace(/^\/+/, "")),
+      );
+    } finally {
+      await admin.end();
+    }
+  } catch {
+    // Keep legacy files when database ownership cannot be checked.
+    return new Set();
+  }
 };
 
 const recordedDeploymentComponents = async (
@@ -288,19 +308,7 @@ export const cleanStoredSessionAttachments = async () => {
   let legacyDatabases: Set<string> | undefined;
   const hasListedLegacyDatabase = async (dbPath: string): Promise<boolean> => {
     if (legacyDatabases === undefined) {
-      try {
-        const admin = await Storage.admin();
-        try {
-          legacyDatabases = new Set(
-            (await admin.listFiles()).map((path) => path.replace(/^\/+/, "")),
-          );
-        } finally {
-          await admin.end();
-        }
-      } catch {
-        // Keep legacy files when database ownership cannot be checked.
-        legacyDatabases = new Set();
-      }
+      legacyDatabases = await listedLegacyDatabasePaths();
     }
     return legacyDatabases.has(dbPath);
   };

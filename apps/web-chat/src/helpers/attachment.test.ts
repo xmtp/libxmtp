@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   cleanAttachmentDirectory,
+  cleanSessionAttachments,
   cleanStoredSessionAttachments,
   deploymentComponent,
   deploymentHash,
@@ -161,6 +162,51 @@ it("admits only recorded current paths from the cleanup journal", async () => {
   } finally {
     localStorage.removeItem("XMTP_PENDING_ATTACHMENT_CLEANUP");
     await sdk.removeEntry(label, { recursive: true });
+  }
+});
+
+it("replays legacy cleanup only for a listed database", async () => {
+  const listedPath = `xmtp-${crypto.randomUUID()}-${"a".repeat(64)}.db3`;
+  const unlistedPath = `xmtp-${crypto.randomUUID()}-${"b".repeat(64)}.db3`;
+  const plaintext = "c".repeat(64);
+  const root = await navigator.storage.getDirectory();
+  const listed = await root.getDirectoryHandle(`${listedPath}.attachments`, {
+    create: true,
+  });
+  const unlisted = await root.getDirectoryHandle(
+    `${unlistedPath}.attachments`,
+    {
+      create: true,
+    },
+  );
+  await listed.getDirectoryHandle(plaintext, { create: true });
+  await unlisted.getDirectoryHandle(plaintext, { create: true });
+  const listFiles = vi.fn(async () => [listedPath]);
+  const end = vi.fn(async () => {});
+  const admin = vi
+    .spyOn(Storage, "admin")
+    .mockResolvedValue({ listFiles, end } as unknown as Awaited<
+      ReturnType<typeof Storage.admin>
+    >);
+  localStorage.setItem(
+    "XMTP_PENDING_ATTACHMENT_CLEANUP",
+    JSON.stringify([unlistedPath, listedPath]),
+  );
+  try {
+    const paths = await pendingAttachmentCleanupPaths();
+    expect(paths).toEqual([listedPath]);
+    for (const path of paths) await cleanSessionAttachments(path);
+    await expect(listed.getDirectoryHandle(plaintext)).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
+    await expect(unlisted.getDirectoryHandle(plaintext)).resolves.toBeDefined();
+    expect(listFiles).toHaveBeenCalledOnce();
+    expect(end).toHaveBeenCalledOnce();
+  } finally {
+    admin.mockRestore();
+    localStorage.removeItem("XMTP_PENDING_ATTACHMENT_CLEANUP");
+    await root.removeEntry(`${listedPath}.attachments`, { recursive: true });
+    await root.removeEntry(`${unlistedPath}.attachments`, { recursive: true });
   }
 });
 
