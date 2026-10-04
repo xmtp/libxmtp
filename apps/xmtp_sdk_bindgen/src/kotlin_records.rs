@@ -1,6 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use heck::ToLowerCamelCase;
-use uniffi_meta::{FieldMetadata, Metadata, MetadataGroupMap, Type};
+use uniffi_meta::{FieldMetadata, Metadata, MetadataGroupMap, RecordMetadata, Type};
 
 /// Kotlin's generated data classes compare ByteArray by reference.
 pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String> {
@@ -13,6 +13,9 @@ pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String>
             _ => None,
         })
     {
+        if record.name == "StreamBarrierTopic" {
+            output = topic_display(&output, record)?;
+        }
         if !record.fields.iter().any(|field| byte_field(&field.ty)) {
             continue;
         }
@@ -31,6 +34,52 @@ pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String>
         let code = overrides(&record.name, &record.fields);
         output.insert_str(body, &code);
     }
+    Ok(output)
+}
+
+const TOPIC_DISPLAY: &str = "    // Keep full topic identifiers out of diagnostic text.\n    override fun toString(): String = \"StreamBarrierTopic(topic=<redacted>, scopeGeneration=$scopeGeneration, target=$target, received=$received, processed=$processed, unresolvedWelcomes=$unresolvedWelcomes, inactive=$inactive, cause=$cause)\"\n\n";
+
+fn topic_display(source: &str, record: &RecordMetadata) -> Result<String> {
+    let expected = [
+        "topic",
+        "scope_generation",
+        "target",
+        "received",
+        "processed",
+        "unresolved_welcomes",
+        "inactive",
+        "cause",
+    ];
+    if record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .ne(expected)
+        || record.fields[0].ty != Type::Bytes
+    {
+        bail!("StreamBarrierTopic: expected the complete barrier fields and topic bytes");
+    }
+    let anchor = "data class StreamBarrierTopic (";
+    if source.matches(anchor).count() != 1 {
+        bail!("StreamBarrierTopic: expected one generated data class");
+    }
+    let start = source.find(anchor).expect("one admitted record");
+    let body = source[start..]
+        .find("){\n")
+        .map(|at| start + at + 3)
+        .context("StreamBarrierTopic: generated record has no body")?;
+    let end = source[body..]
+        .find("\n}")
+        .map(|at| body + at)
+        .context("StreamBarrierTopic: generated record has no end")?;
+    if source[body..end].contains(TOPIC_DISPLAY) {
+        return Ok(source.to_owned());
+    }
+    if source[body..end].contains("fun toString(") {
+        bail!("StreamBarrierTopic: generated display already exists");
+    }
+    let mut output = source.to_owned();
+    output.insert_str(body, TOPIC_DISPLAY);
     Ok(output)
 }
 
@@ -102,5 +151,63 @@ mod tests {
         assert!(code.contains("java.util.Arrays.equals(`content`, other.`content`)"));
         assert!(code.contains("java.util.Arrays.hashCode(`content`)"));
         assert!(code.contains("`id` == other.`id`"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn topic_record_diagnostics_hide_bytes_and_keep_structured_fields() {
+        let names = [
+            "topic",
+            "scope_generation",
+            "target",
+            "received",
+            "processed",
+            "unresolved_welcomes",
+            "inactive",
+            "cause",
+        ];
+        let record = RecordMetadata {
+            module_path: "xmtp_sdk::error".into(),
+            name: "StreamBarrierTopic".into(),
+            orig_name: None,
+            remote: false,
+            fields: names
+                .iter()
+                .map(|name| FieldMetadata {
+                    name: (*name).into(),
+                    orig_name: None,
+                    ty: if *name == "topic" {
+                        Type::Bytes
+                    } else {
+                        Type::UInt64
+                    },
+                    default: None,
+                    docstring: None,
+                })
+                .collect(),
+            docstring: None,
+        };
+        let groups = MetadataGroupMap::from([(
+            "xmtp_sdk".into(),
+            uniffi_meta::MetadataGroup {
+                namespace: uniffi_meta::NamespaceMetadata {
+                    crate_name: "xmtp_sdk".into(),
+                    name: "xmtp_sdk".into(),
+                },
+                namespace_docstring: None,
+                items: std::collections::BTreeSet::from([Metadata::Record(record)]),
+            },
+        )]);
+        let source = "data class StreamBarrierTopic (var topic: ByteArray){\n\n}\n";
+        let rewritten = rewrite(source, &groups)?;
+        assert!(
+            rewritten.contains("topic=<redacted>"),
+            "record diagnostics need a redacted topic"
+        );
+        assert!(!rewritten.contains("topic=$topic"));
+        assert!(rewritten.contains("var topic: ByteArray"));
+        assert!(rewritten.contains("scopeGeneration=$scopeGeneration"));
+        assert!(rewritten.contains("processed=$processed"));
+        assert!(rewritten.contains("java.util.Arrays.equals"));
+        assert!(rewrite(&source.replace("data class", "class"), &groups).is_err());
     }
 }

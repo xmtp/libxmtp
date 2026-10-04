@@ -125,8 +125,9 @@ Run commands from the repository root in the Nix shell. Run
   and assets.
   The proof installs local copies under `target/sdk-codec-author/` and uses
   only the supported ESM roots in the codec package.
-- `dev/nix-shell 'just sdk manifest-check'` and
-  `dev/nix-shell 'just sdk-manifest-check'` check the same API manifest.
+- `dev/nix-shell 'just sdk-manifest-check'` checks source and retention rows
+  without generated products. `dev/nix-shell 'just sdk manifest-check'` also
+  checks the generated public projection counts and roots.
   A switched SDK keeps its pinned pre-switch retention and removal ledger.
   The same manifest counts its current public projection in a separate section.
   Unswitched SDKs still match their current source declarations. Missing current

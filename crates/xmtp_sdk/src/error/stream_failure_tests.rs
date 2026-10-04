@@ -323,3 +323,34 @@ fn failure_before_admission_has_no_scope_generation() {
     assert_eq!(topic.target, None);
     assert_eq!(topic.received, u64::MAX);
 }
+
+// verifies: PROC-018, PROC-036
+#[xmtp_common::test(unwrap_try = true)]
+fn stream_error_formatting_redacts_topic_bytes_but_keeps_structured_details() {
+    let error = XmtpError::from_group(GroupError::StreamBarrier(barrier(
+        Some(42),
+        BarrierFailure::Deadline,
+    )));
+    let expected_topic = Topic::new_welcome_message([0xab; 32].into()).cloned_vec();
+    let formatted_topic = format!("{expected_topic:?}");
+    let display = error.to_string();
+    let debug = format!("{error:?}");
+    assert!(
+        !display.contains(&formatted_topic),
+        "error Display exposes complete topic bytes: {display}"
+    );
+    assert!(
+        !debug.contains(&formatted_topic),
+        "error Debug exposes complete topic bytes: {debug}"
+    );
+    let failure = stream_failure(error);
+    assert_eq!(failure.barriers[0].unfinished[0].topic, expected_topic);
+    assert_eq!(failure.barriers[0].unfinished[0].target, Some(42));
+    assert_eq!(
+        failure.barriers[0].unfinished[0].scope_generation,
+        Some(u64::MAX)
+    );
+    assert_eq!(failure.barriers[0].unfinished[0].received, u64::MAX);
+    assert_eq!(failure.barriers[0].unfinished[0].processed, u64::MAX - 1);
+    assert!(!format!("{failure:?}").contains(&formatted_topic));
+}

@@ -21,7 +21,7 @@ ci +args:
 
 # Build the binary.
 build:
-    nix build {{ root }}#xmtp-backend
+    env -u LD_LIBRARY_PATH nix build {{ root }}#xmtp-backend
 
 # Build the container image for an explicit musl architecture, or the host
 # architecture.

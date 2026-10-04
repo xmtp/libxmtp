@@ -38,7 +38,7 @@ pub struct StreamBarrierCause {
 }
 
 /// One fixed topic obligation and its stored processing progress.
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct StreamBarrierTopic {
     /// Complete topic bytes.
     pub topic: Vec<u8>,
@@ -55,6 +55,23 @@ pub struct StreamBarrierTopic {
     pub unresolved_welcomes: Vec<u64>,
     pub inactive: bool,
     pub cause: Option<StreamBarrierCause>,
+}
+
+// Keep complete identifiers in structured data, outside diagnostic text.
+impl std::fmt::Debug for StreamBarrierTopic {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StreamBarrierTopic")
+            .field("topic", &"<redacted>")
+            .field("scope_generation", &self.scope_generation)
+            .field("target", &self.target)
+            .field("received", &self.received)
+            .field("processed", &self.processed)
+            .field("unresolved_welcomes", &self.unresolved_welcomes)
+            .field("inactive", &self.inactive)
+            .field("cause", &self.cause)
+            .finish()
+    }
 }
 
 /// Every unfinished topic from one failed barrier.

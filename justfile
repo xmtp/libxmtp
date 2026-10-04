@@ -88,9 +88,9 @@ lint-rust:
 # Config linting: TOML, Nix, shell scripts, and the SDK API manifest
 lint-config: lint-treefmt sdk-manifest-check
 
-# Fail if docs/self-hosted/sdk-api-manifest.md differs from the SDK sources.
+# Check retention and source rows without requiring generated SDK products.
 sdk-manifest-check:
-    python3.11 dev/sdk/inventory.py --check
+    python3.11 dev/sdk/inventory.py --check-source
     python3.11 dev/sdk/test-cutover-gates.py
 
 lint-toml:

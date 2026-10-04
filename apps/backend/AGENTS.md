@@ -27,6 +27,8 @@ dev/nix-shell 'just backend db-down'
 ```
 
 `dev/nix-shell 'just backend run'` uses `dev/backend/local.toml` without attachment storage.
+The `build` and `image` recipes remove `LD_LIBRARY_PATH` from the Nix process.
+This lets Git fetch dependencies without the devshell's incompatible glibc path.
 Compose uses `dev/backend/local-s3.toml` to offer attachment storage through
 VersityGW. Both files set default and maximum query row limits to 50, so SDK
 tests exercise paging. Run `dev/nix-shell 'just backend s3-up'` before attachment integration

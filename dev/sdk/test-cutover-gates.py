@@ -83,7 +83,10 @@ class CutoverGates(unittest.TestCase):
         self.assertIn("| Swift | 7132 |", built)
         module.OUT.write_text(built)
         self.assertEqual(module.build(), built)
+        source_only = module.build(source_only=True)
+        self.assertEqual(module.source_only_manifest(built), source_only)
         public.rename(public.with_suffix(".missing"))
+        self.assertEqual(module.build(source_only=True), source_only)
         with self.assertRaisesRegex(
             ValueError, "missing or empty current public projection"
         ):
@@ -94,12 +97,15 @@ class CutoverGates(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "pinned pre-switch ledger changed"):
             module.build()
+        with self.assertRaisesRegex(ValueError, "pinned pre-switch ledger changed"):
+            module.build(source_only=True)
         module.OUT.write_text(built)
         sibling = self.root / "sdks/node/src/index.ts"
         sibling.write_text(
             sibling.read_text() + "\nexport const unapprovedSiblingExport = true;\n"
         )
         self.assertNotEqual(module.build(), built)
+        self.assertNotEqual(module.build(source_only=True), source_only)
         self.assertIn(module.ledger_section(ledger, "Swift"), built)
 
     def test_browser_inventory_requires_own_main_and_pure_roots(self):
