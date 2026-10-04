@@ -22,7 +22,6 @@ import {
 import {
   cleanSessionAttachments,
   isCurrentDatabasePath,
-  markAttachmentCleanupPending,
   pendingAttachmentCleanupPaths,
   retryPendingDatabaseDeletions,
 } from "@/helpers/attachment";
@@ -163,16 +162,10 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
   }, [reset, setClient]);
   const handlePageHide = useCallback(() => {
     const dbPath = attachmentDbPath.current;
-    if (dbPath) {
-      markAttachmentCleanupPending(dbPath);
-      return cleanSessionAttachments(dbPath);
-    }
+    if (dbPath) return cleanSessionAttachments(dbPath);
     const current = clientRef.current;
     if (current) {
-      return current.storage.path().then((path) => {
-        if (path) markAttachmentCleanupPending(path);
-        return cleanSessionAttachments(path);
-      });
+      return current.storage.path().then(cleanSessionAttachments);
     }
   }, []);
   const { lockState, acquireLock, releaseLock, ownsLock } = useAppLock(() => {

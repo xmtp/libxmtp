@@ -386,6 +386,74 @@ it("records pagehide cleanup and removes plaintext before a new account starts",
   }
 });
 
+it("removes pagehide plaintext when the cleanup journal write fails", async () => {
+  const deployment = `pagehide-failure-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const path = await backend.getDirectoryHandle(deployment, { create: true });
+  const inbox = await path.getDirectoryHandle(inboxId, { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const key = "d".repeat(64);
+  await attachments.getDirectoryHandle(key, { create: true });
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => dbPath },
+    end: vi.fn(async () => {}),
+  });
+  const setItem = Storage.prototype.setItem;
+  const storageSpy = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation(function (this: Storage, name, value) {
+      if (name === "XMTP_PENDING_ATTACHMENT_CLEANUP") {
+        throw new Error("Cleanup journal unavailable");
+      }
+      return setItem.call(this, name, value);
+    });
+  try {
+    const { result, unmount } = renderHook(useXMTP, {
+      wrapper: XMTPProvider,
+    });
+    await act(async () => {
+      await result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    await act(async () => {
+      await mocks.pageHide?.();
+    });
+    await expect(attachments.getDirectoryHandle(key)).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
+    unmount();
+    mocks.create.mockResolvedValueOnce({
+      storage: { path: async () => undefined },
+      end: vi.fn(async () => {}),
+    });
+    const otherSigner = {};
+    const next = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await next.result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: otherSigner as never,
+      });
+    });
+    expect(mocks.create).toHaveBeenCalledWith(otherSigner, expect.anything());
+    await expect(attachments.getDirectoryHandle(key)).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
+  } finally {
+    storageSpy.mockRestore();
+    await backend.removeEntry(deployment, { recursive: true });
+  }
+});
+
 it("keeps the app lock until failed attachment cleanup is retried", async () => {
   const deployment = `retry-disconnect-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
   const inboxId = "a".repeat(64);
