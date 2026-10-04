@@ -60,9 +60,14 @@ test("catalogue messages preserve read times, reaction variants, markdown, and a
     body: { kind: "attachment", value: attachment },
   });
   const receipt = await group.sendReadReceipt();
-  expect((await sender.conversations.getMessageById(receipt))?.content).toEqual(
-    { kind: "readReceipt" },
-  );
+  const receiptMessage = await sender.conversations.getMessageById(receipt);
+  expect(receiptMessage?.content).toEqual({ kind: "readReceipt" });
+  expect(receiptMessage?.contentType).toEqual({
+    authorityId: "xmtp.org",
+    typeId: "readReceipt",
+    versionMajor: 1,
+    versionMinor: 0,
+  });
   expect(
     (await group.messages()).some((message) => message.id === receipt),
   ).toBe(false);
