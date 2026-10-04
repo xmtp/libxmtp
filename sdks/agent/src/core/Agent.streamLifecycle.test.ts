@@ -113,13 +113,16 @@ describe("Agent stream lifecycle", () => {
         .spyOn(ConversationStream, "open")
         .mockImplementation(
           (owner, _selection, options) =>
-            makeStream<Conversation>(owner, options) as ConversationStream,
+            makeStream<Conversation>(
+              owner,
+              options,
+            ) as unknown as ConversationStream,
         );
       const messages = vi
         .spyOn(MessageStream, "open")
         .mockImplementation(
           (owner, _selection, options) =>
-            makeStream<Message>(owner, options) as MessageStream,
+            makeStream<Message>(owner, options) as unknown as MessageStream,
         );
       const client = { inboxId: "agent" } as Client;
       const agent = new Agent({ client });
@@ -377,7 +380,7 @@ describe("Agent stream lifecycle", () => {
             }),
             owner,
             options && { signal: options.signal, onClose: options.onClose },
-          ) as ConversationStream,
+          ) as unknown as ConversationStream,
       );
       vi.spyOn(MessageStream, "open").mockImplementation(
         (owner, _selection, options) =>
@@ -385,7 +388,7 @@ describe("Agent stream lifecycle", () => {
             async () => ({ next: messageNext, end: messageEnd }),
             owner,
             options && { signal: options.signal, onClose: options.onClose },
-          ) as MessageStream,
+          ) as unknown as MessageStream,
       );
       const client = {
         inboxId: "agent",
