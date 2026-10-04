@@ -116,6 +116,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
   const [error, setError] = useState<Error | null>(null);
   const lockLossEpoch = useRef(0);
   const attachmentDbPath = useRef<string | undefined>(undefined);
+  const endedClient = useRef<Client | undefined>(undefined);
   // when another session claims the lock, disconnect without releasing
   const handleLockLost = useCallback(async () => {
     lockLossEpoch.current += 1;
@@ -134,6 +135,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
       } catch (cause) {
         setError(cause instanceof Error ? cause : new Error(String(cause)));
       } finally {
+        endedClient.current = undefined;
         setClientSigner(undefined);
         setClient(undefined);
         reset();
@@ -210,6 +212,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
             throw new Error("App lock was lost during XMTP initialization");
           }
           attachmentDbPath.current = dbPath;
+          endedClient.current = undefined;
           setClientSigner(signer);
           setClient(xmtpClient);
         } catch (e) {
@@ -242,16 +245,18 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
   const disconnect = useCallback(async () => {
     if (client) {
       const dbPath = attachmentDbPath.current ?? (await client.storage.path());
-      await client.end();
-      try {
-        await removeAttachmentDirectory(dbPath);
-      } finally {
-        attachmentDbPath.current = undefined;
-        setClient(undefined);
-        setClientSigner(undefined);
-        reset();
-        releaseLock();
+      attachmentDbPath.current = dbPath;
+      if (endedClient.current !== client) {
+        await client.end();
+        endedClient.current = client;
       }
+      await removeAttachmentDirectory(dbPath);
+      attachmentDbPath.current = undefined;
+      endedClient.current = undefined;
+      setClient(undefined);
+      setClientSigner(undefined);
+      reset();
+      releaseLock();
     }
   }, [client, setClient, releaseLock, reset]);
 

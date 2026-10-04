@@ -282,6 +282,52 @@ it("removes old local attachment files when the user disconnects", async () => {
   }
 });
 
+it("keeps the app lock until failed attachment cleanup is retried", async () => {
+  const deployment = `retry-disconnect-${crypto.randomUUID()}`;
+  const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const path = await backend.getDirectoryHandle(deployment, { create: true });
+  const inbox = await path.getDirectoryHandle("inbox", { create: true });
+  await inbox.getDirectoryHandle("attachments", { create: true });
+  const end = vi.fn(async () => {});
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => dbPath },
+    end,
+  });
+  const getDirectory = vi
+    .spyOn(navigator.storage, "getDirectory")
+    .mockRejectedValueOnce(new Error("OPFS busy"));
+  try {
+    const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    await act(async () => {
+      await expect(result.current.disconnect()).rejects.toThrow("OPFS busy");
+    });
+    expect(result.current.client).toBeDefined();
+    expect(mocks.releaseLock).not.toHaveBeenCalled();
+    getDirectory.mockRestore();
+    await act(async () => {
+      await result.current.disconnect();
+    });
+    expect(end).toHaveBeenCalledOnce();
+    expect(mocks.releaseLock).toHaveBeenCalledOnce();
+    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
+      { name: "NotFoundError" },
+    );
+  } finally {
+    getDirectory.mockRestore();
+    await backend.removeEntry(deployment, { recursive: true });
+  }
+});
+
 it("disconnects and reports a failed SDK end after lock loss", async () => {
   const end = vi.fn().mockRejectedValueOnce(new Error("Shutdown failed"));
   mocks.create.mockResolvedValueOnce({
