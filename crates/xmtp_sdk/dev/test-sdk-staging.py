@@ -41,6 +41,67 @@ class StagingTests(unittest.TestCase):
         if name == "node":
             (folder / "binding.node").write_bytes(b"fixture native asset")
 
+    def test_read_only_runtime_directories_stage(self):
+        generated = self.root / "generated/typescript-napi"
+        generated.mkdir(parents=True)
+        (generated / "package.json").write_text('{"type":"module"}')
+        (generated / "index.ts").write_text("export const marker = 'sdk';")
+        (generated / "sdk-contract.json").write_text(
+            json.dumps(
+                {
+                    "contract": "fixture",
+                    "generator": "fixture",
+                    "files": {
+                        name: hashlib.sha256(
+                            (generated / name).read_bytes()
+                        ).hexdigest()
+                        for name in ("package.json", "index.ts")
+                    },
+                }
+            )
+        )
+        for name in ("core", "node"):
+            self.runtime(self.root / "runtime", name)
+            cjs = self.root / "runtime" / name / "dist/cjs"
+            cjs.mkdir(parents=True)
+            (cjs / "old.js").write_text("old build")
+            cjs.chmod(0o555)
+            cjs.parent.chmod(0o555)
+            cjs.parent.parent.chmod(0o555)
+        compiler = self.root / "compiler.mjs"
+        compiler.write_text(
+            "import {writeFileSync} from 'node:fs';\n"
+            "const {default: config} = await import(process.argv[3]);\n"
+            "writeFileSync(config.outDir + '/index.js', \"export const marker = 'sdk';\");\n"
+            "writeFileSync(config.outDir + '/index.d.ts', 'export declare const marker: string;');\n"
+        )
+        output = self.root / "packages"
+        env = dict(
+            os.environ,
+            XMTP_SDK_GENERATED_DIR=str(generated.parent),
+            XMTP_SDK_PACKAGES_DIR=str(output),
+            XMTP_SDK_RUNTIME_DIR=str(self.root / "runtime"),
+            XMTP_SDK_TSDOWN_CLI=str(compiler),
+        )
+        try:
+            result = subprocess.run(
+                ["node", str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"), "node"],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(
+                (output / "node/node_modules/@ubjs/core/index.js").is_file()
+            )
+            self.assertFalse(
+                (output / "node/node_modules/@ubjs/core/dist/cjs").exists()
+            )
+        finally:
+            for path in self.root.rglob("*"):
+                if path.is_dir():
+                    path.chmod(0o755)
+
     def test_failed_rebuild_preserves_prior_product_and_success_replaces_it(self):
         generated = self.root / "generated/typescript-napi"
         generated.mkdir(parents=True)
