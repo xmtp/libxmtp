@@ -102,7 +102,7 @@ export class CommandRouter<ContentTypes = unknown> {
 
   /** Handle one text context and return whether a handler ran. */
   async handle(ctx: MessageContext<SupportedType>): Promise<boolean> {
-    const messageText = ctx.message.content;
+    const messageText = ctx.content;
     const parts = messageText.split(" ");
     const command = parts[0]?.toLowerCase();
 
@@ -116,7 +116,7 @@ export class CommandRouter<ContentTypes = unknown> {
       if (entry) {
         // Create a new context with modified content (everything after the command)
         const argsText = parts.slice(1).join(" ");
-        ctx.message.content = argsText;
+        ctx.content = argsText;
         await entry.handler(ctx);
         return true;
       }

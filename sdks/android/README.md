@@ -1,107 +1,76 @@
-# xmtp-android
+# XMTP Android SDK 8.0.0
 
-[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test-android.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test-android.yml)
-[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint-android.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint-android.yml)
-
-`xmtp-android` provides a Kotlin implementation of an XMTP message API client for use with Android apps.
-
-Use `xmtp-android` to build with XMTP to send messages between blockchain accounts, including DMs, notifications, announcements, and more.
-
-> **Note:** This SDK is now part of the [libxmtp monorepo](https://github.com/xmtp/libxmtp). For issues and contributions, please use the main repository.
-
-## Documentation
-
-To learn how to use the XMTP Android SDK, see [Get started with the XMTP Android SDK](https://docs.xmtp.org/sdks/android).
-
-## SDK reference
-
-Access the [Kotlin client SDK reference documentation](https://xmtp.github.io/xmtp-android/).
-
-## Example app
-
-Use the [XMTP Android quickstart app](./example) as a tool to start building an app with XMTP. This basic messaging app has an intentionally unopinionated UI to help make it easier for you to build with.
-
-The example app does not include push notifications. See the [shared push guide](../../apps/docs/src/content/docs/sdk/push-notifications.md) to add them to an app.
-
-## Install from Maven Central
-
-You can find the latest package version on [Maven Central](https://central.sonatype.com/artifact/org.xmtp/android/3.0.0/versions).
+The Android SDK uses the generated `uniffi.xmtp_sdk` API. Rust owns messaging,
+standard codecs, attachments, notifications, storage, and readers.
 
 ```gradle
-    implementation 'org.xmtp:android:X.X.X'
+implementation 'org.xmtp:android:8.0.0'
+coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 ```
 
-## Breaking revisions
+```kotlin
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import uniffi.xmtp_sdk.*
 
-Because `xmtp-android` is in active development, you should expect breaking revisions that might require you to adopt the latest SDK release to enable your app to continue working as expected.
-
-Breaking revisions in an `xmtp-android` release are described on the [Releases page](https://github.com/xmtp/libxmtp/releases).
-
-## Deprecation
-
-XMTP communicates about deprecations in the [XMTP Community Forums](https://community.xmtp.org/), providing as much advance notice as possible.
-
-Older versions of the SDK will eventually be deprecated, which means:
-
-1. The network will not support and eventually actively reject connections from clients using deprecated versions.
-2. Bugs will not be fixed in deprecated versions.
-
-The following table provides the deprecation schedule.
-
-| Announced | Effective | Minimum Version | Rationale |
-| --- | --- | --- | --- |
-| No more support for XMTP V2 | May 1, 2025 | >=4.0.3 | In a move toward better security with MLS and the ability to decentralize, we will be shutting down XMTP V2 and moving entirely to XMTP V3. To learn more about V2 deprecation, see [XIP-53: XMTP V2 deprecation plan](https://community.xmtp.org/t/xip-53-xmtp-v2-deprecation-plan/867). |
-
-Bug reports, feature requests, and PRs are welcome in accordance with the [libxmtp contribution guidelines](../../CONTRIBUTING.md).
-
-## Development Setup
-
-### Prerequisites
-
-This SDK is part of the libxmtp monorepo and uses Nix for reproducible builds.
-
-1. Install [Determinate Nix](https://docs.determinate.systems/):
-
-   ```bash
-   curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
-   ```
-
-2. (Optional) Install [direnv](https://direnv.net/) for automatic environment setup:
-
-   ```bash
-   # After installing direnv, allow this directory
-   direnv allow
-   ```
-
-### Building
-
-```bash
-# Enter the Android development shell
-nix develop ../../#android
-
-# Build native bindings (.so files + Kotlin bindings)
-./dev/bindings
-
-# Build the full SDK
-./dev/build
+val signer = generateLocalSigner()
+val client = SDKClient.create(context, signer, ClientOptions(
+    backend = BackendSource.Options(BackendOptions(url = backendUrl)),
+    storage = StorageOptions(location = StorageLocation.Default),
+))
+try {
+    val group = client.conversations().createGroup(emptyList<InboxId>())
+    group.sendText("Hello")
+    val messages = group.messages()
+} finally {
+    withContext(NonCancellable) { client.end() }
+}
 ```
 
-### Code Quality
+The SDK supports Android API 23 and later. Enable
+`android.compileOptions.coreLibraryDesugaringEnabled = true` in the app. The
+generated timestamp API uses `java.time.Instant`; desugaring supplies it on
+Android API 23 to 25. Both repository examples enable it.
 
-```bash
-# Format code
-./gradlew spotlessApply
+The Context factory stores each deployment and inbox under `filesDir/xmtp_db`.
+Use `SDKClient.build(context, identity, options)` to reopen the same identity.
+Set `allowOffline = true` and pass the known `inboxId` to permit startup from
+stored state when the backend is unavailable. Supply a storage label to keep
+separate local instances.
 
-# Run lint checks
-./gradlew :library:lintDebug
-```
+Process lifecycle control is on by default. Set
+`AndroidStreamLifecycle.enabled = false` before the first Context factory call
+to manage the native transport yourself with `resumeStreams()` and
+`suspendStreams()`.
 
-### Testing
+Persistent file logging uses the `SDKClient` companion helpers
+`activatePersistentLibXMTPLogWriter`, `deactivatePersistentLibXMTPLogWriter`,
+`getXMTPLogFilePaths`, and `clearXMTPLogs`. They use `filesDir/xmtp_logs` and the
+generated native writer. `maxFiles` is `UInt`. Call the suspend function
+`initLogging(LoggingOptions(level = LogLevel.DEBUG))` before the first writer
+activation in each process.
 
-```bash
-# Run unit tests
-./gradlew library:testDebug
+8.0.0 changes the public package and types. Replace `org.xmtp.android.library`
+and `uniffi.xmtpv3` imports with `uniffi.xmtp_sdk`. Use `SDKClient` and generated
+`ClientOptions`, `BackendOptions`, and `StorageOptions`. Standard messages use
+`SDKMessageContent.Standard` and typed `MessageContent` records. Register custom
+codecs per client through the factory `codecs` argument. Use typed send methods
+such as `sendText`, `sendReaction`, and `sendRemoteAttachment`.
 
-# Run instrumented tests (requires emulator or device)
-./gradlew connectedCheck
-```
+The package retains `ByteArray.toHex()` and `String.hexToByteArray()` for hex
+conversion. `validateInboxId()` and `validateInboxIds()` check the forbidden
+`0x` prefix. SDK operations apply the full ID rules and return typed errors.
+
+Persistent attachments use `client.attachments()`: create a pending attachment,
+send its `remoteAttachment()` record, then upload it. A recipient downloads the
+record through its own attachment store. The SDK checks transfer limits and
+content digests. Local emulator fixtures need `allowPrivateNetwork = true` and
+`adb reverse` for the backend's advertised loopback attachment port.
+
+Use `client.messages(group)` or `client.messages(dm)` for a Flow. A successful
+collector return permits the next request to acknowledge the prior message.
+Cancellation before ACK commit admission preserves the message for replay.
+If the collector throws, `onClose` receives one `Failed` reason with the original
+`Throwable`. Normal completion and cancellation receive one `Closed` reason.
+Close clients and readers in `NonCancellable` teardown. See [development rules](AGENTS.md) for build
+and test commands. The [example](example) uses the same public API.

@@ -1,68 +1,26 @@
 import fs from "node:fs";
+import path from "node:path";
 
-// Matches the remote .binaryTarget declaration spanning multiple lines:
-//   .binaryTarget(
-//       name: "LibXMTPSwiftFFI",
-//       url: "https://...",
-//       checksum: "..."
-//   )
-// Uses the 's' (dotAll) flag so '.' matches newlines too.
-const SPM_URL_REGEX =
-  /(\.binaryTarget\(\s*name:\s*"LibXMTPSwiftFFI",\s*url:\s*)"([^"]+)"/s;
-
-const SPM_CHECKSUM_REGEX = /(checksum:\s*)"([^"]+)"/s;
-
+// SwiftPM and CocoaPods read the same archive receipt.
 export function updateSpmChecksum(
   packageSwiftPath: string,
   url: string,
   checksum: string,
 ): void {
-  let content = fs.readFileSync(packageSwiftPath, "utf-8");
-
-  if (!SPM_URL_REGEX.test(content)) {
-    throw new Error(
-      `Could not find remote binaryTarget url in ${packageSwiftPath}`,
-    );
+  const artifact = new URL(url);
+  if (!artifact.pathname.endsWith("/XmtpSdkFFI.zip")) {
+    throw new Error("Expected the XmtpSdkFFI.zip release archive");
   }
-
-  content = content.replace(SPM_URL_REGEX, `$1"${url}"`);
-  if (!SPM_CHECKSUM_REGEX.test(content)) {
-    throw new Error(`Could not find checksum field in ${packageSwiftPath}`);
+  if (!/^[a-fA-F0-9]{64}$/.test(checksum)) {
+    throw new Error("Expected the archive SHA-256 checksum");
   }
-  content = content.replace(SPM_CHECKSUM_REGEX, `$1"${checksum}"`);
-
-  fs.writeFileSync(packageSwiftPath, content);
-}
-
-const SPM_DYNAMIC_URL_REGEX =
-  /(\.binaryTarget\(\s*name:\s*"LibXMTPSwiftFFIDynamic",\s*url:\s*)"([^"]+)"/s;
-
-// Matches the checksum field within a LibXMTPSwiftFFIDynamic binaryTarget block.
-// Uses url:\s*"[^"]+",?\s* as a boundary marker to ensure we only match the checksum
-// that follows the url field, preventing unintended matches if file structure changes.
-const SPM_DYNAMIC_CHECKSUM_REGEX =
-  /(\.binaryTarget\(\s*name:\s*"LibXMTPSwiftFFIDynamic",\s*url:\s*"[^"]+",?\s*checksum:\s*)"([^"]+)"/s;
-
-export function updateSpmDynamicChecksum(
-  packageSwiftPath: string,
-  url: string,
-  checksum: string,
-): void {
-  let content = fs.readFileSync(packageSwiftPath, "utf-8");
-
-  if (!SPM_DYNAMIC_URL_REGEX.test(content)) {
-    throw new Error(
-      `Could not find remote dynamic binaryTarget url in ${packageSwiftPath}`,
-    );
-  }
-
-  content = content.replace(SPM_DYNAMIC_URL_REGEX, `$1"${url}"`);
-  if (!SPM_DYNAMIC_CHECKSUM_REGEX.test(content)) {
-    throw new Error(
-      `Could not find dynamic checksum field in ${packageSwiftPath}`,
-    );
-  }
-  content = content.replace(SPM_DYNAMIC_CHECKSUM_REGEX, `$1"${checksum}"`);
-
-  fs.writeFileSync(packageSwiftPath, content);
+  fs.accessSync(packageSwiftPath, fs.constants.R_OK);
+  const receipt = path.join(
+    path.dirname(packageSwiftPath),
+    "sdks/ios/ReleaseArtifacts.json",
+  );
+  fs.writeFileSync(
+    receipt,
+    JSON.stringify({ url, sha256: checksum.toLowerCase() }, null, 2) + "\n",
+  );
 }

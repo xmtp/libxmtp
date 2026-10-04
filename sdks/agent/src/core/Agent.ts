@@ -2,68 +2,44 @@ import EventEmitter from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { ContentCodec } from "@xmtp/content-type-primitives";
+import type { Dm, Group } from "@xmtp/node-sdk";
 import {
   Client,
-  Dm,
-  Group,
-  IdentifierKind,
-  isActions,
-  isAttachment,
-  isGroupUpdated,
-  isHexString,
-  isIntent,
-  isLeaveRequest,
-  isMarkdown,
-  isMultiRemoteAttachment,
-  isReaction,
-  isReadReceipt,
-  isRemoteAttachment,
-  isReply,
-  isText,
-  isTransactionReference,
-  isWalletSendCalls,
-  LogLevel,
+  ConversationStream,
+  MessageStream,
+  generateInboxId,
+  initLogging,
+  type AnyContentCodec,
   type Actions,
   type Attachment,
   type ClientOptions,
   type Conversation,
   type CreateDmOptions,
   type CreateGroupOptions,
-  type DecodedMessage,
-  type EnrichedReply,
+  type Message,
+  type MessageContent,
   type GroupUpdated,
-  type HexString,
   type Intent,
   type LeaveRequest,
   type MultiRemoteAttachment,
-  type NetworkOptions,
   type Reaction,
-  type ReadReceipt,
   type RemoteAttachment,
   type StreamOptions,
   type TransactionReference,
   type WalletSendCalls,
 } from "@xmtp/node-sdk";
+import { isHex, toBytes, type Hex } from "viem";
 
 import { filter } from "@/core/filter";
 import { getInstallationInfo } from "@/debug";
-import { getValidLogLevels, parseLogLevel } from "@/debug/log";
-import { createSigner, createUser } from "@/user/User";
+import { parseLogLevel } from "@/debug/log";
+import { createIdentifier, createSigner, createUser } from "@/user/User";
 import { version as appVersion } from "~/package.json";
 
 import { AgentError, AgentStreamingError } from "./AgentError";
 import { ClientContext } from "./ClientContext";
 import { ConversationContext } from "./ConversationContext";
 import { MessageContext } from "./MessageContext";
-
-type ConversationStream<ContentTypes> = Awaited<
-  ReturnType<Client<ContentTypes>["conversations"]["stream"]>
->;
-
-type MessageStream<ContentTypes> = Awaited<
-  ReturnType<Client<ContentTypes>["conversations"]["streamAllMessages"]>
->;
 
 /** Event names and handler arguments emitted by an agent. */
 export type EventHandlerMap<ContentTypes> = {
@@ -76,9 +52,9 @@ export type EventHandlerMap<ContentTypes> = {
   /** Group update event. */
   "group-update": [ctx: MessageContext<GroupUpdated, ContentTypes>];
   /** Direct-message conversation event. */
-  dm: [ctx: ConversationContext<ContentTypes, Dm<ContentTypes>>];
+  dm: [ctx: ConversationContext<ContentTypes, Dm>];
   /** Group conversation event. */
-  group: [ctx: ConversationContext<ContentTypes, Group<ContentTypes>>];
+  group: [ctx: ConversationContext<ContentTypes, Group>];
   /** Inline attachment event. */
   "inline-attachment": [ctx: MessageContext<Attachment, ContentTypes>];
   /** Intent event. */
@@ -96,9 +72,20 @@ export type EventHandlerMap<ContentTypes> = {
   /** Reaction message event. */
   reaction: [ctx: MessageContext<Reaction, ContentTypes>];
   /** Read receipt event. */
-  "read-receipt": [ctx: MessageContext<ReadReceipt, ContentTypes>];
+  "read-receipt": [ctx: MessageContext<undefined, ContentTypes>];
   /** Reply event. */
-  reply: [ctx: MessageContext<EnrichedReply, ContentTypes>];
+  reply: [
+    ctx: MessageContext<
+      Extract<
+        MessageContent,
+        {
+          /** Select the reply content variant. */
+          kind: "reply";
+        }
+      >,
+      ContentTypes
+    >,
+  ];
   /** Agent start event. */
   start: [ctx: ClientContext<ContentTypes>];
   /** Agent stop event. */
@@ -120,16 +107,16 @@ export type EventHandlerMap<ContentTypes> = {
 type EventName<ContentTypes> = keyof EventHandlerMap<ContentTypes>;
 
 /** Ethereum address encoded as a prefixed hexadecimal string. */
-type EthAddress = HexString;
+type EthAddress = Hex;
 
 /** Values available to a handler for the current message. */
-export type AgentBaseContext<ContentTypes = unknown> = {
+export type AgentBaseContext<_ContentTypes = unknown> = {
   /** The client that received the message. */
-  client: Client<ContentTypes>;
+  client: Client;
   /** The conversation that contains the message. */
   conversation: Conversation;
   /** The decoded message being handled. */
-  message: DecodedMessage;
+  message: Message;
 };
 
 /** Context passed to error middleware; message and conversation may be absent. */
@@ -137,13 +124,13 @@ export type AgentErrorContext<ContentTypes = unknown> = Partial<
   AgentBaseContext<ContentTypes>
 > & {
   /** The client associated with the error. */
-  client: Client<ContentTypes>;
+  client: Client;
 };
 
 /** Inputs used to wrap an already-created XMTP client. */
-export type AgentOptions<ContentTypes> = {
+export type AgentOptions<_ContentTypes> = {
   /** Client to wrap. */
-  client: Client<ContentTypes>;
+  client: Client;
 };
 
 /** Handles a decoded message in normal middleware or command routing. */
@@ -157,7 +144,7 @@ export type AgentMiddleware<ContentTypes = unknown> = (
   next: () => Promise<void> | void,
 ) => Promise<void>;
 
-/** Handles an error and calls `next` with no argument to resume processing. */
+/** Handle an error. Call `next()` to resume, or return to end the reader. */
 export type AgentErrorMiddleware<ContentTypes = unknown> = (
   error: unknown,
   ctx: AgentErrorContext<ContentTypes>,
@@ -165,19 +152,17 @@ export type AgentErrorMiddleware<ContentTypes = unknown> = (
 ) => Promise<void> | void;
 
 /** Client options used by `Agent.create`; `appVersion` and device sync have defaults. */
-export type AgentCreateOptions<ContentCodecs extends ContentCodec[] = []> =
-  Omit<ClientOptions & NetworkOptions, "codecs"> & {
-    /** Custom content codecs registered with the client. */
-    codecs?: ContentCodecs;
-  };
+export type AgentCreateOptions<
+  ContentCodecs extends readonly AnyContentCodec[] = [],
+> = Omit<ClientOptions, "codecs"> & {
+  /** Custom content codecs registered with the client. */
+  readonly codecs?: ContentCodecs;
+};
 
-/** Stream options passed to both the conversation and message streams. */
-export type AgentStreamingOptions = Omit<StreamOptions, "onValue" | "onError">;
-
-/** Message-stream options exposed for callers that need the Node SDK shape. */
-export type StreamAllMessagesOptions<ContentTypes> = Parameters<
-  Client<ContentTypes>["conversations"]["streamAllMessages"]
->[0];
+/** Options for both supported stream pumps. */
+export type AgentStreamingOptions = StreamOptions;
+/** Options for the agent message stream. */
+export type StreamAllMessagesOptions<_ContentTypes> = StreamOptions;
 
 /** Registration API returned by `agent.errors`. */
 export type AgentErrorRegistrar<ContentTypes> = {
@@ -194,13 +179,23 @@ type ErrorFlow =
   | { kind: "continue"; error: unknown } // next(err) or handler throws
   | { kind: "stopped" }; // handler returns without next()
 
+type ErrorDisposition = "resume" | "stop" | "unhandled";
+
+class UnacceptedValueError extends Error {
+  constructor(readonly valueError: unknown) {
+    super("Agent value processing failed without acceptance.", {
+      cause: valueError,
+    });
+  }
+}
+
 /** Event-driven XMTP agent that routes conversations and messages to middleware. */
 export class Agent<ContentTypes = unknown> extends EventEmitter<
   EventHandlerMap<ContentTypes>
 > {
-  #client: Client<ContentTypes>;
-  #conversationsStream?: ConversationStream<ContentTypes>;
-  #messageStream?: MessageStream<ContentTypes>;
+  #client: Client;
+  #conversationsStream?: ConversationStream;
+  #messageStream?: MessageStream;
   #middleware: AgentMiddleware<ContentTypes>[] = [];
   #errorMiddleware: AgentErrorMiddleware<ContentTypes>[] = [];
   #errors: AgentErrorRegistrar<ContentTypes> = Object.freeze({
@@ -236,9 +231,6 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   #isLocked: boolean = false;
   #streamGeneration = 0;
   #closingStreams?: Promise<void>;
-  #openingStream?: Promise<
-    ConversationStream<ContentTypes> | MessageStream<ContentTypes>
-  >;
 
   /** Wrap an existing client without starting streams. */
   constructor({ client }: AgentOptions<ContentTypes>) {
@@ -246,35 +238,29 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     this.#client = client;
   }
 
-  /** Create an agent and client. `authCallback` supplies backend credentials. Device sync defaults to disabled. */
-  static async create<ContentCodecs extends ContentCodec[] = []>(
+  /** Create an agent and client. `backend.credentials` supplies backend credentials. Device sync defaults to disabled. */
+  static async create<ContentCodecs extends readonly AnyContentCodec[] = []>(
     signer: Parameters<typeof Client.create>[0],
     // Note: we need to omit this so that "Client.create" can correctly infer the codecs.
     options: AgentCreateOptions<ContentCodecs>,
   ) {
-    const initializedOptions = { ...options };
-    initializedOptions.appVersion ??= `agent-sdk/${appVersion}`;
-    initializedOptions.disableDeviceSync ??= true;
-
+    const backend =
+      options.backend && "url" in options.backend
+        ? {
+            ...options.backend,
+            appVersion: options.backend.appVersion ?? `agent-sdk/${appVersion}`,
+          }
+        : options.backend;
+    const initializedOptions = {
+      ...options,
+      backend,
+      deviceSync: options.deviceSync ?? false,
+    };
     if (process.env.XMTP_FORCE_DEBUG_LEVEL) {
-      const rawLevel = process.env.XMTP_FORCE_DEBUG_LEVEL;
-      const logLevel = parseLogLevel(rawLevel);
-
-      if (logLevel) {
-        initializedOptions.loggingLevel = logLevel;
-      } else {
-        console.warn(
-          `[WARNING] Invalid XMTP_FORCE_DEBUG_LEVEL "${rawLevel}". Defaulting to "${LogLevel.Warn}". Valid values are: ${getValidLogLevels().join(", ")}`,
-        );
-        initializedOptions.loggingLevel = LogLevel.Warn;
-      }
-      initializedOptions.structuredLogging = true;
+      const level = parseLogLevel(process.env.XMTP_FORCE_DEBUG_LEVEL);
+      await initLogging({ level: level ?? "warn", structured: true });
     }
-
-    const client = await Client.create(signer, {
-      ...initializedOptions,
-      codecs: initializedOptions.codecs,
-    });
+    const client = await Client.create(signer, initializedOptions);
 
     const info = await getInstallationInfo(client);
     if (info.totalInstallations > 1 && info.isMostRecent) {
@@ -286,8 +272,10 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     return new Agent({ client });
   }
 
-  /** Create an agent from `XMTP_*` variables. `XMTP_BACKEND_URL` overrides `options.backendUrl`; one must be supplied. Pass `authCallback` in options for backend authentication. */
-  static async createFromEnv<ContentCodecs extends ContentCodec[] = []>(
+  /** Create an agent from `XMTP_*` variables. `XMTP_BACKEND_URL` overrides `options.backend`; one must be supplied. Pass `backend.credentials` in options for backend authentication. */
+  static async createFromEnv<
+    ContentCodecs extends readonly AnyContentCodec[] = [],
+  >(
     // Note: we need to omit this so that "Client.create" can correctly infer the codecs.
     options?: Partial<AgentCreateOptions<ContentCodecs>>,
   ) {
@@ -298,48 +286,140 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       XMTP_WALLET_KEY,
       XMTP_BACKEND_URL,
     } = process.env;
-
-    if (!isHexString(XMTP_WALLET_KEY)) {
+    if (!XMTP_WALLET_KEY || !isHex(XMTP_WALLET_KEY, { strict: true }))
+      throw new AgentError(1000, "XMTP_WALLET_KEY must be a hexadecimal key.");
+    const user = createUser(XMTP_WALLET_KEY);
+    const signer = createSigner(user);
+    const backend = XMTP_BACKEND_URL
+      ? {
+          ...(options?.backend && "url" in options.backend
+            ? options.backend
+            : {}),
+          url: XMTP_BACKEND_URL,
+        }
+      : options?.backend;
+    if (!backend)
       throw new AgentError(
         1000,
-        `XMTP_WALLET_KEY env is not in hex (0x) format.`,
+        "XMTP_BACKEND_URL or options.backend is required.",
       );
-    }
-
-    const signer = createSigner(createUser(XMTP_WALLET_KEY));
-
-    const initializedOptions = { ...options };
-
-    initializedOptions.dbEncryptionKey =
-      typeof XMTP_DB_ENCRYPTION_KEY === "string"
-        ? isHexString(XMTP_DB_ENCRYPTION_KEY)
-          ? XMTP_DB_ENCRYPTION_KEY
-          : `0x${XMTP_DB_ENCRYPTION_KEY}`
-        : undefined;
-
-    if (XMTP_ENV !== undefined) {
-      initializedOptions.env = XMTP_ENV;
-    }
-
-    if (typeof XMTP_BACKEND_URL === "string") {
-      initializedOptions.backendUrl = XMTP_BACKEND_URL;
-    }
-
-    if (typeof XMTP_DB_DIRECTORY === "string") {
+    if (XMTP_DB_DIRECTORY && !options?.storage)
       fs.mkdirSync(XMTP_DB_DIRECTORY, { recursive: true, mode: 0o700 });
-      initializedOptions.dbPath = (inboxId: string) => {
-        const dbPath = path.join(XMTP_DB_DIRECTORY, `xmtp-${inboxId}.db3`);
-        console.info(`Saving local database to "${dbPath}"`);
-        return dbPath;
-      };
+    let storage = options?.storage;
+    let useOldDefaultNonce = false;
+    if (!storage) {
+      const legacyDirectory = XMTP_DB_DIRECTORY || process.cwd();
+      const candidates = fs
+        .readdirSync(legacyDirectory, { withFileTypes: true })
+        .flatMap((entry) => {
+          if (!entry.isFile()) return [];
+          if (XMTP_DB_DIRECTORY) {
+            const match = /^xmtp-([0-9a-f]{64})\.db3$/i.exec(entry.name);
+            return match?.[1] === undefined
+              ? []
+              : [{ name: entry.name, inboxId: match[1].toLowerCase() }];
+          }
+          const match = /^xmtp-(.+)-([0-9a-f]{64})\.db3$/i.exec(entry.name);
+          return match?.[2] !== undefined &&
+            (XMTP_ENV === undefined || match[1] === XMTP_ENV)
+            ? [{ name: entry.name, inboxId: match[2].toLowerCase() }]
+            : [];
+        });
+      const identity = createIdentifier(user);
+      const generatedInboxId = generateInboxId(
+        identity,
+        options?.registration?.nonce,
+      ).toLowerCase();
+      const oldDefaultInboxId =
+        options?.registration?.nonce === undefined
+          ? generateInboxId(identity, 1n).toLowerCase()
+          : undefined;
+      const ids = new Set([generatedInboxId]);
+      if (oldDefaultInboxId !== undefined) ids.add(oldDefaultInboxId);
+      if (candidates.length > 0 && !options?.allowOffline)
+        ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
+      const legacyMatches = candidates.filter((entry) =>
+        ids.has(entry.inboxId),
+      );
+      if (legacyMatches.length > 1)
+        throw new AgentError(
+          1000,
+          "More than one legacy XMTP database exists. Pass an explicit storage location.",
+        );
+      const legacyMatch = legacyMatches[0];
+      useOldDefaultNonce =
+        legacyMatch !== undefined &&
+        oldDefaultInboxId !== undefined &&
+        legacyMatch.inboxId === oldDefaultInboxId &&
+        legacyMatch.inboxId !== generatedInboxId;
+      const legacyPath = legacyMatch
+        ? path.join(legacyDirectory, legacyMatch.name)
+        : undefined;
+      if (legacyMatch) {
+        const root = XMTP_DB_DIRECTORY || path.join(process.cwd(), "xmtp");
+        const dataDirectory = XMTP_ENV ? path.join(root, XMTP_ENV) : root;
+        let deployments: fs.Dirent[];
+        try {
+          deployments = fs.readdirSync(dataDirectory, { withFileTypes: true });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          deployments = [];
+        }
+        const currentExists = deployments.some((deployment) => {
+          if (!deployment.isDirectory()) return false;
+          const currentPath = path.join(
+            dataDirectory,
+            deployment.name,
+            legacyMatch.inboxId,
+            "xmtp.db3",
+          );
+          try {
+            return fs.statSync(currentPath).isFile();
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT")
+              return false;
+            throw error;
+          }
+        });
+        if (currentExists)
+          throw new AgentError(
+            1000,
+            "Both legacy and current XMTP databases match this inbox. Pass an explicit storage location.",
+          );
+      }
+      storage = legacyPath
+        ? {
+            location: {
+              dbPath: legacyPath,
+              attachmentsDir: `${legacyPath}.attachments`,
+            },
+          }
+        : {
+            location: XMTP_DB_DIRECTORY
+              ? { directory: XMTP_DB_DIRECTORY }
+              : "default",
+            label: XMTP_ENV,
+          };
     }
-
-    if (!initializedOptions.backendUrl?.trim()) {
-      throw new Error("backendUrl is required");
-    }
+    const key =
+      options?.storage?.encryptionKey === undefined
+        ? XMTP_DB_ENCRYPTION_KEY?.replace(/^0x/, "")
+        : undefined;
+    if (key !== undefined && !/^[0-9a-fA-F]{64}$/.test(key))
+      throw new AgentError(
+        1000,
+        "XMTP_DB_ENCRYPTION_KEY must contain 32 bytes.",
+      );
     return this.create(signer, {
-      ...initializedOptions,
-      backendUrl: initializedOptions.backendUrl,
+      ...options,
+      ...(useOldDefaultNonce
+        ? { registration: { ...options?.registration, nonce: 1n } }
+        : {}),
+      backend,
+      storage: {
+        ...storage,
+        ...(key ? { encryptionKey: toBytes(`0x${key}`) } : {}),
+      },
     });
   }
 
@@ -368,17 +448,14 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     // Detach before awaiting close. Old cleanup cannot clear a new stream.
     const conversations = this.#conversationsStream;
     const messages = this.#messageStream;
-    const opening = this.#openingStream;
     this.#conversationsStream = undefined;
     this.#messageStream = undefined;
-    this.#openingStream = undefined;
     const previous = this.#closingStreams;
     const closing = (async () => {
       const results = await Promise.allSettled([
         previous,
         Promise.resolve().then(() => conversations?.end()),
         Promise.resolve().then(() => messages?.end()),
-        opening?.then((stream) => stream.end()),
       ]);
       for (const result of results) {
         if (result.status === "rejected") throw result.reason;
@@ -406,208 +483,116 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     this.#isLocked = false;
     // Error middleware can explicitly start a fresh generation here. A
     // handled error alone does not silently renew an exhausted retry budget.
-    await this.#runErrorChain(error, { client: this.#client });
+    if (!(error instanceof UnacceptedValueError))
+      await this.#runErrorChain(error, { client: this.#client });
   }
 
   async #setupStreams(generation: number, options?: AgentStreamingOptions) {
     const isCurrent = () => generation === this.#streamGeneration;
-    let conversationsEnded = false;
-    let conversationFailure: Error | undefined;
-    const finishConversations = async () => {
-      if (!isCurrent()) return;
-      if (conversationFailure) {
-        await this.#handleStreamError(
-          new AgentStreamingError(
-            1002,
-            "Error occurred during conversation streaming.",
-            conversationFailure,
-          ),
-          generation,
-        );
-      } else {
-        try {
-          await this.stop();
-        } catch (error) {
-          await this.#runErrorChain(
-            new AgentStreamingError(
-              1002,
-              "Error occurred while closing conversation streams.",
-              error,
-            ),
-            new ClientContext({ client: this.#client }),
-          );
+    const close = (
+      reason: Parameters<NonNullable<StreamOptions["onClose"]>>[0],
+    ) => {
+      try {
+        options?.onClose?.(reason);
+      } finally {
+        // App callback failure must not retain this generation's readers.
+        // Reentrant cleanup can already have started a new generation.
+        if (isCurrent()) {
+          if (reason.kind === "failed") {
+            void this.#handleStreamError(
+              reason.error instanceof UnacceptedValueError
+                ? reason.error
+                : new AgentStreamingError(
+                    1004,
+                    "Agent stream failed.",
+                    reason.error,
+                  ),
+              generation,
+            );
+          } else {
+            void this.stop().catch((error) =>
+              this.#runErrorChain(error, { client: this.#client }),
+            );
+          }
         }
       }
     };
-    // Record the open before it can invoke a callback. Cleanup owns its result.
-    const openingConversations = Promise.resolve().then(() =>
-      this.#client.conversations.stream({
-        ...options,
-        onValue: async (conversation) => {
-          if (!isCurrent()) return;
-          try {
-            if (!conversation) {
-              return;
-            }
-            this.emit(
-              "conversation",
-              new ConversationContext<ContentTypes, Conversation<ContentTypes>>(
-                {
-                  conversation,
-                  client: this.#client,
-                },
-              ),
-            );
-            if (!isCurrent()) return;
-            if (conversation instanceof Group) {
-              this.emit(
-                "group",
-                new ConversationContext<ContentTypes, Group<ContentTypes>>({
-                  conversation,
-                  client: this.#client,
-                }),
-              );
-            } else if (conversation instanceof Dm) {
-              this.emit(
-                "dm",
-                new ConversationContext<ContentTypes, Dm<ContentTypes>>({
-                  conversation,
-                  client: this.#client,
-                }),
-              );
-            }
-          } catch (error) {
-            if (!isCurrent()) return;
-            const recovered = await this.#runErrorChain(
-              new AgentError(
-                1001,
-                "Emitted value from conversation stream caused an error.",
-                error,
-              ),
-              new ClientContext({ client: this.#client }),
-            );
-            if (!recovered && isCurrent()) await this.stop();
-          }
-        },
-        onError: (error) => {
-          // Node also reports errors that its notification wrapper will retry.
-          // A terminal report follows onEnd in the same turn.
-          if (isCurrent() && conversationsEnded) conversationFailure = error;
-        },
-        onEnd: () => {
-          if (isCurrent()) {
-            conversationsEnded = true;
-            // Let a same-turn terminal onError provide the original cause.
-            queueMicrotask(() => {
-              void finishConversations().catch(() => undefined);
-            });
-          }
-          return options?.onEnd?.();
-        },
-      }),
-    );
-    this.#openingStream = openingConversations;
-    const conversations = await openingConversations;
-    if (!isCurrent()) return false;
+    const conversations = ConversationStream.open(this.#client, undefined, {
+      ...options,
+      onClose: close,
+    });
     this.#conversationsStream = conversations;
-    this.#openingStream = undefined;
-
-    const openingMessages = Promise.resolve().then(() =>
-      this.#client.conversations.streamAllMessages({
-        ...options,
-        onValue: async (message) => {
-          if (!isCurrent()) return;
-          try {
-            switch (true) {
-              case isActions(message):
-                await this.#processMessage(message, isCurrent, "actions");
-                break;
-              case isAttachment(message):
-                await this.#processMessage(
-                  message,
-                  isCurrent,
-                  "inline-attachment",
-                );
-                break;
-              case isIntent(message):
-                await this.#processMessage(message, isCurrent, "intent");
-                break;
-              case isGroupUpdated(message):
-                await this.#processMessage(message, isCurrent, "group-update");
-                break;
-              case isLeaveRequest(message):
-                await this.#processMessage(message, isCurrent, "leave-request");
-                break;
-              case isMultiRemoteAttachment(message):
-                await this.#processMessage(
-                  message,
-                  isCurrent,
-                  "multi-attachment",
-                );
-                break;
-              case isRemoteAttachment(message):
-                await this.#processMessage(message, isCurrent, "attachment");
-                break;
-              case isReaction(message):
-                await this.#processMessage(message, isCurrent, "reaction");
-                break;
-              case isReadReceipt(message):
-                await this.#processMessage(message, isCurrent, "read-receipt");
-                break;
-              case isReply(message):
-                await this.#processMessage(message, isCurrent, "reply");
-                break;
-              case isTransactionReference(message):
-                await this.#processMessage(
-                  message,
-                  isCurrent,
-                  "transaction-reference",
-                );
-                break;
-              case isWalletSendCalls(message):
-                await this.#processMessage(
-                  message,
-                  isCurrent,
-                  "wallet-send-calls",
-                );
-                break;
-              case isMarkdown(message):
-                await this.#processMessage(message, isCurrent, "markdown");
-                break;
-              case isText(message):
-                await this.#processMessage(message, isCurrent, "text");
-                break;
-              default:
-                await this.#processMessage(message, isCurrent);
-                break;
-            }
-          } catch (error) {
-            if (!isCurrent()) return;
-            const recovered = await this.#runErrorChain(error, {
-              client: this.#client,
-            });
-            if (!recovered && isCurrent()) {
-              await this.stop();
-            }
-          }
-        },
-        onError: async (error) => {
-          await this.#handleStreamError(
-            new AgentStreamingError(
-              1004,
-              "Error occurred during message streaming.",
-              error,
-            ),
-            generation,
-          );
-        },
-      }),
-    );
-    this.#openingStream = openingMessages;
-    const messages = await openingMessages;
+    await conversations.ready();
     if (!isCurrent()) return false;
+    void conversations
+      .onValue(async (conversation) => {
+        if (!isCurrent()) return;
+        try {
+          const context = new ConversationContext<ContentTypes>({
+            conversation,
+            client: this.#client,
+          });
+          await this.#emitValue("conversation", context);
+          if (!isCurrent()) return;
+          if (context.isGroup()) await this.#emitValue("group", context);
+          else if (context.isDm()) await this.#emitValue("dm", context);
+        } catch (error) {
+          if (error instanceof UnacceptedValueError) throw error;
+          if (isCurrent()) {
+            const disposition = await this.#runErrorChain(error, {
+              client: this.#client,
+              conversation,
+            });
+            if (disposition !== "resume") throw new UnacceptedValueError(error);
+          }
+        }
+      })
+      .catch((error) => this.#handleStreamError(error, generation));
+    const messages = MessageStream.open(this.#client, undefined, {
+      ...options,
+      onClose: close,
+    });
     this.#messageStream = messages;
-    this.#openingStream = undefined;
+    await messages.ready();
+    if (!isCurrent()) return false;
+    const topics: Partial<
+      Record<MessageContent["kind"], EventName<ContentTypes>>
+    > = {
+      actions: "actions",
+      attachment: "inline-attachment",
+      intent: "intent",
+      groupUpdated: "group-update",
+      leaveRequest: "leave-request",
+      multiRemoteAttachment: "multi-attachment",
+      remoteAttachment: "attachment",
+      reaction: "reaction",
+      readReceipt: "read-receipt",
+      reply: "reply",
+      transactionReference: "transaction-reference",
+      walletSendCalls: "wallet-send-calls",
+      markdown: "markdown",
+      text: "text",
+    };
+    void messages
+      .onValue(async (message) => {
+        try {
+          await this.#processMessage(
+            message,
+            isCurrent,
+            topics[message.content.kind] ?? "unknownMessage",
+          );
+        } catch (error) {
+          if (error instanceof UnacceptedValueError) throw error;
+          if (isCurrent()) {
+            const disposition = await this.#runErrorChain(error, {
+              client: this.#client,
+              message,
+            });
+            if (disposition !== "resume") throw new UnacceptedValueError(error);
+          }
+        }
+      })
+      .catch((error) => this.#handleStreamError(error, generation));
     return true;
   }
 
@@ -640,21 +625,16 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   }
 
   async #processMessage(
-    message: DecodedMessage<ContentTypes>,
+    message: Message,
     isCurrent: () => boolean,
     topic: EventName<ContentTypes> = "unknownMessage",
   ) {
-    // Skip messages with undefined content (failed to decode)
-    if (!filter.hasContent(message)) {
-      return;
-    }
-
     // Skip messages from agent itself
     if (filter.fromSelf(message, this.#client)) {
       return;
     }
 
-    const conversation = await this.#client.conversations.getConversationById(
+    const conversation = await this.#client.conversations.getById(
       message.conversationId,
     );
     if (!isCurrent()) return;
@@ -674,6 +654,28 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     await this.#runMiddlewareChain(context, topic, isCurrent);
   }
 
+  async #emitValue(
+    topic: EventName<ContentTypes>,
+    context:
+      | MessageContext<unknown, ContentTypes>
+      | ConversationContext<ContentTypes>,
+  ) {
+    const pending: Promise<unknown>[] = [];
+    try {
+      for (const listener of this.rawListeners(topic)) {
+        pending.push(
+          Promise.resolve(
+            (listener as (value: unknown) => unknown).call(this, context),
+          ),
+        );
+      }
+    } catch (error) {
+      for (const promise of pending) void promise.catch(() => {});
+      throw error;
+    }
+    await Promise.all(pending);
+  }
+
   async #runMiddlewareChain(
     context: MessageContext<unknown, ContentTypes>,
     topic: EventName<ContentTypes>,
@@ -682,11 +684,15 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     const finalEmit = async () => {
       if (!isCurrent()) return;
       try {
-        this.emit(topic, context);
+        await this.#emitValue(topic, context);
         if (!isCurrent()) return;
-        this.emit("message", context);
+        await this.#emitValue("message", context);
       } catch (error) {
-        if (isCurrent()) await this.#runErrorChain(error, context);
+        if (error instanceof UnacceptedValueError) throw error;
+        if (isCurrent()) {
+          const disposition = await this.#runErrorChain(error, context);
+          if (disposition !== "resume") throw new UnacceptedValueError(error);
+        }
       }
     };
 
@@ -697,12 +703,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           try {
             await mw(context, next);
           } catch (error) {
+            if (error instanceof UnacceptedValueError) throw error;
             if (!isCurrent()) return;
-            const resume = await this.#runErrorChain(error, context);
-            if (resume && isCurrent()) {
+            const disposition = await this.#runErrorChain(error, context);
+            if (disposition === "resume" && isCurrent()) {
               await next();
             }
-            // Chain is not resuming, error is being swallowed
+            if (disposition !== "resume") throw new UnacceptedValueError(error);
           }
         };
       },
@@ -743,7 +750,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   async #runErrorChain(
     error: unknown,
     context: AgentErrorContext<ContentTypes>,
-  ): Promise<boolean> {
+  ): Promise<ErrorDisposition> {
     const chain = [...this.#errorMiddleware, this.#defaultErrorHandler];
 
     let currentError: unknown = error;
@@ -760,10 +767,11 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       switch (outcome.kind) {
         case "handled":
           // Error was handled. Main middleware can continue.
-          return true;
+          return "resume";
         case "stopped":
-          // Error cannot be handled. Main middleware won't continue.
-          return false;
+          // A custom handler can stop the chain. The default handler cannot
+          // accept an unhandled value on behalf of the application.
+          return handler === this.#defaultErrorHandler ? "unhandled" : "stop";
         case "continue":
           // Error is passed to the next handler
           currentError = outcome.error;
@@ -771,7 +779,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     }
 
     // Reached end of chain without recovery
-    return false;
+    return "unhandled";
   }
 
   /** Return the wrapped client for operations outside agent middleware. */
@@ -799,10 +807,10 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
 
   /** Create a DM with an Ethereum address. The address is converted to an identifier. */
   createDmWithAddress(address: EthAddress, options?: CreateDmOptions) {
-    return this.#client.conversations.createDmWithIdentifier(
+    return this.#client.conversations.createDm(
       {
         identifier: address,
-        identifierKind: IdentifierKind.Ethereum,
+        kind: "ethereum" as const,
       },
       options,
     );
@@ -816,34 +824,31 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     const identifiers = addresses.map((address) => {
       return {
         identifier: address,
-        identifierKind: IdentifierKind.Ethereum,
+        kind: "ethereum" as const,
       };
     });
-    return this.#client.conversations.createGroupWithIdentifiers(
-      identifiers,
-      options,
-    );
+    return this.#client.conversations.createGroup(identifiers, options);
   }
 
   /** Add Ethereum addresses to an existing group. */
-  addMembersWithAddresses<ContentTypes>(
-    group: Group<ContentTypes>,
+  addMembersWithAddresses<_ContentTypes>(
+    group: Group,
     addresses: EthAddress[],
-  ): ReturnType<Group<ContentTypes>["addMembersByIdentifiers"]> {
+  ): ReturnType<Group["addMembers"]> {
     const identifiers = addresses.map((address) => {
       return {
         identifier: address,
-        identifierKind: IdentifierKind.Ethereum,
+        kind: "ethereum" as const,
       };
     });
 
-    return group.addMembersByIdentifiers(identifiers);
+    return group.addMembers(identifiers);
   }
 
   /** Resolve a conversation context, or return `undefined` when it is not local. */
   async getConversationContext(conversationId: string) {
     const conversation =
-      await this.client.conversations.getConversationById(conversationId);
+      await this.client.conversations.getById(conversationId);
     if (conversation) {
       const context = new ConversationContext({
         conversation,
@@ -855,6 +860,6 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
 
   /** Return the agent account address, when the client has one. */
   get address() {
-    return this.#client.accountIdentifier?.identifier;
+    return this.#client.identity.identifier;
   }
 }

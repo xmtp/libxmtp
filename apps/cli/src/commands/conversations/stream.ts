@@ -1,4 +1,5 @@
 import { Flags } from "@oclif/core";
+import { ConversationStream as SdkConversationStream } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import { isDm, isGroup } from "@/utils/conversation";
@@ -61,11 +62,11 @@ The stream will continue until:
     const maxCount = flags.count;
     const timeoutMs = flags.timeout ? flags.timeout * 1000 : undefined;
 
-    const stream = await client.conversations.stream({
-      conversationType: flags.type
-        ? conversationTypeMap[flags.type]
-        : undefined,
+    const stream = SdkConversationStream.open(client, {
+      kind: flags.type ? conversationTypeMap[flags.type] : undefined,
     });
+
+    await stream.ready();
 
     // Set up timeout if specified
     let timeoutId: NodeJS.Timeout | undefined;
@@ -82,18 +83,20 @@ The stream will continue until:
 
     try {
       for await (const conversation of stream) {
+        const snapshot = await conversation.state();
+        const state = "common" in snapshot ? snapshot.common : snapshot;
         const output: Record<string, unknown> = {
           type: isGroup(conversation) ? "group" : "dm",
           id: conversation.id,
-          createdAt: conversation.createdAt.toISOString(),
-          isActive: conversation.isActive,
+          createdAt: conversation.createdAt.date.toISOString(),
+          isActive: state.isActive,
         };
 
-        if (isGroup(conversation)) {
-          output.name = conversation.name;
-          output.description = conversation.description;
+        if ("common" in snapshot) {
+          output.name = snapshot.name;
+          output.description = snapshot.description;
         } else if (isDm(conversation)) {
-          output.peerInboxId = conversation.peerInboxId;
+          output.peerInboxId = await conversation.peerInboxId();
         }
 
         this.streamOutput(output);

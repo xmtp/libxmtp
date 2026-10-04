@@ -53,11 +53,11 @@ Returns null if the identifier has no associated inbox ID (not registered).`;
     const client = await this.initClient();
 
     const identifier = {
-      identifierKind: identifierKindMap[flags.kind],
+      kind: identifierKindMap[flags.kind],
       identifier: flags.identifier.toLowerCase(),
     };
 
-    const inboxId = await client.fetchInboxIdByIdentifier(identifier);
+    const inboxId = await client.inboxIdFor(identifier);
 
     this.output({
       identifier: flags.identifier,

@@ -1,5 +1,9 @@
 import { Flags } from "@oclif/core";
-import { type ConsentState, type ConversationType } from "@xmtp/node-sdk";
+import {
+  MessageStream,
+  type ConsentState,
+  type ConversationKind,
+} from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import { consentStateMap, conversationTypeMap } from "@/utils/enums";
@@ -83,12 +87,12 @@ Output includes message ID, conversation ID, sender, content, and timestamps.`;
     const timeoutMs = flags.timeout ? flags.timeout * 1000 : undefined;
 
     const streamOptions: {
-      conversationType?: ConversationType;
+      conversationKind?: ConversationKind;
       consentStates?: ConsentState[];
     } = {};
 
     if (flags.type) {
-      streamOptions.conversationType = conversationTypeMap[flags.type];
+      streamOptions.conversationKind = conversationTypeMap[flags.type];
     }
 
     if (flags["consent-state"] && flags["consent-state"].length > 0) {
@@ -97,9 +101,8 @@ Output includes message ID, conversation ID, sender, content, and timestamps.`;
       );
     }
 
-    const stream = await client.conversations.streamAllMessages({
-      ...streamOptions,
-    });
+    const stream = MessageStream.open(client, streamOptions);
+    await stream.ready();
 
     // Set up timeout if specified
     let timeoutId: NodeJS.Timeout | undefined;
@@ -122,7 +125,7 @@ Output includes message ID, conversation ID, sender, content, and timestamps.`;
           senderInboxId: message.senderInboxId,
           contentType: message.contentType,
           content: message.content,
-          sentAt: message.sentAt.toISOString(),
+          sentAt: message.sentAt.date.toISOString(),
           deliveryStatus: message.deliveryStatus,
           kind: message.kind,
         });

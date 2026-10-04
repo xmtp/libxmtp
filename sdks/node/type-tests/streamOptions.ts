@@ -1,26 +1,41 @@
-import type { Client } from "@xmtp/node-sdk";
+import {
+  ConversationStream,
+  MessageStream,
+  type Client,
+  type ConnectionState,
+} from "@xmtp/node-sdk";
 
 export async function checkStreamOptions(client: Client): Promise<void> {
-  // @ts-expect-error Node notification streams have no pre-sync switch.
-  await client.conversations.stream({ disableSync: true });
-  // @ts-expect-error Preferences use the same public option shape.
-  await client.preferences.streamPreferences({ disableSync: true });
-  // Durable message readers reject notification-only controls.
-  // @ts-expect-error No message-stream retry count.
-  await client.conversations.streamAllMessages({ retryAttempts: 1 });
-  // @ts-expect-error No message-stream retry delay.
-  await client.conversations.streamAllMessages({ retryDelay: 1 });
-  // @ts-expect-error No message-stream retry switch.
-  await client.conversations.streamAllMessages({ retryOnFail: false });
-  // @ts-expect-error No message-stream retry callback.
-  await client.conversations.streamAllMessages({ onRetry: () => {} });
-  // @ts-expect-error No message-stream sync switch.
-  await client.conversations.streamAllMessages({ disableSync: true });
-
-  await client.conversations.stream({
-    retryAttempts: 1,
-    retryDelay: 1,
-    retryOnFail: false,
-    onRetry: () => {},
+  // @ts-expect-error Conversation streams have no pre-sync switch.
+  ConversationStream.open(client, undefined, { disableSync: true });
+  await client.events({
+    kinds: ["consent.changed"],
+    referencesOwnMessages: false,
+    // @ts-expect-error Event filters have no pre-sync switch.
+    disableSync: true,
   });
+  // Core owns the retry policy of every message reader.
+  // @ts-expect-error No host retry count.
+  MessageStream.open(client, undefined, { retryAttempts: 1 });
+  // @ts-expect-error No host retry delay.
+  MessageStream.open(client, undefined, { retryDelay: 1 });
+  // @ts-expect-error No host retry switch.
+  MessageStream.open(client, undefined, { retryOnFail: false });
+  // @ts-expect-error No host retry callback.
+  MessageStream.open(client, undefined, { onRetry: () => {} });
+  // @ts-expect-error No host sync switch.
+  MessageStream.open(client, undefined, { disableSync: true });
+  // @ts-expect-error Conversation recovery also stays in Core.
+  ConversationStream.open(client, undefined, { retryAttempts: 1 });
+
+  const stream = ConversationStream.open(client, undefined, {
+    signal: new AbortController().signal,
+    onClose: (reason) => {
+      const _kind: "closed" | "failed" = reason.kind;
+    },
+    onConnectionStateChange: (_previous, current) => {
+      const _state: ConnectionState = current;
+    },
+  });
+  await stream.end();
 }

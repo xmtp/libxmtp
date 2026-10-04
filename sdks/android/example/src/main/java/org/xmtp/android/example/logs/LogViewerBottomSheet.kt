@@ -12,6 +12,8 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import org.xmtp.android.example.R
+import uniffi.xmtp_sdk.SDKClient
+import uniffi.xmtp_sdk.getXMTPLogFilePaths
 import java.io.File
 
 class LogViewerBottomSheet : BottomSheetDialogFragment() {
@@ -37,8 +39,7 @@ class LogViewerBottomSheet : BottomSheetDialogFragment() {
         val emptyText = view.findViewById<TextView>(R.id.empty_text)
 
         // Get log files from the app's files directory
-        val logDirectory = File(requireContext().filesDir, "xmtp_logs")
-        val logFiles = if (logDirectory.exists()) logDirectory.listFiles() else null
+        val logFiles = SDKClient.getXMTPLogFilePaths(requireContext()).map(::File)
 
         if (logFiles.isNullOrEmpty()) {
             logsList.visibility = View.GONE

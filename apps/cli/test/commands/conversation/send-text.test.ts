@@ -44,6 +44,7 @@ describe("conversation send-text", () => {
     expect(output.messageId).toBeDefined();
     expect(output.conversationId).toBe(group.id);
     expect(output.text).toBe("Hello, World!");
+    expect(output).not.toHaveProperty("shouldPush");
   });
 
   it("sends a text message to a DM", async () => {
@@ -137,13 +138,13 @@ describe("conversation send-text", () => {
     expect(output.text).toBe(specialText);
   });
 
-  it("fails with invalid conversation ID", async () => {
+  it("fails with a missing conversation ID", async () => {
     const sender = await createRegisteredIdentity();
 
     const result = await runWithIdentity(sender, [
       "conversation",
       "send-text",
-      "invalid-conversation-id",
+      "0".repeat(32),
       "Hello",
       "--json",
     ]);

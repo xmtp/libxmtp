@@ -39,5 +39,6 @@ describe("conversation send-markdown", () => {
     expect(result.exitCode).toBe(0);
     const output = parseJsonOutput<SendResult>(result.stdout);
     expect(output.success).toBe(true);
+    expect(output).not.toHaveProperty("shouldPush");
   });
 });

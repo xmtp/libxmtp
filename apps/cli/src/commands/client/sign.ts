@@ -51,7 +51,7 @@ Use cases:
     const { args, flags } = await this.parse(ClientSign);
     const client = await this.initClient();
 
-    const signatureBytes = client.signWithInstallationKey(args.message);
+    const signatureBytes = await client.signWithInstallationKey(args.message);
     const signature = flags.base64
       ? Buffer.from(signatureBytes).toString("base64")
       : Buffer.from(signatureBytes).toString("hex");

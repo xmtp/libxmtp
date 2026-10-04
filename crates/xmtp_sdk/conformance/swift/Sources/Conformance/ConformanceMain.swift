@@ -311,59 +311,11 @@ struct Conformance {
         }
         try await breakReplay.end()
         try await checkReaderAppError(owner: reopenedHost, group: breakGroup, messageId: breakId)
-        let (opened, openedSignal) = AsyncStream<MessageReader>.makeStream()
-        let (release, releaseSignal) = AsyncStream<Void>.makeStream()
-        SDKClient.readerOpenedForTest = { reader in
-            openedSignal.yield(reader)
-            var iterator = release.makeAsyncIterator()
-            _ = await iterator.next()
-        }
-        let lateCloseNotified = TestFlag()
-        let cancelledOpening = Task {
-            let openingStream = try await reopenedHost.messages(
-                in: protocolGroup,
-                onClose: { reason in
-                    if case .closed = reason {
-                        lateCloseNotified.set()
-                    }
-                }
-            )
-            let openingIterator = openingStream.makeAsyncIterator()
-            return try await openingIterator.next()
-        }
-        var openedIterator = opened.makeAsyncIterator()
-        guard let lateReader = await openedIterator.next() else {
-            throw ConformanceFailure("reader did not open before cancellation")
-        }
-        cancelledOpening.cancel()
-        try await Task.sleep(for: .milliseconds(100))
-        guard !lateCloseNotified.value else {
-            throw ConformanceFailure("close callback ran before the late reader ended")
-        }
-        releaseSignal.yield(())
-        do {
-            _ = try await cancelledOpening.value
-            throw ConformanceFailure("cancelled reader creation delivered a message")
-        } catch is CancellationError {}
-        SDKClient.readerOpenedForTest = nil
-        for _ in 0 ..< 1000 {
-            if await lateReader.connectionState() == .closed {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        guard await lateReader.connectionState() == .closed else {
-            throw ConformanceFailure("late reader was not closed")
-        }
-        for _ in 0 ..< 100 where !lateCloseNotified.value {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        guard lateCloseNotified.value else {
-            throw ConformanceFailure("late reader did not notify close")
-        }
-        guard try await lateReader.next() == nil else {
-            throw ConformanceFailure("late reader was not closed")
-        }
+        try await checkCooperativeReaderOpeningCancellation()
+        try await checkLateReaderOpeningCleanup(owner: reopenedHost, group: protocolGroup)
+        try await checkLifecycleStartupBarrier()
+        try await checkLifecycleFailedSuspendResume(overlap: false)
+        try await checkLifecycleFailedSuspendResume(overlap: true)
         let reopenedReader = try await protocolGroup.messageReader()
         try await reopenedReader.end()
         // When iteration ends, the reader is already released: a replacement

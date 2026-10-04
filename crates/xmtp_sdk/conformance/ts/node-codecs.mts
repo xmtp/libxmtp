@@ -57,6 +57,23 @@ export function checkStandardCodecs() {
           ? content
           : content.value;
     const encoded = codec.encode(value as never);
+    assert.equal(
+      codec.fallback?.(value as never),
+      sample.expected.fallback,
+      `canonical fallback for ${content.kind}`,
+    );
+    assert.equal(
+      codec.shouldPush?.(value as never),
+      sdk.catalogueContentTypeShouldPush(codec.type),
+      `catalogue push default for ${content.kind}`,
+    );
+    if (content.kind === "leaveRequest") {
+      assert.equal(codec.shouldPush?.(value as never), false);
+      assert.equal(
+        codec.fallback?.(value as never),
+        "A member has requested leaving the group",
+      );
+    }
     assertEncodedEqual(encoded, sample.expected);
     assertEncodedEqual(
       codec.encode(codec.decode(encoded) as never),

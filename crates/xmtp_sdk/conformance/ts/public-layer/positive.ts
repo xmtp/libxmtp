@@ -109,8 +109,11 @@ export async function typedCodecHooks(message: Message): Promise<Client> {
   // @ts-expect-error A codec's value type does not widen.
   const widened: ContentCodec<string | number> = textCodec;
   void widened;
-  // @ts-expect-error A fallback hook takes the codec's value type.
-  const wrongHook: ContentCodec<Point> = { ...pointCodec, fallback: (text: string) => text };
+  const wrongHook: ContentCodec<Point> = {
+    ...pointCodec,
+    // @ts-expect-error A fallback hook takes the codec's value type.
+    fallback: (text: string) => text,
+  };
   void wrongHook;
   // A codec with hooks still registers with others of any value type.
   return Client.create(signer, {
@@ -160,7 +163,8 @@ export async function streamsAndErrors(client: Client, group: Group) {
   return attachment.content;
 }
 
-// This check narrows the error to its subclass. The code can contain a cause.
+// A named subclass narrows the error. Its details keep the Rust cause code,
+// which can differ from the subclass name.
 export function errorBranches(error: XmtpError | TypeError): string {
   if (error instanceof XmtpError.ClientClosed) {
     const code: string = error.details.code;

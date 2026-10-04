@@ -70,59 +70,75 @@ client so that the message recipient is registered on the same backend.
 ```kotlin
 import android.content.Context
 import java.security.SecureRandom
-import org.xmtp.android.library.Client
-import org.xmtp.android.library.ClientOptions
-import org.xmtp.android.library.messages.PrivateKeyBuilder
+import uniffi.xmtp_sdk.*
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
-suspend fun createDemoClient(context: Context, backendUrl: String): Client {
-    val signingKey = PrivateKeyBuilder()
+suspend fun createDemoClient(context: Context, backendUrl: String): SDKClient {
+    val signingKey = generateLocalSigner()
     val keyBytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
-    return Client.create(
-        account = signingKey,
+    return SDKClient.create(
+        context = context,
+        signer = signingKey,
         options = ClientOptions(
-            api = ClientOptions.Api(backendUrl = backendUrl),
-            appContext = context.applicationContext,
-            dbEncryptionKey = keyBytes
-        )
+            backend = BackendSource.Options(BackendOptions(url = backendUrl)),
+            storage = StorageOptions(StorageLocation.Default, encryptionKey = keyBytes),
+        ),
     )
 }
 
+suspend fun withDemoClients(
+    context: Context,
+    backendUrl: String,
+    run: suspend (SDKClient, SDKClient) -> Unit,
+) {
+    val client = createDemoClient(context, backendUrl)
+    try {
+        val recipient = createDemoClient(context, backendUrl)
+        try {
+            run(client, recipient)
+        } finally {
+            withContext(NonCancellable) { recipient.end() }
+        }
+    } finally {
+        withContext(NonCancellable) { client.end() }
+    }
+}
+
 // Run in a coroutine in your Android Activity.
-val backendUrl = "https://xmtp.example.com"
-val client = createDemoClient(applicationContext, backendUrl)
-val recipient = createDemoClient(applicationContext, backendUrl)
+withDemoClients(applicationContext, "https://xmtp.example.com") { client, recipient ->
+    val group = client.conversations().createGroup(listOf(recipient.inboxId()))
+    group.sendText("Hello everyone")
+    client.messages().collect { message -> println("New message: $message") }
+}
 ```
 
 </TabItem>
 <TabItem label="Swift">
 
+Load each client's stored 32-byte database key before the calls below. Generate a
+new key securely for a new database, store it securely, and reuse it on reopen.
+Omitting the key selects unencrypted storage.
+
 ```swift
 import Foundation
-import Security
-import XMTPiOS
+import XmtpSdk
 
-func createDemoClient(backendUrl: String) async throws -> Client {
-  let signingKey = try PrivateKey.generate()
-  var keyBytes = Data(count: 32)
-  let status = keyBytes.withUnsafeMutableBytes { bytes in
-    SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress!)
-  }
-  guard status == errSecSuccess else {
-    throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-  }
-  return try await Client.create(
-    account: signingKey,
+func createDemoClient(backendUrl: String, databaseKey: Data) async throws -> SDKClient {
+  let signer = await generateLocalSigner()
+  return try await SDKClient.create(
+    signer: signer,
     options: ClientOptions(
-      api: .init(backendUrl: backendUrl),
-      dbEncryptionKey: keyBytes
+      backend: .options(options: BackendOptions(url: backendUrl)),
+      storage: StorageOptions(location: .default, encryptionKey: databaseKey)
     )
   )
 }
 
 // Run from an async context, such as a SwiftUI task.
 let backendUrl = "https://xmtp.example.com"
-let client = try await createDemoClient(backendUrl: backendUrl)
-let recipient = try await createDemoClient(backendUrl: backendUrl)
+let client = try await createDemoClient(backendUrl: backendUrl, databaseKey: clientDatabaseKey)
+let recipient = try await createDemoClient(backendUrl: backendUrl, databaseKey: recipientDatabaseKey)
 ```
 
 </TabItem>
@@ -131,8 +147,9 @@ let recipient = try await createDemoClient(backendUrl: backendUrl)
 ## 3. Send a message
 
 Create a conversation and send a text message. For Browser and Node, use the
-inbox ID printed by a second running client on the same backend. For Kotlin and
-Swift, use the recipient client created in the preceding step.
+inbox ID printed by a second running client on the same backend. Put the Kotlin
+send and stream operations in the `withDemoClients` block. For Swift, use the
+recipient client from the preceding step.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -152,16 +169,16 @@ Swift, use the recipient client created in the preceding step.
 <TabItem label="Kotlin">
 
 ```kotlin
-val group = client.conversations.newGroup(inboxIds = listOf(recipient.inboxId))
-group.send(text = "Hello everyone")
+val group = client.conversations().createGroup(listOf(recipient.inboxId()))
+group.sendText("Hello everyone")
 ```
 
 </TabItem>
 <TabItem label="Swift">
 
 ```swift
-let group = try await client.conversations.newGroup(with: [recipient.inboxID])
-try await group.send(content: "Hello everyone")
+let group = try await client.conversations().createGroup(members: [recipient.inboxId()])
+try await group.sendText(text: "Hello everyone", options: nil)
 ```
 
 </TabItem>
@@ -191,8 +208,8 @@ Use `streamAllMessages` to receive new messages. Use `syncAll` to fetch new welc
 <TabItem label="Kotlin">
 
 ```kotlin
-client.conversations.syncAllConversations()
-client.conversations.streamAllMessages().collect { message ->
+client.conversations().syncAll(null)
+client.messages().collect { message ->
     println("New message: $message")
 }
 ```
@@ -201,8 +218,7 @@ client.conversations.streamAllMessages().collect { message ->
 <TabItem label="Swift">
 
 ```swift
-try await client.conversations.syncAllConversations()
-for try await message in try await client.conversations.streamAllMessages() {
+for try await message in try await client.messages() {
   print("New message: \(message)")
 }
 ```

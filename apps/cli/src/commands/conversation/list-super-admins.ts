@@ -43,16 +43,14 @@ The group creator is typically a super admin by default.`;
     const { args } = await this.parse(ConversationListSuperAdmins);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
     }
 
     const group = requireGroup(conversation);
-    const superAdmins = group.listSuperAdmins();
+    const superAdmins = await group.listSuperAdmins();
 
     this.output({
       conversationId: args.id,

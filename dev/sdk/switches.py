@@ -34,5 +34,17 @@ if __name__ == "__main__":
         "Node": "node",
         "Browser": "browser",
     }
-    for sdk in sorted(switched_sdks(Path(__file__).resolve().parents[2])):
+    root = Path(__file__).resolve().parents[2]
+    switched = switched_sdks(root)
+    for sdk in sorted(switched):
         print(f"sdks/{directories[sdk]}/")
+    # Task 15 moves the agent SDK with the generated Node product.
+    agent_path = root / "sdks/agent/package.json"
+    if "Node" in switched and agent_path.is_file():
+        agent = json.loads(agent_path.read_text())
+        if (
+            agent.get("name") == "@xmtp/agent-sdk"
+            and re.match(r"^8\.", agent.get("version", ""))
+            and agent.get("dependencies", {}).get("@xmtp/node-sdk") == "workspace:*"
+        ):
+            print("sdks/agent/")

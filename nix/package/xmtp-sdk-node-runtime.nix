@@ -1,0 +1,78 @@
+# The pinned UBRN Node addon for one SDK platform. JavaScript stays host-built.
+{
+  xmtp,
+  lib,
+  stdenv,
+  pkg-config,
+  perl,
+  cargo-zigbuild,
+  ubrnSrc,
+  runtimeRevision,
+}:
+let
+  target = stdenv.hostPlatform.rust.rustcTarget;
+  nodeTarget = xmtp.toNapiTarget target;
+  rust = xmtp.craneLib.overrideToolchain (p: xmtp.mkToolchain p [ target ] [ ]);
+  isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl;
+  buildTarget = target + lib.optionalString isGnu ".2.27";
+  gnuBuildEnv = lib.optionalString isGnu ''
+    export CONFIG_SITE="''${CONFIG_SITE:+$CONFIG_SITE }${./libffi-zig-cross.site}"
+    export CARGO_ZIGBUILD_CACHE_DIR="$TMPDIR/cargo-zigbuild"
+    export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global"
+  '';
+  dummySrc = rust.mkDummySrc {
+    src = ubrnSrc;
+    cargoLock = ubrnSrc + /Cargo.lock;
+    # Crane omits auto-discovered tests. This test-only workspace crate then
+    # has no target, so Cargo cannot resolve the dummy workspace.
+    extraDummyScript = ''
+      mkdir -p $out/crates/ubrn_ts_tests/tests
+      touch $out/crates/ubrn_ts_tests/tests/test_framework.rs
+    '';
+  };
+  args = {
+    pname = "xmtp-sdk-node-runtime-${nodeTarget}";
+    version = runtimeRevision;
+    src = ubrnSrc;
+    cargoLock = ubrnSrc + /Cargo.lock;
+    inherit dummySrc;
+    cargoExtraArgs = "--locked -p uniffi-runtime-napi --lib --target ${target}";
+    CARGO_BUILD_TARGET = buildTarget;
+    buildPhaseCargoCommand =
+      gnuBuildEnv
+      + "cargo ${
+        if isGnu then "zigbuild" else "build"
+      } --release --locked -p uniffi-runtime-napi --lib --target ${buildTarget}";
+    nativeBuildInputs = [
+      pkg-config
+      perl
+    ]
+    ++ lib.optionals isGnu [ cargo-zigbuild ];
+    doCheck = false;
+    doInstallCargoArtifacts = false;
+    doNotPostBuildInstallCargoBinaries = true;
+    strictDeps = !stdenv.buildPlatform.isDarwin;
+  }
+  // lib.optionalAttrs stdenv.hostPlatform.isDarwin { MACOSX_DEPLOYMENT_TARGET = "11.0"; }
+  // lib.optionalAttrs stdenv.hostPlatform.isMusl {
+    RUSTFLAGS = "-C target-feature=-crt-static";
+  };
+  binary = "libuniffi_runtime_napi.${if stdenv.hostPlatform.isDarwin then "dylib" else "so"}";
+  addon = "uniffi-runtime-napi.${nodeTarget}.node";
+in
+rust.buildPackage (
+  args
+  // {
+    installPhaseCommand = ''
+      mkdir -p $out
+      cp target/${target}/release/${binary} $out/${addon}
+      cat > $out/runtime-provenance.json <<'JSON'
+      ${builtins.toJSON {
+        schema = 1;
+        revision = runtimeRevision;
+        inherit target addon;
+      }}
+      JSON
+    '';
+  }
+)

@@ -10,11 +10,11 @@ interface InboxState {
   inboxId: string;
   recoveryIdentifier: {
     identifier: string;
-    identifierKind: string;
+    kind: string;
   };
   identifiers: Array<{
     identifier: string;
-    identifierKind: string;
+    kind: string;
   }>;
   installations: Array<{
     id: string;

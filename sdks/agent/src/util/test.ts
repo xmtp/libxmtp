@@ -1,13 +1,13 @@
+import { randomUUID } from "node:crypto";
+
 import {
+  Client,
+  ConversationStream,
+  type AnyContentCodec,
   type ContentCodec,
   type ContentTypeId,
   type EncodedContent,
-} from "@xmtp/content-type-primitives";
-import {
-  Client,
-  generateInboxId,
   type ClientOptions,
-  type NetworkOptions,
 } from "@xmtp/node-sdk";
 import { vi } from "vitest";
 
@@ -39,39 +39,37 @@ export const NETWORK_WAIT = { timeout: 30_000, interval: 250 } as const;
 export const waitForNetwork = <T>(condition: () => T | Promise<T>) =>
   vi.waitFor(condition, NETWORK_WAIT);
 
-export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
-  options?: Omit<ClientOptions & NetworkOptions, "codecs" | "backendUrl"> &
-    Partial<NetworkOptions> & {
-      codecs?: ContentCodecs;
-    },
+export const createClient = async <
+  Codecs extends readonly AnyContentCodec[] = [],
+>(
+  options?: Partial<ClientOptions> & {
+    codecs?: Codecs;
+    backendUrl?: string;
+    dbPath?: string | null;
+  },
 ) => {
-  const backendUrl = options?.backendUrl ?? process.env.XMTP_BACKEND_URL;
-  if (!backendUrl) throw new Error("XMTP_BACKEND_URL is required");
-  const signer = createSigner(createUser());
-  const identifier = await signer.getIdentifier();
-  const inboxId = generateInboxId(identifier);
-
-  let dbPath: string;
-  if (typeof options?.dbPath === "function") {
-    dbPath = options.dbPath(inboxId);
-  } else {
-    dbPath = options?.dbPath ?? `./test-${inboxId}.db3`;
-  }
-
-  return Client.create<ContentCodecs>(signer, {
-    backendUrl,
-    ...options,
-    dbPath,
-    disableDeviceSync: true,
-    env: "local",
+  const backend = options?.backend ?? {
+    url: options?.backendUrl ?? process.env.XMTP_BACKEND_URL ?? "",
+  };
+  if ("url" in backend && !backend.url)
+    throw new Error("XMTP_BACKEND_URL is required");
+  const { backendUrl: _backendUrl, dbPath, ...rest } = options ?? {};
+  const path = dbPath ?? `./test-${randomUUID()}.db3`;
+  return Client.create(createSigner(createUser()), {
+    ...rest,
+    backend,
+    storage: options?.storage ?? {
+      location:
+        dbPath === null
+          ? "inMemory"
+          : { dbPath: path, attachmentsDir: `${path}.attachments` },
+    },
+    deviceSync: false,
   });
 };
 
-export const createConversationAndWait = async <
-  ContentTypes,
-  Created extends { id: string },
->(
-  recipient: Client<ContentTypes>,
+export const createConversationAndWait = async <Created extends { id: string }>(
+  recipient: Client,
   create: () => Promise<Created>,
 ) => {
   let reportError!: (failure: { error: Error }) => void;
@@ -79,10 +77,18 @@ export const createConversationAndWait = async <
     reportError = resolve;
   });
   // Subscribe before creation so the new Welcome is observed.
-  const stream = await recipient.conversations.stream({
-    retryOnFail: false,
-    onError: (error) => reportError({ error }),
+  const stream = ConversationStream.open(recipient, undefined, {
+    onClose: (reason) => {
+      if (reason.kind === "failed")
+        reportError({
+          error:
+            reason.error instanceof Error
+              ? reason.error
+              : new Error(String(reason.error)),
+        });
+    },
   });
+  await stream.ready();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const created = await create();
@@ -115,12 +121,12 @@ export const ContentTypeTest: ContentTypeId = {
   versionMinor: 0,
 };
 
-export class TestCodec implements ContentCodec {
-  contentType = ContentTypeTest;
+export class TestCodec implements ContentCodec<Record<string, string>> {
+  type = ContentTypeTest;
   encode(content: Record<string, string>): EncodedContent {
     return {
-      type: this.contentType,
-      parameters: {},
+      type: this.type,
+      parameters: new Map(),
       content: new TextEncoder().encode(JSON.stringify(content)),
     };
   }

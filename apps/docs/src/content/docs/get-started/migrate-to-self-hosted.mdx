@@ -14,37 +14,29 @@ This guide compares the self-hosted SDKs with
 bindings. This is a source baseline, not a shared SDK release number.
 React Native is not included in this repository's self-hosted SDKs.
 
-## Published dev releases for testing
+## Source builds for testing
 
-Use these published dev releases to test with a self-hosted backend. They are
-from [release run 35742600105](https://github.com/xmtp/libxmtp/actions/runs/35742600105)
-on `self-hosted`, at commit `9f72722`. Pin these versions instead of using an
-unversioned install or a moving `dev` tag.
+Build each SDK from the same checkout when you test a self-hosted backend.
+The current SDK source has a different API from the older published dev builds.
 
-| SDK     | Package or dependency         | Dev version                                                                                                                   |
-| ------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Browser | `@xmtp/browser-sdk`           | Build the checked-out SDK 8 source with `dev/nix-shell 'just js build-browser-sdk'`.                                          |
-| Node    | `@xmtp/node-sdk`              | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)                                              |
-| Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)                                             |
-| Kotlin  | `org.xmtp:android`            | [4.12.0-dev.9f72722](https://repo.maven.apache.org/maven2/org/xmtp/android/4.12.0-dev.9f72722/android-4.12.0-dev.9f72722.pom) |
-| Swift   | `XMTPiOS` from `xmtp/libxmtp` | [4.12.0-dev.9f72722](https://github.com/xmtp/libxmtp/releases/tag/ios-4.12.0-dev.9f72722)                                     |
+| SDK     | Package or dependency           | Dev version                                                                          |
+| ------- | ------------------------------- | ------------------------------------------------------------------------------------ |
+| Browser | `@xmtp/browser-sdk`             | Build the checked-out SDK 8 source with `dev/nix-shell 'just js build-browser-sdk'`. |
+| Node    | `@xmtp/node-sdk`                | Build the checked-out SDK 8 source with `dev/nix-shell 'just js build-node-sdk'`.    |
+| Agent   | `@xmtp/agent-sdk`               | Build the checked-out source with `dev/nix-shell 'just js build-node'`.              |
+| Kotlin  | `org.xmtp:android`              | Build the checked-out source with `dev/nix-shell 'just android build'`.              |
+| Swift   | Swift package product `XmtpSdk` | Build the checked-out source with `dev/nix-shell 'just ios build'`.                  |
 
-For example, install Node with
-`npm install @xmtp/node-sdk@6.2.0-dev.9f72722`. For Kotlin, use
-`implementation("org.xmtp:android:4.12.0-dev.9f72722")`. For Swift Package Manager,
-select the exact revision `ios-4.12.0-dev.9f72722` from
-`https://github.com/xmtp/libxmtp.git` and add the `XMTPiOS` product. That release
-includes a manifest that downloads its matching native binaries.
-
-Node uses its matching `@xmtp/node-bindings` dependency. Keep that dependency
-with the old Node SDK. Browser SDK 8 includes its matched WASM and runtime
-assets in the public package. Keep these assets with the generated source.
+For Kotlin, use the AAR from the current Android source. For Swift, add the
+`XmtpSdk` product from the current source. Keep its Swift source and native
+archive from the same build. Node and Browser SDK 8 include their matched
+native or WASM runtime assets in each public package.
 
 ## Migration order
 
 1. [Deploy the backend](/deploy/overview/), then use
    [Run the backend](/get-started/run-the-backend/) for configuration and startup.
-2. Select a [published dev release](#published-dev-releases-for-testing) and follow
+2. Build the [current SDK source](#source-builds-for-testing) and follow
    the [SDK installation guide](/get-started/install/). An older network SDK
    cannot use this backend.
 3. Preserve required history with the old SDK before replacing its database.
@@ -69,8 +61,8 @@ Keep the label and database path stable after migration.
 | Browser | Pass `backend: { url: "https://xmtp.example.com" }` and explicit `storage` to `Client.create` and `Client.build`.                                                                     |
 | Node    | Pass `{ backendUrl: "https://xmtp.example.com" }`, or `{ backend }` with a pre-built `Backend`. Do not pass both forms.                                                               |
 | Agent   | Set `XMTP_BACKEND_URL` or pass `backendUrl` to `Agent.createFromEnv`. The environment variable takes precedence. Remove `XMTP_GATEWAY_HOST`. `XMTP_ENV` now labels the database only. |
-| Kotlin  | Supply `ClientOptions(api = ClientOptions.Api(backendUrl = "https://xmtp.example.com"), ...)`. `env` defaults to `"local"`.                                                           |
-| Swift   | Supply `ClientOptions(api: .init(backendUrl: "https://xmtp.example.com"), ...)`. `env` defaults to `"local"`.                                                                         |
+| Kotlin  | Import `uniffi.xmtp_sdk.*`. Use `BackendSource.Options(BackendOptions(url = backendUrl))` and `StorageOptions` in `ClientOptions`.                                                    |
+| Swift   | Import `XmtpSdk`. Pass `BackendOptions(url:)` through `ClientOptions.backend` and provide `StorageOptions`.                                                                           |
 
 See [Create a client](/sdk/client/#create-a-client) for complete examples.
 In JavaScript, the default filename label changes from `dev` to `default`.
@@ -115,9 +107,9 @@ Backend authentication is separate from the wallet signer used for XMTP identity
 The backend can require an API key or JWT. See
 [authentication configuration](/get-started/run-the-backend/#auth).
 
-Browser SDK 8 uses `backend.credentials.credential()`, which returns a
-credential with a bigint Unix expiry. Node and mobile SDKs retain their current
-async `authCallback` options. Agents pass those through their client options.
+Browser SDK 8 uses `backend.credentials.credential()` and a bigint Unix expiry.
+Node SDK 8 uses the same credential source. Swift and Kotlin use
+`CredentialSource` in `BackendOptions.credentials`.
 The callback returns a `Credential` with `value`, `expiresAtSeconds` (Unix
 seconds), and optional `name`. The default header is `authorization`. Include
 `Bearer` and one space before an API key or JWT.
@@ -126,14 +118,11 @@ The middleware caches the credential and requests a new one after expiry or
 rejection. Configuration discovery needs no credential and does not invoke the
 callback. Callback failures use a fixed error, without app error text.
 See [Backend authentication](/sdk/client/#backend-authentication) for examples.
-The retained Node and mobile low-level callback and handle APIs remain available.
-For direct mobile binding implementations, auth callbacks now throw
-`FfiAuthCallbackError.Failed` in Swift or `FfiAuthCallbackException.Failed` in
-Kotlin. The dedicated callback error replaces the flat `FfiError`, which could
-abort the process when a foreign callback failed.
+For Swift, implement `CredentialSource.credential() async throws -> Credential`.
+For Kotlin, override `CredentialSource.credential()` as a suspend function that
+returns `Credential`. The SDK maps callback failures to a fixed typed error.
 
-Swift `getOrCreateInboxId` now returns lookup errors, as Kotlin does. It generates
-an ID only after a successful lookup finds none. Handle authentication and
+Swift `SDKClient.inboxIdFor` returns lookup errors. Handle authentication and
 network failures instead of treating them as a new identity.
 
 ## New server configuration APIs

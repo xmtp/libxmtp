@@ -1,48 +1,22 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.google.protobuf.kotlin.toByteStringUtf8
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
+import org.junit.Assert.*
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.xmtp.android.library.codecs.Attachment
-import org.xmtp.android.library.codecs.AttachmentCodec
-import org.xmtp.android.library.codecs.ContentTypeAttachment
+import uniffi.xmtp_sdk.*
 
-@RunWith(AndroidJUnit4::class)
 class AttachmentTest : BaseInstrumentedTest() {
-    @Test
-    fun testCanUseAttachmentCodec() {
-        val attachment =
-            Attachment(
-                filename = "test.txt",
-                mimeType = "text/plain",
-                data = "hello world".toByteStringUtf8(),
-            )
-
-        Client.register(codec = AttachmentCodec())
-
-        val fixtures = runBlocking { createFixtures() }
-        val aliceClient = fixtures.alixClient
-        val aliceConversation =
-            runBlocking {
-                aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
-            }
-
+    @Test fun testCanUseAttachmentCodec() =
         runBlocking {
-            aliceConversation.send(
-                content = attachment,
-                options = SendOptions(contentType = ContentTypeAttachment),
-            )
+            val fixtures = createFixtures()
+            val attachment = Attachment("test.txt", "text/plain", "hello world".toByteArray())
+            val dm = fixtures.alixClient.conversations().createDm(fixtures.boClient.inboxId())
+            val id = dm.sendAttachment(attachment)
+            val message = dm.messages().single { it.id == id }
+            val received = ((message.content as SDKMessageContent.Standard).value as MessageContent.Attachment).v1
+            assertEquals(attachment.filename, received.filename)
+            assertEquals(attachment.mimeType, received.mimeType)
+            assertArrayEquals(attachment.content, received.content)
+            assertEquals(attachment, AttachmentCodec().decode(AttachmentCodec().encode(attachment)))
         }
-        val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 2)
-        if (messages.size == 2) {
-            val content: Attachment? = messages[0].content()
-            assertEquals("test.txt", content?.filename)
-            assertEquals("text/plain", content?.mimeType)
-            assertEquals("hello world".toByteStringUtf8(), content?.data)
-        }
-    }
 }

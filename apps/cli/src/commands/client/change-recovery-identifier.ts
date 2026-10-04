@@ -1,6 +1,7 @@
 import { Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
+import { createEOASigner } from "@/utils/client";
 import { identifierKindMap } from "@/utils/enums";
 
 export default class ClientChangeRecoveryIdentifier extends BaseCommand {
@@ -58,7 +59,7 @@ The recovery identifier must be an Ethereum address.`;
 
     // Build identifier before confirming so invalid input fails fast
     const identifier = {
-      identifierKind: identifierKindMap[flags.kind],
+      kind: identifierKindMap[flags.kind],
       identifier: flags.identifier.toLowerCase(),
     };
 
@@ -67,7 +68,10 @@ The recovery identifier must be an Ethereum address.`;
       flags.force,
     );
 
-    await client.changeRecoveryIdentifier(identifier);
+    await client.changeRecoveryIdentifier(
+      createEOASigner(this.getConfig().walletKey!),
+      identifier,
+    );
 
     this.output({
       success: true,

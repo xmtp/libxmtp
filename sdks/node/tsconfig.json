@@ -4,7 +4,6 @@
     "isolatedModules": false,
     "noEmit": true,
     "paths": {
-      "@/*": ["./src/*"],
       "@test/*": ["./test/*"]
     },
     "preserveConstEnums": true,
@@ -13,9 +12,7 @@
   },
   "include": [
     "scripts/**/*",
-    "src/**/*",
     "test/**/*",
-    "tsdown.config.ts",
     "vitest.config.ts",
     "vitest.setup.ts"
   ]

@@ -2,8 +2,7 @@ import { env } from "node:process";
 import { createInterface } from "node:readline";
 
 import { Command, Errors, Flags } from "@oclif/core";
-import { AuthHandle, BackendBuilder } from "@xmtp/node-bindings";
-import type { Backend, Client, NetworkOptions } from "@xmtp/node-sdk";
+import type { BackendOptions, Client } from "@xmtp/node-sdk";
 
 import { parseBackendUrl, parseEnvironmentLabel } from "./utils/backend.js";
 import { createClient } from "./utils/client.js";
@@ -165,7 +164,7 @@ export class BaseCommand extends Command {
     return this.#config;
   }
 
-  async networkOptions(): Promise<NetworkOptions | Backend> {
+  networkOptions(): BackendOptions {
     const config = this.getConfig();
     if (!config.backendUrl) {
       this.error(
@@ -174,31 +173,24 @@ export class BaseCommand extends Command {
     }
     parseBackendUrl(config.backendUrl);
 
-    const label = parseEnvironmentLabel(config.env ?? "local");
-
-    const options = {
-      backendUrl: config.backendUrl,
-      env: label,
+    parseEnvironmentLabel(config.env ?? "local");
+    return {
+      url: config.backendUrl,
       appVersion: config.appVersion,
+      ...(config.apiKey
+        ? {
+            credentials: {
+              value: `Bearer ${config.apiKey}`,
+              expiresAtSeconds: 9223372036854775807n,
+            },
+          }
+        : {}),
     };
-    const apiKey = config.apiKey;
-    if (!apiKey) return options;
-
-    const builder = new BackendBuilder(options.backendUrl).setEnv(label);
-    if (options.appVersion) builder.setAppVersion(options.appVersion);
-    const auth = new AuthHandle();
-    await auth.set({
-      value: `Bearer ${apiKey}`,
-      // Static API keys do not expire during this CLI process.
-      expiresAtSeconds: Number.MAX_SAFE_INTEGER,
-    });
-    builder.authHandle(auth);
-    return builder.build();
   }
 
   async initClient(): Promise<Client> {
     const config = this.getConfig();
-    const client = await createClient(config, await this.networkOptions());
+    const client = await createClient(config, this.networkOptions());
     this.#client = client;
 
     if (this.verbose) {
@@ -209,9 +201,7 @@ export class BaseCommand extends Command {
         ["dbPath", config.dbPath ?? "in-memory"],
       ];
 
-      if (client.accountIdentifier) {
-        lines.push(["address", client.accountIdentifier.identifier]);
-      }
+      lines.push(["address", client.identity.identifier]);
 
       lines.push(
         ["inboxId", client.inboxId],
@@ -247,7 +237,7 @@ export class BaseCommand extends Command {
       return;
     }
     try {
-      await this.#client.close();
+      await this.#client.end();
     } catch (error) {
       if (this.verbose) {
         const message = error instanceof Error ? error.message : String(error);

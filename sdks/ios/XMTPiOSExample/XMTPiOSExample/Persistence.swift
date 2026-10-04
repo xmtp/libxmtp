@@ -7,57 +7,50 @@
 
 import Foundation
 import KeychainAccess
-import XMTPiOS
 
 struct Persistence {
-	var keychain: Keychain
+	struct Account: Codable {
+		let databaseKey: Data
+		let address: String
+	}
+
+	enum PersistenceError: Error {
+		case invalidAccount
+		case incompleteAccount
+	}
+
+	private let keychain: Keychain
 
 	init() {
 		keychain = Keychain(service: "com.xmtp.XMTPiOSExample")
 	}
 
-	func saveKeys(_ keys: Data) {
-		keychain[data: "keys"] = keys
+	func saveAccount(_ account: Account) throws {
+		let account = try validated(account)
+		try keychain.set(JSONEncoder().encode(account), key: "account-v1")
 	}
 
-	func loadKeys() -> Data? {
-		do {
-			return try keychain.getData("keys")
-		} catch {
-			print("Error loading keys data: \(error)")
+	func loadAccount() throws -> Account? {
+		if let data = try keychain.getData("account-v1") {
+			return try validated(JSONDecoder().decode(Account.self, from: data))
+		}
+
+		let key = try keychain.getData("keys")
+		let address = try keychain.getString("address")
+		switch (key, address) {
+		case (nil, nil):
 			return nil
+		case let (key?, address?):
+			return try validated(Account(databaseKey: key, address: address))
+		default:
+			throw PersistenceError.incompleteAccount
 		}
 	}
 
-	func saveAddress(_ address: String) {
-		keychain[string: "address"] = address
-	}
-
-	func loadAddress() -> String? {
-		do {
-			return try keychain.getString("address")
-		} catch {
-			print("Error loading address data: \(error)")
-			return nil
+	private func validated(_ account: Account) throws -> Account {
+		guard account.databaseKey.count == 32, !account.address.isEmpty else {
+			throw PersistenceError.invalidAccount
 		}
-	}
-
-//	func load(conversationTopic: String) throws -> ConversationContainer? {
-//		guard let data = try keychain.getData(key(topic: conversationTopic)) else {
-//			return nil
-//		}
-//
-//		let decoder = JSONDecoder()
-//		let decoded = try decoder.decode(ConversationContainer.self, from: data)
-//
-//		return decoded
-//	}
-
-	func save(conversation _: Conversation) throws {
-//		keychain[data: key(topic: conversation.topic)] = try JSONEncoder().encode(conversation.encodedContainer)
-	}
-
-	func key(topic: String) -> String {
-		"conversation-\(topic)"
+		return account
 	}
 }

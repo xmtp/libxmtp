@@ -7,11 +7,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.xmtp.android.library.messages.PrivateKeyBuilder
+import uniffi.xmtp_sdk.*
 
 /**
- * Read every field of [Client.serverConfiguration] and call
- * [Client.fetchServerConfiguration] against the shared backend.
+ * Read every field of [SDKClient.serverConfiguration] and call
+ * [SDKClient.fetchServerConfiguration] against the shared backend.
  *
  * The shared stack runs `dev/backend/local.toml`, so the identifier, the two
  * query limits, and the single anvil chain are asserted exactly. Every other
@@ -23,7 +23,7 @@ class ServerConfigurationTest : BaseInstrumentedTest() {
     // verifies: CONF-061
     @Test
     fun testServerConfigurationExposesEveryField() {
-        val client = runBlocking { createClient(PrivateKeyBuilder()) }
+        val client = runBlocking { createClient(createWallet()) }
         val configuration = client.serverConfiguration()
 
         assertEquals("org.xmtp.local", configuration.identifier)
@@ -43,36 +43,36 @@ class ServerConfigurationTest : BaseInstrumentedTest() {
         assertTrue(auth.requiredScopes.isEmpty())
 
         val retention = configuration.retention
-        assertTrue(retention.groupMessageSeconds > 0L)
-        assertTrue(retention.welcomeSeconds > 0L)
-        assertTrue(retention.keyPackageSeconds > 0L)
+        assertTrue(retention.groupMessageSeconds > 0uL)
+        assertTrue(retention.welcomeSeconds > 0uL)
+        assertTrue(retention.keyPackageSeconds > 0uL)
 
         val limits = configuration.limits
         // The two values local.toml overrides.
-        assertEquals(50L, limits.maxQueryLimit)
-        assertEquals(50L, limits.defaultQueryLimit)
-        assertTrue(limits.maxEnvelopeBytes > 0L)
-        assertTrue(limits.maxRequestBytes > 0L)
-        assertTrue(limits.maxResponseBytes > 0L)
-        assertTrue(limits.maxPublishTopics > 0L)
-        assertTrue(limits.maxQueryTopics > 0L)
-        assertTrue(limits.maxNewestMetadataTopics > 0L)
-        assertTrue(limits.maxNewestFullTopics > 0L)
-        assertTrue(limits.maxUpdateAdds > 0L)
-        assertTrue(limits.maxUpdateRemoves > 0L)
-        assertTrue(limits.maxStreamTopics > 0L)
-        assertTrue(limits.maxStaticTopics > 0L)
-        assertTrue(limits.maxLookupIdentifiers > 0L)
-        assertTrue(limits.maxScwSignatures > 0L)
-        assertTrue(limits.maxIdentityEntries > 0L)
+        assertEquals(50uL, limits.maxQueryLimit)
+        assertEquals(50uL, limits.defaultQueryLimit)
+        assertTrue(limits.maxEnvelopeBytes > 0uL)
+        assertTrue(limits.maxRequestBytes > 0uL)
+        assertTrue(limits.maxResponseBytes > 0uL)
+        assertTrue(limits.maxPublishTopics > 0uL)
+        assertTrue(limits.maxQueryTopics > 0uL)
+        assertTrue(limits.maxNewestMetadataTopics > 0uL)
+        assertTrue(limits.maxNewestFullTopics > 0uL)
+        assertTrue(limits.maxUpdateAdds > 0uL)
+        assertTrue(limits.maxUpdateRemoves > 0uL)
+        assertTrue(limits.maxStreamTopics > 0uL)
+        assertTrue(limits.maxStaticTopics > 0uL)
+        assertTrue(limits.maxLookupIdentifiers > 0uL)
+        assertTrue(limits.maxScwSignatures > 0uL)
+        assertTrue(limits.maxIdentityEntries > 0uL)
         assertTrue(limits.maxUpdateFramesPerSecond > 0u)
         assertTrue(limits.maxUpdateBurst > 0u)
         assertTrue(limits.maxPingFramesPerSecond > 0u)
         assertTrue(limits.maxPingBurst > 0u)
 
         val mls = configuration.mls
-        assertTrue(mls.maxGroupMembers > 0L)
-        assertTrue(mls.maxInstallationsPerInbox > 0L)
+        assertTrue(mls.maxGroupMembers > 0uL)
+        assertTrue(mls.maxInstallationsPerInbox > 0uL)
         // `[mls]` is absent from local.toml, so the flag reads as the published
         // default rather than as absent.
         assertEquals(true, mls.commitLogEnabled)
@@ -84,22 +84,22 @@ class ServerConfigurationTest : BaseInstrumentedTest() {
     // verifies: CONF-062
     @Test
     fun testFetchServerConfigurationWithoutAClient() {
-        val fetched = runBlocking { Client.fetchServerConfiguration(localApi().backendUrl) }
+        val fetched = runBlocking { SDKClient.fetchServerConfiguration(BackendSource.Options(localApi())) }
 
         assertEquals("org.xmtp.local", fetched.identifier)
         assertTrue(fetched.serverVersion.isNotBlank())
         assertFalse(fetched.auth.enabled)
-        assertEquals(50L, fetched.limits.maxQueryLimit)
+        assertEquals(50uL, fetched.limits.maxQueryLimit)
         assertEquals(listOf("eip155:31337"), fetched.smartContractWalletChains)
 
-        val client = runBlocking { createClient(PrivateKeyBuilder()) }
+        val client = runBlocking { createClient(createWallet()) }
         assertEquals(client.serverConfiguration(), fetched)
     }
 
     // verifies: CONF-074
     @Test
     fun testRefreshServerConfigurationLeavesTheSnapshot() {
-        val client = runBlocking { createClient(PrivateKeyBuilder()) }
+        val client = runBlocking { createClient(createWallet()) }
         val snapshot = client.serverConfiguration()
 
         val refreshed = runBlocking { client.refreshServerConfiguration() }

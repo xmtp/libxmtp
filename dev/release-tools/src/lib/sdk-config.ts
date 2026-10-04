@@ -39,16 +39,16 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     releaseWorkflow: "release-android.yml",
     channels: ["nightly", "rc", "final"],
   },
-  [Sdk.NodeBindings]: {
-    name: "Node",
-    manifestPath: "bindings/node/package.json",
-    tagPrefix: "node-bindings-",
+  [Sdk.WasmBindings]: {
+    name: "WASM",
+    manifestPath: "bindings/wasm/package.json",
+    tagPrefix: "wasm-bindings-",
     artifactTagSuffix: "",
-    manifest: createPackageJsonManifestProvider("bindings/node/package.json"),
+    manifest: createPackageJsonManifestProvider("bindings/wasm/package.json"),
     versionTrack: "follows-libxmtp",
-    notesIncludeGlobs: ["crates/**", "bindings/node/**"],
-    notesExcludeGlobs: ["bindings/wasm/**", "bindings/mobile/**"],
-    releaseWorkflow: "release-node.yml",
+    notesIncludeGlobs: ["crates/**", "bindings/wasm/**"],
+    notesExcludeGlobs: ["bindings/node/**", "bindings/mobile/**"],
+    releaseWorkflow: "release-wasm.yml",
     channels: ["nightly", "rc", "final"],
   },
   [Sdk.BrowserSdk]: {
@@ -78,7 +78,11 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     artifactTagSuffix: "",
     manifest: createPackageJsonManifestProvider("sdks/node/package.json"),
     versionTrack: "independent",
-    notesIncludeGlobs: ["crates/**", "bindings/node/**", "sdks/node/**"],
+    notesIncludeGlobs: [
+      "crates/**",
+      "apps/xmtp_sdk_bindgen/**",
+      "sdks/node/**",
+    ],
     notesExcludeGlobs: [
       "bindings/wasm/**",
       "bindings/mobile/**",

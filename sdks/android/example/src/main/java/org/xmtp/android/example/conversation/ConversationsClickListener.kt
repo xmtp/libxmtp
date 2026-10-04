@@ -1,6 +1,6 @@
 package org.xmtp.android.example.conversation
 
-import org.xmtp.android.library.Conversation
+import uniffi.xmtp_sdk.*
 
 interface ConversationsClickListener {
     fun onConversationClick(conversation: Conversation)

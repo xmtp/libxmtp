@@ -3,21 +3,23 @@ package org.xmtp.android.library
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.FixMethodOrder
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
+import uniffi.xmtp_sdk.*
 import kotlin.system.measureTimeMillis
 
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class PerformanceTest : BaseInstrumentedTest() {
-    private lateinit var alixClient: Client
-    private lateinit var boClient: Client
-    private lateinit var caroClient: Client
-    private lateinit var davonClient: Client
-    private lateinit var eriClient: Client
+    private lateinit var alixClient: SDKClient
+    private lateinit var boClient: SDKClient
+    private lateinit var caroClient: SDKClient
+    private lateinit var davonClient: SDKClient
+    private lateinit var eriClient: SDKClient
 
     @Before
     override fun setUp() {
@@ -35,23 +37,23 @@ class PerformanceTest : BaseInstrumentedTest() {
         runBlocking {
             val time =
                 measureTimeMillis {
-                    alixClient.conversations.findOrCreateDm(boClient.inboxId)
+                    alixClient.conversations().createDm(boClient.inboxId())
                 }
             Log.d("PERF", "created a DM in: ${time}ms")
-            assert(time < 400)
+            assertTrue("Create must finish in less than 400 ms; actual=$time", time < 400)
         }
 
     @Test
     fun test2_SendGm() =
         runBlocking {
-            val dm = alixClient.conversations.findOrCreateDm(boClient.inboxId)
+            val dm = alixClient.conversations().createDm(boClient.inboxId())
             val gmMessage = "gm-" + (1..999999).random().toString()
             val time =
                 measureTimeMillis {
-                    dm.send(gmMessage)
+                    dm.sendText(gmMessage)
                 }
             Log.d("PERF", "sendGmTime: ${time}ms")
-            assert(time < 200)
+            assertTrue("Send must finish in less than 200 ms; actual=$time", time < 200)
         }
 
     @Test
@@ -59,16 +61,16 @@ class PerformanceTest : BaseInstrumentedTest() {
         runBlocking {
             val time =
                 measureTimeMillis {
-                    alixClient.conversations.newGroup(
+                    alixClient.conversations().createGroup(
                         listOf(
-                            boClient.inboxId,
-                            caroClient.inboxId,
-                            davonClient.inboxId,
+                            boClient.inboxId(),
+                            caroClient.inboxId(),
+                            davonClient.inboxId(),
                         ),
                     )
                 }
             Log.d("PERF", "createGroupTime: ${time}ms")
-            assert(time < 400)
+            assertTrue("Create must finish in less than 400 ms; actual=$time", time < 400)
         }
 
     @Test
@@ -76,16 +78,16 @@ class PerformanceTest : BaseInstrumentedTest() {
         runBlocking {
             val groupMessage = "gm-" + (1..999999).random().toString()
             val group =
-                alixClient.conversations.newGroup(
+                alixClient.conversations().createGroup(
                     listOf(
-                        boClient.inboxId,
+                        boClient.inboxId(),
                     ),
                 )
             val time =
                 measureTimeMillis {
-                    group.send(groupMessage)
+                    group.sendText(groupMessage)
                 }
             Log.d("PERF", "sendGmInGroupTime: ${time}ms")
-            assert(time < 200)
+            assertTrue("Send must finish in less than 200 ms; actual=$time", time < 200)
         }
 }

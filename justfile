@@ -269,7 +269,7 @@ ci-failures job:
     set -euo pipefail
     # gh 2.97+ refuses to print a log that contains ANSI escapes (cargo colour
     # output) unless asked. Older gh has no such flag.
-    esc=""; gh api --help | grep -q -- --allow-escape-sequences && esc="--allow-escape-sequences"
+    esc=""; if gh api --help | grep -- --allow-escape-sequences >/dev/null; then esc="--allow-escape-sequences"; fi
     gh api $esc repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
       | dev/ci-failure-markers
 

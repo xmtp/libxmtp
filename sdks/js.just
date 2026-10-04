@@ -11,21 +11,21 @@ _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 set shell := ["../dev/nix-shell"]
 
-# Stage each SDK product selected by its source manifest.
+# Stage the selected SDK products for local workspace imports.
 sdk-products target="all":
     case "{{ target }}" in all) ../dev/js/sdk-stage node && ../dev/js/sdk-stage browser ;; node) ../dev/js/sdk-stage node ;; wasm|browser) ../dev/js/sdk-stage browser ;; *) exit 2 ;; esac
 
-bindings-node:
-    ../dev/js/bindings node
+build-node-sdk:
+    ../dev/js/sdk-package node
 
 build-browser-sdk:
     ../dev/js/sdk-package browser
 
-# Typecheck all SDKs with their task dependencies. Selected SDK products are staged first.
+# Typecheck all SDKs with their task dependencies. SDK products are staged first.
 check: sdk-products
     cd {{ root }} && pnpm -r --filter './sdks/*' run typecheck
 
-check-node: bindings-node
+check-node: build-node-sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run typecheck
     pnpm --filter @xmtp/node-sdk exec tsc -p type-tests/tsconfig.json
 
@@ -35,30 +35,30 @@ check-notification-surface: sdk-products
     pnpm --filter @xmtp/node-sdk exec tsc -p type-tests/tsconfig.json
     pnpm --filter @xmtp/browser-sdk exec tsc -p type-tests/tsconfig.json
 
-# Build all SDKs with their task dependencies. Selected SDK products are staged first.
+# Build all SDKs with their task dependencies. SDK products are staged first.
 build: sdk-products
     cd {{ root }} && pnpm -r --filter './sdks/*' run build
 
-# Lint all SDKs with their task dependencies. Selected SDK products are staged first.
+# Lint all SDKs with their task dependencies. SDK products are staged first.
 lint: sdk-products
     cd {{ root }} && pnpm -r --filter './sdks/*' run lint
 
-lint-node: bindings-node
+lint-node: build-node-sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run lint
 
-build-node: bindings-node
+build-node: build-node-sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run build
 
-# Run all JS SDK tests locally (builds bindings first)
+# Run all JavaScript SDK tests with their selected products.
 test: sdk-products
     {{ _env }} && pnpm --filter @xmtp/node-sdk run test
     {{ _env }} && pnpm --filter @xmtp/browser-sdk run test
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run build
     {{ _env }} && pnpm --filter @xmtp/agent-sdk run test
 
-# CI: node-sdk tests. Bindings are a nix cache hit (built by test-node job).
+# CI: Node tests use the matched public SDK product.
 # Extra args (e.g. --shard N/M) are forwarded to vitest.
-test-node-sdk-ci *args="": bindings-node
+test-node-sdk-ci *args="": build-node-sdk
     {{ _env }} && pnpm --filter @xmtp/node-sdk run test {{ args }}
 
 # CI: Browser tests use the matched public product.
@@ -67,6 +67,6 @@ test-browser-sdk-ci *args="": build-browser-sdk
 
 # CI: agent-sdk tests. Runs against the local node-sdk (workspace dependency),
 # which must be built first so its dist exists at runtime.
-test-agent-sdk-ci *args="": bindings-node
+test-agent-sdk-ci *args="": build-node-sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run build
     {{ _env }} && pnpm --filter @xmtp/agent-sdk run test {{ args }}

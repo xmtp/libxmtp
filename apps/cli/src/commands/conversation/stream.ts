@@ -1,6 +1,8 @@
 import { Args, Flags } from "@oclif/core";
+import { MessageStream } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
+import { isGroup } from "@/utils/conversation";
 
 export default class ConversationStream extends BaseCommand {
   static description = `Stream messages in a conversation.
@@ -67,9 +69,7 @@ This is useful for:
     const { args, flags } = await this.parse(ConversationStream);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
@@ -79,7 +79,10 @@ This is useful for:
     const maxCount = flags.count;
     const timeoutMs = flags.timeout ? flags.timeout * 1000 : undefined;
 
-    const stream = await conversation.stream();
+    const stream = isGroup(conversation)
+      ? MessageStream.openGroup(client, conversation)
+      : MessageStream.openDm(client, conversation);
+    await stream.ready();
 
     // Set up timeout if specified
     let timeoutId: NodeJS.Timeout | undefined;
@@ -101,8 +104,8 @@ This is useful for:
           senderInboxId: message.senderInboxId,
           contentType: message.contentType,
           content: message.content,
-          sentAt: message.sentAt.toISOString(),
-          sentAtNs: message.sentAtNs,
+          sentAt: message.sentAt.date.toISOString(),
+          sentAtNs: message.sentAt.ns,
           deliveryStatus: message.deliveryStatus,
         });
 

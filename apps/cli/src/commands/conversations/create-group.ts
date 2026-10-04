@@ -1,11 +1,9 @@
 import { Args, Flags } from "@oclif/core";
-import {
-  GroupPermissionsOptions,
-  IdentifierKind,
-  type CreateGroupOptions,
-} from "@xmtp/node-sdk";
+import type { GroupPermissionMode } from "@xmtp/node-sdk";
+import { type CreateGroupOptions } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
+import { memberDetails } from "@/utils/members";
 
 export default class ConversationsCreateGroup extends BaseCommand {
   static description = `Create a new group conversation.
@@ -91,40 +89,37 @@ Returns the new group's ID and details.`;
 
     const identifierObjects = identifiers.map((id) => ({
       identifier: id.toLowerCase(),
-      identifierKind: IdentifierKind.Ethereum,
+      kind: "ethereum" as const,
     }));
 
-    const permissionsMap: Record<string, GroupPermissionsOptions> = {
-      "all-members": GroupPermissionsOptions.Default,
-      "admin-only": GroupPermissionsOptions.AdminOnly,
+    const permissionsMap: Record<string, GroupPermissionMode> = {
+      "all-members": { kind: "allMembers" },
+      "admin-only": { kind: "adminOnly" },
     };
 
     const options: CreateGroupOptions = {
-      groupName: flags.name,
-      groupDescription: flags.description,
-      groupImageUrlSquare: flags["image-url"],
+      name: flags.name,
+      description: flags.description,
+      imageUrl: flags["image-url"],
       permissions: permissionsMap[flags.permissions],
     };
 
-    const group = await client.conversations.createGroupWithIdentifiers(
+    const group = await client.conversations.createGroup(
       identifierObjects,
       options,
     );
 
     const members = await group.members();
+    const state = await group.state();
 
     this.output({
       id: group.id,
-      name: group.name,
-      description: group.description,
-      imageUrl: group.imageUrl,
-      createdAt: group.createdAt.toISOString(),
+      name: state.name,
+      description: state.description,
+      imageUrl: state.imageUrl,
+      createdAt: group.createdAt.date.toISOString(),
       memberCount: members.length,
-      members: members.map((m) => ({
-        inboxId: m.inboxId,
-        accountIdentifiers: m.accountIdentifiers,
-        permissionLevel: m.permissionLevel,
-      })),
+      members: await memberDetails(client, members),
     });
   }
 }

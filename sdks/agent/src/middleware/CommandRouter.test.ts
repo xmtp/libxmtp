@@ -1,4 +1,4 @@
-import { type BuiltInContentTypes, type Client } from "@xmtp/node-sdk";
+import { type Client } from "@xmtp/node-sdk";
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { Agent } from "@/core/Agent";
@@ -8,7 +8,7 @@ import { CommandRouter } from "@/middleware/CommandRouter";
 import { createClient, waitForNetwork } from "@/util/test";
 
 describe("CommandRouter", () => {
-  let agent: Agent<BuiltInContentTypes>;
+  let agent: Agent<unknown>;
   let client: Client;
 
   beforeEach(async () => {
@@ -22,7 +22,7 @@ describe("CommandRouter", () => {
     it("types the message content as string in command handlers", () => {
       const router = new CommandRouter();
       router.command("/test", (ctx) => {
-        expectTypeOf(ctx.message.content).toEqualTypeOf<string>();
+        expectTypeOf(ctx.content).toEqualTypeOf<string>();
       });
     });
   });
@@ -39,9 +39,9 @@ describe("CommandRouter", () => {
       const otherClient = await createClient();
       const dm = await otherClient.conversations.createDm(client.inboxId);
       const messageId = await dm.sendText("/tx 0.1");
-      const message = otherClient.conversations.getMessageById(
+      const message = (await otherClient.conversations.getMessageById(
         messageId,
-      )! as DecodedMessageWithContent<string>;
+      ))! as DecodedMessageWithContent<string>;
 
       await waitForNetwork(() => {
         expect(handler).toHaveBeenCalledTimes(1);
@@ -66,9 +66,9 @@ describe("CommandRouter", () => {
       const otherClient = await createClient();
       const dm = await otherClient.conversations.createDm(client.inboxId);
       const messageId = await dm.sendText("/balance");
-      const message = otherClient.conversations.getMessageById(
+      const message = (await otherClient.conversations.getMessageById(
         messageId,
-      )! as DecodedMessageWithContent<string>;
+      ))! as DecodedMessageWithContent<string>;
 
       await waitForNetwork(() => {
         expect(handler).toHaveBeenCalledTimes(1);
@@ -93,9 +93,9 @@ describe("CommandRouter", () => {
       const otherClient = await createClient();
       const dm = await otherClient.conversations.createDm(client.inboxId);
       const messageId = await dm.sendText("/send 5 USDC to Alix");
-      const message = otherClient.conversations.getMessageById(
+      const message = (await otherClient.conversations.getMessageById(
         messageId,
-      )! as DecodedMessageWithContent<string>;
+      ))! as DecodedMessageWithContent<string>;
 
       await waitForNetwork(() => {
         expect(handler).toHaveBeenCalledTimes(1);

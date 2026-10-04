@@ -40,9 +40,11 @@ flag details.
 
 ## Backend-specific databases
 
-By default, the CLI stores data at `~/.xmtp/<backend-label>/xmtp-db`. The label
-is derived from the backend origin, so changing the backend URL does not reuse
-another backend's database. Override the path with `--db-path` or
-`XMTP_DB_PATH` when needed.
+By default, the CLI stores data for the `local` label at
+`~/.xmtp/<backend-label>/xmtp-db`. A new database with another environment
+label uses `~/.xmtp/<backend-label>/environments/<environment-label>/xmtp-db`.
+If the earlier path already has a database, the CLI keeps using it. If both
+paths have databases, set `--db-path` or `XMTP_DB_PATH` to select one. The
+backend label comes from the backend origin. An explicit path stays unchanged.
 
 `--env` and `XMTP_ENV` are database labels only. They do not choose a backend.

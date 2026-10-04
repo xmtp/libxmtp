@@ -3,7 +3,7 @@ const agent = await Agent.createFromEnv();
 
 // #region example1
 agent.on("text", async (ctx) => {
-  await ctx.sendTextReply(`Echo: ${ctx.message.content}`);
+  await ctx.sendTextReply(`Echo: ${ctx.content}`);
 });
 
 agent.on("unhandledError", (error) => {

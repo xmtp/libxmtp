@@ -1,7 +1,8 @@
 import { Args } from "@oclif/core";
-import { IdentifierKind } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
+import { conversationState } from "@/utils/conversation";
+import { memberDetails } from "@/utils/members";
 
 export default class ConversationsGetDm extends BaseCommand {
   static description = `Get a DM conversation by address or inbox ID.
@@ -46,34 +47,28 @@ the local cache is searched directly.`;
     const isAddress = args.addressOrInboxId.startsWith("0x");
 
     const dm = isAddress
-      ? await client.conversations.fetchDmByIdentifier({
+      ? await client.conversations.getDmByIdentity({
           identifier: args.addressOrInboxId.toLowerCase(),
-          identifierKind: IdentifierKind.Ethereum,
+          kind: "ethereum" as const,
         })
-      : client.conversations.getDmByInboxId(args.addressOrInboxId);
+      : await client.conversations.getDmByInboxId(args.addressOrInboxId);
 
     if (!dm) {
       this.error(`DM not found for: ${args.addressOrInboxId}`);
     }
 
-    const metadata = await dm.metadata();
+    const state = await conversationState(dm);
     const members = await dm.members();
 
     this.output({
       id: dm.id,
-      peerInboxId: dm.peerInboxId,
-      createdAt: dm.createdAt.toISOString(),
-      consentState: dm.consentState(),
-      isActive: dm.isActive,
+      peerInboxId: await dm.peerInboxId(),
+      createdAt: dm.createdAt.date.toISOString(),
+      consentState: state.consentState,
+      isActive: state.isActive,
       addedByInboxId: dm.addedByInboxId,
-      creatorInboxId: metadata.creatorInboxId,
-      members: members.map((m) => ({
-        inboxId: m.inboxId,
-        accountIdentifiers: m.accountIdentifiers,
-        installationIds: m.installationIds,
-        permissionLevel: m.permissionLevel,
-        consentState: m.consentState,
-      })),
+      creatorInboxId: dm.creatorInboxId,
+      members: await memberDetails(client, members),
     });
   }
 }

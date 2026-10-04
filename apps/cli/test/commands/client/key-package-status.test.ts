@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { installationIdsFromFlags } from "../../../src/commands/client/key-package-status.js";
 import {
   createRegisteredIdentity,
   parseJsonOutput,
@@ -7,6 +8,15 @@ import {
 } from "../../helpers.js";
 
 describe("client key-package-status", () => {
+  it("normalizes prefixed and uppercase installation IDs", () => {
+    const upper = "AB".repeat(32);
+    const lower = "cd".repeat(32);
+    expect(installationIdsFromFlags([` 0x${upper}, ${lower} `])).toEqual([
+      upper.toLowerCase(),
+      lower,
+    ]);
+  });
+
   it("attempts to fetch key package status for an installation", async () => {
     const identity = await createRegisteredIdentity();
 

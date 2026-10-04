@@ -1,3 +1,5 @@
+# Keep these old binding outputs for release-kotlin-bindings-nix.yml.
+# The Android SDK uses android-sdk-libs and does not consume these outputs.
 {
   gnused,
   xmtp,

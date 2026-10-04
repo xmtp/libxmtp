@@ -1,6 +1,7 @@
 import { Args } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
+import { conversationState } from "@/utils/conversation";
 
 export default class ConversationConsentState extends BaseCommand {
   static description = `Get the consent state of a conversation.
@@ -39,15 +40,13 @@ Consent state affects message filtering and notification behavior.`;
     const { args } = await this.parse(ConversationConsentState);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
     }
 
-    const consentState = conversation.consentState();
+    const consentState = (await conversationState(conversation)).consentState;
 
     this.output({
       conversationId: args.id,

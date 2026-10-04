@@ -394,6 +394,35 @@ class ArtifactTests(unittest.TestCase):
         self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
         self.assertFalse((self.args.out / "typescript-wasm").exists())
 
+    def test_windows_build_invokes_cargo_without_the_posix_wrapper(self):
+        self.args.skip_bindgen = True
+        self.args.rust_target = "x86_64-pc-windows-msvc"
+
+        def windows_cargo(command, **kwargs):
+            self.calls.append(command)
+            self.cargo_environments.append(dict(kwargs["env"]))
+            output = (
+                Path(kwargs["env"]["CARGO_TARGET_DIR"])
+                / self.args.rust_target
+                / "debug"
+            )
+            output.mkdir(parents=True)
+            for name in ("xmtp_sdk.dll", "xmtp_sdk.lib"):
+                (output / name).write_text("fixture artifact")
+
+        with (
+            patch.dict(os.environ, {"CARGO_BUILD_JOBS": "7"}),
+            patch.object(artifacts.sys, "platform", "win32"),
+            patch.object(artifacts, "run", side_effect=windows_cargo),
+        ):
+            artifacts.build(self.args)
+        self.assertEqual(self.calls[0][0], "cargo")
+        self.assertEqual(self.calls[0].count("--target"), 1)
+        self.assertEqual(self.cargo_environments[0]["CARGO_BUILD_JOBS"], "7")
+        self.assertEqual(self.cargo_environments[0]["OPENSSL_NO_VENDOR"], "0")
+        self.assertEqual(self.cargo_environments[0]["OPENSSL_STATIC"], "1")
+        self.assertTrue((self.args.artifacts / "native/xmtp_sdk.dll").is_file())
+
     def test_cargo_build_preserves_caller_job_count(self):
         with patch.dict(os.environ, {"CARGO_BUILD_JOBS": "7"}):
             artifacts.build(self.args)

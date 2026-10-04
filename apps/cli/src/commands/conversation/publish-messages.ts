@@ -31,9 +31,7 @@ queued locally. This is used after sending messages with the
     const { args } = await this.parse(ConversationPublishMessages);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);

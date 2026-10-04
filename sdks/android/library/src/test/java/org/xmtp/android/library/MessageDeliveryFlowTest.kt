@@ -1,368 +1,279 @@
 package org.xmtp.android.library
 
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Test
-import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
-import org.xmtp.android.library.codecs.EncodedContent
-import org.xmtp.android.library.codecs.TextCodec
-import org.xmtp.android.library.libxmtp.DecodedMessage
-import uniffi.xmtpv3.FfiConversationMessageKind
-import uniffi.xmtpv3.FfiDeliveryStatus
-import uniffi.xmtpv3.FfiException
-import uniffi.xmtpv3.FfiMessage
+import uniffi.xmtp_sdk.*
+import java.util.concurrent.atomic.AtomicLong
 
 private const val DELIVERY_FLOW_TEST_TIMEOUT_MS = 10_000L
+private val readerTestKeys = AtomicLong(1)
 
 internal fun deliveryTestMessage(
-    content: ByteArray,
-    kind: FfiConversationMessageKind = FfiConversationMessageKind.APPLICATION,
-): FfiMessage =
-    FfiMessage(
-        id = ByteArray(32) { 1 },
-        sentAtNs = 1L,
-        conversationId = ByteArray(16) { 2 },
-        senderInboxId = "sender",
-        content = content,
-        kind = kind,
-        deliveryStatus = FfiDeliveryStatus.PUBLISHED,
-        sequenceId = 1UL,
-        insertedAtNs = 1L,
-        expireAtNs = null,
+    content: MessageContent = MessageContent.Text("message"),
+    rawBytes: ByteArray = byteArrayOf(1),
+    fallback: String? = null,
+    encoded: EncodedContent? = null,
+    id: String = "01".repeat(32),
+    clientKey: ULong = 1uL,
+): Message =
+    Message(
+        MessageData(
+            id = id,
+            clientKey = clientKey,
+            deliveryCursor = "cursor-$id",
+            conversationId = "02".repeat(16),
+            topic = "test-topic",
+            senderInboxId = "03".repeat(32),
+            sentAt = Timestamp(1),
+            insertedAt = Timestamp(2),
+            expiresAt = null,
+            kind = MessageKind.APPLICATION,
+            deliveryStatus = DeliveryStatus.PUBLISHED,
+            rawBytes = rawBytes,
+            contentType = encoded?.type,
+            fallback = fallback,
+            encoded = encoded,
+            content = content,
+            replyCount = 0uL,
+            reactions = emptyList(),
+            inReplyTo = null,
+        ),
+    )
+
+// This boundary records host calls. It does not model native ACK or ownership.
+internal class RecordingMessageReader(
+    private val read: suspend () -> Message?,
+) : MessageReader(NoHandle) {
+    var nextCalls = 0
+    var endCalls = 0
+
+    override suspend fun next(): Message? {
+        nextCalls++
+        return read()
+    }
+
+    override suspend fun end() {
+        endCalls++
+    }
+
+    override suspend fun connectionState() = ConnectionState.CONNECTED
+
+    override suspend fun connectionStateChanged(previous: ConnectionState): ConnectionState = awaitCancellation()
+}
+
+internal class RecordingReaderClient(
+    private val open: suspend () -> MessageReader,
+) : Client(NoHandle) {
+    val key = readerTestKeys.getAndIncrement().toULong()
+    var closed = false
+    private val conversations =
+        object : Conversations(NoHandle) {
+            override suspend fun messageReader(options: MessageReaderOptions?): MessageReader = open()
+        }
+
+    override fun clientKey(): ULong {
+        if (closed) {
+            throw XmtpException.ClientClosed(
+                ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client ended"),
+            )
+        }
+        return key
+    }
+
+    override fun conversations(): Conversations = conversations
+}
+
+internal fun streamFailure(code: String = "Storage"): XmtpException =
+    XmtpException.Storage(
+        ErrorDetails(code, ErrorCategory.STORAGE, true, "native acknowledgement failed"),
     )
 
 class MessageDeliveryFlowTest {
-    private class Delivery(
-        val value: Int? = 1,
-        var current: Boolean = true,
-        val acknowledgeError: Throwable? = null,
-        val decodeValue: (() -> Int?)? = null,
-        val onCheck: () -> Unit = {},
-    ) {
-        var acknowledgements = 0
-        var rejections = 0
-        val acknowledged = CompletableDeferred<Unit>()
-        val rejected = CompletableDeferred<Unit>()
-
-        fun queued(): QueuedMessageDelivery<Int> =
-            QueuedMessageDelivery(
-                decode = {
-                    if (decodeValue != null) decodeValue() else value
-                },
-                checkOwner = {
-                    onCheck()
-                    current
-                },
-                acknowledge = {
-                    acknowledgeError?.let { throw it }
-                    acknowledgements++
-                    acknowledged.complete(Unit)
-                    Unit
-                },
-                reject = {
-                    rejections++
-                    rejected.complete(Unit)
-                    Unit
-                },
-            )
-    }
-
-    // verifies: PROC-052
+    // Host sequencing only. Native final commit admission has separate core proof.
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun acknowledgesOnlyAfterTheDirectCollectorReturnsAndClosesOnce() =
         runBlocking {
-            val ready = CompletableDeferred<MessageDeliveryCallback<Int>>()
-            val handedOff = CompletableDeferred<Unit>()
-            val releaseCollector = CompletableDeferred<Unit>()
-            val delivery = Delivery()
-            val reservedContent =
-                EncodedContent
-                    .newBuilder()
-                    .setType(ContentTypeGroupUpdated)
-                    .build()
-                    .toByteArray()
-            val forgedMessage = deliveryTestMessage(reservedContent)
-            assertNotNull(
-                DecodedMessage.createForDelivery(
-                    forgedMessage.copy(kind = FfiConversationMessageKind.MEMBERSHIP_CHANGE),
-                    null,
-                ),
-            )
-            val filtered =
-                Delivery(decodeValue = { DecodedMessage.createForDelivery(forgedMessage, null)?.let { 99 } })
-            val received = mutableListOf<Int>()
-            var ended = 0
-            var closed = 0
-            val job =
-                launch {
-                    acknowledgedMessageFlow<Int>({ closed++ }) { callback ->
-                        ready.complete(callback)
-                        return@acknowledgedMessageFlow { ended++ }
-                    }.collect {
-                        received.add(it)
-                        assertEquals(0, delivery.acknowledgements)
-                        handedOff.complete(Unit)
-                        releaseCollector.await()
+            val delivered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val first = deliveryTestMessage()
+            var remaining = first
+            var hasMessage = true
+            val reader =
+                RecordingMessageReader {
+                    if (hasMessage) {
+                        hasMessage = false
+                        remaining
+                    } else {
+                        null
                     }
                 }
-            val callback = ready.await()
-            callback.onMessage(filtered.queued())
-            filtered.acknowledged.await()
-            assertEquals(1, filtered.acknowledgements)
-            assertEquals(0, filtered.rejections)
-            assertTrue(received.isEmpty())
-            callback.onMessage(delivery.queued())
-            handedOff.await()
-            assertEquals(0, delivery.acknowledgements)
-            releaseCollector.complete(Unit)
-            delivery.acknowledged.await()
-            callback.onClose()
-            callback.onClose()
+            val client = testSDKClient(RecordingReaderClient { reader })
+            val received = mutableListOf<Message>()
+            val closes = mutableListOf<SDKStreamCloseReason>()
+            val job =
+                launch {
+                    client.messages(onClose = { closes.add(it) }).collect {
+                        received.add(it)
+                        assertEquals(1, reader.nextCalls)
+                        delivered.complete(Unit)
+                        release.await()
+                    }
+                }
+            delivered.await()
+            assertEquals(1, reader.nextCalls)
+            release.complete(Unit)
             job.join()
-            assertEquals(1, delivery.acknowledgements)
-            assertEquals(0, delivery.rejections)
-            assertEquals(listOf(1), received)
-            assertEquals(1, ended)
-            assertEquals(1, closed)
+            assertEquals(listOf(first), received)
+            assertEquals(2, reader.nextCalls)
+            assertEquals(1, reader.endCalls)
+            assertEquals(listOf(SDKStreamCloseReason.Closed), closes)
         }
 
-    // verifies: PROC-052
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun cancellationRejectsTheCurrentItemAndTheQueuedItem() =
         runBlocking {
-            for (filterCurrent in listOf(false, true)) {
-                val ready = CompletableDeferred<MessageDeliveryCallback<Int>>()
-                val handedOff = CompletableDeferred<Unit>()
-                val releaseCollector = CompletableDeferred<Unit>()
-                val queued = Delivery(2)
-                lateinit var callback: MessageDeliveryCallback<Int>
-                lateinit var job: Job
-                val current =
-                    Delivery(
-                        value = if (filterCurrent) null else 1,
-                        onCheck = {
-                            if (filterCurrent) {
-                                callback.onMessage(queued.queued())
-                                job.cancel()
-                            }
-                        },
-                    )
-                val received = mutableListOf<Int>()
-                job =
-                    launch {
-                        acknowledgedMessageFlow<Int>(null) { registered ->
-                            ready.complete(registered)
-                            return@acknowledgedMessageFlow {}
-                        }.collect {
-                            received.add(it)
-                            handedOff.complete(Unit)
-                            releaseCollector.await()
-                        }
+            val entered = CompletableDeferred<Unit>()
+            val rows = mutableListOf(deliveryTestMessage(), deliveryTestMessage(id = "04".repeat(32)))
+            val reader = RecordingMessageReader { rows.removeFirstOrNull() }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            var received = 0
+            val closes = mutableListOf<SDKStreamCloseReason>()
+            val job =
+                launch {
+                    client.messages(onClose = { closes.add(it) }).collect {
+                        received++
+                        entered.complete(Unit)
+                        awaitCancellation()
                     }
-                callback = ready.await()
-                callback.onMessage(current.queued())
-                if (!filterCurrent) {
-                    handedOff.await()
-                    callback.onMessage(queued.queued())
-                    job.cancelAndJoin()
-                } else {
-                    job.join()
                 }
-                assertEquals(if (filterCurrent) emptyList<Int>() else listOf(1), received)
-                assertEquals(0, current.acknowledgements)
-                assertEquals(0, queued.acknowledgements)
-                assertEquals(1, current.rejections)
-                assertEquals(1, queued.rejections)
-            }
+            entered.await()
+            job.cancelAndJoin()
+            assertEquals(1, received)
+            assertEquals(1, reader.nextCalls)
+            assertEquals(1, rows.size)
+            assertEquals(1, reader.endCalls)
+            assertEquals(listOf(SDKStreamCloseReason.Closed), closes)
         }
 
-    // verifies: PROC-031
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
-    fun selectionChangeReselectsWithoutAcknowledgement() =
+    fun ownershipFailureClosesWithoutAnotherRead() =
         runBlocking {
-            for (value in listOf(1, null)) {
-                val ready = CompletableDeferred<MessageDeliveryCallback<Int>>()
-                val stale = Delivery(value = value, current = false)
-                val current = Delivery(2)
-                val received = mutableListOf<Int>()
-                val job =
-                    launch {
-                        acknowledgedMessageFlow<Int>(null) { callback ->
-                            ready.complete(callback)
-                            return@acknowledgedMessageFlow {}
-                        }.collect { received.add(it) }
-                    }
-                val callback = ready.await()
-                callback.onMessage(stale.queued())
-                stale.rejected.await()
-                callback.onMessage(current.queued())
-                current.acknowledged.await()
-                callback.onClose()
-                job.join()
-                assertEquals(listOf(2), received)
-                assertEquals(0, stale.acknowledgements)
-                assertEquals(1, stale.rejections)
-            }
+            val error =
+                XmtpException.ConsumerOwned(
+                    ErrorDetails("ConsumerOwned", ErrorCategory.STREAM, false, "ownership lost"),
+                )
+            val reader = RecordingMessageReader { throw error }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            var received = 0
+            val closes = mutableListOf<SDKStreamCloseReason>()
+            val failure =
+                runCatching {
+                    client
+                        .messages(
+                            onClose = { closes.add(it) },
+                        ).collect { received++ }
+                }.exceptionOrNull()
+            assertSame(error, failure)
+            assertEquals(0, received)
+            assertEquals(1, reader.nextCalls)
+            assertEquals(1, reader.endCalls)
+            assertSame(error, (closes.single() as SDKStreamCloseReason.Failed).error)
         }
 
-    // verifies: PROC-052
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun decodeFailuresContinueButCollectorFailureRejectsTheItem() =
         runBlocking {
-            val error = IllegalStateException("collector failed")
-            val pending = Delivery()
-            val failed =
-                runCatching {
-                    acknowledgedMessageFlow<Int>(null) { callback ->
-                        callback.onMessage(pending.queued())
-                        callback.onClose()
-                        return@acknowledgedMessageFlow {}
-                    }.collect { throw error }
-                }
-            assertSame(error, failed.exceptionOrNull())
-            assertEquals(0, pending.acknowledgements)
-            assertEquals(1, pending.rejections)
+            val raw = byteArrayOf(0x80.toByte())
+            val details = ErrorDetails("MalformedEnvelope", ErrorCategory.INPUT, false, "malformed")
+            val unknown = deliveryTestMessage(MessageContent.Unknown(null, raw, details), raw, "unreadable")
+            val later = deliveryTestMessage(MessageContent.Text("later"), id = "05".repeat(32))
+            val rows = mutableListOf(unknown, later)
+            val reader = RecordingMessageReader { rows.removeFirstOrNull() }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            val received = mutableListOf<Message>()
+            client.messages().collect { received.add(it) }
+            assertEquals(listOf(unknown, later), received)
+            val content = received.first().content as SDKMessageContent.Unknown
+            assertArrayEquals(raw, content.rawBytes)
+            assertEquals(details, content.error)
+            assertNull(content.encoded)
+            assertEquals("unreadable", received.first().fallback)
+            assertEquals(1, reader.endCalls)
 
-            val invalidEncoding =
-                TextCodec()
-                    .encode("hi")
-                    .toBuilder()
-                    .putParameters("encoding", "UTF-16")
-                    .setFallback("unreadable content")
-                    .build()
-            for ((content, expectedFallback) in listOf(
-                byteArrayOf(0x80.toByte()) to "",
-                invalidEncoding.toByteArray() to "unreadable content",
-            )) {
-                lateinit var failedMessage: DecodedMessage
-                val delivery =
-                    Delivery(decodeValue = {
-                        val decoded = DecodedMessage.createForDelivery(deliveryTestMessage(content), null)
-                        assertNotNull(decoded)
-                        assertNull(decoded!!.content<String>())
-                        failedMessage = decoded
-                        1
-                    })
-                val later =
-                    Delivery(decodeValue = {
-                        val decoded =
-                            DecodedMessage.createForDelivery(
-                                deliveryTestMessage(TextCodec().encode("later").toByteArray()),
-                                null,
-                            )
-                        assertEquals("later", decoded!!.content<String>())
-                        2
-                    })
-                val received = mutableListOf<Int>()
-                acknowledgedMessageFlow<Int>(null) { callback ->
-                    callback.onMessage(delivery.queued())
-                    launch {
-                        delivery.acknowledged.await()
-                        callback.onMessage(later.queued())
-                        later.acknowledged.await()
-                        callback.onClose()
-                    }
-                    return@acknowledgedMessageFlow {}
-                }.collect {
-                    if (it == 1) {
-                        assertEquals(expectedFallback, failedMessage.body)
-                        assertEquals(expectedFallback, failedMessage.fallback)
-                        assertEquals(
-                            if (expectedFallback.isEmpty()) EncodedContent.getDefaultInstance() else invalidEncoding,
-                            failedMessage.encodedContent,
-                        )
-                        assertEquals(0, delivery.acknowledgements)
-                    } else {
-                        assertEquals(1, delivery.acknowledgements)
-                        assertEquals(0, later.acknowledgements)
-                    }
-                    received.add(it)
-                }
-                assertEquals(listOf(1, 2), received)
-                assertEquals(1, delivery.acknowledgements)
-                assertEquals(1, later.acknowledgements)
-                assertEquals(0, delivery.rejections)
-                assertEquals(0, later.rejections)
-            }
+            val collectorError = IllegalStateException("collector failed")
+            val blocked = RecordingMessageReader { unknown }
+            val closes = mutableListOf<SDKStreamCloseReason>()
+            val blockedClient = testSDKClient(RecordingReaderClient { blocked })
+            assertSame(
+                collectorError,
+                runCatching {
+                    blockedClient.messages(onClose = { closes.add(it) }).collect { throw collectorError }
+                }.exceptionOrNull(),
+            )
+            assertEquals(1, blocked.nextCalls)
+            assertEquals(1, blocked.endCalls)
+            assertSame(collectorError, (closes.single() as SDKStreamCloseReason.Failed).error)
         }
 
-    // verifies: PROC-052
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun acknowledgementFailureStopsBeforeTheNextHandoff() =
         runBlocking {
-            for (value in listOf(1, null)) {
-                val error = IllegalStateException("acknowledgement failed")
-                val second = Delivery(2)
-                lateinit var callback: MessageDeliveryCallback<Int>
-                val first =
-                    Delivery(
-                        value = value,
-                        acknowledgeError = error,
-                        onCheck = { callback.onMessage(second.queued()) },
-                    )
-                val received = mutableListOf<Int>()
-                val result =
-                    runCatching {
-                        acknowledgedMessageFlow<Int>(null) {
-                            callback = it
-                            it.onMessage(first.queued())
-                            return@acknowledgedMessageFlow {}
-                        }.collect { received.add(it) }
-                    }
-                assertSame(error, result.exceptionOrNull())
-                assertEquals(listOfNotNull(value), received)
-                assertEquals(0, first.acknowledgements)
-                assertEquals(0, second.acknowledgements)
-                assertEquals(1, first.rejections)
-                assertEquals(1, second.rejections)
-            }
+            val error = streamFailure()
+            var reads = 0
+            val reader =
+                RecordingMessageReader {
+                    if (reads++ == 0) deliveryTestMessage() else throw error
+                }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            val received = mutableListOf<Message>()
+            val closes = mutableListOf<SDKStreamCloseReason>()
+            assertSame(
+                error,
+                runCatching {
+                    client.messages(onClose = { closes.add(it) }).collect { received.add(it) }
+                }.exceptionOrNull(),
+            )
+            assertEquals(1, received.size)
+            assertEquals(2, reader.nextCalls)
+            assertEquals(1, reader.endCalls)
+            assertSame(error, (closes.single() as SDKStreamCloseReason.Failed).error)
         }
 
-    // verifies: PROC-052
+    // The pull facade has no callback queue to overflow.
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
-    fun fullQueueRejectsBothItemsWithoutHandoff() =
+    fun pullReaderDoesNotPrefetchBeyondCollector() =
         runBlocking {
-            val first = Delivery()
-            val second = Delivery(2)
-            val received = mutableListOf<Int>()
-            val result =
-                runCatching {
-                    acknowledgedMessageFlow<Int>(null) { callback ->
-                        callback.onMessage(first.queued())
-                        callback.onMessage(second.queued())
-                        return@acknowledgedMessageFlow {}
-                    }.collect { received.add(it) }
+            val entered = CompletableDeferred<Unit>()
+            val pending = mutableListOf(deliveryTestMessage(), deliveryTestMessage(id = "06".repeat(32)))
+            val reader = RecordingMessageReader { pending.removeFirstOrNull() }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            val job =
+                launch {
+                    client.messages().collect {
+                        entered.complete(Unit)
+                        awaitCancellation()
+                    }
                 }
-            assertTrue(result.exceptionOrNull() is XMTPException)
-            assertTrue(received.isEmpty())
-            assertEquals(1, first.rejections)
-            assertEquals(1, second.rejections)
-            assertEquals(0, first.acknowledgements)
-            assertEquals(0, second.acknowledgements)
+            entered.await()
+            assertEquals(1, reader.nextCalls)
+            assertEquals(1, pending.size)
+            job.cancelAndJoin()
+            assertEquals(1, reader.endCalls)
+            assertEquals(1, pending.size)
         }
 
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun nativeErrorsReachTheCollector() =
         runBlocking {
-            val error = FfiException.Exception("native failure")
-            val result =
-                runCatching {
-                    acknowledgedMessageFlow<Int>(null) { callback ->
-                        callback.onError(error)
-                        return@acknowledgedMessageFlow {}
-                    }.collect {}
-                }
-            val received = result.exceptionOrNull()
-            assertTrue(received is FfiException.Exception)
-            assertEquals(error.message, received?.message)
+            val error = streamFailure()
+            val reader = RecordingMessageReader { throw error }
+            val client = testSDKClient(RecordingReaderClient { reader })
+            val received = runCatching { client.messages().collect {} }.exceptionOrNull()
+            assertSame(error, received)
+            assertEquals(ErrorCategory.STORAGE, (received as XmtpException.Storage).v1.category)
+            assertTrue(received.v1.retryable)
+            assertEquals(1, reader.endCalls)
         }
 }

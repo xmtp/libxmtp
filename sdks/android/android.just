@@ -22,15 +22,29 @@ lint: build
 
 # Format Kotlin code
 format:
-  ./gradlew -p . spotlessApply
+  ./gradlew -p . spotlessApply --dependency-verification=strict --no-daemon
 
-# Run unit tests
-test: build
-  {{ _env }} && ./gradlew -p . library:testDebugUnitTest
+# Stage the matched host library for JVM native calls.
+[private]
+_test-host:
+  env -u LD_LIBRARY_PATH nix build "{{ root }}#xmtp-sdk-libs" --out-link "{{ root }}/sdks/android/.build/test-host"
+
+# Run unit tests with the generated SDK and its matched host library.
+test: build _test-host
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest --dependency-verification=strict --no-daemon
+
+
+# Run unit tests against existing matched generated bindings.
+test-unit *args:
+  {{ _env }} && ./gradlew -p . library:testDebugUnitTest {{ args }} --dependency-verification=strict --no-daemon
 
 # Run integration tests (requires emulator)
 test-integration: build
-  {{ _env }} && run-test-emulator && ./gradlew -p . connectedCheck --continue
+  {{ _env }} && run-test-emulator && adb wait-for-device && adb reverse tcp:${XMTP_S3_PORT:-9067} tcp:${XMTP_S3_PORT:-9067} && ./gradlew -p . connectedCheck --continue
+
+# Check release JNI and timestamp desugaring on the supported API 23 runner.
+test-min-sdk:
+  ./dev/bindings --release && NIX_ANDROID_EMULATOR_API=23 run-test-emulator && ./gradlew -p . :library:assembleRelease :library:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=uniffi.xmtp_sdk.AndroidPackageTest\#generatedTimestampsLoadAndConvertWithDesugaring --dependency-verification strict --no-daemon
 
 # Generate the public Kotlin API reference.
 docs: build

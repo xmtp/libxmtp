@@ -13,6 +13,9 @@ pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String>
             _ => None,
         })
     {
+        if record.name == "Credential" {
+            output = credential_display(&output, record)?;
+        }
         if record.name == "StreamBarrierTopic" {
             output = topic_display(&output, record)?;
         }
@@ -34,6 +37,40 @@ pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String>
         let code = overrides(&record.name, &record.fields);
         output.insert_str(body, &code);
     }
+    Ok(output)
+}
+
+const CREDENTIAL_DISPLAY: &str = "    // Keep credential values out of diagnostic text.\n    override fun toString(): String = \"Credential(name=$name, value=<redacted>, expiresAtSeconds=$expiresAtSeconds)\"\n\n";
+
+fn credential_display(source: &str, record: &RecordMetadata) -> Result<String> {
+    if !matches!(record.fields.as_slice(), [name, value, expires]
+        if name.name == "name" && matches!(&name.ty, Type::Optional { inner_type } if matches!(inner_type.as_ref(), Type::String))
+            && value.name == "value" && value.ty == Type::String
+            && expires.name == "expires_at_seconds" && expires.ty == Type::Int64)
+    {
+        bail!("Credential: expected name, value and signed expiry fields");
+    }
+    let anchor = "data class Credential (";
+    if source.matches(anchor).count() != 1 {
+        bail!("Credential: expected one generated data class");
+    }
+    let start = source.find(anchor).expect("one admitted record");
+    let body = source[start..]
+        .find("){\n")
+        .map(|at| start + at + 3)
+        .context("Credential: generated record has no body")?;
+    if source[body..].starts_with(CREDENTIAL_DISPLAY) {
+        return Ok(source.to_owned());
+    }
+    let end = source[body..]
+        .find("\n}")
+        .map(|at| body + at)
+        .context("Credential: generated record has no end")?;
+    if source[body..end].contains("fun toString(") {
+        bail!("Credential: generated display already exists");
+    }
+    let mut output = source.to_owned();
+    output.insert_str(body, CREDENTIAL_DISPLAY);
     Ok(output)
 }
 
@@ -151,6 +188,44 @@ mod tests {
         assert!(code.contains("java.util.Arrays.equals(`content`, other.`content`)"));
         assert!(code.contains("java.util.Arrays.hashCode(`content`)"));
         assert!(code.contains("`id` == other.`id`"));
+    }
+    #[xmtp_common::test(unwrap_try = true)]
+    fn credential_display_redacts_only_value_and_rejects_template_drift() {
+        let field = |name: &str, ty| FieldMetadata {
+            name: name.into(),
+            orig_name: None,
+            ty,
+            default: None,
+            docstring: None,
+        };
+        let mut record = RecordMetadata {
+            module_path: "xmtp_sdk::credentials".into(),
+            name: "Credential".into(),
+            orig_name: None,
+            remote: false,
+            fields: vec![
+                field(
+                    "name",
+                    Type::Optional {
+                        inner_type: Box::new(Type::String),
+                    },
+                ),
+                field("value", Type::String),
+                field("expires_at_seconds", Type::Int64),
+            ],
+            docstring: None,
+        };
+        let source = "data class Credential (var name: String?, var value: String, var expiresAtSeconds: Long){\n\n}\n";
+        let rewritten = credential_display(source, &record)?;
+        assert!(rewritten.contains("name=$name"));
+        assert!(rewritten.contains("expiresAtSeconds=$expiresAtSeconds"));
+        assert!(rewritten.contains("value=<redacted>"));
+        assert!(!rewritten.contains("$value"));
+        assert!(rewritten.contains("var value: String"));
+        assert_eq!(credential_display(&rewritten, &record)?, rewritten);
+        assert!(credential_display(&source.replace("data class", "class"), &record).is_err());
+        record.fields[2].ty = Type::UInt64;
+        assert!(credential_display(source, &record).is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

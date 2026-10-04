@@ -6,11 +6,11 @@ import {
   runWithIdentity,
 } from "../../helpers.js";
 
-// ConsentState enum values from @xmtp/node-bindings (for conversation.consentState())
-const ConsentStateNumeric = {
-  Unknown: 0,
-  Allowed: 1,
-  Denied: 2,
+// The SDK returns consent as string values.
+const ConsentStates = {
+  Unknown: "unknown",
+  Allowed: "allowed",
+  Denied: "denied",
 } as const;
 
 describe("conversation consent-state", () => {
@@ -35,11 +35,11 @@ describe("conversation consent-state", () => {
 
     expect(result.exitCode).toBe(0);
 
-    const consent = parseJsonOutput<{ consentState: number }>(result.stdout);
+    const consent = parseJsonOutput<{ consentState: string }>(result.stdout);
     expect([
-      ConsentStateNumeric.Unknown,
-      ConsentStateNumeric.Allowed,
-      ConsentStateNumeric.Denied,
+      ConsentStates.Unknown,
+      ConsentStates.Allowed,
+      ConsentStates.Denied,
     ]).toContain(consent.consentState);
   });
 });

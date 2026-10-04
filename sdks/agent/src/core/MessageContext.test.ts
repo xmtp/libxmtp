@@ -1,38 +1,30 @@
-import {
-  encodeText,
-  type DecodedMessage,
-  type EnrichedReply,
-} from "@xmtp/node-sdk";
+import { encodeText, type MessageContent } from "@xmtp/node-sdk";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { MessageContext } from "@/core/MessageContext";
 import { createClient } from "@/util/test";
 
+import { MessageContext } from "./MessageContext";
 describe("MessageContext", () => {
-  it("should properly type the content when using reply as input", async () => {
+  it("keeps the reply body and parent in the native message", async () => {
     const client = await createClient();
     const group = await client.conversations.createGroup([]);
-    const messageId = await group.sendReply({
-      reference: "message-id",
-      referenceInboxId: "sender-inbox-id",
-      content: encodeText("This is a reply"),
-    });
-    const replyMessage = client.conversations.getMessageById(
-      messageId,
-    )! as DecodedMessage<EnrichedReply<string>>;
-    const messageContext = new MessageContext({
-      message: replyMessage,
-      conversation: group,
-      client,
-    });
-
-    const typedContext = messageContext as MessageContext<
-      EnrichedReply<string>
-    >;
-    expectTypeOf(typedContext.message.content).toEqualTypeOf<
-      EnrichedReply<string>
-    >();
-    const { content } = typedContext.message;
-    expect(content.content).toBe(replyMessage.content?.content);
+    const parent = await group.sendText("parent");
+    const id = await group.sendReply(
+      parent,
+      client.inboxId,
+      encodeText("reply"),
+      { shouldPush: false },
+    );
+    const message = (await client.conversations.getMessageById(id))!;
+    const ctx = new MessageContext({ message, conversation: group, client });
+    expect(ctx.isReply()).toBe(true);
+    if (ctx.isReply()) {
+      expectTypeOf(ctx.content).toEqualTypeOf<
+        Extract<MessageContent, { kind: "reply" }>
+      >();
+      expect(ctx.content.referenceId).toBe(parent);
+      expect(ctx.content.body).toEqual({ kind: "text", value: "reply" });
+    }
+    await client.end();
   });
 });

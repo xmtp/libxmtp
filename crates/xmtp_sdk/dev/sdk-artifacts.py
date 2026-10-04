@@ -113,11 +113,11 @@ def build_context():
             "CC",
             "CXX",
             "AR",
+            "RANLIB",
             "CFLAGS",
             "CXXFLAGS",
             "LDFLAGS",
             "PERL",
-            "RANLIB",
             "RANLIBFLAGS",
             "TARGET_RANLIB",
             "TARGET_RANLIBFLAGS",
@@ -139,8 +139,26 @@ def build_context():
         or "_OPENSSL_" in name
         or name.endswith("_DEPLOYMENT_TARGET")
     }
+    archive_indexes = {}
+    for name, value in flags.items():
+        if name == "RANLIB" or name.startswith("RANLIB_"):
+            tool = Path(shutil.which(value) or ROOT / value)
+            identity = {"path": str(tool.resolve()), "bytes": None, "version": None}
+            if tool.is_file():
+                identity["bytes"] = digest(tool.resolve())
+                probe = subprocess.run(
+                    [str(tool), "--version"], cwd=ROOT, capture_output=True, check=False
+                )
+                identity["version"] = [
+                    probe.returncode,
+                    probe.stdout.decode(errors="replace"),
+                    probe.stderr.decode(errors="replace"),
+                ]
+            archive_indexes[name] = identity
     return hashlib.sha256(
-        json.dumps([compiler, compiler_bytes, flags], sort_keys=True).encode()
+        json.dumps(
+            [compiler, compiler_bytes, flags, archive_indexes], sort_keys=True
+        ).encode()
     ).hexdigest()
 
 
@@ -223,13 +241,14 @@ def build(args):
             continue
         cargo_target = output / "build" / kind
         command = [
-            "dev/agent-run",
             "cargo",
             "build",
             "--locked",
             "-p",
             "xmtp-sdk-bindgen" if kind == "bindgen" else "xmtp_sdk",
         ]
+        if sys.platform != "win32":
+            command.insert(0, "dev/agent-run")
         if profile == "release":
             command += ["--release"]
         if features:

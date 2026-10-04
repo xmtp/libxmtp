@@ -1,19 +1,13 @@
 import {
   Dm,
+  ConversationStream,
+  type MessageContent,
   encodeText,
-  isGroupUpdated,
-  isReply,
-  ReactionAction,
-  ReactionSchema,
-  SortDirection,
-  type BuiltInContentTypes,
   type Client,
-  type EnrichedReply,
   type Group,
   type GroupUpdated,
   type Reaction,
   type RemoteAttachment,
-  type Reply,
 } from "@xmtp/node-sdk";
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
@@ -39,7 +33,7 @@ const textOrReplyOnly: AgentMiddleware = async (context, next) => {
 };
 
 describe("Agent", () => {
-  let agent: Agent<BuiltInContentTypes>;
+  let agent: Agent<unknown>;
   let client: Client;
 
   beforeEach(async () => {
@@ -51,63 +45,65 @@ describe("Agent", () => {
 
   describe("types", () => {
     it("infers additional content types from given codecs", () => {
-      expectTypeOf(agent).toEqualTypeOf<Agent<BuiltInContentTypes>>();
+      expectTypeOf(agent).toEqualTypeOf<Agent<unknown>>();
     });
 
     it("types the content in message event listener", () => {
       agent.on("unknownMessage", (ctx) => {
-        expectTypeOf(ctx).toEqualTypeOf<
-          MessageContext<unknown, BuiltInContentTypes>
-        >();
+        expectTypeOf(ctx).toEqualTypeOf<MessageContext<unknown, unknown>>();
       });
     });
 
     it("types content for 'attachment' events", () => {
       agent.on("attachment", (ctx) => {
-        expectTypeOf(ctx.message.content).toEqualTypeOf<RemoteAttachment>();
+        expectTypeOf(ctx.content).toEqualTypeOf<RemoteAttachment>();
       });
     });
 
     it("types content for 'text' events", () => {
       agent.on("text", (ctx) => {
-        expectTypeOf(ctx.message.content).toEqualTypeOf<string>();
+        expectTypeOf(ctx.content).toEqualTypeOf<string>();
       });
     });
 
     it("types content for 'reaction' events", () => {
       agent.on("reaction", (ctx) => {
-        expectTypeOf(ctx.message.content).toEqualTypeOf<Reaction>();
+        expectTypeOf(ctx.content).toEqualTypeOf<Reaction>();
       });
     });
 
     it("types content for 'reply' events", () => {
       agent.on("reply", (ctx) => {
-        expectTypeOf(ctx.message.content).toEqualTypeOf<EnrichedReply>();
+        expectTypeOf(ctx.content).toEqualTypeOf<
+          Extract<MessageContent, { kind: "reply" }>
+        >();
       });
     });
 
     it("types content for 'group-update' events", () => {
       agent.on("group-update", (ctx) => {
-        expectTypeOf(ctx.message.content).toEqualTypeOf<GroupUpdated>();
+        expectTypeOf(ctx.content).toEqualTypeOf<GroupUpdated>();
       });
     });
 
     it("should have proper types when using type predicates in 'unknownMessage' event", () => {
       agent.on("unknownMessage", (ctx) => {
         if (ctx.isText()) {
-          expectTypeOf(ctx.message.content).toEqualTypeOf<string>();
+          expectTypeOf(ctx.content).toEqualTypeOf<string>();
         }
 
         if (ctx.isReply()) {
-          expectTypeOf(ctx.message.content).toEqualTypeOf<Reply>();
+          expectTypeOf(ctx.content).toEqualTypeOf<
+            Extract<MessageContent, { kind: "reply" }>
+          >();
         }
 
         if (ctx.isReaction()) {
-          expectTypeOf(ctx.message.content).toEqualTypeOf<Reaction>();
+          expectTypeOf(ctx.content).toEqualTypeOf<Reaction>();
         }
 
         if (ctx.isRemoteAttachment()) {
-          expectTypeOf(ctx.message.content).toEqualTypeOf<RemoteAttachment>();
+          expectTypeOf(ctx.content).toEqualTypeOf<RemoteAttachment>();
         }
       });
     });
@@ -115,28 +111,24 @@ describe("Agent", () => {
     it("should have proper types when using type predicates in 'conversation' event", () => {
       agent.on("conversation", (ctx) => {
         if (ctx.isDm()) {
-          expectTypeOf(ctx.conversation).toEqualTypeOf<
-            Dm<BuiltInContentTypes>
-          >();
+          expectTypeOf(ctx.conversation).toEqualTypeOf<Dm>();
         }
 
         if (ctx.isGroup()) {
-          expectTypeOf(ctx.conversation).toEqualTypeOf<
-            Group<BuiltInContentTypes>
-          >();
+          expectTypeOf(ctx.conversation).toEqualTypeOf<Group>();
         }
       });
     });
 
     it("types content for 'start' events", () => {
       agent.on("start", (ctx) => {
-        expectTypeOf(ctx).toEqualTypeOf<ClientContext<BuiltInContentTypes>>();
+        expectTypeOf(ctx).toEqualTypeOf<ClientContext<unknown>>();
       });
     });
 
     it("types content for 'stop' events", () => {
       agent.on("stop", (ctx) => {
-        expectTypeOf(ctx).toEqualTypeOf<ClientContext<BuiltInContentTypes>>();
+        expectTypeOf(ctx).toEqualTypeOf<ClientContext<unknown>>();
       });
     });
   });
@@ -159,13 +151,11 @@ describe("Agent", () => {
 
     it("requires an explicit start after a startup failure", async () => {
       const startupError = new Error("Stream setup failed");
-      const originalStream = client.conversations.stream.bind(
-        client.conversations,
-      );
+      const originalStream = ConversationStream.open;
       let callCount = 0;
       const streamSpy = vi
-        .spyOn(client.conversations, "stream")
-        .mockImplementation(async (...args) => {
+        .spyOn(ConversationStream, "open")
+        .mockImplementation((...args) => {
           callCount++;
           if (callCount === 1) {
             throw startupError;
@@ -240,22 +230,19 @@ describe("Agent", () => {
       expect(agentDm.id).toBe(dm.id);
       const messageId = await agentDm.sendText("gm");
 
-      await agentDm.sendReaction({
-        action: ReactionAction.Added,
-        schema: ReactionSchema.Unicode,
+      await agentDm.sendReaction(messageId, client.inboxId, {
+        action: "added",
+        schema: "unicode",
         content: "👍",
-        reference: messageId,
-        referenceInboxId: client.inboxId,
       });
 
-      const reactionId = await dm.sendReaction({
-        action: ReactionAction.Added,
-        schema: ReactionSchema.Unicode,
+      const reactionId = await dm.sendReaction(messageId, client.inboxId, {
+        action: "added",
+        schema: "unicode",
         content: "👍",
-        reference: messageId,
-        referenceInboxId: client.inboxId,
       });
-      const reaction = agent.client.conversations.getMessageById(reactionId)!;
+      const reaction =
+        (await agent.client.conversations.getMessageById(reactionId))!;
 
       await waitForNetwork(() => {
         expect(
@@ -293,16 +280,16 @@ describe("Agent", () => {
       ]);
       await group.addAdmin(client.inboxId);
       await agent.client.conversations.sync();
-      const agentGroup = await agent.client.conversations.getConversationById(
-        group.id,
-      );
+      const agentGroup = await agent.client.conversations.getById(group.id);
       expect(agentGroup).toBeDefined();
       await agentGroup!.sync();
       const messages = await agentGroup!.messages({
-        direction: SortDirection.Ascending,
+        direction: "ascending",
       });
       expect(messages).toHaveLength(2);
-      expect(messages.every(isGroupUpdated)).toBe(true);
+      expect(
+        messages.every((message) => message.content.kind === "groupUpdated"),
+      ).toBe(true);
 
       await waitForNetwork(() => {
         expect(receivedIds).toEqual(messages.map(({ id }) => id));
@@ -344,31 +331,31 @@ describe("Agent", () => {
       ]);
       await group.addAdmin(client.inboxId);
       await agent.client.conversations.sync();
-      const agentGroup = await agent.client.conversations.getConversationById(
-        group.id,
-      );
+      const agentGroup = await agent.client.conversations.getById(group.id);
       expect(agentGroup).toBeDefined();
       await agentGroup!.sync();
       const setupMessages = await agentGroup!.messages({
-        direction: SortDirection.Ascending,
+        direction: "ascending",
       });
       expect(setupMessages).toHaveLength(2);
-      expect(setupMessages.every(isGroupUpdated)).toBe(true);
+      expect(
+        setupMessages.every(
+          (message) => message.content.kind === "groupUpdated",
+        ),
+      ).toBe(true);
       const setupIds = setupMessages.map(({ id }) => id);
 
       const messageId = await group.sendText("gm");
-      const reactionId = await group.sendReaction({
-        action: ReactionAction.Added,
-        schema: ReactionSchema.Unicode,
+      const reactionId = await group.sendReaction(messageId, client.inboxId, {
+        action: "added",
+        schema: "unicode",
         content: "👍",
-        reference: messageId,
-        referenceInboxId: client.inboxId,
       });
-      const replyId = await group.sendReply({
-        content: encodeText("gm"),
-        reference: messageId,
-        referenceInboxId: client.inboxId,
-      });
+      const replyId = await group.sendReply(
+        messageId,
+        client.inboxId,
+        encodeText("gm"),
+      );
 
       await waitForNetwork(() => {
         expect(receivedIds).toEqual([
@@ -588,7 +575,7 @@ describe("Agent", () => {
 
       const filterReply = vi.fn<AgentMiddleware>(async ({ message }, next) => {
         middlewareCalls.push("filterReply-" + message.id);
-        if (isReply(message)) {
+        if (message.content.kind === "reply") {
           return;
         }
         await next();
@@ -606,11 +593,11 @@ describe("Agent", () => {
       const otherClient = await createClient();
       const dm = await otherClient.conversations.createDm(client.inboxId);
       const messageId1 = await dm.sendText("Hello world");
-      const messageId2 = await dm.sendReply({
-        content: encodeText("Hello world"),
-        reference: messageId1,
-        referenceInboxId: client.inboxId,
-      });
+      const messageId2 = await dm.sendReply(
+        messageId1,
+        client.inboxId,
+        encodeText("Hello world"),
+      );
 
       await waitForNetwork(() => {
         expect(middlewareCalls).toEqual([
@@ -647,7 +634,7 @@ describe("Agent", () => {
         const messages = await dm.messages();
         const message = messages[2]!;
         expect(message.senderInboxId).toBe(client.inboxId);
-        expect(message.content).toBe("gm");
+        expect(message.content).toEqual({ kind: "text", value: "gm" });
       });
     });
   });
@@ -665,18 +652,21 @@ describe("Agent", () => {
   });
 
   describe("create", () => {
-    it("should reject agent creation without backendUrl", async () => {
+    it("should reject an invalid backend URL", async () => {
       const signer = createSigner(createUser());
-      // @ts-expect-error A backend URL is required, including for JavaScript callers.
-      await expect(Agent.create(signer, { dbPath: null })).rejects.toThrow(
-        "backendUrl is required",
-      );
+      await expect(
+        Agent.create(signer, {
+          backend: { url: " " },
+          storage: { location: "inMemory" },
+        }),
+      ).rejects.toThrow("relative URL without a base");
     });
 
     it("should set appVersion to include package version by default", async () => {
       const signer = createSigner(createUser());
       const agent = await Agent.create(signer, {
-        backendUrl: process.env.XMTP_BACKEND_URL!,
+        backend: { url: process.env.XMTP_BACKEND_URL! },
+        storage: { location: "inMemory" },
       });
       expect(agent.client.appVersion).toBe(`agent-sdk/${appVersion}`);
     });
@@ -685,8 +675,11 @@ describe("Agent", () => {
       const signer = createSigner(createUser());
       const customVersion = "custom-app/1.0.0";
       const agent = await Agent.create(signer, {
-        backendUrl: process.env.XMTP_BACKEND_URL!,
-        appVersion: customVersion,
+        backend: {
+          url: process.env.XMTP_BACKEND_URL!,
+          appVersion: customVersion,
+        },
+        storage: { location: "inMemory" },
       });
       expect(agent.client.appVersion).toBe(customVersion);
     });

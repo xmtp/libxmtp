@@ -2,302 +2,138 @@ import {
   createClient,
   createRegisteredClient,
   createSigner,
-  sleep,
 } from "@test/helpers";
-import {
-  ConsentEntityType,
-  ConsentState,
-  type Consent,
-  type UserPreferenceUpdate,
-} from "@xmtp/node-bindings";
+import { type ClientEvent, type ConsentRecord } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { uuid } from "@/utils/uuid";
-
-// Preference updates propagate through background sync-group workers;
-// poll until the expected state appears instead of pacing with fixed
-// sleeps — a fixed sleep loses the race on loaded CI runners.
-const WAIT = { timeout: 30_000, interval: 1000 };
-
+const WAIT = { timeout: 30_000, interval: 100 };
 describe("Preferences", () => {
-  it("should return the correct inbox state", async () => {
-    const { signer } = createSigner();
+  it("reads local and remote inbox identity states", async () => {
+    const { signer, identifier } = createSigner();
     const client = await createRegisteredClient(signer);
-    const inboxState = await client.preferences.inboxState();
-    expect(inboxState.inboxId).toBe(client.inboxId);
-    expect(inboxState.installations.map((install) => install.id)).toEqual([
+    const local = await client.inboxState(false);
+    expect(local.inboxId).toBe(client.inboxId);
+    expect(local.installations.map((i) => i.id)).toEqual([
       client.installationId,
     ]);
-    expect(inboxState.identifiers).toEqual([await signer.getIdentifier()]);
-    expect(inboxState.recoveryIdentifier).toStrictEqual(
-      await signer.getIdentifier(),
+    expect(local.identities).toEqual([identifier]);
+    expect(local.recoveryIdentity).toEqual(identifier);
+    const other = await createClient(createSigner().signer);
+    const [remote] = await other.inboxStates([client.inboxId], true);
+    expect(remote).toEqual(local);
+  });
+  it("reads each selected inbox", async () => {
+    const first = await createRegisteredClient(createSigner().signer);
+    const second = await createRegisteredClient(createSigner().signer);
+    const states = await first.inboxStates(
+      [first.inboxId, second.inboxId],
+      true,
     );
-
-    const { signer: signer2 } = createSigner();
-    const client2 = await createClient(signer2);
-    const inboxStates = await client2.preferences.fetchInboxStates([
-      client.inboxId,
-    ]);
-    const inboxState2 = inboxStates[0];
-    expect(inboxState2.inboxId).toBe(client.inboxId);
-    expect(inboxState.installations.length).toBe(1);
-    expect(inboxState.installations[0].id).toBe(client.installationId);
-    expect(inboxState2.identifiers).toEqual([await signer.getIdentifier()]);
-    expect(inboxState2.recoveryIdentifier).toStrictEqual(
-      await signer.getIdentifier(),
+    expect(states.map((s) => s.inboxId).sort()).toEqual(
+      [first.inboxId, second.inboxId].sort(),
     );
-  });
-
-  it("should get inbox states from inbox IDs", async () => {
-    const { signer } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client = await createRegisteredClient(signer);
-    const client2 = await createRegisteredClient(signer2);
-    const inboxStates = await client.preferences.getInboxStates([
-      client.inboxId,
-    ]);
-    expect(inboxStates.length).toBe(1);
-    expect(inboxStates[0].inboxId).toBe(client.inboxId);
-    expect(inboxStates[0].identifiers).toEqual([await signer.getIdentifier()]);
-
-    const inboxStates2 = await client2.preferences.fetchInboxStates([
-      client2.inboxId,
-    ]);
-    expect(inboxStates2.length).toBe(1);
-    expect(inboxStates2[0].inboxId).toBe(client2.inboxId);
-    expect(inboxStates2[0].identifiers).toEqual([
-      await signer2.getIdentifier(),
-    ]);
-  });
-
-  it("should manage consent states", async () => {
-    const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
-    const group = await client1.conversations.createGroup([client2.inboxId]);
-
-    await client2.conversations.sync();
-    const group2 = await client2.conversations.getConversationById(group.id);
-
-    expect(group2).not.toBeNull();
-
     expect(
-      await client2.preferences.getConsentState(
-        ConsentEntityType.GroupId,
-        group2!.id,
-      ),
-    ).toBe(ConsentState.Unknown);
-
-    await client2.preferences.setConsentStates([
-      {
-        entityType: ConsentEntityType.GroupId,
-        entity: group2!.id,
-        state: ConsentState.Allowed,
-      },
-    ]);
-
-    expect(
-      await client2.preferences.getConsentState(
-        ConsentEntityType.GroupId,
-        group2!.id,
-      ),
-    ).toBe(ConsentState.Allowed);
-
-    expect(group2!.consentState()).toBe(ConsentState.Allowed);
-
-    group2!.updateConsentState(ConsentState.Denied);
-
-    expect(
-      await client2.preferences.getConsentState(
-        ConsentEntityType.GroupId,
-        group2!.id,
-      ),
-    ).toBe(ConsentState.Denied);
+      states.find((s) => s.inboxId === second.inboxId)?.identities,
+    ).toEqual([second.identity]);
   });
-
-  it("should stream consent updates", async () => {
-    const { signer } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client = await createRegisteredClient(signer);
-    const client2 = await createRegisteredClient(signer2);
-    const group = await client.conversations.createGroup([client2.inboxId]);
-    const stream = await client.preferences.streamConsent();
-
-    // Consume the stream in the background. Background workers can emit
-    // their own consent batches at any time, so batch counts and indices
-    // aren't stable — wait for and assert on the content of the updates
-    // we issue instead.
-    const batches: Consent[][] = [];
+  it("shares consent between preferences and the conversation state", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    const group = await client.conversations.createGroup([]);
+    const entity = { kind: "conversation" as const, conversationId: group.id };
+    await client.preferences.setConsentStates([{ entity, state: "allowed" }]);
+    expect(await client.preferences.consentState(entity)).toBe("allowed");
+    expect((await group.state()).common.consentState).toBe("allowed");
+    await group.updateConsentState("denied");
+    expect(await client.preferences.consentState(entity)).toBe("denied");
+  });
+  it("delivers every consent change from a multi-record update", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    const peer = await createRegisteredClient(createSigner().signer);
+    const group = await client.conversations.createGroup([peer.inboxId]);
+    const events = await client.events({
+      kinds: ["consent.changed"],
+      referencesOwnMessages: false,
+    });
+    const seen: ClientEvent[] = [];
     const consumed = (async () => {
-      for await (const updates of stream) {
-        batches.push(updates);
-      }
+      for await (const event of events) seen.push(event);
     })();
-
-    const observed = (
-      entityType: ConsentEntityType,
-      entity: string,
-      state: ConsentState,
-    ) =>
-      batches
-        .flat()
-        .some(
-          (u) =>
-            u.entityType === entityType &&
-            u.entity === entity &&
-            u.state === state,
-        );
-
-    group.updateConsentState(ConsentState.Denied);
-    await vi.waitFor(
-      () =>
-        expect(
-          observed(ConsentEntityType.GroupId, group.id, ConsentState.Denied),
-        ).toBe(true),
-      WAIT,
-    );
-
-    await client.preferences.setConsentStates([
-      {
-        entity: group.id,
-        entityType: ConsentEntityType.GroupId,
-        state: ConsentState.Allowed,
-      },
-    ]);
-    await vi.waitFor(
-      () =>
-        expect(
-          observed(ConsentEntityType.GroupId, group.id, ConsentState.Allowed),
-        ).toBe(true),
-      WAIT,
-    );
-
-    await client.preferences.setConsentStates([
-      {
-        entity: group.id,
-        entityType: ConsentEntityType.GroupId,
-        state: ConsentState.Denied,
-      },
-      {
-        entity: client2.inboxId,
-        entityType: ConsentEntityType.InboxId,
-        state: ConsentState.Allowed,
-      },
-    ]);
-    // the two-entry update is delivered together in a single batch
-    await vi.waitFor(
-      () =>
-        expect(
-          batches.some(
-            (b) =>
-              b.some(
-                (u) =>
-                  u.entityType === ConsentEntityType.GroupId &&
-                  u.entity === group.id &&
-                  u.state === ConsentState.Denied,
-              ) &&
-              b.some(
-                (u) =>
-                  u.entityType === ConsentEntityType.InboxId &&
-                  u.entity === client2.inboxId &&
-                  u.state === ConsentState.Allowed,
-              ),
-          ),
-        ).toBe(true),
-      WAIT,
-    );
-
-    await stream.end();
-    await consumed;
-  });
-
-  it("should stream preferences", async () => {
-    const { signer } = createSigner();
-    const client1 = await createRegisteredClient(signer);
-    const { signer: signer2 } = createSigner();
-    const clientB = await createRegisteredClient(signer2);
-    const group = await client1.conversations.createGroup([clientB.inboxId]);
-    const stream = await client1.preferences.streamPreferences();
-
-    group.updateConsentState(ConsentState.Denied);
-    await client1.preferences.setConsentStates([
-      {
-        entity: clientB.inboxId,
-        entityType: ConsentEntityType.InboxId,
-        state: ConsentState.Denied,
-      },
-    ]);
-
-    const client2 = await createRegisteredClient(signer, {
-      dbPath: `./test-${uuid()}.db3`,
-    });
-
-    const client3 = await createRegisteredClient(signer, {
-      dbPath: `./test-${uuid()}.db3`,
-    });
-
-    // This test's exact-count assertion depends on the precise sync cadence
-    // below: fewer cycles under-deliver, extra cycles make the workers emit
-    // additional preference updates. Keep the original fixed pacing.
-    await client3.conversations.syncAll();
-    await sleep(1000);
-    await client1.conversations.syncAll();
-    await sleep(1000);
-    await client2.conversations.syncAll();
-    await sleep(1000);
-
-    const preferences: UserPreferenceUpdate[] = [];
-
-    // Safety net: end the stream if the expected updates never arrive, so the
-    // assertion below fails clearly instead of the test hanging until timeout.
-    // The HmacKeyUpdate events depend on network propagation, so we collect
-    // until we have all 4 expected updates rather than ending on a fixed timer.
-    const endTimeout = setTimeout(() => {
-      void stream.end();
-    }, 10000);
-
-    for await (const update of stream) {
-      preferences.push(...update);
-      if (preferences.length >= 4) {
-        break;
-      }
+    try {
+      await group.updateConsentState("denied");
+      await vi.waitFor(
+        () =>
+          expect(seen).toContainEqual({
+            kind: "consent.changed",
+            entityKind: "conversation",
+            entity: group.id,
+            state: "denied",
+          }),
+        WAIT,
+      );
+      const records: ConsentRecord[] = [
+        {
+          entity: { kind: "conversation", conversationId: group.id },
+          state: "allowed",
+        },
+        { entity: { kind: "inbox", inboxId: peer.inboxId }, state: "denied" },
+      ];
+      await client.preferences.setConsentStates(records);
+      await vi.waitFor(() => {
+        expect(seen).toContainEqual({
+          kind: "consent.changed",
+          entityKind: "conversation",
+          entity: group.id,
+          state: "allowed",
+        });
+        expect(seen).toContainEqual({
+          kind: "consent.changed",
+          entityKind: "inbox",
+          entity: peer.inboxId,
+          state: "denied",
+        });
+      }, WAIT);
+    } finally {
+      await events.return();
+      await consumed;
     }
-    clearTimeout(endTimeout);
-    await stream.end();
-
-    expect(preferences.length).toBe(4);
-    const consentUpdate1 = preferences[0] as Extract<
-      UserPreferenceUpdate,
-      { type: "ConsentUpdate" }
-    >;
-    expect(consentUpdate1.type).toBe("ConsentUpdate");
-    expect(consentUpdate1.consent).toEqual({
-      entity: group.id,
-      entityType: ConsentEntityType.GroupId,
-      state: ConsentState.Denied,
+  });
+  it("reports HMAC updates from new installations and exposes current keys", async () => {
+    const { signer } = createSigner();
+    const client = await createRegisteredClient(signer, { deviceSync: true });
+    const peer = await createRegisteredClient(createSigner().signer);
+    const group = await client.conversations.createGroup([peer.inboxId]);
+    const events = await client.events({
+      kinds: ["consent.changed", "hmac_keys.updated"],
+      referencesOwnMessages: false,
     });
-    const consentUpdate2 = preferences[1] as Extract<
-      UserPreferenceUpdate,
-      { type: "ConsentUpdate" }
-    >;
-    expect(consentUpdate2.type).toBe("ConsentUpdate");
-    expect(consentUpdate2.consent).toEqual({
-      entity: clientB.inboxId,
-      entityType: ConsentEntityType.InboxId,
-      state: ConsentState.Denied,
-    });
-    const hmacKeyUpdate1 = preferences[2] as Extract<
-      UserPreferenceUpdate,
-      { type: "HmacKeyUpdate" }
-    >;
-    expect(hmacKeyUpdate1.type).toBe("HmacKeyUpdate");
-    expect(hmacKeyUpdate1.key).toBeInstanceOf(Uint8Array);
-    const hmacKeyUpdate2 = preferences[3] as Extract<
-      UserPreferenceUpdate,
-      { type: "HmacKeyUpdate" }
-    >;
-    expect(hmacKeyUpdate2.type).toBe("HmacKeyUpdate");
-    expect(hmacKeyUpdate2.key).toBeInstanceOf(Uint8Array);
+    const seen: ClientEvent[] = [];
+    const consumed = (async () => {
+      for await (const event of events) seen.push(event);
+    })();
+    try {
+      await group.updateConsentState("denied");
+      const second = await createRegisteredClient(signer, { deviceSync: true });
+      const third = await createRegisteredClient(signer, { deviceSync: true });
+      await vi.waitFor(async () => {
+        await client.conversations.syncAll(undefined);
+        await second.conversations.syncAll(undefined);
+        await third.conversations.syncAll(undefined);
+        expect(seen.some((e) => e.kind === "hmac_keys.updated")).toBe(true);
+      }, WAIT);
+      expect(seen).toContainEqual({
+        kind: "consent.changed",
+        entityKind: "conversation",
+        entity: group.id,
+        state: "denied",
+      });
+      await group.updateConsentState("allowed");
+      const keys = await client.conversations.hmacKeys();
+      expect(keys.get(group.id)?.length).toBeGreaterThan(0);
+      for (const key of keys.get(group.id)!)
+        expect(key.key).toBeInstanceOf(Uint8Array);
+    } finally {
+      await events.return();
+      await consumed;
+    }
   });
 });

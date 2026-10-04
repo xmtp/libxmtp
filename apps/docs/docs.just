@@ -4,7 +4,7 @@ root := justfile_directory()
 
 set shell := ["../../dev/nix-shell"]
 
-# Stage each SDK product selected by its source manifest.
+# Stage the selected local SDK products before docs package tasks.
 sdk-products:
     ../../dev/js/sdk-stage node
     ../../dev/js/sdk-stage browser

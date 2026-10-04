@@ -17,8 +17,8 @@ export async function getAgent() {
   const agent = process.env.XMTP_WALLET_KEY
     ? await Agent.createFromEnv()
     : await Agent.create(createSigner(createUser()), {
-        backendUrl,
-        dbPath: null,
+        backend: { url: backendUrl },
+        storage: { location: "inMemory" },
       });
 
   agent.on("start", (ctx) => {

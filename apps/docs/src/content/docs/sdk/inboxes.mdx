@@ -106,9 +106,9 @@ Static state lookup and revocation can run without a logged-in client. Browser a
 
 ```kotlin
 val state = client.inboxState(refreshFromNetwork = true)
-val states = Client.inboxStatesForInboxIds(inboxIds, api)
-client.revokeInstallations(installationIds)
-client.revokeAllOtherInstallations()
+val states = SDKClient.inboxStates(inboxIds, backend)
+client.revokeInstallations(signer, installationIds)
+client.revokeAllOtherInstallations(signer)
 ```
 
 </TabItem>
@@ -116,9 +116,9 @@ client.revokeAllOtherInstallations()
 
 ```swift
 let state = try await client.inboxState(refreshFromNetwork: true)
-let states = try await Client.inboxStatesForInboxIds(inboxIds: inboxIds, api: api)
-try await client.revokeInstallations(installationIds: installationIds)
-try await client.revokeAllOtherInstallations()
+let states = try await SDKClient.inboxStates(inboxIds, backend: backend)
+try await client.revokeInstallations(signer: signer, ids: installationIds)
+try await client.revokeAllOtherInstallations(signer: signer)
 ```
 
 </TabItem>

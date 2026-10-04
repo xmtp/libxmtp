@@ -50,6 +50,28 @@
 
       # Per-target dylibs keyed by config name
       androidDylibs = lib.mapAttrs (_: p: (mkAndroidBindings p { }).dylib) crossPkgs;
+      sdkDylibs = lib.mapAttrs (
+        _: p: p.callPackage ./package/xmtp-sdk-native.nix { android = true; }
+      ) crossPkgs;
+      generatedKotlin = "${self.packages.${system}.xmtp-sdk-generated}/kotlin";
+      sdkSources =
+        map
+          (name: {
+            inherit name;
+            path = "${generatedKotlin}/${name}";
+          })
+          [
+            "uniffi"
+            "runtime"
+            "android"
+            "sdk-contract.json"
+          ];
+      sdkLibraries =
+        targets:
+        lib.mapAttrsToList (config: dylib: {
+          name = "jniLibs/${configToAbi.${config}}/libxmtp_sdk.so";
+          path = "${dylib}/lib/libxmtp_sdk.so";
+        }) targets;
 
       # Kotlin bindings from host build
       inherit (mkAndroidBindings pkgs { }) kotlin-bindings;
@@ -64,6 +86,11 @@
 
       fastTarget = androidTargets.${fastAbi};
       fastDylib = androidDylibs.${fastTarget.config};
+
+      android-sdk-libs-fast = pkgs.linkFarm "xmtp-sdk-android-fast" (
+        sdkSources ++ sdkLibraries { ${fastTarget.config} = sdkDylibs.${fastTarget.config}; }
+      );
+      android-sdk-libs = pkgs.linkFarm "xmtp-sdk-android" (sdkSources ++ sdkLibraries sdkDylibs);
 
       android-libs-fast = pkgs.linkFarm "xmtpv3-android-fast" [
         {
@@ -100,11 +127,17 @@
     in
     {
       packages = {
-        inherit android-libs android-libs-fast kotlin-bindings;
+        inherit
+          android-libs
+          android-libs-fast
+          kotlin-bindings
+          android-sdk-libs
+          android-sdk-libs-fast
+          ;
       }
       // lib.mapAttrs' (config: crossPkgs: {
         name = "xmtp-sdk-android-${configToAbi.${config}}";
-        value = crossPkgs.callPackage ./package/xmtp-sdk-native.nix { android = true; };
+        value = sdkDylibs.${config};
       }) crossPkgs
       // lib.mapAttrs' (config: dylib: {
         name = "android-bindings-${configToAbi.${config}}";

@@ -1,6 +1,6 @@
 import { setTimeout } from "node:timers/promises";
 
-import { flushTelemetry, LogLevel } from "@xmtp/node-sdk";
+import { flushTelemetry, initLogging, MessageStream } from "@xmtp/node-sdk";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { Agent } from "@/core/Agent";
@@ -15,8 +15,8 @@ const TOXIC_BACKEND_URL =
   process.env.XMTP_BACKEND_TOXIC_URL ?? "http://localhost:6010";
 
 const traceEndpoint = process.env.XMTP_RECOVERY_TRACE_ENDPOINT;
-afterAll(() => {
-  if (traceEndpoint) flushTelemetry();
+afterAll(async () => {
+  if (traceEndpoint) await flushTelemetry();
 });
 
 const DELIVERY_WAIT = { timeout: 30_000, interval: 100 };
@@ -62,24 +62,19 @@ async function blackHole(enabled: boolean) {
 
 export async function createToxicAgent() {
   await enableBackend(true);
+  if (traceEndpoint)
+    await initLogging({
+      level: "info",
+      otel: {
+        endpoint: traceEndpoint,
+        serviceName: "xmtp-agent-recovery",
+        sampleRatio: 1,
+      },
+    });
   return Agent.create(createSigner(createUser()), {
-    backendUrl: TOXIC_BACKEND_URL,
-    env: "local",
-    dbPath: null,
-    disableDeviceSync: true,
-    ...(traceEndpoint
-      ? {
-          loggingLevel: LogLevel.Info,
-          stdoutLoggingLevel: LogLevel.Off,
-          otelEndpoint: traceEndpoint,
-          otelServiceName: "xmtp-agent-recovery",
-          otelSampleRatio: 1,
-          resourceAttributes: {
-            "xmtp.recovery.run":
-              process.env.XMTP_RECOVERY_TRACE_RUN ?? "agent-recovery",
-          },
-        }
-      : {}),
+    backend: { url: TOXIC_BACKEND_URL },
+    storage: { location: "inMemory" },
+    deviceSync: false,
   });
 }
 
@@ -145,9 +140,7 @@ describe("Agent reconnect", () => {
     const sender = await createClient();
     const receivedIds: string[] = [];
     const replies: string[] = [];
-    let replyStream:
-      | Awaited<ReturnType<typeof sender.conversations.streamAllMessages>>
-      | undefined;
+    let replyStream: MessageStream | undefined;
     const conversations: string[] = [];
     const onError = vi.fn();
     const onStart = vi.fn();
@@ -160,10 +153,10 @@ describe("Agent reconnect", () => {
     );
     agent.on("text", ({ message }) => receivedIds.push(message.id));
     try {
-      replyStream = await sender.conversations.streamAllMessages({
-        onValue: (message) => {
-          replies.push(message.id);
-        },
+      replyStream = MessageStream.open(sender);
+      await replyStream.ready();
+      void replyStream.onValue((message) => {
+        replies.push(message.id);
       });
       const known = await agent.client.conversations.createGroup([]);
       await enableBackend(false);
@@ -186,9 +179,7 @@ describe("Agent reconnect", () => {
       await expect
         .poll(() => receivedIds, DELIVERY_WAIT)
         .toEqual([missedId, afterId]);
-      const recovered = await agent.client.conversations.getConversationById(
-        group.id,
-      );
+      const recovered = await agent.client.conversations.getById(group.id);
       expect(recovered).toBeDefined();
       const replyId = await recovered!.sendText("startup recovery reply");
       await expect.poll(() => replies, DELIVERY_WAIT).toContain(replyId);
@@ -200,7 +191,7 @@ describe("Agent reconnect", () => {
       await enableBackend(true);
       await agent.stop();
       await replyStream?.end();
-      await Promise.all([agent.client.close(), sender.close()]);
+      await Promise.all([agent.client.end(), sender.end()]);
     }
     expect(onStop).toHaveBeenCalledOnce();
   }, 180_000);

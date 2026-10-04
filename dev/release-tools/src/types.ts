@@ -1,7 +1,7 @@
 export enum Sdk {
   Ios = "ios",
   Android = "android",
-  NodeBindings = "node-bindings",
+  WasmBindings = "wasm-bindings",
   BrowserSdk = "browser-sdk",
   NodeSdk = "node-sdk",
   AgentSdk = "agent-sdk",

@@ -20,7 +20,7 @@ export function builder(yargs: Argv<GlobalArgs>) {
     .option("dep", {
       type: "string",
       demandOption: true,
-      describe: "Dependency name to rewrite (e.g. @xmtp/node-bindings)",
+      describe: "Dependency name to rewrite (e.g. @xmtp/node-sdk)",
     })
     .option("version", {
       type: "string",

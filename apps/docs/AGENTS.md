@@ -60,8 +60,8 @@ API. The other workspace packages use TypeScript 7.
 `just docs build` checks TypeScript and Twoslash examples against the local
 SDK declarations. `just docs typecheck` checks Astro and executable examples.
 
-The site tsconfig excludes `examples/`. Astro's language server forces
-`isolatedModules`, which rejects the Node bindings' ambient const enums.
+The site tsconfig excludes `examples/`. Check executable examples separately
+against each selected public SDK declaration entry.
 `examples.tsconfig.json` checks every executable example against the real SDK
 declarations through `just docs check-examples` and the docs build. Keep both
 checks; do not add examples to the Astro program or disable their type checks.

@@ -9,7 +9,7 @@ import {
 
 interface Message {
   id: string;
-  content: unknown;
+  content: { kind: string; value?: unknown };
   senderInboxId: string;
   sentAt: string;
   deliveryStatus: string;
@@ -112,12 +112,10 @@ describe("conversation messages", () => {
 
       expect(messagesResult.exitCode).toBe(0);
       const messages = parseJsonOutput<Message[]>(messagesResult.stdout);
-      const textMessages = messages.filter(
-        (m) => typeof m.content === "string",
-      );
-      expect(textMessages.some((m) => m.content === "Hello from sender!")).toBe(
-        true,
-      );
+      const textMessages = messages.filter((m) => m.content.kind === "text");
+      expect(
+        textMessages.some((m) => m.content.value === "Hello from sender!"),
+      ).toBe(true);
     }
   });
 });

@@ -1,5 +1,5 @@
 import { Args, Flags } from "@oclif/core";
-import { encodeMarkdown, encodeText } from "@xmtp/node-sdk";
+import { MarkdownCodec, TextCodec } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 
@@ -62,15 +62,13 @@ and published via 'conversation publish-messages').`;
     const { args, flags } = await this.parse(ConversationSendReply);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
     }
 
-    const message = client.conversations.getMessageById(args.messageId);
+    const message = await client.conversations.getMessageById(args.messageId);
 
     if (!message) {
       this.error(`Message not found: ${args.messageId}`);
@@ -80,13 +78,18 @@ and published via 'conversation publish-messages').`;
       reference: args.messageId,
       referenceInboxId: message.senderInboxId,
       content: flags.markdown
-        ? encodeMarkdown(args.text)
-        : encodeText(args.text),
+        ? new MarkdownCodec().encode(args.text)
+        : new TextCodec().encode(args.text),
     };
 
-    const messageId = await conversation.sendReply(reply, {
-      optimistic: flags.optimistic,
-    });
+    const messageId = await conversation.sendReply(
+      reply.reference,
+      reply.referenceInboxId,
+      reply.content,
+      {
+        optimistic: flags.optimistic,
+      },
+    );
 
     this.output({
       success: true,

@@ -3,26 +3,27 @@ package org.xmtp.android.library
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import uniffi.xmtp_sdk.StoragePoolOptions
 
 class DbPoolOptionsTest {
     @Test
     fun defaultsToAllNull() {
-        val options = DbPoolOptions()
-        assertNull(options.maxPoolSize)
-        assertNull(options.minPoolSize)
+        val options = StoragePoolOptions()
+        assertNull(options.max)
+        assertNull(options.min)
     }
 
     @Test
     fun carriesValuesThrough() {
-        val options = DbPoolOptions(maxPoolSize = 10u, minPoolSize = 2u)
-        assertEquals(10u, options.maxPoolSize)
-        assertEquals(2u, options.minPoolSize)
+        val options = StoragePoolOptions(max = 10u, min = 2u)
+        assertEquals(10u, options.max)
+        assertEquals(2u, options.min)
     }
 
     @Test
     fun acceptsPartialFields() {
-        val options = DbPoolOptions(maxPoolSize = 7u)
-        assertEquals(7u, options.maxPoolSize)
-        assertNull(options.minPoolSize)
+        val options = StoragePoolOptions(max = 7u)
+        assertEquals(7u, options.max)
+        assertNull(options.min)
     }
 }

@@ -1,19 +1,19 @@
 # XMTP CLI
 
 pnpm workspace package for `@xmtp/cli`, linked to the in-tree Node SDK.
-Resolve `@xmtp/node-bindings` to the local bindings for both the CLI and SDK.
-They must share one native module instance for authenticated backends.
+The CLI uses the generated Node SDK public root. The staged SDK contains the
+matched native library and pinned runtime.
 
 ## Commands
 
-- `just install-js`: install the root workspace dependencies.
-- `just cli check`: build the linked SDK and typecheck the CLI.
-- `just cli lint`: run oxlint.
-- `just cli build`: build the linked SDK and CLI.
-- `just cli test`: build the linked SDK and run all tests.
-- `just cli test-ci --shard N/2`: run a CI test shard.
+- `dev/nix-shell 'just install-js'`: install the root workspace dependencies.
+- `dev/nix-shell 'just cli check'`: build the linked SDK and typecheck the CLI.
+- `dev/nix-shell 'just cli lint'`: run oxlint.
+- `dev/nix-shell 'just cli build'`: build the linked SDK and CLI.
+- `dev/nix-shell 'just cli test'`: build the linked SDK and run all tests.
+- `dev/nix-shell 'just cli test-ci --shard N/2'`: run a CI test shard.
 
-Tests require `just backend up`. The `sdk` dependency stages Node bindings.
+Tests require `dev/nix-shell 'just backend up'`. The `sdk` dependency stages the generated Node SDK.
 The pnpm task graph builds `@xmtp/node-sdk` before checks that need its `dist`
 output.
 
