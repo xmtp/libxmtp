@@ -109,9 +109,9 @@ export async function typedCodecHooks(message: Message): Promise<Client> {
   // @ts-expect-error A codec's value type does not widen.
   const widened: ContentCodec<string | number> = textCodec;
   void widened;
-  // @ts-expect-error A fallback hook takes the codec's value type.
   const wrongHook: ContentCodec<Point> = {
     ...pointCodec,
+    // @ts-expect-error A fallback hook takes the codec's value type.
     fallback: (text: string) => text,
   };
   void wrongHook;

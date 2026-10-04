@@ -55,6 +55,16 @@ function files(directory) {
     return item.isDirectory() ? files(path) : [path];
   });
 }
+function makeWritable(directory) {
+  chmodSync(directory, 0o755);
+  for (const item of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, item.name);
+    if (item.isSymbolicLink())
+      throw new Error(`copied SDK runtime has a symbolic link: ${path}`);
+    if (item.isDirectory()) makeWritable(path);
+    else chmodSync(path, 0o644);
+  }
+}
 for (let i = 0; i < trees.length; i++) {
   checkGeneratedAssets(generated, trees[i], contracts[i]);
 }
@@ -94,9 +104,14 @@ try {
     cpSync(runtimeSource, join(destination, "node_modules/@ubjs", name), {
       recursive: true,
       dereference: true,
+      // Tests and nested dependencies are outside the runtime package files.
+      filter: (path) =>
+        !relative(runtimeSource, path)
+          .split(/[\\/]/)
+          .some((part) => part === "tests" || part === "node_modules"),
     });
     const runtime = join(destination, "node_modules/@ubjs", name);
-    for (const path of files(runtime)) chmodSync(path, 0o644);
+    makeWritable(runtime);
     rmSync(join(runtime, "dist/cjs"), { recursive: true, force: true });
     const manifestFile = join(runtime, "package.json");
     const manifest = JSON.parse(readFileSync(manifestFile));
