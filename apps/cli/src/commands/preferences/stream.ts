@@ -91,7 +91,7 @@ first if you need a current snapshot before listening for updates.`;
         if (event.kind === "lagged") {
           this.streamOutput({
             timestamp: new Date().toISOString(),
-            warning: { type: "Lagged", discarded: event.discarded },
+            warning: { type: "Lagged", discarded: event.lagged.discarded },
           });
           continue;
         }
@@ -100,9 +100,11 @@ first if you need a current snapshot before listening for updates.`;
           update = {
             type: "ConsentUpdate",
             entityType:
-              event.entityKind === "inbox" ? "inbox_id" : "conversation_id",
-            entity: event.entity,
-            state: event.state,
+              event.consent_changed.entityKind === "inbox"
+                ? "inbox_id"
+                : "conversation_id",
+            entity: event.consent_changed.entity,
+            state: event.consent_changed.state,
           };
         } else if (event.kind === "hmac_keys.updated") {
           update = {

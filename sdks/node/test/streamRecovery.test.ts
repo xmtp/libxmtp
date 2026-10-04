@@ -282,6 +282,12 @@ describe("public message stream recovery", () => {
           }
           const during = cycle * 2 + 1;
           await sendStage(during);
+          if (backend) {
+            expect(received).toHaveLength(GROUP_COUNT * during);
+            // A state callback can take longer than the recovery budget.
+            // Restart the drained backend before waiting for that callback.
+            await backend.start();
+          }
           await expect
             .poll(async () => {
               const current = streamStateSnapshot(stream).current;
@@ -291,9 +297,10 @@ describe("public message stream recovery", () => {
               );
             }, RECOVERY_WAIT)
             .toBe(true);
-          expect(received).toHaveLength(GROUP_COUNT * during);
-          if (backend) await backend.start();
-          else proxy.restore();
+          if (!backend) {
+            expect(received).toHaveLength(GROUP_COUNT * during);
+            proxy.restore();
+          }
           try {
             await expect
               .poll(() => replies.length, RECOVERY_WAIT)
@@ -346,7 +353,14 @@ describe("public message stream recovery", () => {
           expect(errors).toEqual([]);
           if (cycle + 1 < cycles) {
             // Quiet groups must stay healthy without synthetic application
-            // messages. Real keepalives run for the production reset interval.
+            // messages. Start the production reset interval after the
+            // receiver reports a connected receipt source.
+            await expect
+              .poll(
+                () => streamStateSnapshot(stream).current.connection,
+                RECOVERY_WAIT,
+              )
+              .toBe("connected");
             const generation =
               streamStateSnapshot(stream).current.connectionGeneration;
             await sleep(HEALTHY_INTERVAL_MS);

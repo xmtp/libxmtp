@@ -76,6 +76,8 @@ Core tests and the chaos inspector cover that separate check. Keep the real
 and copies it to `sdks/node/dist` for workspace imports. The source package
 contains no handwritten SDK facade. Publish `target/sdk-packages/node` from
 the complete supported-platform build. Do not pack the workspace source shell.
+`dev/nix-shell 'pnpm --filter @xmtp/node-sdk dev'` stages the package and
+repeats the stage when SDK source changes. Stop it with Ctrl-C.
 
 Node and agent version 8 require ESM and Node 22.12 or later. End a client with
 `await client.end()` before removing its storage.

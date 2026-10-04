@@ -818,7 +818,7 @@ describe("Group", () => {
       count++;
       expect(message).toBeDefined();
       if (message.kind === "message.expired")
-        messageIds.push(message.messageId);
+        messageIds.push(message.message_expired.messageId);
     }
     expect(count).toBe(2);
     expect(messageIds).toContain(messageId1);

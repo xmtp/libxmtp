@@ -29,8 +29,27 @@ const ATTACHMENT_KINDS: sdk.EventKind[] = [
 
 type AttachmentEvent = Extract<
   sdk.ClientEvent,
-  { readonly attachment: unknown }
+  { readonly kind: `attachment.${string}` }
 >;
+
+function attachmentOf(event: AttachmentEvent) {
+  switch (event.kind) {
+    case "attachment.upload_started":
+      return event.attachment_upload_started;
+    case "attachment.upload_completed":
+      return event.attachment_upload_completed;
+    case "attachment.upload_failed":
+      return event.attachment_upload_failed;
+    case "attachment.download_started":
+      return event.attachment_download_started;
+    case "attachment.download_completed":
+      return event.attachment_download_completed;
+    case "attachment.download_failed":
+      return event.attachment_download_failed;
+    case "attachment.deleted":
+      return event.attachment_deleted;
+  }
+}
 
 /** A client whose files live under `root`, allowed to reach loopback storage. */
 function fileOptions(
@@ -128,11 +147,14 @@ async function drain(
     assert.equal(next.done, false, "the event stream ended");
     const event = next.value as sdk.ClientEvent;
     if (event.kind === "conversation.joined") {
-      if (event.conversationId === marker) return events;
+      if (event.conversation_joined.conversationId === marker) return events;
       continue;
     }
-    assert.ok("attachment" in event, `unexpected ${event.kind} event`);
-    events.push(event);
+    assert.ok(
+      event.kind.startsWith("attachment."),
+      `unexpected ${event.kind} event`,
+    );
+    events.push(event as AttachmentEvent);
   }
 }
 
@@ -229,9 +251,9 @@ export async function attachmentFlow(
     ["attachment.upload_started", "attachment.upload_completed"],
     "expected one shared upload",
   );
-  assert.deepEqual(uploaded[0]!.attachment, uploaded[1]!.attachment);
-  assert.equal(uploaded[0]!.attachment.url, remote.url);
-  assert.equal(uploaded[0]!.attachment.contentDigest, remote.contentDigest);
+  assert.deepEqual(attachmentOf(uploaded[0]!), attachmentOf(uploaded[1]!));
+  assert.equal(attachmentOf(uploaded[0]!).url, remote.url);
+  assert.equal(attachmentOf(uploaded[0]!).contentDigest, remote.contentDigest);
   assert.deepEqual(await drain(receiver, receiverEvents), []);
   await events.return();
   await sender.end();
@@ -313,7 +335,7 @@ export async function attachmentFlow(
   assert.equal(existsSync(downloaded.path), false);
   const downloads = await drain(receiver, receiverEvents);
   assert.deepEqual(
-    downloads.map((event) => [event.kind, event.attachment.contentDigest]),
+    downloads.map((event) => [event.kind, attachmentOf(event).contentDigest]),
     [
       ["attachment.download_started", received.contentDigest],
       ["attachment.download_completed", received.contentDigest],
@@ -322,12 +344,12 @@ export async function attachmentFlow(
       ["attachment.deleted", received.contentDigest],
     ],
   );
-  assert.equal(downloads[0]!.attachment.url, received.url);
+  assert.equal(attachmentOf(downloads[0]!).url, received.url);
   assert.notEqual(
-    downloads[0]!.attachment.attachmentKey,
-    downloads[2]!.attachment.attachmentKey,
+    attachmentOf(downloads[0]!).attachmentKey,
+    attachmentOf(downloads[2]!).attachmentKey,
   );
-  assert.deepEqual(downloads[4]!.attachment, downloads[0]!.attachment);
+  assert.deepEqual(attachmentOf(downloads[4]!), attachmentOf(downloads[0]!));
   assert.deepEqual(await drain(receiver, deletedOnly), [downloads[4]]);
   await deletedOnly.return();
   await receiverEvents.return();
@@ -368,11 +390,11 @@ export async function attachmentFailures(
     failed.map((event) => event.kind),
     ["attachment.upload_started", "attachment.upload_failed"],
   );
-  assert.deepEqual(failed[1]!.attachment, {
-    ...failed[0]!.attachment,
+  assert.deepEqual(attachmentOf(failed[1]!), {
+    ...attachmentOf(failed[0]!),
     cause: "stagedUnusable",
   });
-  assert.equal(failed[1]!.attachment.contentDigest, remote.contentDigest);
+  assert.equal(attachmentOf(failed[1]!).contentDigest, remote.contentDigest);
   // A source the SDK cannot read fails create.
   assert.equal(
     (
@@ -459,7 +481,9 @@ export async function attachmentFailures(
   const downloadFailures = await drain(downloader, downloadEvents);
   assert.deepEqual(
     downloadFailures.flatMap((event) =>
-      event.kind === "attachment.download_failed" ? [event.attachment.cause] : [],
+      event.kind === "attachment.download_failed"
+        ? [event.attachment_download_failed.cause]
+        : [],
     ),
     ["httpStatus", "digestMismatch", "decryptionFailed"],
   );
@@ -677,8 +701,9 @@ export async function attachmentEnd(
     // The reader has both deletions, so a live listener had its turn.
     for (const expected of [remote, small.remoteAttachment]) {
       const next = (await within(deleted.next(), "deletion")).value;
-      if (next?.kind !== "attachment.deleted") throw new Error("not a deletion");
-      assert.equal(next.attachment.url, expected.url);
+      if (next?.kind !== "attachment.deleted")
+        throw new Error("not a deletion");
+      assert.equal(next.attachment_deleted.url, expected.url);
     }
     assert.equal(deletions, 1, "a stopped listener saw a deletion");
     await deleted.return();

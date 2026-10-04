@@ -7,7 +7,11 @@ use super::{camel, convert, policy::cursor_type, public_type};
 
 pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
     let name = &record.name;
-    writeln!(code, "export type {name} = {{")?;
+    if record.fields.is_empty() {
+        writeln!(code, "export type {name} = Record<string, never>;")?;
+    } else {
+        writeln!(code, "export type {name} = {{")?;
+    }
     for field in &record.fields {
         // A field with a Rust default can be left out; the binding factory
         // fills it in.
@@ -23,7 +27,9 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
             cursor_type(name, &camel(&field.name), public_type(&field.ty))
         )?;
     }
-    code.push_str("};\n");
+    if !record.fields.is_empty() {
+        code.push_str("};\n");
+    }
     for lower in [false, true] {
         let (direction, source, target) = if lower {
             ("lower", name.to_owned(), format!("B.{name}"))
@@ -81,9 +87,14 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         } else {
             ""
         };
+        let unused_value = if record.fields.is_empty() {
+            "void value; "
+        } else {
+            ""
+        };
         writeln!(
             code,
-            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; {guard} return {body}; }}"
+            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; {unused_value}{guard} return {body}; }}"
         )?;
     }
     Ok(())
