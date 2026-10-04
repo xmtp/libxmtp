@@ -22,6 +22,8 @@ jobs:
         run: dev/nix-shell 'just backend up'
       - name: Run retained binding tests
         run: dev/nix-shell 'just node test-ci'
+      - name: Lint retained binding tests
+        run: dev/nix-shell 'pnpm --filter @xmtp/node-bindings lint'
       - name: Typecheck retained binding tests
         run: dev/nix-shell 'pnpm --filter @xmtp/node-bindings typecheck'
   test:
