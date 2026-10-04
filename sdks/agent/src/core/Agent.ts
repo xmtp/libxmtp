@@ -405,7 +405,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       options?.storage?.encryptionKey === undefined
         ? XMTP_DB_ENCRYPTION_KEY?.replace(/^0x/, "")
         : undefined;
-    if (key && !/^[0-9a-fA-F]{64}$/.test(key))
+    if (key !== undefined && !/^[0-9a-fA-F]{64}$/.test(key))
       throw new AgentError(
         1000,
         "XMTP_DB_ENCRYPTION_KEY must contain 32 bytes.",
@@ -532,10 +532,10 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
             conversation,
             client: this.#client,
           });
-          this.emit("conversation", context);
+          await this.#emitValue("conversation", context);
           if (!isCurrent()) return;
-          if (context.isGroup()) this.emit("group", context);
-          else if (context.isDm()) this.emit("dm", context);
+          if (context.isGroup()) await this.#emitValue("group", context);
+          else if (context.isDm()) await this.#emitValue("dm", context);
         } catch (error) {
           if (error instanceof UnacceptedValueError) throw error;
           if (isCurrent()) {
@@ -654,6 +654,28 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     await this.#runMiddlewareChain(context, topic, isCurrent);
   }
 
+  async #emitValue(
+    topic: EventName<ContentTypes>,
+    context:
+      | MessageContext<unknown, ContentTypes>
+      | ConversationContext<ContentTypes>,
+  ) {
+    const pending: Promise<unknown>[] = [];
+    try {
+      for (const listener of this.rawListeners(topic)) {
+        pending.push(
+          Promise.resolve(
+            (listener as (value: unknown) => unknown).call(this, context),
+          ),
+        );
+      }
+    } catch (error) {
+      for (const promise of pending) void promise.catch(() => {});
+      throw error;
+    }
+    await Promise.all(pending);
+  }
+
   async #runMiddlewareChain(
     context: MessageContext<unknown, ContentTypes>,
     topic: EventName<ContentTypes>,
@@ -662,9 +684,9 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     const finalEmit = async () => {
       if (!isCurrent()) return;
       try {
-        this.emit(topic, context);
+        await this.#emitValue(topic, context);
         if (!isCurrent()) return;
-        this.emit("message", context);
+        await this.#emitValue("message", context);
       } catch (error) {
         if (error instanceof UnacceptedValueError) throw error;
         if (isCurrent()) {

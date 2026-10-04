@@ -115,6 +115,8 @@ Agents can also recognize the following environment variables:
 
 Subscribe only to what you need using Node’s `EventEmitter` interface. Events you can listen for:
 
+For message and conversation events, the agent waits for async listeners before it accepts a stream value. A rejected listener goes through error middleware.
+
 #### Message Events
 
 - `actions` – an incoming [actions message](https://docs.xmtp.org/agents/content-types/actions) (interactive buttons/choices)

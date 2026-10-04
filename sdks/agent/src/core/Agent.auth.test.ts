@@ -317,6 +317,18 @@ describe("agent environment storage", () => {
     },
   );
 
+  it.each(["", "0x"])(
+    "rejects an empty environment encryption key %j",
+    async (environmentKey) => {
+      const { create } = setup();
+      vi.stubEnv("XMTP_DB_ENCRYPTION_KEY", environmentKey);
+      await expect(Agent.createFromEnv()).rejects.toThrow(
+        "XMTP_DB_ENCRYPTION_KEY must contain 32 bytes.",
+      );
+      expect(create).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["directory", "default"] as const)(
     "opens an encrypted %s legacy database with the same installation",
     async (location) => {

@@ -238,6 +238,64 @@ describe("Agent stream lifecycle", () => {
     await h.messages[0]!.value(message);
     expect(received).not.toHaveBeenCalled();
   });
+  it.each(["text", "message", "conversation"] as const)(
+    "waits for an async %s listener before accepting a value",
+    async (event) => {
+      const h = harness();
+      const gate = deferred<void>();
+      const done = vi.fn();
+      h.agent.on(event, async () => gate.promise);
+      await h.agent.start();
+      const delivery =
+        event === "conversation"
+          ? h.conversations[0]!.value(h.group)
+          : h.messages[0]!.value(message);
+      void Promise.resolve(delivery).then(done);
+      await setImmediate();
+      expect(done).not.toHaveBeenCalled();
+      gate.resolve();
+      await delivery;
+      expect(done).toHaveBeenCalledOnce();
+      await h.agent.stop();
+    },
+  );
+  it.each(["text", "message", "conversation"] as const)(
+    "routes an async %s listener failure through error middleware",
+    async (event) => {
+      const h = harness();
+      const cause = new Error("async listener failed");
+      const onError = vi.fn((_error, _ctx, next: () => void) => next());
+      h.agent.errors.use(onError);
+      h.agent.on(event, async () => {
+        throw cause;
+      });
+      await h.agent.start();
+      await (event === "conversation"
+        ? h.conversations[0]!.value(h.group)
+        : h.messages[0]!.value(message));
+      expect(onError).toHaveBeenCalledWith(
+        cause,
+        expect.objectContaining({ client: h.client }),
+        expect.any(Function),
+      );
+      await h.agent.stop();
+    },
+  );
+  it("rejects an unhandled async listener failure before accepting a message", async () => {
+    const h = harness();
+    const cause = new Error("async listener failed");
+    const unhandled = vi.fn();
+    h.agent.on("unhandledError", unhandled);
+    h.agent.on("message", async () => {
+      throw cause;
+    });
+    await h.agent.start();
+    await expect(h.messages[0]!.value(message)).rejects.toThrow(
+      "Agent value processing failed",
+    );
+    expect(unhandled).toHaveBeenCalledWith(cause);
+    await h.agent.stop();
+  });
   it.each(["unknown", "custom"] as const)(
     "routes %s content through middleware and unknownMessage",
     async (kind) => {
