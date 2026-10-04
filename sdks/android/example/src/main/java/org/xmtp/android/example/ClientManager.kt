@@ -11,7 +11,7 @@ import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
 
 object ClientManager {
-    fun clientOptions(
+    suspend fun clientOptions(
         context: Context,
         address: String,
     ): ClientOptions {
@@ -19,9 +19,14 @@ object ClientManager {
         val encryptionKey =
             keys.retrieveKey(address)?.takeUnless { it.isEmpty() }
                 ?: SecureRandom().generateSeed(32).also { keys.storeKey(address, it) }
+        val backend = BackendSource.Options(BackendOptions(url = BuildConfig.XMTP_BACKEND_URL))
+        val location =
+            exampleStorageLocation(context.filesDir) {
+                inboxIdForWithBackend(backend, PublicIdentity(address, PublicIdentityKind.ETHEREUM))
+            }
         return ClientOptions(
-            backend = BackendSource.Options(BackendOptions(url = BuildConfig.XMTP_BACKEND_URL)),
-            storage = StorageOptions(location = StorageLocation.Default, encryptionKey = encryptionKey),
+            backend = backend,
+            storage = StorageOptions(location = location, encryptionKey = encryptionKey),
         )
     }
 
