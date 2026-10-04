@@ -30,7 +30,7 @@ pub struct EncryptedPayload {
 }
 
 /// Parameters for the existing remote-attachment encryption scheme.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EncryptionKeys {
     pub secret: Vec<u8>,
     pub salt: Vec<u8>,
@@ -39,6 +39,19 @@ pub struct EncryptionKeys {
     pub digest: String,
     /// Ciphertext length including the 16-byte tag.
     pub length: u64,
+}
+
+impl std::fmt::Debug for EncryptionKeys {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EncryptionKeys")
+            .field("secret", &"<redacted>")
+            .field("salt", &self.salt)
+            .field("nonce", &self.nonce)
+            .field("digest", &self.digest)
+            .field("length", &self.length)
+            .finish()
+    }
 }
 
 /// Ciphertext and the parameters needed to decrypt it.
