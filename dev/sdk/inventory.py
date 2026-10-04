@@ -37,6 +37,7 @@ TS_ROOTS = {
 }
 OUT = ROOT / "docs/self-hosted/sdk-api-manifest.md"
 MOBILE_TEST_MAP = ROOT / "dev/sdk/binding-test-map.tsv"
+MOBILE_TEST_BASELINE = ROOT / "dev/sdk/binding-test-baseline.tsv"
 
 
 def mobile_test_map() -> list[str]:
@@ -62,8 +63,18 @@ def mobile_test_map() -> list[str]:
                     (str(source.relative_to(ROOT / "bindings/mobile/src")), match[1])
                 )
     mapped_tests = [(source, name) for source, name, _ in rows]
-    if sorted(source_tests) != sorted(mapped_tests):
-        raise ValueError("binding test map differs from bindings/mobile/src tests")
+    baseline_tests = [
+        tuple(line.split("\t"))
+        for line in MOBILE_TEST_BASELINE.read_text().splitlines()[1:]
+    ]
+    if len(baseline_tests) != len(set(baseline_tests)):
+        raise ValueError("mobile test baseline has duplicate rows")
+    if sorted(baseline_tests) != sorted(mapped_tests):
+        raise ValueError("binding test map differs from the mobile test baseline")
+    if (ROOT / "bindings/mobile/src").exists() and sorted(source_tests) != sorted(
+        baseline_tests
+    ):
+        raise ValueError("mobile test baseline differs from bindings/mobile/src tests")
     for source, name, coverage in rows:
         if coverage.startswith(("façade:", "core:")):
             match = re.fullmatch(r"(?:façade|core): `([^`]+)::(\w+)`", coverage)
@@ -86,7 +97,8 @@ def mobile_test_map() -> list[str]:
         "",
         "Every mobile test has one row. Façade entries name the new or existing Rust test. "
         "Core entries name the test for shared behavior. Binding-only entries give the reason "
-        "the façade has no counterpart. No mobile test is removed by this map.",
+        "the façade has no counterpart. The fixed baseline retains the original test names "
+        "after the mobile crate is removed.",
         "",
         "| Mobile source | Test | Coverage |",
         "| --- | --- | --- |",

@@ -48,7 +48,33 @@ class CutoverGates(unittest.TestCase):
         }
         module.OUT = self.root / "docs/self-hosted/sdk-api-manifest.md"
         module.MOBILE_TEST_MAP = self.root / "dev/sdk/binding-test-map.tsv"
+        module.MOBILE_TEST_BASELINE = self.root / "dev/sdk/binding-test-baseline.tsv"
         return module
+
+    def test_mobile_retirement_keeps_every_original_test_name(self):
+        module = self.inventory()
+        module.MOBILE_TEST_MAP.parent.mkdir(parents=True)
+        module.MOBILE_TEST_BASELINE.write_text(
+            "# Source\tTest\nfixture.rs\tretained_case\n"
+        )
+        module.MOBILE_TEST_MAP.write_text(
+            "# Source\tTest\tCoverage\n"
+            "fixture.rs\tretained_case\tcore: `crates/fixture.rs::surviving_case`\n"
+        )
+        target = self.root / "crates/fixture.rs"
+        target.parent.mkdir(parents=True)
+        target.write_text("fn surviving_case() {}\n")
+        legacy = self.root / "bindings/mobile/src/fixture.rs"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text("#[test]\nfn retained_case() {}\n")
+        module.mobile_test_map()
+        shutil.rmtree(self.root / "bindings/mobile")
+        module.mobile_test_map()
+        module.MOBILE_TEST_MAP.write_text("# Source\tTest\tCoverage\n")
+        with self.assertRaisesRegex(
+            ValueError, "differs from the mobile test baseline"
+        ):
+            module.mobile_test_map()
 
     def test_switched_inventory_keeps_ledger_and_unswitched_source_checks(self):
         for source in ("docs/self-hosted/sdk-api-manifest.md",):
