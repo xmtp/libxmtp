@@ -13,7 +13,7 @@ use xmtp_mls::subscriptions::{
     },
     message_reader::{MessageReader as CoreMessageReader, MessageReaderControl},
 };
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 use xmtp_proto::types::GroupId;
 
 use crate::{ConnectionState, Message, XmtpError, conversation::on_sdk_worker};
@@ -188,33 +188,33 @@ impl MessageReader {
         }))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn is_ended_for_test(&self) -> bool {
         self.state.lock().ended
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn update_scope_for_test(&self, group_ids: Vec<GroupId>) {
         self.control.update_scope(DeliveryScope::Groups(group_ids));
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn update_all_scope_for_test(&self) {
         self.control.update_scope(DeliveryScope::All);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn control_for_test(&self) -> MessageReaderControl {
         self.control.clone()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn corrupt_next_message_for_test(&self) {
         self.corrupt_next_message
             .store(true, std::sync::atomic::Ordering::Release);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn idle_read_for_test(&self) -> Arc<Notify> {
         self.idle_read.clone()
     }

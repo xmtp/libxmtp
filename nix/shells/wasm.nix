@@ -20,6 +20,12 @@ mkShell (
   xmtp.shellCommon.wasmEnv
   // {
     inputsFrom = [ xmtp.base.commonArgs ];
+    # A nested WASM shell must use the Nix compiler with the Nix host SDK.
+    shellHook = lib.optionalString stdenv.isDarwin ''
+      export CC_aarch64_apple_darwin="${stdenv.cc}/bin/cc"
+      export CXX_aarch64_apple_darwin="${stdenv.cc}/bin/c++"
+      export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="${stdenv.cc}/bin/cc"
+    '';
     nativeBuildInputs = [
       emscripten
       wasm-pack

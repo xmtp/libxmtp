@@ -11,7 +11,9 @@ pub(crate) use history::history_snapshot;
 pub use message_reader::MessageReader;
 
 #[cfg(test)]
-pub(crate) use message_reader::{AckAdmissionGate, HandoffGate, RequestGates, selection_changed};
+pub(crate) use message_reader::HandoffGate;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) use message_reader::{AckAdmissionGate, RequestGates, selection_changed};
 
 use crate::{ErrorCategory, ErrorDetails, XmtpError};
 use std::error::Error;

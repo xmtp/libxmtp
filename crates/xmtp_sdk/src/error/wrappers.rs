@@ -10,7 +10,7 @@ use std::error::Error;
 macro_rules! transparent_wrappers {
     ($($ty:ty => [$($variant:ident $(($boxed:ident))?),* $(,)?]),* $(,)?) => {
         /// The opened variants as (enum, variant) names, for the guard test.
-        #[cfg(all(test, not(feature = "pure-only")))]
+        #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "pure-only")))]
         pub(crate) const OPENED_WRAPPERS: &[(&str, &str)] = &[
             $($((stringify!($ty), stringify!($variant)),)*)*
         ];
@@ -83,7 +83,7 @@ macro_rules! core_errors {
         $($(#[$meta])* impl CoreError for $ty {})*
 
         /// The type names that implement `CoreError`, for the guard test.
-        #[cfg(all(test, not(feature = "pure-only")))]
+        #[cfg(all(test, not(target_arch = "wasm32"), not(feature = "pure-only")))]
         pub(crate) const CORE_ERROR_ROOTS: &[&str] = &[$(stringify!($ty)),*];
     };
 }

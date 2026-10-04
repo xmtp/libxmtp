@@ -5,7 +5,7 @@ pub struct Group {
     identity: ConversationIdentity,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) history_query_count: Arc<parking_lot::Mutex<u64>>,
 }
 
@@ -16,7 +16,7 @@ pub struct Dm {
     identity: ConversationIdentity,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) history_query_count: Arc<parking_lot::Mutex<u64>>,
 }
 
@@ -92,7 +92,7 @@ impl Group {
             identity,
             #[cfg(all(test, not(target_arch = "wasm32")))]
             state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
-            #[cfg(test)]
+            #[cfg(all(test, not(target_arch = "wasm32")))]
             history_query_count: Arc::new(parking_lot::Mutex::new(0)),
         })
     }
@@ -114,7 +114,7 @@ impl Dm {
             identity,
             #[cfg(all(test, not(target_arch = "wasm32")))]
             state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
-            #[cfg(test)]
+            #[cfg(all(test, not(target_arch = "wasm32")))]
             history_query_count: Arc::new(parking_lot::Mutex::new(0)),
         })
     }

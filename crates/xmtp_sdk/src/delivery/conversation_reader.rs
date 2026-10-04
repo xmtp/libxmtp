@@ -38,17 +38,17 @@ pub struct ConversationReader {
 }
 
 impl ConversationReader {
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn lease_for_test(&self) -> &Arc<IncomingLease> {
         &self.lease
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn fail_next_conversion_for_test(&self) {
         self.fail_next_conversion.store(true, Ordering::Release);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn idle_read_for_test(&self) -> Arc<Notify> {
         self.idle_read.clone()
     }

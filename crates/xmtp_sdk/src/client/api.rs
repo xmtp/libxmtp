@@ -89,7 +89,9 @@ impl Client {
             #[cfg(not(target_arch = "wasm32"))]
             client: self.inner.clone(),
             path: self.storage_path.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
             listeners: self.listeners.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
             event_readers: self.event_readers.clone(),
         })
     }

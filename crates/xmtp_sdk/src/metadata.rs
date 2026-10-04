@@ -9,7 +9,10 @@
 mod convert;
 #[cfg(not(feature = "pure-only"))]
 pub(crate) use convert::core_inbox_id;
-#[cfg(all(any(test, feature = "conformance"), not(feature = "pure-only")))]
+#[cfg(all(
+    any(all(test, not(target_arch = "wasm32")), feature = "conformance"),
+    not(feature = "pure-only")
+))]
 pub(crate) mod conformance;
 
 use xmtp_mls::mls_common::app_data::fields::MetadataFieldRef as CoreFieldRef;
