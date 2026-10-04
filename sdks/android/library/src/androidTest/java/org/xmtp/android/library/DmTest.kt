@@ -112,7 +112,7 @@ class DmTest : BaseInstrumentedTest() {
                     .dm
             assertEquals(alixDm.id(), sameBo.id())
             assertEquals(alixDm.id(), sameAlix.id())
-            assertEquals(alixDm.id(), byBoTopic.id())
+            assertEquals(boDm.id(), byBoTopic.id())
             assertEquals(alixDm.id(), byAlixTopic.id())
             assertEquals(
                 alixDm.id(),
@@ -487,7 +487,7 @@ class DmTest : BaseInstrumentedTest() {
             dm.sendText("first")
             dm.sendText("second")
             dm.sync()
-            val messages = dm.messages()
+            val messages = dm.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING))
             assertEquals(3, messages.size)
             val boundary = messages.last().insertedAt
             assertTrue(boundary.ns > 0)
