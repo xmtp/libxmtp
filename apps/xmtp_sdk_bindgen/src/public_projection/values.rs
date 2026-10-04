@@ -228,6 +228,22 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
 }
 
 fn public_variant_kind(name: &str, variant: &str) -> Result<String> {
+    if name == "DeletionCause" {
+        return Ok(match variant {
+            "Deleted" => "deleted",
+            "DeletedLocally" => "deleted_locally",
+            _ => bail!("{name}: unmapped public cause {variant}"),
+        }
+        .to_owned());
+    }
+    if name == "RejectionCause" {
+        return Ok(match variant {
+            "BackendMismatch" => "backend_mismatch",
+            "VersionTooOld" => "version_too_old",
+            _ => bail!("{name}: unmapped public cause {variant}"),
+        }
+        .to_owned());
+    }
     if name != "EventKind" && name != "ClientEvent" {
         return Ok(camel(variant));
     }
@@ -264,4 +280,27 @@ fn public_variant_kind(name: &str, variant: &str) -> Result<String> {
         _ => bail!("{name}: unmapped public event kind {variant}"),
     };
     Ok(kind.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::public_variant_kind;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn event_causes_use_specified_public_names() -> anyhow::Result<()> {
+        assert_eq!(public_variant_kind("DeletionCause", "Deleted")?, "deleted");
+        assert_eq!(
+            public_variant_kind("DeletionCause", "DeletedLocally")?,
+            "deleted_locally"
+        );
+        assert_eq!(
+            public_variant_kind("RejectionCause", "BackendMismatch")?,
+            "backend_mismatch"
+        );
+        assert_eq!(
+            public_variant_kind("RejectionCause", "VersionTooOld")?,
+            "version_too_old"
+        );
+        Ok(())
+    }
 }
