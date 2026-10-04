@@ -3,11 +3,21 @@ use xmtp_common::{BoxDynError, MaybeSend, MaybeSync};
 
 use crate::{XmtpError, foreign};
 
-#[derive(Clone, Debug, uniffi::Record)]
+#[derive(Clone, uniffi::Record)]
 pub struct Credential {
     pub name: Option<String>,
     pub value: String,
     pub expires_at_seconds: i64,
+}
+
+impl std::fmt::Debug for Credential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credential")
+            .field("name", &self.name)
+            .field("value", &"[redacted]")
+            .field("expires_at_seconds", &self.expires_at_seconds)
+            .finish()
+    }
 }
 
 impl Credential {
@@ -176,5 +186,25 @@ impl Backend {
             handle.set(credential.to_backend()?).await;
         }
         Ok(backend)
+    }
+}
+
+#[cfg(test)]
+mod credential_debug_tests {
+    use super::Credential;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn credential_debug_redacts_direct_and_nested_value() {
+        let secret = "credential-bearer-sentinel-5e9741";
+        let credential = Credential {
+            name: Some("authorization".to_string()),
+            value: secret.to_string(),
+            expires_at_seconds: 123,
+        };
+        assert_eq!(credential.value, secret);
+        assert_eq!(credential.name.as_deref(), Some("authorization"));
+        assert_eq!(credential.expires_at_seconds, 123);
+        assert!(!format!("{credential:?}").contains(secret));
+        assert!(!format!("{:?}", Some(vec![credential])).contains(secret));
     }
 }
