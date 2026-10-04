@@ -65,43 +65,26 @@ export const processPermissionsUpdate = async (
       : permissionsPolicy === "adminOnly"
         ? adminPolicySet
         : policySet;
-  await conversation.updatePermission("addMember", next.addMember, undefined);
-  await conversation.updatePermission(
-    "removeMember",
-    next.removeMember,
-    undefined,
-  );
-  await conversation.updatePermission("addAdmin", next.addAdmin, undefined);
-  await conversation.updatePermission(
-    "removeAdmin",
-    next.removeAdmin,
-    undefined,
-  );
-  await conversation.updatePermission(
-    "updateMetadata",
-    next.updateName,
-    "name",
-  );
-  await conversation.updatePermission(
-    "updateMetadata",
-    next.updateDescription,
-    "description",
-  );
-  await conversation.updatePermission(
-    "updateMetadata",
-    next.updateImage,
-    "imageUrl",
-  );
-  await conversation.updatePermission(
-    "updateMetadata",
-    next.updateDisappearing,
-    "disappearing",
-  );
-  await conversation.updatePermission(
-    "updateMetadata",
-    next.updateAppData,
-    "appData",
-  );
+  const fields = [
+    ["addMember", "addMember", undefined],
+    ["removeMember", "removeMember", undefined],
+    ["addAdmin", "addAdmin", undefined],
+    ["removeAdmin", "removeAdmin", undefined],
+    ["updateName", "updateMetadata", "name"],
+    ["updateDescription", "updateMetadata", "description"],
+    ["updateImage", "updateMetadata", "imageUrl"],
+    ["updateDisappearing", "updateMetadata", "disappearing"],
+    ["updateAppData", "updateMetadata", "appData"],
+  ] as const;
+  let updated = false;
+  for (const [field, kind, metadataField] of fields) {
+    if (next[field] === permissions.policySet[field]) continue;
+    await conversation.updatePermission(kind, next[field], metadataField);
+    updated = true;
+  }
+  if (!updated && permissions.policyType !== permissionsPolicy) {
+    await conversation.updatePermission("addMember", next.addMember, undefined);
+  }
 };
 
 export type PermissionsProps = {

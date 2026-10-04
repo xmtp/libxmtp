@@ -9,7 +9,12 @@ import {
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { adminPolicySet, defaultPolicySet, Permissions } from "./Permissions";
+import {
+  adminPolicySet,
+  defaultPolicySet,
+  Permissions,
+  processPermissionsUpdate,
+} from "./Permissions";
 
 const group = (
   permissions: Promise<{
@@ -31,6 +36,33 @@ const renderPermissions = (props: ComponentProps<typeof Permissions>) =>
   );
 
 describe("Permissions", () => {
+  it("saves a changed custom field without submitting an existing other policy", async () => {
+    const current: PermissionPolicySet = {
+      ...defaultPolicySet,
+      addMember: "other",
+    };
+    const conversation = Object.assign(Object.create(XmtpGroup.prototype), {
+      state: vi.fn().mockResolvedValue({
+        permissions: { policyType: "custom", policySet: current },
+      }),
+      updatePermission: vi.fn().mockImplementation(async (_kind, value) => {
+        if (value === "other") throw new Error("unsupported policy update");
+      }),
+    }) as Conversation & { updatePermission: ReturnType<typeof vi.fn> };
+
+    await processPermissionsUpdate(conversation, "custom", {
+      ...current,
+      updateName: "admin",
+    });
+
+    expect(conversation.updatePermission).toHaveBeenCalledTimes(1);
+    expect(conversation.updatePermission).toHaveBeenCalledWith(
+      "updateMetadata",
+      "admin",
+      "name",
+    );
+  });
+
   it("reports selected default, admin, and custom policies with their policy sets", async () => {
     const onPermissionsPolicyChange = vi.fn();
     const onPolicySetChange = vi.fn();
