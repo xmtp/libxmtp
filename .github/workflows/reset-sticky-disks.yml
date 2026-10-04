@@ -23,7 +23,7 @@ jobs:
           # consolidation. Remove this list after one scheduled run.
           legacy="cross-test ignored-tests-tracker lint-android lint-config
             lint-js lint-node lint-wasm lint-workspace release-android
-            release-browser-sdk release-kotlin-bindings-nix release-node
+            release-browser-sdk release-node
             release-node-sdk release-wasm test-android test-bindings-check
             test-browser-sdk test-keepalive-probe test-node test-node-sdk
             test-wasm test-workspace test-xdbg"

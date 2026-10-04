@@ -81,6 +81,11 @@ xmtp conversation messages <conversation-id>
 Use `--json` for machine-readable output and `xmtp <command> --help` for full
 command documentation.
 
+The `conversation messages` command accepts named standard content types with
+`--content-type` and `--exclude-content-type`. The old `custom` wildcard is
+removed. The CLI rejects `--content-type custom` and
+`--exclude-content-type custom` instead of returning an unfiltered list.
+
 ## Links
 
 - [libxmtp repository](https://github.com/xmtp/libxmtp)

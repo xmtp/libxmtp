@@ -6,7 +6,7 @@ lifecycle, and file log helpers.
 
 ## Commands
 
-`just android test` stages the matched host SDK library for native JVM calls.
+`just android check` and `just android test` stage the matched host SDK library for native JVM calls.
 The test runtime includes host JNA. For `test-unit` with existing generated output,
 set `JAVA_TOOL_OPTIONS=-Djna.library.path=PATH` to the matched host SDK library
 directory.

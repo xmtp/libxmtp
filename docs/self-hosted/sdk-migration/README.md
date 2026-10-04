@@ -25,23 +25,31 @@ The [existing manifest](../sdk-api-manifest.md) is the complete rename and
 removal list. Use its final names. The new major version has no rename aliases.
 These common changes apply on every host; native object members are methods.
 
-| Old form | Swift and Kotlin | Node and browser |
-| --- | --- | --- |
-| `inboxID`, `inboxId` | `inboxId()` | `inboxId` |
-| Nanosecond timestamp integers and separate date helpers | `Timestamp.ns`, `Timestamp.date` | `Timestamp.ns` (`bigint`), `Timestamp.date` |
-| Client database path | `storage().path()` | `storage.path()` |
-| Delete local database | `storage().delete()` | `storage.delete()` on Node; excluded in browser |
-| End a client or reader | await `end()` | `await end()` |
-| Delicate account and signature calls | `unsafeAddAccount`, `unsafeCreateInboxSignatureRequest` | Same names |
-| Legacy reaction v1 codec | app codec or `ReactionV2Codec` for v2 | Same rule |
-| Global codec registration | codecs on `SDKClient.create` or `build` | `options.codecs` on `Client.create` or `build` |
-| Awaited app-data merge callback | metadata reads and typed events | Same rule |
-| `DecodedMessageV2` | `Message` | `Message` |
+| Old form                                                | Swift and Kotlin                                        | Node and browser                                |
+| ------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
+| `inboxID`, `inboxId`                                    | `inboxId()`                                             | `inboxId`                                       |
+| Nanosecond timestamp integers and separate date helpers | `Timestamp.ns`, `Timestamp.date`                        | `Timestamp.ns` (`bigint`), `Timestamp.date`     |
+| Client database path                                    | `storage().path()`                                      | `storage.path()`                                |
+| Delete local database                                   | `storage().delete()`                                    | `storage.delete()` on Node; excluded in browser |
+| End a client or reader                                  | await `end()`                                           | `await end()`                                   |
+| Delicate account and signature calls                    | `unsafeAddAccount`, `unsafeCreateInboxSignatureRequest` | Same names                                      |
+| Legacy reaction v1 codec                                | app codec or `ReactionV2Codec` for v2                   | Same rule                                       |
+| Global codec registration                               | codecs on `SDKClient.create` or `build`                 | `options.codecs` on `Client.create` or `build`  |
+| Awaited app-data merge callback                         | metadata reads and typed events                         | Same rule                                       |
+| `DecodedMessageV2`                                      | `Message`                                               | `Message`                                       |
 
 String IDs keep their exact contents. The SDK checks IDs in Rust. TypeScript
 64-bit values are `bigint`; do not convert them to `number`. `canMessage` map
 keys include identity kind: `ethereum:<validated text>` or
 `passkey:<lowercase hex>`. Read the returned key; do not strip its prefix.
+
+The old active-only sync flag is absent. Consent filters do not replace
+active-only filtering. The new Dm API has no permission-policy getter. Use the
+approved new API without these old getter and flag forms.
+
+The old standalone delete-payload codec is removed. Use the typed message
+delete action and read its typed result. The surviving
+`message_actions_use_ids_and_compression_is_opt_in` test checks this route.
 
 ## Keep the existing database
 
@@ -53,12 +61,12 @@ Directory and Explicit storage. Omitting `encryptionKey` selects unencrypted
 storage. Changing the default location does not move an old database.
 Use the old client's reported database path for the first new open.
 
-| Host | Old default database | New default root |
-| --- | --- | --- |
-| Swift | `Documents/xmtp-{env}-{inboxId}.db3`, or the old `dbDirectory` | `Application Support/{bundleIdentifier}/xmtp` |
-| Android | `{context.filesDir}/xmtp_db/xmtp-{env}-{inboxId}.db3`, or the old `dbDirectory` | `{context.filesDir}/xmtp_db` |
-| Node | `{creationCwd}/xmtp-{env}-{inboxId}.db3`, or the old `dbPath` / callback result | `{creationCwd}/xmtp` |
-| Browser | OPFS entry `xmtp-{env}-{inboxId}.db3`, or the old `dbPath` | OPFS pool entry `xmtp-sdk` |
+| Host    | Old default database                                                            | New default root                              |
+| ------- | ------------------------------------------------------------------------------- | --------------------------------------------- |
+| Swift   | `Documents/xmtp-{env}-{inboxId}.db3`, or the old `dbDirectory`                  | `Application Support/{bundleIdentifier}/xmtp` |
+| Android | `{context.filesDir}/xmtp_db/xmtp-{env}-{inboxId}.db3`, or the old `dbDirectory` | `{context.filesDir}/xmtp_db`                  |
+| Node    | `{creationCwd}/xmtp-{env}-{inboxId}.db3`, or the old `dbPath` / callback result | `{creationCwd}/xmtp`                          |
+| Browser | OPFS entry `xmtp-{env}-{inboxId}.db3`, or the old `dbPath`                      | OPFS pool entry `xmtp-sdk`                    |
 
 For `Default` or `Directory`, an optional non-empty storage label adds one child
 directory to the root. This is `data_dir`. The complete layout is:
@@ -105,11 +113,11 @@ identity and opens an existing stored identity. On an empty database, `build`
 fails with `IdentityNotFound`; it does not register an installation. An identity
 that does not belong to the opened inbox fails with `IdentityMismatch`.
 
-| Host | Create | Existing identity only | Offline option |
-| --- | --- | --- | --- |
-| Swift | `SDKClient.create(signer:options:codecs:)` | `SDKClient.build(identity:options:inboxId:codecs:)` | `options.allowOffline = true` |
-| Kotlin | `SDKClient.create(signer, options, codecs = ...)` | `SDKClient.build(identity, options, codecs = ...)` | `options.copy(allowOffline = true)` |
-| Node and browser | `Client.create(signer, options)` | `Client.build(identity, options, inboxId?)` | `{ ...options, allowOffline: true }` |
+| Host             | Create                                            | Existing identity only                              | Offline option                       |
+| ---------------- | ------------------------------------------------- | --------------------------------------------------- | ------------------------------------ |
+| Swift            | `SDKClient.create(signer:options:codecs:)`        | `SDKClient.build(identity:options:inboxId:codecs:)` | `options.allowOffline = true`        |
+| Kotlin           | `SDKClient.create(signer, options, codecs = ...)` | `SDKClient.build(identity, options, codecs = ...)`  | `options.copy(allowOffline = true)`  |
+| Node and browser | `Client.create(signer, options)`                  | `Client.build(identity, options, inboxId?)`         | `{ ...options, allowOffline: true }` |
 
 `allowOffline` defaults to false. With default/directory storage, offline path
 lookup uses the deployment identifier saved for that backend URL and requires
@@ -165,11 +173,11 @@ unchanged. `InvalidCursor`, `ForeignCursor`, and `ConsumerOwned` are separate
 failures. A history query plus a cursor read is not an atomic, gap-free
 history/live snapshot.
 
-| Host | Old consumption call | Supported new consumption |
-| --- | --- | --- |
-| Swift | `group.streamMessages` / `streamAllMessages` | `client.messages(in: group)` / `client.messages()`; `for try await` |
-| Kotlin | `group.streamMessages` / `streamAllMessages` | `client.messages(group)` / `client.messages()`; Flow `collect` |
-| Node and browser | `conversation.stream` / `streamAllMessages` | `MessageStream.openGroup(client, group)` / `MessageStream.open(client)`; `for await` |
+| Host             | Old consumption call                         | Supported new consumption                                                            |
+| ---------------- | -------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Swift            | `group.streamMessages` / `streamAllMessages` | `client.messages(in: group)` / `client.messages()`; `for try await`                  |
+| Kotlin           | `group.streamMessages` / `streamAllMessages` | `client.messages(group)` / `client.messages()`; Flow `collect`                       |
+| Node and browser | `conversation.stream` / `streamAllMessages`  | `MessageStream.openGroup(client, group)` / `MessageStream.open(client)`; `for await` |
 
 For supported iteration, use the existing host adapter. Swift uses
 `let stream = try await client.messages(in: group)` and `for try await message
@@ -210,6 +218,12 @@ For standalone browser codecs, import from `xmtp-sdk-browser/pure` and await
 `initPureWasm()` before you construct `TextCodec`, `ReactionV2Codec`, or another
 standard codec. The [browser example](browser.ts) shows this order and checks
 both codec round trips. A client open does not replace this pure-module setup.
+
+History content-type filters accept supported standard type IDs. The old
+`ContentType.Custom` wildcard is removed. The CLI also removes the `custom`
+value from `conversation messages --content-type` and
+`--exclude-content-type`. The CLI rejects that value. It does not return an
+unfiltered history.
 
 The standard catalogue owns push defaults. Read receipts, reaction v2, group
 updates, group membership changes, deletion, leave requests, and edits default

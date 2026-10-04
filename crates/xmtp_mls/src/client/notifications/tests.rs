@@ -363,7 +363,7 @@ xmtp_common::if_native! {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn notification_empty_tokens_and_url_fail_before_persistence_or_registration() {
+async fn notification_empty_tokens_and_url_reach_backend_failure() {
     for channel in [
         NotificationChannel::Apns {
             token: String::new(),
@@ -377,6 +377,7 @@ async fn notification_empty_tokens_and_url_fail_before_persistence_or_registrati
         },
     ] {
         let (client, peer) = support::client().await;
+        peer.state.lock().next_error = Some(tonic::Code::InvalidArgument);
         assert!(matches!(
             client
                 .enable_notifications(NotificationConfig::new(channel))
@@ -384,14 +385,14 @@ async fn notification_empty_tokens_and_url_fail_before_persistence_or_registrati
             Err(NotificationError::InvalidArgument)
         ));
         let record = client.db().notification_record()?;
-        assert_eq!(peer.calls(support::Call::Register), 0);
-        assert!(record.push_config.is_none());
-        assert!(record.push_recipient_id.is_none());
-        assert!(record.push_recipient_secret.is_none());
-        assert_eq!(record.push_generation, 0);
+        assert_eq!(peer.calls(support::Call::Register), 1);
+        assert!(record.push_config.is_some());
+        assert!(record.push_recipient_id.is_some());
+        assert!(record.push_recipient_secret.is_some());
+        assert_eq!(record.push_generation, 1);
         assert!(matches!(
             client.notification_state()?,
-            NotificationState::Disabled
+            NotificationState::Failed(NotificationError::InvalidArgument)
         ));
     }
 }

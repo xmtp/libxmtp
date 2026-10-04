@@ -2,7 +2,7 @@ import Foundation
 @testable import XmtpSdk
 
 // Cancellation must reach a cooperative open before its manual release.
-// verifies: PROC-028, PROC-031, PROC-041
+// verifies: PROC-041
 func checkCooperativeReaderOpeningCancellation() async throws {
     let entered = TestFlag()
     let cancelled = TestFlag()
@@ -76,7 +76,7 @@ actor ReaderLateReadyGate {
 }
 
 // A late open can ignore cancellation. Close must wait for its reader to end.
-// verifies: PROC-031, PROC-041
+// verifies: PROC-041
 func checkLateReaderOpeningCleanup(owner: SDKClient, group: Group) async throws {
     let (opened, openedSignal) = AsyncStream<MessageReader>.makeStream()
     let release = ReaderLateReadyGate()

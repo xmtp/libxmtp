@@ -351,7 +351,7 @@ where
                 )?;
                 tracing::info!(
                     "Creating sync group: {}",
-                    xmtp_common::fmt::debug_hex(&sync_group.group_id)
+                    xmtp_common::fmt::debug_hex(sync_group.group_id)
                 );
                 if let Err(inline_err) = sync_group.add_missing_installations().await {
                     // The group row is already persisted, so this add is never

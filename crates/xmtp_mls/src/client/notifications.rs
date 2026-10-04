@@ -270,12 +270,8 @@ impl<Context: XmtpSharedContext> Client<Context> {
             return Err(NotificationError::TaskRunnerDisabled);
         }
         let valid_channel = match &config.channel {
-            NotificationChannel::Apns { token } | NotificationChannel::Fcm { token } => {
-                !token.is_empty()
-            }
-            NotificationChannel::Http { url, signing_key } => {
-                !url.is_empty() && (16..=64).contains(&signing_key.len())
-            }
+            NotificationChannel::Apns { .. } | NotificationChannel::Fcm { .. } => true,
+            NotificationChannel::Http { signing_key, .. } => (16..=64).contains(&signing_key.len()),
         };
         if !valid_channel {
             return Err(NotificationError::InvalidArgument);

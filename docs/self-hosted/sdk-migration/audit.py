@@ -32,7 +32,7 @@ PLATFORM_PREFIXES = {
 }
 PLATFORM_FILES = {
     "iOS": {"Package.swift", "Package.resolved", "nix/package/ios.nix"},
-    "Android": {"nix/package/android.nix"},
+    "Android": {"nix/android-packages.nix"},
     "Node plus agent": {"nix/package/node.nix"},
     "Browser": {"nix/package/wasm.nix", "nix/package/wasm-nextest.nix"},
 }
