@@ -231,7 +231,8 @@ where
             group_id = self.group_id
         );
 
-        let result = self.sync_until_intent_resolved_inner(intent_id).await;
+        // Keep the round future off the containing group sync poll stack.
+        let result = Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await;
         let summary = match &result {
             Ok(summary) => Some(summary),
             Err(GroupError::Sync(summary)) => Some(&**summary),
