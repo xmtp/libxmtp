@@ -693,16 +693,27 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   ) {
     const finalEmit = async () => {
       if (!isCurrent()) return;
+      const failures: unknown[] = [];
       try {
         await this.#emitValue(topic, context);
-        if (!isCurrent()) return;
+      } catch (error) {
+        failures.push(error);
+      }
+      if (!isCurrent()) return;
+      try {
         await this.#emitValue("message", context);
       } catch (error) {
-        if (error instanceof UnacceptedValueError) throw error;
-        if (isCurrent()) {
-          const disposition = await this.#runErrorChain(error, context);
-          if (disposition !== "resume") throw new UnacceptedValueError(error);
-        }
+        failures.push(error);
+      }
+      if (failures.length === 0) return;
+      const error =
+        failures.length === 1
+          ? failures[0]
+          : new AggregateError(failures, "Agent message listeners failed");
+      if (error instanceof UnacceptedValueError) throw error;
+      if (isCurrent()) {
+        const disposition = await this.#runErrorChain(error, context);
+        if (disposition !== "resume") throw new UnacceptedValueError(error);
       }
     };
 
