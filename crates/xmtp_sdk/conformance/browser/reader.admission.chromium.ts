@@ -408,8 +408,18 @@ export async function checkWorkerAdmission(
       } else if (mode === "overlap-end") {
         // A second read while the first value is in transit must reject.
         // It must not acknowledge the first value before the end below.
-        const second = stream.next();
-        await expect(second).rejects.toThrow("reader iterator read is active");
+        // Catch the expected error before the test runner checks for unhandled errors.
+        const second = stream.next().then(
+          () => ({ accepted: true as const }),
+          (error: unknown) => ({ accepted: false as const, error }),
+        );
+        const secondResult = await second;
+        if (secondResult.accepted)
+          throw new Error("overlapping read succeeded");
+        expect(secondResult.error).toBeInstanceOf(Error);
+        expect((secondResult.error as Error).message).toBe(
+          "reader iterator read is active",
+        );
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
         expect(await session.call("__f3Counts", [])).toMatchObject({
           nextCalls: 2,
