@@ -28,6 +28,7 @@ function fixture<T>(
     name,
     expected: { kind, value },
     type: () => makeCodec().type,
+    fallback: () => makeCodec().encode(value).fallback,
     send: (group: Group) =>
       group.send(makeCodec(), value, { shouldPush: false }),
   };
@@ -205,7 +206,7 @@ const cases = [
 
 test.each(cases)(
   "the real peer worker retains $name on list and lookup",
-  async ({ send, expected, type }) => {
+  async ({ send, expected, type, fallback }) => {
     const sender = await create();
     const peer = await create();
     const group = await sender.conversations.createGroup([peer.inboxId]);
@@ -222,9 +223,103 @@ test.each(cases)(
       expect(message?.conversationId).toBe(group.id);
       expect(message?.contentType).toEqual(type());
       expect(message?.content).toEqual(expected);
+      expect(message?.fallback).toBe(fallback());
     }
   },
 );
+
+test("public convenience sends retain content and fallback on peer list and lookup", async () => {
+  const sender = await create();
+  const peer = await create();
+  const group = await sender.conversations.createGroup([peer.inboxId]);
+  const intent = {
+    id: "intent",
+    actionId: "primary",
+    metadataJson: '{"choice":1}',
+  };
+  const transactionWithEmptyReference = {
+    ...transaction,
+    reference: "",
+  };
+  const methods = [
+    {
+      send: () => group.sendText("text", { shouldPush: false }),
+      content: { kind: "text", value: "text" },
+      fallback: undefined,
+    },
+    {
+      send: () => group.sendMarkdown("**markdown**", { shouldPush: false }),
+      content: { kind: "markdown", value: "**markdown**" },
+      fallback: undefined,
+    },
+    {
+      send: () => group.sendAttachment(attachment, { shouldPush: false }),
+      content: { kind: "attachment", value: attachment },
+      fallback: new AttachmentCodec().encode(attachment).fallback,
+    },
+    {
+      send: () => group.sendRemoteAttachment(remote, { shouldPush: false }),
+      content: { kind: "remoteAttachment", value: remote },
+      fallback: new RemoteAttachmentCodec().encode(remote).fallback,
+    },
+    {
+      send: () =>
+        group.sendMultiRemoteAttachment(
+          { attachments: [remote] },
+          { shouldPush: false },
+        ),
+      content: {
+        kind: "multiRemoteAttachment",
+        value: { attachments: [remote] },
+      },
+      fallback: new MultiRemoteAttachmentCodec().encode({
+        attachments: [remote],
+      }).fallback,
+    },
+    {
+      send: () =>
+        group.sendTransactionReference(transactionWithEmptyReference, {
+          shouldPush: false,
+        }),
+      content: {
+        kind: "transactionReference",
+        value: transactionWithEmptyReference,
+      },
+      fallback: "Crypto transaction",
+    },
+    {
+      send: () => group.sendWalletSendCalls(wallet, { shouldPush: false }),
+      content: { kind: "walletSendCalls", value: wallet },
+      fallback: new WalletSendCallsCodec().encode(wallet).fallback,
+    },
+    {
+      send: () => group.sendActions(actions, { shouldPush: false }),
+      content: { kind: "actions", value: actions },
+      fallback: new ActionsCodec().encode(actions).fallback,
+    },
+    {
+      send: () => group.sendIntent(intent, { shouldPush: false }),
+      content: { kind: "intent", value: intent },
+      fallback: "User selected action: primary",
+    },
+  ];
+  const expected = await Promise.all(
+    methods.map(async (method) => ({ ...method, id: await method.send() })),
+  );
+  await peer.conversations.syncAll(undefined);
+  const received = await peer.conversations.getById(group.id);
+  if (!received) throw new Error("Peer group missing");
+  const listed = await received.messages();
+  for (const item of expected) {
+    for (const message of [
+      listed.find((value) => value.id === item.id),
+      await peer.conversations.getMessageById(item.id),
+    ]) {
+      expect(message?.content).toEqual(item.content);
+      expect(message?.fallback).toBe(item.fallback);
+    }
+  }
+});
 
 test("group update messages retain exact added, removed, and metadata fields", async () => {
   const client = await create();
