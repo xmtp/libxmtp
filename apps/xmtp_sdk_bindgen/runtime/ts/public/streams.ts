@@ -97,8 +97,22 @@ export function hostOptions(options: StreamOptions = {}): HostStreamOptions {
 }
 
 /**
- * Messages in delivery order. Each read acknowledges the message before it;
- * the stream holds its client while it is open.
+ * Messages in delivery order. The stream holds its client while it is open.
+ *
+ * Without `selection.from`, one default message reader owns delivery progress
+ * for the client database. Another default reader fails with `ConsumerOwned`,
+ * even if it selects a different group, DM, or filter.
+ *
+ * An explicit `selection.from` cursor starts an independent replay/live reader.
+ * Such readers can run in parallel and do not change default delivery progress.
+ * Their progress is not a separate durable consumer checkpoint. Save the last
+ * processed message's `deliveryCursor` if the app must resume this replay.
+ *
+ * Each next read acknowledges the prior message. Await processing before the
+ * next read, or use `onValue()` and await all work in its callback. An app queue
+ * or an unawaited task does not delay acknowledgement. `end()` and `return()`
+ * do not acknowledge the last message. They cannot undo an acknowledgement after
+ * its commit has been admitted.
  */
 export class MessageStream extends ReaderStream<Message> {
   /** All conversations, with fixed filters for the stream's lifetime. */

@@ -19,8 +19,8 @@ archive URL and checksum in `ReleaseArtifacts.json`. An invalid receipt fails
 evaluation. The `ios-<version>` tag is a release source template. It does not
 mean that an unpublished version has an available tag or archive.
 
-Create a client with a signer, explicit backend options, and the app's stored
-32-byte database key:
+Create a client with a signer and explicit backend options. A database encryption
+key is optional. The example below uses the app's stored 32-byte key:
 
 ```swift
 import Foundation
@@ -44,9 +44,13 @@ func connect(signer: any Signer, databaseKey: Data) async throws {
 ```
 
 Default storage uses the app's Application Support directory and bundle ID.
-Store the database key in the Keychain. Use the same key to open the database
-again. If `encryptionKey` is absent, native storage is unencrypted. Do not write
-the key to logs. The simple example stores its signer and database key in the
+The SDK supports unencrypted storage without a key. Use
+`StorageOptions(location: .default)` or set `encryptionKey` to `nil` to create
+or open an unencrypted database. Encryption is recommended for stored messages
+and keys. If you supply a database key, store it in the Keychain and use the same
+key to open the database again. Do not write the key to logs.
+
+The simple example stores its signer and database key in the
 Keychain before it opens the database. Later logins reuse those keys. The larger
 example stores its database key and address before it creates a client. It can
 reopen the saved account. A Keychain read or write error stops the connection.

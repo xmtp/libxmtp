@@ -195,8 +195,9 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   }
 
   /**
-   * Reads run one at a time. The next read acknowledges the prior value, so a
-   * second read must wait until the first value reaches the app.
+   * Reads run one at a time. For messages, the next read acknowledges the prior
+   * message. Await app processing before requesting the next message. Sharing
+   * this iterator with an app queue does not extend the acknowledgement boundary.
    */
   next(): Promise<IteratorResult<T>> {
     if (!this.#closed) {
@@ -262,7 +263,11 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     }
   }
 
-  /** Resolve after the callback; the next read then acknowledges this value. */
+  /**
+   * Await each callback before the next read. For messages, that read acknowledges
+   * the prior message. Await all processing in the callback. Work sent to an app
+   * queue or an unawaited task can continue after acknowledgement.
+   */
   async onValue(callback: (value: T) => void | Promise<void>): Promise<void> {
     if (this.#consumer === "iterator")
       throw new Error("reader iterator consumer is active");
