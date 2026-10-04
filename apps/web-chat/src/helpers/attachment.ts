@@ -1,4 +1,9 @@
-import { Storage, type Client, type RemoteAttachment } from "@xmtp/browser-sdk";
+import {
+  Storage,
+  type Client,
+  type PendingAttachment,
+  type RemoteAttachment,
+} from "@xmtp/browser-sdk";
 
 const pendingAttachmentCleanupKey = "XMTP_PENDING_ATTACHMENT_CLEANUP";
 const pendingDatabaseDeletionKey = "XMTP_PENDING_DATABASE_DELETION";
@@ -242,13 +247,18 @@ export const validateFile = (file: File): FileValidation => {
 export const uploadEncryptedAttachment = async (
   client: Client,
   file: File,
+  pendingRef?: { current: PendingAttachment | null },
 ): Promise<RemoteAttachment> => {
-  const pending = await client.attachments.create({
-    kind: "bytes",
-    bytes: new Uint8Array(await file.arrayBuffer()),
-    mimeType: file.type,
-    filename: file.name,
-  });
+  let pending = pendingRef?.current;
+  if (!pending) {
+    pending = await client.attachments.create({
+      kind: "bytes",
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      mimeType: file.type,
+      filename: file.name,
+    });
+    if (pendingRef) pendingRef.current = pending;
+  }
   await pending.upload();
   try {
     await client.attachments.deleteLocal(pending.remoteAttachment);

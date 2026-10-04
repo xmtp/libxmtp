@@ -1,4 +1,8 @@
-import type { Client, RemoteAttachment } from "@xmtp/browser-sdk";
+import type {
+  Client,
+  PendingAttachment,
+  RemoteAttachment,
+} from "@xmtp/browser-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -102,6 +106,34 @@ it("keeps the local attachment when upload fails", async () => {
   const file = new File(["payload"], "photo.png", { type: "image/png" });
   await expect(uploadEncryptedAttachment(client, file)).rejects.toBe(failure);
   expect(deleteLocal).not.toHaveBeenCalled();
+});
+
+it("retries a failed upload with the same staged attachment", async () => {
+  const remote = { url: "https://example.com/retry" } as RemoteAttachment;
+  const upload = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("network failed"))
+    .mockResolvedValueOnce(undefined);
+  const pending = {
+    upload,
+    remoteAttachment: remote,
+  } as unknown as PendingAttachment;
+  const create = vi.fn(async () => pending);
+  const deleteLocal = vi.fn(async () => {});
+  const client = { attachments: { create, deleteLocal } } as unknown as Client;
+  const file = new File(["payload"], "photo.png", { type: "image/png" });
+  const pendingRef: { current: PendingAttachment | null } = { current: null };
+
+  await expect(
+    uploadEncryptedAttachment(client, file, pendingRef),
+  ).rejects.toThrow("network failed");
+  expect(pendingRef.current).toBe(pending);
+  await expect(
+    uploadEncryptedAttachment(client, file, pendingRef),
+  ).resolves.toBe(remote);
+  expect(create).toHaveBeenCalledOnce();
+  expect(upload).toHaveBeenCalledTimes(2);
+  expect(deleteLocal).toHaveBeenCalledExactlyOnceWith(remote);
 });
 
 it("returns a completed upload when local cleanup fails", async () => {

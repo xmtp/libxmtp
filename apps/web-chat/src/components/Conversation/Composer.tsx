@@ -7,7 +7,10 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-import { type RemoteAttachment } from "@xmtp/browser-sdk";
+import {
+  type PendingAttachment,
+  type RemoteAttachment,
+} from "@xmtp/browser-sdk";
 import { TextCodec, RemoteAttachmentCodec } from "@xmtp/browser-sdk/pure";
 import { useCallback, useRef, useState } from "react";
 
@@ -37,8 +40,20 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const remoteAttachmentRef = useRef<RemoteAttachment | null>(null);
+  const pendingAttachmentRef = useRef<PendingAttachment | null>(null);
   const isSending = sending || uploadingAttachment;
   const hasContent = message.trim() !== "" || attachment;
+
+  const discardSelectedAttachment = useCallback(() => {
+    const pending = pendingAttachmentRef.current;
+    pendingAttachmentRef.current = null;
+    remoteAttachmentRef.current = null;
+    if (pending) {
+      void client.attachments
+        .deleteLocal(pending.remoteAttachment)
+        .catch(() => {});
+    }
+  }, [client]);
 
   const handleFileSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -46,7 +61,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
       if (file) {
         const validation = validateFile(file);
         if (validation.valid) {
-          remoteAttachmentRef.current = null;
+          discardSelectedAttachment();
           setAttachment(file);
         } else {
           setError(validation.error);
@@ -56,7 +71,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
         fileInputRef.current.value = "";
       }
     },
-    [],
+    [discardSelectedAttachment],
   );
 
   const handleSend = useCallback(async () => {
@@ -69,6 +84,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
           remoteAttachmentRef.current = await uploadEncryptedAttachment(
             client,
             attachment,
+            pendingAttachmentRef,
           );
         }
       } catch {
@@ -92,6 +108,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
         }
         setAttachment(null);
         remoteAttachmentRef.current = null;
+        pendingAttachmentRef.current = null;
       } catch {
         setError("Failed to send attachment");
         return;
@@ -155,7 +172,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
               file={attachment}
               disabled={isSending}
               onCancel={() => {
-                remoteAttachmentRef.current = null;
+                discardSelectedAttachment();
                 setAttachment(null);
               }}
             />

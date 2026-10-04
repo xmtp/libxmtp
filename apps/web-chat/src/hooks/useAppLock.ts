@@ -25,7 +25,10 @@ const isLockStale = (lastActive: number | null) => {
   return lastActive === null || Date.now() - lastActive > STALE_THRESHOLD;
 };
 
-export const useAppLock = (onLockLost?: () => void) => {
+export const useAppLock = (
+  onLockLost?: () => void,
+  onPageHide?: () => Promise<void> | void,
+) => {
   // random UUID to identify the lock
   const [sessionLockId] = useState(() => crypto.randomUUID());
   // flag to track if the lock has been acquired
@@ -158,14 +161,23 @@ export const useAppLock = (onLockLost?: () => void) => {
     }
 
     const handlePageHide = () => {
-      releaseLock();
+      try {
+        const cleanup = onPageHide?.();
+        if (cleanup) {
+          void cleanup.then(releaseLock).catch(() => {});
+        } else {
+          releaseLock();
+        }
+      } catch {
+        // Keep the lock when cleanup cannot be recorded.
+      }
     };
 
     window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
     };
-  }, [lockState, lockId, releaseLock, sessionLockId]);
+  }, [lockState, lockId, onPageHide, releaseLock, sessionLockId]);
 
   return { lockState, acquireLock, releaseLock, ownsLock };
 };

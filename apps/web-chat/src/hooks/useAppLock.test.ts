@@ -312,6 +312,28 @@ describe("useAppLock", () => {
   });
 
   describe("pagehide event", () => {
+    it("records cleanup and holds the lock until plaintext removal completes", async () => {
+      const cleanup = Promise.withResolvers<void>();
+      const onPageHide = vi.fn(() => {
+        localStorage.setItem("pending-cleanup", "recorded");
+        return cleanup.promise;
+      });
+      const { result } = renderHook(() => useAppLock(undefined, onPageHide));
+      act(() => {
+        result.current.acquireLock();
+      });
+
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      expect(onPageHide).toHaveBeenCalledOnce();
+      expect(localStorage.getItem("pending-cleanup")).toBe("recorded");
+      expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).not.toBeNull();
+
+      await act(async () => cleanup.resolve());
+      expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).toBeNull();
+    });
+
     it("releases lock on pagehide when lock is active", () => {
       const { result } = renderHook(() => useAppLock());
 

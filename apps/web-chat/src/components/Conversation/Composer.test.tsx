@@ -12,6 +12,7 @@ import { Composer } from "./Composer";
 
 const mocks = vi.hoisted(() => ({
   upload: vi.fn(),
+  deleteLocal: vi.fn(async () => {}),
   sendRemoteAttachment: vi.fn(),
   sendReply: vi.fn(),
   sendText: vi.fn(),
@@ -19,7 +20,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/contexts/XMTPContext", () => ({
-  useClient: () => ({ attachments: { offered: true } }),
+  useClient: () => ({
+    attachments: { offered: true, deleteLocal: mocks.deleteLocal },
+  }),
 }));
 vi.mock("@/contexts/ConversationContext", () => ({
   useConversationContext: () => ({
@@ -61,6 +64,42 @@ const selectFile = (name: string) => {
   return file;
 };
 
+it("reuses the staged attachment after an upload failure", async () => {
+  const pending = { remoteAttachment: { url: "https://example.com/retry" } };
+  mocks.upload
+    .mockImplementationOnce(async (_client, _file, ref) => {
+      ref.current = pending;
+      throw new Error("network failed");
+    })
+    .mockImplementationOnce(async (_client, _file, ref) => {
+      expect(ref.current).toBe(pending);
+      return pending.remoteAttachment;
+    });
+  render(
+    <MantineProvider>
+      <Composer conversationId="conversation" />
+    </MantineProvider>,
+  );
+
+  const file = selectFile("retry.png");
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() =>
+    expect(screen.getByText("Failed to upload attachment")).toBeVisible(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() =>
+    expect(mocks.sendRemoteAttachment).toHaveBeenCalledWith(
+      pending.remoteAttachment,
+    ),
+  );
+  expect(mocks.upload).toHaveBeenNthCalledWith(
+    2,
+    expect.anything(),
+    file,
+    expect.objectContaining({ current: null }),
+  );
+});
+
 for (const change of ["replace", "cancel"] as const) {
   it(`uploads the selected file after a failed send and ${change}`, async () => {
     const firstRemote = { url: "https://example.com/first" };
@@ -92,7 +131,17 @@ for (const change of ["replace", "cancel"] as const) {
     await waitFor(() =>
       expect(mocks.sendRemoteAttachment).toHaveBeenLastCalledWith(secondRemote),
     );
-    expect(mocks.upload).toHaveBeenNthCalledWith(1, expect.anything(), first);
-    expect(mocks.upload).toHaveBeenNthCalledWith(2, expect.anything(), second);
+    expect(mocks.upload).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      first,
+      expect.anything(),
+    );
+    expect(mocks.upload).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      second,
+      expect.anything(),
+    );
   });
 }

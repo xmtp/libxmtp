@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
     ownsLock: vi.fn(() => true),
     reset: vi.fn(),
     lockLost: null as null | (() => void),
+    pageHide: null as null | (() => Promise<void> | void),
     signer: {},
   };
 });
@@ -40,8 +41,12 @@ vi.mock("@xmtp/browser-sdk", async () => ({
   XmtpError: { StorageBusy: mocks.StorageBusy },
 }));
 vi.mock("@/hooks/useAppLock", () => ({
-  useAppLock: (onLockLost: () => void) => {
+  useAppLock: (
+    onLockLost: () => void,
+    onPageHide: () => Promise<void> | void,
+  ) => {
     mocks.lockLost = onLockLost;
+    mocks.pageHide = onPageHide;
     return {
       lockState: "available",
       acquireLock: mocks.acquireLock,
@@ -57,6 +62,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mocks.lockLost = null;
+  mocks.pageHide = null;
   mocks.ownsLock.mockReturnValue(true);
 });
 
@@ -313,6 +319,69 @@ it("removes local plaintext but keeps staged ciphertext on disconnect", async ()
     expect(await staged.getFileHandle(digest)).toBeDefined();
     expect(mocks.releaseLock).toHaveBeenCalledOnce();
   } finally {
+    await backend.removeEntry(deployment, { recursive: true });
+  }
+});
+
+it("records pagehide cleanup and removes plaintext before a new account starts", async () => {
+  const deployment = `pagehide-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const path = await backend.getDirectoryHandle(deployment, { create: true });
+  const inbox = await path.getDirectoryHandle(inboxId, { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const key = "f".repeat(64);
+  await attachments.getDirectoryHandle(key, { create: true });
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => dbPath },
+    end: vi.fn(async () => {}),
+  });
+  const journalKey = "XMTP_PENDING_ATTACHMENT_CLEANUP";
+  try {
+    const first = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await first.result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    const getDirectory = vi
+      .spyOn(navigator.storage, "getDirectory")
+      .mockRejectedValueOnce(new Error("OPFS busy"));
+    const hidden = mocks.pageHide?.();
+    expect(JSON.parse(localStorage.getItem(journalKey)!)).toContain(dbPath);
+    await expect(hidden).rejects.toThrow("OPFS busy");
+    expect(mocks.releaseLock).not.toHaveBeenCalled();
+    expect(await attachments.getDirectoryHandle(key)).toBeDefined();
+    getDirectory.mockRestore();
+    first.unmount();
+
+    mocks.create.mockResolvedValueOnce({
+      storage: { path: async () => undefined },
+      end: vi.fn(async () => {}),
+    });
+    const second = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await second.result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    await expect(attachments.getDirectoryHandle(key)).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
+    expect(JSON.parse(localStorage.getItem(journalKey) ?? "[]")).not.toContain(
+      dbPath,
+    );
+  } finally {
+    localStorage.removeItem(journalKey);
     await backend.removeEntry(deployment, { recursive: true });
   }
 });
