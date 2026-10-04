@@ -33,8 +33,8 @@ export const useConnectXmtp = () => {
   } = useSettings();
 
   const connect = useCallback(() => {
-    // if client is already connected or lock is not available, return
-    if (client || lockState !== "available") {
+    // A tab can connect after it takes ownership of the app lock.
+    if (client || lockState === "locked") {
       return;
     }
 
