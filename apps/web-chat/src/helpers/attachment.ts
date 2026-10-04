@@ -72,7 +72,21 @@ export const clearDatabaseDeletionPending = (dbPath: string) => {
 const validSegment = (part: string) =>
   part !== "" && part !== "." && part !== ".." && !part.includes("\\");
 
-export const isCurrentDatabasePath = (dbPath: string, label?: string) => {
+export const deploymentHash = async (identifier: string): Promise<string> => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(identifier),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+export const isCurrentDatabasePath = (
+  dbPath: string,
+  label?: string,
+  deploymentDigest?: string,
+) => {
   const parts = dbPath.replace(/^\/+/, "").split("/");
   return (
     parts.length === 5 &&
@@ -80,6 +94,8 @@ export const isCurrentDatabasePath = (dbPath: string, label?: string) => {
     validSegment(parts[1]) &&
     (label === undefined || parts[1] === label) &&
     /^[^/\\]{1,190}-[0-9a-f]{64}$/.test(parts[2]) &&
+    (deploymentDigest === undefined ||
+      parts[2].endsWith(`-${deploymentDigest}`)) &&
     /^[0-9a-f]{64}$/.test(parts[3]) &&
     parts[4] === "xmtp.db3"
   );

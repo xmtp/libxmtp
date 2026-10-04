@@ -15,8 +15,12 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   end: vi.fn(),
   admin: vi.fn(),
+  fetchServerConfiguration: vi.fn().mockResolvedValue({
+    identifier: "selected-deployment",
+  }),
 }));
 vi.mock("@xmtp/browser-sdk", () => ({
+  Client: { fetchServerConfiguration: mocks.fetchServerConfiguration },
   Storage: { admin: mocks.admin },
   XmtpError: { StorageBusy: class extends Error {} },
 }));
@@ -28,11 +32,24 @@ vi.mock("@/helpers/backend", () => ({
 }));
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.resetAllMocks();
+  mocks.fetchServerConfiguration.mockResolvedValue({
+    identifier: "selected-deployment",
+  });
 });
 
+const deploymentComponent = async (name: string) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(name),
+  );
+  return `${name}-${Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")}`;
+};
+
 it("deletes only a selected database for this backend and awaits admin end", async () => {
-  const deployment = `deletion-test-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const deployment = await deploymentComponent("selected-deployment");
   const selectedInbox = "a".repeat(64);
   const retainedInbox = "b".repeat(64);
   const selected = `/xmtp-sdk/selected-backend/${deployment}/${selectedInbox}/xmtp.db3`;
@@ -127,8 +144,92 @@ it("deletes only a selected database for this backend and awaits admin end", asy
   }
 });
 
+it("does not list or delete a database from another deployment at the same origin", async () => {
+  const selectedDeployment = await deploymentComponent("selected-deployment");
+  const otherDeployment = await deploymentComponent("other-deployment");
+  const inboxId = "a".repeat(64);
+  const selected = `/xmtp-sdk/selected-backend/${selectedDeployment}/${inboxId}/xmtp.db3`;
+  const other = `/xmtp-sdk/selected-backend/${otherDeployment}/${inboxId}/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("selected-backend", {
+    create: true,
+  });
+  const selectedDir = await backend.getDirectoryHandle(selectedDeployment, {
+    create: true,
+  });
+  const selectedInbox = await selectedDir.getDirectoryHandle(inboxId, {
+    create: true,
+  });
+  await selectedInbox.getDirectoryHandle("attachments", { create: true });
+  const otherDir = await backend.getDirectoryHandle(otherDeployment, {
+    create: true,
+  });
+  const otherInbox = await otherDir.getDirectoryHandle(inboxId, {
+    create: true,
+  });
+  await otherInbox.getDirectoryHandle("attachments", { create: true });
+  mocks.list.mockResolvedValue([selected, other]);
+  mocks.admin.mockResolvedValue({
+    listFiles: mocks.list,
+    deleteFile: mocks.remove,
+    end: mocks.end,
+  });
+
+  try {
+    render(
+      <MantineProvider>
+        <LocalDatabases />
+      </MantineProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Local databases" }));
+    await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(1));
+    const select = screen.getByRole("combobox", { name: "Database" });
+    expect(
+      [...select.querySelectorAll("option")].map((option) => option.value),
+    ).toEqual(["", selected]);
+
+    fireEvent.change(select, { target: { value: selected } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete selected database" }),
+    );
+    await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(2));
+    expect(mocks.remove).toHaveBeenCalledWith(selected);
+    expect(mocks.remove).not.toHaveBeenCalledWith(other);
+    expect(localStorage.getItem("XMTP_PENDING_DATABASE_DELETION")).toBeNull();
+    await expect(
+      otherInbox.getDirectoryHandle("attachments"),
+    ).resolves.toBeDefined();
+  } finally {
+    await backend.removeEntry(selectedDeployment, { recursive: true });
+    await backend.removeEntry(otherDeployment, { recursive: true });
+  }
+});
+
+it("does not offer deletion when the selected deployment cannot be resolved", async () => {
+  mocks.fetchServerConfiguration.mockRejectedValueOnce(
+    new Error("Server configuration unavailable"),
+  );
+  render(
+    <MantineProvider>
+      <LocalDatabases />
+    </MantineProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Local databases" }));
+  await screen.findByText("Server configuration unavailable");
+  expect(mocks.admin).not.toHaveBeenCalled();
+  expect(mocks.remove).not.toHaveBeenCalled();
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Delete selected database",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+});
+
 it("retries attachment cleanup after the database file is deleted", async () => {
-  const deployment = `cleanup-retry-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const deployment = await deploymentComponent("selected-deployment");
   const inboxId = "c".repeat(64);
   const selected = `/xmtp-sdk/selected-backend/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
@@ -190,7 +291,8 @@ it("retries attachment cleanup after the database file is deleted", async () => 
 });
 
 it("keeps the database when the deletion intent cannot be saved", async () => {
-  const selected = `/xmtp-sdk/selected-backend/deployment-${"d".repeat(64)}/${"e".repeat(64)}/xmtp.db3`;
+  const deployment = await deploymentComponent("selected-deployment");
+  const selected = `/xmtp-sdk/selected-backend/${deployment}/${"e".repeat(64)}/xmtp.db3`;
   mocks.list.mockResolvedValue([selected]);
   mocks.admin.mockResolvedValue({
     listFiles: mocks.list,
@@ -228,7 +330,7 @@ it("keeps the database when the deletion intent cannot be saved", async () => {
 });
 
 it("retries a saved deletion intent after the database delete fails", async () => {
-  const deployment = `delete-retry-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const deployment = await deploymentComponent("selected-deployment");
   const inboxId = "f".repeat(64);
   const selected = `/xmtp-sdk/selected-backend/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();

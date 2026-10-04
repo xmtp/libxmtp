@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => {
         ),
       ),
     inboxIdFor: vi.fn().mockResolvedValue("registered-inbox-id"),
+    fetchServerConfiguration: vi
+      .fn()
+      .mockResolvedValue({ identifier: "selected-deployment" }),
     listFiles: vi.fn().mockResolvedValue([]),
     endAdmin: vi.fn().mockResolvedValue(undefined),
     releaseLock: vi.fn(),
@@ -32,6 +35,7 @@ vi.mock("@xmtp/browser-sdk", async () => ({
     create: mocks.create,
     canMessage: mocks.canMessage,
     inboxIdFor: mocks.inboxIdFor,
+    fetchServerConfiguration: mocks.fetchServerConfiguration,
   },
   Storage: {
     admin: () =>
@@ -94,6 +98,7 @@ it("opens the app's matching old Browser database", async () => {
     credentials: undefined,
     appVersion: "xmtp.chat/0",
   });
+  expect(mocks.fetchServerConfiguration).not.toHaveBeenCalled();
   expect(mocks.create).toHaveBeenCalledWith(
     signer,
     expect.objectContaining({
@@ -150,10 +155,20 @@ it("stops when old and current app databases match one inbox", async () => {
   const identity = { identifier: "0x1234", kind: "ethereum" };
   const signer = { identity: vi.fn().mockResolvedValue(identity) };
   const inboxId = "b".repeat(64);
+  const deploymentHash = Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode("selected-deployment"),
+      ),
+    ),
+  )
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
   mocks.inboxIdFor.mockResolvedValueOnce(inboxId);
   mocks.listFiles.mockResolvedValueOnce([
     `xmtp-test-${inboxId}.db3`,
-    `xmtp-sdk/test/deployment-${"c".repeat(64)}/${inboxId}/xmtp.db3`,
+    `xmtp-sdk/test/selected-deployment-${deploymentHash}/${inboxId}/xmtp.db3`,
   ]);
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
 
@@ -167,6 +182,58 @@ it("stops when old and current app databases match one inbox", async () => {
     ).rejects.toThrow("Both old and current databases match this inbox");
   });
   expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it("opens an old database when the current path belongs to another deployment", async () => {
+  const identity = { identifier: "0x1234", kind: "ethereum" };
+  const signer = { identity: vi.fn().mockResolvedValue(identity) };
+  const inboxId = "b".repeat(64);
+  const otherHash = Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode("other-deployment"),
+      ),
+    ),
+  )
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  mocks.inboxIdFor.mockResolvedValueOnce(inboxId);
+  mocks.listFiles.mockResolvedValueOnce([
+    `xmtp-test-${inboxId}.db3`,
+    `xmtp-sdk/test/other-deployment-${otherHash}/${inboxId}/xmtp.db3`,
+  ]);
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => undefined },
+    end: vi.fn(),
+  });
+  const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+
+  await act(async () => {
+    await result.current.initialize({
+      backendUrl: "https://example.com/a",
+      env: "test",
+      signer: signer as never,
+    });
+  });
+
+  expect(mocks.fetchServerConfiguration).toHaveBeenCalledWith({
+    url: "https://example.com/a",
+    credentials: undefined,
+    appVersion: "xmtp.chat/0",
+  });
+  expect(mocks.create).toHaveBeenCalledWith(
+    signer,
+    expect.objectContaining({
+      storage: {
+        location: {
+          dbPath: `xmtp-test-${inboxId}.db3`,
+          attachmentsDir: `xmtp-test-${inboxId}.db3.attachments`,
+        },
+        label: "test",
+      },
+    }),
+  );
 });
 
 it("ignores a malformed current path beside a matching old database", async () => {

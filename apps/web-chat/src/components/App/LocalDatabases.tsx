@@ -1,5 +1,5 @@
 import { Button, NativeSelect, Stack, Text } from "@mantine/core";
-import { Storage, XmtpError } from "@xmtp/browser-sdk";
+import { Client, Storage, XmtpError } from "@xmtp/browser-sdk";
 import { useState } from "react";
 
 import { Modal } from "@/components/Modal";
@@ -7,7 +7,9 @@ import {
   cleanAttachmentDirectory,
   cleanSessionAttachments,
   clearDatabaseDeletionPending,
+  deploymentHash,
   isCurrentDatabasePath,
+  isLegacyDatabasePath,
   markDatabaseDeletionPending,
   pendingAttachmentCleanupPaths,
   pendingDatabaseDeletionPaths,
@@ -35,22 +37,23 @@ export const LocalDatabases: React.FC = () => {
         }
       }
       const label = await backendLabel(backendUrl);
+      const selectedDeploymentHash = await deploymentHash(
+        (await Client.fetchServerConfiguration({ url: backendUrl })).identifier,
+      );
       const admin = await Storage.admin();
       try {
         const available = (await admin.listFiles()).filter((file) => {
           const path = file.replace(/^\/+/, "");
           const parts = path.split("/");
-          if (parts.length === 5) return isCurrentDatabasePath(path, label);
-          const prefix = `xmtp-${label}-`;
-          return (
-            parts.length === 1 &&
-            path.startsWith(prefix) &&
-            /^[0-9a-f]{64}\.db3$/i.test(path.slice(prefix.length))
-          );
+          if (parts.length === 5)
+            return isCurrentDatabasePath(path, label, selectedDeploymentHash);
+          return isLegacyDatabasePath(path, label);
         });
         if (remove) {
           const pending =
             selected !== null &&
+            (isCurrentDatabasePath(selected, label, selectedDeploymentHash) ||
+              isLegacyDatabasePath(selected, label)) &&
             pendingDatabaseDeletionPaths().includes(selected);
           if (!selected || (!available.includes(selected) && !pending))
             throw new Error("Select a local database.");
