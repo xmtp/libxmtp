@@ -26,6 +26,7 @@ mobile_spec = importlib.util.spec_from_file_location(
 mobile = importlib.util.module_from_spec(mobile_spec)
 mobile_spec.loader.exec_module(mobile)
 
+
 class ArtifactTests(unittest.TestCase):
     def test_android_targets_vendor_openssl_with_inherited_host_libraries(self):
         host = {
@@ -946,8 +947,11 @@ class NodePlatformReceiptTests(unittest.TestCase):
                 "--out",
                 str(root / "out"),
             ]
+
             def record():
-                return subprocess.run(args, cwd=artifacts.ROOT, capture_output=True, text=True)
+                return subprocess.run(
+                    args, cwd=artifacts.ROOT, capture_output=True, text=True
+                )
 
             self.assertEqual(record().returncode, 0)
             library.write_bytes(b"replaced SDK library")
