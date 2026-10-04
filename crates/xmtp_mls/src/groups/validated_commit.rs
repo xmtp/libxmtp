@@ -19,7 +19,7 @@ use crate::traits::FromWith;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{retry::RetryableError, retryable};
+use xmtp_common::{retry::RetryableError, retryable, snippet::Snippet};
 use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::{DbQuery, StorageError};
 #[cfg(doc)]
@@ -837,10 +837,10 @@ pub fn validate_proposal(
             if new_inbox_id != proposer.inbox_id {
                 tracing::warn!(
                     proposer_inbox_id = %proposer.inbox_id,
-                    proposer_installation_id = hex::encode(&proposer.installation_id),
+                    proposer_installation_id = %proposer.installation_id.as_slice().snippet(),
                     leaf_index = ?proposal.sender(),
                     new_inbox_id = %new_inbox_id,
-                    new_installation_id = hex::encode(update_proposal.leaf_node().signature_key().as_slice()),
+                    new_installation_id = %update_proposal.leaf_node().signature_key().as_slice().snippet(),
                     "Update proposal rejected: new leaf node credential does not match proposer"
                 );
                 return Err(CommitValidationError::Rule(CommitRuleError::ActorNotMember));
