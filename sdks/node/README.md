@@ -77,6 +77,24 @@ Later `next()` calls reject with the same terminal error.
 Open an explicit replacement when the app is ready. End streams and clients
 with `await stream.end()` and `await client.end()`.
 
+Without `selection.from`, only one default message reader can own delivery
+progress for a client database. Another default reader fails with
+`ConsumerOwned`, even for a different group, DM, or filter. End the current
+reader before opening another default reader.
+
+An explicit `selection.from` cursor opens an independent replay/live reader.
+These readers can run in parallel and do not change default delivery progress.
+They do not have separate durable consumer checkpoints. To resume a replay,
+save the last processed message's `deliveryCursor` and pass it as `from` when
+opening the next reader. The cursor must come from the same database.
+
+The next read acknowledges the prior message. In a `for await` loop, await all
+message processing before the next iteration. With `onValue()`, await all
+processing in the callback. Adding a message to an app queue or starting an
+unawaited task does not wait for that work before acknowledgement. `end()` and
+`return()` do not acknowledge the last message. They cannot undo an
+acknowledgement after its commit has been admitted.
+
 Import `ContentCodec<T>`, `EncodedContent` and `ContentTypeId` from this SDK.
 A codec has a `type` field. Encoded parameters use `Map<string, string>`.
 Stored-message content filters accept the supported built-in `ContentTypeId`
