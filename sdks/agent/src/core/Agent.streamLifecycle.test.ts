@@ -284,6 +284,67 @@ describe("Agent stream lifecycle", () => {
       await h.agent.stop();
     },
   );
+  it("delivers the generic message after a recovered typed listener failure", async () => {
+    const h = harness();
+    const gate = deferred<void>();
+    const cause = new Error("typed listener failed");
+    const onError = vi.fn((_error, _ctx, next: () => void) => next());
+    const received = vi.fn(async () => gate.promise);
+    const accepted = vi.fn();
+    h.agent.errors.use(onError);
+    h.agent.on("text", async () => {
+      throw cause;
+    });
+    h.agent.on("message", received);
+    await h.agent.start();
+    const delivery = h.messages[0]!.value(message);
+    void Promise.resolve(delivery).then(accepted);
+    try {
+      await setImmediate();
+      expect(received).toHaveBeenCalledOnce();
+      expect(accepted).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      gate.resolve();
+      await delivery;
+      await h.agent.stop();
+    }
+    expect(onError).toHaveBeenCalledWith(
+      cause,
+      expect.objectContaining({ message }),
+      expect.any(Function),
+    );
+    expect(accepted).toHaveBeenCalledOnce();
+  });
+  it("waits for typed and generic listener failures before error middleware", async () => {
+    const h = harness();
+    const gate = deferred<void>();
+    const typed = new Error("typed listener failed");
+    const generic = new Error("generic listener failed");
+    const onError = vi.fn((_error, _ctx, next: () => void) => next());
+    h.agent.errors.use(onError);
+    h.agent.on("text", async () => {
+      throw typed;
+    });
+    h.agent.on("message", async () => {
+      await gate.promise;
+      throw generic;
+    });
+    await h.agent.start();
+    const delivery = h.messages[0]!.value(message);
+    try {
+      await setImmediate();
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      gate.resolve();
+      await delivery;
+      await h.agent.stop();
+    }
+    expect(onError).toHaveBeenCalledOnce();
+    const error = onError.mock.calls[0]![0];
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toEqual([typed, generic]);
+  });
   it("rejects an unhandled async listener failure before accepting a message", async () => {
     const h = harness();
     const cause = new Error("async listener failed");

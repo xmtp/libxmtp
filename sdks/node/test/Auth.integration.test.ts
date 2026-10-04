@@ -1,6 +1,6 @@
 import { createSigner } from "@test/helpers";
 import { createRegisteredClient, clientOptions } from "@test/helpers";
-import { Backend, Client } from "@xmtp/node-sdk";
+import { Backend, Client, XmtpError } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 describe("Node backend authentication", () => {
@@ -65,8 +65,9 @@ describe("Node backend authentication", () => {
     const authCallback = vi.fn(() =>
       Promise.reject(new Error("private refresh response")),
     );
-    await expect(
-      Client.create(
+    let failure: unknown;
+    try {
+      await Client.create(
         signer,
         clientOptions({
           backend: {
@@ -74,8 +75,19 @@ describe("Node backend authentication", () => {
             credentials: { credential: authCallback },
           },
         }),
-      ),
-    ).rejects.not.toThrow("private refresh response");
+      );
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(XmtpError.CredentialCallbackFailed);
+    expect(failure).toMatchObject({
+      details: {
+        code: "CredentialCallbackFailed",
+        category: "callback",
+        retryable: true,
+      },
+    });
+    expect(String(failure)).not.toContain("private refresh response");
     expect(authCallback).toHaveBeenCalled();
   });
 

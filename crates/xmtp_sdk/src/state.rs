@@ -52,10 +52,19 @@ pub struct MembershipResult {
     pub failed_installation_ids: Vec<InstallationId>,
 }
 
-#[derive(Clone, Debug, uniffi::Record)]
+#[derive(Clone, uniffi::Record)]
 pub struct HmacKey {
     pub key: Vec<u8>,
     pub epoch: i64,
+}
+
+impl std::fmt::Debug for HmacKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HmacKey")
+            .field("key", &"<redacted>")
+            .field("epoch", &self.epoch)
+            .finish()
+    }
 }
 
 impl From<xmtp_db::user_preferences::HmacKey> for HmacKey {
@@ -571,4 +580,28 @@ impl GroupState {
             },
         })
     }
+}
+
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn hmac_key_diagnostics_do_not_disclose_key_bytes() {
+    let bytes = vec![65; 32];
+    let key = HmacKey {
+        key: bytes.clone(),
+        epoch: 17,
+    };
+    let marker = format!("{bytes:?}");
+    let exposed = [
+        ("direct", format!("{key:?}")),
+        ("nested", format!("{:?}", vec![key.clone()])),
+    ]
+    .into_iter()
+    .filter_map(|(name, text)| text.contains(&marker).then_some(name))
+    .collect::<Vec<_>>();
+    assert!(
+        exposed.is_empty(),
+        "HmacKey diagnostic key exposure: {exposed:?}"
+    );
+    assert_eq!(key.key, bytes);
+    assert_eq!(key.epoch, 17);
 }
