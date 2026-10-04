@@ -23,8 +23,8 @@ internal fun checkPureInboxIdCalculation() {
                 ),
         )
     for ((identity, expected) in vectors) {
-        check(generateInboxId(identity) == expected[1]) { "omitted inbox nonce did not default to one" }
-        check(generateInboxId(identity, null) == expected[1]) { "absent inbox nonce did not default to one" }
+        check(generateInboxId(identity) == expected[0]) { "omitted inbox nonce did not default to zero" }
+        check(generateInboxId(identity, null) == expected[0]) { "absent inbox nonce did not default to zero" }
         for ((nonce, value) in nonces.zip(expected)) {
             check(generateInboxId(identity, nonce) == value) { "pure inbox calculation changed nonce $nonce" }
         }

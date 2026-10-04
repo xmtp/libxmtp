@@ -21,6 +21,7 @@ dev/nix-shell 'python3 sdks/ios/script/test_recipes.py'
 NIX_DEVSHELL=ios dev/nix-shell 'python3 sdks/ios/script/test_listener_gates.py'
 NIX_DEVSHELL=ios dev/nix-shell 'python3 sdks/ios/script/test_lifecycle_log.py'
 NIX_DEVSHELL=ios dev/nix-shell 'python3 sdks/ios/script/test_reader_overlap.py'
+NIX_DEVSHELL=ios dev/nix-shell 'python3 sdks/ios/script/test_event_iterator_overlap.py'
 ```
 
 The podspec test needs an existing Ruby runtime with `cocoapods-core`. Use the
@@ -33,6 +34,7 @@ client close rejects a later pending or completed listener registration.
 The lifecycle log test checks that a failed resume does not log backend error text.
 The reader overlap test checks that a rejected read does not advance or close the
 active reader. It also checks read ownership after success, failure and cancellation.
+The event iterator test applies the same checks to event reads and checks an end race.
 
 ## Rules
 
