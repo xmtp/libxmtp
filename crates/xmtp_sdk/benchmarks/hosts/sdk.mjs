@@ -269,6 +269,20 @@ export function publicApi(sdk, pure, side, target, backend, accounts) {
     groupId: (group) => group.id,
     prepare,
     prepareReaction,
+    countUnpublished: async (group) =>
+      Number(
+        await group.countMessages({
+          deliveryStatus: modern
+            ? "unpublished"
+            : sdk.DeliveryStatus.Unpublished,
+        }),
+      ),
+    countPublished: async (group) =>
+      Number(
+        await group.countMessages({
+          deliveryStatus: modern ? "published" : sdk.DeliveryStatus.Published,
+        }),
+      ),
     publish: (group) => group.publishMessages(),
     page: (group, count) =>
       group.messages(

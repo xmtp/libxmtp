@@ -130,6 +130,7 @@ cutover-bench target config output:
 
 cutover-bench-check:
     cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
+    cd "{{ root }}" && node crates/xmtp_sdk/benchmarks/seed_selection_controls.mjs
     cd "{{ root }}" && node crates/xmtp_sdk/benchmarks/entry_controls.mjs
     cd "{{ root }}" && node --experimental-vm-modules crates/xmtp_sdk/benchmarks/browser_window_controls.mjs
     cd "{{ root }}" && node --experimental-vm-modules crates/xmtp_sdk/benchmarks/workload_window_controls.mjs
