@@ -66,12 +66,18 @@ class HistorySyncTest : BaseInstrumentedTest() {
             assertEquals(ConsentState.UNKNOWN, alixGroup.state().common.consentState)
             val second = createClient(alixWallet)
             assertEquals(2, second.inboxState(true).installations.size)
+            println("SYNC_CONSENT stage=copy-start")
             val copy = copiedGroup(boGroup.id(), second)
+            println("SYNC_CONSENT stage=copy-ready consent=${copy.state().common.consentState}")
             assertEquals(ConsentState.UNKNOWN, copy.state().common.consentState)
             alixGroup.updateConsentState(ConsentState.DENIED)
+            println("SYNC_CONSENT stage=update source=${alixGroup.state().common.consentState}")
+            var observation = 0
             waitUntil {
                 sync(alixClient, second)
-                copy.state().common.consentState == ConsentState.DENIED
+                val state = copy.state().common.consentState
+                if (observation++ % 20 == 0) println("SYNC_CONSENT stage=propagate attempt=$observation consent=$state")
+                state == ConsentState.DENIED
             }
             assertEquals(ConsentState.DENIED, copy.state().common.consentState)
         }
