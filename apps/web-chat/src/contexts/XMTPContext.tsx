@@ -161,13 +161,11 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
       }
     }
   }, [reset, setClient]);
-  const handlePageHide = useCallback(() => {
-    const dbPath = attachmentDbPath.current;
-    if (dbPath) return cleanSessionAttachments(dbPath);
+  const handlePageHide = useCallback(async () => {
     const current = clientRef.current;
-    if (current) {
-      return current.storage.path().then(cleanSessionAttachments);
-    }
+    const dbPath = attachmentDbPath.current ?? (await current?.storage.path());
+    await current?.end();
+    await cleanSessionAttachments(dbPath);
   }, []);
   const { lockState, acquireLock, releaseLock, ownsLock } = useAppLock(() => {
     void handleLockLost();

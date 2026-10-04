@@ -355,8 +355,8 @@ it("records pagehide cleanup and removes plaintext before a new account starts",
       .spyOn(navigator.storage, "getDirectory")
       .mockRejectedValueOnce(new Error("OPFS busy"));
     const hidden = mocks.pageHide?.();
-    expect(JSON.parse(localStorage.getItem(journalKey)!)).toContain(dbPath);
     await expect(hidden).rejects.toThrow("OPFS busy");
+    expect(JSON.parse(localStorage.getItem(journalKey)!)).toContain(dbPath);
     expect(mocks.releaseLock).not.toHaveBeenCalled();
     expect(await attachments.getDirectoryHandle(key)).toBeDefined();
     getDirectory.mockRestore();
@@ -450,6 +450,99 @@ it("removes pagehide plaintext when the cleanup journal write fails", async () =
     });
   } finally {
     storageSpy.mockRestore();
+    await backend.removeEntry(deployment, { recursive: true });
+  }
+});
+
+it("waits for in-flight work before pagehide removes plaintext", async () => {
+  const deployment = `pagehide-flight-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const database = await backend.getDirectoryHandle(deployment, {
+    create: true,
+  });
+  const inbox = await database.getDirectoryHandle(inboxId, { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const plaintext = "d".repeat(64);
+  const finishDownload = Promise.withResolvers<void>();
+  const end = vi.fn(async () => {
+    await finishDownload.promise;
+    await attachments.getDirectoryHandle(plaintext, { create: true });
+  });
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => dbPath },
+    end,
+  });
+  try {
+    const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    const hidden = mocks.pageHide?.();
+    expect(end).toHaveBeenCalledOnce();
+    await expect(
+      attachments.getDirectoryHandle(plaintext),
+    ).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
+    expect(localStorage.getItem("XMTP_PENDING_ATTACHMENT_CLEANUP")).toBeNull();
+    finishDownload.resolve();
+    await act(async () => {
+      await hidden;
+    });
+    await expect(
+      attachments.getDirectoryHandle(plaintext),
+    ).rejects.toMatchObject({
+      name: "NotFoundError",
+    });
+  } finally {
+    finishDownload.resolve();
+    await backend.removeEntry(deployment, { recursive: true });
+  }
+});
+
+it("keeps pagehide cleanup incomplete when client shutdown fails", async () => {
+  const deployment = `pagehide-end-failure-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const inboxId = "a".repeat(64);
+  const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const database = await backend.getDirectoryHandle(deployment, {
+    create: true,
+  });
+  const inbox = await database.getDirectoryHandle(inboxId, { create: true });
+  const attachments = await inbox.getDirectoryHandle("attachments", {
+    create: true,
+  });
+  const plaintext = "e".repeat(64);
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => dbPath },
+    end: vi.fn().mockRejectedValue(new Error("Shutdown failed")),
+  });
+  try {
+    const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    await attachments.getDirectoryHandle(plaintext, { create: true });
+    await expect(mocks.pageHide?.()).rejects.toThrow("Shutdown failed");
+    expect(await attachments.getDirectoryHandle(plaintext)).toBeDefined();
+    expect(localStorage.getItem("XMTP_PENDING_ATTACHMENT_CLEANUP")).toBeNull();
+  } finally {
     await backend.removeEntry(deployment, { recursive: true });
   }
 });

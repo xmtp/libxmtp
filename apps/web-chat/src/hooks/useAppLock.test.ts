@@ -334,6 +334,25 @@ describe("useAppLock", () => {
       expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).toBeNull();
     });
 
+    it("keeps the lock when pagehide shutdown fails", async () => {
+      const onPageHide = vi.fn(() =>
+        Promise.reject(new Error("Shutdown failed")),
+      );
+      const { result } = renderHook(() => useAppLock(undefined, onPageHide));
+      act(() => {
+        result.current.acquireLock();
+      });
+
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(onPageHide).toHaveBeenCalledOnce();
+      expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).not.toBeNull();
+    });
+
     it("releases lock on pagehide when lock is active", () => {
       const { result } = renderHook(() => useAppLock());
 
