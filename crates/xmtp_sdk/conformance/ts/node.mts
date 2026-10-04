@@ -28,6 +28,7 @@ import {
 } from "./node-codecs.mts";
 import { logging } from "./node-logging.mts";
 import { metadataFields } from "./node-metadata.mts";
+import { readerAckFault } from "./node-reader-ack-fault.mts";
 import { readerDelivery } from "./node-reader-delivery.mts";
 import { storageLayout } from "./node-storage-layout.mts";
 import { streamFailures } from "./node-stream-failures.mts";
@@ -300,6 +301,7 @@ assert.throws(
 console.log("Node scenario 2: create, reopen, end passed");
 
 const delivery = await readerDelivery(reopened);
+await readerAckFault(backendOptions);
 await streamLifecycle(reopened);
 await streamFailures(reopened, delivery);
 
