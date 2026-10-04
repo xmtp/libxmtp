@@ -90,6 +90,7 @@ describe("Agent stream lifecycle", () => {
     ["end", false],
     ["abort", true],
     ["end", true],
+    ["stop", false],
   ] as const)(
     "cleans up after a throwing close callback on a real reader %s (reentry: %s) and restarts",
     async (mode, reentry) => {
@@ -141,10 +142,12 @@ describe("Agent stream lifecycle", () => {
       try {
         await agent.start({ signal: abort.signal, onClose: closed });
         if (mode === "abort") abort.abort();
-        else await streams[0]!.end();
+        else if (mode === "end") await streams[0]!.end();
+        else await agent.stop();
         await vi.waitFor(() => expect(stopped).toHaveBeenCalledOnce());
         expect(rawReaders[0]!.end).toHaveBeenCalledOnce();
         expect(rawReaders[1]!.end).toHaveBeenCalledOnce();
+        expect(closed).toHaveBeenCalledOnce();
         expect(reported).toHaveBeenCalledWith(
           "XMTP stream close callback failed",
           cause,

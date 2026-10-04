@@ -348,13 +348,18 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         }
         if (inboxId === undefined) continue;
         if (!entry.isFile()) {
-          if (
-            !entry.isSymbolicLink() ||
-            !(
-              await fs.promises.stat(path.join(legacyDirectory, entry.name))
-            ).isFile()
-          )
-            continue;
+          if (!entry.isSymbolicLink()) continue;
+          try {
+            if (
+              !(
+                await fs.promises.stat(path.join(legacyDirectory, entry.name))
+              ).isFile()
+            )
+              continue;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+            throw error;
+          }
         }
         if (!options?.allowOffline && !resolvedInboxId) {
           ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
@@ -530,11 +535,15 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
 
   async #setupStreams(generation: number, options?: AgentStreamingOptions) {
     const isCurrent = () => generation === this.#streamGeneration;
+    let closeReported = false;
     const close = (
       reason: Parameters<NonNullable<StreamOptions["onClose"]>>[0],
     ) => {
       try {
-        options?.onClose?.(reason);
+        if (!closeReported) {
+          closeReported = true;
+          options?.onClose?.(reason);
+        }
       } finally {
         // App callback failure must not retain this generation's readers.
         // Reentrant cleanup can already have started a new generation.

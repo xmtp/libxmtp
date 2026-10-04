@@ -139,19 +139,28 @@ describe("agent environment storage", () => {
     );
   });
 
-  it("rejects a dangling legacy database symlink before client creation", async () => {
+  it.each([
+    ["matching", inboxId],
+    ["unrelated", otherInboxId],
+  ])("ignores a dangling %s legacy database symlink", async (_kind, id) => {
     const dbDirectory = directory();
     fs.mkdirSync(dbDirectory);
     fs.symlinkSync(
       path.join(dbDirectory, "missing.db3"),
-      path.join(dbDirectory, `xmtp-${inboxId}.db3`),
+      path.join(dbDirectory, `xmtp-${id}.db3`),
     );
-    const { create } = setup(dbDirectory);
+    const { create, stopped } = setup(dbDirectory);
 
-    await expect(Agent.createFromEnv()).rejects.toMatchObject({
-      code: "ENOENT",
-    });
-    expect(create).not.toHaveBeenCalled();
+    await expect(Agent.createFromEnv()).rejects.toBe(stopped);
+    expect(create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        storage: expect.objectContaining({
+          location: { directory: dbDirectory },
+          label: "production",
+        }),
+      }),
+    );
   });
 
   it.each([".", "..", "../outside", "outside\\nested", "outside:label"])(
