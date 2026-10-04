@@ -311,7 +311,8 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         XMTP_ENV.includes("/") ||
         XMTP_ENV.includes("\\") ||
         XMTP_ENV.includes(":") ||
-        XMTP_ENV.includes("\0"))
+        XMTP_ENV.includes("\0") ||
+        (process.platform === "win32" && /[. ]$/.test(XMTP_ENV)))
     )
       throw new AgentError(1000, "XMTP_ENV must be a safe storage label.");
     if (XMTP_DB_DIRECTORY && !options?.storage)
