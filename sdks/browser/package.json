@@ -50,7 +50,7 @@
     "build": "bash ../../dev/js/sdk-package browser",
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
-    "dev": "pnpm build",
+    "dev": "bash ../../dev/js/sdk-watch browser",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",

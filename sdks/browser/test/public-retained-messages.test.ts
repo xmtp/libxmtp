@@ -135,9 +135,11 @@ test("local deletion delivers one exact public event and removes the local messa
     await vi.waitFor(() => expect(events).toHaveLength(1), { timeout: 10_000 });
     expect(events[0]).toEqual({
       kind: "message.deleted",
-      conversationId: group.id,
-      messageId: id,
-      cause: "deleted_locally",
+      message_deleted: {
+        conversationId: group.id,
+        messageId: id,
+        cause: "deleted_locally",
+      },
     });
     expect(await client.conversations.getMessageById(id)).toBeUndefined();
     expect((await group.messages()).some((message) => message.id === id)).toBe(

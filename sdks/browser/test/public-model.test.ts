@@ -3,6 +3,7 @@ import {
   ConversationStream,
   MessageStream,
   Timestamp,
+  type ClientEvent,
 } from "@xmtp/browser-sdk";
 import { initPureWasm, TextCodec } from "@xmtp/browser-sdk/pure";
 import { beforeAll, expect, test, vi } from "vitest";
@@ -20,7 +21,7 @@ test("consent records keep entity types and listener values", async () => {
     conversationId: group.id,
   } as const;
   const inbox = { kind: "inbox", inboxId: peer.inboxId } as const;
-  const changes: Array<{ kind: string; entity?: string; state?: string }> = [];
+  const changes: ClientEvent[] = [];
   const listener = await client.startListener(
     { kinds: ["consent.changed"], referencesOwnMessages: false },
     (event) => {
@@ -39,15 +40,21 @@ test("consent records keep entity types and listener values", async () => {
         expect(changes).toContainEqual(
           expect.objectContaining({
             kind: "consent.changed",
-            entity: group.id,
-            state: "denied",
+            consent_changed: {
+              entityKind: "conversation",
+              entity: group.id,
+              state: "denied",
+            },
           }),
         );
         expect(changes).toContainEqual(
           expect.objectContaining({
             kind: "consent.changed",
-            entity: peer.inboxId,
-            state: "allowed",
+            consent_changed: {
+              entityKind: "inbox",
+              entity: peer.inboxId,
+              state: "allowed",
+            },
           }),
         );
       },

@@ -193,7 +193,7 @@ export async function checkAttachmentEnd(
         const event = (await within(deleted.next(), "deletion")).value;
         if (event?.kind !== "attachment.deleted")
           throw new Error("not a deletion");
-        equal(event.attachment.url, expected.url, "deletion order");
+        equal(event.attachment_deleted.url, expected.url, "deletion order");
       }
       await deleted.return();
     } finally {

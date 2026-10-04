@@ -15,8 +15,29 @@ export const ATTACHMENT_KINDS: sdk.EventKind[] = [
 
 export type AttachmentEvent = Extract<
   sdk.ClientEvent,
-  { readonly attachment: unknown }
+  { readonly kind: `attachment.${string}` }
 >;
+
+export function attachmentPayload(
+  event: AttachmentEvent,
+): sdk.AttachmentRef | sdk.AttachmentFailed {
+  switch (event.kind) {
+    case "attachment.upload_started":
+      return event.attachment_upload_started;
+    case "attachment.upload_completed":
+      return event.attachment_upload_completed;
+    case "attachment.upload_failed":
+      return event.attachment_upload_failed;
+    case "attachment.download_started":
+      return event.attachment_download_started;
+    case "attachment.download_completed":
+      return event.attachment_download_completed;
+    case "attachment.download_failed":
+      return event.attachment_download_failed;
+    case "attachment.deleted":
+      return event.attachment_deleted;
+  }
+}
 
 /** Browser options for a client in an OPFS directory, allowed to reach loopback storage. */
 export function fileOptions(
@@ -152,12 +173,22 @@ export async function drain(
     const next = await within(stream.next(), "attachment events");
     expect(!next.done, "the event stream ended");
     const event = next.value;
-    if (event.kind === "conversation.joined") {
-      if (event.conversationId === marker) return events;
-      continue;
+    switch (event.kind) {
+      case "conversation.joined":
+        if (event.conversation_joined.conversationId === marker) return events;
+        break;
+      case "attachment.upload_started":
+      case "attachment.upload_completed":
+      case "attachment.upload_failed":
+      case "attachment.download_started":
+      case "attachment.download_completed":
+      case "attachment.download_failed":
+      case "attachment.deleted":
+        events.push(event);
+        break;
+      default:
+        throw new Error(`unexpected ${event.kind} event`);
     }
-    expect("attachment" in event, `unexpected ${event.kind} event`);
-    events.push(event);
   }
 }
 

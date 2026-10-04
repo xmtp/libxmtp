@@ -3,6 +3,7 @@
 import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import {
   attachmentFilter,
+  attachmentPayload,
   attachmentsDir,
   bytesSource,
   drain,
@@ -132,10 +133,14 @@ export async function checkAttachmentFlow(
       ["attachment.upload_started", "attachment.upload_completed"],
       "expected one shared upload",
     );
-    same(uploaded[0]!.attachment, uploaded[1]!.attachment, "upload refs");
-    equal(uploaded[0]!.attachment.url, remote.url, "upload event URL");
+    same(
+      attachmentPayload(uploaded[0]!),
+      attachmentPayload(uploaded[1]!),
+      "upload refs",
+    );
+    equal(attachmentPayload(uploaded[0]!).url, remote.url, "upload event URL");
     equal(
-      uploaded[0]!.attachment.contentDigest,
+      attachmentPayload(uploaded[0]!).contentDigest,
       remote.contentDigest,
       "upload event digest",
     );
@@ -236,7 +241,10 @@ export async function checkAttachmentFlow(
     expect(!(await existsOpfs(downloaded.path)), "deleted file remains");
     const downloads = await drain(receiver, receiverEvents);
     same(
-      downloads.map((event) => [event.kind, event.attachment.contentDigest]),
+      downloads.map((event) => [
+        event.kind,
+        attachmentPayload(event).contentDigest,
+      ]),
       [
         ["attachment.download_started", received.contentDigest],
         ["attachment.download_completed", received.contentDigest],
@@ -246,13 +254,21 @@ export async function checkAttachmentFlow(
       ],
       "download events",
     );
-    equal(downloads[0]!.attachment.url, received.url, "download event URL");
+    equal(
+      attachmentPayload(downloads[0]!).url,
+      received.url,
+      "download event URL",
+    );
     expect(
-      downloads[0]!.attachment.attachmentKey !==
-        downloads[2]!.attachment.attachmentKey,
+      attachmentPayload(downloads[0]!).attachmentKey !==
+        attachmentPayload(downloads[2]!).attachmentKey,
       "two downloads share a key",
     );
-    same(downloads[4]!.attachment, downloads[0]!.attachment, "deleted ref");
+    same(
+      attachmentPayload(downloads[4]!),
+      attachmentPayload(downloads[0]!),
+      "deleted ref",
+    );
     same(await drain(receiver, deletedOnly), [downloads[4]], "filtered reader");
     await deletedOnly.return();
     await receiverEvents.return();
@@ -304,8 +320,8 @@ export async function checkAttachmentFailures(
       "upload failure events",
     );
     same(
-      failed[1]!.attachment,
-      { ...failed[0]!.attachment, cause: "stagedUnusable" },
+      attachmentPayload(failed[1]!),
+      { ...attachmentPayload(failed[0]!), cause: "stagedUnusable" },
       "upload failure ref",
     );
     // A source the SDK cannot read fails create.
@@ -407,7 +423,7 @@ export async function checkAttachmentFailures(
     same(
       downloadFailures.flatMap((event) =>
         event.kind === "attachment.download_failed"
-          ? [event.attachment.cause]
+          ? [event.attachment_download_failed.cause]
           : [],
       ),
       ["httpStatus", "tooManyRedirects", "digestMismatch", "decryptionFailed"],
