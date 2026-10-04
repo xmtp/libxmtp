@@ -63,6 +63,9 @@ test("catalogue messages preserve read times, reaction variants, markdown, and a
   expect((await sender.conversations.getMessageById(receipt))?.content).toEqual(
     { kind: "readReceipt" },
   );
+  expect(
+    (await group.messages()).some((message) => message.id === receipt),
+  ).toBe(false);
   expect((await group.lastReadTimes()).get(sender.inboxId)).toBeInstanceOf(
     Timestamp,
   );
