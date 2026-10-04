@@ -129,7 +129,7 @@ export async function checkAttachmentFlow(
     const uploaded = await drain(sender, events);
     same(
       uploaded.map((event) => event.kind),
-      ["attachmentUploadStarted", "attachmentUploadCompleted"],
+      ["attachment.upload_started", "attachment.upload_completed"],
       "expected one shared upload",
     );
     same(uploaded[0]!.attachment, uploaded[1]!.attachment, "upload refs");
@@ -204,7 +204,7 @@ export async function checkAttachmentFlow(
 
     // Download events arrive in order; a filtered reader sees only its kind.
     const deletedOnly = await receiver.events(
-      attachmentFilter(["attachmentDeleted"]),
+      attachmentFilter(["attachment.deleted"]),
     );
     const downloaded = await receiving.download(received);
     same(
@@ -238,11 +238,11 @@ export async function checkAttachmentFlow(
     same(
       downloads.map((event) => [event.kind, event.attachment.contentDigest]),
       [
-        ["attachmentDownloadStarted", received.contentDigest],
-        ["attachmentDownloadCompleted", received.contentDigest],
-        ["attachmentDownloadStarted", pathRemote.contentDigest],
-        ["attachmentDownloadCompleted", pathRemote.contentDigest],
-        ["attachmentDeleted", received.contentDigest],
+        ["attachment.download_started", received.contentDigest],
+        ["attachment.download_completed", received.contentDigest],
+        ["attachment.download_started", pathRemote.contentDigest],
+        ["attachment.download_completed", pathRemote.contentDigest],
+        ["attachment.deleted", received.contentDigest],
       ],
       "download events",
     );
@@ -300,7 +300,7 @@ export async function checkAttachmentFailures(
     const failed = await drain(client, events);
     same(
       failed.map((event) => event.kind),
-      ["attachmentUploadStarted", "attachmentUploadFailed"],
+      ["attachment.upload_started", "attachment.upload_failed"],
       "upload failure events",
     );
     same(
@@ -406,7 +406,7 @@ export async function checkAttachmentFailures(
     const downloadFailures = await drain(downloader, downloadEvents);
     same(
       downloadFailures.flatMap((event) =>
-        event.kind === "attachmentDownloadFailed"
+        event.kind === "attachment.download_failed"
           ? [event.attachment.cause]
           : [],
       ),

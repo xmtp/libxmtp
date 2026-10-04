@@ -407,6 +407,12 @@ impl XmtpError {
                 xmtp_attachments::AttachmentFailureCause::as_str(attachment.cause)
             )));
         }
+        if let Some(xmtp_mls::groups::validated_commit::CommitValidationError::Rule(
+            xmtp_mls::mls_validation::commit::CommitRuleError::InsufficientPermissions,
+        )) = error.downcast_ref::<xmtp_mls::groups::validated_commit::CommitValidationError>()
+        {
+            return Some(Self::conversation_permission_denied(error.to_string()));
+        }
         if let Some(group) = error.downcast_ref::<GroupError>() {
             return match group {
                 GroupError::MetadataField(field) => Some(Self::from_field(field)),

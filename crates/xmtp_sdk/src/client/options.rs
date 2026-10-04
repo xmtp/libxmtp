@@ -18,7 +18,7 @@ pub enum StorageLocation {
     },
 }
 
-#[derive(Clone, Debug, Default, uniffi::Record)]
+#[derive(Clone, Default, uniffi::Record)]
 pub struct StorageOptions {
     pub location: StorageLocation,
     #[uniffi(default = None)]
@@ -33,6 +33,24 @@ pub struct StorageOptions {
     pub pool: Option<StoragePoolOptions>,
     #[uniffi(default = false)]
     pub single_connection: bool,
+}
+
+impl std::fmt::Debug for StorageOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut record = f.debug_struct("StorageOptions");
+        record
+            .field("location", &self.location)
+            .field("label", &self.label);
+        #[cfg(not(target_arch = "wasm32"))]
+        record.field(
+            "encryption_key",
+            &self.encryption_key.as_ref().map(|_| "[redacted]"),
+        );
+        record
+            .field("pool", &self.pool)
+            .field("single_connection", &self.single_connection)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Default, uniffi::Record)]

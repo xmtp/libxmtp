@@ -16,6 +16,9 @@ pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String>
         if record.name == "Credential" {
             output = credential_display(&output, record)?;
         }
+        if record.name == "StorageOptions" {
+            output = storage_display(&output, record)?;
+        }
         if record.name == "StreamBarrierTopic" {
             output = topic_display(&output, record)?;
         }
@@ -117,6 +120,49 @@ fn topic_display(source: &str, record: &RecordMetadata) -> Result<String> {
     }
     let mut output = source.to_owned();
     output.insert_str(body, TOPIC_DISPLAY);
+    Ok(output)
+}
+
+const STORAGE_DISPLAY: &str = "    // Keep database encryption keys out of diagnostic text.\n    override fun toString(): String = \"StorageOptions(location=$location, label=$label, encryptionKey=<redacted>, pool=$pool, singleConnection=$singleConnection)\"\n\n";
+
+fn storage_display(source: &str, record: &RecordMetadata) -> Result<String> {
+    let expected = [
+        "location",
+        "label",
+        "encryption_key",
+        "pool",
+        "single_connection",
+    ];
+    if record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .ne(expected)
+        || !matches!(&record.fields[2].ty, Type::Optional { inner_type } if matches!(inner_type.as_ref(), Type::Bytes))
+    {
+        bail!("StorageOptions: expected the storage fields and optional encryption key bytes");
+    }
+    let anchor = "data class StorageOptions (";
+    if source.matches(anchor).count() != 1 {
+        bail!("StorageOptions: expected one generated data class");
+    }
+    let start = source.find(anchor).expect("one admitted record");
+    let body = source[start..]
+        .find("){\n")
+        .map(|at| start + at + 3)
+        .context("StorageOptions: generated record has no body")?;
+    let end = source[body..]
+        .find("\n}")
+        .map(|at| body + at)
+        .context("StorageOptions: generated record has no end")?;
+    if source[body..end].contains(STORAGE_DISPLAY) {
+        return Ok(source.to_owned());
+    }
+    if source[body..end].contains("fun toString(") {
+        bail!("StorageOptions: generated display already exists");
+    }
+    let mut output = source.to_owned();
+    output.insert_str(body, STORAGE_DISPLAY);
     Ok(output)
 }
 

@@ -4,13 +4,13 @@ import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { equal, expect } from "./suite-support";
 
 export const ATTACHMENT_KINDS: sdk.EventKind[] = [
-  "attachmentUploadStarted",
-  "attachmentUploadCompleted",
-  "attachmentUploadFailed",
-  "attachmentDownloadStarted",
-  "attachmentDownloadCompleted",
-  "attachmentDownloadFailed",
-  "attachmentDeleted",
+  "attachment.upload_started",
+  "attachment.upload_completed",
+  "attachment.upload_failed",
+  "attachment.download_started",
+  "attachment.download_completed",
+  "attachment.download_failed",
+  "attachment.deleted",
 ];
 
 export type AttachmentEvent = Extract<
@@ -105,7 +105,7 @@ export function attachmentFilter(
   kinds: sdk.EventKind[] = ATTACHMENT_KINDS,
 ): sdk.EventFilter {
   return {
-    kinds: [...kinds, "conversationJoined"],
+    kinds: [...kinds, "conversation.joined"],
     referencesOwnMessages: false,
   };
 }
@@ -148,7 +148,7 @@ export async function drain(
     const next = await within(stream.next(), "attachment events");
     expect(!next.done, "the event stream ended");
     const event = next.value;
-    if (event.kind === "conversationJoined") {
+    if (event.kind === "conversation.joined") {
       if (event.conversationId === marker) return events;
       continue;
     }
