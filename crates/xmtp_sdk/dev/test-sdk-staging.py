@@ -49,14 +49,18 @@ class StagingTests(unittest.TestCase):
             (source / "package.json").write_text('{"type":"module"}')
             (source / "index.ts").write_text("export const marker = 'sdk';")
             (source / "sdk-contract.json").write_text(
-                json.dumps({
-                    "contract": "fixture",
-                    "generator": "fixture",
-                    "files": {
-                        name: hashlib.sha256((source / name).read_bytes()).hexdigest()
-                        for name in ("package.json", "index.ts")
-                    },
-                })
+                json.dumps(
+                    {
+                        "contract": "fixture",
+                        "generator": "fixture",
+                        "files": {
+                            name: hashlib.sha256(
+                                (source / name).read_bytes()
+                            ).hexdigest()
+                            for name in ("package.json", "index.ts")
+                        },
+                    }
+                )
             )
         for name in ("core", "wasm"):
             self.runtime(self.root / "runtime", name)
@@ -75,14 +79,20 @@ class StagingTests(unittest.TestCase):
             XMTP_SDK_RUNTIME_DIR=str(self.root / "runtime"),
             XMTP_SDK_TSDOWN_CLI=str(compiler),
         )
-        command = ["node", str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"), "browser"]
+        command = [
+            "node",
+            str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"),
+            "browser",
+        ]
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         product = output / "browser"
         (product / "sdk-contract.json").unlink()
         result = subprocess.run(
             [
-                "node", "--input-type=module", "-e",
+                "node",
+                "--input-type=module",
+                "-e",
                 "globalThis.fetch = () => { throw new Error('unexpected fetch'); }; "
                 "await import('./entry.js'); await import('./pure.js');",
             ],
