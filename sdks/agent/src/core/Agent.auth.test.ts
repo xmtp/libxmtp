@@ -197,6 +197,22 @@ describe("agent environment storage", () => {
     );
   });
 
+  it("keeps the event loop responsive while checking a busy working directory", async () => {
+    const workingDirectory = directory();
+    fs.mkdirSync(workingDirectory);
+    for (let index = 0; index < 512; index++)
+      fs.writeFileSync(path.join(workingDirectory, `unrelated-${index}`), "");
+    vi.spyOn(process, "cwd").mockReturnValue(workingDirectory);
+    const { create, stopped } = setup();
+    const heartbeat = new Promise<void>((resolve) => setImmediate(resolve));
+    const opening = Agent.createFromEnv();
+    void opening.catch(() => {});
+
+    await heartbeat;
+    expect(create).not.toHaveBeenCalled();
+    await expect(opening).rejects.toBe(stopped);
+  });
+
   it("selects an unregistered legacy database with the old default nonce", async () => {
     const workingDirectory = directory();
     fs.mkdirSync(workingDirectory);
@@ -261,6 +277,27 @@ describe("agent environment storage", () => {
       expect(create).not.toHaveBeenCalled();
     },
   );
+
+  it("rejects a legacy database when a symlinked deployment has the current store", async () => {
+    const dbDirectory = directory();
+    const dataDirectory = path.join(dbDirectory, "production");
+    const deploymentTarget = path.join(
+      path.dirname(dbDirectory),
+      "deployment-target",
+    );
+    fs.mkdirSync(dataDirectory, { recursive: true });
+    fs.writeFileSync(path.join(dbDirectory, `xmtp-${inboxId}.db3`), "legacy");
+    const currentPath = path.join(deploymentTarget, inboxId, "xmtp.db3");
+    fs.mkdirSync(path.dirname(currentPath), { recursive: true });
+    fs.writeFileSync(currentPath, "current");
+    fs.symlinkSync(deploymentTarget, path.join(dataDirectory, "deployment"));
+    const { create } = setup(dbDirectory);
+
+    await expect(Agent.createFromEnv()).rejects.toThrow(
+      "Both legacy and current XMTP databases",
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
 
   it("ignores unrelated legacy databases in a named directory", async () => {
     const dbDirectory = directory();

@@ -320,29 +320,6 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     let useOldDefaultNonce = false;
     if (!storage) {
       const legacyDirectory = XMTP_DB_DIRECTORY || process.cwd();
-      const candidates = fs
-        .readdirSync(legacyDirectory, { withFileTypes: true })
-        .flatMap((entry) => {
-          if (XMTP_DB_DIRECTORY) {
-            const match = /^xmtp-([0-9a-f]{64})\.db3$/i.exec(entry.name);
-            return match?.[1] === undefined ||
-              (!entry.isFile() &&
-                !(
-                  entry.isSymbolicLink() &&
-                  fs.statSync(path.join(legacyDirectory, entry.name)).isFile()
-                ))
-              ? []
-              : [{ name: entry.name, inboxId: match[1].toLowerCase() }];
-          }
-          const match = /^xmtp-(.+)-([0-9a-f]{64})\.db3$/i.exec(entry.name);
-          return match?.[2] !== undefined &&
-            (XMTP_ENV === undefined || match[1] === XMTP_ENV) &&
-            (entry.isFile() ||
-              (entry.isSymbolicLink() &&
-                fs.statSync(path.join(legacyDirectory, entry.name)).isFile()))
-            ? [{ name: entry.name, inboxId: match[2].toLowerCase() }]
-            : [];
-        });
       const identity = createIdentifier(user);
       const generatedInboxId = generateInboxId(
         identity,
@@ -354,16 +331,45 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           : undefined;
       const ids = new Set([generatedInboxId]);
       if (oldDefaultInboxId !== undefined) ids.add(oldDefaultInboxId);
-      if (candidates.length > 0 && !options?.allowOffline)
-        ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
-      const legacyMatches = candidates.filter((entry) =>
-        ids.has(entry.inboxId),
-      );
-      if (legacyMatches.length > 1)
-        throw new AgentError(
-          1000,
-          "More than one legacy XMTP database exists. Pass an explicit storage location.",
-        );
+      const legacyMatches: { name: string; inboxId: string }[] = [];
+      let resolvedInboxId = false;
+      const legacyEntries = await fs.promises.opendir(legacyDirectory);
+      for await (const entry of legacyEntries) {
+        let inboxId: string | undefined;
+        if (XMTP_DB_DIRECTORY) {
+          inboxId = /^xmtp-([0-9a-f]{64})\.db3$/i.exec(entry.name)?.[1];
+        } else {
+          const match = /^xmtp-(.+)-([0-9a-f]{64})\.db3$/i.exec(entry.name);
+          if (
+            match?.[2] !== undefined &&
+            (XMTP_ENV === undefined || match[1] === XMTP_ENV)
+          )
+            inboxId = match[2];
+        }
+        if (inboxId === undefined) continue;
+        if (!entry.isFile()) {
+          if (
+            !entry.isSymbolicLink() ||
+            !(
+              await fs.promises.stat(path.join(legacyDirectory, entry.name))
+            ).isFile()
+          )
+            continue;
+        }
+        if (!options?.allowOffline && !resolvedInboxId) {
+          ids.add((await Client.inboxIdFor(identity, backend)).toLowerCase());
+          resolvedInboxId = true;
+        }
+        const candidate = { name: entry.name, inboxId: inboxId.toLowerCase() };
+        if (ids.has(candidate.inboxId)) {
+          legacyMatches.push(candidate);
+          if (legacyMatches.length > 1)
+            throw new AgentError(
+              1000,
+              "More than one legacy XMTP database exists. Pass an explicit storage location.",
+            );
+        }
+      }
       const legacyMatch = legacyMatches[0];
       useOldDefaultNonce =
         legacyMatch !== undefined &&
@@ -376,15 +382,30 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       if (legacyMatch) {
         const root = XMTP_DB_DIRECTORY || path.join(process.cwd(), "xmtp");
         const dataDirectory = XMTP_ENV ? path.join(root, XMTP_ENV) : root;
-        let deployments: fs.Dirent[];
+        let deployments: fs.Dir | undefined;
         try {
-          deployments = fs.readdirSync(dataDirectory, { withFileTypes: true });
+          deployments = await fs.promises.opendir(dataDirectory);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          deployments = [];
         }
-        const currentExists = deployments.some((deployment) => {
-          if (!deployment.isDirectory()) return false;
+        let currentExists = false;
+        for await (const deployment of deployments ?? []) {
+          if (!deployment.isDirectory()) {
+            if (!deployment.isSymbolicLink()) continue;
+            try {
+              if (
+                !(
+                  await fs.promises.stat(
+                    path.join(dataDirectory, deployment.name),
+                  )
+                ).isDirectory()
+              )
+                continue;
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+              throw error;
+            }
+          }
           const currentPath = path.join(
             dataDirectory,
             deployment.name,
@@ -392,13 +413,15 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
             "xmtp.db3",
           );
           try {
-            return fs.statSync(currentPath).isFile();
+            if ((await fs.promises.stat(currentPath)).isFile()) {
+              currentExists = true;
+              break;
+            }
           } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT")
-              return false;
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
             throw error;
           }
-        });
+        }
         if (currentExists)
           throw new AgentError(
             1000,
