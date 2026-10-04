@@ -72,7 +72,10 @@ it("opens the matching old Browser database when it exists", async () => {
     "xmtp-test-someone-else.db3",
     "xmtp-test-registered-inbox-id.db3",
   ]);
-  mocks.create.mockResolvedValueOnce({ end: vi.fn() });
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => undefined },
+    end: vi.fn(),
+  });
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
 
   await act(async () => {
@@ -111,7 +114,10 @@ it("does not open another inbox's old Browser database", async () => {
     }),
   };
   mocks.listFiles.mockResolvedValueOnce(["xmtp-test-other-inbox.db3"]);
-  mocks.create.mockResolvedValueOnce({ end: vi.fn() });
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => undefined },
+    end: vi.fn(),
+  });
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
 
   await act(async () => {
@@ -143,7 +149,10 @@ it("uses the version 7 nonce for an unregistered old database", async () => {
   mocks.canMessage.mockResolvedValueOnce(
     new Map([[`${identity.kind}:${identity.identifier}`, false]]),
   );
-  mocks.create.mockResolvedValueOnce({ end: vi.fn() });
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => undefined },
+    end: vi.fn(),
+  });
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
 
   await act(async () => {
@@ -294,7 +303,7 @@ it("disconnects and reports a failed SDK end after lock loss", async () => {
   expect(mocks.releaseLock).not.toHaveBeenCalled();
 });
 
-it("removes old local attachment files after lock loss", async () => {
+it("removes old local attachment files after lock loss even if storage path lookup fails", async () => {
   const deployment = `lock-loss-${crypto.randomUUID()}`;
   const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
@@ -304,8 +313,14 @@ it("removes old local attachment files after lock loss", async () => {
   const inbox = await path.getDirectoryHandle("inbox", { create: true });
   await inbox.getDirectoryHandle("attachments", { create: true });
   const end = vi.fn(async () => {});
+  let pathLookupFails = false;
   mocks.create.mockResolvedValueOnce({
-    storage: { path: async () => dbPath },
+    storage: {
+      path: async () => {
+        if (pathLookupFails) throw new Error("Storage worker closed");
+        return dbPath;
+      },
+    },
     end,
   });
   try {
@@ -317,6 +332,7 @@ it("removes old local attachment files after lock loss", async () => {
         signer: mocks.signer as never,
       });
     });
+    pathLookupFails = true;
     act(() => mocks.lockLost?.());
     await waitFor(() => expect(result.current.client).toBeUndefined());
     expect(end).toHaveBeenCalledOnce();
@@ -331,7 +347,10 @@ it("removes old local attachment files after lock loss", async () => {
 });
 
 it("ends a client created after another tab takes the app lock", async () => {
-  const created = Promise.withResolvers<{ end: () => Promise<void> }>();
+  const created = Promise.withResolvers<{
+    storage: { path: () => Promise<undefined> };
+    end: () => Promise<void>;
+  }>();
   const end = vi.fn().mockResolvedValue(undefined);
   mocks.create.mockReturnValueOnce(created.promise);
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
@@ -351,7 +370,7 @@ it("ends a client created after another tab takes the app lock", async () => {
     mocks.lockLost?.();
   });
   await act(async () => {
-    created.resolve({ end });
+    created.resolve({ storage: { path: async () => undefined }, end });
     await expect(pending).rejects.toThrow("App lock was lost");
   });
 
@@ -361,7 +380,10 @@ it("ends a client created after another tab takes the app lock", async () => {
 });
 
 it("checks storage ownership when the lock-loss event is delayed", async () => {
-  const created = Promise.withResolvers<{ end: () => Promise<void> }>();
+  const created = Promise.withResolvers<{
+    storage: { path: () => Promise<undefined> };
+    end: () => Promise<void>;
+  }>();
   const end = vi.fn().mockResolvedValue(undefined);
   mocks.create.mockReturnValueOnce(created.promise);
   const { result } = renderHook(useXMTP, { wrapper: XMTPProvider });
@@ -378,7 +400,7 @@ it("checks storage ownership when the lock-loss event is delayed", async () => {
 
   mocks.ownsLock.mockReturnValue(false);
   await act(async () => {
-    created.resolve({ end });
+    created.resolve({ storage: { path: async () => undefined }, end });
     await expect(pending).rejects.toThrow("App lock was lost");
   });
 

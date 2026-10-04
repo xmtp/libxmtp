@@ -115,18 +115,15 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
   const [clientSigner, setClientSigner] = useState<Signer>();
   const [error, setError] = useState<Error | null>(null);
   const lockLossEpoch = useRef(0);
+  const attachmentDbPath = useRef<string | undefined>(undefined);
   // when another session claims the lock, disconnect without releasing
   const handleLockLost = useCallback(async () => {
     lockLossEpoch.current += 1;
     const current = clientRef.current;
     if (current) {
       clientRef.current = undefined;
-      let dbPath: string | undefined;
-      try {
-        dbPath = await current.storage.path();
-      } catch (cause) {
-        setError(cause instanceof Error ? cause : new Error(String(cause)));
-      }
+      const dbPath = attachmentDbPath.current;
+      attachmentDbPath.current = undefined;
       try {
         await current.end();
       } catch (cause) {
@@ -201,13 +198,22 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
               label,
             },
           });
+          let dbPath: string | undefined;
+          try {
+            dbPath = await xmtpClient.storage.path();
+          } catch (cause) {
+            await xmtpClient.end();
+            throw cause;
+          }
           if (lockLossEpoch.current !== startingLockEpoch || !ownsLock()) {
             await xmtpClient.end();
             throw new Error("App lock was lost during XMTP initialization");
           }
+          attachmentDbPath.current = dbPath;
           setClientSigner(signer);
           setClient(xmtpClient);
         } catch (e) {
+          attachmentDbPath.current = undefined;
           setClient(undefined);
           setClientSigner(undefined);
           const error =
@@ -235,11 +241,12 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
 
   const disconnect = useCallback(async () => {
     if (client) {
-      const dbPath = await client.storage.path();
+      const dbPath = attachmentDbPath.current ?? (await client.storage.path());
       await client.end();
       try {
         await removeAttachmentDirectory(dbPath);
       } finally {
+        attachmentDbPath.current = undefined;
         setClient(undefined);
         setClientSigner(undefined);
         reset();
