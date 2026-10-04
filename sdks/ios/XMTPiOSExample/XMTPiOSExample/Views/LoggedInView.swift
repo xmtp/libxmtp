@@ -6,14 +6,14 @@
 //
 
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 class EnvironmentCoordinator: ObservableObject {
 	@Published var path = NavigationPath()
 }
 
 struct LoggedInView: View {
-	var client: XMTPiOS.Client
+	var client: SDKClient
 
 	@StateObject var environmentCoordinator = EnvironmentCoordinator()
 
@@ -22,8 +22,8 @@ struct LoggedInView: View {
 			VStack {
 				ConversationListView(client: client)
 				VStack(alignment: .leading) {
-					Text("Connected to **\(client.environment)** as")
-					Text("`\(client.publicIdentity.identifier)`")
+					Text("Connected to **\(exampleBackendUrl)** as")
+					Text("`\(client.identity().identifier)`")
 						.bold()
 						.textSelection(.enabled)
 				}

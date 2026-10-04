@@ -1187,6 +1187,11 @@ where
                 RegistrationState::Removing => {}
                 _ if !B::covers(&floor, &registration.delivered) => {
                     registration.state = RegistrationState::Removing;
+                    for holder in &registration.holders {
+                        if let Some(lease) = self.leases.get(holder) {
+                            lease.connected.store(false, Ordering::Release);
+                        }
+                    }
                     removes.push(topic);
                 }
                 _ => {

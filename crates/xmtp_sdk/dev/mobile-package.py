@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
-IOS = ("aarch64-apple-ios", "aarch64-apple-ios-sim")
+IOS = ("aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin")
 ANDROID = {
     "arm64-v8a": "aarch64-linux-android",
     "armeabi-v7a": "armv7-linux-androideabi",
@@ -123,13 +123,13 @@ def openssl_environment(triple, env):
     # Use caller target paths, or build OpenSSL instead of linking host libraries.
     env.setdefault(openssl_prefix + "NO_VENDOR", "1" if target_openssl else "0")
     if (
-        openssl_prefix + "DIR" in env
+        target_openssl
         and env[openssl_prefix + "NO_VENDOR"] != "0"
-        and any("OPENSSL_" + key in env for key in ("LIB_DIR", "INCLUDE_DIR"))
+        and any("OPENSSL_" + key in env for key in ("DIR", "LIB_DIR", "INCLUDE_DIR"))
     ):
-        # Keep host dependencies separate from the explicit target root.
+        # Keep host dependencies separate from explicit target paths.
         host_prefix = artifacts.compiler_host().upper().replace("-", "_") + "_OPENSSL_"
-        for component in ("LIB_DIR", "INCLUDE_DIR"):
+        for component in ("DIR", "LIB_DIR", "INCLUDE_DIR"):
             generic = "OPENSSL_" + component
             if generic in env:
                 value = env.pop(generic)
@@ -188,6 +188,12 @@ def main():
         type=Path,
         default=Path(os.environ.get("XMTP_SDK_PACKAGES_DIR", "target/sdk-packages")),
     )
+    parser.add_argument(
+        "--sdk-root",
+        type=Path,
+        default=ROOT / "sdks/android",
+        help="Android SDK project to assemble; native receipts still use the common source",
+    )
     args = parser.parse_args()
     triples = IOS if args.target == "ios" else tuple(ANDROID.values())
     if args.action == "build":
@@ -241,7 +247,7 @@ def main():
             )
             (output / "Package.swift").write_text("""// swift-tools-version: 6.1
 import PackageDescription
-let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
+let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14), .macOS(.v11)],
     products: [.library(name: "XmtpSdk", targets: ["XmtpSdk"])],
     targets: [.binaryTarget(name: "xmtp_sdkFFI", path: "XmtpSdkFFI.xcframework"),
               .target(name: "XmtpSdk", dependencies: ["xmtp_sdkFFI"])],
@@ -261,9 +267,9 @@ let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
                 XMTP_SDK_GENERATED_DIR=str(args.generated.resolve()),
                 XMTP_SDK_ANDROID_JNI_DIR=str(jni),
             )
-            project = ROOT / "crates/xmtp_sdk/packaging/android"
+            project = args.sdk_root.resolve()
             for name in (
-                "gradle.lockfile",
+                "library/gradle.lockfile",
                 "buildscript-gradle.lockfile",
                 "gradle/verification-metadata.xml",
             ):
@@ -271,18 +277,19 @@ let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
                     raise ValueError(f"Android dependency input missing: {name}")
             run(
                 [
-                    "sdks/android/gradlew",
+                    str(args.sdk_root.resolve() / "gradlew"),
                     "-p",
-                    "crates/xmtp_sdk/packaging/android",
-                    "assembleRelease",
+                    str(args.sdk_root.resolve()),
+                    ":library:assembleRelease",
                     "--no-daemon",
+                    "-Pkotlin.compiler.execution.strategy=in-process",
                     "--dependency-verification=strict",
                 ],
                 env=env,
             )
             shutil.copy2(
-                ROOT
-                / "crates/xmtp_sdk/packaging/android/build/outputs/aar/xmtp-sdk-stage-release.aar",
+                args.sdk_root.resolve()
+                / "library/build/outputs/aar/library-release.aar",
                 output / "xmtp-sdk.aar",
             )
             with zipfile.ZipFile(output / "xmtp-sdk.aar") as archive:

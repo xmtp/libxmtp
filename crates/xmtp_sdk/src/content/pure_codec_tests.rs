@@ -497,3 +497,45 @@ async fn remote_attachment_projection_preserves_decryptable_attachment() {
     assert_eq!(decoded.mime_type, attachment.mime_type);
     assert_eq!(decoded.content, attachment.content);
 }
+
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn encryption_key_diagnostics_hide_secret_bytes() {
+    let secret = b"attachment-key-diagnostic-sentinel".to_vec();
+    let keys = EncryptionKeys {
+        secret: secret.clone(),
+        salt: vec![2; 32],
+        nonce: vec![3; 12],
+        digest: "public-digest".into(),
+        length: 7,
+    };
+    let diagnostic = format!("{keys:?}");
+    assert!(
+        !diagnostic.contains(&format!("{secret:?}")),
+        "EncryptionKeys Debug disclosed its secret bytes"
+    );
+    assert_eq!(keys.secret, secret);
+}
+
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn encryption_key_diagnostics_hide_nested_secret_bytes() {
+    let secret = b"attachment-key-diagnostic-sentinel".to_vec();
+    let encrypted = EncryptedEncodedContent {
+        ciphertext: vec![4; 7],
+        keys: EncryptionKeys {
+            secret: secret.clone(),
+            salt: vec![2; 32],
+            nonce: vec![3; 12],
+            digest: "public-digest".into(),
+            length: 7,
+        },
+    };
+    let diagnostic = format!("{encrypted:?}");
+    assert!(
+        !diagnostic.contains(&format!("{secret:?}")),
+        "EncryptedEncodedContent Debug disclosed its secret bytes"
+    );
+    assert_eq!(encrypted.keys.secret, secret);
+    assert_eq!(encrypted.ciphertext, vec![4; 7]);
+}

@@ -83,6 +83,11 @@ class CutoverGates(unittest.TestCase):
         self.assertIn("| Swift | 7132 |", built)
         module.OUT.write_text(built)
         self.assertEqual(module.build(), built)
+        source_only = module.build(source_only=True)
+        self.assertEqual(module.source_only_manifest(built), source_only)
+        self.assertEqual(module.build(source_only=True), source_only)
+        with patch.object(sys, "argv", ["inventory.py", "--check"]):
+            module.main()
         public.rename(public.with_suffix(".missing"))
         with self.assertRaisesRegex(
             ValueError, "missing or empty current public projection"
@@ -94,12 +99,20 @@ class CutoverGates(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "pinned pre-switch ledger changed"):
             module.build()
+        with self.assertRaisesRegex(ValueError, "pinned pre-switch ledger changed"):
+            module.build(source_only=True)
         module.OUT.write_text(built)
         sibling = self.root / "sdks/node/src/index.ts"
         sibling.write_text(
             sibling.read_text() + "\nexport const unapprovedSiblingExport = true;\n"
         )
         self.assertNotEqual(module.build(), built)
+        self.assertNotEqual(module.build(source_only=True), source_only)
+        with patch.object(sys, "argv", ["inventory.py", "--check"]):
+            with self.assertRaisesRegex(
+                SystemExit, "manifest differs from source inventory"
+            ):
+                module.main()
         self.assertIn(module.ledger_section(ledger, "Swift"), built)
 
     def test_browser_inventory_requires_own_main_and_pure_roots(self):
@@ -123,6 +136,48 @@ class CutoverGates(unittest.TestCase):
                 ValueError, "pure root misses retained exports"
             ):
                 module.switched_source_rows({"Browser"})
+
+    def test_switch_detection_keeps_each_sdk_independent(self):
+        for source in (
+            "sdks/node/package.json",
+            "sdks/browser/package.json",
+            "sdks/android/gradle.properties",
+            "sdks/android/library/build.gradle",
+        ):
+            self.copy(source)
+        for folder in ("node", "browser"):
+            (self.root / f"sdks/{folder}/package.json").write_text(
+                '{"version":"8.0.0","scripts":{"build":"legacy"}}'
+            )
+        (self.root / "sdks/android/gradle.properties").write_text("version=7.0.0\n")
+        (self.root / "sdks/android/library/build.gradle").write_text("legacy")
+        (self.root / "Package.swift").write_text('name: "XMTPiOS"')
+        module = self.inventory()
+        self.assertEqual(module.switched_sdks(self.root), set())
+        (self.root / "Package.swift").write_text(
+            'name: "XmtpSdk"; path: "sdks/ios/Sources/XmtpSdk"'
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift"})
+        (self.root / "sdks/node/package.json").write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package node"}}'
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node"})
+        (self.root / "sdks/android/gradle.properties").write_text("version=8.0.0\n")
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node"})
+        (self.root / "sdks/android/library/build.gradle").write_text(
+            "XMTP_SDK_GENERATED_DIR"
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node", "Kotlin"})
+        (self.root / "sdks/browser/package.json").write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package node"}}'
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node", "Kotlin"})
+        (self.root / "sdks/browser/package.json").write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package browser"}}'
+        )
+        self.assertEqual(
+            module.switched_sdks(self.root), {"Swift", "Node", "Kotlin", "Browser"}
+        )
 
 
 if __name__ == "__main__":

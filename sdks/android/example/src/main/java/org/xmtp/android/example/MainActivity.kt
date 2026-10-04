@@ -17,11 +17,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.xmtp.android.example.connect.ConnectWalletActivity
 import org.xmtp.android.example.conversation.ConversationDetailActivity
 import org.xmtp.android.example.conversation.ConversationsAdapter
@@ -31,10 +33,7 @@ import org.xmtp.android.example.conversation.NewGroupBottomSheet
 import org.xmtp.android.example.databinding.ActivityMainBinding
 import org.xmtp.android.example.logs.LogViewerBottomSheet
 import org.xmtp.android.example.utils.KeyUtil
-import org.xmtp.android.library.Client
-import org.xmtp.android.library.Conversation
-import uniffi.xmtpv3.FfiLogLevel
-import uniffi.xmtpv3.FfiLogRotation
+import uniffi.xmtp_sdk.*
 
 class MainActivity :
     AppCompatActivity(),
@@ -160,7 +159,7 @@ class MainActivity :
         super.onResume()
         // Check if logs were previously activated and reactivate if needed
         if (isLogsActivated()) {
-            Client.activatePersistentLibXMTPLogWriter(applicationContext, FfiLogLevel.DEBUG, FfiLogRotation.MINUTELY, 3)
+            activateLogs()
         }
 
         // If we're still in error state, make sure retry is running
@@ -199,19 +198,12 @@ class MainActivity :
             }
 
             R.id.activate_logs -> {
-                Client.activatePersistentLibXMTPLogWriter(
-                    applicationContext,
-                    FfiLogLevel.DEBUG,
-                    FfiLogRotation.MINUTELY,
-                    3,
-                )
-                setLogsActivated(true)
-                Toast.makeText(this, "Persistent logs activated", Toast.LENGTH_SHORT).show()
+                activateLogs(showNotice = true)
                 true
             }
 
             R.id.deactivate_logs -> {
-                Client.deactivatePersistentLibXMTPLogWriter()
+                SDKClient.deactivatePersistentLibXMTPLogWriter()
                 setLogsActivated(false)
                 Toast.makeText(this, "Persistent logs deactivated", Toast.LENGTH_SHORT).show()
                 true
@@ -226,8 +218,8 @@ class MainActivity :
         startActivity(
             ConversationDetailActivity.intent(
                 this,
-                topic = conversation.topic,
-                peerAddress = conversation.id,
+                topic = conversation.id(),
+                peerAddress = conversation.id(),
             ),
         )
     }
@@ -306,7 +298,7 @@ class MainActivity :
 
     private fun copyWalletAddress() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("inboxId", ClientManager.client.inboxId)
+        val clip = ClipData.newPlainText("inboxId", ClientManager.client.inboxId())
         clipboard.setPrimaryClip(clip)
     }
 
@@ -334,7 +326,35 @@ class MainActivity :
         )
     }
 
-    // Add helper methods to manage log activation state
+    private fun activateLogs(showNotice: Boolean = false) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    initLogging(LoggingOptions(level = LogLevel.DEBUG))
+                    SDKClient.activatePersistentLibXMTPLogWriter(
+                        applicationContext,
+                        LogLevel.DEBUG,
+                        LogRotation.MINUTELY,
+                        3u,
+                    )
+                }
+                setLogsActivated(true)
+                if (showNotice) {
+                    Toast
+                        .makeText(
+                            this@MainActivity,
+                            "Persistent logs activated",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                setLogsActivated(false)
+                showError(error.message.orEmpty())
+            }
+        }
+    }
+
     private fun isLogsActivated(): Boolean {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getBoolean(KEY_LOGS_ACTIVATED, false)

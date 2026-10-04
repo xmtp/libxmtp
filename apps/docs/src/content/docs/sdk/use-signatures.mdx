@@ -37,7 +37,7 @@ val signature = client.signWithInstallationKey(signatureText)
 <TabItem label="Swift">
 
 ```swift
-let signature = try client.signWithInstallationKey(message: signatureText)
+let signature = try await client.signWithInstallationKey(text: signatureText)
 ```
 
 </TabItem>

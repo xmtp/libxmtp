@@ -1475,6 +1475,48 @@ def binding_reexport_outcome(sdk: str, name: str) -> Decision | None:
 
 def _classify(entry: object) -> Decision:
     sdk, name, kind, source = entry.sdk, entry.name, entry.kind, entry.source
+    # Task 14 and CTYPE section 6 settle these Kotlin cutover rows.
+    if sdk == "Kotlin" and name in {
+        "Fetcher",
+        "Fetcher.fetch",
+        "HTTPFetcher",
+        "HTTPFetcher.fetch",
+        "RemoteAttachment.fetcher",
+        "RemoteAttachment.load",
+    }:
+        return decision(
+            "approved removal",
+            "—",
+            "[Task 14](https://plan.ref.tools/TiFDtuzx3U19olnv), Decisions and step 2",
+            "Remove the blocking download helper. Use the generated attachment transfer API.",
+        )
+    if sdk == "Kotlin" and name in {
+        "ReactionCodec",
+        "ReactionCodec.contentType",
+        "ReactionCodec.decode",
+        "ReactionCodec.encode",
+        "ReactionCodec.fallback",
+        "ReactionCodec.shouldPush",
+    }:
+        return decision(
+            "approved removal",
+            "—",
+            "[CTYPE section 6](../specs/CTYPE-content-types.md#6-content-type-versions), CTYPE-016; 11.4 Kotlin",
+            "The approved catalogue excludes xmtp.org/reaction:1.0. Use ReactionV2Codec for xmtp.org/reaction:2.0.",
+        )
+    kotlin_helpers = {
+        "ByteArray.toHex": "Retain this helper in uniffi.xmtp_sdk. Keep lower-case hexadecimal output.",
+        "String.hexToByteArray": "Retain this helper in uniffi.xmtp_sdk. Keep the old prefix, odd-nibble, and character conversion behavior.",
+        "func validateInboxId": "Retain this helper in uniffi.xmtp_sdk. Reject the 0x prefix without a case distinction. Keep the typed invalid-argument error and old diagnostic.",
+        "func validateInboxIds": "Retain this helper in uniffi.xmtp_sdk. Apply validateInboxId to each inbox ID.",
+    }
+    if sdk == "Kotlin" and name in kotlin_helpers:
+        return decision(
+            "platform helper",
+            name.removeprefix("func "),
+            "[Task 14](https://plan.ref.tools/TiFDtuzx3U19olnv), retained pure Kotlin helpers",
+            kotlin_helpers[name],
+        )
     if sdk in {"Node", "Browser"} and kind == "binding re-export":
         outcome = binding_reexport_outcome(sdk, name.removeprefix("func "))
         if outcome is not None:

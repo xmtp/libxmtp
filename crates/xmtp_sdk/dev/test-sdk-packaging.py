@@ -14,6 +14,8 @@ import zipfile
 from unittest.mock import Mock, patch
 import unittest
 
+from mobile_package_test_fixtures import MobilePackageTestFixtures
+
 
 def load(name, file):
     spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(file))
@@ -25,12 +27,15 @@ def load(name, file):
 artifacts = load("artifacts", "sdk-artifacts.py")
 receipt = load("receipt", "record-generated.py")
 mobile = load("mobile", "mobile-package.py")
+android_inputs = load("android_inputs", "sdk-packaging-android-inputs.py")
 
 
-class PackagingTests(unittest.TestCase):
+class PackagingTests(
+    android_inputs.AndroidDependencyInputs, MobilePackageTestFixtures, unittest.TestCase
+):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         (self.root / "crates/xmtp_sdk").mkdir(parents=True)
         (self.root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
         (self.root / "Cargo.toml").write_text("fixture manifest")
@@ -38,6 +43,7 @@ class PackagingTests(unittest.TestCase):
         self.config = self.root / "crates/xmtp_sdk/uniffi.toml"
         self.config.write_text("fixture configuration")
         self.calls = []
+        self.sdk_root = self.root / "sdks/android"
         self.patches = [
             patch.object(artifacts, "ROOT", self.root),
             patch.object(receipt.artifacts, "ROOT", self.root),
@@ -63,17 +69,6 @@ class PackagingTests(unittest.TestCase):
         for item in reversed(self.patches):
             item.stop()
         self.temporary.cleanup()
-
-    def seed_android_dependency_inputs(self):
-        project = self.root / "crates/xmtp_sdk/packaging/android"
-        for name in (
-            "gradle.lockfile",
-            "buildscript-gradle.lockfile",
-            "gradle/verification-metadata.xml",
-        ):
-            file = project / name
-            file.parent.mkdir(parents=True, exist_ok=True)
-            file.write_text("fixture dependency input")
 
     def prepare_mobile_stage(self, target):
         self.args.targets = ("swift",) if target == "ios" else ("kotlin",)
@@ -107,14 +102,24 @@ class PackagingTests(unittest.TestCase):
             output.mkdir(parents=True)
             (output / "library").write_text("fixture xcframework")
         else:
-            output = self.root / "crates/xmtp_sdk/packaging/android/build/outputs/aar"
+            self.assertEqual(
+                command[:5],
+                [
+                    str(self.sdk_root / "gradlew"),
+                    "-p",
+                    str(self.sdk_root),
+                    ":library:assembleRelease",
+                    "--no-daemon",
+                ],
+            )
+            output = self.sdk_root / "library/build/outputs/aar"
             output.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(output / "xmtp-sdk-stage-release.aar", "w") as archive:
+            with zipfile.ZipFile(output / "library-release.aar", "w") as archive:
                 archive.writestr("classes.jar", b"fixture classes")
                 for abi in mobile.ANDROID:
                     archive.writestr(f"jni/{abi}/libxmtp_sdk.so", b"fixture native")
 
-    def assemble_mobile(self, target, tool=None):
+    def assemble_mobile(self, target, tool=None, sdk_root=None):
         if not isinstance(tool, Mock):
             tool = Mock(side_effect=tool or self.mobile_tool)
         with (
@@ -133,60 +138,11 @@ class PackagingTests(unittest.TestCase):
                     str(self.root / "mobile"),
                     "--out",
                     str(self.root / "products"),
+                    *(["--sdk-root", str(sdk_root)] if sdk_root else []),
                 ],
             ),
         ):
             mobile.main()
-
-    def product_files(self, output):
-        return {
-            str(path.relative_to(output)): path.read_bytes()
-            for path in output.rglob("*")
-            if path.is_file()
-        }
-
-    def test_android_dependency_inputs_are_required_before_tool_use(self):
-        for name in (
-            "gradle.lockfile",
-            "buildscript-gradle.lockfile",
-            "gradle/verification-metadata.xml",
-        ):
-            with self.subTest(name=name):
-                output = self.prepare_mobile_stage("android")
-                previous = self.product_files(output)
-                project = self.root / "crates/xmtp_sdk/packaging/android"
-                (project / name).unlink()
-                tool = Mock(side_effect=self.mobile_tool)
-                with self.assertRaisesRegex(
-                    ValueError, "Android dependency input missing"
-                ):
-                    self.assemble_mobile("android", tool)
-                tool.assert_not_called()
-                self.assertEqual(self.product_files(output), previous)
-                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
-
-    def test_android_stage_uses_strict_read_only_dependency_inputs(self):
-        self.prepare_mobile_stage("android")
-
-        def tool(command, **kwargs):
-            self.assertEqual(command[0], "sdks/android/gradlew")
-            self.assertIn("--dependency-verification=strict", command)
-            self.assertFalse(any(arg.startswith("--max-workers") for arg in command))
-            self.assertFalse(
-                any(
-                    arg.startswith(
-                        (
-                            "--write-locks",
-                            "--update-locks",
-                            "--write-verification-metadata",
-                        )
-                    )
-                    for arg in command
-                )
-            )
-            self.mobile_tool(command, **kwargs)
-
-        self.assemble_mobile("android", tool)
 
     def test_mobile_late_tool_failure_preserves_prior_and_cleans_fresh_stage(self):
         for target in ("ios", "android"):
@@ -215,8 +171,7 @@ class PackagingTests(unittest.TestCase):
         def missing_abi(command, **kwargs):
             self.mobile_tool(command, **kwargs)
             archive = (
-                self.root
-                / "crates/xmtp_sdk/packaging/android/build/outputs/aar/xmtp-sdk-stage-release.aar"
+                self.root / "sdks/android/library/build/outputs/aar/library-release.aar"
             )
             with zipfile.ZipFile(archive, "w") as broken:
                 broken.writestr("classes.jar", b"fixture classes")
@@ -415,9 +370,8 @@ class PackagingTests(unittest.TestCase):
                     SDK_SHELL_TRACE=str(trace),
                 ),
             )
-        self.assertEqual(
-            trace.read_text().splitlines(), [name + ":rust" for name in names]
-        )
+        expected = [name + ":rust" for name in names]
+        self.assertEqual(trace.read_text().splitlines(), expected)
 
     def command(self, command, **kwargs):
         self.calls.append(command)
@@ -547,12 +501,20 @@ class PackagingTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
         expected = (artifacts.source_hash(), artifacts.source_hash(True))
         (self.root / ".git").rename(self.root / ".git-hidden")
-        self.assertEqual(
-            (artifacts.source_hash(), artifacts.source_hash(True)), expected
-        )
+        actual = (artifacts.source_hash(), artifacts.source_hash(True))
+        self.assertEqual(actual, expected)
 
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
-        names = ("CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "LDFLAGS", "PERL") + tuple(
+        names = (
+            "CC",
+            "CXX",
+            "AR",
+            "RANLIB",
+            "CFLAGS",
+            "CXXFLAGS",
+            "LDFLAGS",
+            "PERL",
+        ) + tuple(
             prefix + "OPENSSL_" + name
             for prefix in ("", "AARCH64_LINUX_ANDROID_")
             for name in (
@@ -702,6 +664,45 @@ class PackagingTests(unittest.TestCase):
         finally:
             self.patches[2].start()
 
+    def test_target_ranlib_path_version_and_bytes_change_cache_context(self):
+        tool = self.root / "llvm-ranlib"
+        tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib one\\n'\n")
+        tool.chmod(0o755)
+        self.patches[2].stop()
+        try:
+            with patch.dict(os.environ, {"RANLIB_aarch64_linux_android": str(tool)}):
+                baseline = artifacts.build_context()
+                tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n")
+                self.assertNotEqual(artifacts.build_context(), baseline)
+                with (
+                    patch.object(artifacts.subprocess, "run") as version_probe,
+                    patch.object(
+                        artifacts.subprocess,
+                        "check_output",
+                        return_value=b"fixed rustc",
+                    ),
+                ):
+                    version_probe.return_value = subprocess.CompletedProcess(
+                        [], 0, b"version one", b""
+                    )
+                    stable_bytes = artifacts.build_context()
+                    version_probe.return_value = subprocess.CompletedProcess(
+                        [], 0, b"version two", b""
+                    )
+                    self.assertNotEqual(artifacts.build_context(), stable_bytes)
+                version = artifacts.build_context()
+                tool.write_text(
+                    "#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n# changed bytes\n"
+                )
+                self.assertNotEqual(artifacts.build_context(), version)
+                before = artifacts.build_context()
+                os.environ["RANLIB_aarch64_linux_android"] = str(
+                    self.root / "other-ranlib"
+                )
+                self.assertNotEqual(artifacts.build_context(), before)
+        finally:
+            self.patches[2].start()
+
     def test_rustc_override_has_precedence_over_cargo_build_rustc(self):
         self.patches[2].stop()
         try:
@@ -750,7 +751,7 @@ class PackagingTests(unittest.TestCase):
             path: path.read_bytes()
             for path in (self.root / "mobile").rglob("artifacts.json")
         }
-        self.assertEqual(len(original_receipts), 6)
+        self.assertEqual(len(original_receipts), 7)
         (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
         for platform in ("ios", "android"):
             output = self.root / "products" / platform
@@ -781,7 +782,7 @@ class PackagingTests(unittest.TestCase):
             path: path.read_bytes()
             for path in (self.root / "mobile").rglob("artifacts.json")
         }
-        self.assertEqual(len(native_receipts), 6)
+        self.assertEqual(len(native_receipts), 7)
         manifest = self.args.artifacts / "artifacts.json"
         native = json.loads(manifest.read_text())["artifacts"]["native"]
         source = artifacts.source_hash()
@@ -796,9 +797,8 @@ class PackagingTests(unittest.TestCase):
         artifacts.build(self.args)
         self.assertEqual(len(self.calls), calls + 1)
         self.assertIn("xmtp-sdk-bindgen", self.calls[-1])
-        self.assertEqual(
-            json.loads(manifest.read_text())["artifacts"]["native"], native
-        )
+        actual = json.loads(manifest.read_text())["artifacts"]["native"]
+        self.assertEqual(actual, native)
         artifacts.render(self.args)
         binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
         self.assertEqual(binding["artifact"], native)

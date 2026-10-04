@@ -47,9 +47,10 @@ keys include identity kind: `ethereum:<validated text>` or
 
 End the old client before opening the new client. An app must never open both
 clients on one database at the same time. Keep the existing encryption key on
-native hosts. Store the native 32-byte database key securely and reuse it for
-Default, Directory and Explicit storage. Omitting `encryptionKey` selects
-unencrypted storage. Changing the default location does not move an old database.
+native hosts. Swift migration helpers accept the caller-stored 32-byte
+`databaseKey: Data` and pass it to both opens. Reuse the same key for Default,
+Directory and Explicit storage. Omitting `encryptionKey` selects unencrypted
+storage. Changing the default location does not move an old database.
 Use the old client's reported database path for the first new open.
 
 | Host | Old default database | New default root |

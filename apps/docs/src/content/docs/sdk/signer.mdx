@@ -38,10 +38,13 @@ Install [@noble/curves](https://github.com/paulmillr/noble-curves) and [@noble/h
 <TabItem label="Kotlin">
 
 ```kotlin
-val signer = object : SigningKey {
-    override val type = SignerType.EOA
-    override val publicIdentity = identity
-    override suspend fun sign(message: String): SignedData = signedData
+class AppSigner(
+    private val publicIdentity: PublicIdentity,
+    private val signRequest: suspend (SigningRequest) -> Signature,
+) : Signer {
+    override suspend fun identity(): PublicIdentity = publicIdentity
+    override suspend fun kind(): SignerKind = SignerKind.Eoa
+    override suspend fun sign(request: SigningRequest): Signature = signRequest(request)
 }
 ```
 
@@ -49,10 +52,20 @@ val signer = object : SigningKey {
 <TabItem label="Swift">
 
 ```swift
-struct AppSigner: SigningKey {
-  var type: SignerType = .EOA
-  var identity: PublicIdentity
-  func sign(_ message: String) async throws -> SignedData { signedData }
+final class AppSigner: Signer {
+  private let publicIdentity: PublicIdentity
+  private let signRequest: @Sendable (SigningRequest) async throws -> Signature
+
+  init(identity: PublicIdentity, signRequest: @escaping @Sendable (SigningRequest) async throws -> Signature) {
+    self.publicIdentity = identity
+    self.signRequest = signRequest
+  }
+
+  func identity() async throws -> PublicIdentity { publicIdentity }
+  func kind() async throws -> SignerKind { .eoa }
+  func sign(request: SigningRequest) async throws -> Signature {
+    try await signRequest(request)
+  }
 }
 ```
 

@@ -976,14 +976,14 @@ def render_sdk_rows(
 # Current switched sources are counted in this same manifest below.
 LEGACY_SECTION_SHA256 = {
     "Swift": "f0b8a71676b6eeaf86e9c5f28fc688119409555b9071d604d36c7d02b072e1bd",
-    "Kotlin": "c769c974e61f83d8cd9f06cbc2e55baaa1585514d75bd7cfb513ab775f1f0f96",
+    "Kotlin": "c72acf6d87cb6cff62ed100c9052786d9086c7410cf95471a38fba71446c8ac7",
     "Node": "6219daf96b37eed1c0e7706aafd9b4a015bb6fd5a2757954dcb5e1d3e736f967",
     "Browser": "db74f2bb4546dd6fe54f4b7fe9832978200616747f0d35038f22f38382bf4216",
 }
 LEGACY_COUNTS = {"Swift": 7132, "Kotlin": 963, "Node": 522, "Browser": 533}
 LEGACY_OPEN_SHA256 = {
     "Swift": "f63ebcf451779f0a0863a273b70dd123f52862f6e732d3103b275113b4634d69",
-    "Kotlin": "4ca2d6a3b9108f8c4b6207c5451742137a107379c23a5d37608e0f39641add1c",
+    "Kotlin": "c697efa345367e7605b5225b6e2881f99529abaa09b0092ce6c2013d48d4442d",
     "Node": "8c73c7babd5d24d16fc4dec330af65c29f021728f1c2044aeadc189883ea7b83",
     "Browser": "d90fda7f10263802defffe1f8b33609a36379fd927082eae8c63de705a199361",
 }
@@ -1089,7 +1089,16 @@ def switched_source_rows(switched: set[str]) -> list[str]:
     return rows
 
 
-def build() -> str:
+def source_only_manifest(text: str) -> str:
+    """Remove product counts that require generated output to verify."""
+    return re.sub(
+        r"(?ms)^## Switched SDK source inventory\n.*?(?=^## Open items\n)",
+        "",
+        text,
+    )
+
+
+def build(*, source_only: bool = False) -> str:
     switched = switched_sdks(ROOT)
     ledger = OUT.read_text()
     sections = {sdk: ledger_section(ledger, sdk) for sdk in switched}
@@ -1161,7 +1170,7 @@ def build() -> str:
         lines.extend(rows)
         open_items.extend(sdk_open_items)
         lines.append("")
-    if switched:
+    if switched and not source_only:
         lines += [
             "## Switched SDK source inventory",
             "",
@@ -1535,15 +1544,21 @@ def self_test() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--self-test", action="store_true")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--write", action="store_true")
+    action.add_argument("--check", action="store_true")
+    action.add_argument(
+        "--check-source",
+        action="store_true",
+        help="check retention and source rows without checking generated product counts",
+    )
+    action.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         self_test()
         print("inventory fixtures pass")
         return
-    output = build()
+    output = build(source_only=args.check_source)
     if args.write:
         OUT.write_text(output)
     elif args.check:
@@ -1552,6 +1567,9 @@ def main() -> None:
                 "manifest differs from source inventory; "
                 "run python3.11 dev/sdk/inventory.py --write"
             )
+    elif args.check_source:
+        if source_only_manifest(OUT.read_text()) != output:
+            raise SystemExit("manifest differs from retention and source inventory")
     else:
         print(output)
 

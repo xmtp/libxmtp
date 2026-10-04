@@ -1,5 +1,5 @@
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 /// Display the conversation.
 struct ConversationView: View {
@@ -7,7 +7,7 @@ struct ConversationView: View {
 	let conversationId: String
 	var body: some View {
 		VStack(spacing: 0) {
-			let messages = (session.conversationMessages[conversationId].value ?? [DecodedMessage]()).reversed()
+			let messages = (session.conversationMessages[conversationId].value ?? [Message]()).reversed()
 			ScrollViewReader { proxy in
 				List(messages, id: \.id) { message in
 					MessageView(conversationId: conversationId, message: message)
@@ -25,13 +25,13 @@ struct ConversationView: View {
 				try await session.refreshConversation(conversationId: conversationId)
 			}
 		}
-		.navigationTitle(session.conversations[conversationId].value?.name ?? "")
+		.navigationTitle(session.conversationNames[conversationId].value ?? "Conversation")
 	}
 }
 
 struct MessageView: View {
 	let conversationId: String
-	let message: DecodedMessage
+	let message: Message
 	@Environment(XmtpSession.self) private var session
 	var body: some View {
 		let isMe = message.senderInboxId == session.inboxId
@@ -47,14 +47,14 @@ struct MessageView: View {
 					Spacer()
 				}
 			}
-			Text((try? message.body) ?? "")
+			Text(message.displayText)
 				.foregroundColor(.primary)
 				.font(.body)
 				.padding(.vertical)
 			Spacer()
 			HStack {
 				Spacer()
-				Text(message.sentAt.description)
+				Text(message.sentAt.date.formatted())
 					.foregroundColor(.secondary)
 					.font(.caption2)
 			}
@@ -68,33 +68,46 @@ struct MessageComposerView: View {
 	@Environment(XmtpSession.self) private var session
 	@State private var message = ""
 	@State private var isSending = false
+	@State private var error: String?
 	@FocusState var isFocused
 	let conversationId: String
 	var body: some View {
-		HStack {
+		VStack {
 			TextField("Message", text: $message)
 				.focused($isFocused)
 				.disabled(isSending)
 				.padding(4)
 				.onSubmit {
 					Task {
-						defer {
-							isSending = false
-						}
 						isSending = true
-						if try await (session.sendMessage(message, to: conversationId)) {
-							message = ""
-						}
+						defer { isSending = false }
+						do {
+							if try await session.sendMessage(message, to: conversationId) {
+								message = ""
+								error = nil
+							}
+						} catch { self.error = error.localizedDescription }
 					}
 				}
 				.textInputAutocapitalization(.never)
 				.disableAutocorrection(true)
 				.textFieldStyle(.roundedBorder)
-				.onAppear {
-					isFocused = true
-				}
+				.onAppear { isFocused = true }
 				.submitLabel(.send)
+			if let error {
+				Text(error).foregroundStyle(.red)
+			}
 		}
 		.padding(4)
+	}
+}
+
+private extension Message {
+	var displayText: String {
+		switch content {
+		case let .standard(.text(text)), let .standard(.markdown(text)): text
+		case .standard(.groupUpdated): "Group membership changed"
+		default: fallback ?? "Unsupported content"
+		}
 	}
 }

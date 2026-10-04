@@ -19,3 +19,5 @@ XMTPiOSExample/XMTPiOSExample.xcworkspace
 
 ngrok-*.pid
 ngrok-*.log
+
+Artifacts/

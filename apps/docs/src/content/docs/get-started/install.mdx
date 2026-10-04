@@ -50,29 +50,37 @@ Use the package for your platform:
 | Browser  | `@xmtp/browser-sdk`             |
 | Node     | `@xmtp/node-sdk`                |
 | Kotlin   | `org.xmtp:android`              |
-| Swift    | Swift package product `XMTPiOS` |
+| Swift    | Swift package product `XmtpSdk` |
 
 The Browser and Node package commands above are the JavaScript package examples. For Android, add the XMTP Maven artifact to your app module:
 
 ```kotlin
+android {
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
+    }
+}
 dependencies {
     implementation("org.xmtp:android:<version>")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 ```
 
-Replace `<version>` with the version you built or a released version that supports
-`ClientOptions.Api.backendUrl`. Do not assume that an older hosted-network SDK
-can connect to this backend.
+Replace `<version>` with the matching 8.0.0 SDK version you built or released.
+Import `uniffi.xmtp_sdk.*`. Keep the generated sources and JNI libraries from
+the same build. An older network SDK cannot use this backend.
 
 For Swift, the package manifest is at the root of
-[libxmtp](https://github.com/xmtp/libxmtp). Add the `XMTPiOS` product to your app.
+[libxmtp](https://github.com/xmtp/libxmtp). Add the `XmtpSdk` product to your app.
 When using the self-hosted source branch, build its matching native bindings
 before adding the local package in Xcode:
 
 ```sh
 git clone --branch self-hosted https://github.com/xmtp/libxmtp.git
 cd libxmtp
-just ios build
+dev/nix-shell 'just ios build'
 ```
 
 These repository commands require the Nix development environment. In a Swift
@@ -83,7 +91,7 @@ package next to that checkout, add these dependency and target entries:
 .package(path: "../libxmtp")
 
 // In your app target's dependencies:
-.product(name: "XMTPiOS", package: "libxmtp")
+.product(name: "XmtpSdk", package: "libxmtp")
 ```
 
 Use a matching published SDK and native binary after the self-hosted release is
@@ -108,16 +116,20 @@ stable between launches.
 <TabItem label="Kotlin">
 
 Use Android API 23 or later and Java 17 for the SDK build. Provide an Android
-`Context` and a 32-byte database encryption key. Pass the backend URL in
-`ClientOptions.Api`. Call suspend functions from a coroutine.
+`Context`. Set `ClientOptions.backend` to
+`BackendSource.Options(BackendOptions(url = backendUrl))`. Set the database
+location and optional 32-byte key in `StorageOptions`. Call suspend methods
+from a coroutine. End each client in `withContext(NonCancellable)`.
 
 </TabItem>
 <TabItem label="Swift">
 
 Use Swift 6.1 or later. The package supports iOS 14 or later and macOS 11 or later.
-Pass the backend URL in `ClientOptions.Api` and provide a 32-byte database
-encryption key for the encrypted local database. Call async methods from an async
-context.
+Pass `BackendOptions(url:)` through `ClientOptions.backend`. Use
+`StorageOptions` for the database location. Pass a securely generated or
+caller-stored 32-byte `encryptionKey` for persistent storage. Keep the key and
+reuse it when reopening the database. Omitting it selects unencrypted storage.
+Call async methods from an async context.
 
 </TabItem>
 </Tabs>

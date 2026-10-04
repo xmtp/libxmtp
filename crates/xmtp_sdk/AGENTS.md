@@ -9,6 +9,9 @@ Run commands from the repository root in the Nix shell. Run
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
   the worker, the benchmark, and transport tests import it.
+- `dev/nix-shell 'just sdk check-package-scripts'` runs the normal packaging controls.
+  Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
+  which the main packaging suite loads as inherited test methods.
 - `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
   the checkout source identity with the generated and native Nix source filters.
   It does not compile a product.
@@ -48,7 +51,7 @@ Run commands from the repository root in the Nix shell. Run
 - `dev/nix-shell 'just sdk cutover-bench-ios-prepare <config> <output>'` prepares a Release
   UIKit app for the installed old or new public Swift product. Then run
   `NIX_DEVSHELL=ios dev/nix-shell 'just sdk cutover-bench-ios-build <output> <simulator-udid> <derived-data>'`.
-  Use separate side directories.
+  Use separate side directories. Xcode uses its normal job count.
   `dev/nix-shell 'just sdk cutover-bench-ios-controls <host-config> <output>'` checks real app
   memory, signer HTTP, identity rejection, timing scope, and timeout cleanup.
   See `benchmarks/README.md` for the HTTP signer and app launch configuration.
@@ -120,8 +123,9 @@ Run commands from the repository root in the Nix shell. Run
   and assets.
   The proof installs local copies under `target/sdk-codec-author/` and uses
   only the supported ESM roots in the codec package.
-- `dev/nix-shell 'just sdk manifest-check'` and
-  `dev/nix-shell 'just sdk-manifest-check'` check the same API manifest.
+- `dev/nix-shell 'just sdk-manifest-check'` checks source and retention rows
+  without generated products. `dev/nix-shell 'just sdk manifest-check'` also
+  checks the generated public projection counts and roots.
   A switched SDK keeps its pinned pre-switch retention and removal ledger.
   The same manifest counts its current public projection in a separate section.
   Unswitched SDKs still match their current source declarations. Missing current
@@ -194,9 +198,10 @@ Package review checks:
   Windows browser asset paths, default mobile features, all four NDK compiler targets and archive index tools,
   caller archive-tool policies, target OpenSSL paths and policy, cache inputs, and both flat and prebuilt runtime
   directory layouts.
-  Explicit target OpenSSL roots keep upstream library-directory selection. Host
-  library and header paths use the selected compiler's host-qualified variables
-  in the Android and iOS child environments. Both mobile routes build target
+  Explicit target OpenSSL paths keep upstream library-directory selection.
+  Generic host roots, library paths and header paths use the selected compiler's
+  host-qualified variables in the Android and iOS child environments. A policy-only
+  override keeps generic paths. Both mobile routes build target
   OpenSSL by default. Explicit target paths and policies stay intact. Parent
   inputs stay intact.
 - Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
@@ -239,3 +244,9 @@ Android staging dependency inputs:
   AAR output hashes do not prove dependency input coverage.
 - The switched Android project owns its own graph under Task 14. Do not copy
   staging lock state into a different Gradle root.
+
+- The switched Android stage builds `sdks/android/:library:assembleRelease`.
+  It checks that selected SDK root's `buildscript-gradle.lockfile`,
+  `library/gradle.lockfile`, and `gradle/verification-metadata.xml`.
+  The staging fixture inputs do not cover this graph. An explicit
+  `--sdk-root` selects the root whose inputs and output are used.

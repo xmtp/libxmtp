@@ -16,6 +16,6 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - name: Build Android bindings (required for lint)
-        run: just android build
+        run: dev/nix-shell 'just android build'
       - name: Lint Android SDK
-        run: just android lint
+        run: dev/nix-shell 'just android lint'

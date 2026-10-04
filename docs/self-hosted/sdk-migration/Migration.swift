@@ -6,13 +6,14 @@ public enum MigrationFailure: Error {
     case inboxChanged
 }
 
-/// End the old SDK client before calling this function.
+/// End the old SDK client first. Use its stored 32-byte database key.
 public func exerciseMigration(
-    existingIdentity: PublicIdentity, options: ClientOptions, dbPath: String, attachmentsDir: String
+    existingIdentity: PublicIdentity, options: ClientOptions, databaseKey: Data, dbPath: String, attachmentsDir: String
 ) async throws {
     let expectedPath = URL(fileURLWithPath: dbPath).standardizedFileURL.path
     var explicit = options
     explicit.storage.location = .explicit(dbPath: dbPath, attachmentsDir: attachmentsDir)
+    explicit.storage.encryptionKey = databaseKey
     let first = try await SDKClient.build(identity: existingIdentity, options: explicit)
     let identity: PublicIdentity
     let inboxId: String

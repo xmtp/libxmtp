@@ -31,13 +31,13 @@ Kotlin and Swift name `syncAll` as `syncAllConversations`.
 </TabItem><TabItem label="Kotlin">
 
 ```kotlin
-val summary = client.conversations.syncAllConversations(consentStates)
+val summary = client.conversations().syncAll(consentStates)
 ```
 
 </TabItem><TabItem label="Swift">
 
 ```swift
-let summary = try await client.conversations.syncAllConversations(consentStates: consentStates)
+let summary = try await client.conversations().syncAll(consentStates: consentStates)
 ```
 
 </TabItem>

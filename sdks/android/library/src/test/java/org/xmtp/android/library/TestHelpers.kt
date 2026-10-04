@@ -1,46 +1,78 @@
 package org.xmtp.android.library
 
-import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
-import org.xmtp.android.library.codecs.Fetcher
-import org.xmtp.android.library.messages.PrivateKey
-import org.xmtp.android.library.messages.PrivateKeyBuilder
+import kotlinx.coroutines.withContext
+import uniffi.xmtp_sdk.*
 import java.io.File
 import java.net.URL
+import java.nio.file.Files
 import java.security.SecureRandom
 
-// These unit tests only build cache keys; they never open a connection, so the
-// address stays fixed and ClientCacheKeyTest can assert on it.
-fun localApi(appVersion: String? = null): ClientOptions.Api =
-    ClientOptions.Api(backendUrl = "http://10.0.2.2:5050", appVersion = appVersion)
+// Cache-key tests do not open this fixed address.
+fun localApi(appVersion: String? = null): BackendOptions =
+    BackendOptions(url = "http://10.0.2.2:5050", appVersion = appVersion)
 
-class TestFetcher : Fetcher {
-    override fun fetch(url: URL): ByteArray = File(url.toString().replace("https://", "")).readBytes()
+class TestFetcher(
+    private val file: File,
+) {
+    fun fetch(url: URL): ByteArray {
+        check(url.protocol == "https")
+        return file.readBytes()
+    }
 }
 
-data class Fixtures(
-    val aliceAccount: PrivateKeyBuilder,
-    val bobAccount: PrivateKeyBuilder,
-) {
-    val key = SecureRandom().generateSeed(32)
-    val context = InstrumentationRegistry.getInstrumentation().targetContext
-    val clientOptions =
-        ClientOptions(
-            localApi(),
-            dbEncryptionKey = key,
-            appContext = context,
+class Fixtures : AutoCloseable {
+    private val directory = Files.createTempDirectory("xmtp-jvm-fixtures").toFile()
+    private val key = SecureRandom().generateSeed(32)
+    private val backend =
+        BackendSource.Options(
+            BackendOptions(url = System.getenv("XMTP_BACKEND_URL") ?: "http://127.0.0.1:5050"),
         )
-    var aliceClient: Client =
-        runBlocking { Client.create(account = aliceAccount, options = clientOptions) }
-    var alice: PrivateKey = aliceAccount.getPrivateKey()
-    var bob: PrivateKey = bobAccount.getPrivateKey()
-    var bobClient: Client =
-        runBlocking { Client.create(account = bobAccount, options = clientOptions) }
+    val aliceAccount = runBlocking { generateLocalSigner() }
+    val bobAccount = runBlocking { generateLocalSigner() }
+    val alice = runBlocking { aliceAccount.identity() }
+    val bob = runBlocking { bobAccount.identity() }
+    val aliceClient = create(aliceAccount, "alice")
+    val bobClient = create(bobAccount, "bob")
 
-    constructor() : this(
-        aliceAccount = PrivateKeyBuilder(),
-        bobAccount = PrivateKeyBuilder(),
-    )
+    private fun create(
+        signer: Signer,
+        label: String,
+    ): SDKClient =
+        runBlocking {
+            val db = File(directory, label).also { check(it.mkdirs()) }
+            SDKClient.create(
+                signer,
+                ClientOptions(
+                    backend = backend,
+                    storage = StorageOptions(StorageLocation.Directory(db.absolutePath), encryptionKey = key),
+                ),
+            )
+        }
+
+    override fun close() {
+        try {
+            runBlocking {
+                withContext(NonCancellable) {
+                    aliceClient.end()
+                    bobClient.end()
+                }
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 }
 
 fun fixtures(): Fixtures = Fixtures()
+
+// Use the real generated forwarders with a recording native boundary.
+internal fun testSDKClient(
+    raw: Client,
+    codecs: List<ContentCodec<*>> = emptyList(),
+): SDKClient {
+    val constructor = SDKClient::class.java.getDeclaredConstructor(Client::class.java, List::class.java)
+    constructor.isAccessible = true
+    return constructor.newInstance(raw, codecs)
+}

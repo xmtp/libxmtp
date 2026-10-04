@@ -1,178 +1,59 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
+import org.junit.Assert.*
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.xmtp.android.library.codecs.ContentTypeDeleteMessageRequest
-import org.xmtp.android.library.codecs.DeleteMessageCodec
-import org.xmtp.android.library.codecs.DeleteMessageRequest
+import uniffi.xmtp_sdk.*
 
-@RunWith(AndroidJUnit4::class)
 class DeleteMessageCodecTest : BaseInstrumentedTest() {
-    private lateinit var fixtures: TestFixtures
-    private lateinit var alixClient: Client
-    private lateinit var boClient: Client
+    private val value = DeleteMessageContent("ab".repeat(32))
 
-    @org.junit.Before
-    override fun setUp() {
-        super.setUp()
-        fixtures = runBlocking { createFixtures() }
-        alixClient = fixtures.alixClient
-        boClient = fixtures.boClient
-    }
-
-    @Test
-    fun testCanUseDeleteMessageCodec() {
-        Client.register(codec = DeleteMessageCodec())
-
-        val alixConversation =
-            runBlocking {
-                alixClient.conversations.newConversation(boClient.inboxId)
-            }
-
-        val deleteRequest =
-            DeleteMessageRequest(
-                messageId = "test-message-id-123",
-            )
-
+    @Test fun testCanUseDeleteMessageCodec() =
         runBlocking {
-            alixConversation.send(
-                content = deleteRequest,
-                options = SendOptions(contentType = ContentTypeDeleteMessageRequest),
-            )
+            val fixtures = createFixtures()
+            val dm = fixtures.alixClient.conversations().createDm(fixtures.boClient.inboxId())
+            val id = dm.send(DeleteMessageCodec(), value)
+            val message = dm.messages().single { it.id == id }
+            assertEquals(value, DeleteMessageCodec().decode(checkNotNull(message.encoded)))
         }
 
-        val messages = runBlocking { alixConversation.messages() }
-
-        assertEquals(2, messages.size)
-
-        if (messages.size == 2) {
-            val content: DeleteMessageRequest? = messages.first().content()
-            assertNotNull(content)
-            assertEquals("test-message-id-123", content?.messageId)
-        }
-    }
-
-    @Test
-    fun testDeleteMessageCodecEncodeDecode() {
+    @Test fun testDeleteMessageCodecEncodeDecode() {
         val codec = DeleteMessageCodec()
-
-        val original = DeleteMessageRequest(messageId = "message-to-delete")
-        val encoded = codec.encode(original)
-        val decoded = codec.decode(encoded)
-
-        assertEquals(original, decoded)
-        assertEquals(original.messageId, decoded.messageId)
+        assertEquals(value, codec.decode(codec.encode(value)))
     }
 
-    @Test
-    fun testDeleteMessageCodecFallback() {
-        val codec = DeleteMessageCodec()
-        val content = DeleteMessageRequest(messageId = "any-id")
-        val fallback = codec.fallback(content)
-        assertNull(fallback)
+    @Test fun testDeleteMessageCodecFallback() = assertNull(DeleteMessageCodec().fallback(value))
+
+    @Test fun testDeleteMessageCodecShouldPush() = assertFalse(DeleteMessageCodec().shouldPush(value))
+
+    @Test fun testDeleteMessageCodecContentType() {
+        assertEquals(ContentTypeId("xmtp.org", "deleteMessage", 1u, 0u), DeleteMessageCodec().type)
     }
 
-    @Test
-    fun testDeleteMessageCodecShouldPush() {
-        val codec = DeleteMessageCodec()
-        val content = DeleteMessageRequest(messageId = "any-id")
-        val shouldPush = codec.shouldPush(content)
-        assertFalse(shouldPush)
-    }
-
-    @Test
-    fun testDeleteMessageCodecContentType() {
-        val codec = DeleteMessageCodec()
-        assertEquals(ContentTypeDeleteMessageRequest, codec.contentType)
-        assertEquals("xmtp.org", codec.contentType.authorityId)
-        assertEquals("deleteMessage", codec.contentType.typeId)
-        assertEquals(1, codec.contentType.versionMajor)
-        assertEquals(0, codec.contentType.versionMinor)
-    }
-
-    @Test
-    fun testReceiverCanDecodeDeleteMessageFromListMessages() {
-        Client.register(codec = DeleteMessageCodec())
-
-        val alixGroup =
-            runBlocking {
-                alixClient.conversations.newGroup(listOf(boClient.inboxId))
-            }
-
-        runBlocking { boClient.conversations.sync() }
-        val boGroup =
-            runBlocking {
-                boClient.conversations.listGroups().first { it.id == alixGroup.id }
-            }
-
-        val deleteRequest =
-            DeleteMessageRequest(
-                messageId = "message-id-to-delete-456",
-            )
-
+    @Test fun testReceiverCanDecodeDeleteMessageFromListMessages() =
         runBlocking {
-            alixGroup.send(
-                content = deleteRequest,
-                options = SendOptions(contentType = ContentTypeDeleteMessageRequest),
-            )
+            val fixtures = createFixtures()
+            val group = fixtures.alixClient.conversations().createGroup(listOf(fixtures.boClient.inboxId()))
+            fixtures.boClient.conversations().syncAll(null)
+            val received =
+                (
+                    checkNotNull(
+                        fixtures.boClient.conversations().getById(group.id()),
+                    ) as Conversation.Group
+                ).group
+            val id = group.send(DeleteMessageCodec(), value)
+            received.sync()
+            val message = received.messages().single { it.id == id }
+            assertEquals(value, DeleteMessageCodec().decode(checkNotNull(message.encoded)))
         }
 
+    @Test fun testDeleteMessageContentTypeInListMessages() =
         runBlocking {
-            alixGroup.sync()
-            boGroup.sync()
+            val fixtures = createFixtures()
+            val dm = fixtures.alixClient.conversations().createDm(fixtures.boClient.inboxId())
+            val id = dm.send(DeleteMessageCodec(), value)
+            val message = dm.messages().single { it.id == id }
+            assertEquals(DeleteMessageCodec().type, message.contentType)
+            assertEquals(value, DeleteMessageCodec().decode(checkNotNull(message.encoded)))
         }
-
-        // Receiver reads using messages() - not enrichedMessages()
-        val boMessages = runBlocking { boGroup.messages() }
-        val deleteMessage =
-            boMessages.find {
-                it.encodedContent.type.typeId == "deleteMessage"
-            }
-
-        assertNotNull(deleteMessage)
-        val content: DeleteMessageRequest? = deleteMessage?.content()
-        assertNotNull(content)
-        assertEquals("message-id-to-delete-456", content?.messageId)
-    }
-
-    @Test
-    fun testDeleteMessageContentTypeInListMessages() {
-        Client.register(codec = DeleteMessageCodec())
-
-        val alixConversation =
-            runBlocking {
-                alixClient.conversations.newConversation(boClient.inboxId)
-            }
-
-        val deleteRequest = DeleteMessageRequest(messageId = "test-msg-789")
-
-        runBlocking {
-            alixConversation.send(
-                content = deleteRequest,
-                options = SendOptions(contentType = ContentTypeDeleteMessageRequest),
-            )
-        }
-
-        // Using messages() API to verify content type is preserved
-        val messages = runBlocking { alixConversation.messages() }
-        val deleteMsg =
-            messages.find {
-                it.encodedContent.type.typeId == "deleteMessage"
-            }
-
-        assertNotNull(deleteMsg)
-        assertEquals("xmtp.org", deleteMsg?.encodedContent?.type?.authorityId)
-        assertEquals("deleteMessage", deleteMsg?.encodedContent?.type?.typeId)
-
-        // Verify we can decode the content
-        val decoded: DeleteMessageRequest? = deleteMsg?.content()
-        assertNotNull(decoded)
-        assertEquals("test-msg-789", decoded?.messageId)
-    }
 }

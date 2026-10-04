@@ -67,18 +67,18 @@ However, some content types, especially those not meant for display (like read r
   </TabItem>
   <TabItem label="Kotlin">
     ```kotlin
-    if (message.encodedContent.type !in supportedContentTypes) {
-      return message.fallback.takeIf { it.isNotEmpty() }
+    if (message.contentType !in supportedContentTypes) {
+      return message.fallback?.takeIf { it.isNotEmpty() }
     }
     ```
   </TabItem>
   <TabItem label="Swift">
     ```swift
-    let contentType = try message.encodedContent.type
+    guard let contentType = message.contentType else { return nil }
     if !supportedContentTypes.contains(contentType) {
-      let fallback = try message.fallback
-      return fallback.isEmpty ? nil : fallback
+      return message.fallback
     }
+    return nil
     ```
   </TabItem>
 </Tabs>

@@ -1,88 +1,81 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import kotlinx.coroutines.withContext
+import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.xmtp.android.library.messages.PrivateKeyBuilder
-import uniffi.xmtpv3.resumeStreams
+import org.junit.rules.TemporaryFolder
+import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
 
-@RunWith(AndroidJUnit4::class)
 class StreamLifecycleTest {
-    /**
-     * One-shot catch-up joins a pending group and replays its history from
-     * durable cursors, then stops — and a second call finds nothing owed.
-     */
-    @Test
-    fun testCatchUpToLiveColdCatchesPendingGroupAndIsIdempotent() {
-        val previousManageStreamLifecycle = Client.manageStreamLifecycle
-        Client.manageStreamLifecycle = false
-        try {
-            runBlocking { resumeStreams() }
-            runBlocking {
-                val options =
+    @get:Rule val directories = TemporaryFolder()
+
+    /** Catch-up stores pending history and leaves no work for a second call. */
+    @Test fun testCatchUpToLiveColdCatchesPendingGroupAndIsIdempotent() =
+        runBlocking {
+            val previous = AndroidStreamLifecycle.enabled
+            AndroidStreamLifecycle.enabled = false
+            try {
+                resumeStreams()
+                val context = InstrumentationRegistry.getInstrumentation().targetContext
+                val key = SecureRandom().generateSeed(32)
+
+                fun options() =
                     ClientOptions(
-                        api = localApi(),
-                        dbEncryptionKey = SecureRandom().generateSeed(32),
-                        appContext = InstrumentationRegistry.getInstrumentation().targetContext,
-                        deviceSyncEnabled = false,
+                        backend = BackendSource.Options(localApi()),
+                        storage =
+                            StorageOptions(
+                                StorageLocation.Directory(directories.newFolder().absolutePath),
+                                encryptionKey = key,
+                            ),
+                        deviceSync = false,
                     )
-                val sender = Client.create(account = PrivateKeyBuilder(), options = options)
-                val receiver = Client.create(account = PrivateKeyBuilder(), options = options)
+                val sender = SDKClient.create(context, generateLocalSigner(), options())
+                val receiver = SDKClient.create(context, generateLocalSigner(), options())
                 try {
-                    // No device-sync worker can receive the Welcome before catch-up.
-                    val boGroup =
-                        sender.conversations.newGroup(listOf(receiver.inboxId))
-                    boGroup.send("missed while away")
-
+                    val group = sender.conversations().createGroup(listOf(receiver.inboxId()))
+                    group.sendText("missed while away")
                     assertEquals(
-                        "the receiver must have no group before catch-up",
+                        "The receiver has no group before catch-up",
                         0,
-                        receiver.conversations
-                            .listGroups()
-                            .size,
+                        receiver.conversations().listGroups(null).size,
                     )
-
-                    val summary = receiver.catchUpToLive()
+                    val summary = receiver.catchUpToLive(null)
                     assertTrue(summary.completed)
-                    assertEquals(0L, summary.failed)
-                    assertEquals(1L, summary.conversations)
-                    assertTrue(summary.messages >= 1)
-
-                    val groups = receiver.conversations.listGroups()
+                    assertEquals(0uL, summary.failed)
+                    assertEquals(1uL, summary.conversations)
+                    assertTrue(summary.messages >= 1uL)
+                    val groups = receiver.conversations().listGroups(null)
                     assertEquals(1, groups.size)
-
-                    // Catch-up delivered the real payload to the local store, not just a
-                    // counter: the missed text is readable with no further sync.
-                    val texts = groups.first().messages().map { it.body }
+                    val texts =
+                        groups.single().messages().mapNotNull {
+                            ((it.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text)?.v1
+                        }
                     assertTrue(
-                        "the missed message must be stored and readable after catch-up",
+                        "Catch-up must store the missed text without another sync",
                         texts.contains("missed while away"),
                     )
-
-                    // Nothing owed now: a second run persists nothing new on either axis.
-                    val again = receiver.catchUpToLive()
+                    val again = receiver.catchUpToLive(null)
                     assertTrue(again.completed)
-                    assertEquals(0L, again.failed)
-                    assertEquals(0L, again.messages)
-                    assertEquals(0L, again.conversations)
+                    assertEquals(0uL, again.failed)
+                    assertEquals(0uL, again.messages)
+                    assertEquals(0uL, again.conversations)
                 } finally {
-                    receiver.deleteLocalDatabase()
-                    sender.deleteLocalDatabase()
+                    withContext(NonCancellable) {
+                        receiver.end()
+                        sender.end()
+                    }
                 }
+            } finally {
+                AndroidStreamLifecycle.enabled = previous
             }
-        } finally {
-            Client.manageStreamLifecycle = previousManageStreamLifecycle
         }
-    }
 
-    /** Backgrounding auto-management is a process-global toggle, on by default. */
-    @Test
-    fun testManageStreamLifecycleDefaultsOn() {
-        assertTrue(Client.manageStreamLifecycle)
+    @Test fun testManageStreamLifecycleDefaultsOn() {
+        assertTrue(AndroidStreamLifecycle.enabled)
     }
 }

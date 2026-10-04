@@ -21,16 +21,16 @@ ci +args:
 
 # Build the binary.
 build:
-    nix build {{ root }}#xmtp-backend
+    env -u LD_LIBRARY_PATH nix build {{ root }}#xmtp-backend
 
 # Build the container image for an explicit musl architecture, or the host
 # architecture.
 #
 # A devshell puts a newer glibc on the library path, which breaks the system git
-# that Nix starts to fetch a git dependency. Run `nix` outside every devshell.
+# that Nix starts to fetch a git dependency. Remove that path for Nix.
 [script('/bin/sh')]
 image target_arch=musl_arch:
-    nix build {{ root }}#backend-image-{{ target_arch }}-unknown-linux-musl --out-link {{ root }}/result-backend-image
+    env -u LD_LIBRARY_PATH nix build {{ root }}#backend-image-{{ target_arch }}-unknown-linux-musl --out-link {{ root }}/result-backend-image
 
 # Run the backend outside Docker against the `db-up` database.
 run:

@@ -1,109 +1,70 @@
-//
-//  ContentView.swift
-//  XMTPiOSExample
-//
-//  Created by Pat Nakajima on 11/22/22.
-//
-
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
-/// The backend this sample app connects to.
-///
-/// `localhost` is the device or the simulator, not the development machine, so
-/// a real device needs the machine's address on the local network here (for
-/// example `http://192.168.1.10:5050`). The simulator shares the host network
-/// and reaches a local `just backend up` stack at this default.
-let exampleBackendUrl = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]
-	?? "http://localhost:5050"
+let exampleBackendUrl = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://localhost:5050"
+
+func exampleOptions(key: Data) -> ClientOptions {
+	ClientOptions(
+		backend: .options(options: BackendOptions(url: exampleBackendUrl)),
+		storage: StorageOptions(location: .default, encryptionKey: key),
+	)
+}
 
 struct ContentView: View {
-	enum Status {
-		case unknown, connecting, connected(Client), error(String)
-	}
-
-	@State private var status: Status = .unknown
-
-	@State private var isShowingQRCode = false
-	@State private var qrCodeImage: UIImage?
-	@State private var isConnectingWallet = false
-
-	@State private var client: Client?
+	@State private var client: SDKClient?
+	@State private var error: String?
+	@State private var isConnecting = false
 
 	var body: some View {
 		VStack {
-			switch status {
-			case .unknown:
-				Button("Generate Wallet") { generateWallet() }
-				Button("Load Saved Keys") {
+			if let client {
+				LoggedInView(client: client)
+				Button("Disconnect") {
 					Task {
 						do {
-							if let keysData = Persistence().loadKeys() {
-								if let address = Persistence().loadAddress() {
-									let client = try await Client.build(
-										publicIdentity: PublicIdentity(kind: IdentityKind.ethereum, identifier: address),
-										options: .init(
-											api: .init(backendUrl: exampleBackendUrl),
-											codecs: [GroupUpdatedCodec()],
-											dbEncryptionKey: keysData
-										)
-									)
-									await MainActor.run {
-										status = .connected(client)
-									}
-								}
-							}
-						} catch {
-							print("Error loading keys \(error)")
-						}
+							try await client.end()
+							self.client = nil
+						} catch { self.error = error.localizedDescription }
 					}
 				}
-			case .connecting:
-				ProgressView("Connecting…")
-			case let .connected(client):
-				LoggedInView(client: client)
-			case let .error(error):
-				Text("Error: \(error)").foregroundColor(.red)
+			} else {
+				Button("Generate wallet") { connect(reopen: false) }
+				Button("Load saved keys") { connect(reopen: true) }
 			}
-		}
-		.sheet(isPresented: $isShowingQRCode) {
-			if let qrCodeImage {
-				QRCodeSheetView(image: qrCodeImage)
+			if isConnecting {
+				ProgressView("Connecting")
 			}
-		}
+			if let error {
+				Text(error).foregroundStyle(.red)
+			}
+		}.disabled(isConnecting)
 	}
 
-	func generateWallet() {
+	private func connect(reopen: Bool) {
 		Task {
+			isConnecting = true
+			defer { isConnecting = false }
 			do {
-				let wallet = try PrivateKey.generate()
-				let key = try secureRandomBytes(count: 32)
-				Persistence().saveKeys(key)
-				Persistence().saveAddress(wallet.identity.identifier)
-				let client = try await Client.create(
-					account: wallet,
-					options: .init(
-						api: .init(backendUrl: exampleBackendUrl),
-						codecs: [GroupUpdatedCodec()],
-						dbEncryptionKey: key
+				let persistence = Persistence()
+				if reopen {
+					guard let account = try persistence.loadAccount() else {
+						error = "No saved keys"
+						return
+					}
+					client = try await SDKClient.build(
+						identity: PublicIdentity(identifier: account.address, kind: .ethereum),
+						options: exampleOptions(key: account.databaseKey),
 					)
-				)
-
-				await MainActor.run {
-					status = .connected(client)
+				} else {
+					let signer = await generateLocalSigner()
+					let key = try secureRandomBytes(count: 32)
+					let identity = try await signer.identity()
+					try persistence.saveAccount(Persistence.Account(databaseKey: key, address: identity.identifier))
+					let created = try await SDKClient.create(signer: signer, options: exampleOptions(key: key))
+					client = created
 				}
-			} catch {
-				await MainActor.run {
-					print("ERROR: \(error.localizedDescription)")
-					status = .error("Error generating wallet: \(error)")
-				}
-			}
+				error = nil
+			} catch { self.error = error.localizedDescription }
 		}
-	}
-}
-
-struct ContentView_Previews: PreviewProvider {
-	static var previews: some View {
-		ContentView()
 	}
 }

@@ -12,7 +12,7 @@ root := justfile_directory()
 # by dev/worktree-env, so the suites reach this worktree's own backend.
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-# Verify iOS SDK builds (bindings + Swift)
+# Build the generated SDK and Apple package
 
 # Package.swift is at repo root, so cd there for swift commands
 check:
@@ -42,7 +42,7 @@ build:
 
 # Run the suite on an installed iOS simulator.
 test-simulator destination="platform=iOS Simulator,name=iPhone 17":
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" env -u LD xcodebuild test -scheme XMTPiOS -destination '{{ destination }}'
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" TEST_RUNNER_XMTP_IOS_PERFORMANCE="${XMTP_IOS_PERFORMANCE:-0}" env -u LD xcodebuild test -scheme XmtpSdk -destination '{{ destination }}'
 
 # Generate a static DocC site. The output path is relative to the repository root.
 docs output="apps/docs/generated/reference/swift":

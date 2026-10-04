@@ -2,6 +2,7 @@ import uniffi.xmtp_sdk.*
 
 // verifies: CTYPE-007, CTYPE-026
 fun checkCodecRecordValues() {
+    checkEncryptedRemoteAttachmentProjection()
     val reference: MessageId = "d".repeat(64)
     val inboxes = listOf<InboxId?>(null, "b".repeat(64))
     val reaction = Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE)

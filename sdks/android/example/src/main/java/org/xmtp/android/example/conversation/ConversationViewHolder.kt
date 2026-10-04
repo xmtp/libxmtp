@@ -5,9 +5,9 @@ import org.xmtp.android.example.ClientManager
 import org.xmtp.android.example.MainViewModel
 import org.xmtp.android.example.R
 import org.xmtp.android.example.databinding.ListItemConversationBinding
+import org.xmtp.android.example.extension.displayBody
 import org.xmtp.android.example.extension.truncatedAddress
-import org.xmtp.android.library.Conversation
-import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
+import uniffi.xmtp_sdk.*
 
 class ConversationViewHolder(
     private val binding: ListItemConversationBinding,
@@ -25,20 +25,10 @@ class ConversationViewHolder(
 
     fun bind(item: MainViewModel.MainListItem.ConversationItem) {
         conversation = item.conversation
-        binding.peerAddress.text = item.conversation.id.truncatedAddress()
+        binding.peerAddress.text = item.conversation.id().truncatedAddress()
 
-        val messageBody: String =
-            if (item.mostRecentMessage?.content<Any>() is String) {
-                item.mostRecentMessage.body.orEmpty()
-            } else if (item.mostRecentMessage?.content<Any>() is GroupUpdated) {
-                val changes = item.mostRecentMessage.content() as? GroupUpdated
-                "Membership Changed ${
-                    changes?.addedInboxesList?.mapNotNull { it.inboxId }
-                }"
-            } else {
-                ""
-            }
-        val isMe = item.mostRecentMessage?.senderInboxId == ClientManager.client.inboxId
+        val messageBody = item.mostRecentMessage?.displayBody().orEmpty()
+        val isMe = item.mostRecentMessage?.senderInboxId == ClientManager.client.inboxId()
         if (messageBody.isNotBlank()) {
             binding.messageBody.text =
                 if (isMe) {

@@ -1,736 +1,438 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
+import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.xmtp.android.library.libxmtp.ConversationDebugInfo
-import org.xmtp.android.library.libxmtp.DecodedMessage
-import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
-import org.xmtp.android.library.messages.PrivateKeyBuilder
-import uniffi.xmtpv3.FfiConversationMessageKind
-import java.security.SecureRandom
+import uniffi.xmtp_sdk.*
 
-@RunWith(AndroidJUnit4::class)
 class ConversationsTest : BaseInstrumentedTest() {
     private lateinit var fixtures: TestFixtures
-    private lateinit var alixClient: Client
-    private lateinit var boClient: Client
-    private lateinit var caroClient: Client
+    private val alix get() = fixtures.alixClient
+    private val bo get() = fixtures.boClient
+    private val caro get() = fixtures.caroClient
 
-    @Before
-    override fun setUp() {
+    @Before override fun setUp() {
         super.setUp()
         fixtures = runBlocking { createFixtures() }
-        alixClient = fixtures.alixClient
-        boClient = fixtures.boClient
-        caroClient = fixtures.caroClient
     }
 
-    @Test
-    fun testCanCreateOptimisticGroup() =
+    private fun id(value: Conversation): String =
+        when (value) {
+            is Conversation.Group -> value.group.id()
+            is Conversation.Dm -> value.dm.id()
+        }
+
+    private fun topic(value: Conversation): String =
+        when (value) {
+            is Conversation.Group -> value.group.topic()
+            is Conversation.Dm -> value.dm.topic()
+        }
+
+    private suspend fun state(value: Conversation): ConversationState =
+        when (value) {
+            is Conversation.Group -> value.group.state().common
+            is Conversation.Dm -> value.dm.state()
+        }
+
+    private suspend fun findGroup(
+        client: SDKClient,
+        id: String,
+    ): Group = client.conversations().listGroups(null).single { it.id() == id }
+
+    @Test fun testCanCreateOptimisticGroup() =
         runBlocking {
-            val optimisticGroup = boClient.conversations.newGroupOptimistic(groupName = "Testing")
-            assertEquals(optimisticGroup.name(), "Testing")
-            runBlocking { optimisticGroup.prepareMessage("testing") }
-            assertEquals(optimisticGroup.messages().size, 1)
-
-            optimisticGroup.addMembers(listOf(alixClient.inboxId))
-            optimisticGroup.sync()
-            optimisticGroup.publishMessages()
-            assertEquals(optimisticGroup.messages().size, 2)
-            assertEquals(optimisticGroup.members().size, 2)
-            assertEquals(optimisticGroup.name(), "Testing")
+            val group = bo.conversations().createGroupOptimistic(CreateGroupOptions(name = "Testing"))
+            assertEquals("Testing", group.state().name)
+            group.prepareMessage(TextCodec().encode("testing"))
+            assertEquals(1, group.messages().size)
+            group.addMembers(listOf(alix.inboxId()))
+            group.sync()
+            group.publishMessages()
+            assertEquals(2, group.messages().size)
+            assertEquals(2, group.members().size)
+            assertEquals("Testing", group.state().name)
         }
 
-    @Test
-    fun testsCanFindConversationByTopic() {
-        val group = runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        val dm = runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-
-        val sameDm = runBlocking { boClient.conversations.findConversationByTopic(dm.topic) }
-        val sameGroup = runBlocking { boClient.conversations.findConversationByTopic(group.topic) }
-        assertEquals(group.id, sameGroup?.id)
-        assertEquals(dm.id, sameDm?.id)
-    }
-
-    @Test
-    fun testsCanListConversations() {
-        runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        assertEquals(runBlocking { boClient.conversations.list().size }, 2)
-        assertEquals(runBlocking { boClient.conversations.listDms().size }, 1)
-        assertEquals(runBlocking { boClient.conversations.listGroups().size }, 1)
-
-        runBlocking { caroClient.conversations.sync() }
-        assertEquals(runBlocking { caroClient.conversations.list().size }, 2)
-        assertEquals(runBlocking { caroClient.conversations.listGroups().size }, 1)
-    }
-
-    @Test
-    fun testsCanListConversationsAndCheckCommitLogForkStatus() {
-        runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        assertEquals(runBlocking { boClient.conversations.list().size }, 2)
-        assertEquals(runBlocking { boClient.conversations.listDms().size }, 1)
-        assertEquals(runBlocking { boClient.conversations.listGroups().size }, 1)
-
-        runBlocking { caroClient.conversations.sync() }
-        val caroConversations = runBlocking { caroClient.conversations.list() }
-        assertEquals(caroConversations.size, 2)
-        var numForkStatusUnknown = 0
-        var numForkStatusForked = 0
-        var numForkStatusNotForked = 0
-        for (conversation in caroConversations) {
-            when (conversation.commitLogForkStatus()) {
-                ConversationDebugInfo.CommitLogForkStatus.FORKED -> numForkStatusForked += 1
-                ConversationDebugInfo.CommitLogForkStatus.NOT_FORKED -> numForkStatusNotForked += 1
-                ConversationDebugInfo.CommitLogForkStatus.UNKNOWN -> numForkStatusUnknown += 1
-            }
+    @Test fun testsCanFindConversationByTopic() =
+        runBlocking {
+            val group = bo.conversations().createGroup(listOf(caro.inboxId()))
+            val dm = bo.conversations().createDm(caro.inboxId())
+            val listed = bo.conversations().list()
+            assertEquals(group.id(), id(listed.single { topic(it) == group.topic() }))
+            assertEquals(dm.id(), id(listed.single { topic(it) == dm.topic() }))
         }
-        // Right now worker runs every 5 minutes so we'd need to wait that long to verify not forked
-        assertEquals(numForkStatusForked, 0)
-        assertEquals(numForkStatusNotForked, 0)
-        assertEquals(numForkStatusUnknown, 2)
-    }
 
-    @Test
-    fun testsCanListConversationsFiltered() {
-        runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        val group = runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        assertEquals(runBlocking { boClient.conversations.list().size }, 2)
-        assertEquals(
-            runBlocking {
-                boClient.conversations.list(consentStates = listOf(ConsentState.ALLOWED)).size
-            },
-            2,
-        )
-        runBlocking { group.updateConsentState(ConsentState.DENIED) }
-        assertEquals(
-            runBlocking {
-                boClient.conversations.list(consentStates = listOf(ConsentState.ALLOWED)).size
-            },
-            1,
-        )
-        assertEquals(
-            runBlocking {
-                boClient.conversations.list(consentStates = listOf(ConsentState.DENIED)).size
-            },
-            1,
-        )
-        assertEquals(
-            runBlocking {
-                boClient.conversations
+    @Test fun testsCanListConversations() =
+        runBlocking {
+            bo.conversations().createDm(caro.inboxId())
+            bo.conversations().createGroup(listOf(caro.inboxId()))
+            assertEquals(2, bo.conversations().list().size)
+            assertEquals(1, bo.conversations().listDms(null).size)
+            assertEquals(1, bo.conversations().listGroups(null).size)
+            caro.conversations().sync()
+            assertEquals(2, caro.conversations().list().size)
+            assertEquals(1, caro.conversations().listGroups(null).size)
+        }
+
+    @Test fun testsCanListConversationsAndCheckCommitLogForkStatus() =
+        runBlocking {
+            bo.conversations().createDm(caro.inboxId())
+            bo.conversations().createGroup(listOf(caro.inboxId()))
+            assertEquals(2, bo.conversations().list().size)
+            assertEquals(1, bo.conversations().listDms(null).size)
+            assertEquals(1, bo.conversations().listGroups(null).size)
+            caro.conversations().sync()
+            val listed = caro.conversations().list()
+            assertEquals(2, listed.size)
+            assertEquals(
+                listOf(CommitLogForkStatus.UNKNOWN, CommitLogForkStatus.UNKNOWN),
+                listed.map { state(it).commitLogForkStatus },
+            )
+        }
+
+    @Test fun testsCanListConversationsFiltered() =
+        runBlocking {
+            bo.conversations().createDm(caro.inboxId())
+            val group = bo.conversations().createGroup(listOf(caro.inboxId()))
+            val allowed = ListConversationsOptions(consentStates = listOf(ConsentState.ALLOWED))
+            val denied = ListConversationsOptions(consentStates = listOf(ConsentState.DENIED))
+            assertEquals(2, bo.conversations().list().size)
+            assertEquals(2, bo.conversations().list(allowed).size)
+            group.updateConsentState(ConsentState.DENIED)
+            assertEquals(1, bo.conversations().list(allowed).size)
+            assertEquals(1, bo.conversations().list(denied).size)
+            assertEquals(
+                2,
+                bo
+                    .conversations()
                     .list(
-                        consentStates =
-                            listOf(ConsentState.DENIED, ConsentState.ALLOWED),
-                    ).size
-            },
-            2,
-        )
-        assertEquals(runBlocking { boClient.conversations.list().size }, 1)
-    }
-
-    @Test
-    fun testCanListConversationsOrder() {
-        val dm = runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        val group1 = runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        val group2 = runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        val dmMessage = runBlocking { dm.send("Howdy") }
-        val groupMessage = runBlocking { group2.send("Howdy") }
-        runBlocking { boClient.conversations.syncAllConversations() }
-        val conversations = runBlocking { boClient.conversations.list() }
-        assertEquals(conversations.size, 3)
-        assertEquals(conversations.map { it.id }, listOf(group2.id, dm.id, group1.id))
-        runBlocking {
-            assertEquals(group2.lastMessage()!!.id, groupMessage)
-            assertEquals(dm.lastMessage()!!.id, dmMessage)
+                        ListConversationsOptions(consentStates = listOf(ConsentState.ALLOWED, ConsentState.DENIED)),
+                    ).size,
+            )
+            assertEquals(1, bo.conversations().list().size)
         }
-    }
 
-    @Test
-    fun testsCanSyncAllConversationsFiltered() {
-        runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        val group = runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        val syncSummary = runBlocking { boClient.conversations.syncAllConversations() }
-        assert(syncSummary.numEligible >= 2U)
-        var syncSummaryAllowed =
-            runBlocking {
-                boClient.conversations.syncAllConversations(
-                    consentStates = listOf(ConsentState.ALLOWED),
-                )
-            }
-
-        assert(syncSummaryAllowed.numEligible >= 2U)
-
-        var syncSummaryDenied =
-            runBlocking {
-                boClient.conversations.syncAllConversations(
-                    consentStates = listOf(ConsentState.DENIED),
-                )
-            }
-        assert(syncSummaryDenied.numEligible <= 1U)
-        runBlocking { group.updateConsentState(ConsentState.DENIED) }
-
-        syncSummaryAllowed =
-            runBlocking {
-                boClient.conversations.syncAllConversations(
-                    consentStates = listOf(ConsentState.ALLOWED),
-                )
-            }
-        assert(syncSummaryAllowed.numEligible <= 2U)
-        syncSummaryDenied =
-            runBlocking {
-                boClient.conversations.syncAllConversations(
-                    consentStates = listOf(ConsentState.DENIED),
-                )
-            }
-        assert(syncSummaryDenied.numEligible <= 2U)
-
-        var syncSummaryAllowedDenied =
-            runBlocking {
-                boClient.conversations.syncAllConversations(
-                    consentStates = listOf(ConsentState.ALLOWED, ConsentState.DENIED),
-                )
-            }
-        assert(syncSummaryAllowedDenied.numEligible >= 2U)
-//        assert(runBlocking { boClient.conversations.syncAllConversations() }.toInt() >= 1)
-    }
-
-    @Test
-    fun testCanStreamAllMessages() {
-        val group = runBlocking { caroClient.conversations.newGroup(listOf(boClient.inboxId)) }
-        val conversation = runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        // Sync to drain any membership change messages before starting the stream
-        runBlocking { boClient.conversations.syncAllConversations() }
-
-        val allMessages = mutableListOf<DecodedMessage>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    boClient.conversations.streamAllMessages().collect { message ->
-                        allMessages.add(message)
-                    }
-                } catch (e: Exception) {
-                }
-            }
-        Thread.sleep(1000)
+    @Test fun testCanListConversationsOrder() =
         runBlocking {
-            group.send("hi")
-            conversation.send("hi")
+            val dm = bo.conversations().createDm(caro.inboxId())
+            val group1 = bo.conversations().createGroup(listOf(caro.inboxId()))
+            val group2 = bo.conversations().createGroup(listOf(caro.inboxId()))
+            val dmMessage = dm.sendText("Howdy")
+            val groupMessage = group2.sendText("Howdy")
+            bo.conversations().syncAll(null)
+            assertEquals(listOf(group2.id(), dm.id(), group1.id()), bo.conversations().list().map(::id))
+            assertEquals(groupMessage, group2.lastMessage()?.id)
+            assertEquals(dmMessage, dm.lastMessage()?.id)
         }
-        Thread.sleep(1000)
-        val applicationMessages =
-            allMessages.filter {
-                it.kind == FfiConversationMessageKind.APPLICATION
-            }
-        assertEquals(2, applicationMessages.size)
-        job.cancel()
-    }
 
-    @Test
-    fun testCanStreamAllMessagesFilterConsent() =
+    @Test fun testsCanSyncAllConversationsFiltered() =
         runBlocking {
-            val group = boClient.conversations.newGroup(listOf(caroClient.inboxId))
-            val conversation = boClient.conversations.findOrCreateDm(caroClient.inboxId)
-            val blockedGroup = boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            val blockedConversation = boClient.conversations.findOrCreateDm(alixClient.inboxId)
-            // Sending sets consent to ALLOWED. Deny these conversations after the retained sends.
-            val blockedIds = setOf(blockedGroup.send("blocked group"), blockedConversation.send("blocked dm"))
-            blockedGroup.updateConsentState(ConsentState.DENIED)
-            blockedConversation.updateConsentState(ConsentState.DENIED)
-            boClient.conversations.sync()
-            alixClient.conversations.syncAllConversations()
-            val peerBlockedGroup = requireNotNull(alixClient.conversations.findGroup(blockedGroup.id))
-            val peerBlockedDm = requireNotNull(alixClient.conversations.findDmByInboxId(boClient.inboxId))
+            bo.conversations().createDm(caro.inboxId())
+            val group = bo.conversations().createGroup(listOf(caro.inboxId()))
+            assertTrue(bo.conversations().syncAll(null).eligible >= 2uL)
+            assertTrue(bo.conversations().syncAll(listOf(ConsentState.ALLOWED)).eligible >= 2uL)
+            assertTrue(bo.conversations().syncAll(listOf(ConsentState.DENIED)).eligible <= 1uL)
+            group.updateConsentState(ConsentState.DENIED)
+            assertTrue(bo.conversations().syncAll(listOf(ConsentState.ALLOWED)).eligible <= 2uL)
+            assertTrue(bo.conversations().syncAll(listOf(ConsentState.DENIED)).eligible <= 2uL)
+            assertTrue(bo.conversations().syncAll(listOf(ConsentState.ALLOWED, ConsentState.DENIED)).eligible >= 2uL)
+        }
 
+    @Test fun testCanStreamAllMessages() =
+        runBlocking {
+            val group = caro.conversations().createGroup(listOf(bo.inboxId()))
+            val dm = bo.conversations().createDm(caro.inboxId())
+            bo.conversations().syncAll(null)
             val messages = StreamTestMessages()
-            val job =
-                launch(Dispatchers.IO) {
-                    boClient.conversations
-                        .streamAllMessages(consentStates = listOf(ConsentState.ALLOWED))
-                        .collect { messages.add(it) }
-                }
+            val job = launch(Dispatchers.IO) { bo.messages().collect { messages.add(it) } }
             try {
-                val retained =
-                    boClient.conversations
-                        .messageHistorySnapshot(
-                            10U,
-                            consentStates = listOf(ConsentState.ALLOWED),
-                        ).messages
+                messages.awaitHistory(bo.conversations().messageHistorySnapshot(10u).messages)
+                val expected = listOf(group.sendText("hi") to "hi", dm.sendText("hi") to "hi")
+                messages.awaitApplications(expected)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
+            }
+        }
+
+    @Test fun testCanStreamAllMessagesFilterConsent() =
+        runBlocking {
+            val group = bo.conversations().createGroup(listOf(caro.inboxId()))
+            val dm = bo.conversations().createDm(caro.inboxId())
+            val blockedGroup = bo.conversations().createGroup(listOf(alix.inboxId()))
+            val blockedDm = bo.conversations().createDm(alix.inboxId())
+            val blockedIds = setOf(blockedGroup.sendText("blocked group"), blockedDm.sendText("blocked dm"))
+            blockedGroup.updateConsentState(ConsentState.DENIED)
+            blockedDm.updateConsentState(ConsentState.DENIED)
+            bo.conversations().sync()
+            alix.conversations().syncAll(null)
+            val peerGroup = findGroup(alix, blockedGroup.id())
+            val peerDm = checkNotNull(alix.conversations().getDmByInboxId(bo.inboxId()))
+            val options = MessageReaderOptions(consentStates = listOf(ConsentState.ALLOWED))
+            val messages = StreamTestMessages()
+            val job = launch(Dispatchers.IO) { bo.messages(options).collect { messages.add(it) } }
+            try {
+                val retained = bo.conversations().messageHistorySnapshot(10u, options).messages
                 assertEquals(2, retained.size)
-                assertTrue(retained.all { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE })
+                assertTrue(retained.all { it.kind == MessageKind.MEMBERSHIP_CHANGE })
                 messages.awaitHistory(retained)
-
-                val expected = mutableListOf(group.send("group hi") to "group hi")
+                val expected = mutableListOf(group.sendText("group hi") to "group hi")
                 messages.awaitApplications(expected)
-                expected.add(conversation.send("dm hi") to "dm hi")
+                expected.add(dm.sendText("dm hi") to "dm hi")
                 messages.awaitApplications(expected)
-                val blockedLiveIds =
-                    setOf(peerBlockedGroup.send("blocked live group"), peerBlockedDm.send("blocked live dm"))
+                val blockedLive = setOf(peerGroup.sendText("blocked live group"), peerDm.sendText("blocked live dm"))
                 blockedGroup.sync()
-                blockedConversation.sync()
-                val storedBlockedIds =
-                    (blockedGroup.messages() + blockedConversation.messages()).map { it.id }.toSet()
-                assertTrue(storedBlockedIds.containsAll(blockedIds + blockedLiveIds))
-
-                // Keep a full exclusion window after allowed delivery completes.
+                blockedDm.sync()
+                assertTrue(
+                    (blockedGroup.messages() + blockedDm.messages())
+                        .map { it.id }
+                        .toSet()
+                        .containsAll(blockedIds + blockedLive),
+                )
                 delay(1000)
-                val history =
-                    boClient.conversations
-                        .messageHistorySnapshot(
-                            10U,
-                            consentStates = listOf(ConsentState.ALLOWED),
-                        ).messages
+                val history = bo.conversations().messageHistorySnapshot(10u, options).messages
                 assertEquals(4, history.size)
-                assertEquals(setOf(group.id, conversation.id), history.map { it.conversationId }.toSet())
-                assertTrue(messages.snapshot().none { it.id in blockedIds || it.id in blockedLiveIds })
-                assertEquals(ConsentState.DENIED, blockedGroup.consentState())
-                assertEquals(ConsentState.DENIED, blockedConversation.consentState())
+                assertEquals(setOf(group.id(), dm.id()), history.map { it.conversationId }.toSet())
+                assertTrue(messages.snapshot().none { it.id in blockedIds || it.id in blockedLive })
+                assertEquals(ConsentState.DENIED, blockedGroup.state().common.consentState)
+                assertEquals(ConsentState.DENIED, blockedDm.state().consentState)
                 messages.awaitHistory(history)
             } finally {
                 withContext(NonCancellable) { job.cancelAndJoin() }
             }
         }
 
-    @Test
-    fun testCanStreamGroupsAndConversations() {
-        val allMessages = mutableListOf<String>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    boClient.conversations.stream().collect { message ->
-                        allMessages.add(message.topic)
-                    }
-                } catch (e: Exception) {
-                }
-            }
-        Thread.sleep(1000)
-
+    @Test fun testCanStreamGroupsAndConversations() =
         runBlocking {
-            caroClient.conversations.newGroup(listOf(boClient.inboxId))
-            Thread.sleep(1000)
-            boClient.conversations.findOrCreateDm(caroClient.inboxId)
+            val received = mutableListOf<Conversation>()
+            val job =
+                launch(Dispatchers.IO) {
+                    bo.conversationStream().collect { synchronized(received) { received.add(it) } }
+                }
+            try {
+                val group = caro.conversations().createGroup(listOf(bo.inboxId()))
+                val dm = bo.conversations().createDm(caro.inboxId())
+                withTimeout(10_000) { while (synchronized(received) { received.size } < 2) delay(10) }
+                val snapshot = synchronized(received) { received.toList() }
+                assertEquals(2, snapshot.size)
+                assertEquals(setOf(group.id(), dm.id()), snapshot.map(::id).toSet())
+                assertEquals(setOf(group.topic(), dm.topic()), snapshot.map(::topic).toSet())
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
+            }
         }
 
-        Thread.sleep(2000)
-        assertEquals(2, allMessages.size)
-        job.cancel()
-    }
+    @Test fun testReturnsAllHMACKeys() =
+        runBlocking {
+            val dms = List(5) { alix.conversations().createDm(createClient(createWallet()).inboxId()) }
+            val keys = alix.conversations().hmacKeys()
+            assertTrue(keys.keys.containsAll(dms.map { it.topic() }))
+        }
 
-    @Test
-    fun testReturnsAllHMACKeys() {
-        val conversations = mutableListOf<Conversation>()
-        repeat(5) {
+    @Test fun testHmacKeysIncludeDuplicateDms() =
+        runBlocking {
             val account = createWallet()
-            val client = runBlocking { createClient(account) }
-            runBlocking {
-                conversations.add(alixClient.conversations.newConversation(client.inboxId))
-            }
-        }
-        val hmacKeys = runBlocking { alixClient.conversations.getHmacKeys() }
-
-        val topics = hmacKeys.hmacKeysMap.keys
-        conversations.forEach { convo -> assertTrue(topics.contains(convo.topic)) }
-    }
-
-    @Test
-    fun testHmacKeysIncludeDuplicateDms() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val eriWallet = PrivateKeyBuilder()
-
-        val eriClient =
-            runBlocking {
-                Client.create(
-                    account = eriWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-        val dm1 = runBlocking { eriClient.conversations.newConversation(boClient.inboxId) }
-        runBlocking { boClient.conversations.newGroup(listOf(eriClient.inboxId)) }
-        val eriClient2 =
-            runBlocking {
-                Client.create(
-                    account = eriWallet,
-                    options =
-                        ClientOptions(
-                            localApi(),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                            dbDirectory = context.filesDir.absolutePath.toString(),
-                        ),
-                )
-            }
-        val dm2 = runBlocking { eriClient2.conversations.newConversation(boClient.inboxId) }
-
-        runBlocking {
-            boClient.conversations.syncAllConversations()
-            eriClient2.conversations.syncAllConversations()
-            eriClient.conversations.syncAllConversations()
+            val first = createClient(account)
+            val dm1 = first.conversations().createDm(bo.inboxId())
+            bo.conversations().createGroup(listOf(first.inboxId()))
+            val second = createClient(account)
+            second.conversations().createDm(bo.inboxId())
+            bo.conversations().syncAll(null)
+            second.conversations().syncAll(null)
+            first.conversations().syncAll(null)
+            val listed = first.conversations().list()
+            val allKeys = first.conversations().hmacKeys()
+            val dmKeys = dm1.hmacKeys()
+            assertEquals(3, allKeys.size)
+            assertEquals(2, listed.size)
+            assertEquals(2, dmKeys.size)
+            assertTrue(allKeys.values.flatten().containsAll(dmKeys))
         }
 
-        val conversations = runBlocking { eriClient.conversations.list() }
-        val allHmacKeys = runBlocking { eriClient.conversations.getHmacKeys() }
-        val dmHmacKeys = runBlocking { dm1.getHmacKeys() }
-        assertEquals(allHmacKeys.hmacKeysMap.size, 3)
-        assertEquals(conversations.size, 2)
-        assertEquals(dmHmacKeys.hmacKeysMap.size, 2)
-        assertTrue(allHmacKeys.hmacKeysMap.keys.containsAll(dmHmacKeys.hmacKeysMap.keys))
-    }
-
-    @Test
-    fun testPaginationOfConversationsList() =
+    @Test fun testPaginationOfConversationsList() =
         runBlocking {
-            // Create 15 groups
-            val groups = mutableListOf<Group>()
-            for (i in 0..14) {
-                val group =
-                    boClient.conversations.newGroup(
-                        listOf(caroClient.inboxId),
-                        groupName = "Test Group $i",
+            val groups =
+                List(15) { index ->
+                    bo.conversations().createGroup(
+                        listOf(caro.inboxId()),
+                        CreateGroupOptions(name = "Test Group $index"),
                     )
-                groups.add(group)
-            }
-
-            // Send a message to half the groups to ensure they're ordered by last message
-            // and not by created_at
-            groups.forEachIndexed { index, group ->
-                if (index % 2 == 0) {
-                    group.send("Sending a message to ensure filtering by last message time works")
                 }
-            }
-
-            // Track all conversations retrieved through pagination
-            val allConversations = mutableSetOf<String>()
-            var pageCount = 0
-            // Get the first page
-            var page =
-                boClient.conversations.listGroups(
-                    limit = 5,
-                )
-
+            groups.forEachIndexed { index, group -> if (index % 2 == 0) group.sendText("activity") }
+            val ids = mutableSetOf<String>()
+            var pages = 0
+            var page = bo.conversations().listGroups(ListConversationsOptions(limit = 5u))
             while (page.isNotEmpty()) {
-                pageCount++
-                // Add new conversation IDs to our set
-                page.forEach { conversation ->
-                    if (allConversations.contains(conversation.id)) {
-                        throw AssertionError("Duplicate conversation ID found: ${conversation.id}")
-                    }
-                    allConversations.add(conversation.id)
-                }
-
-                // If we got fewer than the limit, we've reached the end
-                if (page.size < 5) {
-                    break
-                }
-
-                // Get the oldest (last) conversation's timestamp for the next page
-                val lastConversation = page.last()
-
-                // Get the next page - subtract 1 nanosecond to avoid including the same conversation
+                pages++
+                page.forEach { assertTrue("duplicate conversation", ids.add(it.id())) }
+                if (page.size < 5) break
                 page =
-                    boClient.conversations.listGroups(
-                        lastActivityBeforeNs = lastConversation.lastActivityNs,
-                        limit = 5,
+                    bo.conversations().listGroups(
+                        ListConversationsOptions(lastActivityBefore = page.last().lastActivityAt(null), limit = 5u),
                     )
-
-                // Safety check to prevent infinite loop
-                if (pageCount > 10) {
-                    throw AssertionError("Too many pages, possible infinite loop")
-                }
+                assertTrue("too many pages", pages <= 10)
             }
-
-            // Validate results
-            assertEquals("Should have retrieved all 15 groups", 15, allConversations.size)
-
-            // Verify all created groups are in the results
-            groups.forEach { group ->
-                assertTrue(
-                    "Group ${group.id} should be in paginated results",
-                    allConversations.contains(group.id),
-                )
-            }
+            assertEquals(15, ids.size)
+            assertEquals(groups.map { it.id() }.toSet(), ids)
         }
 
-    @Test
-    fun testStreamsAndMessages() =
+    @Test fun testStreamsAndMessages() =
         runBlocking {
             val messages = StreamTestMessages()
-            val expectedApplications = mutableListOf<Triple<String, String, String>>()
+            val expected = mutableListOf<Triple<String, String, String>>()
             val expectedGroups = mutableSetOf<String>()
 
-            suspend fun sendExpected(
+            suspend fun send(
                 group: Group,
                 body: String,
             ) {
-                val id = group.send(body)
-                synchronized(expectedApplications) {
-                    expectedApplications.add(Triple(id, group.id, body))
-                }
+                val messageId = group.sendText(body)
+                synchronized(expected) { expected.add(Triple(messageId, group.id(), body)) }
             }
-            val davonClient = createClient(createWallet())
-            val alixGroup =
-                alixClient.conversations.newGroup(listOf(caroClient.inboxId, boClient.inboxId))
-            val caroGroup2 =
-                caroClient.conversations.newGroup(listOf(alixClient.inboxId, boClient.inboxId))
-
-            alixClient.conversations.syncAllConversations()
-            caroClient.conversations.syncAllConversations()
-            boClient.conversations.syncAllConversations()
-
-            val boGroup = boClient.conversations.findGroup(alixGroup.id)!!
-            val caroGroup = caroClient.conversations.findGroup(alixGroup.id)!!
-            val boGroup2 = boClient.conversations.findGroup(caroGroup2.id)!!
-            val alixGroup2 = alixClient.conversations.findGroup(caroGroup2.id)!!
-            expectedGroups.addAll(listOf(alixGroup.id, caroGroup2.id))
-
-            val caroJob =
-                launch(Dispatchers.IO) {
-                    caroClient.conversations.streamAllMessages().collect { messages.add(it) }
-                }
-
+            val davon = createClient(createWallet())
+            val alixGroup = alix.conversations().createGroup(listOf(caro.inboxId(), bo.inboxId()))
+            val caroGroup2 = caro.conversations().createGroup(listOf(alix.inboxId(), bo.inboxId()))
+            listOf(alix, bo, caro).forEach { it.conversations().syncAll(null) }
+            val boGroup = findGroup(bo, alixGroup.id())
+            val caroGroup = findGroup(caro, alixGroup.id())
+            val boGroup2 = findGroup(bo, caroGroup2.id())
+            val alixGroup2 = findGroup(alix, caroGroup2.id())
+            expectedGroups.addAll(listOf(alixGroup.id(), caroGroup2.id()))
+            val reader = launch(Dispatchers.IO) { caro.messages().collect { messages.add(it) } }
             try {
-                val retained = caroClient.conversations.messageHistorySnapshot(200U).messages
+                val retained = caro.conversations().messageHistorySnapshot(200u).messages
                 assertEquals(2, retained.size)
-                assertTrue(retained.all { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE })
+                assertTrue(retained.all { it.kind == MessageKind.MEMBERSHIP_CHANGE })
                 messages.awaitHistory(retained)
-
-                // Simulate message sending in multiple threads
-                val alixJob =
-                    launch(Dispatchers.IO) {
-                        println("Alix is sending messages...")
-                        repeat(20) {
-                            val message = "Alix Message $it"
-                            sendExpected(alixGroup, message)
-                            sendExpected(alixGroup2, message)
-                            println("Alix sent: $message")
-                            // 50ms yield between sends so a single sender's MLS
-                            // ratchet doesn't outrun OpenMLS's 5-generation
-                            // out-of-order tolerance under concurrent load (#3512).
-                            delay(50)
-                        }
-                    }
-
-                val boMessageJob =
-                    launch(Dispatchers.IO) {
-                        println("Bo is sending messages..")
-                        repeat(10) {
-                            val message = "Bo Message $it"
-                            sendExpected(boGroup, message)
-                            sendExpected(boGroup2, message)
-                            println("Bo sent: $message")
-                            delay(50) // #3512
-                        }
-                    }
-
-                val davonSpamJob =
-                    launch(Dispatchers.IO) {
-                        println("Davon is sending spam groups..")
-                        repeat(10) {
-                            val spamMessage = "Davon Spam Message $it"
-                            val group = davonClient.conversations.newGroup(listOf(caroClient.inboxId))
-                            synchronized(expectedGroups) { expectedGroups.add(group.id) }
-                            sendExpected(group, spamMessage)
-                            println("Davon spam: $spamMessage")
-                            delay(50) // #3512
-                        }
-                    }
-
-                val caroMessagingJob =
-                    launch(Dispatchers.IO) {
-                        println("Caro is sending messages...")
-                        repeat(10) {
-                            val message = "Caro Message $it"
-                            sendExpected(caroGroup, message)
-                            sendExpected(caroGroup2, message)
-                            println("Caro sent: $message")
-                            delay(50) // #3512
-                        }
-                    }
-
-                joinAll(alixJob, caroMessagingJob, boMessageJob, davonSpamJob)
-
+                val senders =
+                    listOf(
+                        launch(Dispatchers.IO) {
+                            repeat(20) {
+                                send(alixGroup, "Alix Message $it")
+                                send(alixGroup2, "Alix Message $it")
+                                delay(50)
+                            }
+                        },
+                        launch(Dispatchers.IO) {
+                            repeat(10) {
+                                send(boGroup, "Bo Message $it")
+                                send(boGroup2, "Bo Message $it")
+                                delay(50)
+                            }
+                        },
+                        launch(Dispatchers.IO) {
+                            repeat(10) {
+                                val spam = davon.conversations().createGroup(listOf(caro.inboxId()))
+                                synchronized(expectedGroups) { expectedGroups.add(spam.id()) }
+                                send(spam, "Davon Spam Message $it")
+                                delay(50)
+                            }
+                        },
+                        launch(Dispatchers.IO) {
+                            repeat(10) {
+                                send(caroGroup, "Caro Message $it")
+                                send(caroGroup2, "Caro Message $it")
+                                delay(50)
+                            }
+                        },
+                    )
+                senders.joinAll()
                 withTimeout(60_000) {
-                    while (messages.snapshot().count { it.kind == FfiConversationMessageKind.APPLICATION } < 90) {
+                    while (messages.snapshot().count { it.kind == MessageKind.APPLICATION } <
+                        90
+                    ) {
                         delay(10)
                     }
                 }
-
-                val applications = messages.snapshot().filter { it.kind == FfiConversationMessageKind.APPLICATION }
-                assertEquals(90, expectedApplications.size)
+                val applications = messages.snapshot().filter { it.kind == MessageKind.APPLICATION }
+                assertEquals(90, expected.size)
                 assertEquals(
-                    expectedApplications.associate { it.first to (it.second to it.third) },
-                    applications.associate { it.id to (it.conversationId to it.body) },
+                    expected.associate { it.first to (it.second to it.third) },
+                    applications.associate { it.id to (it.conversationId to messageText(it)) },
                 )
-                // Each sender keeps its order within each group. Different senders can interleave.
-                expectedApplications
-                    .groupBy { it.second to it.third.substringBefore(" Message") }
-                    .forEach { (source, sent) ->
-                        assertEquals(
-                            sent.map { it.first },
-                            applications
-                                .filter {
-                                    it.conversationId == source.first &&
-                                        it.body.substringBefore(" Message") == source.second
-                                }.map { it.id },
-                        )
-                    }
-                val history = caroClient.conversations.messageHistorySnapshot(200U).messages
+                expected.groupBy { it.second to it.third.substringBefore(" Message") }.forEach { (source, sent) ->
+                    assertEquals(
+                        sent.map { it.first },
+                        applications
+                            .filter {
+                                it.conversationId == source.first &&
+                                    messageText(it).substringBefore(" Message") == source.second
+                            }.map { it.id },
+                    )
+                }
+                val history = caro.conversations().messageHistorySnapshot(200u).messages
                 assertEquals(102, history.size)
-                val memberships = history.filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }
+                val memberships = history.filter { it.kind == MessageKind.MEMBERSHIP_CHANGE }
                 assertEquals(12, memberships.size)
                 assertEquals(expectedGroups, memberships.map { it.conversationId }.toSet())
                 messages.awaitHistory(history)
                 assertEquals(41, caroGroup.messages().size)
-
-                boGroup.sync()
-                alixGroup.sync()
-                caroGroup.sync()
-
-                assertEquals(41, boGroup.messages().size)
-                assertEquals(41, alixGroup.messages().size)
-                assertEquals(41, caroGroup.messages().size)
-            } finally {
-                withContext(NonCancellable) { caroJob.cancelAndJoin() }
-            }
-        }
-
-    @Test
-    fun testDeleteMessage() =
-        runBlocking {
-            val group = caroClient.conversations.newGroup(listOf(boClient.inboxId))
-
-            val messageID = group.send("Hi there")
-
-            val originalNumberOfMessages = group.messages().size
-
-            caroClient.conversations.deleteMessageLocally(messageID)
-
-            assertEquals(originalNumberOfMessages - 1, group.messages().size)
-        }
-
-    @Test
-    fun testCountMessages() =
-        runBlocking {
-            // Test with Group conversation
-            val group = boClient.conversations.newGroup(listOf(alixClient.inboxId))
-
-            // Send some messages
-            group.send("Message 1")
-            group.send("Message 2")
-            group.send("Message 3")
-
-            // Count all messages
-            val groupCount = group.countMessages()
-            assertEquals(4L, groupCount) // 3 messages + 1 member added message
-
-            // Test with DM conversation
-            val dm = boClient.conversations.findOrCreateDm(caroClient.inboxId)
-
-            // Send some messages
-            dm.send("DM Message 1")
-            val msg2ID = dm.send("DM Message 2")
-            val msg2 = boClient.conversations.findMessage(msg2ID)
-
-            val dmCount = dm.countMessages()
-            assertEquals(2L, dmCount)
-
-            // Test with Conversation wrapper
-            val conversation = Conversation.Dm(dm)
-            val conversationCount = conversation.countMessages()
-            assertEquals(2L, conversationCount)
-
-            val msg3ID = dm.send("DM Message 3")
-            val msg3 = boClient.conversations.findMessage(msg3ID)
-
-            val countBefore = dm.countMessages(beforeNs = msg3!!.sentAtNs)
-            assertEquals(2L, countBefore)
-
-            val countAfter = dm.countMessages(afterNs = msg2!!.sentAtNs)
-            assertEquals(1L, countAfter)
-
-            // Test with delivery status filtering
-            val unpublishedId = dm.prepareMessage("Unpublished message")
-
-            val allCount = dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.ALL)
-            val publishedCount =
-                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.PUBLISHED)
-            val unpublishedCount =
-                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.UNPUBLISHED)
-
-            assertEquals(4L, allCount)
-            assertEquals(3L, publishedCount)
-            assertEquals(1L, unpublishedCount)
-
-            // Publish the message and verify counts
-            dm.publishMessages()
-
-            val publishedCountAfter =
-                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.PUBLISHED)
-            val unpublishedCountAfter =
-                dm.countMessages(deliveryStatus = DecodedMessage.MessageDeliveryStatus.UNPUBLISHED)
-
-            assertEquals(4L, publishedCountAfter)
-            assertEquals(0L, unpublishedCountAfter)
-        }
-
-    @Test
-    fun testCanStreamMessageDeletions() {
-        val deletedMessageIds = mutableListOf<String>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    boClient.conversations.streamMessageDeletions().collect { message ->
-                        deletedMessageIds.add(message.id)
-                    }
-                } catch (e: Exception) {
+                listOf(boGroup, alixGroup, caroGroup).forEach {
+                    it.sync()
+                    assertEquals(41, it.messages().size)
                 }
+            } finally {
+                withContext(NonCancellable) { reader.cancelAndJoin() }
             }
-
-        Thread.sleep(1000)
-
-        runBlocking {
-            val disappearingSettings =
-                DisappearingMessageSettings(
-                    1_000_000_000,
-                    1_000_000_000,
-                )
-
-            val dm =
-                boClient.conversations.findOrCreateDm(
-                    alixClient.inboxId,
-                    disappearingMessageSettings = disappearingSettings,
-                )
-
-            val messageId = dm.send("This message will disappear")
-
-            Thread.sleep(3000)
-
-            assertTrue(deletedMessageIds.contains(messageId))
         }
 
-        job.cancel()
-    }
+    @Test fun testDeleteMessage() =
+        runBlocking {
+            val group = caro.conversations().createGroup(listOf(bo.inboxId()))
+            val id = group.sendText("Hi there")
+            val count = group.messages().size
+            caro.conversations().deleteMessageLocally(id)
+            assertEquals(count - 1, group.messages().size)
+        }
+
+    @Test fun testCountMessages() =
+        runBlocking {
+            val group = bo.conversations().createGroup(listOf(alix.inboxId()))
+            repeat(3) { group.sendText("Message $it") }
+            assertEquals(4uL, group.countMessages(null))
+            val dm = bo.conversations().createDm(caro.inboxId())
+            dm.sendText("DM Message 1")
+            val second = dm.sendText("DM Message 2")
+            val secondMessage = checkNotNull(bo.conversations().getMessageById(second))
+            assertEquals(2uL, dm.countMessages(null))
+            val wrapped = Conversation.Dm(dm)
+            assertEquals(2uL, wrapped.dm.countMessages(null))
+            val third = dm.sendText("DM Message 3")
+            val thirdMessage = checkNotNull(bo.conversations().getMessageById(third))
+            assertEquals(2uL, dm.countMessages(ListMessagesOptions(sentBefore = thirdMessage.sentAt)))
+            assertEquals(1uL, dm.countMessages(ListMessagesOptions(sentAfter = secondMessage.sentAt)))
+            dm.prepareMessage(TextCodec().encode("Unpublished message"))
+            assertEquals(4uL, dm.countMessages(ListMessagesOptions(deliveryStatus = null)))
+            assertEquals(3uL, dm.countMessages(ListMessagesOptions(deliveryStatus = DeliveryStatus.PUBLISHED)))
+            assertEquals(1uL, dm.countMessages(ListMessagesOptions(deliveryStatus = DeliveryStatus.UNPUBLISHED)))
+            dm.publishMessages()
+            assertEquals(4uL, dm.countMessages(ListMessagesOptions(deliveryStatus = DeliveryStatus.PUBLISHED)))
+            assertEquals(0uL, dm.countMessages(ListMessagesOptions(deliveryStatus = DeliveryStatus.UNPUBLISHED)))
+        }
+
+    @Test fun testCanStreamMessageDeletions() =
+        runBlocking {
+            val deleted = mutableSetOf<String>()
+            val listener =
+                bo.startListener(
+                    EventFilter(listOf(EventKind.MESSAGE_EXPIRED), null, null, false),
+                    { event ->
+                        if (event is ClientEvent.MessageExpired) synchronized(deleted) { deleted.add(event.messageId) }
+                    },
+                )
+            try {
+                val dm =
+                    bo.conversations().createDm(
+                        alix.inboxId(),
+                        CreateDmOptions(DisappearingSettings(Timestamp(1_000_000_000), 1_000_000_000)),
+                    )
+                val id = dm.sendText("This message will disappear")
+                withTimeout(10_000) { while (!synchronized(deleted) { id in deleted }) delay(10) }
+                assertTrue(synchronized(deleted) { id in deleted })
+                assertNull(bo.conversations().getMessageById(id))
+            } finally {
+                withContext(NonCancellable) { bo.stopListener(listener) }
+            }
+        }
 }

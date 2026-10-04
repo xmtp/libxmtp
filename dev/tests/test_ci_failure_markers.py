@@ -72,6 +72,20 @@ class FailureMarkers(unittest.TestCase):
             ["FAIL [0.2s] sdk::failed", "TIMEOUT [120.003s] sdk::held"],
         )
 
+    def test_gradle_and_nix_diagnostics_keep_the_cause(self):
+        self.assertEqual(
+            self.filtered(
+                "Execution failed for task ' :library:check'.\n"
+                " > Dependency verification failed for configuration runtime.\n"
+                "e: file:///checkout/Test.kt:10:2 Unresolved reference 'example'.\n"
+            ),
+            [
+                "Dependency verification failed for configuration runtime.",
+                "Execution failed for task ' :library:check'.",
+                "e: file:///checkout/Test.kt:10:2 Unresolved reference 'example'.",
+            ],
+        )
+
     def test_passing_output_is_empty(self):
         self.assertEqual(
             self.filtered(

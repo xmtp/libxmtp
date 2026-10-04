@@ -2,42 +2,39 @@ package org.xmtp.android.library
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertThrows
+import org.junit.Assert.assertNull
 import org.junit.Test
+import uniffi.xmtp_sdk.BackendOptions
 
 class ClientCacheKeyTest {
     @Test
     fun testApiClientCacheKeysDifferentConfigurations() {
-        val api = localApi()
-        val second = api.copy(backendUrl = "https://backend.example.com")
-        val third = api.copy(backendUrl = "https://other.example.com")
-        assertNotEquals(api.toCacheKey(), second.toCacheKey())
-        assertNotEquals(second.toCacheKey(), third.toCacheKey())
-        assertNotEquals(api.toCacheKey(), third.toCacheKey())
+        val api = BackendOptions(url = "http://10.0.2.2:5050")
+        val second = api.copy(url = "https://backend.example.com")
+        val third = api.copy(url = "https://other.example.com")
+        assertNotEquals(api, second)
+        assertNotEquals(second, third)
+        assertNotEquals(api, third)
 
         val versionOne = api.copy(appVersion = "1.0.0")
         val versionTwo = api.copy(appVersion = "2.0.0")
-        assertNotEquals(versionOne.toCacheKey(), versionTwo.toCacheKey())
-        assertNotEquals(api.toCacheKey(), versionOne.toCacheKey())
-        assertNotEquals(api.toCacheKey(), api.copy(appVersion = "").toCacheKey())
-        assertNotEquals(versionOne.toCacheKey(), second.copy(appVersion = "2.0.0").toCacheKey())
+        assertNotEquals(versionOne, versionTwo)
+        assertNotEquals(api, versionOne)
+        assertNotEquals(api, api.copy(appVersion = ""))
+        assertNotEquals(versionOne, second.copy(appVersion = "2.0.0"))
 
-        assertEquals(versionOne.toCacheKey(), versionOne.copy().toCacheKey())
-        assertEquals(api.toCacheKey(), localApi().toCacheKey())
-        assertEquals(api.toCacheKey(), api.copy(env = "custom-db").toCacheKey())
-        assertEquals(versionOne.toCacheKey(), versionOne.copy(env = "custom-db").toCacheKey())
+        assertEquals(versionOne, versionOne.copy())
+        assertEquals(api, BackendOptions(url = "http://10.0.2.2:5050"))
         // An absent version must not collide with the literal string "null".
-        assertNotEquals(api.toCacheKey(), api.copy(appVersion = "null").toCacheKey())
-        assertEquals("http://10.0.2.2:5050|-", api.toCacheKey())
-        assertEquals("http://10.0.2.2:5050|v|1.0.0", versionOne.toCacheKey())
+        assertNotEquals(api, api.copy(appVersion = "null"))
+        assertNull(api.appVersion)
+        assertEquals("1.0.0", versionOne.appVersion)
     }
 
     @Test
-    fun testRejectsEmptyBackendUrl() {
+    fun testPreservesBackendUrlUntilNativeValidation() {
         for (url in listOf("", " ", "\t\n")) {
-            assertThrows(IllegalArgumentException::class.java) {
-                ClientOptions.Api(backendUrl = url)
-            }
+            assertEquals(url, BackendOptions(url = url).url)
         }
     }
 }

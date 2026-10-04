@@ -4,23 +4,18 @@ import PackageDescription
 
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let workspace = (0 ..< 4).reduce(packageRoot) { path, _ in path.deletingLastPathComponent() }
-let staticLibrary = workspace.appendingPathComponent("target/sdk-conformance-artifacts/native/libxmtp_sdk.a").path
-let opensslLibrary = ProcessInfo.processInfo.environment["SDK_OPENSSL_LIB_DIR"] ?? ""
 
+/// Conformance links the root Apple package.
 let package = Package(
     name: "XmtpSdkConformance",
     platforms: [.macOS(.v15)],
     products: [.executable(name: "XmtpSdkConformance", targets: ["Conformance"])],
+    dependencies: [.package(name: "XmtpSdk", path: workspace.path)],
     targets: [
-        .systemLibrary(name: "xmtp_sdkFFI", path: "Sources/xmtp_sdkFFI"),
-        .target(
-            name: "XmtpSdk",
-            dependencies: ["xmtp_sdkFFI"],
-            path: "Sources/XmtpSdk",
-            swiftSettings: [.unsafeFlags(["-enable-testing"])],
-            linkerSettings: [.unsafeFlags([staticLibrary, "-L", opensslLibrary, "-lcrypto", "-lssl"])]
+        .executableTarget(
+            name: "Conformance",
+            dependencies: [.product(name: "XmtpSdk", package: "XmtpSdk")]
         ),
-        .executableTarget(name: "Conformance", dependencies: ["XmtpSdk"]),
     ],
     swiftLanguageModes: [.v5]
 )

@@ -450,13 +450,26 @@ impl TryFrom<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpd
     }
 }
 
-#[derive(Clone, Debug, uniffi::Record)]
+#[derive(Clone, uniffi::Record)]
 pub struct EncryptionKeys {
     pub secret: Vec<u8>,
     pub salt: Vec<u8>,
     pub nonce: Vec<u8>,
     pub digest: String,
     pub length: u64,
+}
+
+impl std::fmt::Debug for EncryptionKeys {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EncryptionKeys")
+            .field("secret", &"<redacted>")
+            .field("salt", &self.salt)
+            .field("nonce", &self.nonce)
+            .field("digest", &self.digest)
+            .field("length", &self.length)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, uniffi::Record)]

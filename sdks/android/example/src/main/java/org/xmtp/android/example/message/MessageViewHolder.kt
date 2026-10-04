@@ -10,9 +10,11 @@ import org.xmtp.android.example.ClientManager
 import org.xmtp.android.example.R
 import org.xmtp.android.example.conversation.ConversationDetailViewModel
 import org.xmtp.android.example.databinding.ListItemMessageBinding
+import org.xmtp.android.example.extension.displayBody
 import org.xmtp.android.example.extension.margins
-import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
+import uniffi.xmtp_sdk.inboxId
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class MessageViewHolder(
@@ -27,7 +29,7 @@ class MessageViewHolder(
     @SuppressLint("SetTextI18n")
     fun bind(item: ConversationDetailViewModel.MessageListItem.Message) {
         val isFromMe =
-            ClientManager.client.inboxId == item.message.senderInboxId
+            ClientManager.client.inboxId() == item.message.senderInboxId
         val params = binding.messageContainer.layoutParams as ConstraintLayout.LayoutParams
         if (isFromMe) {
             params.rightToRight = PARENT_ID
@@ -43,16 +45,8 @@ class MessageViewHolder(
             binding.messageBody.setTextColor(Color.WHITE)
         }
         binding.messageContainer.layoutParams = params
-        if (item.message.content<Any>() is String) {
-            binding.messageBody.text = item.message.body
-            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-            binding.messageDate.text = sdf.format(item.message.sentAt)
-        } else if (item.message.content<Any>() is GroupUpdated) {
-            val changes = item.message.content() as? GroupUpdated
-            binding.messageBody.text =
-                "Membership Changed ${
-                    changes?.addedInboxesList?.mapNotNull { it.inboxId }
-                }"
-        }
+        binding.messageBody.text = item.message.displayBody()
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        binding.messageDate.text = sdf.format(Date.from(item.message.sentAt.date))
     }
 }
