@@ -439,8 +439,8 @@ class DmTest : BaseInstrumentedTest() {
             dm.updateDisappearingSettings(null)
             dm.sync()
             peer.sync()
-            assertNull(dm.state().disappearingSettings)
-            assertNull(peer.state().disappearingSettings)
+            assertEquals(DisappearingSettings(Timestamp(0), 0), dm.state().disappearingSettings)
+            assertEquals(DisappearingSettings(Timestamp(0), 0), peer.state().disappearingSettings)
             assertFalse(dm.state().isDisappearingEnabled)
             assertFalse(peer.state().isDisappearingEnabled)
             dm.sendText("message after disabling disappearing")
@@ -453,7 +453,7 @@ class DmTest : BaseInstrumentedTest() {
                 DisappearingSettings(
                     Timestamp(
                         dm
-                            .messages()
+                            .messages(ListMessagesOptions(direction = MessageOrder.DESCENDING))
                             .first()
                             .sentAt.ns + 1_000_000_000,
                     ),

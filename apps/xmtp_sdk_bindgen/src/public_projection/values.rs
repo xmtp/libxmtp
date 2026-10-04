@@ -91,6 +91,14 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
 
 pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()> {
     let name = &value.name;
+    if name == "ClientEvent"
+        && value
+            .variants
+            .iter()
+            .any(|variant| variant.fields.len() != 1 || variant.fields[0].name.is_empty())
+    {
+        bail!("each ClientEvent kind must have one named payload");
+    }
     let flat = !value.shape.is_error() && value.variants.iter().all(|v| v.fields.is_empty());
     writeln!(code, "export type {name} =")?;
     for variant in &value.variants {
@@ -108,7 +116,11 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                     format!("value{i}")
                 }
             } else {
-                camel(&field.name)
+                if name == "ClientEvent" {
+                    field.name.clone()
+                } else {
+                    camel(&field.name)
+                }
             };
             let optional = if matches!(field.ty, Type::Optional { .. }) {
                 "?"
@@ -182,7 +194,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                 .iter()
                 .enumerate()
                 .map(|(i, field)| {
-                    let field_name = if field.name.is_empty() {
+                    let binding_name = if field.name.is_empty() {
                         if variant.fields.len() == 1 {
                             "value".into()
                         } else {
@@ -191,16 +203,22 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                     } else {
                         camel(&field.name)
                     };
+                    let public_name = if name == "ClientEvent" && !field.name.is_empty() {
+                        field.name.clone()
+                    } else {
+                        binding_name.clone()
+                    };
                     let raw = if lower {
-                        format!("value.{field_name}")
+                        format!("value.{public_name}")
                     } else if named {
-                        format!("value.inner.{field_name}")
+                        format!("value.inner.{binding_name}")
                     } else {
                         format!("value.inner[{i}]")
                     };
                     let converted = convert(&field.ty, &raw, lower);
                     if !lower || named {
-                        format!("{field_name}: {converted}")
+                        let output_name = if lower { binding_name } else { public_name };
+                        format!("{output_name}: {converted}")
                     } else {
                         converted
                     }

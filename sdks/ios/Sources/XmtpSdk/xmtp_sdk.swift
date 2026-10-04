@@ -8473,6 +8473,56 @@ public func FfiConverterTypeArchiveOptions_lower(_ value: ArchiveOptions) -> Rus
 }
 
 
+public struct ArchiveRestored: Equatable, Hashable {
+    public var complete: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(complete: Bool) {
+        self.complete = complete
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ArchiveRestored: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeArchiveRestored: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ArchiveRestored {
+        return
+            try ArchiveRestored(
+                complete: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ArchiveRestored, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.complete, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArchiveRestored_lift(_ buf: RustBuffer) throws -> ArchiveRestored {
+    return try FfiConverterTypeArchiveRestored.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArchiveRestored_lower(_ value: ArchiveRestored) -> RustBuffer {
+    return FfiConverterTypeArchiveRestored.lower(value)
+}
+
+
 public struct Attachment: Equatable, Hashable {
     public var filename: String?
     public var mimeType: String
@@ -9228,6 +9278,60 @@ public func FfiConverterTypeClientOptions_lower(_ value: ClientOptions) -> RustB
 }
 
 
+public struct ClientRejectedByServer: Equatable, Hashable {
+    public var cause: RejectionCause
+    public var minLibxmtpVersion: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(cause: RejectionCause, minLibxmtpVersion: String?) {
+        self.cause = cause
+        self.minLibxmtpVersion = minLibxmtpVersion
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ClientRejectedByServer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeClientRejectedByServer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ClientRejectedByServer {
+        return
+            try ClientRejectedByServer(
+                cause: FfiConverterTypeRejectionCause.read(from: &buf),
+                minLibxmtpVersion: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ClientRejectedByServer, into buf: inout [UInt8]) {
+        FfiConverterTypeRejectionCause.write(value.cause, into: &buf)
+        FfiConverterOptionString.write(value.minLibxmtpVersion, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClientRejectedByServer_lift(_ buf: RustBuffer) throws -> ClientRejectedByServer {
+    return try FfiConverterTypeClientRejectedByServer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClientRejectedByServer_lower(_ value: ClientRejectedByServer) -> RustBuffer {
+    return FfiConverterTypeClientRejectedByServer.lower(value)
+}
+
+
 /**
  * A field's insert, update and delete policies.
  */
@@ -9286,6 +9390,118 @@ public func FfiConverterTypeComponentPermissions_lift(_ buf: RustBuffer) throws 
 #endif
 public func FfiConverterTypeComponentPermissions_lower(_ value: ComponentPermissions) -> RustBuffer {
     return FfiConverterTypeComponentPermissions.lower(value)
+}
+
+
+public struct ConnectionStateChanged: Equatable, Hashable {
+    public var previous: ConnectionState
+    public var current: ConnectionState
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(previous: ConnectionState, current: ConnectionState) {
+        self.previous = previous
+        self.current = current
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ConnectionStateChanged: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConnectionStateChanged: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConnectionStateChanged {
+        return
+            try ConnectionStateChanged(
+                previous: FfiConverterTypeConnectionState.read(from: &buf),
+                current: FfiConverterTypeConnectionState.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ConnectionStateChanged, into buf: inout [UInt8]) {
+        FfiConverterTypeConnectionState.write(value.previous, into: &buf)
+        FfiConverterTypeConnectionState.write(value.current, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConnectionStateChanged_lift(_ buf: RustBuffer) throws -> ConnectionStateChanged {
+    return try FfiConverterTypeConnectionStateChanged.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConnectionStateChanged_lower(_ value: ConnectionStateChanged) -> RustBuffer {
+    return FfiConverterTypeConnectionStateChanged.lower(value)
+}
+
+
+public struct ConsentChanged: Equatable, Hashable {
+    public var entityKind: ConsentEntityKind
+    public var entity: String
+    public var state: EventConsentState
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(entityKind: ConsentEntityKind, entity: String, state: EventConsentState) {
+        self.entityKind = entityKind
+        self.entity = entity
+        self.state = state
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ConsentChanged: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConsentChanged: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConsentChanged {
+        return
+            try ConsentChanged(
+                entityKind: FfiConverterTypeConsentEntityKind.read(from: &buf),
+                entity: FfiConverterString.read(from: &buf),
+                state: FfiConverterTypeEventConsentState.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ConsentChanged, into buf: inout [UInt8]) {
+        FfiConverterTypeConsentEntityKind.write(value.entityKind, into: &buf)
+        FfiConverterString.write(value.entity, into: &buf)
+        FfiConverterTypeEventConsentState.write(value.state, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConsentChanged_lift(_ buf: RustBuffer) throws -> ConsentChanged {
+    return try FfiConverterTypeConsentChanged.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConsentChanged_lower(_ value: ConsentChanged) -> RustBuffer {
+    return FfiConverterTypeConsentChanged.lower(value)
 }
 
 
@@ -9479,6 +9695,68 @@ public func FfiConverterTypeConversationDebugInfo_lower(_ value: ConversationDeb
 }
 
 
+public struct ConversationJoined: Equatable, Hashable {
+    public var conversationId: ConversationId
+    public var conversationType: EventConversationType
+    public var origin: JoinOrigin
+    public var adderInboxId: InboxId?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId, conversationType: EventConversationType, origin: JoinOrigin, adderInboxId: InboxId?) {
+        self.conversationId = conversationId
+        self.conversationType = conversationType
+        self.origin = origin
+        self.adderInboxId = adderInboxId
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ConversationJoined: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConversationJoined: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConversationJoined {
+        return
+            try ConversationJoined(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf),
+                conversationType: FfiConverterTypeEventConversationType.read(from: &buf),
+                origin: FfiConverterTypeJoinOrigin.read(from: &buf),
+                adderInboxId: FfiConverterOptionTypeInboxId.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ConversationJoined, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+        FfiConverterTypeEventConversationType.write(value.conversationType, into: &buf)
+        FfiConverterTypeJoinOrigin.write(value.origin, into: &buf)
+        FfiConverterOptionTypeInboxId.write(value.adderInboxId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConversationJoined_lift(_ buf: RustBuffer) throws -> ConversationJoined {
+    return try FfiConverterTypeConversationJoined.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConversationJoined_lower(_ value: ConversationJoined) -> RustBuffer {
+    return FfiConverterTypeConversationJoined.lower(value)
+}
+
+
 /**
  * Exclusive replay position for a named conversation.
  */
@@ -9529,6 +9807,60 @@ public func FfiConverterTypeConversationMessageReaderOptions_lift(_ buf: RustBuf
 #endif
 public func FfiConverterTypeConversationMessageReaderOptions_lower(_ value: ConversationMessageReaderOptions) -> RustBuffer {
     return FfiConverterTypeConversationMessageReaderOptions.lower(value)
+}
+
+
+public struct ConversationPaused: Equatable, Hashable {
+    public var conversationId: ConversationId
+    public var floor: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId, floor: String) {
+        self.conversationId = conversationId
+        self.floor = floor
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ConversationPaused: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConversationPaused: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConversationPaused {
+        return
+            try ConversationPaused(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf),
+                floor: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ConversationPaused, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+        FfiConverterString.write(value.floor, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConversationPaused_lift(_ buf: RustBuffer) throws -> ConversationPaused {
+    return try FfiConverterTypeConversationPaused.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConversationPaused_lower(_ value: ConversationPaused) -> RustBuffer {
+    return FfiConverterTypeConversationPaused.lower(value)
 }
 
 
@@ -9583,6 +9915,60 @@ public func FfiConverterTypeConversationReaderOptions_lift(_ buf: RustBuffer) th
 #endif
 public func FfiConverterTypeConversationReaderOptions_lower(_ value: ConversationReaderOptions) -> RustBuffer {
     return FfiConverterTypeConversationReaderOptions.lower(value)
+}
+
+
+public struct ConversationRemoved: Equatable, Hashable {
+    public var conversationId: ConversationId
+    public var cause: RemovalCause
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId, cause: RemovalCause) {
+        self.conversationId = conversationId
+        self.cause = cause
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ConversationRemoved: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConversationRemoved: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConversationRemoved {
+        return
+            try ConversationRemoved(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf),
+                cause: FfiConverterTypeRemovalCause.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ConversationRemoved, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+        FfiConverterTypeRemovalCause.write(value.cause, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConversationRemoved_lift(_ buf: RustBuffer) throws -> ConversationRemoved {
+    return try FfiConverterTypeConversationRemoved.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConversationRemoved_lower(_ value: ConversationRemoved) -> RustBuffer {
+    return FfiConverterTypeConversationRemoved.lower(value)
 }
 
 
@@ -10545,6 +10931,56 @@ public func FfiConverterTypeGroupPermissions_lower(_ value: GroupPermissions) ->
 }
 
 
+public struct GroupRef: Equatable, Hashable {
+    public var conversationId: ConversationId
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId) {
+        self.conversationId = conversationId
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GroupRef: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGroupRef: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GroupRef {
+        return
+            try GroupRef(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GroupRef, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupRef_lift(_ buf: RustBuffer) throws -> GroupRef {
+    return try FfiConverterTypeGroupRef.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupRef_lower(_ value: GroupRef) -> RustBuffer {
+    return FfiConverterTypeGroupRef.lower(value)
+}
+
+
 public struct GroupState: Equatable, Hashable {
     public var common: ConversationState
     public var name: String
@@ -10814,6 +11250,105 @@ public func FfiConverterTypeHmacKey_lift(_ buf: RustBuffer) throws -> HmacKey {
 #endif
 public func FfiConverterTypeHmacKey_lower(_ value: HmacKey) -> RustBuffer {
     return FfiConverterTypeHmacKey.lower(value)
+}
+
+
+public struct HmacKeysUpdated: Equatable, Hashable {
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init() {
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HmacKeysUpdated: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHmacKeysUpdated: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HmacKeysUpdated {
+        return
+            HmacKeysUpdated()
+    }
+
+    public static func write(_ value: HmacKeysUpdated, into buf: inout [UInt8]) {
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHmacKeysUpdated_lift(_ buf: RustBuffer) throws -> HmacKeysUpdated {
+    return try FfiConverterTypeHmacKeysUpdated.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHmacKeysUpdated_lower(_ value: HmacKeysUpdated) -> RustBuffer {
+    return FfiConverterTypeHmacKeysUpdated.lower(value)
+}
+
+
+public struct IdentityRegistered: Equatable, Hashable {
+    public var inboxId: InboxId
+    public var installationId: InstallationId
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(inboxId: InboxId, installationId: InstallationId) {
+        self.inboxId = inboxId
+        self.installationId = installationId
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension IdentityRegistered: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeIdentityRegistered: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> IdentityRegistered {
+        return
+            try IdentityRegistered(
+                inboxId: FfiConverterTypeInboxId.read(from: &buf),
+                installationId: FfiConverterTypeInstallationId.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: IdentityRegistered, into buf: inout [UInt8]) {
+        FfiConverterTypeInboxId.write(value.inboxId, into: &buf)
+        FfiConverterTypeInstallationId.write(value.installationId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIdentityRegistered_lift(_ buf: RustBuffer) throws -> IdentityRegistered {
+    return try FfiConverterTypeIdentityRegistered.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIdentityRegistered_lower(_ value: IdentityRegistered) -> RustBuffer {
+    return FfiConverterTypeIdentityRegistered.lower(value)
 }
 
 
@@ -11107,6 +11642,110 @@ public func FfiConverterTypeInstallationCapabilities_lower(_ value: Installation
 }
 
 
+public struct InstallationRef: Equatable, Hashable {
+    public var installationId: InstallationId
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(installationId: InstallationId) {
+        self.installationId = installationId
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension InstallationRef: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeInstallationRef: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> InstallationRef {
+        return
+            try InstallationRef(
+                installationId: FfiConverterTypeInstallationId.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: InstallationRef, into buf: inout [UInt8]) {
+        FfiConverterTypeInstallationId.write(value.installationId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInstallationRef_lift(_ buf: RustBuffer) throws -> InstallationRef {
+    return try FfiConverterTypeInstallationRef.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInstallationRef_lower(_ value: InstallationRef) -> RustBuffer {
+    return FfiConverterTypeInstallationRef.lower(value)
+}
+
+
+public struct InstallationRevoked: Equatable, Hashable {
+    public var installationId: InstallationId
+    public var isThisInstallation: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(installationId: InstallationId, isThisInstallation: Bool) {
+        self.installationId = installationId
+        self.isThisInstallation = isThisInstallation
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension InstallationRevoked: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeInstallationRevoked: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> InstallationRevoked {
+        return
+            try InstallationRevoked(
+                installationId: FfiConverterTypeInstallationId.read(from: &buf),
+                isThisInstallation: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: InstallationRevoked, into buf: inout [UInt8]) {
+        FfiConverterTypeInstallationId.write(value.installationId, into: &buf)
+        FfiConverterBool.write(value.isThisInstallation, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInstallationRevoked_lift(_ buf: RustBuffer) throws -> InstallationRevoked {
+    return try FfiConverterTypeInstallationRevoked.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeInstallationRevoked_lower(_ value: InstallationRevoked) -> RustBuffer {
+    return FfiConverterTypeInstallationRevoked.lower(value)
+}
+
+
 public struct Intent: Equatable, Hashable {
     public var id: String
     public var actionId: String
@@ -11270,6 +11909,56 @@ public func FfiConverterTypeKeyPackageStatus_lift(_ buf: RustBuffer) throws -> K
 #endif
 public func FfiConverterTypeKeyPackageStatus_lower(_ value: KeyPackageStatus) -> RustBuffer {
     return FfiConverterTypeKeyPackageStatus.lower(value)
+}
+
+
+public struct Lagged: Equatable, Hashable {
+    public var discarded: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(discarded: UInt64) {
+        self.discarded = discarded
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension Lagged: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLagged: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Lagged {
+        return
+            try Lagged(
+                discarded: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Lagged, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.discarded, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLagged_lift(_ buf: RustBuffer) throws -> Lagged {
+    return try FfiConverterTypeLagged.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLagged_lower(_ value: Lagged) -> RustBuffer {
+    return FfiConverterTypeLagged.lower(value)
 }
 
 
@@ -11688,6 +12377,56 @@ public func FfiConverterTypeLocalAttachment_lower(_ value: LocalAttachment) -> R
 }
 
 
+public struct LockoutChanged: Equatable, Hashable {
+    public var change: LockoutChange
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(change: LockoutChange) {
+        self.change = change
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LockoutChanged: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLockoutChanged: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LockoutChanged {
+        return
+            try LockoutChanged(
+                change: FfiConverterTypeLockoutChange.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LockoutChanged, into buf: inout [UInt8]) {
+        FfiConverterTypeLockoutChange.write(value.change, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLockoutChanged_lift(_ buf: RustBuffer) throws -> LockoutChanged {
+    return try FfiConverterTypeLockoutChanged.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLockoutChanged_lower(_ value: LockoutChanged) -> RustBuffer {
+    return FfiConverterTypeLockoutChanged.lower(value)
+}
+
+
 public struct LogRecord: Equatable, Hashable {
     public var level: LogLevel
     public var target: String
@@ -11940,6 +12679,64 @@ public func FfiConverterTypeMember_lower(_ value: Member) -> RustBuffer {
 }
 
 
+public struct MembershipChanged: Equatable, Hashable {
+    public var conversationId: ConversationId
+    public var addedInboxIds: [InboxId]
+    public var removedInboxIds: [InboxId]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId, addedInboxIds: [InboxId], removedInboxIds: [InboxId]) {
+        self.conversationId = conversationId
+        self.addedInboxIds = addedInboxIds
+        self.removedInboxIds = removedInboxIds
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MembershipChanged: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMembershipChanged: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MembershipChanged {
+        return
+            try MembershipChanged(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf),
+                addedInboxIds: FfiConverterSequenceTypeInboxId.read(from: &buf),
+                removedInboxIds: FfiConverterSequenceTypeInboxId.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MembershipChanged, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+        FfiConverterSequenceTypeInboxId.write(value.addedInboxIds, into: &buf)
+        FfiConverterSequenceTypeInboxId.write(value.removedInboxIds, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMembershipChanged_lift(_ buf: RustBuffer) throws -> MembershipChanged {
+    return try FfiConverterTypeMembershipChanged.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMembershipChanged_lower(_ value: MembershipChanged) -> RustBuffer {
+    return FfiConverterTypeMembershipChanged.lower(value)
+}
+
+
 public struct MembershipResult: Equatable, Hashable {
     public var added: [InboxId]
     public var removed: [InboxId]
@@ -12141,6 +12938,64 @@ public func FfiConverterTypeMessageData_lower(_ value: MessageData) -> RustBuffe
 }
 
 
+public struct MessageDeleted: Equatable, Hashable {
+    public var conversationId: ConversationId
+    public var messageId: MessageId
+    public var cause: DeletionCause
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId, messageId: MessageId, cause: DeletionCause) {
+        self.conversationId = conversationId
+        self.messageId = messageId
+        self.cause = cause
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageDeleted: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageDeleted: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageDeleted {
+        return
+            try MessageDeleted(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf),
+                messageId: FfiConverterTypeMessageId.read(from: &buf),
+                cause: FfiConverterTypeDeletionCause.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageDeleted, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+        FfiConverterTypeMessageId.write(value.messageId, into: &buf)
+        FfiConverterTypeDeletionCause.write(value.cause, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageDeleted_lift(_ buf: RustBuffer) throws -> MessageDeleted {
+    return try FfiConverterTypeMessageDeleted.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageDeleted_lower(_ value: MessageDeleted) -> RustBuffer {
+    return FfiConverterTypeMessageDeleted.lower(value)
+}
+
+
 /**
  * Retained messages and their replay boundary from one database snapshot.
  */
@@ -12310,6 +13165,238 @@ public func FfiConverterTypeMessageReaderOptions_lift(_ buf: RustBuffer) throws 
 #endif
 public func FfiConverterTypeMessageReaderOptions_lower(_ value: MessageReaderOptions) -> RustBuffer {
     return FfiConverterTypeMessageReaderOptions.lower(value)
+}
+
+
+public struct MessageReceived: Equatable, Hashable {
+    public var conversationId: ConversationId
+    public var messageId: MessageId
+    public var contentType: ContentTypeId?
+    public var senderInboxId: InboxId
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId, messageId: MessageId, contentType: ContentTypeId?, senderInboxId: InboxId) {
+        self.conversationId = conversationId
+        self.messageId = messageId
+        self.contentType = contentType
+        self.senderInboxId = senderInboxId
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageReceived: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageReceived: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageReceived {
+        return
+            try MessageReceived(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf),
+                messageId: FfiConverterTypeMessageId.read(from: &buf),
+                contentType: FfiConverterOptionTypeContentTypeId.read(from: &buf),
+                senderInboxId: FfiConverterTypeInboxId.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageReceived, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+        FfiConverterTypeMessageId.write(value.messageId, into: &buf)
+        FfiConverterOptionTypeContentTypeId.write(value.contentType, into: &buf)
+        FfiConverterTypeInboxId.write(value.senderInboxId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageReceived_lift(_ buf: RustBuffer) throws -> MessageReceived {
+    return try FfiConverterTypeMessageReceived.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageReceived_lower(_ value: MessageReceived) -> RustBuffer {
+    return FfiConverterTypeMessageReceived.lower(value)
+}
+
+
+public struct MessageRef: Equatable, Hashable {
+    public var conversationId: ConversationId
+    public var messageId: MessageId
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId, messageId: MessageId) {
+        self.conversationId = conversationId
+        self.messageId = messageId
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageRef: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageRef: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageRef {
+        return
+            try MessageRef(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf),
+                messageId: FfiConverterTypeMessageId.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageRef, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+        FfiConverterTypeMessageId.write(value.messageId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRef_lift(_ buf: RustBuffer) throws -> MessageRef {
+    return try FfiConverterTypeMessageRef.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRef_lower(_ value: MessageRef) -> RustBuffer {
+    return FfiConverterTypeMessageRef.lower(value)
+}
+
+
+public struct MessageStatusChanged: Equatable, Hashable {
+    public var conversationId: ConversationId
+    public var messageId: MessageId
+    public var previous: EventMessageStatus
+    public var current: EventMessageStatus
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId, messageId: MessageId, previous: EventMessageStatus, current: EventMessageStatus) {
+        self.conversationId = conversationId
+        self.messageId = messageId
+        self.previous = previous
+        self.current = current
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageStatusChanged: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageStatusChanged: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageStatusChanged {
+        return
+            try MessageStatusChanged(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf),
+                messageId: FfiConverterTypeMessageId.read(from: &buf),
+                previous: FfiConverterTypeEventMessageStatus.read(from: &buf),
+                current: FfiConverterTypeEventMessageStatus.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageStatusChanged, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+        FfiConverterTypeMessageId.write(value.messageId, into: &buf)
+        FfiConverterTypeEventMessageStatus.write(value.previous, into: &buf)
+        FfiConverterTypeEventMessageStatus.write(value.current, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageStatusChanged_lift(_ buf: RustBuffer) throws -> MessageStatusChanged {
+    return try FfiConverterTypeMessageStatusChanged.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageStatusChanged_lower(_ value: MessageStatusChanged) -> RustBuffer {
+    return FfiConverterTypeMessageStatusChanged.lower(value)
+}
+
+
+public struct MetadataChanged: Equatable, Hashable {
+    public var conversationId: ConversationId
+    public var changed: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: ConversationId, changed: [String]) {
+        self.conversationId = conversationId
+        self.changed = changed
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MetadataChanged: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMetadataChanged: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MetadataChanged {
+        return
+            try MetadataChanged(
+                conversationId: FfiConverterTypeConversationId.read(from: &buf),
+                changed: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MetadataChanged, into buf: inout [UInt8]) {
+        FfiConverterTypeConversationId.write(value.conversationId, into: &buf)
+        FfiConverterSequenceString.write(value.changed, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMetadataChanged_lift(_ buf: RustBuffer) throws -> MetadataChanged {
+    return try FfiConverterTypeMetadataChanged.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMetadataChanged_lower(_ value: MetadataChanged) -> RustBuffer {
+    return FfiConverterTypeMetadataChanged.lower(value)
 }
 
 
@@ -12729,6 +13816,56 @@ public func FfiConverterTypeNotificationConfig_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeNotificationConfig_lower(_ value: NotificationConfig) -> RustBuffer {
     return FfiConverterTypeNotificationConfig.lower(value)
+}
+
+
+public struct NotificationsFailed: Equatable, Hashable {
+    public var cause: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(cause: String) {
+        self.cause = cause
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension NotificationsFailed: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNotificationsFailed: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NotificationsFailed {
+        return
+            try NotificationsFailed(
+                cause: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: NotificationsFailed, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.cause, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNotificationsFailed_lift(_ buf: RustBuffer) throws -> NotificationsFailed {
+    return try FfiConverterTypeNotificationsFailed.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNotificationsFailed_lower(_ value: NotificationsFailed) -> RustBuffer {
+    return FfiConverterTypeNotificationsFailed.lower(value)
 }
 
 
@@ -15298,60 +16435,61 @@ public func FfiConverterTypeBackendSource_lower(_ value: BackendSource) -> RustB
 
 public enum ClientEvent: Equatable, Hashable {
 
-    case conversationJoined(conversationId: ConversationId, conversationType: EventConversationType, origin: JoinOrigin, adderInboxId: InboxId?
+    case conversationJoined(conversationJoined: ConversationJoined
     )
-    case conversationRemoved(conversationId: ConversationId, cause: RemovalCause
+    case conversationRemoved(conversationRemoved: ConversationRemoved
     )
-    case conversationMembershipChanged(conversationId: ConversationId, addedInboxIds: [InboxId], removedInboxIds: [InboxId]
+    case conversationMembershipChanged(membershipChanged: MembershipChanged
     )
-    case conversationMetadataChanged(conversationId: ConversationId, changed: [String]
+    case conversationMetadataChanged(metadataChanged: MetadataChanged
     )
-    case conversationPaused(conversationId: ConversationId, floor: String
+    case conversationPaused(conversationPaused: ConversationPaused
     )
-    case messageReceived(conversationId: ConversationId, messageId: MessageId, contentType: ContentTypeId?, senderInboxId: InboxId
+    case messageReceived(messageReceived: MessageReceived
     )
-    case messageStatusChanged(conversationId: ConversationId, messageId: MessageId, previous: EventMessageStatus, current: EventMessageStatus
+    case messageStatusChanged(messageStatusChanged: MessageStatusChanged
     )
-    case messageDeleted(conversationId: ConversationId, messageId: MessageId, cause: DeletionCause
+    case messageDeleted(messageDeleted: MessageDeleted
     )
-    case messageExpired(conversationId: ConversationId, messageId: MessageId
+    case messageExpired(messageExpired: MessageRef
     )
-    case consentChanged(entityKind: ConsentEntityKind, entity: String, state: EventConsentState
+    case consentChanged(consentChanged: ConsentChanged
     )
-    case hmacKeysUpdated
-    case identityRegistered(inboxId: InboxId, installationId: InstallationId
+    case hmacKeysUpdated(hmacKeysUpdated: HmacKeysUpdated
     )
-    case identityOwnInstallationAdded(installationId: InstallationId
+    case identityRegistered(identityRegistered: IdentityRegistered
     )
-    case identityOwnInstallationRevoked(installationId: InstallationId, isThisInstallation: Bool
+    case identityOwnInstallationAdded(ownInstallationAdded: InstallationRef
     )
-    case clientRejectedByServer(cause: RejectionCause, minLibxmtpVersion: String?
+    case identityOwnInstallationRevoked(ownInstallationRevoked: InstallationRevoked
     )
-    case clientLockoutChanged(change: LockoutChange
+    case clientRejectedByServer(rejectedByServer: ClientRejectedByServer
     )
-    case conversationForkDetected(conversationId: ConversationId
+    case clientLockoutChanged(lockoutChanged: LockoutChanged
     )
-    case notificationsFailed(cause: String
+    case conversationForkDetected(conversationForkDetected: GroupRef
     )
-    case archiveRestored(complete: Bool
+    case notificationsFailed(notificationsFailed: NotificationsFailed
     )
-    case connectionStateChanged(previous: ConnectionState, current: ConnectionState
+    case archiveRestored(archiveRestored: ArchiveRestored
     )
-    case attachmentUploadStarted(attachment: AttachmentRef
+    case connectionStateChanged(connectionStateChanged: ConnectionStateChanged
     )
-    case attachmentUploadCompleted(attachment: AttachmentRef
+    case attachmentUploadStarted(attachmentUploadStarted: AttachmentRef
     )
-    case attachmentUploadFailed(attachment: AttachmentFailed
+    case attachmentUploadCompleted(attachmentUploadCompleted: AttachmentRef
     )
-    case attachmentDownloadStarted(attachment: AttachmentRef
+    case attachmentUploadFailed(attachmentUploadFailed: AttachmentFailed
     )
-    case attachmentDownloadCompleted(attachment: AttachmentRef
+    case attachmentDownloadStarted(attachmentDownloadStarted: AttachmentRef
     )
-    case attachmentDownloadFailed(attachment: AttachmentFailed
+    case attachmentDownloadCompleted(attachmentDownloadCompleted: AttachmentRef
     )
-    case attachmentDeleted(attachment: AttachmentRef
+    case attachmentDownloadFailed(attachmentDownloadFailed: AttachmentFailed
     )
-    case lagged(discarded: UInt64
+    case attachmentDeleted(attachmentDeleted: AttachmentRef
+    )
+    case lagged(lagged: Lagged
     )
 
 
@@ -15374,87 +16512,88 @@ public struct FfiConverterTypeClientEvent: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
 
-        case 1: return .conversationJoined(conversationId: try FfiConverterTypeConversationId.read(from: &buf), conversationType: try FfiConverterTypeEventConversationType.read(from: &buf), origin: try FfiConverterTypeJoinOrigin.read(from: &buf), adderInboxId: try FfiConverterOptionTypeInboxId.read(from: &buf)
+        case 1: return .conversationJoined(conversationJoined: try FfiConverterTypeConversationJoined.read(from: &buf)
         )
 
-        case 2: return .conversationRemoved(conversationId: try FfiConverterTypeConversationId.read(from: &buf), cause: try FfiConverterTypeRemovalCause.read(from: &buf)
+        case 2: return .conversationRemoved(conversationRemoved: try FfiConverterTypeConversationRemoved.read(from: &buf)
         )
 
-        case 3: return .conversationMembershipChanged(conversationId: try FfiConverterTypeConversationId.read(from: &buf), addedInboxIds: try FfiConverterSequenceTypeInboxId.read(from: &buf), removedInboxIds: try FfiConverterSequenceTypeInboxId.read(from: &buf)
+        case 3: return .conversationMembershipChanged(membershipChanged: try FfiConverterTypeMembershipChanged.read(from: &buf)
         )
 
-        case 4: return .conversationMetadataChanged(conversationId: try FfiConverterTypeConversationId.read(from: &buf), changed: try FfiConverterSequenceString.read(from: &buf)
+        case 4: return .conversationMetadataChanged(metadataChanged: try FfiConverterTypeMetadataChanged.read(from: &buf)
         )
 
-        case 5: return .conversationPaused(conversationId: try FfiConverterTypeConversationId.read(from: &buf), floor: try FfiConverterString.read(from: &buf)
+        case 5: return .conversationPaused(conversationPaused: try FfiConverterTypeConversationPaused.read(from: &buf)
         )
 
-        case 6: return .messageReceived(conversationId: try FfiConverterTypeConversationId.read(from: &buf), messageId: try FfiConverterTypeMessageId.read(from: &buf), contentType: try FfiConverterOptionTypeContentTypeId.read(from: &buf), senderInboxId: try FfiConverterTypeInboxId.read(from: &buf)
+        case 6: return .messageReceived(messageReceived: try FfiConverterTypeMessageReceived.read(from: &buf)
         )
 
-        case 7: return .messageStatusChanged(conversationId: try FfiConverterTypeConversationId.read(from: &buf), messageId: try FfiConverterTypeMessageId.read(from: &buf), previous: try FfiConverterTypeEventMessageStatus.read(from: &buf), current: try FfiConverterTypeEventMessageStatus.read(from: &buf)
+        case 7: return .messageStatusChanged(messageStatusChanged: try FfiConverterTypeMessageStatusChanged.read(from: &buf)
         )
 
-        case 8: return .messageDeleted(conversationId: try FfiConverterTypeConversationId.read(from: &buf), messageId: try FfiConverterTypeMessageId.read(from: &buf), cause: try FfiConverterTypeDeletionCause.read(from: &buf)
+        case 8: return .messageDeleted(messageDeleted: try FfiConverterTypeMessageDeleted.read(from: &buf)
         )
 
-        case 9: return .messageExpired(conversationId: try FfiConverterTypeConversationId.read(from: &buf), messageId: try FfiConverterTypeMessageId.read(from: &buf)
+        case 9: return .messageExpired(messageExpired: try FfiConverterTypeMessageRef.read(from: &buf)
         )
 
-        case 10: return .consentChanged(entityKind: try FfiConverterTypeConsentEntityKind.read(from: &buf), entity: try FfiConverterString.read(from: &buf), state: try FfiConverterTypeEventConsentState.read(from: &buf)
+        case 10: return .consentChanged(consentChanged: try FfiConverterTypeConsentChanged.read(from: &buf)
         )
 
-        case 11: return .hmacKeysUpdated
-
-        case 12: return .identityRegistered(inboxId: try FfiConverterTypeInboxId.read(from: &buf), installationId: try FfiConverterTypeInstallationId.read(from: &buf)
+        case 11: return .hmacKeysUpdated(hmacKeysUpdated: try FfiConverterTypeHmacKeysUpdated.read(from: &buf)
         )
 
-        case 13: return .identityOwnInstallationAdded(installationId: try FfiConverterTypeInstallationId.read(from: &buf)
+        case 12: return .identityRegistered(identityRegistered: try FfiConverterTypeIdentityRegistered.read(from: &buf)
         )
 
-        case 14: return .identityOwnInstallationRevoked(installationId: try FfiConverterTypeInstallationId.read(from: &buf), isThisInstallation: try FfiConverterBool.read(from: &buf)
+        case 13: return .identityOwnInstallationAdded(ownInstallationAdded: try FfiConverterTypeInstallationRef.read(from: &buf)
         )
 
-        case 15: return .clientRejectedByServer(cause: try FfiConverterTypeRejectionCause.read(from: &buf), minLibxmtpVersion: try FfiConverterOptionString.read(from: &buf)
+        case 14: return .identityOwnInstallationRevoked(ownInstallationRevoked: try FfiConverterTypeInstallationRevoked.read(from: &buf)
         )
 
-        case 16: return .clientLockoutChanged(change: try FfiConverterTypeLockoutChange.read(from: &buf)
+        case 15: return .clientRejectedByServer(rejectedByServer: try FfiConverterTypeClientRejectedByServer.read(from: &buf)
         )
 
-        case 17: return .conversationForkDetected(conversationId: try FfiConverterTypeConversationId.read(from: &buf)
+        case 16: return .clientLockoutChanged(lockoutChanged: try FfiConverterTypeLockoutChanged.read(from: &buf)
         )
 
-        case 18: return .notificationsFailed(cause: try FfiConverterString.read(from: &buf)
+        case 17: return .conversationForkDetected(conversationForkDetected: try FfiConverterTypeGroupRef.read(from: &buf)
         )
 
-        case 19: return .archiveRestored(complete: try FfiConverterBool.read(from: &buf)
+        case 18: return .notificationsFailed(notificationsFailed: try FfiConverterTypeNotificationsFailed.read(from: &buf)
         )
 
-        case 20: return .connectionStateChanged(previous: try FfiConverterTypeConnectionState.read(from: &buf), current: try FfiConverterTypeConnectionState.read(from: &buf)
+        case 19: return .archiveRestored(archiveRestored: try FfiConverterTypeArchiveRestored.read(from: &buf)
         )
 
-        case 21: return .attachmentUploadStarted(attachment: try FfiConverterTypeAttachmentRef.read(from: &buf)
+        case 20: return .connectionStateChanged(connectionStateChanged: try FfiConverterTypeConnectionStateChanged.read(from: &buf)
         )
 
-        case 22: return .attachmentUploadCompleted(attachment: try FfiConverterTypeAttachmentRef.read(from: &buf)
+        case 21: return .attachmentUploadStarted(attachmentUploadStarted: try FfiConverterTypeAttachmentRef.read(from: &buf)
         )
 
-        case 23: return .attachmentUploadFailed(attachment: try FfiConverterTypeAttachmentFailed.read(from: &buf)
+        case 22: return .attachmentUploadCompleted(attachmentUploadCompleted: try FfiConverterTypeAttachmentRef.read(from: &buf)
         )
 
-        case 24: return .attachmentDownloadStarted(attachment: try FfiConverterTypeAttachmentRef.read(from: &buf)
+        case 23: return .attachmentUploadFailed(attachmentUploadFailed: try FfiConverterTypeAttachmentFailed.read(from: &buf)
         )
 
-        case 25: return .attachmentDownloadCompleted(attachment: try FfiConverterTypeAttachmentRef.read(from: &buf)
+        case 24: return .attachmentDownloadStarted(attachmentDownloadStarted: try FfiConverterTypeAttachmentRef.read(from: &buf)
         )
 
-        case 26: return .attachmentDownloadFailed(attachment: try FfiConverterTypeAttachmentFailed.read(from: &buf)
+        case 25: return .attachmentDownloadCompleted(attachmentDownloadCompleted: try FfiConverterTypeAttachmentRef.read(from: &buf)
         )
 
-        case 27: return .attachmentDeleted(attachment: try FfiConverterTypeAttachmentRef.read(from: &buf)
+        case 26: return .attachmentDownloadFailed(attachmentDownloadFailed: try FfiConverterTypeAttachmentFailed.read(from: &buf)
         )
 
-        case 28: return .lagged(discarded: try FfiConverterUInt64.read(from: &buf)
+        case 27: return .attachmentDeleted(attachmentDeleted: try FfiConverterTypeAttachmentRef.read(from: &buf)
+        )
+
+        case 28: return .lagged(lagged: try FfiConverterTypeLagged.read(from: &buf)
         )
 
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -15465,166 +16604,144 @@ public struct FfiConverterTypeClientEvent: FfiConverterRustBuffer {
         switch value {
 
 
-        case let .conversationJoined(conversationId,conversationType,origin,adderInboxId):
+        case let .conversationJoined(conversationJoined):
             writeInt(&buf, Int32(1))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
-            FfiConverterTypeEventConversationType.write(conversationType, into: &buf)
-            FfiConverterTypeJoinOrigin.write(origin, into: &buf)
-            FfiConverterOptionTypeInboxId.write(adderInboxId, into: &buf)
+            FfiConverterTypeConversationJoined.write(conversationJoined, into: &buf)
 
 
-        case let .conversationRemoved(conversationId,cause):
+        case let .conversationRemoved(conversationRemoved):
             writeInt(&buf, Int32(2))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
-            FfiConverterTypeRemovalCause.write(cause, into: &buf)
+            FfiConverterTypeConversationRemoved.write(conversationRemoved, into: &buf)
 
 
-        case let .conversationMembershipChanged(conversationId,addedInboxIds,removedInboxIds):
+        case let .conversationMembershipChanged(membershipChanged):
             writeInt(&buf, Int32(3))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
-            FfiConverterSequenceTypeInboxId.write(addedInboxIds, into: &buf)
-            FfiConverterSequenceTypeInboxId.write(removedInboxIds, into: &buf)
+            FfiConverterTypeMembershipChanged.write(membershipChanged, into: &buf)
 
 
-        case let .conversationMetadataChanged(conversationId,changed):
+        case let .conversationMetadataChanged(metadataChanged):
             writeInt(&buf, Int32(4))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
-            FfiConverterSequenceString.write(changed, into: &buf)
+            FfiConverterTypeMetadataChanged.write(metadataChanged, into: &buf)
 
 
-        case let .conversationPaused(conversationId,floor):
+        case let .conversationPaused(conversationPaused):
             writeInt(&buf, Int32(5))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
-            FfiConverterString.write(floor, into: &buf)
+            FfiConverterTypeConversationPaused.write(conversationPaused, into: &buf)
 
 
-        case let .messageReceived(conversationId,messageId,contentType,senderInboxId):
+        case let .messageReceived(messageReceived):
             writeInt(&buf, Int32(6))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
-            FfiConverterTypeMessageId.write(messageId, into: &buf)
-            FfiConverterOptionTypeContentTypeId.write(contentType, into: &buf)
-            FfiConverterTypeInboxId.write(senderInboxId, into: &buf)
+            FfiConverterTypeMessageReceived.write(messageReceived, into: &buf)
 
 
-        case let .messageStatusChanged(conversationId,messageId,previous,current):
+        case let .messageStatusChanged(messageStatusChanged):
             writeInt(&buf, Int32(7))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
-            FfiConverterTypeMessageId.write(messageId, into: &buf)
-            FfiConverterTypeEventMessageStatus.write(previous, into: &buf)
-            FfiConverterTypeEventMessageStatus.write(current, into: &buf)
+            FfiConverterTypeMessageStatusChanged.write(messageStatusChanged, into: &buf)
 
 
-        case let .messageDeleted(conversationId,messageId,cause):
+        case let .messageDeleted(messageDeleted):
             writeInt(&buf, Int32(8))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
-            FfiConverterTypeMessageId.write(messageId, into: &buf)
-            FfiConverterTypeDeletionCause.write(cause, into: &buf)
+            FfiConverterTypeMessageDeleted.write(messageDeleted, into: &buf)
 
 
-        case let .messageExpired(conversationId,messageId):
+        case let .messageExpired(messageExpired):
             writeInt(&buf, Int32(9))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
-            FfiConverterTypeMessageId.write(messageId, into: &buf)
+            FfiConverterTypeMessageRef.write(messageExpired, into: &buf)
 
 
-        case let .consentChanged(entityKind,entity,state):
+        case let .consentChanged(consentChanged):
             writeInt(&buf, Int32(10))
-            FfiConverterTypeConsentEntityKind.write(entityKind, into: &buf)
-            FfiConverterString.write(entity, into: &buf)
-            FfiConverterTypeEventConsentState.write(state, into: &buf)
+            FfiConverterTypeConsentChanged.write(consentChanged, into: &buf)
 
 
-        case .hmacKeysUpdated:
+        case let .hmacKeysUpdated(hmacKeysUpdated):
             writeInt(&buf, Int32(11))
+            FfiConverterTypeHmacKeysUpdated.write(hmacKeysUpdated, into: &buf)
 
 
-        case let .identityRegistered(inboxId,installationId):
+        case let .identityRegistered(identityRegistered):
             writeInt(&buf, Int32(12))
-            FfiConverterTypeInboxId.write(inboxId, into: &buf)
-            FfiConverterTypeInstallationId.write(installationId, into: &buf)
+            FfiConverterTypeIdentityRegistered.write(identityRegistered, into: &buf)
 
 
-        case let .identityOwnInstallationAdded(installationId):
+        case let .identityOwnInstallationAdded(ownInstallationAdded):
             writeInt(&buf, Int32(13))
-            FfiConverterTypeInstallationId.write(installationId, into: &buf)
+            FfiConverterTypeInstallationRef.write(ownInstallationAdded, into: &buf)
 
 
-        case let .identityOwnInstallationRevoked(installationId,isThisInstallation):
+        case let .identityOwnInstallationRevoked(ownInstallationRevoked):
             writeInt(&buf, Int32(14))
-            FfiConverterTypeInstallationId.write(installationId, into: &buf)
-            FfiConverterBool.write(isThisInstallation, into: &buf)
+            FfiConverterTypeInstallationRevoked.write(ownInstallationRevoked, into: &buf)
 
 
-        case let .clientRejectedByServer(cause,minLibxmtpVersion):
+        case let .clientRejectedByServer(rejectedByServer):
             writeInt(&buf, Int32(15))
-            FfiConverterTypeRejectionCause.write(cause, into: &buf)
-            FfiConverterOptionString.write(minLibxmtpVersion, into: &buf)
+            FfiConverterTypeClientRejectedByServer.write(rejectedByServer, into: &buf)
 
 
-        case let .clientLockoutChanged(change):
+        case let .clientLockoutChanged(lockoutChanged):
             writeInt(&buf, Int32(16))
-            FfiConverterTypeLockoutChange.write(change, into: &buf)
+            FfiConverterTypeLockoutChanged.write(lockoutChanged, into: &buf)
 
 
-        case let .conversationForkDetected(conversationId):
+        case let .conversationForkDetected(conversationForkDetected):
             writeInt(&buf, Int32(17))
-            FfiConverterTypeConversationId.write(conversationId, into: &buf)
+            FfiConverterTypeGroupRef.write(conversationForkDetected, into: &buf)
 
 
-        case let .notificationsFailed(cause):
+        case let .notificationsFailed(notificationsFailed):
             writeInt(&buf, Int32(18))
-            FfiConverterString.write(cause, into: &buf)
+            FfiConverterTypeNotificationsFailed.write(notificationsFailed, into: &buf)
 
 
-        case let .archiveRestored(complete):
+        case let .archiveRestored(archiveRestored):
             writeInt(&buf, Int32(19))
-            FfiConverterBool.write(complete, into: &buf)
+            FfiConverterTypeArchiveRestored.write(archiveRestored, into: &buf)
 
 
-        case let .connectionStateChanged(previous,current):
+        case let .connectionStateChanged(connectionStateChanged):
             writeInt(&buf, Int32(20))
-            FfiConverterTypeConnectionState.write(previous, into: &buf)
-            FfiConverterTypeConnectionState.write(current, into: &buf)
+            FfiConverterTypeConnectionStateChanged.write(connectionStateChanged, into: &buf)
 
 
-        case let .attachmentUploadStarted(attachment):
+        case let .attachmentUploadStarted(attachmentUploadStarted):
             writeInt(&buf, Int32(21))
-            FfiConverterTypeAttachmentRef.write(attachment, into: &buf)
+            FfiConverterTypeAttachmentRef.write(attachmentUploadStarted, into: &buf)
 
 
-        case let .attachmentUploadCompleted(attachment):
+        case let .attachmentUploadCompleted(attachmentUploadCompleted):
             writeInt(&buf, Int32(22))
-            FfiConverterTypeAttachmentRef.write(attachment, into: &buf)
+            FfiConverterTypeAttachmentRef.write(attachmentUploadCompleted, into: &buf)
 
 
-        case let .attachmentUploadFailed(attachment):
+        case let .attachmentUploadFailed(attachmentUploadFailed):
             writeInt(&buf, Int32(23))
-            FfiConverterTypeAttachmentFailed.write(attachment, into: &buf)
+            FfiConverterTypeAttachmentFailed.write(attachmentUploadFailed, into: &buf)
 
 
-        case let .attachmentDownloadStarted(attachment):
+        case let .attachmentDownloadStarted(attachmentDownloadStarted):
             writeInt(&buf, Int32(24))
-            FfiConverterTypeAttachmentRef.write(attachment, into: &buf)
+            FfiConverterTypeAttachmentRef.write(attachmentDownloadStarted, into: &buf)
 
 
-        case let .attachmentDownloadCompleted(attachment):
+        case let .attachmentDownloadCompleted(attachmentDownloadCompleted):
             writeInt(&buf, Int32(25))
-            FfiConverterTypeAttachmentRef.write(attachment, into: &buf)
+            FfiConverterTypeAttachmentRef.write(attachmentDownloadCompleted, into: &buf)
 
 
-        case let .attachmentDownloadFailed(attachment):
+        case let .attachmentDownloadFailed(attachmentDownloadFailed):
             writeInt(&buf, Int32(26))
-            FfiConverterTypeAttachmentFailed.write(attachment, into: &buf)
+            FfiConverterTypeAttachmentFailed.write(attachmentDownloadFailed, into: &buf)
 
 
-        case let .attachmentDeleted(attachment):
+        case let .attachmentDeleted(attachmentDeleted):
             writeInt(&buf, Int32(27))
-            FfiConverterTypeAttachmentRef.write(attachment, into: &buf)
+            FfiConverterTypeAttachmentRef.write(attachmentDeleted, into: &buf)
 
 
-        case let .lagged(discarded):
+        case let .lagged(lagged):
             writeInt(&buf, Int32(28))
-            FfiConverterUInt64.write(discarded, into: &buf)
+            FfiConverterTypeLagged.write(lagged, into: &buf)
 
         }
     }

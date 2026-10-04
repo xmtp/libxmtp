@@ -21,11 +21,11 @@ async fn events_registered_before_return() {
     );
     assert!(matches!(
         reader.next().await?,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     assert!(matches!(
         reader.next().await?,
-        Some(ClientEvent::ArchiveRestored { complete: true })
+        Some(ClientEvent::ArchiveRestored { archive_restored }) if archive_restored.complete
     ));
     reader.end().await?;
     client.end().await?;
@@ -59,15 +59,15 @@ async fn reader_delivers_attachment_events_in_order_by_filter() {
     assert_attachment_kinds(&events);
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), reader.next()).await??,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), deleted.next()).await??,
-        Some(ClientEvent::AttachmentDeleted { attachment }) if attachment.attachment_key == "down"
+        Some(ClientEvent::AttachmentDeleted { attachment_deleted }) if attachment_deleted.attachment_key == "down"
     ));
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), deleted.next()).await??,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     reader.end().await?;
     deleted.end().await?;
@@ -98,7 +98,7 @@ async fn listener_delivers_attachment_events_in_order() {
     assert_attachment_kinds(&events);
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), received.recv()).await?,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     client.stop_listener(id).await;
     client.end().await?;
@@ -111,9 +111,9 @@ fn unknown_attachment_event_cause_reports_local_storage() {
     ));
     assert!(matches!(
         event,
-        ClientEvent::AttachmentDownloadFailed { attachment }
-            if attachment.cause == crate::AttachmentFailureCause::LocalStorage
-                && attachment.attachment_key == "odd"
+        ClientEvent::AttachmentDownloadFailed { attachment_download_failed }
+            if attachment_download_failed.cause == crate::AttachmentFailureCause::LocalStorage
+                && attachment_download_failed.attachment_key == "odd"
     ));
 }
 
@@ -159,7 +159,7 @@ async fn event_reader_and_listener_create_no_network_interest() {
     emit_hmac(&client);
     assert!(matches!(
         reader.next().await?,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
@@ -409,7 +409,7 @@ async fn consent_event_for_stitched_dm_reaches_group_filter() {
         .await?;
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(5), reader.next()).await??,
-        Some(ClientEvent::ConsentChanged { entity: received, .. }) if received == entity
+        Some(ClientEvent::ConsentChanged { consent_changed }) if consent_changed.entity == entity
     ));
     reader.end().await?;
     other.end().await?;

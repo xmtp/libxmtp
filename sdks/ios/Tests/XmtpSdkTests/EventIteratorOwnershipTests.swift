@@ -35,14 +35,14 @@ final class EventIteratorOwnershipTests: XCTestCase {
 		let another = try await client.conversations().createGroup(members: [InboxId]())
 		let firstValue = try await first.next()
 		let secondValue = try await first.next()
-		guard case let .conversationJoined(firstId, _, _, _)? = firstValue,
-		      case let .conversationJoined(secondId, _, _, _)? = secondValue
+		guard case let .conversationJoined(conversationJoined: firstJoined)? = firstValue,
+		      case let .conversationJoined(conversationJoined: secondJoined)? = secondValue
 		else {
 			try await client.end()
 			return XCTFail("Dropping a rejected iterator closed the active event reader")
 		}
-		XCTAssertEqual(firstId, group.id())
-		XCTAssertEqual(secondId, another.id())
+		XCTAssertEqual(firstJoined.conversationId, group.id())
+		XCTAssertEqual(secondJoined.conversationId, another.id())
 		try await client.end()
 	}
 }

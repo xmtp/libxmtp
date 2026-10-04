@@ -662,8 +662,8 @@ class GroupTest : BaseInstrumentedTest() {
             group.updateDisappearingSettings(null)
             group.sync()
             peer.sync()
-            assertNull(group.state().common.disappearingSettings)
-            assertNull(peer.state().common.disappearingSettings)
+            assertEquals(DisappearingSettings(Timestamp(0), 0), group.state().common.disappearingSettings)
+            assertEquals(DisappearingSettings(Timestamp(0), 0), peer.state().common.disappearingSettings)
             assertFalse(group.state().common.isDisappearingEnabled)
             assertFalse(peer.state().common.isDisappearingEnabled)
             group.sendText("message after disabling disappearing")
@@ -676,7 +676,7 @@ class GroupTest : BaseInstrumentedTest() {
                 DisappearingSettings(
                     Timestamp(
                         group
-                            .messages()
+                            .messages(ListMessagesOptions(direction = MessageOrder.DESCENDING))
                             .first()
                             .sentAt.ns + 1_000_000_000,
                     ),
