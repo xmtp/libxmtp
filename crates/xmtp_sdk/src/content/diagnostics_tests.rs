@@ -161,3 +161,43 @@ fn encoded_content_diagnostics_hide_secret_parameter() {
     assert_eq!(content.parameters["secret"], canary);
     assert_eq!(content.content, vec![1, 2, 3]);
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn encoded_content_diagnostics_hide_signed_attachment_url() {
+    let remote = remote_attachment();
+    let encoded = encode_standard(StandardContent::RemoteAttachment(remote.clone()))?;
+    assert_eq!(encoded.content, remote.url.as_bytes());
+    let nested = StandardContent::Reply {
+        reference: "ab".repeat(32).try_into()?,
+        reference_inbox_id: None,
+        content: encoded.clone(),
+    };
+    let token_bytes = b"attachment-access-token"
+        .iter()
+        .map(u8::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let diagnostics = [
+        ("direct", format!("{encoded:?}")),
+        ("reply", format!("{nested:?}")),
+    ];
+    let leaked: Vec<_> = diagnostics
+        .iter()
+        .filter(|(_, diagnostic)| {
+            diagnostic.contains("attachment-access-token") || diagnostic.contains(&token_bytes)
+        })
+        .map(|(scope, _)| *scope)
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "signed URL exposed in {leaked:?} diagnostics"
+    );
+    for (_, diagnostic) in diagnostics {
+        assert!(diagnostic.contains(&format!("content_bytes: {}", encoded.content.len())));
+    }
+    let StandardContent::RemoteAttachment(decoded) = decode_standard(encoded)? else {
+        panic!("remote attachment did not round trip");
+    };
+    assert_eq!(decoded.url, remote.url);
+    assert_eq!(decoded.secret, remote.secret);
+}

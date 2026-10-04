@@ -351,7 +351,7 @@ fn hmac_display(source: &str, record: &RecordMetadata) -> Result<String> {
     Ok(output)
 }
 
-const ENCODED_DISPLAY: &str = r#"    override fun toString(): String = "EncodedContent(type=$type, parameters=${parameters.mapValues { (name, value) -> if (name == "secret") "<redacted>" else value }}, fallback=$fallback, content=${content.contentToString()})"
+const ENCODED_DISPLAY: &str = r#"    override fun toString(): String = "EncodedContent(type=$type, parameters=${parameters.mapValues { (name, value) -> if (name == "secret") "<redacted>" else value }}, fallback=$fallback, contentBytes=${content.size})"
 
 "#;
 

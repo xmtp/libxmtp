@@ -105,11 +105,15 @@ impl BackendSource {
 
 pub(crate) struct AuthBridge {
     source: Arc<dyn CredentialSource>,
+    callback_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AuthBridge {
     pub(crate) fn new(source: Arc<dyn CredentialSource>) -> Self {
-        Self { source }
+        Self {
+            source,
+            callback_lock: Arc::new(tokio::sync::Mutex::new(())),
+        }
     }
 }
 
@@ -117,10 +121,16 @@ impl AuthBridge {
 impl xmtp_api_backend::AuthCallback for AuthBridge {
     async fn on_auth_required(&self) -> Result<xmtp_api_backend::Credential, BoxDynError> {
         let source = self.source.clone();
-        let result = foreign::call(async move { source.credential().await })
-            .await
-            .map_err(|_| "auth callback failed")?
-            .map_err(|_| "auth callback failed")?;
+        let callback_guard = self.callback_lock.clone().lock_owned().await;
+        let result = foreign::call(async move {
+            // The foreign task outlives a cancelled caller. Keep its callback
+            // guard until the foreign callback returns.
+            let _callback_guard = callback_guard;
+            source.credential().await
+        })
+        .await
+        .map_err(|_| "auth callback failed")?
+        .map_err(|_| "auth callback failed")?;
         let name = result
             .name
             .map(|name| name.parse::<http::header::HeaderName>())

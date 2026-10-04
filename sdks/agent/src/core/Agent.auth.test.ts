@@ -181,6 +181,33 @@ describe("agent environment storage", () => {
     },
   );
 
+  it.each([".. ", ". ", "...", "production.", "production "])(
+    "rejects Windows-normalized environment label %j before filesystem access",
+    async (label) => {
+      const { create } = setup(directory());
+      vi.stubEnv("XMTP_ENV", label);
+      const mkdir = vi.spyOn(fs, "mkdirSync");
+      const readdir = vi.spyOn(fs, "readdirSync");
+      const readDirectory = vi.spyOn(fs.promises, "readdir");
+      const originalPlatform = Object.getOwnPropertyDescriptor(
+        process,
+        "platform",
+      )!;
+      Object.defineProperty(process, "platform", { value: "win32" });
+      try {
+        await expect(Agent.createFromEnv()).rejects.toThrow(
+          "XMTP_ENV must be a safe storage label.",
+        );
+        expect(mkdir).not.toHaveBeenCalled();
+        expect(readdir).not.toHaveBeenCalled();
+        expect(readDirectory).not.toHaveBeenCalled();
+        expect(create).not.toHaveBeenCalled();
+      } finally {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+    },
+  );
+
   it("reopens one legacy default database from the working directory", async () => {
     const workingDirectory = directory();
     fs.mkdirSync(workingDirectory);
