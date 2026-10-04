@@ -30,56 +30,84 @@ it("uses the SDK deployment file name for the complete identifier", async () => 
   }
 });
 
-it("cleans recorded plaintext and keeps an unknown deployment directory", async () => {
-  const label = `scope-${crypto.randomUUID()}`;
-  const identifier = "selected-deployment";
-  const selected = await deploymentComponent(identifier);
-  const forged = `forged-${await deploymentHash(identifier)}`;
-  const inbox = "a".repeat(64);
-  const plaintext = "b".repeat(64);
-  const root = await navigator.storage.getDirectory();
-  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
-  const backend = await sdk.getDirectoryHandle(label, { create: true });
-  const record = await backend.getFileHandle("deployments.json", {
-    create: true,
-  });
-  const writer = await record.createWritable();
-  await writer.write(
-    JSON.stringify({
-      version: 1,
-      deployments: { "https://example.com/b": identifier },
-    }),
-  );
-  await writer.close();
-  const attachments = async (name: string) => {
-    const deployment = await backend.getDirectoryHandle(name, { create: true });
-    const inboxDir = await deployment.getDirectoryHandle(inbox, {
+it.each(["listed", "unlisted", "unavailable"])(
+  "sweeps current plaintext only when its database is listed: %s",
+  async (listing) => {
+    const label = `scope-${crypto.randomUUID()}`;
+    const identifier = "selected-deployment";
+    const selected = await deploymentComponent(identifier);
+    const forged = `forged-${await deploymentHash(identifier)}`;
+    const inbox = "a".repeat(64);
+    const plaintext = "b".repeat(64);
+    const root = await navigator.storage.getDirectory();
+    const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+    const backend = await sdk.getDirectoryHandle(label, { create: true });
+    const record = await backend.getFileHandle("deployments.json", {
       create: true,
     });
-    const directory = await inboxDir.getDirectoryHandle("attachments", {
-      create: true,
+    const writer = await record.createWritable();
+    await writer.write(
+      JSON.stringify({
+        version: 1,
+        deployments: { "https://example.com/b": identifier },
+      }),
+    );
+    await writer.close();
+    const attachments = async (name: string) => {
+      const deployment = await backend.getDirectoryHandle(name, {
+        create: true,
+      });
+      const inboxDir = await deployment.getDirectoryHandle(inbox, {
+        create: true,
+      });
+      const directory = await inboxDir.getDirectoryHandle("attachments", {
+        create: true,
+      });
+      await directory.getDirectoryHandle(plaintext, { create: true });
+      await directory.getDirectoryHandle(".tmp", { create: true });
+      await directory.getDirectoryHandle(".staged", { create: true });
+      return directory;
+    };
+    const selectedAttachments = await attachments(selected);
+    const forgedAttachments = await attachments(forged);
+    const dbPath = `xmtp-sdk/${label}/${selected}/${inbox}/xmtp.db3`;
+    const listFiles = vi.fn(async () => {
+      if (listing === "unavailable") throw new Error("listing failed");
+      return listing === "listed" ? [`/${dbPath}`] : [];
     });
-    await directory.getDirectoryHandle(plaintext, { create: true });
-    await directory.getDirectoryHandle(".staged", { create: true });
-    return directory;
-  };
-  const selectedAttachments = await attachments(selected);
-  const forgedAttachments = await attachments(forged);
-  try {
-    await cleanStoredSessionAttachments();
-    await expect(
-      selectedAttachments.getDirectoryHandle(plaintext),
-    ).rejects.toMatchObject({ name: "NotFoundError" });
-    await expect(
-      selectedAttachments.getDirectoryHandle(".staged"),
-    ).resolves.toBeDefined();
-    await expect(
-      forgedAttachments.getDirectoryHandle(plaintext),
-    ).resolves.toBeDefined();
-  } finally {
-    await sdk.removeEntry(label, { recursive: true });
-  }
-});
+    const end = vi.fn(async () => {});
+    const admin = vi
+      .spyOn(Storage, "admin")
+      .mockResolvedValue({ listFiles, end } as unknown as Awaited<
+        ReturnType<typeof Storage.admin>
+      >);
+    try {
+      await cleanStoredSessionAttachments();
+      for (const name of [plaintext, ".tmp"]) {
+        if (listing === "listed") {
+          await expect(
+            selectedAttachments.getDirectoryHandle(name),
+          ).rejects.toMatchObject({ name: "NotFoundError" });
+        } else {
+          await expect(
+            selectedAttachments.getDirectoryHandle(name),
+          ).resolves.toBeDefined();
+        }
+      }
+      await expect(
+        selectedAttachments.getDirectoryHandle(".staged"),
+      ).resolves.toBeDefined();
+      await expect(
+        forgedAttachments.getDirectoryHandle(plaintext),
+      ).resolves.toBeDefined();
+      expect(listFiles).toHaveBeenCalledOnce();
+      expect(end).toHaveBeenCalledOnce();
+    } finally {
+      admin.mockRestore();
+      await sdk.removeEntry(label, { recursive: true });
+    }
+  },
+);
 
 it("keeps legacy plaintext without a listed database", async () => {
   const dbPath = `xmtp-${crypto.randomUUID()}-${"a".repeat(64)}.db3`;

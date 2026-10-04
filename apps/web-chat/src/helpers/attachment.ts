@@ -54,7 +54,7 @@ export const pendingAttachmentCleanupPaths = async (): Promise<string[]> => {
     return [];
   }
   const legacyDatabases = paths.some((path) => isLegacyDatabasePath(path))
-    ? await listedLegacyDatabasePaths()
+    ? await listedDatabasePaths()
     : new Set<string>();
   const admitted = await Promise.all(
     paths.map(async (path) =>
@@ -177,7 +177,7 @@ export const isLegacyDatabasePath = (dbPath: string, label?: string) => {
   );
 };
 
-const listedLegacyDatabasePaths = async (): Promise<Set<string>> => {
+const listedDatabasePaths = async (): Promise<Set<string>> => {
   try {
     const admin = await Storage.admin();
     try {
@@ -188,7 +188,7 @@ const listedLegacyDatabasePaths = async (): Promise<Set<string>> => {
       await admin.end();
     }
   } catch {
-    // Keep legacy files when database ownership cannot be checked.
+    // Keep files when database ownership cannot be checked.
     return new Set();
   }
 };
@@ -305,12 +305,12 @@ export const cleanSessionAttachments = async (dbPath: string | undefined) => {
 
 // Check every app-owned attachment directory before a new session starts.
 export const cleanStoredSessionAttachments = async () => {
-  let legacyDatabases: Set<string> | undefined;
-  const hasListedLegacyDatabase = async (dbPath: string): Promise<boolean> => {
-    if (legacyDatabases === undefined) {
-      legacyDatabases = await listedLegacyDatabasePaths();
+  let databases: Set<string> | undefined;
+  const hasListedDatabase = async (dbPath: string): Promise<boolean> => {
+    if (databases === undefined) {
+      databases = await listedDatabasePaths();
     }
-    return legacyDatabases.has(dbPath);
+    return databases.has(dbPath);
   };
   const root = await navigator.storage.getDirectory();
   for await (const [name, handle] of root.entries()) {
@@ -318,10 +318,7 @@ export const cleanStoredSessionAttachments = async () => {
     if (name !== "xmtp-sdk") {
       if (name.endsWith(".attachments")) {
         const dbPath = name.slice(0, -".attachments".length);
-        if (
-          isLegacyDatabasePath(dbPath) &&
-          (await hasListedLegacyDatabase(dbPath))
-        ) {
+        if (isLegacyDatabasePath(dbPath) && (await hasListedDatabase(dbPath))) {
           await removePlaintextAttachmentDirectories(dbPath);
         }
       }
@@ -344,7 +341,10 @@ export const cleanStoredSessionAttachments = async () => {
         ).entries()) {
           if (directory.kind !== "directory") continue;
           const dbPath = `xmtp-sdk/${label}/${database}/${inbox}/xmtp.db3`;
-          if (isCurrentDatabasePath(dbPath)) {
+          if (
+            isCurrentDatabasePath(dbPath) &&
+            (await hasListedDatabase(dbPath))
+          ) {
             await removePlaintextAttachmentDirectories(dbPath);
           }
         }

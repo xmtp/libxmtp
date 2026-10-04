@@ -789,6 +789,7 @@ it("cleans orphan plaintext before another inbox starts after both pagehide safe
     expect(mocks.create).toHaveBeenCalledTimes(1);
     stillBusy.mockRestore();
 
+    mocks.listFiles.mockResolvedValueOnce([dbPath]);
     await act(async () => {
       await second.result.current.initialize({
         backendUrl: "https://example.com",
