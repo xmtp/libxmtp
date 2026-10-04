@@ -81,6 +81,8 @@ jobs:
         run: |
           /c/Strawberry/perl/bin/perl.exe -MLocale::Maketext::Simple -e 1
           python crates/xmtp_sdk/dev/sdk-artifacts.py build --targets node --profile release --rust-target x86_64-pc-windows-msvc --skip-bindgen --artifacts target/sdk-node-windows
+          # The Rust cache can restore this temporary checkout.
+          rm -rf target/sdk-node-runtime-source
           git clone https://github.com/neekolas/uniffi-bindgen-react-native.git target/sdk-node-runtime-source
           fork_rev=$(node -p 'require("fs").readFileSync("Cargo.toml", "utf8").match(/\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/)[1]')
           git -C target/sdk-node-runtime-source checkout "$fork_rev"
