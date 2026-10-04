@@ -115,4 +115,40 @@ describe("Node backend authentication", () => {
     });
     expect(authCallback).toHaveBeenCalledTimes(2);
   });
+
+  it("reports a permanently rejected credential with a public error kind", async ({
+    skip,
+  }) => {
+    const backendUrl = process.env.XMTP_BACKEND_URL!;
+    const configuration = await Client.fetchServerConfiguration({
+      url: backendUrl,
+    });
+    if (!configuration.auth.enabled) skip();
+    const { signer } = createSigner();
+    const identifier = await signer.identity();
+    const authCallback = vi.fn(async () => ({
+      value: "Bearer wrong-sdk-auth-key-00000000000000000000",
+      expiresAtSeconds: BigInt(Math.floor(Date.now() / 1000) + 3600),
+    }));
+    let failure: unknown;
+    try {
+      await Client.canMessage([identifier], {
+        url: backendUrl,
+        credentials: { credential: authCallback },
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(XmtpError.CredentialRejected);
+    expect(failure).toMatchObject({
+      details: {
+        code: "CredentialRejected",
+        category: "callback",
+        retryable: true,
+        message: "credential rejected",
+      },
+    });
+    expect(String(failure)).not.toContain("wrong-sdk-auth-key");
+    expect(authCallback).toHaveBeenCalled();
+  });
 });
