@@ -697,6 +697,14 @@ function bridgeHandle(raw: unknown, type: string): HandleWire { const value = br
                 )?;
             }
             Metadata::Record(record) => {
+                if record.fields.is_empty() {
+                    writeln!(
+                        code,
+                        "function decodeRecord{}(_session: MainSession, raw: unknown): B.{} {{ bridgeRecord(raw); return {{}}; }}",
+                        record.name, record.name
+                    )?;
+                    continue;
+                }
                 writeln!(
                     code,
                     "function decodeRecord{}(session: MainSession, raw: unknown): B.{} {{ const fields = bridgeRecord(raw); return {{",
@@ -851,6 +859,14 @@ fn render(
     for item in items {
         match item {
             Metadata::Record(record) => {
+                if record.fields.is_empty() {
+                    writeln!(
+                        wire,
+                        "export type Wire{} = Record<string, never>;",
+                        record.name
+                    )?;
+                    continue;
+                }
                 writeln!(wire, "export interface Wire{} {{", record.name)?;
                 for field in &record.fields {
                     writeln!(

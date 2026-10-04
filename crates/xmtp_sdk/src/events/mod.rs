@@ -118,7 +118,7 @@ impl From<core::ConnectionState> for ConnectionState {
 }
 
 /// The attachment an `attachment.*` event reports.
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AttachmentRef {
     pub attachment_key: String,
     pub url: String,
@@ -126,12 +126,33 @@ pub struct AttachmentRef {
 }
 
 /// The attachment a failed transfer reports, with its failure cause.
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AttachmentFailed {
     pub attachment_key: String,
     pub url: String,
     pub content_digest: String,
     pub cause: AttachmentFailureCause,
+}
+
+impl std::fmt::Debug for AttachmentRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentRef")
+            .field("attachment_key", &self.attachment_key)
+            .field("url", &"<redacted>")
+            .field("content_digest", &self.content_digest)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for AttachmentFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentFailed")
+            .field("attachment_key", &self.attachment_key)
+            .field("url", &"<redacted>")
+            .field("content_digest", &self.content_digest)
+            .field("cause", &self.cause)
+            .finish()
+    }
 }
 
 impl From<core::AttachmentRef> for AttachmentRef {
@@ -561,3 +582,6 @@ impl ClientEvent {
         }
     }
 }
+
+#[cfg(test)]
+mod diagnostics;
