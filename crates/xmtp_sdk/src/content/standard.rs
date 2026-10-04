@@ -19,7 +19,7 @@ impl std::fmt::Debug for EncodedContent {
             .field("type", &self.r#type)
             .field("parameters", &parameters)
             .field("fallback", &self.fallback)
-            .field("content", &self.content)
+            .field("content_bytes", &self.content.len())
             .finish()
     }
 }
