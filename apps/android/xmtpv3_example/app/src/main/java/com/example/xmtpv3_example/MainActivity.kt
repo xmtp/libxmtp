@@ -24,13 +24,7 @@ class MainActivity : AppCompatActivity() {
                                 ClientOptions(
                                     backend =
                                         BackendSource.Options(
-                                            BackendOptions(
-                                                url =
-                                                    checkedBackendUrl(
-                                                        BuildConfig.XMTP_BACKEND_URL,
-                                                        BuildConfig.DEBUG,
-                                                    ),
-                                            ),
+                                            BackendOptions(url = BuildConfig.XMTP_BACKEND_URL),
                                         ),
                                     storage = StorageOptions(location = StorageLocation.Default),
                                 ),
