@@ -24,6 +24,8 @@ jobs:
         # that output and typecheck the tests against it.
         run: dev/nix-shell 'pnpm -r --filter "!@xmtp/node-bindings" --filter "!@xmtp/wasm-bindings" run typecheck'
       - name: Oxlint JavaScript workspace
-        run: dev/nix-shell 'pnpm lint'
+        # Retained binding tests import declarations from a test-utils addon.
+        # Its test job builds that addon and lints those tests there.
+        run: dev/nix-shell 'pnpm -r --filter "!@xmtp/node-bindings" run lint'
       - name: Check JavaScript formatting
         run: just lint-js-format
