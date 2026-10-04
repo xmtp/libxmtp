@@ -54,9 +54,7 @@ export class ConversationContext<
       unencryptedFile,
       uploadCallback,
     );
-    await this.#conversation.sendRemoteAttachment(remoteAttachment, {
-      shouldPush: false,
-    });
+    await this.#conversation.sendRemoteAttachment(remoteAttachment);
   }
 
   /** Return the conversation that triggered this context. */

@@ -1,5 +1,5 @@
 import type { Client, Conversation } from "@xmtp/node-sdk";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { ConversationContext } from "./ConversationContext";
 
@@ -22,4 +22,26 @@ describe("ConversationContext consent methods", () => {
       expect(await context.isUnknown()).toBe(consentState === "unknown");
     });
   }
+});
+
+describe("ConversationContext remote attachments", () => {
+  it("uses the SDK push default", async () => {
+    const remoteAttachment = { url: "https://example.com/attachment" };
+    const sendRemoteAttachment = vi.fn().mockResolvedValue(undefined);
+    const upload = vi.fn().mockResolvedValue(undefined);
+    const create = vi.fn().mockResolvedValue({
+      upload,
+      remoteAttachment,
+    });
+    const conversation = { sendRemoteAttachment } as unknown as Conversation;
+    const client = { attachments: { create } } as unknown as Client;
+    const context = new ConversationContext({ conversation, client });
+
+    await context.sendRemoteAttachment(new File(["hello"], "hello.txt"));
+
+    expect(upload).toHaveBeenCalledOnce();
+    expect(sendRemoteAttachment).toHaveBeenCalledExactlyOnceWith(
+      remoteAttachment,
+    );
+  });
 });
