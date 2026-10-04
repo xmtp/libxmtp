@@ -39,6 +39,24 @@ class AttachmentFormattingTest {
     }
 
     @Test
+    fun encodedRemoteAttachmentTextKeepsSecretStructured() {
+        val secret = "encoded-secret-sentinel"
+        val parameters = mapOf("secret" to secret, "scheme" to "https")
+        val value =
+            EncodedContent(
+                ContentTypeId("xmtp.org", "remoteStaticAttachment", 1u, 0u),
+                parameters,
+                null,
+                byteArrayOf(1),
+            )
+        val reply = ReplyContent("message", null, value)
+        val forms = listOf(value.toString(), reply.toString(), listOf(reply).toString())
+        assertEquals("Encoded diagnostics expose the test secret", 0, forms.count { it.contains(secret) })
+        assertEquals(parameters, value.parameters)
+        assertEquals(secret, reply.content.parameters["secret"])
+    }
+
+    @Test
     fun attachmentRefTextPreservesStructuredUrl() {
         val value = AttachmentRef("key", url, "digest")
         checkUrlText(value, ClientEvent.AttachmentUploadStarted(value))
