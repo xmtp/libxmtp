@@ -31,7 +31,7 @@ private final class StreamCompletion: @unchecked Sendable {
         do {
             try callback?(reason)
         } catch {
-            NSLog("XMTP stream close callback failed: %@", String(describing: error))
+            NSLog("XMTP stream close callback failed")
         }
     }
 
