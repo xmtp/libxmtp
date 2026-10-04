@@ -15,6 +15,7 @@ Run from the repository root. Each recipe uses the Android Nix shell.
 Build tools use normal parallelism and preserve caller job settings.
 The format recipe uses strict dependency verification and stops its Gradle daemon.
 The dependency locks include the pinned Spotless formatter graph.
+The config check tests settings service startup and clock failure before emulator tests.
 
 ```bash
 dev/nix-shell 'just android build'

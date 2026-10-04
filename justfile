@@ -87,6 +87,7 @@ lint-rust:
 
 # Config linting: TOML, Nix, shell scripts, and the SDK API manifest
 lint-config: lint-treefmt sdk-manifest-check
+    python3.11 dev/tests/test_android_clock.py
 
 # Check retention and source rows without requiring generated SDK products.
 sdk-manifest-check:

@@ -910,38 +910,66 @@ async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
             ));
         }
     }
-    let records = sink.0.lock();
+    {
+        let records = sink.0.lock();
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| record.message == "stream all messages")
+                .count(),
+            2
+        );
+        assert!(
+            records
+                .iter()
+                .any(|record| record.message.contains("processing own message for intent"))
+        );
+        let extracted = records
+            .iter()
+            .find(|record| record.message.contains("extracted sender inbox id"))
+            .expect("actual envelope processing emits the sender record");
+        assert!(extracted.fields.contains_key("installation_id"));
+        assert!(records.iter().any(
+            |record| record.fields.contains_key("sender_installation_id")
+                && !record.fields.contains_key("actor_installation_id")
+        ));
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| {
+                    record.fields.contains_key("actor_installation_id")
+                        || record.message.contains("actor_installation_id")
+                })
+                .count(),
+            2,
+            "both own and external staged commits reach the app sink"
+        );
+    }
+    tester!(alix2, from: alix, disable_workers);
+    assert_ne!(alix2.installation_id, alix.installation_id);
+    receiver.sync().with_subscriber(capture.dispatch()).await?;
+    receiver
+        .maybe_update_installations(Some(0))
+        .with_subscriber(capture.dispatch())
+        .await?;
     assert_eq!(
+        bo.context
+            .db()
+            .pending_envelope(&topic, Cursor(1))?
+            .unwrap()
+            .envelope,
+        retained.envelope
+    );
+    let records = sink.0.lock();
+    assert!(
         records
             .iter()
-            .filter(|record| record.message == "stream all messages")
-            .count(),
-        2
+            .any(|record| record.message == "syncing group")
     );
     assert!(
         records
             .iter()
-            .any(|record| record.message.contains("processing own message for intent"))
-    );
-    let extracted = records
-        .iter()
-        .find(|record| record.message.contains("extracted sender inbox id"))
-        .expect("actual envelope processing emits the sender record");
-    assert!(extracted.fields.contains_key("installation_id"));
-    assert!(records.iter().any(
-        |record| record.fields.contains_key("sender_installation_id")
-            && !record.fields.contains_key("actor_installation_id")
-    ));
-    assert_eq!(
-        records
-            .iter()
-            .filter(|record| {
-                record.fields.contains_key("actor_installation_id")
-                    || record.message.contains("actor_installation_id")
-            })
-            .count(),
-        2,
-        "both own and external staged commits reach the app sink"
+            .any(|record| record.message.starts_with("Adding missing installations"))
     );
     let json = capture.output();
     let json_disclosures = full_ids
