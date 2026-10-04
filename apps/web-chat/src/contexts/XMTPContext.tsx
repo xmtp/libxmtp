@@ -229,7 +229,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
           await retryPendingDatabaseDeletions();
           const pendingPaths = new Set([
             attachmentDbPath.current,
-            ...pendingAttachmentCleanupPaths(),
+            ...(await pendingAttachmentCleanupPaths()),
           ]);
           for (const dbPath of pendingPaths) {
             await cleanSessionAttachments(dbPath);

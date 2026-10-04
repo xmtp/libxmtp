@@ -1,6 +1,8 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { deploymentComponent } from "@/helpers/attachment";
+
 import { XMTPProvider, useXMTP } from "./XMTPContext";
 
 const mocks = vi.hoisted(() => {
@@ -445,12 +447,24 @@ it("removes local plaintext but keeps staged ciphertext on disconnect", async ()
 });
 
 it("records pagehide cleanup and removes plaintext before a new account starts", async () => {
-  const deployment = `pagehide-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const identifier = `pagehide-${crypto.randomUUID()}`;
+  const deployment = await deploymentComponent(identifier);
   const inboxId = "a".repeat(64);
   const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const record = await backend.getFileHandle("deployments.json", {
+    create: true,
+  });
+  const writer = await record.createWritable();
+  await writer.write(
+    JSON.stringify({
+      version: 1,
+      deployments: { "https://example.com": identifier },
+    }),
+  );
+  await writer.close();
   const path = await backend.getDirectoryHandle(deployment, { create: true });
   const inbox = await path.getDirectoryHandle(inboxId, { create: true });
   const attachments = await inbox.getDirectoryHandle("attachments", {
@@ -504,6 +518,7 @@ it("records pagehide cleanup and removes plaintext before a new account starts",
   } finally {
     localStorage.removeItem(journalKey);
     await backend.removeEntry(deployment, { recursive: true });
+    await backend.removeEntry("deployments.json");
   }
 });
 
@@ -669,7 +684,8 @@ it("keeps pagehide cleanup incomplete when client shutdown fails", async () => {
 });
 
 it("cleans orphan plaintext before another inbox starts after both pagehide safeguards fail", async () => {
-  const deployment = `orphan-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const identifier = `orphan-${crypto.randomUUID()}`;
+  const deployment = await deploymentComponent(identifier);
   const inboxId = "a".repeat(64);
   const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
   const legacyDbPath = `xmtp-test-${"b".repeat(64)}.db3`;
@@ -689,6 +705,17 @@ it("cleans orphan plaintext before another inbox starts after both pagehide safe
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const record = await backend.getFileHandle("deployments.json", {
+    create: true,
+  });
+  const writer = await record.createWritable();
+  await writer.write(
+    JSON.stringify({
+      version: 1,
+      deployments: { "https://example.com": identifier },
+    }),
+  );
+  await writer.close();
   const database = await backend.getDirectoryHandle(deployment, {
     create: true,
   });
@@ -779,6 +806,7 @@ it("cleans orphan plaintext before another inbox starts after both pagehide safe
     storageSpy.mockRestore();
     opfsSpy.mockRestore();
     await backend.removeEntry(deployment, { recursive: true });
+    await backend.removeEntry("deployments.json");
     await root.removeEntry(`${legacyDbPath}.attachments`, { recursive: true });
     await root.removeEntry(unrelatedName, { recursive: true });
   }
@@ -950,12 +978,24 @@ it("removes attachment files after lock loss when the journal write fails", asyn
 });
 
 it("removes attachment files on the next start if lock-loss cleanup fails", async () => {
-  const deployment = `retry-lock-loss-${crypto.randomUUID().replaceAll("-", "").repeat(2)}`;
+  const identifier = `retry-lock-loss-${crypto.randomUUID()}`;
+  const deployment = await deploymentComponent(identifier);
   const inboxId = "a".repeat(64);
   const dbPath = `xmtp-sdk/test/${deployment}/${inboxId}/xmtp.db3`;
   const root = await navigator.storage.getDirectory();
   const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
   const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const record = await backend.getFileHandle("deployments.json", {
+    create: true,
+  });
+  const writer = await record.createWritable();
+  await writer.write(
+    JSON.stringify({
+      version: 1,
+      deployments: { "https://example.com": identifier },
+    }),
+  );
+  await writer.close();
   const path = await backend.getDirectoryHandle(deployment, { create: true });
   const inbox = await path.getDirectoryHandle(inboxId, { create: true });
   const attachments = await inbox.getDirectoryHandle("attachments", {
@@ -1004,6 +1044,7 @@ it("removes attachment files on the next start if lock-loss cleanup fails", asyn
   } finally {
     getDirectory.mockRestore();
     await backend.removeEntry(deployment, { recursive: true });
+    await backend.removeEntry("deployments.json");
   }
 });
 

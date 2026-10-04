@@ -44,14 +44,22 @@ const clearPending = (key: string, dbPath: string) => {
   );
 };
 
-export const pendingAttachmentCleanupPaths = (): string[] => {
+export const pendingAttachmentCleanupPaths = async (): Promise<string[]> => {
+  let paths: string[];
   try {
-    return pendingPaths(pendingAttachmentCleanupKey).filter(
+    paths = pendingPaths(pendingAttachmentCleanupKey).filter(
       (path) => isCurrentDatabasePath(path) || isLegacyDatabasePath(path),
     );
   } catch {
     return [];
   }
+  const admitted = await Promise.all(
+    paths.map(
+      async (path) =>
+        isLegacyDatabasePath(path) || (await hasRecordedDeployment(path)),
+    ),
+  );
+  return paths.filter((_, index) => admitted[index]);
 };
 
 export const markAttachmentCleanupPending = (dbPath: string) => {
@@ -165,6 +173,64 @@ export const isLegacyDatabasePath = (dbPath: string, label?: string) => {
   );
 };
 
+const recordedDeploymentComponents = async (
+  backend: FileSystemDirectoryHandle,
+): Promise<Set<string>> => {
+  let file: FileSystemFileHandle;
+  try {
+    file = await backend.getFileHandle("deployments.json");
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "NotFoundError") {
+      return new Set();
+    }
+    throw cause;
+  }
+  let record: unknown;
+  try {
+    record = JSON.parse(await (await file.getFile()).text());
+  } catch {
+    return new Set();
+  }
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    return new Set();
+  }
+  const { version, deployments } = record as {
+    version?: unknown;
+    deployments?: unknown;
+  };
+  if (
+    version !== 1 ||
+    typeof deployments !== "object" ||
+    deployments === null ||
+    Array.isArray(deployments)
+  ) {
+    return new Set();
+  }
+  const identifiers = Object.values(deployments);
+  if (
+    !identifiers.every((value): value is string => typeof value === "string")
+  ) {
+    return new Set();
+  }
+  return new Set(await Promise.all(identifiers.map(deploymentComponent)));
+};
+
+const hasRecordedDeployment = async (dbPath: string): Promise<boolean> => {
+  if (!isCurrentDatabasePath(dbPath)) return false;
+  const [, label, deployment] = dbPath.replace(/^\/+/, "").split("/");
+  const root = await navigator.storage.getDirectory();
+  try {
+    const sdk = await root.getDirectoryHandle("xmtp-sdk");
+    const backend = await sdk.getDirectoryHandle(label);
+    return (await recordedDeploymentComponents(backend)).has(deployment);
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "NotFoundError") {
+      return false;
+    }
+    throw cause;
+  }
+};
+
 export const retryPendingDatabaseDeletions = async () => {
   for (const dbPath of pendingDatabaseDeletionPaths()) {
     const current = isCurrentDatabasePath(dbPath);
@@ -172,6 +238,7 @@ export const retryPendingDatabaseDeletions = async () => {
     if (!current && !legacy) throw new Error("Invalid local database path.");
     // A legacy file name does not identify its backend deployment.
     if (legacy) continue;
+    if (!(await hasRecordedDeployment(dbPath))) continue;
     const admin = await Storage.admin();
     try {
       await admin.deleteFile(dbPath);
@@ -234,10 +301,14 @@ export const cleanStoredSessionAttachments = async () => {
       handle as FileSystemDirectoryHandle
     ).entries()) {
       if (backend.kind !== "directory") continue;
+      const recorded = await recordedDeploymentComponents(
+        backend as FileSystemDirectoryHandle,
+      );
       for await (const [database, deployment] of (
         backend as FileSystemDirectoryHandle
       ).entries()) {
         if (deployment.kind !== "directory") continue;
+        if (!recorded.has(database)) continue;
         for await (const [inbox, directory] of (
           deployment as FileSystemDirectoryHandle
         ).entries()) {

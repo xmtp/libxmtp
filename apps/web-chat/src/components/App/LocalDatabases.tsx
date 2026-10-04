@@ -31,7 +31,7 @@ export const LocalDatabases: React.FC = () => {
     try {
       if (!remove) {
         await retryPendingDatabaseDeletions();
-        for (const dbPath of pendingAttachmentCleanupPaths()) {
+        for (const dbPath of await pendingAttachmentCleanupPaths()) {
           await cleanSessionAttachments(dbPath);
         }
       }

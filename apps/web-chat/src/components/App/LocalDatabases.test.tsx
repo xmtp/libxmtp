@@ -272,6 +272,54 @@ it("does not retry an ambiguous legacy deletion intent", async () => {
   }
 });
 
+it("does not retry a database deletion outside recorded deployments", async () => {
+  mocks.backendUrl = "https://example.com/b";
+  const selectedDeployment = await deploymentComponent("selected-deployment");
+  const forged = `xmtp-sdk/selected-backend/forged-${selectedDeployment.slice("selected-deployment-".length)}/${"a".repeat(64)}/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("selected-backend", {
+    create: true,
+  });
+  const record = await backend.getFileHandle("deployments.json", {
+    create: true,
+  });
+  const writer = await record.createWritable();
+  await writer.write(
+    JSON.stringify({
+      version: 1,
+      deployments: { "https://example.com/b": "selected-deployment" },
+    }),
+  );
+  await writer.close();
+  localStorage.setItem(
+    "XMTP_PENDING_DATABASE_DELETION",
+    JSON.stringify([forged]),
+  );
+  mocks.list.mockResolvedValue([forged]);
+  mocks.admin.mockResolvedValue({
+    listFiles: mocks.list,
+    deleteFile: mocks.remove,
+    end: mocks.end,
+  });
+  try {
+    render(
+      <MantineProvider>
+        <LocalDatabases />
+      </MantineProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Local databases" }));
+    await waitFor(() => expect(mocks.end).toHaveBeenCalled());
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(localStorage.getItem("XMTP_PENDING_DATABASE_DELETION")).toBe(
+      JSON.stringify([forged]),
+    );
+  } finally {
+    localStorage.removeItem("XMTP_PENDING_DATABASE_DELETION");
+    await backend.removeEntry("deployments.json");
+  }
+});
+
 it("retries attachment cleanup after the database file is deleted", async () => {
   const deployment = await deploymentComponent("selected-deployment");
   const inboxId = "c".repeat(64);
@@ -382,6 +430,17 @@ it("retries a saved deletion intent after the database delete fails", async () =
   const backend = await sdk.getDirectoryHandle("selected-backend", {
     create: true,
   });
+  const record = await backend.getFileHandle("deployments.json", {
+    create: true,
+  });
+  const writer = await record.createWritable();
+  await writer.write(
+    JSON.stringify({
+      version: 1,
+      deployments: { "https://example.com": "selected-deployment" },
+    }),
+  );
+  await writer.close();
   const directory = await backend.getDirectoryHandle(deployment, {
     create: true,
   });
@@ -440,5 +499,6 @@ it("retries a saved deletion intent after the database delete fails", async () =
   } finally {
     localStorage.removeItem("XMTP_PENDING_DATABASE_DELETION");
     await backend.removeEntry(deployment, { recursive: true });
+    await backend.removeEntry("deployments.json");
   }
 });

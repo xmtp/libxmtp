@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   cleanAttachmentDirectory,
+  cleanStoredSessionAttachments,
   deploymentComponent,
   deploymentHash,
   downloadRemoteAttachment,
@@ -24,6 +25,91 @@ it("uses the SDK deployment file name for the complete identifier", async () => 
     expect(await deploymentComponent(identifier)).toBe(
       `${name}-${await deploymentHash(identifier)}`,
     );
+  }
+});
+
+it("cleans recorded plaintext and keeps an unknown deployment directory", async () => {
+  const label = `scope-${crypto.randomUUID()}`;
+  const identifier = "selected-deployment";
+  const selected = await deploymentComponent(identifier);
+  const forged = `forged-${await deploymentHash(identifier)}`;
+  const inbox = "a".repeat(64);
+  const plaintext = "b".repeat(64);
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle(label, { create: true });
+  const record = await backend.getFileHandle("deployments.json", {
+    create: true,
+  });
+  const writer = await record.createWritable();
+  await writer.write(
+    JSON.stringify({
+      version: 1,
+      deployments: { "https://example.com/b": identifier },
+    }),
+  );
+  await writer.close();
+  const attachments = async (name: string) => {
+    const deployment = await backend.getDirectoryHandle(name, { create: true });
+    const inboxDir = await deployment.getDirectoryHandle(inbox, {
+      create: true,
+    });
+    const directory = await inboxDir.getDirectoryHandle("attachments", {
+      create: true,
+    });
+    await directory.getDirectoryHandle(plaintext, { create: true });
+    await directory.getDirectoryHandle(".staged", { create: true });
+    return directory;
+  };
+  const selectedAttachments = await attachments(selected);
+  const forgedAttachments = await attachments(forged);
+  try {
+    await cleanStoredSessionAttachments();
+    await expect(
+      selectedAttachments.getDirectoryHandle(plaintext),
+    ).rejects.toMatchObject({ name: "NotFoundError" });
+    await expect(
+      selectedAttachments.getDirectoryHandle(".staged"),
+    ).resolves.toBeDefined();
+    await expect(
+      forgedAttachments.getDirectoryHandle(plaintext),
+    ).resolves.toBeDefined();
+  } finally {
+    await sdk.removeEntry(label, { recursive: true });
+  }
+});
+
+it("admits only recorded current paths from the cleanup journal", async () => {
+  const label = `journal-${crypto.randomUUID()}`;
+  const identifier = "selected-deployment";
+  const selected = await deploymentComponent(identifier);
+  const forged = `forged-${await deploymentHash(identifier)}`;
+  const inbox = "a".repeat(64);
+  const selectedPath = `xmtp-sdk/${label}/${selected}/${inbox}/xmtp.db3`;
+  const forgedPath = `xmtp-sdk/${label}/${forged}/${inbox}/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle(label, { create: true });
+  const record = await backend.getFileHandle("deployments.json", {
+    create: true,
+  });
+  const writer = await record.createWritable();
+  await writer.write(
+    JSON.stringify({
+      version: 1,
+      deployments: { "https://example.com/b": identifier },
+    }),
+  );
+  await writer.close();
+  localStorage.setItem(
+    "XMTP_PENDING_ATTACHMENT_CLEANUP",
+    JSON.stringify([selectedPath, forgedPath]),
+  );
+  try {
+    expect(await pendingAttachmentCleanupPaths()).toEqual([selectedPath]);
+  } finally {
+    localStorage.removeItem("XMTP_PENDING_ATTACHMENT_CLEANUP");
+    await sdk.removeEntry(label, { recursive: true });
   }
 });
 
@@ -68,7 +154,7 @@ it("does not use an invalid cleanup journal path for OPFS removal", async () => 
   localStorage.setItem(key, JSON.stringify([malformed]));
   const getDirectory = vi.spyOn(navigator.storage, "getDirectory");
   try {
-    expect(pendingAttachmentCleanupPaths()).toEqual([]);
+    expect(await pendingAttachmentCleanupPaths()).toEqual([]);
     await expect(cleanAttachmentDirectory(malformed)).rejects.toThrow(
       "Invalid local database path",
     );
