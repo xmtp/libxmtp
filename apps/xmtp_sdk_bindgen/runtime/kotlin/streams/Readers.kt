@@ -37,7 +37,13 @@ private fun <T, R> readerFlow(
         var failure: Throwable? = null
         val monitor = CoroutineScope(Dispatchers.Default)
         try {
-            val active = opening.await()
+            val active =
+                try {
+                    opening.await()
+                } catch (error: Throwable) {
+                    failure = error
+                    throw error
+                }
             reader = active
             if (onConnectionStateChange != null) {
                 monitor.launch {
@@ -60,13 +66,16 @@ private fun <T, R> readerFlow(
                 }
             }
             while (true) {
-                owner.raw.clientKey()
-                val value = next(active) ?: break
+                val value =
+                    try {
+                        owner.raw.clientKey()
+                        next(active)
+                    } catch (error: Throwable) {
+                        failure = error
+                        throw error
+                    } ?: break
                 emit(value)
             }
-        } catch (error: Throwable) {
-            failure = error
-            throw error
         } finally {
             monitor.cancel()
             val active = reader

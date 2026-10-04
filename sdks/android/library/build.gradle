@@ -100,7 +100,7 @@ android {
         main {
             def generated = System.getenv("XMTP_SDK_GENERATED_DIR")
             def sources = generated ? "${generated}/kotlin" : "${projectDir.parentFile}/.build/bindings"
-            java.srcDirs += ["${sources}/uniffi", "${sources}/runtime", "${sources}/android"]
+            java.srcDirs += ["${sources}/uniffi", "${sources}/runtime", "${sources}/android"].collect { file(it).canonicalFile }
             jniLibs.srcDirs += [System.getenv("XMTP_SDK_ANDROID_JNI_DIR") ?: "${projectDir.parentFile}/.build/bindings/jniLibs"]
             assets.srcDirs += ["${buildDir}/generated/contract"]
         }
