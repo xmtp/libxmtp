@@ -5,8 +5,11 @@ import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import {
   cleanAttachmentDirectory,
-  markAttachmentCleanupPending,
+  clearDatabaseDeletionPending,
+  markDatabaseDeletionPending,
   pendingAttachmentCleanupPaths,
+  pendingDatabaseDeletionPaths,
+  retryPendingDatabaseDeletions,
 } from "@/helpers/attachment";
 import { backendLabel } from "@/helpers/backend";
 import { useSettings } from "@/hooks/useSettings";
@@ -24,6 +27,7 @@ export const LocalDatabases: React.FC = () => {
     setError(undefined);
     try {
       if (!remove) {
+        await retryPendingDatabaseDeletions();
         for (const dbPath of pendingAttachmentCleanupPaths()) {
           await cleanAttachmentDirectory(dbPath);
         }
@@ -52,14 +56,15 @@ export const LocalDatabases: React.FC = () => {
         if (remove) {
           const pending =
             selected !== null &&
-            pendingAttachmentCleanupPaths().includes(selected);
+            pendingDatabaseDeletionPaths().includes(selected);
           if (!selected || (!available.includes(selected) && !pending))
             throw new Error("Select a local database.");
-          if (!pending) {
+          if (!pending) markDatabaseDeletionPending(selected);
+          if (available.includes(selected)) {
             await admin.deleteFile(selected);
-            markAttachmentCleanupPending(selected);
           }
           await cleanAttachmentDirectory(selected);
+          clearDatabaseDeletionPending(selected);
           setSelected(null);
         }
         setFiles(

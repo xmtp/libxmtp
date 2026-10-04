@@ -1,9 +1,10 @@
-import { type Client, type RemoteAttachment } from "@xmtp/browser-sdk";
+import { Storage, type Client, type RemoteAttachment } from "@xmtp/browser-sdk";
 
 const pendingAttachmentCleanupKey = "XMTP_PENDING_ATTACHMENT_CLEANUP";
+const pendingDatabaseDeletionKey = "XMTP_PENDING_DATABASE_DELETION";
 
-export const pendingAttachmentCleanupPaths = (): string[] => {
-  const stored = localStorage.getItem(pendingAttachmentCleanupKey);
+const pendingPaths = (key: string): string[] => {
+  const stored = localStorage.getItem(key);
   if (!stored) return [];
   try {
     const parsed: unknown = JSON.parse(stored);
@@ -19,27 +20,73 @@ export const pendingAttachmentCleanupPaths = (): string[] => {
   return [stored];
 };
 
-export const markAttachmentCleanupPending = (dbPath: string) => {
-  const pending = new Set(pendingAttachmentCleanupPaths());
-  pending.add(dbPath);
-  localStorage.setItem(
-    pendingAttachmentCleanupKey,
-    JSON.stringify([...pending]),
+const writePendingPaths = (key: string, paths: string[]) => {
+  if (paths.length) {
+    localStorage.setItem(key, JSON.stringify(paths));
+  } else {
+    localStorage.removeItem(key);
+  }
+};
+
+const markPending = (key: string, dbPath: string) => {
+  writePendingPaths(key, [...new Set([...pendingPaths(key), dbPath])]);
+};
+
+const clearPending = (key: string, dbPath: string) => {
+  writePendingPaths(
+    key,
+    pendingPaths(key).filter((path) => path !== dbPath),
   );
+};
+
+export const pendingAttachmentCleanupPaths = (): string[] =>
+  pendingPaths(pendingAttachmentCleanupKey);
+
+export const markAttachmentCleanupPending = (dbPath: string) => {
+  markPending(pendingAttachmentCleanupKey, dbPath);
+};
+
+export const pendingDatabaseDeletionPaths = (): string[] =>
+  pendingPaths(pendingDatabaseDeletionKey);
+
+export const markDatabaseDeletionPending = (dbPath: string) => {
+  markPending(pendingDatabaseDeletionKey, dbPath);
+};
+
+export const clearDatabaseDeletionPending = (dbPath: string) => {
+  clearPending(pendingDatabaseDeletionKey, dbPath);
+};
+
+const validSegment = (part: string) =>
+  part !== "" && part !== "." && part !== ".." && !part.includes("\\");
+
+export const retryPendingDatabaseDeletions = async () => {
+  for (const dbPath of pendingDatabaseDeletionPaths()) {
+    const parts = dbPath.replace(/^\/+/, "").split("/");
+    const current =
+      parts.length === 5 &&
+      parts[0] === "xmtp-sdk" &&
+      parts.slice(1, 4).every(validSegment) &&
+      parts[4] === "xmtp.db3";
+    const legacy =
+      parts.length === 1 && /^xmtp-.+-[0-9a-f]{64}\.db3$/i.test(parts[0]);
+    if (!current && !legacy) throw new Error("Invalid local database path.");
+    const admin = await Storage.admin();
+    try {
+      await admin.deleteFile(dbPath);
+    } finally {
+      await admin.end();
+    }
+    await cleanAttachmentDirectory(dbPath);
+    clearDatabaseDeletionPending(dbPath);
+  }
 };
 
 export const cleanAttachmentDirectory = async (dbPath: string | undefined) => {
   if (dbPath === undefined) return;
   markAttachmentCleanupPending(dbPath);
   await removeAttachmentDirectory(dbPath);
-  const pending = pendingAttachmentCleanupPaths().filter(
-    (path) => path !== dbPath,
-  );
-  if (pending.length) {
-    localStorage.setItem(pendingAttachmentCleanupKey, JSON.stringify(pending));
-  } else {
-    localStorage.removeItem(pendingAttachmentCleanupKey);
-  }
+  clearPending(pendingAttachmentCleanupKey, dbPath);
 };
 
 const MAX_FILE_SIZE = 1024 * 1024; // 1MB

@@ -183,3 +183,110 @@ it("retries attachment cleanup after the database file is deleted", async () => 
     await backend.removeEntry(deployment, { recursive: true });
   }
 });
+
+it("keeps the database when the deletion intent cannot be saved", async () => {
+  const selected = `/xmtp-sdk/selected-backend/deployment/inbox/xmtp.db3`;
+  mocks.list.mockResolvedValue([selected]);
+  mocks.admin.mockResolvedValue({
+    listFiles: mocks.list,
+    deleteFile: mocks.remove,
+    end: mocks.end,
+  });
+  const setItem = Storage.prototype.setItem;
+  const storageSpy = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation(function (this: Storage, key, value) {
+      if (key === "XMTP_PENDING_DATABASE_DELETION") {
+        throw new Error("Deletion intent could not be saved");
+      }
+      return setItem.call(this, key, value);
+    });
+  try {
+    render(
+      <MantineProvider>
+        <LocalDatabases />
+      </MantineProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Local databases" }));
+    await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByRole("combobox", { name: "Database" }), {
+      target: { value: selected },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete selected database" }),
+    );
+    await screen.findByText("Deletion intent could not be saved");
+    expect(mocks.remove).not.toHaveBeenCalled();
+  } finally {
+    storageSpy.mockRestore();
+  }
+});
+
+it("retries a saved deletion intent after the database delete fails", async () => {
+  const deployment = `delete-retry-${crypto.randomUUID()}`;
+  const selected = `/xmtp-sdk/selected-backend/${deployment}/inbox/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("selected-backend", {
+    create: true,
+  });
+  const directory = await backend.getDirectoryHandle(deployment, {
+    create: true,
+  });
+  const inbox = await directory.getDirectoryHandle("inbox", { create: true });
+  await inbox.getDirectoryHandle("attachments", { create: true });
+  mocks.list
+    .mockResolvedValueOnce([selected])
+    .mockResolvedValueOnce([selected])
+    .mockResolvedValue([]);
+  mocks.remove
+    .mockRejectedValueOnce(new Error("Database delete failed"))
+    .mockResolvedValueOnce(true);
+  mocks.admin.mockResolvedValue({
+    listFiles: mocks.list,
+    deleteFile: mocks.remove,
+    end: mocks.end,
+  });
+  try {
+    render(
+      <MantineProvider>
+        <LocalDatabases />
+      </MantineProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Local databases" }));
+    await waitFor(() => expect(mocks.end).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByRole("combobox", { name: "Database" }), {
+      target: { value: selected },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete selected database" }),
+    );
+    await screen.findByText("Database delete failed");
+    expect(localStorage.getItem("XMTP_PENDING_DATABASE_DELETION")).toContain(
+      selected,
+    );
+    await expect(
+      inbox.getDirectoryHandle("attachments"),
+    ).resolves.toBeDefined();
+
+    cleanup();
+    render(
+      <MantineProvider>
+        <LocalDatabases />
+      </MantineProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Local databases" }));
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(localStorage.getItem("XMTP_PENDING_DATABASE_DELETION")).toBeNull(),
+    );
+    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
+      {
+        name: "NotFoundError",
+      },
+    );
+  } finally {
+    localStorage.removeItem("XMTP_PENDING_DATABASE_DELETION");
+    await backend.removeEntry(deployment, { recursive: true });
+  }
+});

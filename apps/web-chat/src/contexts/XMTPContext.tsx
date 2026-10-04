@@ -22,6 +22,7 @@ import {
 import {
   cleanAttachmentDirectory,
   pendingAttachmentCleanupPaths,
+  retryPendingDatabaseDeletions,
 } from "@/helpers/attachment";
 import { backendLabel } from "@/helpers/backend";
 import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
@@ -184,6 +185,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
         let xmtpClient: Client;
 
         try {
+          await retryPendingDatabaseDeletions();
           const pendingPaths = new Set([
             attachmentDbPath.current,
             ...pendingAttachmentCleanupPaths(),
