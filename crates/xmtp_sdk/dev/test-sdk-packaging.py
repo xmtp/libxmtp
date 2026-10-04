@@ -904,12 +904,6 @@ class PackagingTests(
         recorded_after = json.loads(
             (self.args.out / "swift/sdk-contract.json").read_text()
         )
-        print(
-            "Config-only contract before:",
-            recorded_before["contract"],
-            "after:",
-            recorded_after["contract"],
-        )
         self.assertNotEqual(recorded_before["contract"], recorded_after["contract"])
         self.assertNotEqual(before["generator"], recorded_after["generator"])
         with self.assertRaisesRegex(ValueError, "mobile binding contract mismatch"):
