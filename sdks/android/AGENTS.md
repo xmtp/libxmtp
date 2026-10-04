@@ -35,7 +35,10 @@ core library desugaring on in the library and app consumers, with pinned
 verification metadata cover the final resolved graph.
 
 `test-min-sdk` requires a Linux x86_64 runner. It loads release JNI and checks
-generated `Instant` and `Date` conversions on API 23. The Nix emulator launcher
+generated `Instant` and `Date` conversions on API 23. It also creates public
+clients with explicit and in-memory storage, then closes them. Start the normal
+backend before this route. Kotlin generation uses the stock Android cleaner
+mode: JNA below API 34 and `SystemCleaner` on API 34 or later. The Nix emulator launcher
 checks the guest API and synchronizes its clock before it starts the test.
 
 `dev/bindings` stages `android-sdk-libs-fast`. `dev/bindings --release` stages

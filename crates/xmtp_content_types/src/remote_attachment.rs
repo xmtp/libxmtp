@@ -16,7 +16,7 @@ pub struct RemoteAttachmentCodec {}
 /// Result of encrypting an attachment for remote storage.
 ///
 /// Contains the encrypted bytes to upload and all metadata needed to create a `RemoteAttachment`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EncryptedAttachment {
     /// The encrypted bytes to upload to the remote server
     pub payload: Vec<u8>,
@@ -32,6 +32,21 @@ pub struct EncryptedAttachment {
     pub content_length: u32,
     /// The filename of the attachment
     pub filename: Option<String>,
+}
+
+impl std::fmt::Debug for EncryptedAttachment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EncryptedAttachment")
+            .field("payload", &self.payload)
+            .field("content_digest", &self.content_digest)
+            .field("secret", &"<redacted>")
+            .field("salt", &self.salt)
+            .field("nonce", &self.nonce)
+            .field("content_length", &self.content_length)
+            .field("filename", &self.filename)
+            .finish()
+    }
 }
 
 /// Encrypts an attachment for storage as a remote attachment.
