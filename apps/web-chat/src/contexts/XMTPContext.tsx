@@ -1,11 +1,15 @@
 import {
   Client,
+  Storage,
+  type BackendSource,
   type CredentialSource,
   type LogLevel,
   initLogging,
+  type StorageLocation,
   XmtpError,
   type Signer,
 } from "@xmtp/browser-sdk";
+import { generateInboxId, initPureWasm } from "@xmtp/browser-sdk/pure";
 import {
   createContext,
   useCallback,
@@ -23,6 +27,55 @@ import {
 import { backendLabel } from "@/helpers/backend";
 import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
 import { useActions } from "@/stores/inbox/hooks";
+
+const storageLocation = async (
+  signer: Signer,
+  backend: BackendSource,
+  label: string,
+): Promise<StorageLocation> => {
+  const admin = await Storage.admin();
+  let files: string[];
+  try {
+    files = (await admin.listFiles()).map((path) => path.replace(/^\/+/, ""));
+  } finally {
+    await admin.end();
+  }
+
+  const prefix = `xmtp-${label}-`;
+  const legacyFiles = files.filter(
+    (path) =>
+      !path.includes("/") &&
+      path.startsWith(prefix) &&
+      /^[0-9a-f]{64}\.db3$/i.test(path.slice(prefix.length)),
+  );
+  if (legacyFiles.length === 0) return "default";
+
+  const identity = await signer.identity();
+  const reachable = await Client.canMessage([identity], backend);
+  const registered = reachable.get(`${identity.kind}:${identity.identifier}`);
+  if (!registered) await initPureWasm();
+  const inboxId = registered
+    ? await Client.inboxIdFor(identity, backend)
+    : generateInboxId(identity, 1n);
+  const dbPath = `${prefix}${inboxId}.db3`;
+  if (!legacyFiles.includes(dbPath)) return "default";
+
+  const currentExists = files.some((path) => {
+    const parts = path.split("/");
+    return (
+      parts.length === 5 &&
+      parts[0] === "xmtp-sdk" &&
+      parts[1] === label &&
+      Boolean(parts[2]) &&
+      parts[3] === inboxId &&
+      parts[4] === "xmtp.db3"
+    );
+  });
+  if (currentExists)
+    throw new Error("Both old and current databases match this inbox.");
+
+  return { dbPath, attachmentsDir: `${dbPath}.attachments` };
+};
 
 export type InitializeClientOptions = {
   authCallback?: CredentialSource;
@@ -169,13 +222,14 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
             appVersion: "xmtp.chat/0",
           };
           const label = env ?? (await backendLabel(backendUrl));
+          const location = await storageLocation(signer, backend, label);
           if (lockLossEpoch.current !== startingLockEpoch || !ownsLock()) {
             throw new Error("App lock was lost during XMTP initialization");
           }
           xmtpClient = await Client.create(signer, {
             backend,
             storage: {
-              location: "default",
+              location,
               label,
             },
           });
