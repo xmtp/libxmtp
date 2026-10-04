@@ -114,6 +114,28 @@ describe("Client", () => {
     expect(client.options.storage.encryptionKey).toBeUndefined();
     expect(client.storagePath).toBe(resolve(storage.location.dbPath));
   });
+  it("reconnects the same live client storage and keeps its history", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    const storage = client.storage;
+    const inboxId = client.inboxId;
+    try {
+      const path = await storage.path();
+      expect(path).toBe(client.storagePath);
+      const group = await client.conversations.createGroup([]);
+      const messageId = await group.sendText("stored before reconnect");
+      await storage.reconnect();
+      expect(await storage.path()).toBe(path);
+      expect(client.inboxId).toBe(inboxId);
+      expect((await client.conversations.getMessageById(messageId))?.id).toBe(
+        messageId,
+      );
+    } finally {
+      await client.end();
+    }
+    await expect(storage.reconnect()).rejects.toBeInstanceOf(
+      XmtpError.ClientClosed,
+    );
+  });
   it("preserves a shared backend and worker intervals", async () => {
     const backend = {
       url: process.env.XMTP_BACKEND_URL!,
@@ -145,6 +167,19 @@ describe("Client", () => {
     await createRegisteredClient(signer);
     const client2 = await createRegisteredClient(signer);
     expect(await client2.isRegistered()).toBe(true);
+  });
+
+  it("confirms registration before it reports success and permits a repeat", async () => {
+    const client = await createClient(createSigner().signer);
+    try {
+      expect(await client.isRegistered()).toBe(false);
+      await client.register();
+      expect(await client.isRegistered()).toBe(true);
+      await client.register();
+      expect(await client.isRegistered()).toBe(true);
+    } finally {
+      await client.end();
+    }
   });
 
   it("should be able to message a registered identity", async () => {

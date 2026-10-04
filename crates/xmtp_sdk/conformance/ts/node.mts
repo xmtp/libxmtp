@@ -12,7 +12,6 @@ import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typ
 import { EventStream as HostEventStream } from "../../../../target/sdk-conformance/typescript-napi/runtime/events/reader.ts";
 import { checkConfigurationMismatch } from "./config-mismatch.mts";
 import { checkIdentityRoutes } from "./identity-routes.mts";
-import { checkOnValueFailure } from "./node-callback-failure.mts";
 import {
   attachmentEnd,
   attachmentFailures,

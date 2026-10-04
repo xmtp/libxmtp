@@ -11,7 +11,7 @@ describe("preferences stream", () => {
           yield {
             kind: "consent.changed",
             consent_changed: {
-              entityKind: "inbox",
+              entity_kind: "inbox",
               entity: "inbox-1",
               state: "allowed",
             },
@@ -19,7 +19,7 @@ describe("preferences stream", () => {
           yield {
             kind: "consent.changed",
             consent_changed: {
-              entityKind: "conversation",
+              entity_kind: "conversation",
               entity: "group-1",
               state: "denied",
             },

@@ -8,6 +8,31 @@ import { describe, expect, it, vi } from "vitest";
 
 const WAIT = { timeout: 30_000, interval: 100 };
 describe("Preferences", () => {
+  it("uses byte group IDs in the named event payload", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    const events = await client.events({
+      kinds: ["conversation.joined"],
+      references_own_messages: false,
+    });
+    try {
+      const group = await client.conversations.createGroup([]);
+      const next = await events.next();
+      expect(next.done).toBe(false);
+      if (next.done || next.value.kind !== "conversation.joined")
+        throw new Error("expected a joined event");
+      const payload = next.value.conversation_joined;
+      expect(payload.group_id).toBeInstanceOf(Uint8Array);
+      expect(Buffer.from(payload.group_id)).toEqual(
+        Buffer.from(group.id, "hex"),
+      );
+      expect(payload.conversation_type).toBe("group");
+      expect(payload.origin).toBe("created");
+      expect("conversationId" in payload).toBe(false);
+    } finally {
+      await events.return();
+      await client.end();
+    }
+  });
   it("reads local and remote inbox identity states", async () => {
     const { signer, identifier } = createSigner();
     const client = await createRegisteredClient(signer);
@@ -52,7 +77,7 @@ describe("Preferences", () => {
     const group = await client.conversations.createGroup([peer.inboxId]);
     const events = await client.events({
       kinds: ["consent.changed"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     });
     const seen: ClientEvent[] = [];
     const consumed = (async () => {
@@ -65,7 +90,7 @@ describe("Preferences", () => {
           expect(seen).toContainEqual({
             kind: "consent.changed",
             consent_changed: {
-              entityKind: "conversation",
+              entity_kind: "conversation",
               entity: group.id,
               state: "denied",
             },
@@ -84,7 +109,7 @@ describe("Preferences", () => {
         expect(seen).toContainEqual({
           kind: "consent.changed",
           consent_changed: {
-            entityKind: "conversation",
+            entity_kind: "conversation",
             entity: group.id,
             state: "allowed",
           },
@@ -92,7 +117,7 @@ describe("Preferences", () => {
         expect(seen).toContainEqual({
           kind: "consent.changed",
           consent_changed: {
-            entityKind: "inbox",
+            entity_kind: "inbox",
             entity: peer.inboxId,
             state: "denied",
           },
@@ -110,7 +135,7 @@ describe("Preferences", () => {
     const group = await client.conversations.createGroup([peer.inboxId]);
     const events = await client.events({
       kinds: ["consent.changed", "hmac_keys.updated"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     });
     const seen: ClientEvent[] = [];
     const consumed = (async () => {
@@ -129,7 +154,7 @@ describe("Preferences", () => {
       expect(seen).toContainEqual({
         kind: "consent.changed",
         consent_changed: {
-          entityKind: "conversation",
+          entity_kind: "conversation",
           entity: group.id,
           state: "denied",
         },

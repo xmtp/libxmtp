@@ -205,7 +205,7 @@ describe("Dm", () => {
 
     const stream = await client1.events({
       kinds: ["message.expired"],
-      referencesOwnMessages: false,
+      references_own_messages: false,
     });
 
     // create message disappearing settings so that messages are deleted after 1 second
@@ -265,7 +265,9 @@ describe("Dm", () => {
       count++;
       expect(message).toBeDefined();
       if (message.kind === "message.expired")
-        messageIds.push(message.message_expired.messageId);
+        messageIds.push(
+          Buffer.from(message.message_expired.message_id).toString("hex"),
+        );
     }
     expect(count).toBe(2);
     expect(messageIds).toContain(messageId1);
