@@ -1,7 +1,9 @@
 import {
   ActionsCodec,
   AttachmentCodec,
+  GroupUpdatedCodec,
   IntentCodec,
+  LeaveRequestCodec,
   RemoteAttachmentCodec,
   Timestamp,
   TransactionReferenceCodec,
@@ -11,6 +13,22 @@ import {
 import { beforeAll, expect, test } from "vitest";
 
 beforeAll(() => initPureWasm());
+
+test.each([
+  ["group update", () => new GroupUpdatedCodec(), "group_updated"],
+  ["leave request", () => new LeaveRequestCodec(), "leave_request"],
+] as const)(
+  "%s codec keeps its public content type",
+  (_name, createCodec, typeId) => {
+    const codec = createCodec();
+    expect(codec.type).toMatchObject({
+      authorityId: "xmtp.org",
+      typeId,
+    });
+    expect(codec.type.versionMajor).toBeGreaterThan(0);
+    expect(codec.type.versionMinor).toBeGreaterThanOrEqual(0);
+  },
+);
 
 test("attachment codecs preserve optional filename and transfer fields", () => {
   const attachment = {
