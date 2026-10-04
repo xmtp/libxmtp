@@ -120,12 +120,12 @@ dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     api 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0'
     implementation 'androidx.lifecycle:lifecycle-process:2.7.0'
-    implementation "net.java.dev.jna:jna:5.17.0@aar"
+    implementation "net.java.dev.jna:jna:5.18.1@aar"
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
     // JVM tests need the host dispatcher that is absent from the Android AAR.
-    testRuntimeOnly 'net.java.dev.jna:jna:5.17.0@jar'
+    testRuntimeOnly 'net.java.dev.jna:jna:5.18.1@jar'
     androidTestImplementation 'org.web3j:core:4.9.4'
     androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

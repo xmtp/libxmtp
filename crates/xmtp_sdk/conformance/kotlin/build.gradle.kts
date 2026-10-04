@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    implementation("net.java.dev.jna:jna:5.17.0")
+    implementation("net.java.dev.jna:jna:5.18.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
 }
 
