@@ -1,14 +1,10 @@
 import { Storage, type Client, type RemoteAttachment } from "@xmtp/browser-sdk";
 
 const pendingAttachmentCleanupKey = "XMTP_PENDING_ATTACHMENT_CLEANUP";
-const pendingAttachmentFallbackKey = "XMTP_PENDING_ATTACHMENT_CLEANUP_SESSION";
 const pendingDatabaseDeletionKey = "XMTP_PENDING_DATABASE_DELETION";
 
-const pendingPaths = (
-  key: string,
-  store: typeof localStorage = localStorage,
-): string[] => {
-  const stored = store.getItem(key);
+const pendingPaths = (key: string): string[] => {
+  const stored = localStorage.getItem(key);
   if (!stored) return [];
   try {
     const parsed: unknown = JSON.parse(stored);
@@ -24,55 +20,31 @@ const pendingPaths = (
   return [stored];
 };
 
-const writePendingPaths = (
-  key: string,
-  paths: string[],
-  store: typeof localStorage = localStorage,
-) => {
+const writePendingPaths = (key: string, paths: string[]) => {
   if (paths.length) {
-    store.setItem(key, JSON.stringify(paths));
+    localStorage.setItem(key, JSON.stringify(paths));
   } else {
-    store.removeItem(key);
+    localStorage.removeItem(key);
   }
 };
 
-const markPending = (
-  key: string,
-  dbPath: string,
-  store: typeof localStorage = localStorage,
-) => {
-  writePendingPaths(
-    key,
-    [...new Set([...pendingPaths(key, store), dbPath])],
-    store,
-  );
+const markPending = (key: string, dbPath: string) => {
+  writePendingPaths(key, [...new Set([...pendingPaths(key), dbPath])]);
 };
 
-const clearPending = (
-  key: string,
-  dbPath: string,
-  store: typeof localStorage = localStorage,
-) => {
+const clearPending = (key: string, dbPath: string) => {
   writePendingPaths(
     key,
-    pendingPaths(key, store).filter((path) => path !== dbPath),
-    store,
+    pendingPaths(key).filter((path) => path !== dbPath),
   );
 };
 
 export const pendingAttachmentCleanupPaths = (): string[] => {
-  const paths: string[] = [];
   try {
-    paths.push(...pendingPaths(pendingAttachmentCleanupKey));
+    return pendingPaths(pendingAttachmentCleanupKey);
   } catch {
-    // Session storage can keep the path through a reload.
+    return [];
   }
-  try {
-    paths.push(...pendingPaths(pendingAttachmentFallbackKey, sessionStorage));
-  } catch {
-    // Cleanup still runs when both journals are unavailable.
-  }
-  return [...new Set(paths)];
 };
 
 export const markAttachmentCleanupPending = (dbPath: string) => {
@@ -120,20 +92,11 @@ export const cleanAttachmentDirectory = async (dbPath: string | undefined) => {
   try {
     markAttachmentCleanupPending(dbPath);
   } catch {
-    try {
-      markPending(pendingAttachmentFallbackKey, dbPath, sessionStorage);
-    } catch {
-      // Remove the files now even when no journal can be written.
-    }
+    // Remove the files now even when the journal cannot be written.
   }
   await removeAttachmentDirectory(dbPath);
   try {
     clearPending(pendingAttachmentCleanupKey, dbPath);
-  } catch {
-    // A stale path causes one more safe cleanup attempt.
-  }
-  try {
-    clearPending(pendingAttachmentFallbackKey, dbPath, sessionStorage);
   } catch {
     // A stale path causes one more safe cleanup attempt.
   }
