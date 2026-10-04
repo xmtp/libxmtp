@@ -235,10 +235,11 @@ class ConversationsTest : BaseInstrumentedTest() {
     @Test fun testHmacKeysIncludeDuplicateDms() =
         runBlocking {
             val account = createWallet()
-            val first = createClient(account)
+            // Keep key rotation out of this duplicate-DM query check.
+            val first = createClient(account, deviceSyncEnabled = false)
             val dm1 = first.conversations().createDm(bo.inboxId())
             bo.conversations().createGroup(listOf(first.inboxId()))
-            val second = createClient(account)
+            val second = createClient(account, deviceSyncEnabled = false)
             second.conversations().createDm(bo.inboxId())
             bo.conversations().syncAll(null)
             second.conversations().syncAll(null)

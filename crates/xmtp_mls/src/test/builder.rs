@@ -587,16 +587,21 @@ async fn client_creation_logs_omit_full_id_with_retained_envelope() {
     drop(client);
 
     let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
-    let capture = LogCapture::with_sink(Level::Info, Some(sink.clone()));
-    let reopened = Client::builder(IdentityStrategy::CachedOnly)
-        .api_client(DefaultTestClientCreator::create().build()?)
-        .store(xmtp_db::TestDb::create_persistent_store(Some(path)).await)
-        .default_mls_store()?
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .with_disable_workers(true)
-        .build()
-        .with_subscriber(capture.dispatch())
-        .await?;
+    let capture = LogCapture::with_sink(Level::Debug, Some(sink.clone()));
+    let identifier = wallet.identifier();
+    let reopened = Client::builder(IdentityStrategy::new(
+        identifier.inbox_id(0)?,
+        identifier,
+        0,
+    ))
+    .api_client(DefaultTestClientCreator::create().build()?)
+    .store(xmtp_db::TestDb::create_persistent_store(Some(path)).await)
+    .default_mls_store()?
+    .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+    .with_disable_workers(true)
+    .build()
+    .with_subscriber(capture.dispatch())
+    .await?;
     assert_eq!(hex::encode(reopened.installation_public_key()), full_id);
     assert_eq!(
         reopened
@@ -609,7 +614,7 @@ async fn client_creation_logs_omit_full_id_with_retained_envelope() {
     );
     {
         let records = sink.0.lock();
-        let event = records
+        records
             .iter()
             .find(|record| {
                 record
@@ -618,8 +623,15 @@ async fn client_creation_logs_omit_full_id_with_retained_envelope() {
             })
             .expect("reopen emits the creation event");
         let json_has_full_id = capture.output().contains(&full_id);
-        let app_has_full_id = event.message.contains(&full_id)
-            || event.fields.values().any(|value| value.contains(&full_id));
+        assert!(
+            records
+                .iter()
+                .any(|record| record.message == "Found existing identity in store")
+        );
+        let app_has_full_id = records.iter().any(|record| {
+            record.message.contains(&full_id)
+                || record.fields.values().any(|value| value.contains(&full_id))
+        });
         assert_eq!(
             (json_has_full_id, app_has_full_id),
             (false, false),
