@@ -257,6 +257,7 @@ export type ErrorDetails = {
   category: ErrorCategory;
   retryable: boolean;
   message: string;
+  streamFailure?: unknown;
 };
 
 export declare const XmtpError: {

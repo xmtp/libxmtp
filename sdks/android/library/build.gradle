@@ -123,6 +123,8 @@ dependencies {
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
+    // JVM tests need the host dispatcher that is absent from the Android AAR.
+    testRuntimeOnly 'net.java.dev.jna:jna:5.17.0@jar'
     androidTestImplementation 'org.web3j:core:4.9.4'
     androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

@@ -26,7 +26,18 @@ internal class StreamLifecycleStartup(
         synchronized(lock) {
             startup ?: scope
                 .async(start = CoroutineStart.LAZY) {
-                    controller.setLive(register(controller::setLive))
+                    val seedLock = Any()
+                    var callbackSeen = false
+                    val initial =
+                        register { live ->
+                            synchronized(seedLock) {
+                                callbackSeen = true
+                                controller.setLive(live)
+                            }
+                        }
+                    synchronized(seedLock) {
+                        if (!callbackSeen) controller.setLive(initial)
+                    }
                     controller.awaitSettled()
                 }.also { startup = it }
         }

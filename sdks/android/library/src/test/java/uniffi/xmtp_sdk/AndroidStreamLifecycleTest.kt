@@ -14,6 +14,36 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class AndroidStreamLifecycleTest {
     @Test
+    fun newerForegroundCallbackWinsOverBackgroundStartupSnapshot() =
+        runTest {
+            val applied = mutableListOf<Boolean>()
+            val controller =
+                StreamLifecycleController(this, apply = { live -> applied.add(live) }, report = { throw it })
+            val startup =
+                StreamLifecycleStartup(this, controller) { setLive ->
+                    setLive(true)
+                    false
+                }
+            startup.awaitReady()
+            assertEquals(emptyList<Boolean>(), applied)
+        }
+
+    @Test
+    fun newerBackgroundCallbackWinsOverForegroundStartupSnapshot() =
+        runTest {
+            val applied = mutableListOf<Boolean>()
+            val controller =
+                StreamLifecycleController(this, apply = { live -> applied.add(live) }, report = { throw it })
+            val startup =
+                StreamLifecycleStartup(this, controller) { setLive ->
+                    setLive(false)
+                    true
+                }
+            startup.awaitReady()
+            assertEquals(listOf(false), applied)
+        }
+
+    @Test
     fun foregroundWaitsForHeldBackgroundTransition() =
         runTest {
             val release = CompletableDeferred<Unit>()

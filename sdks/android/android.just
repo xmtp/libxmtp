@@ -28,6 +28,11 @@ format:
 test: build
   {{ _env }} && ./gradlew -p . library:testDebugUnitTest
 
+
+# Run unit tests against existing matched generated bindings.
+test-unit *args:
+  {{ _env }} && ./gradlew -p . library:testDebugUnitTest {{ args }} --dependency-verification=strict --no-daemon
+
 # Run integration tests (requires emulator)
 test-integration: build
   {{ _env }} && run-test-emulator && adb wait-for-device && adb reverse tcp:${XMTP_S3_PORT:-9067} tcp:${XMTP_S3_PORT:-9067} && ./gradlew -p . connectedCheck --continue

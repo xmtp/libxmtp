@@ -6,6 +6,9 @@ lifecycle, and file log helpers.
 
 ## Commands
 
+For unit tests that call native code, set `JAVA_TOOL_OPTIONS=-Djna.library.path=PATH`
+to the matched host SDK library directory. The test runtime includes host JNA.
+
 Run from the repository root. Each recipe uses the Android Nix shell.
 Build tools use normal parallelism and preserve caller job settings.
 The format recipe uses strict dependency verification and stops its Gradle daemon.
@@ -18,6 +21,7 @@ dev/nix-shell 'just android check'
 dev/nix-shell 'just android lint'
 dev/nix-shell 'just android format'
 dev/nix-shell 'just android test'
+dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifecycleTest'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android docs'
@@ -39,7 +43,8 @@ Gradle uses the matched generated sources and contract. The release AAR contains
 
 For an already generated package, set `XMTP_SDK_GENERATED_DIR` to its root and
 `XMTP_SDK_ANDROID_JNI_DIR` to its `jniLibs` directory. This skips native generation
-when Gradle runs directly through `dev/nix-shell`.
+when Gradle runs directly through `dev/nix-shell`. The `test-unit` recipe uses
+these existing matched bindings and accepts Gradle test filters.
 
 ## Local services
 

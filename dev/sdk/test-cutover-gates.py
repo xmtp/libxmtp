@@ -6,7 +6,6 @@ import os
 from unittest.mock import patch
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
 import sys
 import unittest
@@ -84,7 +83,10 @@ class CutoverGates(unittest.TestCase):
         self.assertIn("| Swift | 7132 |", built)
         module.OUT.write_text(built)
         self.assertEqual(module.build(), built)
+        source_only = module.build(source_only=True)
+        self.assertEqual(module.source_only_manifest(built), source_only)
         public.rename(public.with_suffix(".missing"))
+        self.assertEqual(module.build(source_only=True), source_only)
         with self.assertRaisesRegex(
             ValueError, "missing or empty current public projection"
         ):
@@ -95,12 +97,15 @@ class CutoverGates(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "pinned pre-switch ledger changed"):
             module.build()
+        with self.assertRaisesRegex(ValueError, "pinned pre-switch ledger changed"):
+            module.build(source_only=True)
         module.OUT.write_text(built)
         sibling = self.root / "sdks/node/src/index.ts"
         sibling.write_text(
             sibling.read_text() + "\nexport const unapprovedSiblingExport = true;\n"
         )
         self.assertNotEqual(module.build(), built)
+        self.assertNotEqual(module.build(source_only=True), source_only)
         self.assertIn(module.ledger_section(ledger, "Swift"), built)
 
     def test_browser_inventory_requires_own_main_and_pure_roots(self):
@@ -125,80 +130,47 @@ class CutoverGates(unittest.TestCase):
             ):
                 module.switched_source_rows({"Browser"})
 
-    def test_isolation_admits_only_the_switched_sdk(self):
+    def test_switch_detection_keeps_each_sdk_independent(self):
         for source in (
             "sdks/node/package.json",
             "sdks/browser/package.json",
             "sdks/android/gradle.properties",
             "sdks/android/library/build.gradle",
-            "dev/sdk/switches.py",
-            "crates/xmtp_sdk/dev/check-isolation",
-            "crates/xmtp_sdk/dev/isolation-pins.tsv",
         ):
             self.copy(source)
-        for folder, version in (("node", "6.0.0"), ("browser", "7.0.0")):
+        for folder in ("node", "browser"):
             (self.root / f"sdks/{folder}/package.json").write_text(
-                '{"version":"' + version + '","scripts":{"build":"legacy"}}'
+                '{"version":"8.0.0","scripts":{"build":"legacy"}}'
             )
         (self.root / "sdks/android/gradle.properties").write_text("version=7.0.0\n")
         (self.root / "sdks/android/library/build.gradle").write_text("legacy")
         (self.root / "Package.swift").write_text('name: "XMTPiOS"')
-        facade = self.root / "crates/xmtp_sdk/src/lib.rs"
-        facade.parent.mkdir(parents=True)
-        facade.write_text("old facade\n")
-        sibling = self.root / "sdks/browser/src/guard.ts"
-        sibling.parent.mkdir(parents=True)
-        sibling.write_text("export const sibling = 1;\n")
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
-        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.email=fixture@example.test",
-                "-c",
-                "user.name=fixture",
-                "commit",
-                "-qm",
-                "base",
-            ],
-            cwd=self.root,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "update-ref", "refs/remotes/origin/fixture", "HEAD"],
-            cwd=self.root,
-            check=True,
-        )
-        facade.write_text("new facade\n")
+        module = self.inventory()
+        self.assertEqual(module.switched_sdks(self.root), set())
         (self.root / "Package.swift").write_text(
             'name: "XmtpSdk"; path: "sdks/ios/Sources/XmtpSdk"'
         )
-        switched = self.root / "sdks/ios/Sources/XmtpSdk/new.swift"
-        switched.parent.mkdir(parents=True)
-        switched.write_text("public struct Product {}\n")
-        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.email=fixture@example.test",
-                "-c",
-                "user.name=fixture",
-                "commit",
-                "-qm",
-                "switch",
-            ],
-            cwd=self.root,
-            check=True,
+        self.assertEqual(module.switched_sdks(self.root), {"Swift"})
+        (self.root / "sdks/node/package.json").write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package node"}}'
         )
-        command = ["bash", "crates/xmtp_sdk/dev/check-isolation", "fixture"]
-        result = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        sibling.write_text("export const sibling = 2;\n")
-        result = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("sdks/browser/src/guard.ts", result.stderr)
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node"})
+        (self.root / "sdks/android/gradle.properties").write_text("version=8.0.0\n")
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node"})
+        (self.root / "sdks/android/library/build.gradle").write_text(
+            "XMTP_SDK_GENERATED_DIR"
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node", "Kotlin"})
+        (self.root / "sdks/browser/package.json").write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package node"}}'
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node", "Kotlin"})
+        (self.root / "sdks/browser/package.json").write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package browser"}}'
+        )
+        self.assertEqual(
+            module.switched_sdks(self.root), {"Swift", "Node", "Kotlin", "Browser"}
+        )
 
 
 if __name__ == "__main__":

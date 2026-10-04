@@ -3428,7 +3428,7 @@ The SDK tables above keep the approved pre-switch retention ledger. Its source b
 
 | SDK | Source family | Current declarations | Status |
 | --- | --- | ---: | --- |
-| Kotlin | Kotlin source declarations | 4007 | current generated public product |
+| Kotlin | Kotlin source declarations | 4126 | current generated public product |
 
 ## Open items
 

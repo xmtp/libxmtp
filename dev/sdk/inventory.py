@@ -1089,7 +1089,16 @@ def switched_source_rows(switched: set[str]) -> list[str]:
     return rows
 
 
-def build() -> str:
+def source_only_manifest(text: str) -> str:
+    """Remove product counts that require generated output to verify."""
+    return re.sub(
+        r"(?ms)^## Switched SDK source inventory\n.*?(?=^## Open items\n)",
+        "",
+        text,
+    )
+
+
+def build(*, source_only: bool = False) -> str:
     switched = switched_sdks(ROOT)
     ledger = OUT.read_text()
     sections = {sdk: ledger_section(ledger, sdk) for sdk in switched}
@@ -1161,7 +1170,7 @@ def build() -> str:
         lines.extend(rows)
         open_items.extend(sdk_open_items)
         lines.append("")
-    if switched:
+    if switched and not source_only:
         lines += [
             "## Switched SDK source inventory",
             "",
@@ -1535,15 +1544,21 @@ def self_test() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--write", action="store_true")
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--self-test", action="store_true")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--write", action="store_true")
+    action.add_argument("--check", action="store_true")
+    action.add_argument(
+        "--check-source",
+        action="store_true",
+        help="check retention and source rows without checking generated product counts",
+    )
+    action.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
         self_test()
         print("inventory fixtures pass")
         return
-    output = build()
+    output = build(source_only=args.check_source)
     if args.write:
         OUT.write_text(output)
     elif args.check:
@@ -1552,6 +1567,9 @@ def main() -> None:
                 "manifest differs from source inventory; "
                 "run python3.11 dev/sdk/inventory.py --write"
             )
+    elif args.check_source:
+        if source_only_manifest(OUT.read_text()) != output:
+            raise SystemExit("manifest differs from retention and source inventory")
     else:
         print(output)
 

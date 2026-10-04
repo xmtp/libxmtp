@@ -13,7 +13,6 @@ jobs:
     permissions:
       contents: read
     env:
-      CARGO_BUILD_JOBS: "2"
       SQLX_OFFLINE: "true"
       DATABASE_URL: postgres://xmtp:xmtp@localhost:55432/xmtp_backend
     steps:
