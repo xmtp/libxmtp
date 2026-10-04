@@ -321,7 +321,7 @@ export async function checkAttachmentFailures(
     );
     same(
       attachmentPayload(failed[1]!),
-      { ...attachmentPayload(failed[0]!), cause: "stagedUnusable" },
+      { ...attachmentPayload(failed[0]!), cause: "staged_unusable" },
       "upload failure ref",
     );
     // A source the SDK cannot read fails create.
@@ -426,7 +426,12 @@ export async function checkAttachmentFailures(
           ? [event.attachment_download_failed.cause]
           : [],
       ),
-      ["httpStatus", "tooManyRedirects", "digestMismatch", "decryptionFailed"],
+      [
+        "http_status",
+        "too_many_redirects",
+        "digest_mismatch",
+        "decryption_failed",
+      ],
       "download failure events",
     );
     await downloadEvents.return();
