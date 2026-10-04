@@ -58,8 +58,7 @@ def stream_rows(fixture):
         raise ValueError("Stream fixture keys must be unique")
     rows = [by_key[key] for key in keys]
     if any(
-        row["reply_to"] is not None and row["reply_to"] not in selected
-        for row in rows
+        row["reply_to"] is not None and row["reply_to"] not in selected for row in rows
     ):
         raise ValueError("Stream fixture is missing a reply parent")
     return rows
@@ -73,9 +72,7 @@ def expected_stream_counts(fixture):
 def expected_observation(fixture, workload):
     if workload in {"page", "stream", "mobile_record"}:
         rows = (
-            stream_rows(fixture)
-            if workload == "stream"
-            else fixture["messages"][:1000]
+            stream_rows(fixture) if workload == "stream" else fixture["messages"][:1000]
         )
         return {"count": len(rows), "semantic_sha256": digest(rows)}
     return {

@@ -189,7 +189,9 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(expected_stream_counts(fixture), (500, 625))
         self.assertEqual(expected_observation(fixture, "stream")["count"], 500)
         self.assertEqual(expected_stream_counts(dataset("node")), (10000, 12500))
-        row = next(row for row in ledger("browser")["samples"] if row["workload"] == "stream")
+        row = next(
+            row for row in ledger("browser")["samples"] if row["workload"] == "stream"
+        )
         validate_measurement(row, fixture, "browser")
         for key in ("streamed_primary", "streamed_events"):
             missing = copy.deepcopy(row)
