@@ -50,6 +50,7 @@ SDK_037_NODE_ONLY = {
 PURE_ONLY = {
     "ActionsCodec",
     "AttachmentCodec",
+    "catalogueContentTypeShouldPush",
     "DeleteMessageCodec",
     "GroupUpdatedCodec",
     "IntentCodec",
@@ -63,11 +64,14 @@ PURE_ONLY = {
     "TextCodec",
     "TransactionReferenceCodec",
     "WalletSendCallsCodec",
+    "decodeEncodedContent",
     "decodeStandard",
+    "encodeEncodedContent",
     "encodeStandard",
     "encodeText",
     "isCatalogueContentType",
     "metadataFieldRef",
+    "remoteAttachmentFromEncrypted",
     "sdkVersion",
     "standardContentType",
 }
@@ -76,6 +80,8 @@ PURE_ONLY = {
 PUBLIC_NODE_ONLY = {
     **SDK_037_NODE_ONLY,
     **{name: "pure module" for name in PURE_ONLY},
+    "resumeStreams": "native stream lifecycle",
+    "suspendStreams": "native stream lifecycle",
 }
 # Members whose form depends on the target, skipped on both sides.
 PUBLIC_PLATFORM_SPECIFIC: dict[str, str] = {}
