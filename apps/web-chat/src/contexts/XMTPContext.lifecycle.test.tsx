@@ -392,6 +392,59 @@ it("removes old local attachment files after lock loss even if storage path look
   }
 });
 
+it("removes attachment files on the next start if lock-loss cleanup fails", async () => {
+  const deployment = `retry-lock-loss-${crypto.randomUUID()}`;
+  const dbPath = `xmtp-sdk/test/${deployment}/inbox/xmtp.db3`;
+  const root = await navigator.storage.getDirectory();
+  const sdk = await root.getDirectoryHandle("xmtp-sdk", { create: true });
+  const backend = await sdk.getDirectoryHandle("test", { create: true });
+  const path = await backend.getDirectoryHandle(deployment, { create: true });
+  const inbox = await path.getDirectoryHandle("inbox", { create: true });
+  await inbox.getDirectoryHandle("attachments", { create: true });
+  const end = vi.fn(async () => {});
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => dbPath },
+    end,
+  });
+  mocks.create.mockResolvedValueOnce({
+    storage: { path: async () => undefined },
+    end: vi.fn(async () => {}),
+  });
+  const getDirectory = vi
+    .spyOn(navigator.storage, "getDirectory")
+    .mockRejectedValueOnce(new Error("OPFS busy"));
+  try {
+    const { result, unmount } = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    act(() => mocks.lockLost?.());
+    await waitFor(() => expect(result.current.client).toBeUndefined());
+    expect(result.current.error?.message).toBe("OPFS busy");
+    unmount();
+    getDirectory.mockRestore();
+    const next = renderHook(useXMTP, { wrapper: XMTPProvider });
+    await act(async () => {
+      await next.result.current.initialize({
+        backendUrl: "https://example.com",
+        env: "test",
+        signer: mocks.signer as never,
+      });
+    });
+    await expect(inbox.getDirectoryHandle("attachments")).rejects.toMatchObject(
+      { name: "NotFoundError" },
+    );
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+  } finally {
+    getDirectory.mockRestore();
+    await backend.removeEntry(deployment, { recursive: true });
+  }
+});
+
 it("ends a client created after another tab takes the app lock", async () => {
   const created = Promise.withResolvers<{
     storage: { path: () => Promise<undefined> };

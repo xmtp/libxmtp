@@ -24,6 +24,17 @@ import { backendLabel } from "@/helpers/backend";
 import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
 import { useActions } from "@/stores/inbox/hooks";
 
+const pendingAttachmentCleanupKey = "XMTP_PENDING_ATTACHMENT_CLEANUP";
+
+const cleanAttachmentDirectory = async (dbPath: string | undefined) => {
+  if (dbPath === undefined) return;
+  localStorage.setItem(pendingAttachmentCleanupKey, dbPath);
+  await removeAttachmentDirectory(dbPath);
+  if (localStorage.getItem(pendingAttachmentCleanupKey) === dbPath) {
+    localStorage.removeItem(pendingAttachmentCleanupKey);
+  }
+};
+
 const storageLocation = async (
   signer: Signer,
   backend: BackendSource,
@@ -124,14 +135,14 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
     if (current) {
       clientRef.current = undefined;
       const dbPath = attachmentDbPath.current;
-      attachmentDbPath.current = undefined;
       try {
         await current.end();
       } catch (cause) {
         setError(cause instanceof Error ? cause : new Error(String(cause)));
       }
       try {
-        await removeAttachmentDirectory(dbPath);
+        await cleanAttachmentDirectory(dbPath);
+        attachmentDbPath.current = undefined;
       } catch (cause) {
         setError(cause instanceof Error ? cause : new Error(String(cause)));
       } finally {
@@ -181,6 +192,14 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
         let xmtpClient: Client;
 
         try {
+          const pendingPaths = new Set([
+            attachmentDbPath.current,
+            localStorage.getItem(pendingAttachmentCleanupKey) ?? undefined,
+          ]);
+          for (const dbPath of pendingPaths) {
+            await cleanAttachmentDirectory(dbPath);
+          }
+          attachmentDbPath.current = undefined;
           // create a new XMTP client
           await initLogging({ level: loggingLevel ?? "warn" });
           const backend = {
@@ -216,7 +235,6 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
           setClientSigner(signer);
           setClient(xmtpClient);
         } catch (e) {
-          attachmentDbPath.current = undefined;
           setClient(undefined);
           setClientSigner(undefined);
           const error =
@@ -250,7 +268,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
         await client.end();
         endedClient.current = client;
       }
-      await removeAttachmentDirectory(dbPath);
+      await cleanAttachmentDirectory(dbPath);
       attachmentDbPath.current = undefined;
       endedClient.current = undefined;
       setClient(undefined);
