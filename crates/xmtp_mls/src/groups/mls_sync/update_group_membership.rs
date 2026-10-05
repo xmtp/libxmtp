@@ -180,12 +180,8 @@ pub(super) fn build_membership_delta(
     })
 }
 
-// Takes UpdateGroupMembershipIntentData and applies it to the openmls group
-// returning the commit and post_commit_action
-#[xmtp_common::mls_span]
 /// Super admins stay members. Receivers reject both the Remove proposal and
 /// the membership proposal that would drop one, so publish neither.
-// implements: PERM-003
 pub(super) fn reject_super_admin_removal(
     openmls_group: &OpenMlsGroup,
     removed: &[String],
@@ -202,6 +198,9 @@ pub(super) fn reject_super_admin_removal(
     Ok(())
 }
 
+// Takes UpdateGroupMembershipIntentData and applies it to the openmls group
+// returning the commit and post_commit_action
+#[xmtp_common::mls_span]
 pub(crate) fn apply_update_group_membership_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,

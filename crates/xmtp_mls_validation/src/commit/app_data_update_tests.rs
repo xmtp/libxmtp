@@ -421,7 +421,7 @@ fn multi_mutation_delta_all_allowed_returns_ok() {
 /// Super admins stay members, so a membership proposal may not delete one.
 /// An admin passes the membership policy; without this check a receiver
 /// stores the proposal, and every later commit of pending proposals fails.
-// verifies: PERM-003
+// verifies: GMOD-019
 #[xmtp_common::test(unwrap_try = true)]
 fn membership_update_may_not_remove_super_admin() {
     use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;

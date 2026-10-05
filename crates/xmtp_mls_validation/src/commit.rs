@@ -740,7 +740,7 @@ pub(crate) fn validate_standalone_app_data_update(
 /// A whole-component `Remove` returns `false`: commits omit it.
 /// A malformed delta or super-admin list also returns `false`; expansion
 /// and the commit-time checks reject those.
-// implements: PERM-003
+// implements: GMOD-019
 pub(crate) fn removes_super_admin(
     operation: &openmls::messages::proposals::AppDataUpdateOperation,
     super_admins: Option<&[u8]>,
