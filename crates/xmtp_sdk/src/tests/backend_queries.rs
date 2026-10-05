@@ -223,6 +223,59 @@ async fn latest_inbox_update_counts_preserve_registered_and_unknown_keys() {
     client.end().await?;
 }
 
+// The instance `inbox_state` and `inbox_states` use the client's own identity
+// route, not the static helper. A local read and a remote read of one inbox
+// are equal, and a selected read returns only the selected inboxes.
+#[xmtp_common::test(unwrap_try = true)]
+async fn instance_inbox_states_read_local_and_selected_inboxes() {
+    let signer = crate::generate_local_signer().await;
+    let identity = signer::identity(signer.clone()).await?;
+    let client = Client::create(signer, options()).await?;
+    let local = client.inbox_state(false).await?;
+    assert_eq!(local.inbox_id, client.inbox_id());
+    let installations: Vec<_> = local
+        .installations
+        .iter()
+        .map(|installation| installation.id.clone())
+        .collect();
+    assert_eq!(installations, vec![client.installation_id()]);
+    assert_eq!(
+        format!("{:?}", local.identities),
+        format!("{:?}", vec![identity.clone()])
+    );
+    assert_eq!(
+        format!("{:?}", local.recovery_identity),
+        format!("{identity:?}")
+    );
+    assert!(local.creation_signature_kind.is_some());
+
+    let second = Client::create(crate::generate_local_signer().await, options()).await?;
+    let mut unregistered = options();
+    unregistered.registration.auto = false;
+    let reader = Client::create(crate::generate_local_signer().await, unregistered).await?;
+    let states = reader
+        .inbox_states(vec![client.inbox_id(), second.inbox_id()], true)
+        .await?;
+    assert_eq!(states.len(), 2);
+    let state_of = |id: &InboxId| {
+        states
+            .iter()
+            .find(|state| &state.inbox_id == id)
+            .expect("selected inbox state")
+    };
+    assert_eq!(
+        format!("{:?}", state_of(&client.inbox_id())),
+        format!("{local:?}")
+    );
+    assert_eq!(
+        format!("{:?}", state_of(&second.inbox_id()).identities),
+        format!("{:?}", vec![second.identity()])
+    );
+    reader.end().await?;
+    second.end().await?;
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn facade_key_package_statuses_keep_missing_entries() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
