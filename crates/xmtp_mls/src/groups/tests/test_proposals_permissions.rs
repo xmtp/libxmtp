@@ -181,12 +181,33 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
         .add_members(&[bo.inbox_id(), caro.inbox_id()])
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
+    // A successful fixed-target sync can import no new groups.
+    for client in [&bo, &caro] {
+        xmtp_common::wait_for_eq(
+            || async {
+                client.sync_welcomes().await.unwrap();
+                if client
+                    .context
+                    .db()
+                    .find_group(&alix_group.group_id)
+                    .unwrap()
+                    .is_none()
+                {
+                    return false;
+                }
+                client
+                    .group(&alix_group.group_id)
+                    .unwrap()
+                    .is_active()
+                    .unwrap()
+            },
+            true,
+        )
+        .await?;
+    }
+    let bo_group = bo.group(&alix_group.group_id)?;
     bo_group.sync().await?;
-
-    let caro_groups = caro.sync_welcomes().await?;
-    let caro_group = caro_groups.first()?;
+    let caro_group = caro.group(&alix_group.group_id)?;
     caro_group.sync().await?;
 
     // Verify Bo is not an admin
@@ -262,14 +283,30 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
     alix_group.sync().await?;
     caro_group.sync().await?;
 
-    // Dave and Eve should receive welcomes
-    let dave_groups = dave.sync_welcomes().await?;
-    let eve_groups = eve.sync_welcomes().await?;
-    assert!(
-        !dave_groups.is_empty(),
-        "Dave should have received a welcome"
-    );
-    assert!(!eve_groups.is_empty(), "Eve should have received a welcome");
+    // Dave and Eve must be active in the expected group.
+    for client in [&dave, &eve] {
+        xmtp_common::wait_for_eq(
+            || async {
+                client.sync_welcomes().await.unwrap();
+                if client
+                    .context
+                    .db()
+                    .find_group(&alix_group.group_id)
+                    .unwrap()
+                    .is_none()
+                {
+                    return false;
+                }
+                client
+                    .group(&alix_group.group_id)
+                    .unwrap()
+                    .is_active()
+                    .unwrap()
+            },
+            true,
+        )
+        .await?;
+    }
 
     // Verify all members see the full group
     let alix_members = alix_group.members().await?;
