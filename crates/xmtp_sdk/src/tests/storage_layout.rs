@@ -12,7 +12,7 @@ fn layout_options() -> ClientOptions {
 
 /// A TCP relay to the test backend that counts the connections it accepts.
 /// While it refuses, it closes every connection it accepts.
-struct CountingRelay {
+pub(super) struct CountingRelay {
     url: String,
     connections: Arc<AtomicUsize>,
     forward: Arc<AtomicBool>,
@@ -20,7 +20,7 @@ struct CountingRelay {
 }
 
 impl CountingRelay {
-    async fn start() -> Result<Self, XmtpError> {
+    pub(super) async fn start() -> Result<Self, XmtpError> {
         let backend: http::Uri = xmtp_configuration::backend_test_url()
             .parse()
             .map_err(XmtpError::unknown)?;
@@ -64,7 +64,7 @@ impl CountingRelay {
         })
     }
 
-    fn backend(&self) -> Option<BackendSource> {
+    pub(super) fn backend(&self) -> Option<BackendSource> {
         Some(BackendSource::Options {
             options: BackendOptions {
                 url: self.url.clone(),
@@ -74,12 +74,12 @@ impl CountingRelay {
     }
 
     /// Close every later connection and reset the count.
-    fn refuse(&self) {
+    pub(super) fn refuse(&self) {
         self.forward.store(false, Ordering::SeqCst);
         self.connections.store(0, Ordering::SeqCst);
     }
 
-    fn connections(&self) -> usize {
+    pub(super) fn connections(&self) -> usize {
         self.connections.load(Ordering::SeqCst)
     }
 }
