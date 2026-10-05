@@ -210,3 +210,100 @@ async fn joiner_accepts_welcome_with_publish_time_failed_installation() {
 
     set_test_mode_upload_malformed_keypackage(false, None);
 }
+
+// verifies: PROC-036
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn failed_key_package_publish_log_omits_installation_ids() {
+    use crate::groups::intents::ProposeMemberUpdateIntentData;
+    use std::sync::Arc;
+    use tracing::instrument::WithSubscriber;
+    use xmtp_db::group_intent::{IntentKind, NewGroupIntent};
+    use xmtp_db::prelude::QueryGroupIntent;
+    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
+
+    #[derive(Default)]
+    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
+    impl LogSinkTarget for Capture {
+        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+            self.0.lock().push(record);
+            Ok(())
+        }
+    }
+    struct RestoreKeyPackages;
+    impl Drop for RestoreKeyPackages {
+        fn drop(&mut self) {
+            set_test_mode_upload_malformed_keypackage(false, None);
+        }
+    }
+
+    tester!(alix);
+    tester!(bo);
+    let group = alix.create_group(None, None)?;
+    group.sync().await?;
+    let failed_id = bo.context.installation_id().to_vec();
+    set_test_mode_upload_malformed_keypackage(true, Some(vec![failed_id.clone()]));
+    let _restore = RestoreKeyPackages;
+    group.context.db().insert_group_intent(NewGroupIntent::new(
+        IntentKind::ProposeMemberUpdate,
+        group.group_id,
+        ProposeMemberUpdateIntentData::new(vec![bo.inbox_id().to_string()], vec![]).try_into()?,
+        false,
+    ))?;
+
+    let sink = Arc::new(Capture::default());
+    let capture = LogCapture::with_sink(Level::Trace, Some(sink.clone()));
+    let summary = group
+        .sync_with_conn()
+        .with_subscriber(capture.dispatch())
+        .await
+        .expect_err("all requested key packages fail verification");
+    let error = summary
+        .publish_errors
+        .first()
+        .expect("publish failure retained");
+    let GroupError::FailedToVerifyInstallations(failed) = error else {
+        panic!("expected failed key package verification error");
+    };
+    assert_eq!(failed.0, vec![failed_id.clone()]);
+    assert!(error.to_string().contains(&hex::encode(&failed_id)));
+    let json = capture.output();
+    let records = sink.0.lock();
+    assert!(
+        records
+            .iter()
+            .any(|record| record.message.starts_with("Sync: error publishing intents"))
+    );
+    for sensitive in [hex::encode(&failed_id), format!("{failed_id:?}")] {
+        assert!(
+            !json.contains(&sensitive),
+            "full installation ID reached JSON log"
+        );
+        for record in records.iter() {
+            assert!(
+                !record.message.contains(&sensitive),
+                "full installation ID reached sink message"
+            );
+            assert!(
+                !format!("{:?}", record.fields).contains(&sensitive),
+                "full installation ID reached sink fields"
+            );
+        }
+    }
+    let record = records
+        .iter()
+        .find(|record| record.message.starts_with("Sync: error publishing intents"))
+        .expect("automatic publish failure record");
+    assert_eq!(record.message, "Sync: error publishing intents");
+    assert_eq!(
+        record
+            .fields
+            .get("failed_installation_count")
+            .map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        record.fields.get("error_kind").map(String::as_str),
+        Some("FailedToVerifyInstallations")
+    );
+}

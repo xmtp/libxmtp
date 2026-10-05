@@ -56,7 +56,7 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         DbConnection::new(&self.conn)
     }
 
-    #[xmtp_common::db_span]
+    #[xmtp_common::db_span(redact_error)]
     fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
         F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,

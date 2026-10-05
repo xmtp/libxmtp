@@ -28,6 +28,43 @@ pub(crate) fn expand_with_prefix(prefix: &str, input_fn: syn::ItemFn) -> TokenSt
     }
 }
 
+/// Opt in only where an error formatter can contain protected values.
+fn expand_with_error_option(
+    prefix: &str,
+    attr: proc_macro::TokenStream,
+    body: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let mut input_fn = parse_macro_input!(body as syn::ItemFn);
+    if attr.is_empty() {
+        return expand_with_prefix(prefix, input_fn).into();
+    }
+    let option = parse_macro_input!(attr as syn::Ident);
+    if option != "redact_error" {
+        return syn::Error::new_spanned(option, "expected redact_error")
+            .to_compile_error()
+            .into();
+    }
+    let block = &input_fn.block;
+    let result = if input_fn.sig.asyncness.is_some() {
+        quote! { async move #block.await }
+    } else {
+        quote! { (|| #block)() }
+    };
+    input_fn.block = Box::new(syn::parse_quote!({
+        let __xmtp_result = #result;
+        if __xmtp_result.is_err() {
+            ::tracing::error!(error = "operation failed");
+        }
+        __xmtp_result
+    }));
+    let operation = format!("{}.{}", prefix, input_fn.sig.ident);
+    quote! {
+        #[tracing::instrument(skip_all, fields(operation = #operation, sentry.op = #prefix, sentry.name = #operation, otel.name = #operation))]
+        #input_fn
+    }
+    .into()
+}
+
 /// `#[rpc_span]` → `operation = "rpc.<fn_name>"`. For `ApiClientWrapper` RPC
 /// methods; surfaces as `xmtp.api.*` Collector metrics.
 pub fn rpc_span(
@@ -41,21 +78,19 @@ pub fn rpc_span(
 /// `#[db_span]` → `operation = "db.<fn_name>"`. For `xmtp_db` query methods;
 /// surfaces as `xmtp.db.*` Collector metrics.
 pub fn db_span(
-    _attr: proc_macro::TokenStream,
+    attr: proc_macro::TokenStream,
     body: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let input_fn = parse_macro_input!(body as syn::ItemFn);
-    expand_with_prefix("db", input_fn).into()
+    expand_with_error_option("db", attr, body)
 }
 
 /// `#[mls_span]` → `operation = "mls.<fn_name>"`. For high-level MLS operations
 /// (sync, intent, send); surfaces as `xmtp.mls.*` Collector metrics.
 pub fn mls_span(
-    _attr: proc_macro::TokenStream,
+    attr: proc_macro::TokenStream,
     body: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let input_fn = parse_macro_input!(body as syn::ItemFn);
-    expand_with_prefix("mls", input_fn).into()
+    expand_with_error_option("mls", attr, body)
 }
 
 /// `#[span(prefix = "...")]` → `operation = "<prefix>.<fn_name>"`. Escape hatch

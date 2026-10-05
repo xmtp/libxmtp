@@ -42,7 +42,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// result retries the saved bytes, except `OUT_OF_RANGE`, which a recovery
     /// read settles instead. A state-changing attempt blocks later work until
     /// ordered processing resolves it.
-    #[xmtp_common::mls_span]
+    #[xmtp_common::mls_span(redact_error)]
     pub(in crate::groups) async fn publish_intents(&self) -> Result<(), GroupError> {
         // Nothing this client prepared is published once
         // its connection is blocked. The intent stays queued for a client that can.
