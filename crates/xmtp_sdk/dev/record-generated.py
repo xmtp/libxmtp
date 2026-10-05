@@ -15,6 +15,22 @@ spec.loader.exec_module(artifacts)
 
 
 def record(generated, binaries, profile="release", features="", target=""):
+    trees = [
+        tree
+        for tree in generated.iterdir()
+        if tree.is_dir() and tree.name != "runtimes"
+    ]
+    roles = {
+        tree.name: "pure"
+        if tree.name == "typescript-pure"
+        else "wasm"
+        if tree.name == "typescript-wasm"
+        else "native"
+        for tree in trees
+    }
+    for role in {"bindgen", *roles.values()}:
+        if not binaries.get(role):
+            raise ValueError(f"generated record requires {role} artifact")
     source = artifacts.source_hash()
     generator = artifacts.source_hash(True)
     records = {
@@ -48,16 +64,8 @@ def record(generated, binaries, profile="release", features="", target=""):
             sort_keys=True,
         ).encode()
     ).hexdigest()
-    for tree in generated.iterdir():
-        if not tree.is_dir() or tree.name == "runtimes":
-            continue
-        role = (
-            "pure"
-            if tree.name == "typescript-pure"
-            else "wasm"
-            if tree.name == "typescript-wasm"
-            else "native"
-        )
+    for tree in trees:
+        role = roles[tree.name]
         files = {
             str(path.relative_to(tree)): artifacts.digest(path)
             for path in sorted(tree.rglob("*"))
@@ -83,9 +91,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("generated", type=Path)
     for role in ("native", "bindgen", "wasm", "pure"):
-        parser.add_argument(
-            "--" + role, type=Path, required=role in ("native", "bindgen")
-        )
+        parser.add_argument("--" + role, type=Path, required=role == "bindgen")
     parser.add_argument("--profile", choices=("debug", "release"), default="release")
     parser.add_argument("--features", default="")
     parser.add_argument("--target", default="")

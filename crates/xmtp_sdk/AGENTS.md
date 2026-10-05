@@ -16,6 +16,10 @@ Run commands from the repository root in the Nix shell. Run
 - `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
   the checkout source identity with the generated and native Nix source filters.
   It does not compile a product.
+- `dev/nix-shell 'just sdk check-generated-nix'` checks the real generated SDK and
+  Android fast/full build closures. Native generated products exclude SDK
+  WASM builds. Android uses selected Kotlin. Apple uses selected Swift.
+  This command does not compile a product.
 - `dev/nix-shell 'just sdk check-file-sizes'` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
