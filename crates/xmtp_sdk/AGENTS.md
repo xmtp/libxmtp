@@ -20,6 +20,7 @@ Run commands from the repository root in the Nix shell. Run
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
 - `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
+  Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
   It checks shared public value types on Node and browser, including negative
   consumers for readonly records, transport fields, credentials, and bytes. It also
   rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and

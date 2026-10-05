@@ -12,6 +12,7 @@ check-clean-generate:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-generate-cleans-stale"
 
 # Check generated names, test hooks, and the TypeScript bridge we maintain.
+# Run `just sdk generate` first: lint reads every generated target root.
 lint:
     bash "{{ root }}/crates/xmtp_sdk/dev/lint-generated"
 
