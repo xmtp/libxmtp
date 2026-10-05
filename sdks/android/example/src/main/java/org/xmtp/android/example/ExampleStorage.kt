@@ -3,6 +3,8 @@ package org.xmtp.android.example
 import uniffi.xmtp_sdk.InboxId
 import uniffi.xmtp_sdk.StorageLocation
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 
 private val legacyDatabaseName = Regex("xmtp-local-[0-9a-f]{64}\\.db3")
 
@@ -13,7 +15,13 @@ internal suspend fun exampleStorageLocation(
 ): StorageLocation {
     val directory = File(filesDir, "xmtp_db")
     val legacyDatabases =
-        directory.listFiles()?.filter { it.isFile && legacyDatabaseName.matches(it.name) }.orEmpty()
+        try {
+            Files.newDirectoryStream(directory.toPath()).use { paths ->
+                paths.map { it.toFile() }.filter { it.isFile && legacyDatabaseName.matches(it.name) }
+            }
+        } catch (_: NoSuchFileException) {
+            return StorageLocation.Default
+        }
     if (legacyDatabases.isEmpty()) return StorageLocation.Default
 
     val inboxId = inboxIdFor()
