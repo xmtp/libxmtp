@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run paired measurements through installed-package host adapters."""
+"""Run measurements through an installed-package host adapter."""
 
 import argparse
 import hashlib
@@ -20,8 +20,6 @@ from fixtures import (
     expected_stream_counts,
 )
 from packages import inventory
-from ios_cleanup import terminate_registered
-from benchmark_stats import LIMIT, MIN_PAIRS, paired_summary, percentile
 
 TARGETS = ("swift", "kotlin", "node", "browser")
 WORKLOADS = (
@@ -36,6 +34,22 @@ WORKLOADS = (
 SAFETY = ("correctness", "deadlock", "use_after_end", "retained_growth")
 
 
+def percentile(values, fraction):
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * fraction
+    left = math.floor(position)
+    right = math.ceil(position)
+    return ordered[left] + (ordered[right] - ordered[left]) * (position - left)
+
+
+def spread(values):
+    return {
+        "samples": len(values),
+        "p50": percentile(values, 0.5),
+        "p95": percentile(values, 0.95),
+    }
+
+
 def write_json(path, value):
     Path(path).write_bytes(canonical(value) + b"\n")
 
@@ -47,10 +61,8 @@ def positive(value):
 def validate_config(config):
     if config.get("schema") != 1 or config.get("target") not in TARGETS:
         raise ValueError("Expected schema 1 and a supported target")
-    if config.get("purpose") not in {"release", "harness-control"}:
-        raise ValueError("Declare release or harness-control purpose")
-    if type(config.get("pairs")) is not int or config["pairs"] < MIN_PAIRS:
-        raise ValueError("At least 20 pairs are required")
+    if type(config.get("samples")) is not int or config["samples"] < 1:
+        raise ValueError("Set a positive sample count")
     if not positive(config.get("timeout_seconds")):
         raise ValueError("Set a finite adapter timeout")
     for key in (
@@ -65,31 +77,24 @@ def validate_config(config):
     ):
         if not isinstance(config.get(key), str) or not config[key].strip():
             raise ValueError(f"Missing {key}")
-    if config.get("enrichment") != dataset()["enrichment"]:
-        raise ValueError("Use the complete fixture enrichment on both packages")
-    for side in ("old", "new"):
-        package = config[side]
-        for key in ("version", "commit", "compiler", "production_flags", "provenance"):
-            if not isinstance(package.get(key), str) or not package[key].strip():
-                raise ValueError(f"Missing {side} {key}")
-        if package.get("profile") != "release" or package.get("public_api") is not True:
-            raise ValueError("Both packages must use installed public release APIs")
-        if not package.get("command") or not all(
-            isinstance(x, str) and x for x in package["command"]
-        ):
-            raise ValueError("Each host adapter command must be an argv array")
-        if not isinstance(package["command"], list):
-            raise ValueError("Commands must not be shell strings")
-        if not package.get("adapter_sources"):
-            raise ValueError("Record each adapter source file")
-    if config["old"].get("published") is not True:
-        raise ValueError("Use a published old package, not a local development build")
-    if config["new"].get("integrated_head") is not True:
-        raise ValueError("The new package must identify its integrated source head")
+    package = config["package"]
+    for key in ("version", "commit", "compiler", "production_flags"):
+        if not isinstance(package.get(key), str) or not package[key].strip():
+            raise ValueError(f"Missing package {key}")
+    if package.get("profile") != "release" or package.get("public_api") is not True:
+        raise ValueError("The package must use installed public release APIs")
+    if not package.get("command") or not all(
+        isinstance(x, str) and x for x in package["command"]
+    ):
+        raise ValueError("The host adapter command must be an argv array")
+    if not isinstance(package["command"], list):
+        raise ValueError("Commands must not be shell strings")
+    if not package.get("adapter_sources"):
+        raise ValueError("Record each adapter source file")
 
 
-def invoke(config, side, request, output):
-    package = config[side]
+def invoke(config, request, output):
+    package = config["package"]
     env = dict(os.environ, NODE_ENV="production")
     process = subprocess.Popen(
         package["command"],
@@ -112,11 +117,7 @@ def invoke(config, side, request, output):
         stdout, stderr = process.communicate()
         output.with_suffix(".stdout").write_text(stdout)
         output.with_suffix(".stderr").write_text(stderr)
-        if request["target"] == "swift":
-            terminate_registered(request)
-        raise ValueError(
-            f"Adapter timeout: {side} {request['phase']} {request.get('workload')}"
-        )
+        raise ValueError(f"Adapter timeout: {request['phase']} {request.get('workload')}")
     output.with_suffix(".stdout").write_text(stdout)
     output.with_suffix(".stderr").write_text(stderr)
     if process.returncode:
@@ -150,6 +151,8 @@ def validate_measurement(row, fixture, target):
     for key in ("duration_ms", "peak_memory_bytes"):
         if not positive(response.get(key)):
             raise ValueError(f"Invalid {key}")
+    if row["workload"] == "stream" and not positive(response.get("streamed_events")):
+        raise ValueError("Invalid streamed_events")
     if (
         row["workload"] == "callback_slow"
         and response["duration_ms"] < fixture["callback_delay_ms"]
@@ -163,17 +166,6 @@ def validate_measurement(row, fixture, target):
             raise ValueError("Record every browser task strictly above 50 ms")
 
 
-def validate_mobile(row):
-    response = row["response"]
-    if row["workload"] == "mobile_lift" and row["side"] == "new":
-        mobile = response.get("mobile_lift", {})
-        if not all(positive(mobile.get(key)) for key in ("record_ms", "class_ms")):
-            raise ValueError("Mobile runs must measure class and record lifts")
-        order = ["record", "class"] if row["pair"] % 2 == 0 else ["class", "record"]
-        if mobile.get("order") != order:
-            raise ValueError("Alternate mobile record/class order")
-
-
 def summarize(ledger):
     config = ledger["config"]
     validate_config(config)
@@ -181,18 +173,11 @@ def summarize(ledger):
     if ledger.get("fixture_sha256") != digest(fixture):
         raise ValueError("Dataset hash mismatch")
     rows = ledger["samples"]
-    expected = [
-        (w, i, s)
-        for w in WORKLOADS
-        for i in range(config["pairs"])
-        for s in (("old", "new") if i % 2 == 0 else ("new", "old"))
-    ]
-    actual = [(r["workload"], r["pair"], r["side"]) for r in rows]
-    if actual != expected:
-        raise ValueError("Missing, duplicate, or out-of-order measurement pairs")
+    expected = [(w, i) for w in WORKLOADS for i in range(config["samples"])]
+    if [(r["workload"], r["sample"]) for r in rows] != expected:
+        raise ValueError("Missing, duplicate, or out-of-order measurements")
     for row in rows:
         validate_measurement(row, fixture, config["target"])
-    results = []
     safety_failures = []
     for row in rows:
         flags = row["response"]["safety"]
@@ -200,158 +185,94 @@ def summarize(ledger):
             safety_failures.append(
                 {
                     "workload": row["workload"],
-                    "pair": row["pair"],
-                    "side": row["side"],
+                    "sample": row["sample"],
                     "outcomes": flags,
                 }
             )
+    results = []
     for workload in WORKLOADS:
-        samples = {
-            side: [
-                r["response"]
-                for r in rows
-                if r["workload"] == workload and r["side"] == side
-            ]
-            for side in ("old", "new")
-        }
-        metrics = [
-            ("duration_ms", "build" if workload.startswith("build_") else "latency"),
-            ("peak_memory_bytes", "memory"),
-        ]
+        samples = [r["response"] for r in rows if r["workload"] == workload]
+        metrics = ["duration_ms", "peak_memory_bytes"]
         if workload == "stream":
-            for values in samples.values():
-                for sample in values:
-                    sample["messages_per_second"] = 10000 * 1000 / sample["duration_ms"]
-            metrics.append(("messages_per_second", "throughput"))
-        for metric, kind in metrics:
-            value = paired_summary(
-                [r[metric] for r in samples["old"]],
-                [r[metric] for r in samples["new"]],
-                kind,
+            for sample in samples:
+                sample["messages_per_second"] = (
+                    sample["streamed_events"] * 1000 / sample["duration_ms"]
+                )
+            metrics.append("messages_per_second")
+        for metric in metrics:
+            results.append(
+                {
+                    "workload": workload,
+                    "metric": metric,
+                    **spread([sample[metric] for sample in samples]),
+                }
             )
-            results.append({"workload": workload, "metric": metric, **value})
-    if config["target"] in {"swift", "kotlin"}:
-        mobile = ledger.get("mobile_samples", [])
-        if [(r["workload"], r["pair"], r["side"]) for r in mobile] != [
-            ("mobile_lift", i, "new") for i in range(config["pairs"])
-        ]:
-            raise ValueError("Missing or out-of-order mobile conversion samples")
-        for row in mobile:
-            validate_mobile(row)
-        results.append(
-            {
-                "workload": "mobile_class_over_record",
-                "metric": "duration_ms",
-                **paired_summary(
-                    [r["response"]["mobile_lift"]["record_ms"] for r in mobile],
-                    [r["response"]["mobile_lift"]["class_ms"] for r in mobile],
-                    "mobile",
-                ),
-            }
-        )
+    package = ledger["package"]
     for metric in ("raw_bytes", "compressed_bytes"):
-        old, new = (ledger["packages"][side][metric] for side in ("old", "new"))
-        if not positive(old) or not positive(new):
+        if not positive(package[metric]):
             raise ValueError("Invalid package size")
         results.append(
-            {
-                "workload": "complete_package",
-                "metric": metric,
-                "ratio": new / old,
-                "old": old,
-                "new": new,
-                "decision": "FAIL" if new / old > LIMIT else "RECORDED",
-            }
+            {"workload": "complete_package", "metric": metric, "value": package[metric]}
         )
-    failed = safety_failures or any(r["decision"] == "FAIL" for r in results)
-    unmeasured = sorted(
-        {
-            key
-            for row in rows
-            for key, value in row["response"]["safety"].items()
-            if value is None
-        }
-    )
     report = {
-        "schema": 1,
+        "schema": 2,
         "target": config["target"],
-        "purpose": config["purpose"],
-        "performance_decision": "FAIL" if failed else "PASS",
-        "release_gate": "PENDING",
         "results": results,
         "safety_failures": safety_failures,
-        "safety_decision": "FAIL"
-        if safety_failures
-        else "PENDING"
-        if unmeasured
-        else "PASS",
-        "unmeasured_safety": unmeasured,
-        "eager_snapshot_gate": "PENDING",
-        "pending": [
-            "Independent callback matrix and installed-package proof review",
-            "Eager reaction snapshot completeness needs a deterministic public boundary",
-            "Review matched package hashes and integrated source provenance",
-        ],
-        "method": {
-            "resamples": 10000,
-            "seed": 731,
-            "interval": "percentile 95%",
-            "statistic": "new median / old median",
-            "sampling_unit": "old/new pair",
-        },
+        "unmeasured_safety": sorted(
+            {
+                key
+                for row in rows
+                for key, value in row["response"]["safety"].items()
+                if value is None
+            }
+        ),
     }
-    if config["purpose"] == "harness-control":
-        report["pending"].append("Synthetic controls are not release measurements")
     if config["target"] == "browser":
         report["browser_long_tasks"] = [
             {
                 "workload": w,
-                "side": s,
                 "count_p50": percentile(
                     [
                         len(r["response"]["long_tasks_ms"])
                         for r in rows
-                        if r["workload"] == w and r["side"] == s
+                        if r["workload"] == w
                     ],
                     0.5,
                 ),
                 "durations_ms": [
                     d
                     for r in rows
-                    if r["workload"] == w and r["side"] == s
+                    if r["workload"] == w
                     for d in r["response"]["long_tasks_ms"]
                 ],
             }
             for w in WORKLOADS
-            for s in ("old", "new")
         ]
     return report
 
 
 def markdown(report):
     lines = [
-        "# Release benchmark report",
+        "# Benchmark report",
         "",
         f"Target: {report['target']}.",
-        f"Performance checks: {report['performance_decision']}. Release gate: PENDING.",
-        f"Purpose: {report['purpose']}.",
         "",
-        "| Workload | Metric | Ratio | 95% interval | Result |",
-        "| --- | --- | ---: | --- | --- |",
+        "| Workload | Metric | p50 | p95 |",
+        "| --- | --- | ---: | ---: |",
     ]
     for row in report["results"]:
-        ci = row.get("ratio_ci95")
-        interval = f"{ci[0]:.4f}–{ci[1]:.4f}" if ci else "direct size ratio"
-        lines.append(
-            f"| {row['workload']} | {row['metric']} | {row['ratio']:.4f} | {interval} | {row['decision']} |"
-        )
+        if "value" in row:
+            lines.append(
+                f"| {row['workload']} | {row['metric']} | {row['value']} | {row['value']} |"
+            )
+        else:
+            lines.append(
+                f"| {row['workload']} | {row['metric']} | {row['p50']:.4f} | {row['p95']:.4f} |"
+            )
     lines += [
         "",
-        "p50, p95, all raw pairs, package inventories, and environment metadata are in the JSON files.",
-        "",
-        "Pending:",
-        "",
-        *[f"- {item}." for item in report["pending"]],
+        "Raw samples, the package inventory, and environment metadata are in the JSON files.",
         "",
     ]
     return "\n".join(lines)
@@ -366,119 +287,60 @@ def run(config_path, output, target=None):
     output.mkdir(parents=True, exist_ok=False)
     fixture = dataset(config["target"])
     write_json(output / "fixture.json", fixture)
-    packages = {
-        side: inventory(config[side]["root"], config[side]["assets"], config["target"])
-        for side in ("old", "new")
-    }
+    package = config["package"]
+    inventory_value = inventory(package["root"], package["assets"], config["target"])
     sources = {
-        side: {
-            str(Path(p).resolve()): hashlib.sha256(Path(p).read_bytes()).hexdigest()
-            for p in config[side]["adapter_sources"]
-        }
-        for side in ("old", "new")
+        str(Path(p).resolve()): hashlib.sha256(Path(p).read_bytes()).hexdigest()
+        for p in package["adapter_sources"]
     }
     ledger = {
-        "schema": 1,
+        "schema": 2,
         "config": config,
         "fixture_sha256": digest(fixture),
-        "packages": packages,
+        "package": inventory_value,
         "adapter_sources": sources,
         "samples": [],
-        "mobile_samples": [],
         "runner": {"python": sys.version, "platform": platform.platform()},
-        "setup": {},
     }
     write_json(output / "ledger.json", ledger)
+    state = output / "state"
+    base = {
+        "target": config["target"],
+        "fixture_sha256": digest(fixture),
+        "package_root": str(Path(package["root"]).resolve()),
+        "package_sha256": inventory_value["sha256"],
+        "state_directory": str(state),
+    }
     try:
-        for side in ("old", "new"):
-            request = {
-                "phase": "setup",
-                "target": config["target"],
-                "side": side,
-                "fixture": str(output / "fixture.json"),
-                "fixture_sha256": digest(fixture),
-                "package_root": str(Path(config[side]["root"]).resolve()),
-                "package_sha256": packages[side]["sha256"],
-                "state_directory": str(output / side),
-            }
-            ledger["setup"][side] = invoke(
-                config, side, request, output / f"setup-{side}"
-            )
-            if ledger["setup"][side].get("ready") is not True:
-                raise ValueError("Adapter fixture setup is not ready")
+        request = {**base, "phase": "setup", "fixture": str(output / "fixture.json")}
+        ledger["setup"] = invoke(config, request, output / "setup")
+        if ledger["setup"].get("ready") is not True:
+            raise ValueError("Adapter fixture setup is not ready")
         for workload in WORKLOADS:
-            for pair in range(config["pairs"]):
-                for side in ("old", "new") if pair % 2 == 0 else ("new", "old"):
-                    request = {
-                        "phase": "reset",
-                        "target": config["target"],
-                        "side": side,
-                        "pair": pair,
-                        "workload": workload,
-                        "fixture_sha256": digest(fixture),
-                        "package_sha256": packages[side]["sha256"],
-                        "package_root": str(Path(config[side]["root"]).resolve()),
-                        "state_directory": str(output / side),
-                        "callback_delay_ms": fixture["callback_delay_ms"],
-                    }
-                    name = f"{workload}-{pair:03d}-{side}"
-                    reset = invoke(config, side, request, output / f"{name}-reset")
-                    if reset.get("ready") is not True:
-                        raise ValueError("Adapter reset is not ready")
-                    request["phase"] = "measure"
-                    response = invoke(config, side, request, output / name)
-                    row = {
-                        "workload": workload,
-                        "pair": pair,
-                        "side": side,
-                        "response": response,
-                    }
-                    ledger["samples"].append(row)
-                    write_json(output / "ledger.json", ledger)
-                    validate_measurement(row, fixture, config["target"])
-        if config["target"] in {"swift", "kotlin"}:
-            for pair in range(config["pairs"]):
+            for sample in range(config["samples"]):
                 request = {
-                    "phase": "measure",
-                    "target": config["target"],
-                    "side": "new",
-                    "pair": pair,
-                    "workload": "mobile_lift",
-                    "fixture_sha256": digest(fixture),
-                    "package_sha256": packages["new"]["sha256"],
-                    "package_root": str(Path(config["new"]["root"]).resolve()),
-                    "state_directory": str(output / "new"),
+                    **base,
+                    "phase": "reset",
+                    "sample": sample,
+                    "workload": workload,
+                    "callback_delay_ms": fixture["callback_delay_ms"],
                 }
-                response = invoke(
-                    config, "new", request, output / f"mobile-lift-{pair:03d}"
-                )
-                row = {
-                    "workload": "mobile_lift",
-                    "pair": pair,
-                    "side": "new",
-                    "response": response,
-                }
-                ledger["mobile_samples"].append(row)
+                name = f"{workload}-{sample:03d}"
+                reset = invoke(config, request, output / f"{name}-reset")
+                if reset.get("ready") is not True:
+                    raise ValueError("Adapter reset is not ready")
+                request["phase"] = "measure"
+                response = invoke(config, request, output / name)
+                row = {"workload": workload, "sample": sample, "response": response}
+                ledger["samples"].append(row)
                 write_json(output / "ledger.json", ledger)
-                validate_mobile(row)
-        for side in ("old", "new"):
-            if packages[side] != inventory(
-                config[side]["root"], config[side]["assets"], config["target"]
-            ):
-                raise ValueError("Installed package changed during measurements")
-            if sources[side] != {
-                str(Path(p).resolve()): hashlib.sha256(Path(p).read_bytes()).hexdigest()
-                for p in config[side]["adapter_sources"]
-            }:
-                raise ValueError("Adapter source changed during measurements")
+                validate_measurement(row, fixture, config["target"])
         report = summarize(ledger)
         write_json(output / "report.json", report)
         (output / "report.md").write_text(markdown(report))
-        return 1 if report["performance_decision"] == "FAIL" else 0
+        return 1 if report["safety_failures"] else 0
     except Exception as error:
-        write_json(
-            output / "error.json", {"release_gate": "PENDING", "error": str(error)}
-        )
+        write_json(output / "error.json", {"error": str(error)})
         raise
 
 
@@ -502,7 +364,7 @@ def main():
     if args.action == "analyze":
         report = summarize(json.loads(Path(args.ledger).read_text()))
         write_json(args.output, report)
-        return 1 if report["performance_decision"] == "FAIL" else 0
+        return 1 if report["safety_failures"] else 0
     return run(args.config, args.output, None if args.action == "run" else args.action)
 
 

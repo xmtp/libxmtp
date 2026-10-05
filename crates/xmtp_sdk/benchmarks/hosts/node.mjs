@@ -2,7 +2,6 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { admitEntries } from "./entries.mjs";
 import { publicApi } from "./sdk.mjs";
 import { seed, measure } from "./workload.mjs";
 
@@ -13,7 +12,6 @@ let input = "";
 for await (const part of process.stdin) input += part;
 const request = JSON.parse(input);
 const root = request.state_directory;
-await admitEntries(config, request, "node");
 
 const load = async (name) =>
   JSON.parse(await readFile(join(root, name), "utf8"));
@@ -26,14 +24,7 @@ const pure = config.pure_entry
 const accounts = await import(
   pathToFileURL(resolve(config.accounts_entry)).href
 );
-const api = publicApi(
-  sdk,
-  pure,
-  request.side,
-  "node",
-  config.backend_url,
-  accounts,
-);
+const api = publicApi(sdk, pure, "node", config.backend_url, accounts);
 let response;
 if (request.phase === "setup") {
   await mkdir(root, { recursive: true });
@@ -56,25 +47,25 @@ if (request.phase === "setup") {
         api,
         fixture,
         {
-          sender: join(root, `stream-${request.pair}-sender.db`),
-          receiver: join(root, `stream-${request.pair}-receiver.db`),
+          sender: join(root, `stream-${request.sample}-sender.db`),
+          receiver: join(root, `stream-${request.sample}-receiver.db`),
         },
         true,
       );
-      await save(`stream-${request.pair}.json`, state);
+      await save(`stream-${request.sample}.json`, state);
     }
     response = { ready: true };
   } else {
     const state =
       request.workload === "stream"
-        ? await load(`stream-${request.pair}.json`)
+        ? await load(`stream-${request.sample}.json`)
         : await load("page.json");
     response = await measure(
       api,
       fixture,
       state,
       request.workload,
-      join(root, `${request.workload}-${request.pair}.db`),
+      join(root, `${request.workload}-${request.sample}.db`),
     );
     response.peak_memory_bytes = process.resourceUsage().maxRSS * 1024;
     response.source = {

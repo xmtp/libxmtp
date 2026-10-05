@@ -1,5 +1,3 @@
-import { enrichLive } from "./live.mjs";
-
 export function seedRows(fixture, stream) {
   const keys = stream ? fixture.stream_keys : fixture.page_keys;
   const selected = new Set(keys);
@@ -132,7 +130,6 @@ export async function measure(api, fixture, state, workload, coldPath) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const expectedEvents = new Set(state.eventIds);
     const seen = new Set();
-    const live = [];
     const start = performance.now();
     // Publishing and reading run together. The complete operation is timed.
     const publisher = api.publish(group);
@@ -144,7 +141,6 @@ export async function measure(api, fixture, state, workload, coldPath) {
         if (expectedEvents.has(message.id)) {
           if (seen.has(message.id))
             throw new Error("Duplicate expected stream event");
-          live.push(api.live(message));
           seen.add(message.id);
         }
       }
@@ -152,23 +148,13 @@ export async function measure(api, fixture, state, workload, coldPath) {
         throw new Error("Stream ended with missing messages");
     })();
     await Promise.all([publisher, consumer]);
-    const messages = enrichLive(live, state.ids);
     const end = performance.now();
     await stream.end();
     stream = undefined;
     return {
       duration_ms: end - start,
       timing_window: { start_ms: start, end_ms: end },
-      observed_messages: messages,
-      eager_snapshots: live
-        .filter((event) => event.kind !== "reaction")
-        .map((event) => ({
-          id: event.id,
-          reactions: event.eager_reactions ?? null,
-          parent_text: event.eager_parent_text ?? null,
-        })),
-      eager_snapshot_validation:
-        "PENDING: reaction snapshot completeness has no public boundary",
+      completed: true,
       streamed_events: seen.size,
       streamed_primary: state.ids.length,
     };

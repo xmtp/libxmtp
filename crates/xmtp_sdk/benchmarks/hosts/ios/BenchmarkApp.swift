@@ -18,33 +18,6 @@ func appPeakMemory() throws -> UInt64 {
     return info.resident_size_max
 }
 
-/// These operations test the bridge. The runner never admits them as samples.
-func runProbe(_ config: HostConfig, _ request: [String: Any]) async throws -> [String: Any] {
-    if request["probe"] as? String == "error" {
-        throw BenchFailure(message: "Requested probe failure")
-    }
-    let outside = request["transport_delay_ms"] as? UInt64 ?? 0
-    try await Task.sleep(nanoseconds: delayNanoseconds(outside))
-    let start = now()
-    let inside = request["operation_delay_ms"] as? UInt64 ?? 0
-    try await Task.sleep(nanoseconds: delayNanoseconds(inside))
-    var result: [String: Any] = ["probe": true, "duration_ms": now() - start]
-    if request["probe"] as? String == "signer" {
-        let account = try await signerHelper(config, [:])
-        guard let key = account["key"] else { throw BenchFailure(message: "Signer response has no private key") }
-        let signature = try await signerHelper(config, ["key": key, "text": "iOS benchmark bridge"])
-        try require(signature["signature"]?.count == 130, "Signer probe returned no signature")
-        result["signed"] = true
-    }
-    if let bytes = request["allocate_bytes"] as? Int, bytes > 0 {
-        let buffer = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 4096)
-        buffer.initializeMemory(as: UInt8.self, repeating: 1, count: bytes)
-        result["allocation_peak_bytes"] = try appPeakMemory()
-        buffer.deallocate()
-    }
-    return result
-}
-
 func processOperation(_ envelopeURL: URL) async {
     let responseURL = envelopeURL.deletingLastPathComponent().appendingPathComponent("response.json")
     var response: [String: Any] = [:]
@@ -57,26 +30,19 @@ func processOperation(_ envelopeURL: URL) async {
         else {
             throw BenchFailure(message: "Invalid operation envelope")
         }
-        response = ["operation_id": operation, "request_sha256": requestDigest,
-                    "side": BenchmarkIdentity.side, "package_sha256": BenchmarkIdentity.packageSHA256,
-                    "app_build_id": BenchmarkIdentity.buildID]
-        try require(envelope["side"] as? String == BenchmarkIdentity.side &&
-            envelope["package_sha256"] as? String == BenchmarkIdentity.packageSHA256 &&
-            envelope["app_build_id"] as? String == BenchmarkIdentity.buildID, "App identity mismatch")
+        response = ["operation_id": operation, "request_sha256": requestDigest]
         let bytes = Data(requestJSON.utf8)
         try require(sha256(bytes) == requestDigest, "Original request digest mismatch")
         guard let request = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
               let phase = request["phase"] as? String else { throw BenchFailure(message: "Invalid request") }
-        try require(request["side"] as? String == BenchmarkIdentity.side &&
-            request["package_sha256"] as? String == BenchmarkIdentity.packageSHA256 &&
-            request["target"] as? String == "swift", "Request identity mismatch")
-        try require(["setup", "reset", "measure", "probe"].contains(phase), "Unknown request phase")
+        try require(request["target"] as? String == "swift", "Request target mismatch")
+        try require(["setup", "reset", "measure"].contains(phase), "Unknown request phase")
         try require(stateKey.count == 64 && stateKey.allSatisfy(\.isHexDigit), "Invalid state key")
         let root = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/xmtp-benchmark/\(stateKey)")
         let config = try load(HostConfig.self, root.appendingPathComponent("host.json"))
         let fixtureBytes = try Data(contentsOf: root.appendingPathComponent("fixture.json"))
         try require(sha256(fixtureBytes) == request["fixture_sha256"] as? String, "Fixture digest mismatch")
-        var result = phase == "probe" ? try await runProbe(config, request) : try await runBenchmark(config, request, root)
+        var result = try await runBenchmark(config, request, root)
         result["peak_memory_bytes"] = try appPeakMemory()
         result["memory_scope"] = "ios-app-resident-high-water"
         response["result"] = result

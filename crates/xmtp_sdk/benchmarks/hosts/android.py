@@ -12,7 +12,7 @@ def main():
     config = json.loads(Path(sys.argv[1]).read_text())
     request = json.load(sys.stdin)
     adb = [config["adb"], "-s", config["device_serial"]]
-    package = "org.xmtp.benchmark." + request["side"]
+    package = "org.xmtp.benchmark"
     destination = f"/sdcard/Android/data/{package}/files/benchmark-input"
     root = Path(request["state_directory"])
     request["state_key"] = (

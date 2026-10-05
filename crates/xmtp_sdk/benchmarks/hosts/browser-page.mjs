@@ -6,8 +6,8 @@ import { publicApi } from "./sdk.mjs";
 import { seed, measure } from "./workload.mjs";
 
 window.benchmark = async (request, fixture, state, backend) => {
-  const api = publicApi(sdk, pure, request.side, "browser", backend, accounts);
-  const prefix = `${request.side}-${request.pair ?? "setup"}`;
+  const api = publicApi(sdk, pure, "browser", backend, accounts);
+  const prefix = `${request.sample ?? "setup"}`;
   if (
     request.phase === "setup" ||
     (request.phase === "reset" && request.workload === "stream")

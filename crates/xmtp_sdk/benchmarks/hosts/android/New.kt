@@ -5,11 +5,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import uniffi.xmtp_sdk.*
 import java.io.File
-import java.nio.ByteBuffer
 
 typealias BenchClient = SDKClient
 typealias BenchGroup = Group
-typealias BenchLiveMessage = Message
 
 class BenchSigner(
     val config: HostConfig,
@@ -200,82 +198,3 @@ suspend fun benchPage(
             "reactions" to JSONArray(reactions),
         )
     }
-
-suspend fun benchLift(
-    group: BenchGroup,
-    pair: Int,
-): JSONObject {
-    val samples = rows(group, 1000)
-    check(samples.size == 1000) { "Missing mobile lift samples" }
-    val encoded =
-        samples.map { sample ->
-            val buffer = ByteBuffer.allocate(FfiConverterTypeMessageData.allocationSize(sample.data).toInt())
-            FfiConverterTypeMessageData.write(sample.data, buffer)
-            buffer.array()
-        }
-    val order = if (pair % 2 == 0) listOf("record", "class") else listOf("class", "record")
-    val result = obj("order" to JSONArray(order))
-    var observed = 0
-    for (kind in order) {
-        val start = now()
-        repeat(10000) { index ->
-            val input = ByteBuffer.wrap(encoded[index % encoded.size])
-            observed +=
-                if (kind ==
-                    "record"
-                ) {
-                    FfiConverterTypeMessageData.read(input).id.length
-                } else {
-                    FfiConverterTypeMessage.read(input).id.length
-                }
-        }
-        result.put("${kind}_ms", now() - start)
-    }
-    check(observed > 0) { "Mobile lifts produced no values" }
-    return result
-}
-
-fun benchLive(message: BenchLiveMessage): LiveEvent {
-    fun reaction(value: Reaction) =
-        LiveReaction(
-            value.content,
-            if (value.schema == ReactionSchema.UNICODE) "unicode" else "unexpected",
-            if (value.action == ReactionAction.ADDED) "added" else "unexpected",
-        )
-    val event =
-        when (val content = (message.content as SDKMessageContent.Standard).value) {
-            is MessageContent.Text -> {
-                LiveEvent(message.id, "text", text = content.v1)
-            }
-
-            is MessageContent.Attachment -> {
-                LiveEvent(
-                    message.id,
-                    "attachment",
-                    attachment =
-                        LiveAttachment(checkNotNull(content.v1.filename), content.v1.mimeType, hex(content.v1.content)),
-                )
-            }
-
-            is MessageContent.Reply -> {
-                LiveEvent(
-                    message.id,
-                    "reply",
-                    text = (content.body as MessageBody.Text).v1,
-                    reference = content.referenceId,
-                    eagerParentText =
-                        ((message.inReplyToContent as SDKReplyContent.Standard).value as MessageBody.Text)
-                            .v1,
-                )
-            }
-
-            is MessageContent.Reaction -> {
-                LiveEvent(message.id, "reaction", reference = content.reference, reaction = reaction(content.reaction))
-            }
-
-            else -> {
-                error("Missing or unsupported live content")
-            }
-        }
-    return event.copy(eagerReactions = message.reactions.map { reaction(it.reaction) })
-}

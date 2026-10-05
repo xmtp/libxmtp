@@ -2,8 +2,6 @@ plugins {
     id 'com.android.application' version '8.9.1'
     id 'org.jetbrains.kotlin.android' version '2.0.0'
 }
-def side = providers.gradleProperty('benchmarkSide').get()
-if (!(side in ['old', 'new'])) throw new GradleException('Use benchmarkSide=old or new')
 def packageRoot = file(providers.gradleProperty('sdkPackageRoot').get())
 def outputRoot = file(providers.gradleProperty('benchmarkBuildDirectory').get())
 layout.buildDirectory = outputRoot
@@ -11,7 +9,7 @@ android {
     namespace 'org.xmtp.benchmark'
     compileSdk 35
     defaultConfig {
-        applicationId "org.xmtp.benchmark.${side}"
+        applicationId 'org.xmtp.benchmark'
         minSdk 26
         targetSdk 35
     }
@@ -33,7 +31,7 @@ android {
     packaging.resources.excludes += ['META-INF/AL2.0', 'META-INF/LGPL2.1']
 }
 kotlin.sourceSets.getByName('main').kotlin.setSrcDirs(['.'])
-kotlin.sourceSets.getByName('main').kotlin.include('Benchmark.kt', 'Live.kt', side == 'old' ? 'Old.kt' : 'New.kt')
+kotlin.sourceSets.getByName('main').kotlin.include('Benchmark.kt', 'New.kt')
 dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     // The frozen closure must contain the SDK and all of its runtime AAR/JAR files.

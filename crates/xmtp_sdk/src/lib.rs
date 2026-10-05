@@ -228,11 +228,6 @@ pub async fn resume_streams() -> Result<(), XmtpError> {
         .map_err(XmtpError::from_core)
 }
 
-/// An empty asynchronous call for measuring FFI scheduling cost.
-#[cfg(all(feature = "bench", not(feature = "pure-only")))]
-#[xmtp_macro::sdk_export]
-pub async fn sdk_empty_call() {}
-
 #[cfg(all(feature = "bridge-panic-test", not(feature = "pure-only")))]
 #[uniffi::export]
 pub async fn bridge_test_panic() -> Result<(), XmtpError> {

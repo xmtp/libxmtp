@@ -2,15 +2,12 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
-import { admitEntries } from "./entries.mjs";
-
 console.log = (...values) => console.error(...values);
 const config = JSON.parse(await readFile(process.argv[2], "utf8"));
 let input = "";
 for await (const part of process.stdin) input += part;
 const request = JSON.parse(input);
 const root = request.state_directory;
-await admitEntries(config, request, "browser");
 
 await mkdir(root, { recursive: true });
 const fixture = JSON.parse(
@@ -64,7 +61,7 @@ try {
   await page.waitForFunction(() => typeof window.benchmark === "function");
   const stateFile = join(
     root,
-    request.workload === "stream" ? `stream-${request.pair}.json` : "page.json",
+    request.workload === "stream" ? `stream-${request.sample}.json` : "page.json",
   );
   let state;
   if (request.phase === "measure")

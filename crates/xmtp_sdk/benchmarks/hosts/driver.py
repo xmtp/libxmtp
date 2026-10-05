@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wrap a real host executable with the paired-run protocol and build timing."""
+"""Wrap a real host executable with the run protocol and build timing."""
 
 import json
 import shutil
@@ -44,8 +44,8 @@ def command(argv, request, log):
 
 
 def record_observation(response, fixture, workload, log):
-    if workload in {"page", "stream"} and "observed_messages" not in response:
-        raise ValueError("Page and stream measurements require observed public values")
+    if workload == "page" and "observed_messages" not in response:
+        raise ValueError("Page measurements require observed public values")
     if "observed_messages" in response:
         values = response.pop("observed_messages")
         response["observation"] = {
@@ -66,7 +66,7 @@ def main():
     root.mkdir(parents=True, exist_ok=True)
     log = (
         root
-        / f"host-{request['phase']}-{request.get('workload', 'setup')}-{request.get('pair', 0)}"
+        / f"host-{request['phase']}-{request.get('workload', 'setup')}-{request.get('sample', 0)}"
     )
     if request["phase"] == "setup":
         (root / "fixture.json").write_bytes(Path(request["fixture"]).read_bytes())
@@ -118,11 +118,9 @@ def main():
         # These flags cover this timed operation only. The separate callback
         # matrix must establish retained-work and lifetime behavior across cycles.
         safety = response.setdefault("safety", {})
-        # Exact page or stream observations establish content correctness only.
+        # Exact page observations establish content correctness only.
         observed = response["observation"] == expected_observation(fixture, workload)
-        safety.setdefault(
-            "correctness", observed if workload in {"page", "stream"} else None
-        )
+        safety.setdefault("correctness", observed if workload == "page" else None)
         for outcome in ("deadlock", "use_after_end", "retained_growth"):
             safety.setdefault(outcome, None)
     print(json.dumps(response))

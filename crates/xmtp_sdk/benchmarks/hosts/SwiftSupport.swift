@@ -27,6 +27,13 @@ func unhex(_ value: String) -> Data {
     })
 }
 
+struct FixtureAttachment: Codable, Equatable { let filename: String; let mime_type: String; let bytes_hex: String }
+struct FixtureReaction: Codable, Equatable { let content: String; let schema: String; let action: String }
+struct FixtureMessage: Codable, Equatable {
+    let key: String; let text: String?; let reply_to: String?; let parent_text: String?
+    let reactions: [FixtureReaction]; let attachment: FixtureAttachment?
+}
+
 struct Fixture: Codable { let messages: [FixtureMessage]; let callback_delay_ms: UInt64 }
 struct Saved: Codable {
     var senderKey: String; var senderAddress: String; var senderPath: String; var senderInbox: String
@@ -114,19 +121,19 @@ func runBenchmark(_ config: HostConfig, _ request: [String: Any], _ root: URL) a
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     let fixture = try load(Fixture.self, root.appendingPathComponent("fixture.json"))
     let phase = request["phase"] as! String; let workload = request["workload"] as? String ?? ""
-    let pair = request["pair"] as? Int ?? 0
+    let sample = request["sample"] as? Int ?? 0
     var result: [String: Any] = ["ready": true]
     if phase == "setup" {
         try await save(seed(config, fixture, root, "page", false), root.appendingPathComponent("page.json"))
     } else if phase == "reset" {
         if workload == "stream" {
-            try await save(seed(config, fixture, root, "stream-\(pair)", true), root.appendingPathComponent("stream-\(pair).json"))
+            try await save(seed(config, fixture, root, "stream-\(sample)", true), root.appendingPathComponent("stream-\(sample).json"))
         }
     } else if workload == "cold_start" || workload.hasPrefix("callback_") {
         let account = try await signerHelper(config, [:]); let clock = CallbackClock()
         let start = now()
         let client = try await benchCreate(config, account["key"]!, account["address"]!,
-                                           root.appendingPathComponent("\(workload)-\(pair)").path,
+                                           root.appendingPathComponent("\(workload)-\(sample)").path,
                                            workload == "callback_slow" ? fixture.callback_delay_ms : 0, clock)
         let finished = now(); try await benchClose(client)
         let (entered, count) = clock.result()
@@ -134,17 +141,13 @@ func runBenchmark(_ config: HostConfig, _ request: [String: Any], _ root: URL) a
         result = ["completed": true, "callback_count": count,
                   "duration_ms": finished - (workload.hasPrefix("callback_") ? entered! : start)]
     } else {
-        let state = try load(Saved.self, root.appendingPathComponent(workload == "stream" ? "stream-\(pair).json" : "page.json"))
+        let state = try load(Saved.self, root.appendingPathComponent(workload == "stream" ? "stream-\(sample).json" : "page.json"))
         let sender = try await benchOpen(config, state.senderAddress, state.senderPath, state.senderInbox)
         let group = try await benchGroup(sender, state.groupId)
         let keys = Dictionary(uniqueKeysWithValues: state.ids.enumerated().map { ($0.element, String($0.offset)) })
         if workload == "page" {
             let start = now(); let page = try await benchPage(group, 1000, keys)
             result = ["duration_ms": now() - start, "observed_messages": page]
-
-        } else if workload == "mobile_lift" {
-            guard let lift = try await benchLift(group, pair) else { throw BenchFailure(message: "Missing mobile converter") }
-            result = ["mobile_lift": lift, "completed": true]
         } else {
             let receiver = try await benchOpen(config, state.receiverAddress, state.receiverPath, state.receiverInbox)
             let receivedGroup = try await benchGroup(receiver, state.groupId)
@@ -153,23 +156,18 @@ func runBenchmark(_ config: HostConfig, _ request: [String: Any], _ root: URL) a
             try await Task.sleep(nanoseconds: 1_000_000_000)
             let start = now(); let publishing = Task { try await benchPublish(group) }
             var seen = Set<String>(); let expected = Set(state.eventIds)
-            var live: [LiveEvent] = []
             for try await message in stream {
-                try appendLiveEvent(message.id, expected, &seen, &live) { try benchLive(message) }
+                if expected.contains(message.id) {
+                    try require(seen.insert(message.id).inserted, "Duplicate expected stream event")
+                }
                 if seen.count == expected.count {
                     break
                 }
             }
             try await publishing.value
-            try requireLiveComplete(seen, expected)
-            let page = try enrichLive(live, state.ids).map(jsonRow)
-            result = try ["duration_ms": now() - start, "observed_messages": page,
-                          "streamed_events": seen.count, "streamed_primary": state.ids.count,
-                          "eager_snapshots": live.filter { $0.kind != "reaction" }.map { event -> [String: Any] in
-                              try ["id": event.id, "reactions": event.eager_reactions.map { try jsonObject($0) } ?? NSNull(),
-                                   "parent_text": event.eager_parent_text as Any? ?? NSNull()]
-                          },
-                          "eager_snapshot_validation": "PENDING: reaction snapshot completeness has no public boundary"]
+            try require(seen == expected, "Stream ended with missing fixture messages")
+            result = ["duration_ms": now() - start, "completed": true,
+                      "streamed_events": seen.count, "streamed_primary": state.ids.count]
             try await benchClose(receiver)
         }
         try await benchClose(sender)

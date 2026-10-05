@@ -2,19 +2,15 @@
 """Prepare and build the private iOS host against an installed public product."""
 
 import argparse
-import hashlib
 import json
 import plistlib
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 HOSTS = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(HOSTS), str(HOSTS.parent)]
-from fixtures import digest  # noqa: E402 - requires the path setup above
-from ios_identity import dependency_identity, tree_identity  # noqa: E402 - requires the path setup above
-from packages import inventory  # noqa: E402 - requires the path setup above
+PRODUCT = "XmtpSdk"
+BUNDLE = "org.xmtp.benchmark"
 
 
 def project(package, product, bundle, sources):
@@ -59,41 +55,16 @@ def project(package, product, bundle, sources):
 
 def prepare(config, output):
     output.mkdir(parents=True, exist_ok=False)
-    side = config["side"]
-    if side not in ("old", "new"):
-        raise ValueError("Side must be old or new")
     package = Path(config["package_root"]).resolve(strict=True)
-    snapshot = inventory(package, config["assets"], "swift")
-    product = "XMTPiOS" if side == "old" else "XmtpSdk"
-    bundle = f"org.xmtp.benchmark.{side}"
-    sources = [
-        "SwiftSupport.swift",
-        "SwiftLive.swift",
-        "SwiftOld.swift" if side == "old" else "SwiftNew.swift",
-    ]
+    sources = ["SwiftSupport.swift", "SwiftNew.swift"]
     for name in sources:
         shutil.copyfile(HOSTS / name, output / name)
     for name in ["BenchmarkApp.swift", "Info.plist"]:
         shutil.copyfile(Path(__file__).parent / name, output / name)
     sources.append("BenchmarkApp.swift")
-    source_hash = tree_identity(output)
-    build_id = digest(
-        {
-            "side": side,
-            "package_sha256": snapshot["sha256"],
-            "sources": source_hash,
-            "project_generator": hashlib.sha256(
-                Path(__file__).read_bytes()
-            ).hexdigest(),
-        }
-    )
-    (output / "BenchmarkIdentity.swift").write_text(
-        f'import Foundation\nenum BenchmarkIdentity {{\n    static let side = "{side}"\n    static let packageSHA256 = "{snapshot["sha256"]}"\n    static let buildID = "{build_id}"\n}}\n'
-    )
-    sources.append("BenchmarkIdentity.swift")
     xcode = output / "Benchmark.xcodeproj"
     xcode.mkdir()
-    (xcode / "project.pbxproj").write_text(project(package, product, bundle, sources))
+    (xcode / "project.pbxproj").write_text(project(package, PRODUCT, BUNDLE, sources))
     scheme = xcode / "xcshareddata/xcschemes"
     scheme.mkdir(parents=True)
     (
@@ -109,59 +80,13 @@ def prepare(config, output):
         destination = xcode / "project.xcworkspace/xcshareddata/swiftpm"
         destination.mkdir(parents=True)
         shutil.copyfile(lock, destination / "Package.resolved")
-    receipt = {
-        "dependency_root": dependency_root,
-        "side": side,
-        "package_sha256": snapshot["sha256"],
-        "package_root": str(package),
-        "assets": config["assets"],
-        "app_build_id": build_id,
-        "bundle_id": bundle,
-        "product": product,
-        "profile": "Release",
-        "target": "arm64-apple-ios-simulator",
-        "project_sha256": tree_identity(output),
-        "prepared_files": {
-            str(p.relative_to(output)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(output.rglob("*"))
-            if p.is_file() and p.name != "Package.resolved"
-        },
-    }
-    (output / "preparation.json").write_text(json.dumps(receipt, indent=2))
-    return receipt
-
-
-def verify_dependencies(receipt, dependencies, resolved):
-    pins = json.loads(resolved.read_text())["pins"] if resolved.exists() else []
-    if pins:
-        if not receipt["dependency_root"]:
-            raise ValueError(
-                "Freeze resolved dependencies inside package_root, then prepare again with dependency_root"
-            )
-        frozen = Path(receipt["package_root"]) / receipt["dependency_root"]
-        if json.loads((frozen / "Package.resolved").read_text())["pins"] != pins:
-            raise ValueError(
-                "Resolved Swift dependency pins differ from the frozen closure"
-            )
-        for name in ("checkouts", "artifacts"):
-            if dependency_identity(dependencies / name) != dependency_identity(
-                frozen / name
-            ):
-                raise ValueError("Resolved dependency bytes differ from frozen " + name)
-
-    return pins
+    preparation = {"dependency_root": dependency_root, "package_root": str(package)}
+    (output / "preparation.json").write_text(json.dumps(preparation, indent=2))
+    return preparation
 
 
 def build(output, udid, derived):
-    receipt = json.loads((output / "preparation.json").read_text())
-    for name, expected in receipt["prepared_files"].items():
-        if hashlib.sha256((output / name).read_bytes()).hexdigest() != expected:
-            raise ValueError("Prepared app source changed: " + name)
-    if (
-        inventory(receipt["package_root"], receipt["assets"], "swift")["sha256"]
-        != receipt["package_sha256"]
-    ):
-        raise ValueError("Installed package changed after preparation")
+    preparation = json.loads((output / "preparation.json").read_text())
     argv = [
         "xcodebuild",
         "-project",
@@ -189,19 +114,14 @@ def build(output, udid, derived):
         ).stdout.strip(),
         "build",
     ]
-    if receipt["dependency_root"]:
+    if preparation["dependency_root"]:
         argv.insert(-1, "-onlyUsePackageVersionsFromResolvedFile")
     with (output / "build.log").open("w") as log:
         subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT, check=True)
-    if (
-        inventory(receipt["package_root"], receipt["assets"], "swift")["sha256"]
-        != receipt["package_sha256"]
-    ):
-        raise ValueError("Build changed the frozen installed package")
     app = derived / "Build/Products/Release-iphonesimulator/XmtpBenchmark.app"
     info = plistlib.loads((app / "Info.plist").read_bytes())
     if (
-        info["CFBundleIdentifier"] != receipt["bundle_id"]
+        info["CFBundleIdentifier"] != BUNDLE
         or info["DTPlatformName"] != "iphonesimulator"
     ):
         raise ValueError("Build did not produce the declared simulator app")
@@ -219,28 +139,7 @@ def build(output, udid, derived):
     ).stdout.strip()
     if "IOSSIMULATOR" not in platform or architectures != "arm64":
         raise ValueError("App executable must be arm64 iOS Simulator")
-    dependencies = derived / "SourcePackages"
-    resolved = (
-        output
-        / "Benchmark.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-    )
-    pins = verify_dependencies(receipt, dependencies, resolved)
-    receipt.update(
-        app_path=str(app),
-        app_sha256=tree_identity(app),
-        build_command=argv,
-        xcode=subprocess.run(
-            ["xcodebuild", "-version"], capture_output=True, text=True, check=True
-        ).stdout,
-        simulator_udid=udid,
-        platform=platform,
-        architectures=architectures,
-        dependency_pins=pins,
-        resolved_dependencies_sha256=tree_identity(dependencies)
-        if dependencies.exists()
-        else None,
-    )
-    (output / "build-receipt.json").write_text(json.dumps(receipt, indent=2))
+    print(app)
 
 
 def main():

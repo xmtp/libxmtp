@@ -630,19 +630,3 @@ impl Conversations {
         .await
     }
 }
-
-#[cfg(feature = "bench")]
-#[xmtp_macro::sdk_export]
-impl Conversations {
-    /// Open a group already stored in this client's database for the benchmark.
-    pub async fn get_group(&self, id: ConversationId) -> Result<Arc<Group>, XmtpError> {
-        let group_id = xmtp_proto::types::GroupId::try_from(id)?;
-        let client = self.client.clone();
-        let client_key = self.client_key;
-        on_sdk_worker(self.client.context.clone(), async move {
-            let group = client.group(&group_id).map_err(XmtpError::from_core)?;
-            Ok(Arc::new(Group::from_core(group, client_key).await?))
-        })
-        .await
-    }
-}

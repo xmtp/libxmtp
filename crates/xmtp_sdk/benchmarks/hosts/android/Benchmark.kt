@@ -187,7 +187,7 @@ suspend fun perform(
 ): JSONObject {
     val phase = request.getString("phase")
     val workload = request.optString("workload")
-    val pair = request.optInt("pair")
+    val sample = request.optInt("sample")
     if (phase == "setup") {
         File(root, "page.json").writeText(seed(config, fixture, root, "page", false).toString())
         return obj("ready" to true)
@@ -196,7 +196,7 @@ suspend fun perform(
         if (workload ==
             "stream"
         ) {
-            File(root, "stream-$pair.json").writeText(seed(config, fixture, root, "stream-$pair", true).toString())
+            File(root, "stream-$sample.json").writeText(seed(config, fixture, root, "stream-$sample", true).toString())
         }
         return obj("ready" to true)
     }
@@ -209,7 +209,7 @@ suspend fun perform(
                 config,
                 account.getString("key"),
                 account.getString("address"),
-                File(root, "$workload-$pair").path,
+                File(root, "$workload-$sample").path,
                 if (workload == "callback_slow") fixture.getLong("callback_delay_ms") else 0,
                 clock,
             )
@@ -222,7 +222,7 @@ suspend fun perform(
             "duration_ms" to finish - (if (workload.startsWith("callback_")) checkNotNull(clock.last) else start),
         )
     }
-    val state = JSONObject(File(root, if (workload == "stream") "stream-$pair.json" else "page.json").readText())
+    val state = JSONObject(File(root, if (workload == "stream") "stream-$sample.json" else "page.json").readText())
     val sender =
         benchOpen(
             config,
@@ -243,7 +243,6 @@ suspend fun perform(
             val page = benchPage(group, 1000, keys)
             return obj("duration_ms" to now() - start, "observed_messages" to JSONArray(page))
         }
-        if (workload == "mobile_lift") return obj("completed" to true, "mobile_lift" to benchLift(group, pair))
         val receiver =
             benchOpen(
                 config,
@@ -256,13 +255,14 @@ suspend fun perform(
             val expectedArray = state.getJSONArray("eventIds")
             val expected = (0 until expectedArray.length()).map { expectedArray.getString(it) }.toSet()
             val seen = mutableSetOf<String>()
-            val live = mutableListOf<LiveEvent>()
             return coroutineScope {
                 val collecting =
                     async {
                         benchStream(receiver, receivedGroup)
                             .takeWhile { message ->
-                                appendLiveEvent(message.id, expected, seen, live) { benchLive(message) }
+                                if (message.id in expected) {
+                                    check(seen.add(message.id)) { "Duplicate expected stream event" }
+                                }
                                 seen.size != expected.size
                             }.collect { }
                     }
@@ -270,35 +270,10 @@ suspend fun perform(
                 val start = now()
                 benchPublish(group)
                 collecting.await()
-                requireLiveComplete(seen, expected)
-                val page = enrichLive(live, (0 until ids.length()).map { ids.getString(it) }).map(::liveJson)
+                check(seen == expected) { "Stream ended with missing fixture messages" }
                 obj(
                     "duration_ms" to now() - start,
-                    "observed_messages" to JSONArray(page),
-                    "eager_snapshots" to
-                        JSONArray(
-                            live.filter { it.kind != "reaction" }.map { event ->
-                                obj(
-                                    "id" to event.id,
-                                    "reactions" to (
-                                        event.eagerReactions?.let { values ->
-                                            JSONArray(
-                                                values.map {
-                                                    obj(
-                                                        "content" to it.content,
-                                                        "schema" to it.schema,
-                                                        "action" to it.action,
-                                                    )
-                                                },
-                                            )
-                                        } ?: JSONObject.NULL
-                                    ),
-                                    "parent_text" to (event.eagerParentText ?: JSONObject.NULL),
-                                )
-                            },
-                        ),
-                    "eager_snapshot_validation" to
-                        "PENDING: reaction snapshot completeness has no public boundary",
+                    "completed" to true,
                     "streamed_events" to seen.size,
                     "streamed_primary" to keys.size,
                 )
@@ -310,21 +285,3 @@ suspend fun perform(
         benchClose(sender)
     }
 }
-
-fun liveJson(row: LiveRow): JSONObject =
-    obj(
-        "key" to row.key,
-        "text" to row.text,
-        "reply_to" to row.replyTo,
-        "parent_text" to row.parentText,
-        "attachment" to
-            row.attachment?.let {
-                obj(
-                    "filename" to it.filename,
-                    "mime_type" to it.mimeType,
-                    "bytes_hex" to it.bytesHex,
-                )
-            },
-        "reactions" to
-            JSONArray(row.reactions.map { obj("content" to it.content, "schema" to it.schema, "action" to it.action) }),
-    )

@@ -3,7 +3,6 @@ import XmtpSdk
 
 typealias BenchClient = SDKClient
 typealias BenchGroup = Group
-typealias BenchLiveMessage = Message
 final class BenchSigner: Signer, @unchecked Sendable {
     let config: HostConfig; let key: String; let address: String; let delay: UInt64; let clock: CallbackClock
     init(_ config: HostConfig, _ key: String, _ address: String, _ delay: UInt64, _ clock: CallbackClock) {
@@ -93,7 +92,7 @@ func benchGroupSync(_ group: BenchGroup) async throws {
     try await group.sync()
 }
 
-func benchStream(_ client: BenchClient, _ group: BenchGroup) async throws -> AsyncThrowingStream<BenchLiveMessage, Error> {
+func benchStream(_ client: BenchClient, _ group: BenchGroup) async throws -> AsyncThrowingStream<Message, Error> {
     let source = try await client.messages(in: group)
     return AsyncThrowingStream { continuation in
         let task = Task {
@@ -130,53 +129,4 @@ func benchPage(_ group: BenchGroup, _ count: Int, _ keys: [String: String]) asyn
         return try jsonRow(FixtureMessage(key: key, text: text, reply_to: parent, parent_text: parentText,
                                           reactions: reactions, attachment: attachment))
     }
-}
-
-func benchLift(_ group: BenchGroup, _ pair: Int) async throws -> [String: Any]? {
-    let samples = try await benchRows(group, 1000)
-    try require(samples.count == 1000, "Missing mobile lift samples")
-    let encoded = samples.map { sample -> Data in
-        var bytes: [UInt8] = []; FfiConverterTypeMessageData.write(sample.data, into: &bytes)
-        return Data(bytes)
-    }
-    var observed = 0; var values: [String: Double] = [:]
-    let order = pair % 2 == 0 ? ["record", "class"] : ["class", "record"]
-    for kind in order {
-        let start = now()
-        for index in 0 ..< 10000 {
-            let data = encoded[index % encoded.count]
-            var buffer = (data: data, offset: data.startIndex)
-            if kind == "record" {
-                observed += try FfiConverterTypeMessageData.read(from: &buffer).id.count
-            } else {
-                observed += try FfiConverterTypeMessage.read(from: &buffer).id.count
-            }
-        }
-        values[kind + "_ms"] = now() - start
-    }
-    try require(observed > 0, "Mobile lifts produced no values")
-    return ["record_ms": values["record_ms"]!, "class_ms": values["class_ms"]!, "order": order]
-}
-
-func benchLive(_ message: BenchLiveMessage) throws -> LiveEvent {
-    guard case let .standard(content) = message.content else { throw LiveFailure(message: "Missing live content") }
-    let reaction = { (value: Reaction) in FixtureReaction(content: value.content,
-                                                          schema: value.schema == .unicode ? "unicode" : "unexpected", action: value.action == .added ? "added" : "unexpected") }
-    var event: LiveEvent
-    switch content {
-    case let .text(value): event = LiveEvent(id: message.id, kind: "text", text: value)
-    case let .attachment(value):
-        guard let name = value.filename else { throw LiveFailure(message: "Missing live attachment name") }
-        event = LiveEvent(id: message.id, kind: "attachment", attachment: FixtureAttachment(filename: name, mime_type: value.mimeType, bytes_hex: hex(value.content)))
-    case let .reply(reference, body):
-        guard case let .text(value) = body, case let .standard(.text(parent))? = message.inReplyToContent else {
-            throw LiveFailure(message: "Missing live reply body or eager parent")
-        }
-        event = LiveEvent(id: message.id, kind: "reply", text: value, reference: reference, eager_parent_text: parent)
-    case let .reaction(reference, _, value):
-        event = LiveEvent(id: message.id, kind: "reaction", reference: reference, reaction: reaction(value))
-    default: throw LiveFailure(message: "Unsupported live content")
-    }
-    event.eager_reactions = message.reactions.map { reaction($0.reaction) }
-    return event
 }

@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Reject test-only hooks and benchmark exports in shipped SDK code.
+# Reject test-only hooks in shipped SDK code.
 #
 #   check-test-hooks [generated-dir]  default bindings and runtime sources
-#   check-test-hooks --bench <dir>    the benchmark binding keeps both exports
 #   check-test-hooks --self-test      prove that the check can fail
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 
-bench_exports='sdkEmptyCall|sdk_empty_call|getGroup|get_group'
 # An identifier with a Test or test word: readerOpenedForTest,
 # bridgeTestPanic, testHook, bridge_test_panic, is_ended_for_test. Words
 # such as latestInboxUpdatesCount or Testnet do not match.
@@ -38,10 +36,6 @@ check() {
   local binding found entry failed=0
   for binding in "${bindings[@]}"; do
     test -f "$binding"
-    if rg -n "$bench_exports" "$binding"; then
-      echo "Benchmark export leaked into $binding" >&2
-      failed=1
-    fi
   done
   found="$(hooks "${bindings[@]}" "$@")"
   for entry in "${allowed[@]}"; do
@@ -94,7 +88,7 @@ self_test() {
     expect_failure "$name in a runtime" "$generated" "$runtime"
     rm "$runtime/src/main/Runtime.kt"
   done
-  for name in readerOpenedForTest bridge_test_panic sdkEmptyCall get_group; do
+  for name in readerOpenedForTest bridge_test_panic; do
     echo "func $name() {}" >>"$generated/typescript-wasm/xmtp_sdk.ts"
     expect_failure "$name in a binding" "$generated" "$runtime"
     echo "$clean" >"$generated/typescript-wasm/xmtp_sdk.ts"
@@ -103,19 +97,12 @@ self_test() {
 }
 
 case "${1:-}" in
-  --bench)
-    binding="${2:?benchmark package path required}/xmtp_sdk.ts"
-    test -f "$binding"
-    rg -q 'sdkEmptyCall' "$binding"
-    rg -q 'getGroup' "$binding"
-    echo "Benchmark bindings contain both gated exports."
-    ;;
   --self-test)
     self_test
     ;;
   *)
     cd "$root"
     check "${1:-target/sdk-generated}" apps/xmtp_sdk_bindgen/runtime
-    echo "Default bindings and runtimes have no test hooks or benchmark exports."
+    echo "Default bindings and runtimes have no test hooks."
     ;;
 esac

@@ -12,20 +12,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fixtures import canonical, digest
-from ios_identity import tree_identity
-import ios_cleanup
 
 MEMORY_SCOPE = "ios-app-resident-high-water"
+# Termination after a failed or finished operation gets its own short deadline.
+CLEANUP_SECONDS = 15
 
 
 def checked_result(envelope, value):
-    for key in (
-        "operation_id",
-        "request_sha256",
-        "side",
-        "package_sha256",
-        "app_build_id",
-    ):
+    for key in ("operation_id", "request_sha256"):
         if value.get(key) != envelope[key]:
             raise ValueError(f"iOS response identity mismatch: {key}")
     if "error" in value:
@@ -37,7 +31,7 @@ def checked_result(envelope, value):
     return result
 
 
-def invoke(config, request, call=None):
+def invoke(config, request):
     timeout = config["timeout_seconds"]
     if (
         not isinstance(timeout, (int, float))
@@ -45,37 +39,29 @@ def invoke(config, request, call=None):
         or timeout <= 0
     ):
         raise ValueError("Set a finite positive iOS adapter timeout")
-    receipt = json.loads(Path(config["build_receipt"]).read_text())
-    for key in ("side", "package_sha256"):
-        if request[key] != receipt[key]:
-            raise ValueError(f"iOS app does not match request {key}")
     if request["target"] != "swift":
         raise ValueError("iOS adapter requires a Swift request")
-    app = Path(receipt["app_path"])
-    if tree_identity(app) != receipt["app_sha256"]:
-        raise ValueError("iOS app bytes differ from the build receipt")
+    app = Path(config["app_path"])
     root = Path(request["state_directory"])
     root.mkdir(parents=True, exist_ok=True)
     operation = uuid.uuid4().hex
     logs = root / "ios-operations" / operation
     logs.mkdir(parents=True)
-    bundle = receipt["bundle_id"]
+    bundle = config["bundle_id"]
     udid = config["simulator_udid"]
     if not udid or udid == "booted":
-        raise ValueError("Select one explicit simulator UDID for both sides")
-    if receipt.get("simulator_udid") != udid:
-        raise ValueError("Use the simulator recorded by the app build")
+        raise ValueError("Select one explicit simulator UDID")
     deadline = time.monotonic() + timeout
     commands = []
 
     def command(*args, cleanup=False):
         argv = [config.get("xcrun", "xcrun"), "simctl", *args]
         remaining = (
-            ios_cleanup.CLEANUP_SECONDS
+            CLEANUP_SECONDS
             if cleanup
             else max(0.01, deadline - time.monotonic())
         )
-        result = (call or subprocess.run)(
+        result = subprocess.run(
             argv, text=True, capture_output=True, timeout=remaining
         )
         commands.append(
@@ -95,26 +81,14 @@ def invoke(config, request, call=None):
         return result
 
     try:
-        ios_cleanup.register(
-            request,
-            [config.get("xcrun", "xcrun"), "simctl", "terminate", udid, bundle],
-            logs,
-        )
         # Every path, including install/launch failure, ends with termination.
         command("terminate", udid, bundle, cleanup=True)
-        if request["phase"] in {"setup", "probe"}:
+        if request["phase"] == "setup":
             command("install", udid, str(app))
-        installed = Path(
-            command("get_app_container", udid, bundle, "app").stdout.strip()
-        )
-        if tree_identity(installed) != receipt["app_sha256"]:
-            raise ValueError("Installed iOS app bytes differ from the build receipt")
         container = Path(
             command("get_app_container", udid, bundle, "data").stdout.strip()
         )
-        state_key = digest(
-            {"state_directory": str(root.resolve()), "side": request["side"]}
-        )
+        state_key = digest({"state_directory": str(root.resolve())})
         local = container / "Library/Application Support/xmtp-benchmark" / state_key
         local.mkdir(parents=True, exist_ok=True)
         fixture = json.loads((root / "fixture.json").read_text())
@@ -136,9 +110,6 @@ def invoke(config, request, call=None):
             "request_json": canonical(request).decode(),
             "request_sha256": digest(request),
             "state_key": state_key,
-            "side": receipt["side"],
-            "package_sha256": receipt["package_sha256"],
-            "app_build_id": receipt["app_build_id"],
         }
         incoming = transport / "request.json"
         incoming.write_bytes(canonical(envelope))
@@ -164,7 +135,6 @@ def invoke(config, request, call=None):
             command("terminate", udid, bundle, cleanup=True)
         finally:
             (logs / "commands.json").write_text(json.dumps(commands, indent=2))
-        ios_cleanup.clear(request)
 
 
 def main():
