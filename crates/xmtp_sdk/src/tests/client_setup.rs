@@ -461,3 +461,50 @@ async fn unsigned_signature_request_cannot_register() {
     assert!(!client.is_registered().await?);
     client.end().await?;
 }
+
+/// Sorted installation ids of the client's inbox, read from the network.
+async fn installation_ids(client: &Client) -> Result<Vec<String>, XmtpError> {
+    let mut ids = client
+        .inbox_state(true)
+        .await?
+        .installations
+        .into_iter()
+        .map(|installation| installation.id.into_checked())
+        .collect::<Result<Vec<_>, _>>()?;
+    ids.sort();
+    Ok(ids)
+}
+
+/// The instance revoke methods sign with the supplied signer: one revokes
+/// only the selected installation, the other revokes every installation
+/// except the current one, and a second call with nothing to revoke is a
+/// no-op.
+#[xmtp_common::test(unwrap_try = true)]
+async fn instance_revoke_methods_remove_selected_then_all_other_installations() {
+    let signer = crate::generate_local_signer().await;
+    let first = Client::create(signer.clone(), options()).await?;
+    let revoked = Client::create(signer.clone(), options()).await?;
+    let other = Client::create(signer.clone(), options()).await?;
+    assert_eq!(installation_ids(&first).await?.len(), 3);
+
+    first
+        .revoke_installations(signer.clone(), vec![revoked.installation_id()])
+        .await?;
+    let mut expected = vec![
+        first.installation_id().into_checked()?,
+        other.installation_id().into_checked()?,
+    ];
+    expected.sort();
+    assert_eq!(installation_ids(&first).await?, expected);
+
+    first.revoke_all_other_installations(signer.clone()).await?;
+    assert_eq!(
+        installation_ids(&first).await?,
+        vec![first.installation_id().into_checked()?]
+    );
+    first.revoke_all_other_installations(signer).await?;
+    assert_eq!(installation_ids(&first).await?.len(), 1);
+    other.end().await?;
+    revoked.end().await?;
+    first.end().await?;
+}
