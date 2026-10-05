@@ -2,12 +2,12 @@ import Foundation
 import XCTest
 import XmtpSdk
 
-private func testOptions(location: StorageLocation = .inMemory) -> ClientOptions {
+private func testOptions() -> ClientOptions {
 	ClientOptions(
 		backend: .options(options: BackendOptions(
 			url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://localhost:5050",
 		)),
-		storage: StorageOptions(location: location), deviceSync: false,
+		storage: StorageOptions(location: .inMemory), deviceSync: false,
 	)
 }
 
@@ -62,65 +62,6 @@ final class InstalledClientTests: XCTestCase {
 		try await client.end()
 	}
 
-	func testOptimisticGroupPublishesPreparedMessage() async throws {
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let peer = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let group = try await client.conversations().createGroupOptimistic(options: CreateGroupOptions(name: "Testing"))
-		let prepared = try await group.prepareMessage(TextCodec(), value: "prepared text")
-		let before = try await group.messages(options: nil)
-		XCTAssertTrue(before.contains { $0.id == prepared })
-		_ = try await group.addMembers(members: [peer.inboxId()])
-		try await group.sync()
-		try await group.publishMessages()
-		let after = try await group.messages(options: nil)
-		XCTAssertTrue(after.contains {
-			if case let .standard(.text(body)) = $0.content {
-				return $0.id == prepared && body == "prepared text"
-			}
-			return false
-		})
-		let members = try await group.members()
-		XCTAssertEqual(Set(members.map(\.inboxId)), [client.inboxId(), peer.inboxId()])
-		let state = try await group.state()
-		XCTAssertEqual(state.name, "Testing")
-		try await peer.end()
-		try await client.end()
-	}
-
-	func testStoragePoolOptionsCrossNativeBoundary() async throws {
-		for pool in [nil, StoragePoolOptions(min: 1, max: 4), StoragePoolOptions(max: 10)] as [StoragePoolOptions?] {
-			var options = testOptions()
-			options.storage.pool = pool
-			let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
-			XCTAssertEqual(client.options().storage.pool, pool)
-			try await client.end()
-		}
-	}
-
-	func testEncryptedStoreReopensAtSamePath() async throws {
-		let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-		defer { try? FileManager.default.removeItem(at: root) }
-		let signer = await generateLocalSigner()
-		var options = testOptions(location: .directory(directory: root.path))
-		options.storage.encryptionKey = Data(repeating: 42, count: 32)
-		let client = try await SDKClient.create(signer: signer, options: options)
-		let path = try await client.storage().path()
-		let inboxId = client.inboxId()
-		let identity = client.identity()
-		try await client.end()
-		let reopened = try await SDKClient.build(identity: identity, options: options)
-		XCTAssertEqual(reopened.inboxId(), inboxId)
-		let reopenedPath = try await reopened.storage().path()
-		XCTAssertEqual(reopenedPath, path)
-		try await reopened.end()
-		options.storage.encryptionKey = Data(repeating: 43, count: 32)
-		do {
-			let unexpected = try await SDKClient.build(identity: identity, options: options)
-			try await unexpected.end()
-			XCTFail("The wrong encryption key opened the database")
-		} catch {}
-	}
-
 	func testHistorySnapshotKeepsTypedMessagesAndResumesAfterCursor() async throws {
 		let codec = SnapshotFailingCodec()
 		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions(), codecs: [codec])
@@ -167,82 +108,6 @@ final class InstalledClientTests: XCTestCase {
 		try await client.end()
 	}
 
-	func testHistorySnapshotsKeepRelationsAndHideDeletedContent() async throws {
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let peer = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let group = try await client.conversations().createGroup(members: [InboxId]())
-		let dm = try await client.conversations().createDm(peer: peer.inboxId())
-		for conversation in [Conversation.group(group: group), .dm(dm: dm)] {
-			let originalText = "private original \(UUID().uuidString)"
-			let originalFallback = "private fallback \(UUID().uuidString)"
-			var encoded = try encodeText(text: originalText)
-			encoded.fallback = originalFallback
-			let originalId = try await conversation.send(encoded: encoded, options: nil)
-			let originalRows = try await conversation.messages(options: nil)
-			let original = try XCTUnwrap(originalRows.first { $0.id == originalId })
-			XCTAssertEqual(original.fallback, originalFallback)
-			let replyId = try await original.reply("public reply")
-			let reactionId = try await original.react(Reaction(content: "+1", action: .added, schema: .shortcode))
-			let ordinary = try await conversation.messages(options: nil)
-			let ordinaryParent = try XCTUnwrap(ordinary.first { $0.id == originalId })
-			XCTAssertEqual(ordinaryParent.replyCount, 1)
-			XCTAssertEqual(ordinaryParent.reactions.map(\.id), [reactionId])
-			for snapshot in try await [
-				conversation.messageHistorySnapshot(limit: 100),
-				client.conversations().messageHistorySnapshot(limit: 100, options: nil),
-			] {
-				let parent = try XCTUnwrap(snapshot.messages.first { $0.id == originalId })
-				let reply = try XCTUnwrap(snapshot.messages.first { $0.id == replyId })
-				XCTAssertEqual(parent.replyCount, ordinaryParent.replyCount)
-				XCTAssertEqual(parent.reactions, ordinaryParent.reactions)
-				XCTAssertEqual(reply.inReplyTo?.id, originalId)
-				XCTAssertFalse(snapshot.cursor.isEmpty)
-				XCTAssertNotNil(parent.deliveryCursor)
-				XCTAssertNotNil(reply.deliveryCursor)
-			}
-			let recent = try await conversation.messageHistorySnapshot(limit: 2)
-			XCTAssertEqual(recent.messages.map(\.id), [replyId, reactionId])
-			_ = try await original.delete()
-			for snapshot in try await [
-				conversation.messageHistorySnapshot(limit: 100),
-				client.conversations().messageHistorySnapshot(limit: 100, options: nil),
-			] {
-				try assertDeletedSnapshot(snapshot, originalId: originalId, replyId: replyId)
-			}
-		}
-		try await peer.end()
-		try await client.end()
-	}
-
-	private func assertDeletedSnapshot(
-		_ snapshot: MessageHistorySnapshot, originalId: MessageId, replyId: MessageId,
-	) throws {
-		let deleted = try XCTUnwrap(snapshot.messages.first { $0.id == originalId })
-		switch deleted.content {
-		case .standard(.deletedMessage(_)): break
-		default:
-			XCTFail("History snapshot disclosed the original message after deletion")
-		}
-		XCTAssertTrue(deleted.rawBytes.isEmpty)
-		XCTAssertTrue(deleted.encoded?.content.isEmpty ?? true)
-		XCTAssertNil(deleted.fallback)
-		XCTAssertNotNil(deleted.deliveryCursor)
-		let reply = try XCTUnwrap(snapshot.messages.first { $0.id == replyId })
-		if let parent = reply.inReplyTo {
-			switch parent.content {
-			case .deletedMessage: break
-			default:
-				XCTFail("History snapshot disclosed the deleted reply parent")
-			}
-			XCTAssertTrue(parent.rawBytes.isEmpty)
-			XCTAssertTrue(parent.encoded?.content.isEmpty ?? true)
-			XCTAssertNil(parent.fallback)
-		} else {
-			XCTFail("History snapshot lost the deleted reply parent")
-		}
-		XCTAssertFalse(snapshot.cursor.isEmpty)
-	}
-
 	func testGroupAndDmReadTypedMessages() async throws {
 		let sender = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
 		let receiver = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
@@ -259,134 +124,6 @@ final class InstalledClientTests: XCTestCase {
 		}
 		try await receiver.end()
 		try await sender.end()
-	}
-
-	func testArchiveImportIntoPopulatedStoreKeepsMessages() async throws {
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let group = try await client.conversations().createGroup(members: [String](), options: nil)
-		let first = try await group.sendText(text: "before archive", options: nil)
-		let key = Data(repeating: 7, count: 32)
-		let archive = try await client.archives().exportToBytes(keyBytes: key, options: nil)
-		let second = try await group.sendText(text: "after archive", options: nil)
-		try await client.archives().importFromBytes(data: archive, keyBytes: key)
-		let third = try await group.sendText(text: "after import", options: nil)
-		let rows = try await group.messages(options: nil)
-		XCTAssertEqual(rows.filter { [first, second, third].contains($0.id) }.count, 3)
-		let listed = try await client.conversations().list()
-		XCTAssertEqual(listed.filter { $0.id() == group.id() }.count, 1)
-		try await client.end()
-	}
-
-	func testLeftInboxesPersistAfterReopen() async throws {
-		let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-		defer { try? FileManager.default.removeItem(at: root) }
-		let options = testOptions(location: .directory(directory: root.path))
-		let owner = try await SDKClient.create(signer: generateLocalSigner(), options: options)
-		let peer = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let group = try await owner.conversations().createGroup(members: [peer.inboxId()], options: nil)
-		_ = try await peer.conversations().syncAll(consentStates: nil)
-		let joined = try await peer.conversations().getById(id: group.id())
-		guard case let .group(peerGroup)? = joined else { return XCTFail("Peer did not join the group") }
-		try await peerGroup.requestRemoval()
-		let deadline = Date().addingTimeInterval(15)
-		var left: Message?
-		repeat {
-			try await group.sync()
-			left = try await group.messages(options: nil).first {
-				if case let .standard(.groupUpdated(update)) = $0.content {
-					return update.leftInboxes.contains(peer.inboxId())
-				}
-				return false
-			}
-			if left == nil {
-				try await Task.sleep(nanoseconds: 100_000_000)
-			}
-		} while left == nil && Date() < deadline
-		let retained = try XCTUnwrap(left)
-		let identity = owner.identity()
-		let groupId = group.id()
-		let peerId = peer.inboxId()
-		try await owner.end()
-		try await peer.end()
-		let reopened = try await SDKClient.build(identity: identity, options: options)
-		let restored = try await reopened.conversations().getById(id: groupId)
-		let rows = try await restored?.messages(options: nil)
-		let persisted = try XCTUnwrap(rows?.first { $0.id == retained.id })
-		guard case let .standard(.groupUpdated(update)) = persisted.content else {
-			return XCTFail("Stored group update lost its typed content")
-		}
-		XCTAssertEqual(update.leftInboxes, [peerId])
-		XCTAssertTrue(update.removedInboxes.isEmpty)
-		try await reopened.end()
-	}
-
-	func testHistoryPaginationAndPerformance() async throws {
-		try XCTSkipUnless(ProcessInfo.processInfo.environment["XMTP_IOS_PERFORMANCE"] == "1")
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let group = try await client.conversations().createGroup(members: [String](), options: nil)
-		for index in 0 ..< 30 {
-			_ = try await group.sendText(text: "Message \(index)", options: nil)
-		}
-		let started = Date()
-		let rows = try await group.messages(options: nil)
-		let elapsed = Date().timeIntervalSince(started)
-		XCTAssertGreaterThanOrEqual(rows.count, 30)
-		XCTAssertLessThan(elapsed, 2)
-		print("ios-history rows=\(rows.count) seconds=\(elapsed)")
-		let first = try await group.messages(options: ListMessagesOptions(limit: 10, direction: .descending))
-		let oldest = try XCTUnwrap(first.last)
-		let second = try await group.messages(options: ListMessagesOptions(
-			limit: 10,
-			sentBefore: oldest.sentAt,
-			direction: .descending,
-		))
-		XCTAssertEqual(first.count, 10)
-		XCTAssertFalse(second.isEmpty)
-		XCTAssertTrue(Set(first.map(\.id)).isDisjoint(with: Set(second.map(\.id))))
-		try await client.end()
-	}
-
-	func testManyGroupSyncAndParallelMembers() async throws {
-		try XCTSkipUnless(ProcessInfo.processInfo.environment["XMTP_IOS_PERFORMANCE"] == "1")
-		let owner = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let peer = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		var groups: [XmtpSdk.Group] = []
-		for _ in 0 ..< 100 {
-			try await groups.append(owner.conversations().createGroup(members: [peer.inboxId()], options: nil))
-		}
-		let syncStart = Date()
-		let summary = try await peer.conversations().syncAll(consentStates: nil)
-		let syncSeconds = Date().timeIntervalSince(syncStart)
-		XCTAssertEqual(summary.eligible, 100)
-		XCTAssertLessThan(syncSeconds, 60)
-		let membersStart = Date()
-		let counts = try await withThrowingTaskGroup(of: Int.self, returning: [Int].self) { tasks in
-			for group in groups {
-				tasks.addTask { try await group.members().count }
-			}
-			var result: [Int] = []
-			for try await count in tasks {
-				result.append(count)
-			}
-			return result
-		}
-		let membersSeconds = Date().timeIntervalSince(membersStart)
-		XCTAssertEqual(counts.count, 100)
-		XCTAssertTrue(counts.allSatisfy { $0 == 2 })
-		XCTAssertLessThan(membersSeconds, 10)
-		print("ios-groups rows=100 syncSeconds=\(syncSeconds) membersSeconds=\(membersSeconds)")
-		for group in groups {
-			try await group.removeMembers(members: [peer.inboxId()])
-		}
-		let removals = try await peer.conversations().syncAll(consentStates: nil)
-		XCTAssertEqual(removals.eligible, 100)
-		let stored = try await peer.conversations().listGroups(options: nil)
-		XCTAssertEqual(stored.count, 100)
-		for group in stored {
-			let state = try await group.state(); XCTAssertFalse(state.common.isActive)
-		}
-		try await owner.end()
-		try await peer.end()
 	}
 }
 

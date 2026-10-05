@@ -15,7 +15,7 @@ dev/nix-shell 'just ios format'
 dev/nix-shell 'just ios test'           # Test the installed macOS package.
 dev/nix-shell 'just ios test-simulator "platform=iOS Simulator,name=iPhone 17"'
 dev/nix-shell 'just ios docs'
-NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XmtpSdkTests.RetainedBehaviorTests/testRemoteAttachmentLength'
+NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XmtpSdkTests.RecordCodecTests/testRemoteAttachmentLength'
 NIX_DEVSHELL=ios dev/nix-shell 'ruby sdks/ios/script/test_podspec.rb'
 dev/nix-shell 'python3 sdks/ios/script/test_recipes.py'
 NIX_DEVSHELL=ios dev/nix-shell 'python3 sdks/ios/script/test_listener_gates.py'
