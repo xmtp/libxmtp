@@ -21,34 +21,105 @@ pub(crate) struct InstanceConfig {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Operation {
-    Create { members: Vec<String> },
-    Add { group: String, inbox: String },
-    Remove { group: String, inbox: String },
-    Readd { group: String, inbox: String },
-    Metadata { group: String, value: String },
-    Send { group: String, token: String },
-    PendingSend { group: String, token: String },
-    Sync { group: String },
+    Create {
+        members: Vec<String>,
+    },
+    Add {
+        group: String,
+        inbox: String,
+    },
+    Remove {
+        group: String,
+        inbox: String,
+    },
+    Readd {
+        group: String,
+        inbox: String,
+    },
+    Metadata {
+        group: String,
+        value: String,
+    },
+    Send {
+        group: String,
+        token: String,
+    },
+    PendingSend {
+        group: String,
+        token: String,
+    },
+    Sync {
+        group: String,
+    },
     SyncAll,
-    NewInstallation { inbox_index: usize },
+    NewInstallation {
+        inbox_index: usize,
+    },
     RestartStream,
-    Consent { group: String, state: u8 },
-    UpdateInstallations { group: String },
+    Consent {
+        group: String,
+        state: u8,
+    },
+    UpdateInstallations {
+        group: String,
+    },
+    /// Set or clear the actor's own `USER_DISPLAY_NAME` entry.
+    DisplayName {
+        group: String,
+        value: Option<String>,
+    },
+    /// Write the group description through the typed metadata field API.
+    Description {
+        group: String,
+        value: String,
+    },
+    /// Enable or remove disappearing message settings. Requires an admin.
+    Disappearing {
+        group: String,
+        enabled: bool,
+    },
+    KeyUpdate {
+        group: String,
+    },
+    /// Promote or demote a regular admin. Requires a super admin.
+    Admin {
+        group: String,
+        inbox: String,
+        promote: bool,
+    },
+    /// Request removal of the actor's inbox; an admin's worker commits it.
+    Leave {
+        group: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub(crate) enum Command {
-    Operation { operation: Operation },
+    Operation {
+        operation: Operation,
+    },
     Checkpoint,
     Snapshot,
     Counters,
-    Tokens { tokens: Vec<String> },
-    Publish { group: String },
-    Stream { enabled: bool },
-    Disk { kind: String, duration_ms: u64 },
-    Disconnect { duration_ms: u64 },
+    Tokens {
+        tokens: Vec<String>,
+    },
+    Publish {
+        group: String,
+    },
+    Stream {
+        enabled: bool,
+    },
+    Disk {
+        kind: String,
+        duration_ms: u64,
+    },
+    Disconnect {
+        duration_ms: u64,
+    },
     ClearFaults,
+    /// Waits for in-flight operations, then publishes queued intents.
     Drain,
     Shutdown,
 }
@@ -71,6 +142,12 @@ impl Command {
                 Operation::RestartStream => "restart_stream",
                 Operation::Consent { .. } => "consent",
                 Operation::UpdateInstallations { .. } => "update_installations",
+                Operation::DisplayName { .. } => "display_name",
+                Operation::Description { .. } => "description",
+                Operation::Disappearing { .. } => "disappearing",
+                Operation::KeyUpdate { .. } => "key_update",
+                Operation::Admin { .. } => "admin",
+                Operation::Leave { .. } => "leave",
             },
             Self::Checkpoint => "checkpoint",
             Self::Snapshot => "snapshot",

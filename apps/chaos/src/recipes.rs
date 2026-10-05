@@ -6,7 +6,7 @@ use crate::{
 use rand::{RngExt, seq::SliceRandom};
 use rand_chacha::ChaCha8Rng;
 
-const RECIPE_COUNT: u64 = 6;
+const RECIPE_COUNT: u64 = 8;
 const INSTALLATIONS_PER_INBOX: usize = 3;
 const MAX_RECIPE_COMMITTERS: usize = 4;
 
@@ -166,6 +166,73 @@ pub(crate) fn recipe(
                 ));
             }
             "installation_during_commits"
+        }
+        6 => {
+            // A removal sweeps the removed inbox's profile entry while that
+            // inbox writes it and a third member's key update races both.
+            let remover = actors
+                .iter()
+                .find(|actor| group.is_admin(&actor.inbox_id))
+                .unwrap_or(&a);
+            let Some(target) = actors.iter().find(|actor| {
+                actor.inbox_id != remover.inbox_id && !group.super_admins.contains(&actor.inbox_id)
+            }) else {
+                return vec![same_epoch(round, 3, group, actors)];
+            };
+            operations.push(scheduled(
+                target,
+                Operation::DisplayName {
+                    group: group.id.clone(),
+                    value: Some(format!("profile-{round}-{}", target.slot)),
+                },
+            ));
+            operations.push(scheduled(
+                remover,
+                Operation::Remove {
+                    group: group.id.clone(),
+                    inbox: target.inbox_id.clone(),
+                },
+            ));
+            if let Some(c) = actors.iter().find(|actor| {
+                actor.inbox_id != remover.inbox_id && actor.inbox_id != target.inbox_id
+            }) {
+                operations.push(scheduled(
+                    c,
+                    Operation::KeyUpdate {
+                        group: group.id.clone(),
+                    },
+                ));
+            }
+            "profile_during_removal"
+        }
+        7 => {
+            // A leave request races profile writes until an admin commits the removal.
+            let Some(leaver) = actors
+                .iter()
+                .find(|actor| !group.super_admins.contains(&actor.inbox_id))
+            else {
+                return vec![same_epoch(round, 3, group, actors)];
+            };
+            operations.push(scheduled(
+                leaver,
+                Operation::Leave {
+                    group: group.id.clone(),
+                },
+            ));
+            for actor in actors
+                .iter()
+                .filter(|actor| actor.inbox_id != leaver.inbox_id)
+                .take(MAX_RECIPE_COMMITTERS)
+            {
+                operations.push(scheduled(
+                    actor,
+                    Operation::DisplayName {
+                        group: group.id.clone(),
+                        value: Some(format!("leave-{round}-{}", actor.slot)),
+                    },
+                ));
+            }
+            "leave_during_commits"
         }
         _ => {
             let actor = actors[rng.random_range(0..actors.len())];
