@@ -3273,7 +3273,15 @@ async fn a_selected_missing_group_retires_after_import_and_returns_after_welcome
         "the imported placeholder still has network interest"
     );
 
-    bo.sync_welcomes().await.unwrap();
+    xmtp_common::wait_for_eq(
+        || async {
+            bo.sync_welcomes().await.unwrap();
+            bo.group(&group.group_id).unwrap().is_active().unwrap()
+        },
+        true,
+    )
+    .await
+    .unwrap();
     controller.reconcile().unwrap();
     assert!(controller.interested().contains(&topic));
 }
