@@ -1,6 +1,6 @@
 //! Replaces the backend's application catalogue for clients built after the
-//! call, so tests can give two clients different catalogues. Conformance
-//! builds only.
+//! call, so tests can give two clients different catalogues. Test and
+//! conformance builds only.
 
 use parking_lot::Mutex;
 use xmtp_configuration as config;

@@ -12,7 +12,7 @@ fn layout_options() -> ClientOptions {
 
 /// A TCP relay to the test backend that counts the connections it accepts.
 /// While it refuses, it closes every connection it accepts.
-struct CountingRelay {
+pub(super) struct CountingRelay {
     url: String,
     connections: Arc<AtomicUsize>,
     forward: Arc<AtomicBool>,
@@ -20,7 +20,7 @@ struct CountingRelay {
 }
 
 impl CountingRelay {
-    async fn start() -> Result<Self, XmtpError> {
+    pub(super) async fn start() -> Result<Self, XmtpError> {
         let backend: http::Uri = xmtp_configuration::backend_test_url()
             .parse()
             .map_err(XmtpError::unknown)?;
@@ -64,7 +64,7 @@ impl CountingRelay {
         })
     }
 
-    fn backend(&self) -> Option<BackendSource> {
+    pub(super) fn backend(&self) -> Option<BackendSource> {
         Some(BackendSource::Options {
             options: BackendOptions {
                 url: self.url.clone(),
@@ -74,12 +74,12 @@ impl CountingRelay {
     }
 
     /// Close every later connection and reset the count.
-    fn refuse(&self) {
+    pub(super) fn refuse(&self) {
         self.forward.store(false, Ordering::SeqCst);
         self.connections.store(0, Ordering::SeqCst);
     }
 
-    fn connections(&self) -> usize {
+    pub(super) fn connections(&self) -> usize {
         self.connections.load(Ordering::SeqCst)
     }
 }
@@ -532,7 +532,7 @@ async fn explicit_storage_fetches_a_removal_made_on_another_installation() {
     std::fs::remove_dir_all(root)?;
 }
 
-// verifies: CONF-033
+// verifies: CONF-030, CONF-033, CONF-064
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_sends_no_identity_request_to_a_deployment_it_refuses() {
     use xmtp_db::{ConnectionExt, diesel::prelude::*, prelude::QueryServerConfiguration};
@@ -591,7 +591,7 @@ async fn explicit_storage_sends_no_identity_request_to_a_deployment_it_refuses()
     std::fs::remove_dir_all(root)?;
 }
 
-// verifies: CONF-072
+// verifies: CONF-064, CONF-072
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_without_identity_sends_no_request_after_a_recorded_conflict() {
     use xmtp_db::prelude::QueryServerConfiguration;

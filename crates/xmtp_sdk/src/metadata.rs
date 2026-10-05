@@ -13,7 +13,7 @@ pub(crate) use convert::core_inbox_id;
     any(all(test, not(target_arch = "wasm32")), feature = "conformance"),
     not(feature = "pure-only")
 ))]
-pub(crate) mod conformance;
+pub(crate) mod catalogue_override;
 
 use xmtp_mls::mls_common::app_data::fields::MetadataFieldRef as CoreFieldRef;
 

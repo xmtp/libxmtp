@@ -80,3 +80,64 @@ async fn disappearing_permission_read_reports_divergent_fields() {
     ));
     client.end().await?;
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn custom_permission_set_is_converted_and_invalid_set_is_rejected() {
+    use crate::{
+        CreateGroupOptions, GroupPermissionMode, PermissionPolicy as Policy, PermissionPolicySet,
+    };
+    let policy_set = PermissionPolicySet {
+        add_member: Policy::Allow,
+        remove_member: Policy::Deny,
+        add_admin: Policy::Admin,
+        remove_admin: Policy::Admin,
+        update_name: Policy::Admin,
+        update_description: Policy::Allow,
+        update_image: Policy::Admin,
+        update_disappearing: Policy::Admin,
+        update_app_data: Policy::SuperAdmin,
+    };
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = alix
+        .conversations()
+        .create_group(
+            vec![],
+            Some(CreateGroupOptions {
+                permissions: Some(GroupPermissionMode::Custom {
+                    policy_set: policy_set.clone(),
+                }),
+                ..Default::default()
+            }),
+        )
+        .await?;
+    let actual = group.state().await?.permissions.policy_set;
+    assert!(matches!(actual.add_member, Policy::Allow));
+    assert!(matches!(actual.remove_member, Policy::Deny));
+    assert!(matches!(actual.add_admin, Policy::Admin));
+    assert!(matches!(actual.remove_admin, Policy::Admin));
+    assert!(matches!(actual.update_name, Policy::Admin));
+    assert!(matches!(actual.update_description, Policy::Allow));
+    assert!(matches!(actual.update_image, Policy::Admin));
+    assert!(matches!(actual.update_disappearing, Policy::Admin));
+    assert!(matches!(actual.update_app_data, Policy::SuperAdmin));
+
+    let invalid = PermissionPolicySet {
+        add_admin: Policy::Allow,
+        ..policy_set
+    };
+    assert!(matches!(
+        alix.conversations()
+            .create_group(
+                vec![],
+                Some(CreateGroupOptions {
+                    permissions: Some(GroupPermissionMode::Custom {
+                        policy_set: invalid
+                    }),
+                    ..Default::default()
+                })
+            )
+            .await,
+        Err(XmtpError::InvalidInput(_))
+    ));
+    alix.end().await?;
+}
