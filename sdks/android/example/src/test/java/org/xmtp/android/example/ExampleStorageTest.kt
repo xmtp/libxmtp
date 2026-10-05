@@ -9,6 +9,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import uniffi.xmtp_sdk.StorageLocation
 import java.io.File
+import java.nio.file.NotDirectoryException
 
 class ExampleStorageTest {
     @get:Rule
@@ -53,6 +54,27 @@ class ExampleStorageTest {
         runBlocking {
             val location = exampleStorageLocation(temporary.root) { error("Unexpected lookup") }
             assertEquals(StorageLocation.Default, location)
+        }
+
+    @Test
+    fun emptyDirectoryKeepsDefaultWithoutLookup() =
+        runBlocking {
+            File(temporary.root, "xmtp_db").mkdir()
+            val location = exampleStorageLocation(temporary.root) { error("Unexpected lookup") }
+            assertEquals(StorageLocation.Default, location)
+        }
+
+    @Test
+    fun directoryReadFailureDoesNotFallBackToDefault() =
+        runBlocking {
+            val blockedDirectory = File(temporary.root, "xmtp_db").apply { writeText("not a directory") }
+            try {
+                exampleStorageLocation(temporary.root) { error("Unexpected lookup") }
+                fail("Directory read failure must propagate")
+            } catch (error: NotDirectoryException) {
+                assertEquals(blockedDirectory.absolutePath, error.file)
+            }
+            assertEquals("not a directory", blockedDirectory.readText())
         }
 
     @Test
