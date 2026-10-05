@@ -91,7 +91,8 @@ class ClientTest : BaseInstrumentedTest() {
             }
         }
 
-    @Test fun testStaticCanMessage() =
+    // Each hand-written static wrapper in SDKClient's companion object runs once here.
+    @Test fun testStaticBackendCalls() =
         runBlocking {
             val fixtures = createFixtures()
             val absent = createWallet().identity()
@@ -99,6 +100,19 @@ class ClientTest : BaseInstrumentedTest() {
             assertEquals(true, values[availabilityKey(fixtures.alix)])
             assertEquals(true, values[availabilityKey(fixtures.bo)])
             assertEquals(false, values[availabilityKey(absent)])
+
+            val states = SDKClient.inboxStates(listOf(fixtures.boClient.inboxId()), backend())
+            assertEquals(fixtures.bo, states.single().recoveryIdentity)
+
+            val installation = fixtures.alixClient.installationId()
+            val statuses = SDKClient.keyPackageStatuses(listOf(installation), backend())
+            assertNull(checkNotNull(statuses[installation]).validationError)
+
+            val signer = createWallet()
+            val kept = client(signer)
+            val removed = client(signer).installationId()
+            SDKClient.revokeInstallations(signer, kept.inboxId(), listOf(removed), backend())
+            assertEquals(listOf(kept.installationId()), kept.inboxState(true).installations.map { it.id })
         }
 
     @Test fun testCanDeleteDatabase() =
