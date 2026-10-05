@@ -17,4 +17,12 @@ final class PureInboxTests: XCTestCase {
 		XCTAssertEqual(try generateInboxId(identity: identity), expected[0])
 		XCTAssertEqual(try generateInboxId(identity: identity, nonce: nil), expected[0])
 	}
+
+	func testPasskeyInboxVectorCrossesNativeBoundary() throws {
+		let identity = PublicIdentity(identifier: "abcdef", kind: .passkey)
+		XCTAssertEqual(
+			try generateInboxId(identity: identity),
+			"e26bbe40a904acb658e0dd48f4031811b662ce4e6238eef5c46f5bb92550713a",
+		)
+	}
 }

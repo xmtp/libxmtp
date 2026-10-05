@@ -62,6 +62,16 @@ final class InstalledClientTests: XCTestCase {
 		try await client.end()
 	}
 
+	func testStoragePoolOptionsCrossNativeBoundary() async throws {
+		for pool in [nil, StoragePoolOptions(min: 1, max: 4), StoragePoolOptions(max: 10)] as [StoragePoolOptions?] {
+			var options = testOptions()
+			options.storage.pool = pool
+			let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
+			XCTAssertEqual(client.options().storage.pool, pool)
+			try await client.end()
+		}
+	}
+
 	func testHistorySnapshotKeepsTypedMessagesAndResumesAfterCursor() async throws {
 		let codec = SnapshotFailingCodec()
 		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions(), codecs: [codec])
