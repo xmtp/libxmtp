@@ -1,6 +1,7 @@
 //! Prepare and publish durable outgoing attempts.
 
 use super::*;
+use crate::groups::app_data::GroupAppDataError;
 use xmtp_db::group_intent::QueryPreparedEnvelope;
 use xmtp_mls_common::app_data::component_source::ComponentSourceError;
 use xmtp_mls_validation::commit::CommitRuleError;
@@ -29,6 +30,24 @@ fn definite_refusal(error: &xmtp_api::ApiError) -> bool {
 fn out_of_range(error: &xmtp_api::ApiError) -> bool {
     xmtp_proto::api::grpc_status(error)
         .is_some_and(|status| status.code() == tonic::Code::OutOfRange)
+}
+
+/// An `AppDataUpdate` that cannot apply to the current component value, such
+/// as adding an existing admin or removing a non-admin, fails every attempt.
+/// Two admins promoting the same member at once reach this state.
+fn inapplicable_app_data(error: &GroupError) -> bool {
+    let source = match error {
+        GroupError::AppDataCommit(GroupAppDataError::ApplyPayload(source)) => source,
+        GroupError::AppDataCommit(GroupAppDataError::Upkeep(inner)) => match inner.as_ref() {
+            GroupError::ComponentSource(source) => source,
+            _ => return false,
+        },
+        _ => return false,
+    };
+    matches!(
+        source,
+        ComponentSourceError::TlsSetApply(_) | ComponentSourceError::TlsMapApply(_)
+    )
 }
 
 /// The next durable attempt, or immutable inputs that need external resolution.
@@ -127,7 +146,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     )
                                     // Earlier builds queued reserved transcript sends.
                                     | GroupError::ReservedTranscriptContentType
-                            ) =>
+                            ) || inapplicable_app_data(&error) =>
                         {
                             if self.reject_unprepared_request(&requirements)? {
                                 sent.insert(requirements.intent.id);

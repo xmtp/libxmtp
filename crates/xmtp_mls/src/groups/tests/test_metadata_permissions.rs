@@ -556,6 +556,39 @@ async fn malformed_admin_inbox_id_is_refused_before_queueing(
     Ok(())
 }
 
+/// An admin-list change that cannot apply to the current list (adding an
+/// admin twice, or removing a non-admin) fails the call. It must not stay
+/// queued: a stuck intent blocks every later commit and message the
+/// installation sends to the group. Two admins promoting the same member at
+/// once reach the same state, so the sender cannot always avoid it.
+#[rstest::rstest]
+#[case::add_existing_admin(UpdateAdminListType::Add, true)]
+#[case::remove_non_admin(UpdateAdminListType::Remove, false)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn inapplicable_admin_list_change_does_not_block_later_intents(
+    #[case] action: UpdateAdminListType,
+    #[case] promote_first: bool,
+) -> Result<(), GroupError> {
+    tester!(alix);
+    tester!(bo);
+    let group = alix.create_group(None, None)?;
+    group.add_members(&[bo.inbox_id()]).await?;
+    if promote_first {
+        group
+            .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
+            .await?;
+    }
+
+    group
+        .update_admin_list(action, bo.inbox_id().to_string())
+        .await
+        .expect_err("an inapplicable admin-list change must fail");
+
+    group.update_group_name("after refusal".into()).await?;
+    assert_eq!(group.group_name()?, "after refusal");
+    Ok(())
+}
+
 #[xmtp_common::test]
 async fn test_group_super_admin_list_update() {
     tester!(amal);
