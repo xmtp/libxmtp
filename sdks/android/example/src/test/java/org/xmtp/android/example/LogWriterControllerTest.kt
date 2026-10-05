@@ -62,4 +62,69 @@ class LogWriterControllerTest {
                 processScope.cancel()
             }
         }
+
+    @Test
+    fun coldRestoreRunsOnceAndCanRunAfterDeactivation() =
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            var saved = true
+            var enters = 0
+            var exits = 0
+            val controller =
+                LogWriterController(scope, { enters++ }, { exits++ }, { saved }, { saved = it }, Dispatchers.Unconfined)
+            try {
+                controller.setActivated(true, restoreOnly = true).await()
+                controller.setActivated(true, restoreOnly = true).await()
+                controller.setActivated(true).await()
+                assertEquals(1, enters)
+                controller.setActivated(false).await()
+                controller.setActivated(true, restoreOnly = true).await()
+                assertEquals(1, enters)
+                controller.setActivated(true).await()
+                assertEquals(2, enters)
+                assertEquals(1, exits)
+            } finally {
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun failedActivationIsRetryableAndFailedDeactivationKeepsState() =
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            var saved = true
+            var enters = 0
+            var failEntry = true
+            var failExit = true
+            val controller =
+                LogWriterController(
+                    scope,
+                    {
+                        enters++
+                        if (failEntry) error("entry")
+                    },
+                    { if (failExit) error("exit or reset") },
+                    { saved },
+                    { saved = it },
+                    Dispatchers.Unconfined,
+                )
+            try {
+                assertFalse(runCatching { controller.setActivated(true, restoreOnly = true).await() }.isSuccess)
+                assertFalse(saved)
+                failEntry = false
+                controller.setActivated(true).await()
+                assertEquals(2, enters)
+                assertFalse(runCatching { controller.setActivated(false).await() }.isSuccess)
+                assertEquals(true, saved)
+                controller.setActivated(true, restoreOnly = true).await()
+                assertEquals(2, enters)
+                failExit = false
+                controller.setActivated(false).await()
+                assertFalse(saved)
+                controller.setActivated(true).await()
+                assertEquals(3, enters)
+            } finally {
+                scope.cancel()
+            }
+        }
 }
