@@ -83,12 +83,62 @@ async fn device_sync_logs_omit_installation_id_and_message_payload() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn thousand_local_consent_changes_publish_once_without_echo() {
+    use super::preference_sync::PreferenceUpdate;
+    use crate::subscriptions::internal::PreferenceOrigin;
     use std::sync::Arc;
     use tokio::sync::Notify;
 
     tester!(alix1, sync_worker);
     tester!(alix2, from: alix1);
     alix1.test_has_same_sync_group_as(&alix2).await?;
+    use worker::test_hooks::{PreferenceCapture, PreferenceStage};
+
+    // These clients initialize in order. The second creates the shared group
+    // and welcomes the first. The helper above waits for that adoption.
+    // Welcome and marker writes use the same event lock and FIFO worker queue,
+    // so marker completion follows the welcome's consent replay.
+    {
+        let ready = [
+            StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                "consent-ready-source".into(),
+            ),
+            StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                "consent-ready-receiver".into(),
+            ),
+        ];
+        let capture =
+            PreferenceCapture::new(vec![alix1.installation_id, alix2.installation_id], &ready);
+        alix1.set_consent_states(&ready[..1]).await?;
+        alix2.set_consent_states(&ready[1..]).await?;
+        xmtp_common::time::timeout(std::time::Duration::from_secs(160), async {
+            loop {
+                let observations = capture.snapshot();
+                let ready_on_both = [alix1.installation_id, alix2.installation_id]
+                    .iter()
+                    .enumerate()
+                    .all(|(index, installation)| {
+                        observations.iter().any(|event| {
+                            event.installation == *installation
+                                && matches!(event.stage, PreferenceStage::Completed)
+                                && event.record.entity == ready[index].entity
+                        }) && observations.iter().any(|event| {
+                            event.installation != *installation
+                                && matches!(event.stage, PreferenceStage::Received)
+                                && event.record.entity == ready[index].entity
+                        })
+                    });
+                if ready_on_both {
+                    break;
+                }
+                capture.changed().await;
+            }
+        })
+        .await?;
+    }
     alix1.worker().clear_metric(SyncMetric::ConsentSent);
     alix2.worker().clear_metric(SyncMetric::ConsentSent);
     alix2.worker().clear_metric(SyncMetric::ConsentReceived);
@@ -100,30 +150,120 @@ async fn thousand_local_consent_changes_publish_once_without_echo() {
         entered.clone(),
         release.clone(),
     ));
-    let record = |index| {
-        StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Allowed,
-            format!("consent-burst-{index}"),
-        )
-    };
-    alix1.set_consent_states(&[record(0)]).await?;
+    use std::collections::HashMap;
+
+    let records: Vec<_> = (0..1_000)
+        .map(|index| {
+            StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                format!("consent-burst-{index}"),
+            )
+        })
+        .collect();
+    let control = StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Allowed,
+        "consent-unrelated-control".into(),
+    );
+    let mut observed_records = records.clone();
+    observed_records.push(control.clone());
+    let expected: HashMap<_, usize> = observed_records
+        .iter()
+        .map(|record| ((record.entity_type as i32, record.entity.clone()), 1))
+        .collect();
+    let capture = PreferenceCapture::new(
+        vec![alix1.installation_id, alix2.installation_id],
+        &observed_records,
+    );
+    let receiver_local = alix2.context.events().subscribe(
+        xmtp_events::EventFilter::default().with_internal(|event| {
+            matches!(
+                event,
+                InternalEvent::PreferencesChanged {
+                    origin: PreferenceOrigin::Local,
+                    ..
+                }
+            )
+        }),
+        None,
+    );
+    alix1.set_consent_states(&records[..1]).await?;
     xmtp_common::time::timeout(std::time::Duration::from_secs(10), entered.notified()).await?;
-    for index in 1..1_000 {
-        alix1.set_consent_states(&[record(index)]).await?;
+    for record in &records[1..] {
+        alix1
+            .set_consent_states(std::slice::from_ref(record))
+            .await?;
     }
+    // A separate consent change must not alter the count for the burst.
+    alix1.set_consent_states(&[control]).await?;
     release.notify_one();
     xmtp_common::time::timeout(std::time::Duration::from_secs(160), async {
-        while alix1.worker().get(SyncMetric::ConsentSent) < 1_000
-            || alix2.worker().get(SyncMetric::ConsentReceived) < 1_000
-        {
-            xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+        loop {
+            let mut sent = HashMap::new();
+            let mut received = HashMap::new();
+            let mut completed = HashMap::new();
+            for observation in capture.snapshot() {
+                assert_eq!(observation.record.state, ConsentState::Allowed);
+                let key = (
+                    observation.record.entity_type as i32,
+                    observation.record.entity,
+                );
+                let counts = match observation.stage {
+                    PreferenceStage::Published => {
+                        assert_eq!(
+                            observation.installation, alix1.installation_id,
+                            "receiver must not publish observed consent"
+                        );
+                        &mut sent
+                    }
+                    PreferenceStage::Received
+                        if observation.installation == alix2.installation_id =>
+                    {
+                        &mut received
+                    }
+                    PreferenceStage::Completed
+                        if observation.installation == alix1.installation_id =>
+                    {
+                        &mut completed
+                    }
+                    _ => continue,
+                };
+                let count = counts.entry(key.clone()).or_insert(0);
+                *count += 1;
+                assert_eq!(
+                    *count, 1,
+                    "consent record {key:?} must occur once at {:?}",
+                    observation.stage
+                );
+            }
+            assert!(
+                !receiver_local.is_closed(),
+                "receiver subscription must stay open"
+            );
+            for event in receiver_local.drain() {
+                assert!(
+                    !matches!(event.client, Some(xmtp_events::ClientEvent::Lagged(_))),
+                    "receiver subscription must not lose events"
+                );
+                if let Some(InternalEvent::PreferencesChanged { updates, .. }) = event.internal {
+                    for update in updates {
+                        if let PreferenceUpdate::Consent(record) = update {
+                            assert!(
+                                !expected.contains_key(&(record.entity_type as i32, record.entity)),
+                                "received consent must not have local origin"
+                            );
+                        }
+                    }
+                }
+            }
+            if sent == expected && received == expected && completed == expected {
+                break;
+            }
+            capture.changed().await;
         }
     })
     .await?;
-    assert_eq!(alix1.worker().get(SyncMetric::ConsentSent), 1_000);
-    assert_eq!(alix2.worker().get(SyncMetric::ConsentReceived), 1_000);
-    assert_eq!(alix2.worker().get(SyncMetric::ConsentSent), 0);
 }
 
 #[rstest::rstest]
