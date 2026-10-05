@@ -1,23 +1,8 @@
 """Collect RSS for an executable and all of its descendant processes."""
 
 import subprocess
+import threading
 import time
-from threading import Event, Thread
-
-
-def process_table():
-    """Return (pid, parent pid, RSS in KiB) for every process."""
-    result = subprocess.run(
-        ["ps", "-axo", "pid=,ppid=,rss="],
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    return [
-        tuple(map(int, line.split()))
-        for line in result.stdout.splitlines()
-        if line.strip()
-    ]
 
 
 def execute(argv, input_text=None):
@@ -29,11 +14,21 @@ def execute(argv, input_text=None):
         text=True,
     )
     peak = [0]
-    stopped = Event()
+    stopped = threading.Event()
     errors = []
 
     def sample_once():
-        rows = process_table()
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,rss="],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        rows = [
+            tuple(map(int, line.split()))
+            for line in result.stdout.splitlines()
+            if line.strip()
+        ]
         parents = {child.pid}
         previous = set()
         while previous != parents:
@@ -51,18 +46,14 @@ def execute(argv, input_text=None):
             errors.append(error)
 
     # Sample before the background thread can be delayed past child completion.
-    # A process that has just started can report zero RSS, so sample again
-    # until it reports memory or exits.
     start = time.perf_counter()
     try:
         sample_once()
-        while peak[0] <= 0 and child.poll() is None:
-            sample_once()
     except Exception:
         child.kill()
         child.communicate()
         raise
-    thread = Thread(target=sample, daemon=True)
+    thread = threading.Thread(target=sample, daemon=True)
     thread.start()
     try:
         stdout, stderr = child.communicate(input_text)
