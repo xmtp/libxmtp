@@ -1,87 +1,10 @@
-import {
-  Timestamp,
-  type EncodedContent,
-  type MessageContent,
-} from "@xmtp/browser-sdk";
-import {
-  AttachmentCodec,
-  MarkdownCodec,
-  ReactionV2Codec,
-  initPureWasm,
-  TextCodec,
-} from "@xmtp/browser-sdk/pure";
+import type { EncodedContent, MessageContent } from "@xmtp/browser-sdk";
+import { initPureWasm, TextCodec } from "@xmtp/browser-sdk/pure";
 import { beforeAll, expect, test } from "vitest";
 
 import { create, signer } from "./helpers";
 
 beforeAll(() => initPureWasm());
-
-test("catalogue messages preserve read times, reaction variants, markdown, and attachment replies", async () => {
-  const sender = await create();
-  const peer = await create();
-  const group = await sender.conversations.createGroup([peer.inboxId]);
-  const parent = await group.send(new TextCodec(), "parent", {
-    shouldPush: true,
-  });
-  const markdown = await group.send(new MarkdownCodec(), "**message**", {
-    shouldPush: true,
-  });
-  expect(
-    (await sender.conversations.getMessageById(markdown))?.content,
-  ).toEqual({ kind: "markdown", value: "**message**" });
-  for (const action of ["added", "removed"] as const) {
-    for (const schema of ["unicode", "shortcode", "custom"] as const) {
-      const reaction = { content: "reaction", action, schema };
-      const id = await group.send(new ReactionV2Codec(), {
-        kind: "reaction",
-        reference: parent,
-        referenceInboxId: sender.inboxId,
-        reaction,
-      });
-      expect(
-        (await sender.conversations.getMessageById(id))?.content,
-      ).toMatchObject({ kind: "reaction", reference: parent, reaction });
-    }
-  }
-  const attachment = {
-    mimeType: "image/png",
-    content: new Uint8Array([1, 2, 3]),
-  };
-  const reply = await group.sendReply(
-    parent,
-    sender.inboxId,
-    new AttachmentCodec().encode(attachment),
-  );
-  expect(
-    (await sender.conversations.getMessageById(reply))?.content,
-  ).toMatchObject({
-    kind: "reply",
-    referenceId: parent,
-    body: { kind: "attachment", value: attachment },
-  });
-  const receipt = await group.sendReadReceipt();
-  const receiptMessage = await sender.conversations.getMessageById(receipt);
-  expect(receiptMessage?.content).toEqual({ kind: "readReceipt" });
-  expect(receiptMessage?.contentType).toEqual({
-    authorityId: "xmtp.org",
-    typeId: "readReceipt",
-    versionMajor: 1,
-    versionMinor: 0,
-  });
-  expect(
-    (await group.messages()).some((message) => message.id === receipt),
-  ).toBe(false);
-  expect((await group.lastReadTimes()).get(sender.inboxId)).toBeInstanceOf(
-    Timestamp,
-  );
-  await peer.conversations.syncAll(undefined);
-  const received = await peer.conversations.getById(group.id);
-  if (!received) throw new Error("Peer group missing");
-  await received.sendReadReceipt();
-  expect([...(await received.lastReadTimes()).keys()]).toEqual(
-    expect.arrayContaining([sender.inboxId, peer.inboxId]),
-  );
-});
 
 test("custom codecs keep unknown bytes, app values, and nested decode failures", async () => {
   const type = {

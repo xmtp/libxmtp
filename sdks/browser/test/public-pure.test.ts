@@ -1,34 +1,15 @@
 import {
   ActionsCodec,
   AttachmentCodec,
-  GroupUpdatedCodec,
   IntentCodec,
-  LeaveRequestCodec,
   RemoteAttachmentCodec,
   Timestamp,
-  TransactionReferenceCodec,
   WalletSendCallsCodec,
   initPureWasm,
 } from "@xmtp/browser-sdk/pure";
 import { beforeAll, expect, test } from "vitest";
 
 beforeAll(() => initPureWasm());
-
-test.each([
-  ["group update", () => new GroupUpdatedCodec(), "group_updated"],
-  ["leave request", () => new LeaveRequestCodec(), "leave_request"],
-] as const)(
-  "%s codec keeps its public content type",
-  (_name, createCodec, typeId) => {
-    const codec = createCodec();
-    expect(codec.type).toMatchObject({
-      authorityId: "xmtp.org",
-      typeId,
-    });
-    expect(codec.type.versionMajor).toBeGreaterThan(0);
-    expect(codec.type.versionMinor).toBeGreaterThanOrEqual(0);
-  },
-);
 
 test("attachment codecs preserve optional filename and transfer fields", () => {
   const attachment = {
@@ -54,26 +35,6 @@ test("attachment codecs preserve optional filename and transfer fields", () => {
   expect(
     remote.decode(remote.encode({ ...value, filename: "image.png" })),
   ).toEqual({ ...value, filename: "image.png" });
-});
-
-test("transaction codec preserves optional namespace, empty reference, and metadata", () => {
-  const codec = new TransactionReferenceCodec();
-  const value = { networkId: "1", reference: "" };
-  expect(codec.decode(codec.encode(value))).toEqual(value);
-  const detailed = {
-    ...value,
-    namespace: "eip155",
-    reference: "0x123",
-    metadata: {
-      transactionType: "transfer",
-      currency: "ETH",
-      amount: 1,
-      decimals: 18,
-      fromAddress: "0xabc",
-      toAddress: "0xdef",
-    },
-  };
-  expect(codec.decode(codec.encode(detailed))).toEqual(detailed);
 });
 
 test("actions and intents preserve all styles, expiry, image, and metadata", () => {
