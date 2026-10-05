@@ -42,6 +42,37 @@ describe("Content types", () => {
     },
   );
 
+  it("lifts every sendable standard kind into the read message", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    try {
+      const group = await client.conversations.createGroup([]);
+      const sendable = [...standardSamples, ...variantSamples].filter(
+        (c) =>
+          ![
+            "groupUpdated",
+            "deleteMessage",
+            "leaveRequest",
+            "reaction",
+            "reply",
+            "readReceipt",
+          ].includes(c.kind),
+      );
+      for (const content of sendable) {
+        const id = await group.send(sdk.encodeStandard(content));
+        const message = await client.conversations.getMessageById(id);
+        expect(message?.contentType).toEqual(
+          sdk.standardContentType(content.kind),
+        );
+        expect(message?.content).toEqual({
+          kind: content.kind,
+          value: valueOf(sdk.decodeStandard(sdk.encodeStandard(content))),
+        });
+      }
+    } finally {
+      await client.end();
+    }
+  });
+
   it.each(["description", "transactionType"] as const)(
     "rejects wallet metadata with missing %s before publishing",
     async (missing) => {

@@ -62,13 +62,33 @@ describe("Client", () => {
   });
 
   it("builds a client without a signer and permits static identity reads", async () => {
-    const { signer, identifier } = createSigner();
-    const options = clientOptions();
+    const { signer, identifier, address } = createSigner();
+    const backend = { url: process.env.XMTP_BACKEND_URL! };
+    const options = clientOptions({ backend });
     const registered = await createRegisteredClient(signer, options);
+    const { inboxId, installationId } = registered;
     await registered.end();
     const built = await buildClient(identifier, options);
-    expect(built.inboxId).toBe(registered.inboxId);
+    expect(built.inboxId).toBe(inboxId);
     expect(built.identity).toEqual(identifier);
+    // The static wrappers move the backend argument; both other arguments are
+    // strings, so only a live read catches a swap.
+    expect(await Client.isAddressAuthorized(inboxId, address, backend)).toBe(
+      true,
+    );
+    expect(
+      await Client.isAddressAuthorized(
+        inboxId,
+        "0x1234567890123456789012345678901234567890",
+        backend,
+      ),
+    ).toBe(false);
+    expect(
+      await Client.isInstallationAuthorized(inboxId, installationId, backend),
+    ).toBe(true);
+    expect(
+      await Client.isInstallationAuthorized(inboxId, "00".repeat(32), backend),
+    ).toBe(false);
   });
 
   it("uses the selected storage pool and encryption key", async () => {
