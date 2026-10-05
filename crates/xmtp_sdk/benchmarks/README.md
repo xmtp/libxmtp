@@ -30,7 +30,10 @@ Memory scope differs per host. Do not compare it across hosts:
 - Kotlin: the app's PSS, sampled every 10 ms.
 
 The runner checks every sample: the page must equal the fixture, in order, and
-the stream must deliver each expected event once.
+the stream must deliver each expected event once. Stream results are counts,
+not content. The run fails, without `results.json`, when the package or a
+runner source changes during it. The results name the measured package path
+and hash. They are measurements, not an attested comparison.
 
 ## Run
 
@@ -62,8 +65,9 @@ commit and environment) and `logs/` (stderr and launcher logs per call). Swift
 and Kotlin runs build the host app into the output directory and start
 `hosts/signer-server.mjs`, which signs with generated test accounts.
 
-`dev/nix-shell 'just sdk bench-check'` runs `test_bench.py` and the static
-runner checks (`bench.py check`). It needs no backend, device or SDK build.
+`dev/nix-shell 'just sdk bench-check'` runs `test_bench.py`,
+`test_workload.mjs` and the static runner checks (`bench.py check`). It needs
+no backend, device or SDK build.
 
 ## Files
 
@@ -76,5 +80,10 @@ runner checks (`bench.py check`). It needs no backend, device or SDK build.
   and Chromium runners.
 - `hosts/ios_host.py`, `hosts/ios/`, `hosts/SwiftSupport.swift` and
   `hosts/SwiftSdk.swift` are the Release iOS Simulator app and its launcher.
+  The launcher stops the app after each call, also after a timeout.
 - `hosts/android_host.py` and `hosts/android/` are the release APK and its
   instrumentation launcher.
+- `test_bench.py` checks the memory sampler, the percentile helper, the sample
+  checks, the run integrity check and the iOS timeout cleanup.
+  `test_workload.mjs` checks that the stream teardown runs once, outside the
+  timer, and also after a read or publish failure.

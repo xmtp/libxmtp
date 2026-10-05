@@ -61,68 +61,102 @@ export async function measure(api, state, workload, coldPath) {
       timing_window: { start_ms: start, end_ms: end },
     };
   }
-  const sender = await api.open(
+  // Teardown runs once, after the timer stops, and also after a failure.
+  const open = { tasks: [] };
+  let result;
+  let failed = false;
+  let failure;
+  try {
+    result = await measureGroup(api, state, workload, open);
+  } catch (error) {
+    failed = true;
+    failure = error;
+  }
+  const cleanupErrors = await teardown(api, open);
+  if (failed) throw failure;
+  if (cleanupErrors.length) throw cleanupErrors[0];
+  return result;
+}
+
+// Page or stream with the seeded group. Opened resources go into `open`.
+async function measureGroup(api, state, workload, open) {
+  open.sender = await api.open(
     state.senderKey,
     state.senderPath,
     state.senderInbox,
   );
-  let receiver;
-  let stream;
-  try {
-    const group = await api.group(sender, state.groupId);
-    const keyById = new Map(state.ids.map((id, i) => [id, String(i)]));
-    if (workload === "page") {
-      const start = performance.now();
-      const messages = (await api.page(group, 1000)).map((message) =>
-        api.normalize(message, keyById),
-      );
-      const end = performance.now();
-      return {
-        duration_ms: end - start,
-        timing_window: { start_ms: start, end_ms: end },
-        observed_messages: messages,
-      };
-    }
-    if (workload !== "stream") throw new Error(`Unknown workload ${workload}`);
-    receiver = await api.open(
-      state.receiverKey,
-      state.receiverPath,
-      state.receiverInbox,
-    );
-    const receivedGroup = await api.group(receiver, state.groupId);
-    stream = await api.stream(receiver, receivedGroup);
-    // An untimed grace period lets the subscription start.
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const expected = new Set(state.eventIds);
-    const seen = new Set();
+  const group = await api.group(open.sender, state.groupId);
+  const keyById = new Map(state.ids.map((id, i) => [id, String(i)]));
+  if (workload === "page") {
     const start = performance.now();
-    // Publishing and reading run together. The complete operation is timed.
-    const publisher = api.publish(group);
-    const consumer = (async () => {
-      const iterator = stream[Symbol.asyncIterator]();
-      while (seen.size !== expected.size) {
-        const { value: message, done } = await iterator.next();
-        if (done) break;
-        if (expected.has(message.id)) {
-          if (seen.has(message.id))
-            throw new Error("Duplicate expected stream event");
-          seen.add(message.id);
-        }
-      }
-      if (seen.size !== expected.size)
-        throw new Error("Stream ended with missing messages");
-    })();
-    await Promise.all([publisher, consumer]);
+    const messages = (await api.page(group, 1000)).map((message) =>
+      api.normalize(message, keyById),
+    );
     const end = performance.now();
     return {
       duration_ms: end - start,
       timing_window: { start_ms: start, end_ms: end },
-      streamed_events: seen.size,
+      observed_messages: messages,
     };
-  } finally {
-    // Cleanup runs after the timer stops.
-    if (stream) await stream.end();
-    if (receiver) await api.close(receiver);
-    await api.close(sender);
   }
+  if (workload !== "stream") throw new Error(`Unknown workload ${workload}`);
+  open.receiver = await api.open(
+    state.receiverKey,
+    state.receiverPath,
+    state.receiverInbox,
+  );
+  const receivedGroup = await api.group(open.receiver, state.groupId);
+  const stream = await api.stream(open.receiver, receivedGroup);
+  open.stream = stream;
+  // An untimed grace period lets the subscription start.
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const expected = new Set(state.eventIds);
+  const seen = new Set();
+  const start = performance.now();
+  // Publishing and reading run together. The complete operation is timed.
+  const publisher = api.publish(group);
+  const consumer = (async () => {
+    const iterator = stream[Symbol.asyncIterator]();
+    while (seen.size !== expected.size) {
+      const { value: message, done } = await iterator.next();
+      if (done) break;
+      if (expected.has(message.id)) {
+        if (seen.has(message.id))
+          throw new Error("Duplicate expected stream event");
+        seen.add(message.id);
+      }
+    }
+    if (seen.size !== expected.size)
+      throw new Error("Stream ended with missing messages");
+  })();
+  open.tasks = [publisher, consumer];
+  await Promise.all(open.tasks);
+  const end = performance.now();
+  return {
+    duration_ms: end - start,
+    timing_window: { start_ms: start, end_ms: end },
+    streamed_events: seen.size,
+  };
+}
+
+// End the stream, which also stops a blocked read. Then wait for the
+// publisher and the reader to settle, and close the clients. Every step runs,
+// even when an earlier step fails.
+async function teardown(api, open) {
+  const steps = [
+    open.stream && (() => open.stream.end()),
+    () => Promise.allSettled(open.tasks),
+    open.receiver && (() => api.close(open.receiver)),
+    open.sender && (() => api.close(open.sender)),
+  ];
+  const errors = [];
+  for (const step of steps) {
+    if (!step) continue;
+    try {
+      await step();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  return errors;
 }

@@ -178,7 +178,6 @@ def invoke(config, request, log):
         }
         (transport / "request.json").write_text(json.dumps(envelope))
         simctl(
-            config,
             commands,
             "launch",
             "--terminate-running-process",

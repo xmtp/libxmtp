@@ -8,6 +8,7 @@ call. The report gives p50 and p95 for each metric. It has no pass or fail line.
 import argparse
 import contextlib
 import datetime
+import hashlib
 import json
 import math
 import os
@@ -211,6 +212,24 @@ def check_measurement(response, workload, fixture, host):
         raise BenchError(f"{workload}: browser long tasks are absent")
 
 
+def sources_digest():
+    """Hash the runner and host sources. Ignored build output is excluded."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=HERE,
+        capture_output=True,
+        check=True,
+    ).stdout.split(b"\0")
+    content = hashlib.sha256()
+    for name in sorted(n for n in listed if n and b"__pycache__/" not in n):
+        path = HERE / os.fsdecode(name)
+        content.update(name + b"\0")
+        content.update(
+            hashlib.sha256(path.read_bytes()).digest() if path.is_file() else b"-"
+        )
+    return content.hexdigest()
+
+
 def ready(response, phase):
     if response.get("ready") is not True:
         raise BenchError(f"Host {phase} is not ready")
@@ -255,8 +274,10 @@ def run(host, args):
     fixture = dataset()
     (out / "state/fixture.json").write_bytes(canonical(fixture))
     samples = []
+    sources = sources_digest()
     with contextlib.ExitStack() as stack:
         call, package = open_host(host, args, out, stack)
+        measured = measure_package(package)
         base = {"state_directory": str(out / "state")}
         ready(call({**base, "phase": "setup"}, out / "logs/setup"), "setup")
         for workload in WORKLOADS:
@@ -272,6 +293,12 @@ def run(host, args):
                     f"{host} {workload} {sample}: {response['duration_ms']:.1f} ms",
                     file=sys.stderr,
                 )
+    # The results name one package and one set of runners. A change during the
+    # run makes them wrong, so the run fails without results.json.
+    if measure_package(package) != measured:
+        raise BenchError("The package changed during the run")
+    if sources_digest() != sources:
+        raise BenchError("A runner or host source changed during the run")
     results = {
         "schema": 1,
         "host": host,
@@ -284,7 +311,7 @@ def run(host, args):
         "environment": {"platform": platform.platform(), "machine": platform.machine()},
         "memory_scope": MEMORY_SCOPE[host],
         "fixture_sha256": digest(fixture),
-        "package": measure_package(package),
+        "package": measured,
         "summary": summarize(host, samples),
         "samples": samples,
     }

@@ -135,6 +135,7 @@ bench host *args:
 bench-check:
     cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
     cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/bench.py check
+    cd "{{ root }}" && node --test crates/xmtp_sdk/benchmarks/test_workload.mjs
 
 # Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
 check-android-toolchain:
