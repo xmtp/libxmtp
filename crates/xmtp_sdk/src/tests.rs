@@ -3,8 +3,8 @@
 mod history_snapshot;
 mod reader_ack_cancellation;
 mod reader_admission;
-mod reader_restored;
 mod reader_cancellation_regressions;
+mod reader_restored;
 mod reader_selection;
 
 use std::sync::{
@@ -263,7 +263,6 @@ impl Signer for PendingKindSigner {
         self.inner.sign(request).await
     }
 }
-
 
 struct RecordingPreAuthenticate {
     calls: Arc<std::sync::Mutex<Vec<&'static str>>>,
