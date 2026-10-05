@@ -323,6 +323,103 @@ fn client_options_backend_default_keeps_empty_connection_options() {
     assert_eq!(options.url, "");
 }
 
+// Without a registered inbox, create opens the inbox that the identifier and
+// the selected nonce make. An omitted nonce is nonce 0, as in
+// `generate_inbox_id`.
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_uses_the_selected_registration_nonce() {
+    let signer = crate::generate_local_signer().await;
+    let identity = signer::identity(signer.clone()).await?;
+    let identifier = identity.to_core()?;
+    let create = |nonce| {
+        let signer = signer.clone();
+        async move {
+            let mut settings = options();
+            settings.registration.auto = false;
+            settings.registration.nonce = nonce;
+            Client::create(signer, settings).await
+        }
+    };
+    let omitted = create(None).await?;
+    assert_eq!(omitted.inbox_id().checked()?, identifier.inbox_id(0)?);
+    assert_eq!(
+        omitted.inbox_id(),
+        crate::generate_inbox_id(identity.clone(), None)?
+    );
+    let first = create(Some(1)).await?;
+    assert!(!first.is_registered().await?);
+    assert_eq!(first.identity().to_core()?, identifier);
+    assert_eq!(first.inbox_id().checked()?, identifier.inbox_id(1)?);
+    let same = create(Some(1)).await?;
+    assert_eq!(same.inbox_id(), first.inbox_id());
+    let other = create(Some(2)).await?;
+    assert_eq!(other.inbox_id().checked()?, identifier.inbox_id(2)?);
+    assert_ne!(other.inbox_id(), first.inbox_id());
+    other.end().await?;
+    same.end().await?;
+    first.end().await?;
+    omitted.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn client_reports_its_app_version_and_worker_options() {
+    let mut settings = options();
+    let Some(BackendSource::Options { options: backend }) = &mut settings.backend else {
+        panic!("test uses backend options");
+    };
+    backend.app_version = Some("test/8".into());
+    settings.workers = Some(crate::client::WorkerOptions {
+        default_interval_ns: Some(60_000_000_000),
+        intervals: vec![crate::client::WorkerInterval {
+            kind: crate::client::WorkerKind::DeviceSync,
+            interval_ns: Some(30_000_000_000),
+            jitter_ns: None,
+            enabled: None,
+        }],
+    });
+    let client = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
+    assert_eq!(client.app_version().as_deref(), Some("test/8"));
+    let reported = client.options();
+    let Some(BackendSource::Options { options: backend }) = reported.backend else {
+        panic!("test uses backend options");
+    };
+    assert_eq!(backend.app_version.as_deref(), Some("test/8"));
+    assert_eq!(
+        format!("{:?}", reported.workers),
+        format!("{:?}", settings.workers)
+    );
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn revoke_installations_removes_only_the_selected_installation() {
+    let signer = crate::generate_local_signer().await;
+    let first = Client::create(signer.clone(), options()).await?;
+    let revoked = Client::create(signer.clone(), options()).await?;
+    let kept = Client::create(signer.clone(), options()).await?;
+    assert_eq!(first.inbox_state(true).await?.installations.len(), 3);
+    first
+        .revoke_installations(signer, vec![revoked.installation_id()])
+        .await?;
+    let mut ids = first
+        .inbox_state(true)
+        .await?
+        .installations
+        .into_iter()
+        .map(|installation| installation.id.into_checked())
+        .collect::<Result<Vec<_>, _>>()?;
+    ids.sort();
+    let mut expected = vec![
+        first.installation_id().into_checked()?,
+        kept.installation_id().into_checked()?,
+    ];
+    expected.sort();
+    assert_eq!(ids, expected);
+    kept.end().await?;
+    revoked.end().await?;
+    first.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn invalid_notification_key_has_typed_error() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
