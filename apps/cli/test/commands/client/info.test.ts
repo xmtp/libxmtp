@@ -52,6 +52,7 @@ describe("client info", () => {
     expect(info.options).not.toHaveProperty("apiUrl");
     expect(info.options).not.toHaveProperty("historySyncUrl");
     expect(info.options).not.toHaveProperty("gatewayHost");
+    expect(info.options).not.toHaveProperty("storage.encryptionKey");
     expect(info.options.dbPath).toBeDefined();
   });
 
@@ -114,6 +115,7 @@ describe("client info", () => {
     expect(result.stdout).toContain("inboxId");
     expect(result.stdout).toContain("Options");
     expect(result.stdout).toContain("env");
+    expect(result.stdout).not.toContain("encryptionKey");
   });
 
   it("fails without wallet key", async () => {

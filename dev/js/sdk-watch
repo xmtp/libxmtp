@@ -1,0 +1,34 @@
+#!/bin/bash
+# Rebuild the public SDK when source changes. Finish each build before rerunning.
+source "$(dirname "$0")/.setup"
+
+target="${1:-}"
+case "$target" in
+  node|browser) ;;
+  *) echo "usage: $0 node|browser" >&2; exit 2 ;;
+esac
+
+if [[ -z "${XMTP_NIX_WRAPPER_ID:-}" ]] || ! command -v watchexec >/dev/null 2>&1; then
+  exec "$ROOT/dev/nix-shell" --shell js --command bash "$0" "$target"
+fi
+
+cd "$ROOT"
+watch=(
+  --watch apps/xmtp_sdk_bindgen/runtime/ts
+  --watch apps/xmtp_sdk_bindgen/src
+  --watch apps/xmtp_sdk_bindgen/templates
+  --watch apps/xmtp_sdk_bindgen/uniffi-global.toml
+  --watch apps/xmtp_sdk_bindgen/Cargo.toml
+  --watch crates/xmtp_sdk/src
+  --watch crates/xmtp_sdk/dev
+  --watch crates/xmtp_sdk/Cargo.toml
+  --watch Cargo.lock
+  --watch "sdks/$target/package.json"
+  --watch dev/js/sdk-package
+  --watch dev/js/sdk-watch
+)
+if [[ "$target" == browser ]]; then
+  watch+=(--watch bindings/wasm/src --watch bindings/wasm/Cargo.toml)
+fi
+exec watchexec --on-busy-update queue --debounce 300ms "${watch[@]}" \
+  --shell=none -- bash dev/js/sdk-package "$target"

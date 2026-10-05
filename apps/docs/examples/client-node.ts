@@ -1,4 +1,4 @@
-import { Client, type Identifier, type Signer } from "@xmtp/node-sdk";
+import { Client, type PublicIdentity, type Signer } from "@xmtp/node-sdk";
 
 export async function createClient(
   signer: Signer,
@@ -6,34 +6,39 @@ export async function createClient(
 ) {
   // #region create
   const client = await Client.create(signer, {
-    backendUrl: "https://xmtp.example.com",
-    dbEncryptionKey,
+    backend: { url: "https://xmtp.example.com" },
+    storage: { location: "default", encryptionKey: dbEncryptionKey },
   });
   // #endregion create
   return client;
 }
 
 export async function buildClient(
-  identifier: Identifier,
+  identity: PublicIdentity,
   options: Parameters<typeof Client.build>[1],
 ) {
   // #region build
-  const client = await Client.build(identifier, options);
+  const client = await Client.build(identity, options);
   // #endregion build
   return client;
 }
 
 export async function createAuthenticatedClient(
   signer: Signer,
-  fetchToken: () => Promise<{ token: string; expiresAtSeconds: number }>,
+  fetchToken: () => Promise<{ token: string; expiresAtSeconds: bigint }>,
 ) {
   // #region auth
   const client = await Client.create(signer, {
-    backendUrl: "https://xmtp.example.com",
-    authCallback: async () => {
-      const { token, expiresAtSeconds } = await fetchToken();
-      return { value: `Bearer ${token}`, expiresAtSeconds };
+    backend: {
+      url: "https://xmtp.example.com",
+      credentials: {
+        async credential() {
+          const { token, expiresAtSeconds } = await fetchToken();
+          return { value: `Bearer ${token}`, expiresAtSeconds };
+        },
+      },
     },
+    storage: { location: "default" },
   });
   // #endregion auth
   return client;
@@ -41,8 +46,7 @@ export async function createAuthenticatedClient(
 
 export async function deleteClient(client: Client) {
   // #region delete
-  // The Node SDK has no database deletion method.
-  // Close the client, then delete its database file from the file system.
+  // End the client and delete its persistent database.
+  await client.storage.delete_();
   // #endregion delete
-  await client.close();
 }

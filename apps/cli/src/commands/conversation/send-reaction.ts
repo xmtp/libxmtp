@@ -1,5 +1,5 @@
 import { Args, Flags } from "@oclif/core";
-import { ReactionAction, ReactionSchema } from "@xmtp/node-sdk";
+import type { Reaction } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 
@@ -63,32 +63,32 @@ and published via 'conversation publish-messages').`;
     const { args, flags } = await this.parse(ConversationSendReaction);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
     }
 
-    const message = client.conversations.getMessageById(args.messageId);
+    const message = await client.conversations.getMessageById(args.messageId);
 
     if (!message) {
       this.error(`Message not found: ${args.messageId}`);
     }
 
-    const reaction = {
-      reference: args.messageId,
-      referenceInboxId: message.senderInboxId,
+    const reaction: Reaction = {
       content: args.content,
-      action:
-        args.action === "add" ? ReactionAction.Added : ReactionAction.Removed,
-      schema: ReactionSchema.Unicode,
+      action: args.action === "add" ? "added" : "removed",
+      schema: "unicode",
     };
 
-    const messageId = await conversation.sendReaction(reaction, {
-      optimistic: flags.optimistic,
-    });
+    const messageId = await conversation.sendReaction(
+      args.messageId,
+      message.senderInboxId,
+      reaction,
+      {
+        optimistic: flags.optimistic,
+      },
+    );
 
     this.output({
       success: true,

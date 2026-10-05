@@ -68,11 +68,6 @@ Run commands from the repository root in the Nix shell. Run
   It requires missing or changed live content to fail with correct history.
 - `dev/nix-shell 'just sdk cutover-bench-baselines <output>'` resolves published baseline
   versions and records source and artifact hashes.
-- `dev/nix-shell 'just sdk bench'` is an internal diagnostic. It compares 20 release-profile Node calls for a zero-row page
-  and a 10,000-message page with the current Node binding. It also measures
-  one empty SDK async call. It runs Node with `NODE_ENV=production`. It
-  enables the off-by-default `bench` feature and writes separate bindings to
-  `target/sdk-bench/`.
 - `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and
   real reader pre-poll, pending and READY handoff. It counts native cancel/free
   calls in generated conformance copies and requires the prior item to replay.
@@ -174,8 +169,14 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
 - `dev/nix-shell 'just sdk stage node'` and `dev/nix-shell 'just sdk stage browser'` compile ESM products with
   tsdown. They copy the pinned runtimes, native library, worker, pure WASM,
   loaders, and snippets. `dev/nix-shell 'just sdk package-smoke node|browser'` packs each product
-  and installs it in an empty consumer. It checks a codec round trip and rejects
-  a changed contract before an operation. Browser smoke also loads its worker.
+  and installs it in an empty consumer. It checks a codec round trip without
+  package receipts or runtime asset hashes. Browser smoke also loads its worker.
+  Package configuration and asset identity are checked during staging and tests.
+  Switched SDK package builds use `bash ../../dev/js/sdk-package node|browser`
+  from the SDK directory. The helper stages a public manifest and copies the
+  complete product into the SDK's `dist` directory for workspace imports.
+  Release jobs pack `target/sdk-packages/<target>` directly. Private staging
+  remains the default for conformance.
 - Use `NIX_DEVSHELL=ios dev/nix-shell 'just sdk mobile-build ios'` for the iOS
   device and simulator libraries. Then use the same shell for
   `dev/nix-shell 'just sdk mobile-stage ios'` to assemble `XmtpSdkFFI.xcframework` and SwiftPM

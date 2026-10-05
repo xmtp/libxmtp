@@ -219,6 +219,12 @@ For standalone browser codecs, import from `xmtp-sdk-browser/pure` and await
 standard codec. The [browser example](browser.ts) shows this order and checks
 both codec round trips. A client open does not replace this pure-module setup.
 
+History content-type filters accept supported standard type IDs. The old
+`ContentType.Custom` wildcard is removed. The CLI also removes the `custom`
+value from `conversation messages --content-type` and
+`--exclude-content-type`. The CLI rejects that value. It does not return an
+unfiltered history.
+
 The standard catalogue owns push defaults. Read receipts, reaction v2, group
 updates, group membership changes, deletion, leave requests, and edits default
 to false. Other catalogue entries default to true. A custom type defaults to

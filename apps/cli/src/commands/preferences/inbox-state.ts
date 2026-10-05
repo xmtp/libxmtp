@@ -42,17 +42,17 @@ Use --sync to fetch the latest state from the network.`;
     const client = await this.initClient();
 
     const inboxState = flags.sync
-      ? await client.preferences.fetchInboxState()
-      : await client.preferences.inboxState();
+      ? await client.inboxState(true)
+      : await client.inboxState(false);
 
     this.output({
       inboxId: inboxState.inboxId,
-      recoveryIdentifier: inboxState.recoveryIdentifier,
+      recoveryIdentifier: inboxState.recoveryIdentity,
       installations: inboxState.installations.map((installation) => ({
         id: installation.id,
-        clientTimestampNs: installation.clientTimestampNs,
+        clientTimestampNs: installation.createdAt?.ns,
       })),
-      identifiers: inboxState.identifiers,
+      identifiers: inboxState.identities,
     });
   }
 }

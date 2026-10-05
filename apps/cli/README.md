@@ -59,10 +59,13 @@ to change how the file is written.
 | `XMTP_DISABLE_DEVICE_SYNC` | Disable device sync when `true`                     | No                                  |
 | `XMTP_APP_VERSION`         | Custom app version                                  | No                                  |
 
-Without `XMTP_DB_PATH`, the CLI stores the database at
-`~/.xmtp/<backend-label>/xmtp-db`. The label is derived from the backend origin,
-so different backends use different databases. `XMTP_ENV` changes only the SDK
-database label; it does not select a backend.
+Without `XMTP_DB_PATH`, the CLI stores the `local` database at
+`~/.xmtp/<backend-label>/xmtp-db`. A new database with another `XMTP_ENV`
+label uses `~/.xmtp/<backend-label>/environments/<environment-label>/xmtp-db`.
+If the earlier path already has a database, the CLI keeps using it. If both
+paths have databases, set `XMTP_DB_PATH` to select one. The backend label comes
+from the backend origin. `XMTP_ENV` does not select a backend. An explicit
+`XMTP_DB_PATH` stays unchanged.
 
 ## Usage
 
@@ -77,6 +80,17 @@ xmtp conversation messages <conversation-id>
 
 Use `--json` for machine-readable output and `xmtp <command> --help` for full
 command documentation.
+
+The `conversation messages` command accepts named standard content types with
+`--content-type` and `--exclude-content-type`. The old `custom` wildcard is
+removed. The CLI rejects `--content-type custom` and
+`--exclude-content-type custom` instead of returning an unfiltered list.
+
+The version 8 `preferences stream` command reports an HMAC invalidation as
+`{"type":"HmacKeyUpdate","keys":{"<group-id>":[{"key":"<hex>","epoch":"<integer>"}]}}`
+inside `updates`. The `keys` object is a current snapshot by conversation ID.
+Each key is lowercase hex. JSON epochs are decimal strings. This replaces the
+old per-update `key` field because the SDK event contains no key payload.
 
 ## Links
 

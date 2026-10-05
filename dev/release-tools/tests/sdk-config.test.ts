@@ -17,9 +17,7 @@ describe("SDK configs", () => {
     expect(android.name).toBe("Android");
     expect(android.tagPrefix).toBe("android-");
 
-    const node = getSdkConfig("node-bindings");
-    expect(node.name).toBe("Node");
-    expect(node.tagPrefix).toBe("node-bindings-");
+    expect(() => getSdkConfig("node-bindings")).toThrow("Unknown SDK");
 
     const wasm = getSdkConfig("wasm-bindings");
     expect(wasm.name).toBe("WASM");
@@ -48,7 +46,7 @@ describe("SDK configs", () => {
 
   it("throws for unknown SDK with available options", () => {
     expect(() => getSdkConfig("unknown")).toThrow(
-      "Unknown SDK: unknown. Available: ios, android, node-bindings, wasm-bindings, browser-sdk, node-sdk, agent-sdk, cli, libxmtp",
+      "Unknown SDK: unknown. Available: ios, android, wasm-bindings, browser-sdk, node-sdk, agent-sdk, cli, libxmtp",
     );
   });
 
@@ -88,10 +86,10 @@ describe("SDK configs", () => {
 
     beforeEach(() => {
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-test-"));
-      fs.mkdirSync(path.join(tmpDir, "bindings", "node"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "sdks", "node"), { recursive: true });
       fs.writeFileSync(
-        path.join(tmpDir, "bindings", "node", "package.json"),
-        '{\n  "name": "@xmtp/node-bindings",\n  "version": "1.10.0"\n}\n',
+        path.join(tmpDir, "sdks", "node", "package.json"),
+        '{\n  "name": "@xmtp/node-sdk",\n  "version": "1.10.0"\n}\n',
       );
     });
 
@@ -100,7 +98,7 @@ describe("SDK configs", () => {
     });
 
     it("reads and writes version via manifest provider", () => {
-      const config = getSdkConfig("node-bindings");
+      const config = getSdkConfig("node-sdk");
       expect(config.manifest.readVersion(tmpDir)).toBe("1.10.0");
 
       config.manifest.writeVersion(tmpDir, "1.11.0-dev.abc1234");
@@ -159,7 +157,6 @@ describe("SDK configs", () => {
   });
 
   it("declares a version track for every SDK", () => {
-    expect(getSdkConfig("node-bindings").versionTrack).toBe("follows-libxmtp");
     expect(getSdkConfig("wasm-bindings").versionTrack).toBe("follows-libxmtp");
     expect(getSdkConfig("ios").versionTrack).toBe("independent");
     expect(getSdkConfig("android").versionTrack).toBe("independent");

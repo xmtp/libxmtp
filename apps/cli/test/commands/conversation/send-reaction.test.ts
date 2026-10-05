@@ -55,6 +55,7 @@ describe("conversation send-reaction", () => {
       };
     }>(reactionResult.stdout);
     expect(output.messageId).toBeDefined();
+    expect(output).not.toHaveProperty("shouldPush");
     expect(output.reaction.reference).toBe(message.messageId);
     expect(output.reaction.content).toBe("thumbs up");
     expect(output.reaction.action).toBe("add");

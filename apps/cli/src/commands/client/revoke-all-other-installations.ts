@@ -1,6 +1,7 @@
 import { Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
+import { createEOASigner } from "@/utils/client";
 
 export default class ClientRevokeAllOtherInstallations extends BaseCommand {
   static description = `Revoke all other installations from the client's inbox.
@@ -49,7 +50,9 @@ no action taken.`;
       flags.force,
     );
 
-    await client.revokeAllOtherInstallations();
+    await client.revokeAllOtherInstallations(
+      createEOASigner(this.getConfig().walletKey!),
+    );
 
     this.output({
       success: true,

@@ -1,21 +1,22 @@
 import { Flags } from "@oclif/core";
 import {
-  DeliveryStatus,
-  GroupMessageKind,
+  Timestamp,
+  type DeliveryStatus,
+  type MessageKind,
   type ListMessagesOptions,
 } from "@xmtp/node-sdk";
 
 import { contentTypeMap, contentTypeOptions } from "./contentType.js";
 
 const deliveryStatusMap: Record<string, DeliveryStatus> = {
-  unpublished: DeliveryStatus.Unpublished,
-  published: DeliveryStatus.Published,
-  failed: DeliveryStatus.Failed,
+  unpublished: "unpublished",
+  published: "published",
+  failed: "failed",
 };
 
-const kindMap: Record<string, GroupMessageKind> = {
-  application: GroupMessageKind.Application,
-  "membership-change": GroupMessageKind.MembershipChange,
+const kindMap: Record<string, MessageKind> = {
+  application: "application",
+  "membership-change": "membershipChange",
 };
 
 export const messageFilterFlags = {
@@ -78,16 +79,18 @@ export function buildMessageFilterOptions(
     flagName: string,
   ) => bigint | undefined,
 ): Omit<ListMessagesOptions, "limit" | "direction"> {
-  const options: Omit<ListMessagesOptions, "limit" | "direction"> = {};
+  const options: {
+    -readonly [K in keyof ListMessagesOptions]: ListMessagesOptions[K];
+  } = {};
 
   const sentBeforeNs = parseBigInt(flags["sent-before"], "sent-before");
   if (sentBeforeNs !== undefined) {
-    options.sentBeforeNs = sentBeforeNs;
+    options.sentBefore = new Timestamp(sentBeforeNs);
   }
 
   const sentAfterNs = parseBigInt(flags["sent-after"], "sent-after");
   if (sentAfterNs !== undefined) {
-    options.sentAfterNs = sentAfterNs;
+    options.sentAfter = new Timestamp(sentAfterNs);
   }
 
   const insertedBeforeNs = parseBigInt(
@@ -95,7 +98,7 @@ export function buildMessageFilterOptions(
     "inserted-before",
   );
   if (insertedBeforeNs !== undefined) {
-    options.insertedBeforeNs = insertedBeforeNs;
+    options.insertedBefore = new Timestamp(insertedBeforeNs);
   }
 
   const insertedAfterNs = parseBigInt(
@@ -103,7 +106,7 @@ export function buildMessageFilterOptions(
     "inserted-after",
   );
   if (insertedAfterNs !== undefined) {
-    options.insertedAfterNs = insertedAfterNs;
+    options.insertedAfter = new Timestamp(insertedAfterNs);
   }
 
   if (flags["delivery-status"]) {

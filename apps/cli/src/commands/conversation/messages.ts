@@ -1,9 +1,6 @@
 import { Args, Flags } from "@oclif/core";
-import {
-  MessageSortBy,
-  SortDirection,
-  type ListMessagesOptions,
-} from "@xmtp/node-sdk";
+import type { MessageSortBy } from "@xmtp/node-sdk";
+import { type ListMessagesOptions } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import {
@@ -118,9 +115,7 @@ Use --sort-by to choose between sorting by sent time or insertion time.`;
     const { args, flags } = await this.parse(ConversationMessages);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
@@ -131,16 +126,15 @@ Use --sort-by to choose between sorting by sent time or insertion time.`;
     }
 
     const sortByMap: Record<string, MessageSortBy> = {
-      "sent-at": MessageSortBy.SentAt,
-      "inserted-at": MessageSortBy.InsertedAt,
+      "sent-at": "sentAt",
+      "inserted-at": "insertedAt",
     };
 
-    const options: ListMessagesOptions = {
+    const options: {
+      -readonly [K in keyof ListMessagesOptions]: ListMessagesOptions[K];
+    } = {
       ...buildMessageFilterOptions(flags, this.parseBigInt.bind(this)),
-      direction:
-        flags.direction === "ascending"
-          ? SortDirection.Ascending
-          : SortDirection.Descending,
+      direction: flags.direction === "ascending" ? "ascending" : "descending",
     };
 
     if (flags.limit !== undefined) {
@@ -158,7 +152,7 @@ Use --sort-by to choose between sorting by sent time or insertion time.`;
       senderInboxId: message.senderInboxId,
       contentType: message.contentType,
       content: message.content,
-      sentAt: message.sentAt.toISOString(),
+      sentAt: message.sentAt.date.toISOString(),
       deliveryStatus: message.deliveryStatus,
     }));
 

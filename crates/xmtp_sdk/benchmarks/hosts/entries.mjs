@@ -44,12 +44,7 @@ export async function admitEntries(config, request, target) {
       throw new Error("Missing installed SDK manifest");
     directory = dirname(directory);
   }
-  const expectedName =
-    request.side === "old"
-      ? `@xmtp/${target}-sdk`
-      : target === "node"
-        ? "xmtp-sdk"
-        : "xmtp-sdk-browser";
+  const expectedName = `@xmtp/${target}-sdk`;
   if (manifest.name !== expectedName || manifest.type !== "module")
     throw new Error("Unexpected installed SDK package identity");
   const conditions = new Set(

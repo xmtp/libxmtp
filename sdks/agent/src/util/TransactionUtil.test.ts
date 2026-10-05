@@ -94,6 +94,7 @@ describe("TransactionUtil", () => {
       expect(call?.metadata).toEqual({
         description,
         transactionType: "transfer",
+        extra: new Map(),
       });
     });
 
@@ -161,6 +162,7 @@ describe("TransactionUtil", () => {
       expect(call?.metadata).toEqual({
         description,
         transactionType: "transfer",
+        extra: new Map(),
       });
     });
   });

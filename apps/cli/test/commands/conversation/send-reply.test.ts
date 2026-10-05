@@ -62,6 +62,7 @@ describe("conversation send-reply", () => {
       };
     }>(replyResult.stdout);
     expect(output.success).toBe(true);
+    expect(output).not.toHaveProperty("shouldPush");
     expect(output.reply.reference).toBe(message.messageId);
     expect(output.reply.text).toBe("This is a reply!");
   });

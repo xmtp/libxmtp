@@ -76,45 +76,13 @@ try {
   );
   const packageRoot = join(consumer, "node_modules", manifest.name);
   const metadataFile = join(packageRoot, "sdk-contract.json");
-  const original = readFileSync(metadataFile, "utf8");
+  // Build receipts must not be a runtime dependency.
+  rmSync(metadataFile);
+  assert.ok(!existsSync(join(packageRoot, "sdk-contract-check.js")));
+  assert.ok(!existsSync(join(packageRoot, "sdk-pure-contract-check.js")));
   if (target === "node") {
     const proof = `import assert from 'node:assert/strict';\nimport { TextCodec } from '${manifest.name}';\nconst codec = new TextCodec(); assert.equal(codec.decode(codec.encode('installed')), 'installed');\nconsole.log('Installed SDK ESM codec round trip passed');\n`;
     writeFileSync(join(consumer, "smoke.mjs"), proof);
-    execFileSync(process.execPath, ["smoke.mjs"], {
-      cwd: consumer,
-      stdio: "inherit",
-    });
-    const metadata = JSON.parse(original);
-    metadata.contract = "deliberate-mismatch";
-    writeFileSync(metadataFile, JSON.stringify(metadata));
-    let failure;
-    try {
-      execFileSync(process.execPath, ["smoke.mjs"], {
-        cwd: consumer,
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-    } catch (error) {
-      failure = error.stderr;
-    }
-    assert.match(failure ?? "", /SDK contract mismatch/);
-    writeFileSync(metadataFile, original);
-    const assetMetadata = JSON.parse(original);
-    const firstAsset = Object.keys(assetMetadata.assets)[0];
-    assetMetadata.assets[firstAsset] = "deliberate-asset-mismatch";
-    writeFileSync(metadataFile, JSON.stringify(assetMetadata));
-    let assetFailure;
-    try {
-      execFileSync(process.execPath, ["smoke.mjs"], {
-        cwd: consumer,
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-    } catch (error) {
-      assetFailure = error.stderr;
-    }
-    assert.match(assetFailure ?? "", /SDK asset mismatch/);
-    writeFileSync(metadataFile, original);
     execFileSync(process.execPath, ["smoke.mjs"], {
       cwd: consumer,
       stdio: "inherit",

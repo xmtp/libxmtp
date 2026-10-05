@@ -25,7 +25,6 @@ jobs:
       backend_ci: ${{ steps.filter.outputs.backend_ci }}
       wasm: ${{ steps.filter.outputs.wasm }}
       browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
-      node: ${{ steps.filter.outputs.node }}
       node_sdk: ${{ steps.filter.outputs.node_sdk }}
       agent_sdk: ${{ steps.filter.outputs.agent_sdk }}
       ios: ${{ steps.filter.outputs.ios }}
@@ -121,6 +120,7 @@ jobs:
               - '.github/actions/setup-nix/**'
               - '.github/actions/setup-js/**'
               - '.github/workflows/test-sdk.yml'
+              - '.github/workflows/build-sdk-node-platforms.yml'
             sdk_swift:
               - 'dev/worktree-env'
               - 'dev/docker/load-env'
@@ -179,23 +179,6 @@ jobs:
               - 'flake.*'
               - 'dev/docker/**'
               - '.github/workflows/test-browser-sdk.yml'
-            node:
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - 'dev/js/**'
-              - '.oxlintrc.json'
-              - 'apps/backend/**'
-              - 'proto/**'
-              - 'crates/**'
-              - 'bindings/node/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'nix/**'
-              - 'flake.lock'
-              - 'dev/docker/**'
-              - 'dev/up'
-              - '.github/workflows/test-node*'
             node_sdk:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -206,7 +189,6 @@ jobs:
               - 'sdks/node/**'
               - 'sdks/js.just'
               - 'dev/js/**'
-              - 'bindings/node/**'
               - 'proto/**'
               - 'crates/**'
               - 'nix/**'
@@ -223,7 +205,6 @@ jobs:
               - 'sdks/node/**'
               - 'sdks/js.just'
               - 'dev/js/**'
-              - 'bindings/node/**'
               - 'proto/**'
               - 'crates/**'
               - 'nix/**'
@@ -404,30 +385,15 @@ jobs:
     uses: ./.github/workflows/test-keepalive-probe.yml
     secrets: inherit
 
-  test-node:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.node == 'true'
-    uses: ./.github/workflows/test-node.yml
-    secrets: inherit
-
-  # Gated on test-node: runs after the node-bindings test job so the
-  # node-bindings-test nix build is a cache hit. Proceeds when test-node
-  # succeeded OR was skipped (bindings unchanged); aborts only if it failed.
   test-node-sdk:
-    needs: [detect-changes, test-node]
-    if: >-
-      !cancelled() && needs.test-node.result != 'failure'
-      && needs.detect-changes.outputs.node_sdk == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.node_sdk == 'true'
     uses: ./.github/workflows/test-node-sdk.yml
     secrets: inherit
 
-  # Gated on test-node like node-sdk: agent-sdk runs against the local
-  # node-sdk (workspace dependency), whose bindings must be a nix cache hit.
   test-agent-sdk:
-    needs: [detect-changes, test-node]
-    if: >-
-      !cancelled() && needs.test-node.result != 'failure'
-      && needs.detect-changes.outputs.agent_sdk == 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.agent_sdk == 'true'
     uses: ./.github/workflows/test-agent-sdk.yml
     secrets: inherit
 
@@ -496,7 +462,6 @@ jobs:
       - test-sdk
       - test-xdbg
       - test-keepalive-probe
-      - test-node
       - test-wasm
       - test-browser-sdk
       - test-node-sdk

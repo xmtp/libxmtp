@@ -28,8 +28,8 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `dev/nix-shell 'just docs check'`: check source links and the composed artifact.
 - `dev/nix-shell 'just docs check-external'`: check external URLs with Lychee.
 
-`just docs build` and `just docs check-examples` stage local Node and WASM
-bindings, then run their package tasks with the pnpm dependency graph. Do not
+`just docs build` and `just docs check-examples` select each SDK product from its
+source manifest, then run its package tasks with the pnpm dependency graph. Do not
 add a separate SDK build before either command.
 
 ## Build and check scripts
@@ -60,8 +60,8 @@ API. The other workspace packages use TypeScript 7.
 `just docs build` checks TypeScript and Twoslash examples against the local
 SDK declarations. `just docs typecheck` checks Astro and executable examples.
 
-The site tsconfig excludes `examples/`. Astro's language server forces
-`isolatedModules`, which rejects the Node bindings' ambient const enums.
+The site tsconfig excludes `examples/`. Check executable examples separately
+against each selected public SDK declaration entry.
 `examples.tsconfig.json` checks every executable example against the real SDK
 declarations through `just docs check-examples` and the docs build. Keep both
 checks; do not add examples to the Astro program or disable their type checks.

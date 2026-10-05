@@ -1,28 +1,14 @@
 // #region client
-import {
-  Client,
-  ConsentState,
-  IdentifierKind,
-  type Signer,
-} from "@xmtp/node-sdk";
-import { hexToBytes } from "viem";
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { Client, MessageStream, generateLocalSigner } from "@xmtp/node-sdk";
 
-// Use a new wallet and an in-memory database for this local test.
-const account = privateKeyToAccount(generatePrivateKey());
-const signer: Signer = {
-  type: "EOA",
-  getIdentifier: () => ({
-    identifier: account.address,
-    identifierKind: IdentifierKind.Ethereum,
-  }),
-  signMessage: async (message) =>
-    hexToBytes(await account.signMessage({ message })),
-};
+// Use a new signer and an in-memory database for this local test.
+const signer = await generateLocalSigner();
 const client = await Client.create(signer, {
-  backendUrl: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:5050",
-  dbEncryptionKey: crypto.getRandomValues(new Uint8Array(32)),
-  dbPath: null,
+  backend: { url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:5050" },
+  storage: {
+    location: "inMemory",
+    encryptionKey: crypto.getRandomValues(new Uint8Array(32)),
+  },
 });
 console.log("Your inbox ID:", client.inboxId);
 // #endregion client
@@ -35,11 +21,12 @@ await group.sendText("Hello everyone");
 // #endregion send
 
 // #region stream
-const stream = await client.conversations.streamAllMessages({
-  onValue: (message) => console.log("New message:", message),
-  onError: console.error,
-});
-await client.conversations.syncAll([ConsentState.Allowed]);
+const stream = MessageStream.open(client, { consentStates: ["allowed"] });
+const receive = (async () => {
+  for await (const message of stream) console.log("New message:", message);
+})();
+await client.conversations.syncAll(["allowed"]);
+// Call stream.return() and await receive when you stop the stream.
 // #endregion stream
 
-export { client, stream };
+export { client, stream, receive };

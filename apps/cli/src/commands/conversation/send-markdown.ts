@@ -59,9 +59,7 @@ and published via 'conversation publish-messages').`;
     const { args, flags } = await this.parse(ConversationSendMarkdown);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);

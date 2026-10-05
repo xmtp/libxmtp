@@ -1,16 +1,13 @@
 import { createRegisteredClient, createSigner, sleep } from "@test/helpers";
 import {
-  ConsentState,
-  ContentType,
-  ConversationType,
-  MetadataField,
-  metadataFieldName,
-  type GroupUpdated,
-  type MessageDisappearingSettings,
-} from "@xmtp/node-bindings";
+  MessageStream,
+  Timestamp,
+  standardContentType,
+  type DisappearingSettings,
+  type Message,
+  type MessageContent,
+} from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
-
-import type { DecodedMessage } from "@/DecodedMessage";
 
 // Background workers (self-remove, disappearing messages) complete
 // asynchronously; poll until the expected state appears instead of pacing
@@ -27,11 +24,11 @@ describe("Dm", () => {
     const dm = await client1.conversations.createDm(client2.inboxId);
     expect(dm).toBeDefined();
     expect(dm.id).toBeDefined();
-    expect(dm.createdAtNs).toBeDefined();
+    expect(dm.createdAt.ns).toBeDefined();
     expect(dm.createdAt).toBeDefined();
-    expect(dm.isActive).toBe(true);
+    expect((await dm.state()).isActive).toBe(true);
     expect(dm.addedByInboxId).toBe(client1.inboxId);
-    expect(dm.peerInboxId).toBe(client2.inboxId);
+    expect(await dm.peerInboxId()).toBe(client2.inboxId);
 
     expect((await dm.messages()).length).toBe(1);
 
@@ -41,28 +38,31 @@ describe("Dm", () => {
     expect(memberInboxIds).toContain(client1.inboxId);
     expect(memberInboxIds).toContain(client2.inboxId);
 
-    const metadata = await dm.metadata();
-    expect(metadata.conversationType).toBe(ConversationType.Dm);
+    const metadata = {
+      conversationType: dm.kind,
+      creatorInboxId: dm.creatorInboxId,
+    };
+    expect(metadata.conversationType).toBe("dm");
     expect(metadata.creatorInboxId).toBe(client1.inboxId);
 
-    expect(dm.consentState()).toBe(ConsentState.Allowed);
+    expect((await dm.state()).consentState).toBe("allowed");
 
-    const dms = client1.conversations.listDms();
+    const dms = await client1.conversations.listDms({});
     expect(dms.length).toBe(1);
     expect(dms[0].id).toBe(dm.id);
 
-    expect(client1.conversations.listDms().length).toBe(1);
-    expect(client1.conversations.listGroups().length).toBe(0);
+    expect((await client1.conversations.listDms({})).length).toBe(1);
+    expect((await client1.conversations.listGroups({})).length).toBe(0);
 
     // confirm DM in other client
     await client2.conversations.sync();
-    const dms2 = client2.conversations.listDms();
+    const dms2 = await client2.conversations.listDms({});
     expect(dms2.length).toBe(1);
     expect(dms2[0].id).toBe(dm.id);
-    expect(dms2[0].peerInboxId).toBe(client1.inboxId);
+    expect(await dms2[0].peerInboxId()).toBe(client1.inboxId);
 
-    expect(client2.conversations.listDms().length).toBe(1);
-    expect(client2.conversations.listGroups().length).toBe(0);
+    expect((await client2.conversations.listDms({})).length).toBe(1);
+    expect((await client2.conversations.listGroups({})).length).toBe(0);
 
     const dupeDms = await dm.duplicateDms();
     expect(dupeDms.length).toEqual(0);
@@ -73,8 +73,8 @@ describe("Dm", () => {
     const { signer: signer2, identifier: identifier2 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
-    const dm = await client1.conversations.createDmWithIdentifier(identifier2);
-    expect(dm.peerInboxId).toBe(client2.inboxId);
+    const dm = await client1.conversations.createDm(identifier2);
+    expect(await dm.peerInboxId()).toBe(client2.inboxId);
   });
 
   it("should send and list messages", async () => {
@@ -91,15 +91,15 @@ describe("Dm", () => {
 
     const messages = await dm.messages();
     expect(messages.length).toBe(2);
-    expect(messages[1].content).toBe(text);
+    expect(messages[1].content).toEqual({ kind: "text", value: text });
 
     const lastMessage = await dm.lastMessage();
     expect(lastMessage).toBeDefined();
     expect(lastMessage?.id).toBe(messages[1].id);
-    expect(lastMessage?.content).toBe(text);
+    expect(lastMessage?.content).toEqual({ kind: "text", value: text });
 
     await client2.conversations.sync();
-    const dms = client2.conversations.listDms();
+    const dms = await client2.conversations.listDms({});
     expect(dms.length).toBe(1);
 
     const dm2 = dms[0];
@@ -109,12 +109,12 @@ describe("Dm", () => {
 
     const messages2 = await dm2.messages();
     expect(messages2.length).toBe(2);
-    expect(messages2[1].content).toBe(text);
+    expect(messages2[1].content).toEqual({ kind: "text", value: text });
 
     const lastMessage2 = await dm2.lastMessage();
     expect(lastMessage2).toBeDefined();
     expect(lastMessage2?.id).toBe(messages2[1].id);
-    expect(lastMessage2?.content).toBe(text);
+    expect(lastMessage2?.content).toEqual({ kind: "text", value: text });
   });
 
   it("should optimistically send and list messages", async () => {
@@ -129,10 +129,10 @@ describe("Dm", () => {
 
     const messages = await dm.messages();
     expect(messages.length).toBe(2);
-    expect(messages[1].content).toBe(text);
+    expect(messages[1].content).toEqual({ kind: "text", value: text });
 
     await client2.conversations.sync();
-    const dms = client2.conversations.listDms();
+    const dms = await client2.conversations.listDms({});
     expect(dms.length).toBe(1);
 
     const dm2 = dms[0];
@@ -149,7 +149,7 @@ describe("Dm", () => {
 
     const messages4 = await dm2.messages();
     expect(messages4.length).toBe(2);
-    expect(messages4[1].content).toBe(text);
+    expect(messages4[1].content).toEqual({ kind: "text", value: text });
   });
 
   it("should stream messages", async () => {
@@ -159,13 +159,16 @@ describe("Dm", () => {
     const client2 = await createRegisteredClient(signer2);
     const dm = await client1.conversations.createDm(client2.inboxId);
 
-    const history = dm.messageHistorySnapshot(1);
+    const cursor = (await dm.messages({ direction: "descending", limit: 1 }))[0]
+      ?.deliveryCursor;
     const streamedMessages: unknown[] = [];
-    const stream = await dm.stream({
-      from: history.cursor,
-      onValue: (message) => {
-        streamedMessages.push(message.content);
-      },
+    const stream = MessageStream.openDm(client1, dm, {
+      from: cursor ?? undefined,
+    });
+    await stream.ready();
+    void stream.onValue((message) => {
+      if (message.content.kind === "text")
+        streamedMessages.push(message.content.value);
     });
 
     await dm.sendText("gm");
@@ -184,14 +187,14 @@ describe("Dm", () => {
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
     const dm = await client1.conversations.createDm(client2.inboxId);
-    expect(dm.consentState()).toBe(ConsentState.Allowed);
+    expect((await dm.state()).consentState).toBe("allowed");
 
     await client2.conversations.sync();
-    const dm2 = client2.conversations.listDms()[0];
+    const dm2 = (await client2.conversations.listDms({}))[0];
     expect(dm2).toBeDefined();
-    expect(dm2.consentState()).toBe(ConsentState.Unknown);
+    expect((await dm2.state()).consentState).toBe("unknown");
     await dm2.sendText("gm!");
-    expect(dm2.consentState()).toBe(ConsentState.Allowed);
+    expect((await dm2.state()).consentState).toBe("allowed");
   });
 
   it("should handle disappearing messages", async () => {
@@ -200,25 +203,28 @@ describe("Dm", () => {
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
 
-    const stream = await client1.conversations.streamDeletedMessages();
+    const stream = await client1.events({
+      kinds: ["message.expired"],
+      references_own_messages: false,
+    });
 
     // create message disappearing settings so that messages are deleted after 1 second
-    const messageDisappearingSettings: MessageDisappearingSettings = {
-      fromNs: 1n,
-      inNs: 2_000_000_000n,
+    const messageDisappearingSettings: DisappearingSettings = {
+      from: new Timestamp(1n),
+      retentionNs: 2_000_000_000n,
     };
 
     // create a group with message disappearing settings
     const dm = await client1.conversations.createDm(client2.inboxId, {
-      messageDisappearingSettings,
+      disappearing: messageDisappearingSettings,
     });
 
     // verify that the message disappearing settings are set and enabled
-    expect(dm.messageDisappearingSettings()).toEqual({
-      fromNs: 1n,
-      inNs: 2_000_000_000n,
+    expect((await dm.state()).disappearingSettings).toEqual({
+      from: new Timestamp(1n),
+      retentionNs: 2_000_000_000n,
     });
-    expect(dm.isMessageDisappearingEnabled()).toBe(true);
+    expect((await dm.state()).isDisappearingEnabled).toBe(true);
 
     // send messages to the group
     const messageId1 = await dm.sendText("gm");
@@ -229,16 +235,16 @@ describe("Dm", () => {
 
     // sync the messages to the other client
     await client2.conversations.sync();
-    const dm2 = client2.conversations.listDms()[0];
+    const dm2 = (await client2.conversations.listDms({}))[0];
     expect(dm2).toBeDefined();
     await dm2.sync();
 
     // verify that the message disappearing settings are set and enabled
-    expect(dm2.messageDisappearingSettings()).toEqual({
-      fromNs: 1n,
-      inNs: 2_000_000_000n,
+    expect((await dm2.state()).disappearingSettings).toEqual({
+      from: new Timestamp(1n),
+      retentionNs: 2_000_000_000n,
     });
-    expect(dm2.isMessageDisappearingEnabled()).toBe(true);
+    expect((await dm2.state()).isDisappearingEnabled).toBe(true);
 
     // poll until the disappearing-messages worker deletes the expired
     // messages
@@ -250,7 +256,7 @@ describe("Dm", () => {
     expect((await dm2.messages()).length).toBe(1);
 
     setTimeout(() => {
-      void stream.end();
+      void stream.return();
     }, 1000);
 
     let count = 0;
@@ -258,54 +264,67 @@ describe("Dm", () => {
     for await (const message of stream) {
       count++;
       expect(message).toBeDefined();
-      messageIds.push(message.id);
+      if (message.kind === "message.expired")
+        messageIds.push(
+          Buffer.from(message.message_expired.message_id).toString("hex"),
+        );
     }
     expect(count).toBe(2);
     expect(messageIds).toContain(messageId1);
     expect(messageIds).toContain(messageId2);
 
     // remove the message disappearing settings
-    await dm.removeMessageDisappearingSettings();
+    await dm.updateDisappearingSettings(undefined);
 
     // verify that the message disappearing settings are removed
-    expect(dm.messageDisappearingSettings()).toEqual({
-      fromNs: 0n,
-      inNs: 0n,
+    expect((await dm.state()).disappearingSettings).toEqual({
+      from: new Timestamp(0n),
+      retentionNs: 0n,
     });
 
-    expect(dm.isMessageDisappearingEnabled()).toBe(false);
+    expect((await dm.state()).isDisappearingEnabled).toBe(false);
 
     // sync other group
     await dm2.sync();
 
     // verify that the message disappearing settings are set and disabled
-    expect(dm2.messageDisappearingSettings()).toEqual({
-      fromNs: 0n,
-      inNs: 0n,
+    expect((await dm2.state()).disappearingSettings).toEqual({
+      from: new Timestamp(0n),
+      retentionNs: 0n,
     });
-    expect(dm2.isMessageDisappearingEnabled()).toBe(false);
+    expect((await dm2.state()).isDisappearingEnabled).toBe(false);
 
     // check for metadata field changes
     const messages = await dm2.messages();
-    const fieldChange1 = messages[1] as DecodedMessage<GroupUpdated>;
-    expect(fieldChange1.content?.metadataFieldChanges).toBeDefined();
-    expect(fieldChange1.content?.metadataFieldChanges.length).toBe(1);
-    expect(fieldChange1.content?.metadataFieldChanges[0].fieldName).toBe(
-      metadataFieldName(MetadataField.MessageExpirationFromNs),
+    const fieldChange1 = messages[1] as Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    };
+    expect(fieldChange1.content.value.metadataFieldChanges).toBeDefined();
+    expect(fieldChange1.content.value.metadataFieldChanges.length).toBe(1);
+    expect(fieldChange1.content.value.metadataFieldChanges[0].fieldName).toBe(
+      "message_disappear_from_ns",
     );
-    expect(fieldChange1.content?.metadataFieldChanges[0].oldValue).toBe("1");
-    expect(fieldChange1.content?.metadataFieldChanges[0].newValue).toBe("0");
+    expect(fieldChange1.content.value.metadataFieldChanges[0].oldValue).toBe(
+      "1",
+    );
+    expect(fieldChange1.content.value.metadataFieldChanges[0].newValue).toBe(
+      "0",
+    );
 
-    const fieldChange2 = messages[2] as DecodedMessage<GroupUpdated>;
-    expect(fieldChange2.content?.metadataFieldChanges).toBeDefined();
-    expect(fieldChange2.content?.metadataFieldChanges.length).toBe(1);
-    expect(fieldChange2.content?.metadataFieldChanges[0].fieldName).toBe(
-      metadataFieldName(MetadataField.MessageExpirationInNs),
+    const fieldChange2 = messages[2] as Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    };
+    expect(fieldChange2.content.value.metadataFieldChanges).toBeDefined();
+    expect(fieldChange2.content.value.metadataFieldChanges.length).toBe(1);
+    expect(fieldChange2.content.value.metadataFieldChanges[0].fieldName).toBe(
+      "message_disappear_in_ns",
     );
-    expect(fieldChange2.content?.metadataFieldChanges[0].oldValue).toBe(
+    expect(fieldChange2.content.value.metadataFieldChanges[0].oldValue).toBe(
       "2000000000",
     );
-    expect(fieldChange2.content?.metadataFieldChanges[0].newValue).toBe("0");
+    expect(fieldChange2.content.value.metadataFieldChanges[0].newValue).toBe(
+      "0",
+    );
 
     // send messages to the group
     await dm2.sendText("gm");
@@ -327,7 +346,7 @@ describe("Dm", () => {
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
     const conversation = await client1.conversations.createDm(client2.inboxId);
-    expect(conversation.pausedForVersion()).toBeUndefined();
+    expect((await conversation.state()).pausedForVersion).toBeUndefined();
   });
 
   it("should filter messages by content type", async () => {
@@ -343,7 +362,7 @@ describe("Dm", () => {
     expect(messages.length).toBe(2);
 
     const filteredMessages = await dm.messages({
-      contentTypes: [ContentType.Text],
+      contentTypes: [standardContentType("text")],
     });
     expect(filteredMessages.length).toBe(1);
   });
@@ -368,38 +387,38 @@ describe("Dm", () => {
     await dm.sendText("text 3");
 
     // GroupUpdated messages are not counted
-    expect(await dm.countMessages()).toBe(3);
+    expect(await dm.countMessages({})).toBe(3n);
 
     // Time filters
     expect(
       await dm.countMessages({
-        sentBeforeNs: timestamp1,
-        contentTypes: [ContentType.Text],
+        sentBefore: new Timestamp(timestamp1),
+        contentTypes: [standardContentType("text")],
       }),
-    ).toBe(1);
+    ).toBe(1n);
     expect(
       await dm.countMessages({
-        sentAfterNs: timestamp1,
+        sentAfter: new Timestamp(timestamp1),
       }),
-    ).toBe(2);
+    ).toBe(2n);
     expect(
       await dm.countMessages({
-        sentAfterNs: timestamp2,
-        contentTypes: [ContentType.Text],
+        sentAfter: new Timestamp(timestamp2),
+        contentTypes: [standardContentType("text")],
       }),
-    ).toBe(1);
+    ).toBe(1n);
     expect(
       await dm.countMessages({
-        sentAfterNs: timestamp1,
-        sentBeforeNs: timestamp2,
+        sentAfter: new Timestamp(timestamp1),
+        sentBefore: new Timestamp(timestamp2),
       }),
-    ).toBe(1);
+    ).toBe(1n);
 
     // Content type filter
     expect(
       await dm.countMessages({
-        contentTypes: [ContentType.Text],
+        contentTypes: [standardContentType("text")],
       }),
-    ).toBe(3);
+    ).toBe(3n);
   });
 });

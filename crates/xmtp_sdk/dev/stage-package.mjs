@@ -19,7 +19,9 @@ import {
 } from "node:fs";
 import { dirname, join, resolve, relative, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { checkGeneratedAssets } from "./check-generated-assets.mjs";
+import { stageNodePlatforms, usePlatformPackages } from "./node-platforms.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = resolve(
@@ -29,8 +31,15 @@ const output = resolve(
   process.env.XMTP_SDK_PACKAGES_DIR ?? "target/sdk-packages",
 );
 const target = process.argv[2];
+const publicPackage = process.argv.includes("--public");
+const platformDirectory = process.env.XMTP_SDK_NODE_PLATFORMS_DIR;
+if (platformDirectory && (target !== "node" || !publicPackage))
+  throw new Error("Node platform assembly requires a public Node product");
 if (!["node", "browser"].includes(target))
   throw new Error("expected node or browser");
+const sourceManifest = publicPackage
+  ? JSON.parse(readFileSync(join(root, "sdks", target, "package.json")))
+  : undefined;
 const trees =
   target === "node"
     ? ["typescript-napi"]
@@ -104,7 +113,8 @@ try {
     cpSync(runtimeSource, join(destination, "node_modules/@ubjs", name), {
       recursive: true,
       dereference: true,
-      // Tests and nested dependencies are outside the runtime package files.
+      // These paths are outside both runtime packages' files lists. Windows
+      // npm installs can leave links to missing test build directories here.
       filter: (path) =>
         !relative(runtimeSource, path)
           .split(/[\\/]/)
@@ -119,6 +129,20 @@ try {
     if (manifest.module) manifest.main = manifest.module;
     writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
   }
+  let nodePlatforms;
+  if (platformDirectory) {
+    const cargo = readFileSync(join(root, "Cargo.toml"), "utf8");
+    const runtimeRevision = cargo.match(
+      /\[workspace\.metadata\.xmtp-sdk-fork\][^[]*rev\s*=\s*"([0-9a-f]{40})"/,
+    )[1];
+    nodePlatforms = stageNodePlatforms(
+      resolve(platformDirectory),
+      destination,
+      contracts[0],
+      runtimeRevision,
+      sourceManifest.name,
+    );
+  }
   const compile = mkdtempSync(join(output, ".sdk-compile-"));
   try {
     for (const tree of trees)
@@ -126,6 +150,13 @@ try {
         recursive: true,
         filter: (path) => !path.split(/[\\/]/).includes("node_modules"),
       });
+    if (nodePlatforms) {
+      const ffi = join(compile, "typescript-napi/xmtp_sdk-ffi.ts");
+      writeFileSync(
+        ffi,
+        usePlatformPackages(readFileSync(ffi, "utf8"), sourceManifest.name),
+      );
+    }
     symlinkSync(
       join(destination, "node_modules"),
       join(compile, "node_modules"),
@@ -209,16 +240,13 @@ try {
     throw new Error("SDK Node package has no native runtime binary");
   }
   const entry = target === "node" ? "./index.js" : "./typescript-wasm/index.js";
-  // Public imports wait for the contract check. The SDK root stays private.
-  writeFileSync(
-    join(destination, "entry.js"),
-    `import './sdk-contract-check.js';\nexport * from '${entry}';\n`,
-  );
+  // Public entries expose the compiled package roots.
+  writeFileSync(join(destination, "entry.js"), `export * from '${entry}';\n`);
   writeFileSync(join(destination, "entry.d.ts"), `export * from '${entry}';\n`);
   if (target === "browser") {
     writeFileSync(
       join(destination, "pure.js"),
-      "import './sdk-pure-contract-check.js';\nexport * from './typescript-pure/index.js';\n",
+      "export * from './typescript-pure/index.js';\n",
     );
     writeFileSync(
       join(destination, "pure.d.ts"),
@@ -252,9 +280,31 @@ try {
     ),
     bundledDependencies: runtimes.map((name) => `@ubjs/${name}`),
   };
+  if (sourceManifest) {
+    for (const field of [
+      "name",
+      "version",
+      "description",
+      "keywords",
+      "homepage",
+      "bugs",
+      "license",
+      "author",
+      "repository",
+      "publishConfig",
+    ]) {
+      if (sourceManifest[field] !== undefined)
+        manifest[field] = sourceManifest[field];
+    }
+    delete manifest.private;
+    manifest.main = "./entry.js";
+    manifest.types = "./entry.d.ts";
+    manifest.exports["./package.json"] = "./package.json";
+    Object.assign(manifest.exports, nodePlatforms?.exports);
+  }
   writeFileSync(
     join(destination, "package.json"),
-    JSON.stringify(manifest, null, 2) + "\n",
+    JSON.stringify(manifest, null, 2),
   );
   if (target === "browser") {
     const bindings = {
@@ -413,53 +463,18 @@ try {
         generator: contracts[0].generator,
         proof_origin: contracts[0].proof_origin,
         final_gate: contracts[0].final_gate,
+        platform_scope: nodePlatforms
+          ? "supported-matrix"
+          : target === "node"
+            ? "development-host"
+            : "browser",
+        platforms: nodePlatforms?.platforms,
         assets,
       },
       null,
       2,
     ) + "\n",
   );
-  if (target === "node") {
-    writeFileSync(
-      join(destination, "sdk-contract-check.js"),
-      `
-import { readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-const metadata = JSON.parse(readFileSync(new URL('./sdk-contract.json', import.meta.url)));
-if (metadata.contract !== '${contract}' || metadata.generator !== '${contracts[0].generator}') throw new Error('SDK contract mismatch');
-for (const [path, expected] of Object.entries(metadata.assets)) {
-  const actual = createHash('sha256').update(readFileSync(new URL(path, import.meta.url))).digest('hex');
-  if (actual !== expected) throw new Error('SDK asset mismatch: ' + path);
-}
-`.trim() + "\n",
-    );
-  } else {
-    // Bundlers can transform JS modules. Check the bytes of the WASM assets
-    // through static URLs, so bundlers can copy and rename each binary.
-    const browserCheck = (selected) => `
-const metadata = await (await fetch(new URL('./sdk-contract.json', import.meta.url))).json();
-if (metadata.contract !== '${contract}' || metadata.generator !== '${contracts[0].generator}') throw new Error('SDK contract mismatch');
-const assets = [${selected.map((path) => `{path: ${JSON.stringify(path)}, expected: ${JSON.stringify(assets[path])}, url: new URL(${JSON.stringify(`./${path}`)}, import.meta.url)}`).join(",")}];
-await Promise.all(assets.map(async ({ path, expected, url }) => {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('SDK missing asset: ' + path);
-  const hash = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
-  const actual = [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  if (actual !== expected || metadata.assets[path] !== expected) throw new Error('SDK asset mismatch: ' + path);
-}));
-`;
-    writeFileSync(
-      join(destination, "sdk-contract-check.js"),
-      browserCheck([
-        "typescript-wasm/xmtp_sdk.wasm",
-        "typescript-pure/xmtp_sdk.wasm",
-      ]).trim() + "\n",
-    );
-    writeFileSync(
-      join(destination, "sdk-pure-contract-check.js"),
-      browserCheck(["typescript-pure/xmtp_sdk.wasm"]).trim() + "\n",
-    );
-  }
   // Keep the prior product until compilation and all package checks succeed.
   if (existsSync(product)) renameSync(product, previous);
   try {

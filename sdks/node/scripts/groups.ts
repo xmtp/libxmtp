@@ -2,10 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { createSigner, createUser, type User } from "@test/helpers";
-import { IdentifierKind } from "@xmtp/node-bindings";
-
-import { Client } from "@/Client";
-import type { NetworkOptions, StorageOptions } from "@/types";
+import { Client, type ClientOptions } from "@xmtp/node-sdk";
 
 export const createRegisteredClient = async (
   user: User,
@@ -13,12 +10,16 @@ export const createRegisteredClient = async (
 ) => {
   const backendUrl = process.env.XMTP_BACKEND_URL;
   if (!backendUrl) throw new Error("XMTP_BACKEND_URL is required");
-  const options: NetworkOptions & StorageOptions = {
-    backendUrl,
-    env: "local",
-    dbPath,
+  const options: ClientOptions = {
+    backend: { url: backendUrl },
+    deviceSync: false,
+    storage: {
+      location: dbPath
+        ? { dbPath, attachmentsDir: `${dbPath}.attachments` }
+        : "inMemory",
+    },
   };
-  return Client.create(createSigner().signer, options);
+  return Client.create(createSigner(user).signer, options);
 };
 
 const accountsJsonPath = path.join(import.meta.dirname, "accounts.json");
@@ -51,13 +52,12 @@ console.log("Creating groups...");
 // create a bunch of groups
 while (accounts.length > 200) {
   const groupsAccounts = accounts.splice(0, 4);
-  const group =
-    await primaryAccountClient.conversations.createGroupWithIdentifiers(
-      groupsAccounts.map((a) => ({
-        identifierKind: IdentifierKind.Ethereum,
-        identifier: a.address,
-      })),
-    );
+  const group = await primaryAccountClient.conversations.createGroup(
+    groupsAccounts.map((a) => ({
+      kind: "ethereum" as const,
+      identifier: a.address,
+    })),
+  );
   groups.push(group);
 }
 
@@ -74,11 +74,10 @@ console.log("Creating DM groups...");
 const dmGroups = [];
 
 while (accounts.length > 0) {
-  const dmGroup =
-    await primaryAccountClient.conversations.createDmWithIdentifier({
-      identifierKind: IdentifierKind.Ethereum,
-      identifier: (accounts.pop() as Account).address,
-    });
+  const dmGroup = await primaryAccountClient.conversations.createDm({
+    kind: "ethereum" as const,
+    identifier: (accounts.pop() as Account).address,
+  });
   dmGroups.push(dmGroup);
 }
 
@@ -92,12 +91,13 @@ for (const dmGroup of dmGroups) {
 
 console.log("Syncing all conversations...");
 
-await primaryAccountClient.conversations.syncAll();
+await primaryAccountClient.conversations.syncAll(undefined);
 
 console.log("Querying DM groups...");
 
-const groupConvos = primaryAccountClient.conversations.listGroups();
-const dmConvos = primaryAccountClient.conversations.listDms();
+const groupConvos =
+  await primaryAccountClient.conversations.listGroups(undefined);
+const dmConvos = await primaryAccountClient.conversations.listDms(undefined);
 
 console.log(`Found ${dmConvos.length} DM conversations`);
 console.log(`Found ${groupConvos.length} group conversations`);

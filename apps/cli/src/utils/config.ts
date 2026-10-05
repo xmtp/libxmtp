@@ -77,16 +77,17 @@ export function mergeConfig(
   defaults?: Partial<XmtpConfig>,
 ): XmtpConfig {
   const backendUrl = flags.backendUrl ?? fileConfig.backendUrl;
+  const environmentLabel = flags.env ?? fileConfig.env ?? defaults?.env;
   return {
     walletKey: flags.walletKey ?? fileConfig.walletKey,
     dbEncryptionKey: flags.dbEncryptionKey ?? fileConfig.dbEncryptionKey,
     dbPath:
       flags.dbPath ??
       fileConfig.dbPath ??
-      (backendUrl ? defaultDbPath(backendUrl) : undefined),
+      (backendUrl ? defaultDbPath(backendUrl, environmentLabel) : undefined),
     backendUrl,
     apiKey: flags.apiKey ?? fileConfig.apiKey,
-    env: flags.env ?? fileConfig.env ?? defaults?.env,
+    env: environmentLabel,
     logLevel: flags.logLevel ?? fileConfig.logLevel,
     structuredLogging: flags.structuredLogging ?? fileConfig.structuredLogging,
     disableDeviceSync: flags.disableDeviceSync ?? fileConfig.disableDeviceSync,

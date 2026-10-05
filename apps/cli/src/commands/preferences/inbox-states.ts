@@ -53,16 +53,16 @@ latest data if changes were made recently.`;
 
     const client = await this.initClient();
 
-    const states = await client.preferences.getInboxStates(inboxIds);
+    const states = await client.inboxStates(inboxIds, false);
 
     const output = states.map((state) => ({
       inboxId: state.inboxId,
-      recoveryIdentifier: state.recoveryIdentifier,
+      recoveryIdentifier: state.recoveryIdentity,
       installations: state.installations.map((installation) => ({
         id: installation.id,
-        clientTimestampNs: installation.clientTimestampNs,
+        clientTimestampNs: installation.createdAt?.ns,
       })),
-      identifiers: state.identifiers,
+      identifiers: state.identities,
     }));
 
     this.output(output);

@@ -70,11 +70,28 @@ export interface Signer {
 }
 export type BackendOptions = { readonly url: string };
 export type BackendSource = BackendOptions;
-export type StorageOptions = { readonly location: "default" | "inMemory" };
+export type StorageOptions = {
+  readonly location:
+    | "default"
+    | "inMemory"
+    | { readonly directory: string }
+    | { readonly dbPath: string; readonly attachmentsDir: string };
+  readonly label?: string;
+};
 export type ClientOptions = {
   readonly backend?: BackendSource;
   readonly storage: StorageOptions;
+  readonly allowOffline?: boolean;
+  readonly registration?: { readonly nonce?: bigint };
 };
+export declare function generateInboxId(
+  identity: PublicIdentity,
+  nonce?: bigint,
+): InboxId;
+export declare function inboxIdForWithBackend(
+  backend: BackendSource,
+  identity: PublicIdentity,
+): Promise<InboxId>;
 export type InboxState = { readonly inboxId: InboxId };
 export type KeyPackageStatus = { readonly valid: boolean };
 export type MessageMetadataEntry = { readonly cursor: bigint };
@@ -175,6 +192,7 @@ export declare class XmtpError extends Error {
   constructor(details: ErrorDetails);
   static readonly CodecEncodeFailed: typeof XmtpError;
   static readonly InvalidArgument: typeof XmtpError;
+  static readonly StorageLocation: typeof XmtpError;
 }
 export declare function publicError(error: unknown): unknown;
 export declare function isCatalogueContentType(type: ContentTypeId): boolean;

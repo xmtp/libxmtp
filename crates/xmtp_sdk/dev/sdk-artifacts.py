@@ -241,13 +241,14 @@ def build(args):
             continue
         cargo_target = output / "build" / kind
         command = [
-            "dev/agent-run",
             "cargo",
             "build",
             "--locked",
             "-p",
             "xmtp-sdk-bindgen" if kind == "bindgen" else "xmtp_sdk",
         ]
+        if sys.platform != "win32":
+            command.insert(0, "dev/agent-run")
         if profile == "release":
             command += ["--release"]
         if features:

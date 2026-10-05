@@ -84,9 +84,6 @@ manifest-check:
     cd "{{ root }}" && python3.11 dev/sdk/inventory.py --check
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-manifest-roots.py
 
-bench:
-    {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/bench"
-
 # Build once. Later render calls reuse the recorded artifact hashes.
 build targets="swift,kotlin,node,browser" *args:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --targets "{{ targets }}" {{ args }}
@@ -111,7 +108,12 @@ check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-staging.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-source-package.py
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-package-smoke-path.mjs
+    cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-node-platforms.mjs
+    cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-stamp-package.mjs
+    cd "{{ root }}" && node crates/xmtp_sdk/dev/test-credential-record.mjs
+    cd "{{ root }}" && node crates/xmtp_sdk/dev/test-callback-rejection.mjs
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-pure-wasm.mjs
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-generated-assets.mjs
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-args=(--noEmit --strict --module esnext --moduleResolution bundler --target es2022 --allowImportingTsExtensions --skipLibCheck)
+args=(--noEmit --strict --module esnext --moduleResolution bundler --target es2022 --allowImportingTsExtensions --skipLibCheck --typeRoots sdks/node/node_modules/@types --types node)
 node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/public-values/positive.ts
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT

@@ -1,149 +1,144 @@
-import type {
-  ContentCodec,
-  EncodedContent,
-} from "@xmtp/content-type-primitives";
 import {
-  encodeMarkdown,
-  encodeText,
-  isMarkdown,
-  isReaction,
-  isReadReceipt,
-  isRemoteAttachment,
-  isReply,
-  isText,
-  isTransactionReference,
-  isWalletSendCalls,
-  ReactionAction,
-  ReactionSchema,
+  MarkdownCodec,
+  TextCodec,
+  type AnyContentCodec,
+  type EncodedContent,
+  type Message,
+  type MessageContent,
   type Reaction,
-  type ReadReceipt,
   type RemoteAttachment,
-  type Reply,
   type TransactionReference,
   type WalletSendCalls,
 } from "@xmtp/node-sdk";
 
-import { filter, type DecodedMessageWithContent } from "@/core/filter";
+import { filter } from "@/core/filter";
 
 import type { AgentBaseContext } from "./Agent";
 import { ConversationContext } from "./ConversationContext";
 
-/** Constructor values for a message context. */
+/** Inputs for a message middleware context. */
 export type MessageContextParams<
-  MessageContentType = unknown,
+  _Content = unknown,
   ContentTypes = unknown,
 > = Omit<AgentBaseContext<ContentTypes>, "message"> & {
-  /** The decoded message that emitted the event. */
-  message: DecodedMessageWithContent<MessageContentType>;
+  /** The SDK message received by the client. */
+  message: Message;
 };
 
-/** Context for a decoded message delivered to agent middleware. */
+/** A message and its client for agent middleware. */
 export class MessageContext<
-  MessageContentType = unknown,
+  Content = unknown,
   ContentTypes = unknown,
 > extends ConversationContext<ContentTypes> {
-  #message: DecodedMessageWithContent<MessageContentType>;
-
-  /** Create a context from a decoded message and its conversation. */
+  #message: Message;
+  #contentOverride?: { value: Content };
+  /** Create a context for the received message and its conversation. */
   constructor({
     message,
     conversation,
     client,
-  }: MessageContextParams<MessageContentType, ContentTypes>) {
+  }: MessageContextParams<Content, ContentTypes>) {
     super({ conversation, client });
     this.#message = message;
   }
-
-  /** Narrow the message when its encoded type id matches the supplied codec. */
-  usesCodec<T extends ContentCodec>(
+  /** Check the codec authority, type name, and major version. */
+  usesCodec<T extends AnyContentCodec>(
     codecClass: new () => T,
-  ): this is MessageContext<ReturnType<T["decode"]>> {
+  ): this is MessageContext<ReturnType<T["decode"]>, ContentTypes> {
     return filter.usesCodec(this.#message, codecClass);
   }
-
-  /** Narrow the message to Markdown content. */
-  isMarkdown(): this is MessageContext<string> {
-    return isMarkdown(this.#message);
+  /** Narrow this context to a Markdown message. */
+  isMarkdown(): this is MessageContext<string, ContentTypes> {
+    return this.#message.content.kind === "markdown";
   }
-
-  /** Narrow the message to plain text content. */
-  isText(): this is MessageContext<string> {
-    return isText(this.#message);
+  /** Narrow this context to a text message. */
+  isText(): this is MessageContext<string, ContentTypes> {
+    return this.#message.content.kind === "text";
   }
-
-  /** Narrow the message to a reply. */
-  isReply(): this is MessageContext<Reply> {
-    return isReply(this.#message);
+  /** Narrow this context to a reply message. */
+  isReply(): this is MessageContext<
+    Extract<
+      MessageContent,
+      {
+        /** Select the reply content variant. */
+        kind: "reply";
+      }
+    >,
+    ContentTypes
+  > {
+    return this.#message.content.kind === "reply";
   }
-
-  /** Narrow the message to a reaction. */
-  isReaction(): this is MessageContext<Reaction> {
-    return isReaction(this.#message);
+  /** Narrow this context to a reaction message. */
+  isReaction(): this is MessageContext<Reaction, ContentTypes> {
+    return this.#message.content.kind === "reaction";
   }
-
-  /** Narrow the message to a read receipt. */
-  isReadReceipt(): this is MessageContext<ReadReceipt> {
-    return isReadReceipt(this.#message);
+  /** Narrow this context to a read receipt. */
+  isReadReceipt(): this is MessageContext<undefined, ContentTypes> {
+    return this.#message.content.kind === "readReceipt";
   }
-
-  /** Narrow the message to a remote attachment. */
-  isRemoteAttachment(): this is MessageContext<RemoteAttachment> {
-    return isRemoteAttachment(this.#message);
+  /** Narrow this context to a remote attachment. */
+  isRemoteAttachment(): this is MessageContext<RemoteAttachment, ContentTypes> {
+    return this.#message.content.kind === "remoteAttachment";
   }
-
-  /** Narrow the message to a transaction reference. */
-  isTransactionReference(): this is MessageContext<TransactionReference> {
-    return isTransactionReference(this.#message);
+  /** Narrow this context to a transaction reference. */
+  isTransactionReference(): this is MessageContext<
+    TransactionReference,
+    ContentTypes
+  > {
+    return this.#message.content.kind === "transactionReference";
   }
-
-  /** Narrow the message to wallet send calls. */
-  isWalletSendCalls(): this is MessageContext<WalletSendCalls> {
-    return isWalletSendCalls(this.#message);
+  /** Narrow this context to wallet send calls. */
+  isWalletSendCalls(): this is MessageContext<WalletSendCalls, ContentTypes> {
+    return this.#message.content.kind === "walletSendCalls";
   }
-
-  /** Send an `added` reaction that references this message. */
-  async sendReaction(
-    content: string,
-    schema: Reaction["schema"] = ReactionSchema.Unicode,
-  ) {
-    const reaction: Reaction = {
-      action: ReactionAction.Added,
-      reference: this.#message.id,
-      referenceInboxId: this.#message.senderInboxId,
-      schema,
-      content,
-    };
-    await this.conversation.sendReaction(reaction);
-  }
-
-  async #sendReply(content: EncodedContent) {
-    await this.conversation.sendReply({
-      content,
-      reference: this.#message.id,
-      referenceInboxId: this.#message.senderInboxId,
-    });
-  }
-
-  /** Reply to this message with Markdown content. */
-  async sendMarkdownReply(markdown: string) {
-    await this.#sendReply(encodeMarkdown(markdown));
-  }
-
-  /** Reply to this message with plain text content. */
-  async sendTextReply(text: string) {
-    await this.#sendReply(encodeText(text));
-  }
-
-  /** Resolve the sender's first identifier from the local inbox state. */
-  async getSenderAddress() {
-    const inboxState = await this.client.preferences.getInboxStates([
+  /** Send a reaction to this message with push disabled. */
+  async sendReaction(content: string, schema: Reaction["schema"] = "unicode") {
+    await this.conversation.sendReaction(
+      this.#message.id,
       this.#message.senderInboxId,
-    ]);
-    return inboxState[0]?.identifiers[0]?.identifier;
+      { action: "added", schema, content },
+      { shouldPush: false },
+    );
+  }
+  async #sendReply(content: EncodedContent) {
+    await this.conversation.sendReply(
+      this.#message.id,
+      this.#message.senderInboxId,
+      content,
+      { shouldPush: false },
+    );
+  }
+  /** Send a Markdown reply to this message with push disabled. */
+  async sendMarkdownReply(markdown: string) {
+    await this.#sendReply(new MarkdownCodec().encode(markdown));
+  }
+  /** Send a text reply to this message with push disabled. */
+  async sendTextReply(text: string) {
+    await this.#sendReply(new TextCodec().encode(text));
+  }
+  /** Return the first identity identifier for the sender inbox. */
+  async getSenderAddress() {
+    const states = await this.client.inboxStates(
+      [this.#message.senderInboxId],
+      false,
+    );
+    return states[0]?.identities[0]?.identifier;
+  }
+  /** Replace the middleware value without changing the SDK message. */
+  set content(value: Content) {
+    this.#contentOverride = { value };
   }
 
-  /** Return the decoded message. */
+  /** The SDK message, including its tagged content and retained bytes. */
   get message() {
     return this.#message;
+  }
+  /** The decoded value selected by the content type. */
+  get content(): Content {
+    if (this.#contentOverride) return this.#contentOverride.value;
+    const value = this.#message.content;
+    if (value.kind === "reaction") return value.reaction as Content;
+    if ("value" in value) return value.value as Content;
+    return (value.kind === "reply" ? value : undefined) as Content;
   }
 }

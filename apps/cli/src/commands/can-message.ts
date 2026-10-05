@@ -1,5 +1,5 @@
 import { Args } from "@oclif/core";
-import { Client, IdentifierKind } from "@xmtp/node-sdk";
+import { Client } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 
@@ -47,18 +47,18 @@ XMTP messages (true/false).`;
     }
 
     const identifierObjects = identifiers.map((id) => ({
-      identifierKind: IdentifierKind.Ethereum,
+      kind: "ethereum" as const,
       identifier: id.toLowerCase(),
     }));
 
     const results = await Client.canMessage(
       identifierObjects,
-      await this.networkOptions(),
+      this.networkOptions(),
     );
 
     const output = identifiers.map((id) => ({
       identifier: id,
-      reachable: results.get(id.toLowerCase()) ?? false,
+      reachable: results.get(`ethereum:${id.toLowerCase()}`) ?? false,
     }));
 
     this.output(output);

@@ -1,8 +1,7 @@
-import type { Client as BrowserClient } from "@xmtp/browser-sdk";
 import type { Client as NodeClient } from "@xmtp/node-sdk";
 
 export async function createAgentGroup(
-  organizer: NodeClient | BrowserClient,
+  organizer: NodeClient,
   instinctInboxId: string,
   museInboxId: string,
   grokbotInboxId: string,
@@ -18,7 +17,7 @@ export async function createAgentGroup(
     codexInboxId,
   ]);
 
-  await group.sendText("Let’s work on this together.");
+  await group.sendText("Let us work on this together.");
   // #endregion group
   return group;
 }

@@ -60,9 +60,9 @@ want to add. This wallet must sign a message to authorize the association.`;
       flags.force,
     );
 
-    await client.unsafe_addAccount(newSigner, true);
+    await client.unsafeAddAccount(newSigner, true);
 
-    const identifier = await newSigner.getIdentifier();
+    const identifier = await newSigner.identity();
 
     this.output({
       success: true,

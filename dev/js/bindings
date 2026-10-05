@@ -1,7 +1,5 @@
 #!/bin/bash
-# Build the test-utils JS bindings via Nix and populate bindings/<x>/dist so
-# the SDKs' workspace dependencies resolve real packages. Cache hit when the
-# node/wasm binding test jobs already built these.
+# Stage the Node SDK and the legacy WASM binding during the Browser cutover.
 source "$(dirname "$0")/.setup"
 
 nix_system="$(nix eval --impure --raw --expr 'builtins.currentSystem')"
@@ -25,13 +23,15 @@ build_and_stage() {
 target="${1:-all}"
 case "$target" in
   all)
-    build_and_stage node-bindings-test node
+    "${ROOT}/dev/js/sdk-package" node
+    build_and_stage node-bindings-js node
     build_and_stage wasm-bindings-test wasm
     ;;
   node)
-    build_and_stage node-bindings-test node
+    "${ROOT}/dev/js/sdk-package" node
     ;;
   wasm)
+    build_and_stage node-bindings-js node
     build_and_stage wasm-bindings-test wasm
     ;;
   *)
@@ -45,25 +45,24 @@ esac
 case "$target" in
   all)
     "${ROOT}/dev/ci/warm-deps" \
-      "${ROOT}#packages.${nix_system}.node-bindings-test" \
       "${ROOT}#packages.${nix_system}.wasm-bindings-test"
     ;;
   node)
-    "${ROOT}/dev/ci/warm-deps" "${ROOT}#packages.${nix_system}.node-bindings-test"
+    :
     ;;
   wasm)
     "${ROOT}/dev/ci/warm-deps" "${ROOT}#packages.${nix_system}.wasm-bindings-test"
     ;;
 esac
 
-echo "JS bindings staged:"
+echo "SDK inputs staged:"
 case "$target" in
   all)
-    echo "  node: ${ROOT}/bindings/node/dist"
+    echo "  node-sdk: ${ROOT}/sdks/node/dist"
     echo "  wasm: ${ROOT}/bindings/wasm/dist"
     ;;
   node)
-    echo "  node: ${ROOT}/bindings/node/dist"
+    echo "  node-sdk: ${ROOT}/sdks/node/dist"
     ;;
   wasm)
     echo "  wasm: ${ROOT}/bindings/wasm/dist"

@@ -315,7 +315,6 @@ jobs:
       ref: ${{ needs.validate.outputs.ref }}
       timestamp: ${{ needs.validate.outputs.timestamp }}
       node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
-      node-binding-version: ${{ needs.release-node-sdk.outputs.binding-version }}
       pending-version: ${{ needs.plan.outputs.version }}
       pending-kind: ${{ needs.plan.outputs.kind }}
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
@@ -361,10 +360,8 @@ jobs:
             version: ${{ needs.release-android.outputs.version }}
           - consumer: convos-cli
             version: ${{ needs.release-node-sdk.outputs.version }}
-            binding-version: ${{ needs.release-node-sdk.outputs.binding-version }}
           - consumer: convos-assistants
             version: ${{ needs.release-node-sdk.outputs.version }}
-            binding-version: ${{ needs.release-node-sdk.outputs.binding-version }}
     steps:
       # Trust boundary: this job holds a token that can write to the xmtplabs
       # consumer repos, and the manifests it runs can execute shell. So check the
@@ -396,7 +393,6 @@ jobs:
         env:
           UPDATECLI_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ matrix.version }}
-          BINDING_VERSION: ${{ matrix.binding-version }}
           SOURCE_BRANCH: ${{ needs.validate.outputs.ref }}
         run: updatecli pipeline apply --config dev/updatecli/${{ matrix.consumer }}.yaml
 
@@ -478,7 +474,7 @@ jobs:
         env:
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
+          NODE_VERSION: ${{ needs.release-node-sdk.outputs.version }}
           WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
         run: |
           set -euo pipefail
@@ -542,7 +538,7 @@ jobs:
           HUB_VERSION: ${{ steps.hubver.outputs.version }}
           IOS_VERSION: ${{ needs.release-ios.outputs.version }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
-          NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
+          NODE_VERSION: ${{ needs.release-node-sdk.outputs.version }}
           WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
           AGENT_VERSION: ${{ needs.release-agent-sdk.outputs.version }}
           CLI_VERSION: ${{ needs.release-cli.outputs.version }}
@@ -599,7 +595,7 @@ jobs:
           ANDROID_RESULT: ${{ needs.release-android.result }}
           ANDROID_VERSION: ${{ needs.release-android.outputs.version }}
           NODE_RESULT: ${{ needs.release-node-sdk.result }}
-          NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
+          NODE_VERSION: ${{ needs.release-node-sdk.outputs.version }}
           WASM_RESULT: ${{ needs.release-browser-sdk.result }}
           WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
           AGENT_RESULT: ${{ needs.release-agent-sdk.result }}

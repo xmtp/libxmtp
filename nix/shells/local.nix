@@ -24,6 +24,7 @@
   xmtp,
   rust-analyzer,
   nodejs_26,
+  watchexec,
   just,
   python311,
   uv,
@@ -92,6 +93,7 @@ mkShell (
         sqlcipher
         xmtp-pnpm
         nodejs_26
+        watchexec
 
         # Android
         androidEnv.devComposition.androidsdk

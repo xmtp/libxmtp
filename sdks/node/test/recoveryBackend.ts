@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -38,6 +39,11 @@ async function within<T>(operation: Promise<T>, ms: number, label: string) {
 // This process uses the shared database but owns its ports and shutdown signal.
 // No signal is sent to the shared backend or to an unrelated process.
 export async function createRecoveryBackend() {
+  const trace = (event: string) => {
+    const timingPath = process.env.XMTP_RECOVERY_BACKEND_TIMING_PATH;
+    if (timingPath)
+      appendFileSync(timingPath, `recovery backend ${Date.now()} ${event}\n`);
+  };
   const binary = process.env.XMTP_RECOVERY_BACKEND_BINARY;
   if (!binary || !process.env.DATABASE_URL) {
     throw new Error("Recovery backend needs a binary path and DATABASE_URL");
@@ -94,15 +100,22 @@ ${process.env.ANVIL_URL ? '[chains]\n"eip155:31337" = "env:ANVIL_URL"\n' : ""}
       stdio: ["ignore", "ignore", "pipe"],
       env: backendEnvironment,
     });
+    trace(`spawn pid=${child.pid ?? "unknown"}`);
     child.stderr!.on("data", (bytes: Buffer) => {
       diagnostic = (diagnostic + bytes.toString()).slice(-8_192);
     });
     exited = new Promise<void>((resolve) => {
       child!.once("error", (error) => {
         spawnError = error;
+        trace(`spawn error pid=${child?.pid ?? "unknown"}`);
         resolve();
       });
-      child!.once("exit", () => resolve());
+      child!.once("exit", (code, signal) => {
+        trace(
+          `exit pid=${child?.pid ?? "unknown"} code=${code} signal=${signal}`,
+        );
+        resolve();
+      });
     });
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
@@ -127,7 +140,10 @@ ${process.env.ANVIL_URL ? '[chains]\n"eip155:31337" = "env:ANVIL_URL"\n' : ""}
             signal: AbortSignal.timeout(1_000),
           },
         );
-        if ((await response.text()).includes("xmtp_backend_ready 1")) return;
+        if ((await response.text()).includes("xmtp_backend_ready 1")) {
+          trace(`ready pid=${child.pid ?? "unknown"}`);
+          return;
+        }
       } catch {
         // Startup has not opened the metrics listener yet.
       }
@@ -147,6 +163,7 @@ ${process.env.ANVIL_URL ? '[chains]\n"eip155:31337" = "env:ANVIL_URL"\n' : ""}
     async stopGracefully() {
       if (!child || !exited)
         throw new Error("Recovery backend was not started");
+      trace(`SIGTERM pid=${child.pid ?? "unknown"}`);
       if (!child.kill("SIGTERM"))
         throw new Error("Recovery backend signal failed");
       await within(exited, 15_000, "Recovery backend did not finish its drain");

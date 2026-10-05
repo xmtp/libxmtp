@@ -3,19 +3,20 @@
 The instructions below apply to the JavaScript SDKs in `node`, `browser`, and
 `agent`. See `android/AGENTS.md` and `ios/AGENTS.md` for the native SDKs.
 
-The JavaScript SDKs use the root pnpm workspace: `node` uses `bindings/node`,
-`browser` uses `bindings/wasm`, and `agent` uses `node`. Published package names
+The JavaScript SDKs use the root pnpm workspace. Node and Browser use the
+generated Rust SDK product. Agent uses Node. During the cutover, `sdk-stage`
+reads each source build script and keeps an unchanged sibling on its old binding. Published package names
 stay `@xmtp/node-sdk`, `@xmtp/browser-sdk`, and `@xmtp/agent-sdk`.
 
 ## Commands
 
 ```bash
 just install-js                        # install the root pnpm workspace once
-just js bindings                        # build node + wasm bindings via Nix, stage into bindings/*/dist
-just js bindings-node                    # build only Node bindings via Nix
+just js sdk-products                       # stage each SDK product selected by its manifest
+just js build-node-sdk                  # stage the generated Node product
 just js check-node                       # typecheck Node and agent SDKs
 just js check-notification-surface       # published Node types; Browser/WASM absence
-just js lint-node                        # lint Node bindings, Node, and agent SDKs
+just js lint-node                      # lint Node and agent SDKs
 just js build-node                       # build Node and agent SDKs
 just js check                           # typecheck all
 just js build
@@ -25,7 +26,7 @@ just js test                            # needs `just backend up`
 
 ## Shared SDK rules
 
-- Require `backendUrl` for client creation. Do not select a URL from `env`.
+- Require an explicit `backend` for client creation. Do not select a URL from `env`.
 - Use `env` only as the label in the default database file name.
 - Keep the API-client cache key as `<backendUrl>|<appVersion>`.
 - Keep file archive export and import tests.
@@ -34,7 +35,12 @@ Native streams stay open during retryable network faults and resume in order.
 
 ## Task graph
 
-SDK recipes stage the Node or WASM bindings before package tasks. Do not use
+SDK recipes stage the selected SDK products before package tasks. The public
+product is `target/sdk-packages/<target>`. Local imports use a full copy in
+`sdks/<target>/dist`, with the pinned runtime assets. Source package builds run
+`dev/nix-shell 'just sdk generate <target>'` before staging. An explicit
+`XMTP_SDK_GENERATED_DIR` reuses that input and keeps the strict staging checks.
+Do not use
 `--parallel` or `--no-sort`; they can bypass task dependencies. See the
 `writing-typescript` skill for the root pnpm workspace and formatting.
 

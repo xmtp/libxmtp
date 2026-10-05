@@ -1,42 +1,42 @@
 import { Args, Flags } from "@oclif/core";
-import {
-  MetadataField,
+import type {
+  MetadataFieldKind,
   PermissionPolicy,
-  PermissionUpdateType,
+  PermissionUpdateKind,
 } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import { requireGroup } from "@/utils/conversation";
 
 const PERMISSION_UPDATE_TYPES = {
-  "add-member": PermissionUpdateType.AddMember,
-  "remove-member": PermissionUpdateType.RemoveMember,
-  "add-admin": PermissionUpdateType.AddAdmin,
-  "remove-admin": PermissionUpdateType.RemoveAdmin,
-  "update-metadata": PermissionUpdateType.UpdateMetadata,
+  "add-member": "addMember",
+  "remove-member": "removeMember",
+  "add-admin": "addAdmin",
+  "remove-admin": "removeAdmin",
+  "update-metadata": "updateMetadata",
 } as const;
 
 const PERMISSION_POLICIES = {
-  allow: PermissionPolicy.Allow,
-  deny: PermissionPolicy.Deny,
-  admin: PermissionPolicy.Admin,
-  "super-admin": PermissionPolicy.SuperAdmin,
+  allow: "allow",
+  deny: "deny",
+  admin: "admin",
+  "super-admin": "superAdmin",
 } as const;
 
 const METADATA_FIELDS = {
-  "app-data": MetadataField.AppData,
-  "group-description": MetadataField.Description,
-  "group-name": MetadataField.GroupName,
-  "group-image-url": MetadataField.GroupImageUrlSquare,
+  "app-data": "appData",
+  "group-description": "description",
+  "group-name": "name",
+  "group-image-url": "imageUrl",
 } as const;
 
-type PermissionUpdateTypeKey = keyof typeof PERMISSION_UPDATE_TYPES;
+type PermissionUpdateKindKey = keyof typeof PERMISSION_UPDATE_TYPES;
 type PermissionPolicyKey = keyof typeof PERMISSION_POLICIES;
-type MetadataFieldKey = keyof typeof METADATA_FIELDS;
+type MetadataFieldKindKey = keyof typeof METADATA_FIELDS;
 
-function isPermissionUpdateTypeKey(
+function isPermissionUpdateKindKey(
   value: string,
-): value is PermissionUpdateTypeKey {
+): value is PermissionUpdateKindKey {
   return value in PERMISSION_UPDATE_TYPES;
 }
 
@@ -44,12 +44,12 @@ function isPermissionPolicyKey(value: string): value is PermissionPolicyKey {
   return value in PERMISSION_POLICIES;
 }
 
-function isMetadataFieldKey(value: string): value is MetadataFieldKey {
+function isMetadataFieldKindKey(value: string): value is MetadataFieldKindKey {
   return value in METADATA_FIELDS;
 }
 
-function parsePermissionUpdateType(value: string): PermissionUpdateType {
-  if (!isPermissionUpdateTypeKey(value)) {
+function parsePermissionUpdateKind(value: string): PermissionUpdateKind {
+  if (!isPermissionUpdateKindKey(value)) {
     const validTypes = Object.keys(PERMISSION_UPDATE_TYPES).join(", ");
     throw new Error(
       `Invalid permission type: ${value}. Valid types: ${validTypes}`,
@@ -68,8 +68,8 @@ function parsePermissionPolicy(value: string): PermissionPolicy {
   return PERMISSION_POLICIES[value];
 }
 
-function parseMetadataField(value: string): MetadataField {
-  if (!isMetadataFieldKey(value)) {
+function parseMetadataFieldKind(value: string): MetadataFieldKind {
+  if (!isMetadataFieldKindKey(value)) {
     const validFields = Object.keys(METADATA_FIELDS).join(", ");
     throw new Error(
       `Invalid metadata field: ${value}. Valid fields: ${validFields}`,
@@ -156,9 +156,7 @@ Requires super admin permissions to update permission policies.`;
     const { args, flags } = await this.parse(ConversationUpdatePermission);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
@@ -166,13 +164,13 @@ Requires super admin permissions to update permission policies.`;
 
     const group = requireGroup(conversation);
 
-    const permissionType = parsePermissionUpdateType(flags.type);
+    const permissionType = parsePermissionUpdateKind(flags.type);
     const policy = parsePermissionPolicy(flags.policy);
 
-    let metadataField: MetadataField | undefined;
+    let metadataField: MetadataFieldKind | undefined;
     if (flags["metadata-field"]) {
-      metadataField = parseMetadataField(flags["metadata-field"]);
-    } else if (permissionType === PermissionUpdateType.UpdateMetadata) {
+      metadataField = parseMetadataFieldKind(flags["metadata-field"]);
+    } else if (permissionType === "updateMetadata") {
       this.error("--metadata-field is required when type is update-metadata");
     }
 

@@ -1,0 +1,30 @@
+#!/bin/bash
+# Stage a public generated SDK and copy its complete product for local imports.
+source "$(dirname "$0")/.setup"
+
+target="${1:-}"
+case "$target" in
+  node|browser) ;;
+  *) echo "usage: $0 node|browser" >&2; exit 2 ;;
+esac
+
+cd "$ROOT"
+# Normal source callers build matched inputs before staging. Explicit generated
+# inputs are checked by the stager and keep the build/render reuse path.
+if [[ -z "${XMTP_SDK_GENERATED_DIR:-}" ]]; then
+  NIX_DEVSHELL=default "$ROOT/dev/nix-shell" "just sdk generate $target"
+fi
+node crates/xmtp_sdk/dev/stage-package.mjs "$target" --public
+
+product="${XMTP_SDK_PACKAGES_DIR:-${ROOT}/target/sdk-packages}/${target}"
+destination="${ROOT}/sdks/${target}/dist"
+temporary="$(mktemp -d "${ROOT}/sdks/${target}/.sdk-dist-XXXXXX")"
+trap 'rm -rf "$temporary"' EXIT
+cp -RL "$product/." "$temporary/"
+chmod -R u+w "$temporary"
+if [[ -e "$destination" ]]; then
+  chmod -R u+w "$destination"
+  rm -rf "$destination"
+fi
+mv "$temporary" "$destination"
+echo "SDK local imports staged: $destination"

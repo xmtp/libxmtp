@@ -1,9 +1,9 @@
 # XMTP Node SDK
 
 ```bash
-just js test-node-sdk-ci
-just js test-node-sdk-ci test/createBackend.test.ts # one file
-just js test-node-sdk-ci -t create # tests with matching titles
+dev/nix-shell 'just js test-node-sdk-ci'
+dev/nix-shell 'just js test-node-sdk-ci test/Client.test.ts' # One file.
+dev/nix-shell 'just js test-node-sdk-ci -t create' # Matching titles.
 ```
 
 `streamRecovery.test.ts` owns its TCP proxies. To test actual graceful backend
@@ -40,9 +40,9 @@ becomes terminal, or how an app opens a replacement stream:
   `crates/xmtp_mls/src/subscriptions/message_reader.rs`, `incoming.rs`,
   `incoming/controller*`, or `local_delivery/`.
 - The `NetworkRecoveryExhausted` error, its message, or its mapping in
-  `crates/xmtp_sdk/src/delivery/` or `bindings/node`.
-- `onError`, iterator rejection, or `end()` in `sdks/node/src/MessageStream.ts`
-  or `sdks/node/src/utils/streams.ts`.
+  `crates/xmtp_sdk/src/delivery/`.
+- `onClose`, iterator rejection, or `end()` in the generated host reader
+  stream under `crates/xmtp_sdk`.
 - Delivery lease or cursor ownership between a failed stream and its
   replacement.
 
@@ -58,20 +58,31 @@ same client, including from `onError` or an iterator's error handler. The old
 stream stays ended. A replacement resumes saved progress and gets its own
 network budget. Do not add automatic reader replacement in the SDK wrapper.
 
-The notification wrapper has a separate finite fallback for an unexpected
-native close. That retry count lasts for the JS stream. Only a new JS stream
-resets it. A successful native reopen does not reset the fallback count.
-Durable message streams do not use that fallback or the legacy retry options.
-Node notification streams open without a separate pre-sync. Call an explicit
-`sync()` method if the app needs a current snapshot before it listens.
+The generated reader has no automatic host replacement. Use
+`ConversationStream.open` or `MessageStream.open` for an explicit replacement.
+Call `ready()` before the test causes a fault. The `onClose` callback carries
+one `closed` or `failed` result. Notification streams open without a separate
+pre-sync. Call `sync()` if the app needs a current state before it listens.
 
 The public recovery matrix checks exact reply IDs, message order, membership,
 epoch, and processed cursors. It does not expose or compare MLS authenticators.
 Core tests and the chaos inspector cover that separate check. Keep the real
 90-second wire-silence bound when setting blackhole test deadlines.
 
-Pure notification fallback tests need no backend or native addon:
+## Package build
 
-```bash
-NIX_DEVSHELL=js-node dev/nix-shell 'pnpm --filter @xmtp/node-sdk exec vitest run test/streams.test.ts test/streamRetryBudget.test.ts --retry=0'
-```
+`dev/nix-shell 'just sdk generate node'` creates the shared public source.
+`dev/nix-shell 'pnpm --filter @xmtp/node-sdk build'` stages the Node package
+and copies it to `sdks/node/dist` for workspace imports. The source package
+contains no handwritten SDK facade. Publish `target/sdk-packages/node` from
+the complete supported-platform build. Do not pack the workspace source shell.
+`dev/nix-shell 'pnpm --filter @xmtp/node-sdk dev'` stages the package and
+repeats the stage when SDK source changes. Stop it with Ctrl-C.
+
+Node and agent version 8 require ESM and Node 22.12 or later. End a client with
+`await client.end()` before removing its storage.
+
+`dev/nix-shell 'pnpm --filter @xmtp/node-sdk typecheck'` checks the runtime
+test sources and the three public type fixtures under `type-tests/`. Keep the
+fixtures in this command when public stream, notification, or configuration
+types change.

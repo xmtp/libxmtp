@@ -1,5 +1,5 @@
-import { Group } from "@xmtp/node-sdk";
-import { describe, expect, it } from "vitest";
+import { Group, type Message } from "@xmtp/node-sdk";
+import { assertType, describe, expect, it } from "vitest";
 
 import { filter } from "@/core/filter";
 import {
@@ -91,7 +91,7 @@ describe("Filters", () => {
     });
   });
 
-  describe("isGroupAdmin", () => {
+  describe("isGroupAdminAsync", () => {
     it("should return true when sender is a group admin", async () => {
       const client = await createClient();
       const otherClient = await createClient();
@@ -110,7 +110,7 @@ describe("Filters", () => {
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[2]!;
-      const result = filter.isGroupAdmin(group, message);
+      const result = await filter.isGroupAdminAsync(group, message);
       expect(result).toBe(true);
     });
 
@@ -126,7 +126,7 @@ describe("Filters", () => {
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[0]!;
-      const result = filter.isGroupAdmin(group, message);
+      const result = await filter.isGroupAdminAsync(group, message);
       expect(result).toBe(false);
     });
 
@@ -136,19 +136,19 @@ describe("Filters", () => {
       const dm = await client.conversations.createDm(otherClient.inboxId);
       const messages = await dm.messages();
       const message = messages[0]!;
-      const result = filter.isGroupAdmin(dm, message);
+      const result = await filter.isGroupAdminAsync(dm, message);
       expect(result).toBe(false);
     });
   });
 
-  describe("isGroupSuperAdmin", () => {
+  describe("isGroupSuperAdminAsync", () => {
     it("should return true when sender is a group super admin", async () => {
       const client = await createClient();
       const group = await client.conversations.createGroup([]);
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[0]!;
-      const result = filter.isGroupSuperAdmin(group, message);
+      const result = await filter.isGroupSuperAdminAsync(group, message);
       expect(result).toBe(true);
     });
 
@@ -157,11 +157,11 @@ describe("Filters", () => {
       const otherClient = await createClient();
       await client.conversations.createGroup([otherClient.inboxId]);
       await otherClient.conversations.sync();
-      const group = otherClient.conversations.listGroups()[0]!;
+      const group = (await otherClient.conversations.listGroups({}))[0]!;
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[1]!;
-      const result = filter.isGroupSuperAdmin(group, message);
+      const result = await filter.isGroupSuperAdminAsync(group, message);
       expect(result).toBe(false);
     });
 
@@ -171,7 +171,7 @@ describe("Filters", () => {
       const dm = await client.conversations.createDm(otherClient.inboxId);
       const messages = await dm.messages();
       const message = messages[0]!;
-      const result = filter.isGroupSuperAdmin(dm, message);
+      const result = await filter.isGroupSuperAdminAsync(dm, message);
       expect(result).toBe(false);
     });
 
@@ -181,11 +181,11 @@ describe("Filters", () => {
       const g = await client.conversations.createGroup([otherClient.inboxId]);
       await g.addAdmin(otherClient.inboxId);
       await otherClient.conversations.sync();
-      const group = otherClient.conversations.listGroups()[0]!;
+      const group = (await otherClient.conversations.listGroups({}))[0]!;
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[2]!;
-      const result = filter.isGroupSuperAdmin(group, message);
+      const result = await filter.isGroupSuperAdminAsync(group, message);
       expect(result).toBe(false);
     });
   });
@@ -198,10 +198,10 @@ describe("Filters", () => {
       });
       const group = await client.conversations.createGroup([]);
       const messageId = await group.send(testCodec.encode({ test: "test" }));
-      const message = client.conversations.getMessageById(messageId)!;
+      const message = (await client.conversations.getMessageById(messageId))!;
       const result = filter.usesCodec(message, TestCodec);
       if (result) {
-        assertType<Record<string, string>>(message.content);
+        assertType<Record<string, string>>(message.content.value!);
       }
       expect(result).toBe(true);
     });
@@ -210,9 +210,17 @@ describe("Filters", () => {
       const client = await createClient();
       const group = await client.conversations.createGroup([]);
       const messageId = await group.sendText("Hello world");
-      const message = client.conversations.getMessageById(messageId)!;
+      const message = (await client.conversations.getMessageById(messageId))!;
       const result = filter.usesCodec(message, TestCodec);
       expect(result).toBe(false);
+    });
+
+    it("does not narrow custom content when its codec failed", () => {
+      const message = {
+        contentType: new TestCodec().type,
+        content: { kind: "custom", error: { code: "CodecDecodeFailed" } },
+      } as unknown as Message;
+      expect(filter.usesCodec(message, TestCodec)).toBe(false);
     });
   });
 });

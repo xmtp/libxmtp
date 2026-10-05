@@ -406,25 +406,29 @@ Pass the key value through the client auth callback. Add `Bearer` and one space
 before the key value. The middleware does not add this prefix. The header name defaults to
 `authorization` when `name` is omitted.
 
-This JavaScript example uses the Node bindings:
+This JavaScript example uses the public Node SDK:
 
 ```javascript
-import { AuthCallback, BackendBuilder } from "@xmtp/node-bindings";
+import { Backend } from "@xmtp/node-sdk";
 
-const builder = new BackendBuilder("https://backend.example.com");
-builder.authCallback(
-  new AuthCallback(async () => ({
-    value: "Bearer <key>",
-    expiresAtSeconds: 4102444800,
-  })),
-);
-const backend = await builder.build();
+const backend = await Backend.connect({
+  url: "https://backend.example.com",
+  credentials: {
+    async credential() {
+      return {
+        value: "Bearer <key>",
+        expiresAtSeconds: 4102444800n,
+      };
+    },
+  },
+});
 ```
 
 Replace `<key>` with your secret value. The example expiry is January 1, 2100.
-This expiry controls the client credential cache, not the lifetime of the server key.
-The high-level SDKs accept `authCallback` in JavaScript network options and
-Swift or Kotlin `ClientOptions.Api`. See
+The expiry must be a signed 64-bit `bigint`. It controls the client credential
+cache, not the lifetime of the server key. Pass this `backend` to
+`Client.create(signer, { backend, storage: { location: "default" } })`.
+Swift and Kotlin use `BackendOptions` and a `CredentialSource` callback. See
 [Backend authentication](/sdk/client/#backend-authentication) for examples.
 
 Never log key values. To rotate a key, add the new key under a new name and restart

@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/agent-sdk",
-  "version": "2.3.0",
+  "version": "8.0.0",
   "description": "XMTP Agent SDK for interacting with XMTP networks",
   "keywords": [
     "agents",
@@ -75,7 +75,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@xmtp/content-type-primitives": "catalog:",
     "@xmtp/node-sdk": "workspace:*",
     "viem": "catalog:"
   },

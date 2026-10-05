@@ -1,6 +1,6 @@
 # XMTP Agent SDK
 
-Build event‑driven, middleware‑powered messaging agents on the XMTP network. 🚀
+Build messaging agents on the XMTP network.
 
 ## Documentation
 
@@ -25,33 +25,48 @@ yarn add @xmtp/agent-sdk
 ```ts
 import { Agent, createUser, createSigner, getTestUrl } from "@xmtp/agent-sdk";
 
-// 1. Create a local user + signer (you can plug in your own wallet signer)
+// Create a local signer.
 const user = createUser();
 const signer = createSigner(user);
 
-// 2. Spin up the agent
+// Create the agent.
 const agent = await Agent.create(signer, {
-  backendUrl: "http://127.0.0.1:5050",
-  env: "local", // Database file label.
-  dbPath: null, // in-memory store; provide a path to persist
+  backend: { url: "http://127.0.0.1:5050" },
+  storage: { location: "inMemory", label: "local" },
 });
 
-// 3. Respond to text messages
+// Respond to text messages.
 agent.on("text", async (ctx) => {
-  await ctx.sendText("Hello from my XMTP Agent! 👋");
+  await ctx.conversation.sendText("Hello from my XMTP Agent!", {
+    shouldPush: false,
+  });
 });
 
-// 4. Log when we're ready
+// Log when the stream pumps are ready.
 agent.on("start", (ctx) => {
-  console.log(`We are online: ${getTestUrl(ctx.client)}`);
+  console.log(`Streams ready: ${getTestUrl(ctx.client)}`);
 });
 
 await agent.start();
 ```
 
+## Version 8 migration
+
+`MessageContext.message` is the native tagged SDK message.
+`MessageContext.content` is the decoded content used by middleware. A
+middleware content override changes `content` only. It preserves the native
+message, ID, type, timestamps and cursor. Check the message content kind before
+you use a typed value.
+
+`Agent.create` accepts the new Node `backend` and `storage` options. Device sync
+is disabled by default. Agent send, reply and reaction helpers keep push
+notifications disabled. Attachment helpers use `client.attachments` and retain
+application hosting when an upload callback is supplied.
+
 ## Environment Variables
 
-`Agent.create` requires `backendUrl`. `env` only sets the default database file label.
+`Agent.create` takes `backend` and `storage`. `storage.label` sets the database file label.
+Node.js 22.12 or later and ESM imports are required.
 Native streams stay open during retryable network faults within a finite recovery
 budget. Exhaustion or a storage failure ends the current streams and reports an
 error. The caller can call `start()` again on the same client for a fresh budget.
@@ -83,6 +98,11 @@ process.loadEnvFile(".env");
 const agent = await Agent.createFromEnv();
 ```
 
+With `XMTP_DB_DIRECTORY`, a new database uses the current data directory layout.
+If the directory contains one legacy `xmtp-<inbox-id>.db3` file, the Agent opens that file in place.
+Without `XMTP_DB_DIRECTORY`, the Agent also checks the working directory for a legacy `xmtp-<env>-<inbox-id>.db3` file. Set `XMTP_ENV` to select its environment label.
+If several legacy files match, pass an explicit `storage.location` with `dbPath` and `attachmentsDir` so the Agent opens the intended file.
+
 Agents can also recognize the following environment variables:
 
 | Variable                 | Purpose                                                                                            | Example                        |
@@ -94,6 +114,8 @@ Agents can also recognize the following environment variables:
 ### 1. Event‑Driven Architecture
 
 Subscribe only to what you need using Node’s `EventEmitter` interface. Events you can listen for:
+
+For message and conversation events, the agent waits for all invoked listeners to finish before it accepts a stream value. A synchronous throw stops later listeners for the same event, as with Node’s `EventEmitter`. Error middleware receives the failure, or an `AggregateError` if multiple invoked listeners fail. Calling `next()` in error middleware accepts the handled failure; it does not invoke listeners skipped by a synchronous throw.
 
 #### Message Events
 
@@ -130,15 +152,15 @@ Example:
 ```ts
 // Listen to specific message types
 agent.on("text", async (ctx) => {
-  console.log(`Text message: ${ctx.message.content}`);
+  console.log(`Text message: ${ctx.content}`);
 });
 
 agent.on("reaction", async (ctx) => {
-  console.log(`Reaction: ${ctx.message.content}`);
+  console.log(`Reaction: ${ctx.content}`);
 });
 
 agent.on("reply", async (ctx) => {
-  console.log(`Reply to: ${ctx.message.content.reference}`);
+  console.log(`Reply to: ${ctx.content.reference}`);
 });
 
 // Listen to new conversations
@@ -170,7 +192,7 @@ import { filter } from "@xmtp/agent-sdk";
 agent.on("message", async (ctx) => {
   // Filter for specific message types
   if (filter.isText(ctx.message)) {
-    await ctx.conversation.send(`Echo: ${ctx.message.content}`);
+    await ctx.conversation.send(`Echo: ${ctx.content}`);
   }
 });
 ```
@@ -215,7 +237,7 @@ Error middleware receives the `error`, `ctx`, and a `next` function. Just like r
 
 1. Use `next()` to mark the error as handled and continue with the main middleware chain
 2. Use `next(error)` to forward the original (or transformed) error to the next error handler
-3. Use `return` to end error handling and stop the middleware chain
+3. Use `return` to end error handling and stop the current reader. A failed message remains eligible for a later stream.
 4. Use `throw` to raise a new error to be caught by the error chain
 
 Example:
@@ -271,7 +293,7 @@ const router = new CommandRouter()
     await ctx.conversation.send("Hi there! 👋");
   })
   .default(async (ctx) => {
-    await ctx.conversation.send(`Unknown command: ${ctx.message.content}`);
+    await ctx.conversation.send(`Unknown command: ${ctx.content}`);
   });
 
 agent.use(router.middleware());
@@ -404,7 +426,7 @@ Example:
 import { type AttachmentUploadCallback } from "@xmtp/agent-sdk";
 
 agent.on("text", async (ctx) => {
-  if (ctx.message.content === "/send-file") {
+  if (ctx.content === "/send-file") {
     // Create a File object (in Node.js, you can use the File class from buffer or file-system)
     const file = new File(["Hello, World!"], "hello.txt", {
       type: "text/plain",
@@ -447,8 +469,8 @@ import { downloadRemoteAttachment } from "@xmtp/agent-sdk";
 
 agent.on("attachment", async (ctx) => {
   const receivedAttachment = await downloadRemoteAttachment(
-    ctx.message.content,
-    agent,
+    ctx.client,
+    ctx.content,
   );
   console.log(`Received attachment: ${receivedAttachment.filename}`);
 });

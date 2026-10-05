@@ -19,7 +19,9 @@ function throwing(step: string): never {
 }
 
 // A codec whose steps are replaced per case.
-function noteCodec(steps: Partial<sdk.ContentCodec<Note>> = {}): sdk.ContentCodec<Note> {
+function noteCodec(
+  steps: Partial<sdk.ContentCodec<Note>> = {},
+): sdk.ContentCodec<Note> {
   return {
     type: noteType,
     encode: (value) => ({
@@ -65,7 +67,10 @@ async function replyHooks(
     }),
     { text: "filled" },
   );
-  assert.equal((await nestedEnvelope(group, filled)).fallback, "a note: filled");
+  assert.equal(
+    (await nestedEnvelope(group, filled)).fallback,
+    "a note: filled",
+  );
 
   // An envelope with a fallback keeps it; the hook is not called.
   const kept = await parent.reply(
@@ -97,12 +102,14 @@ async function replyHooks(
     }
   }
   const labelled = await parent.reply(new LabelledNotes(), { text: "note" });
-  assert.equal((await nestedEnvelope(group, labelled)).fallback, "labelled note");
+  assert.equal(
+    (await nestedEnvelope(group, labelled)).fallback,
+    "labelled note",
+  );
 
   // No hook: no fallback.
   const plain = await parent.reply(noteCodec(), { text: "plain" });
   assert.equal((await nestedEnvelope(group, plain)).fallback, undefined);
-
 }
 
 // A failed or invalid step fails the reply before any publish attempt.
@@ -126,14 +133,18 @@ async function replyFailures(
       "async encode",
       noteCodec({
         encode: (() =>
-          Promise.reject(new Error("async encode"))) as unknown as () => sdk.EncodedContent,
+          Promise.reject(
+            new Error("async encode"),
+          )) as unknown as () => sdk.EncodedContent,
       }),
     ],
     [
       "async fallback",
       noteCodec({
         fallback: (() =>
-          Promise.reject(new Error("async fallback"))) as unknown as () => string,
+          Promise.reject(
+            new Error("async fallback"),
+          )) as unknown as () => string,
       }),
     ],
     [
@@ -193,7 +204,11 @@ async function replyFailures(
   );
   // A rejected async step is handled, not left to end the process.
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.deepEqual(unhandled, [], "an async codec step rejection was unhandled");
+  assert.deepEqual(
+    unhandled,
+    [],
+    "an async codec step rejection was unhandled",
+  );
   process.off("unhandledRejection", recordUnhandled);
 }
 
@@ -228,7 +243,11 @@ async function sendHooks(
   // compression option reaches the send, and the Rust
   // message_actions_use_ids_and_compression_is_opt_in test checks the stored
   // envelope.
-  const gzipId = await group.send(codec, { text: "gzip" }, { compression: "gzip" });
+  const gzipId = await group.send(
+    codec,
+    { text: "gzip" },
+    { compression: "gzip" },
+  );
 
   // prepareMessage takes the same codec form and stores an unpublished item.
   const preparedId = await group.prepareMessage(codec, { text: "prepared" });
@@ -239,13 +258,15 @@ async function sendHooks(
   await receiver.conversations.syncAll(undefined);
   const received = await receiver.conversations.getMessageById(sentId);
   assert.ok(received, "the receiver did not get the typed send");
-  assert.ok(received.content.kind === "unknown", "missing codec is not unknown");
+  assert.ok(
+    received.content.kind === "unknown",
+    "missing codec is not unknown",
+  );
   assert.equal(received.content.encoded.fallback, "a note: typed send");
   const gzip = await receiver.conversations.getMessageById(gzipId);
   assert.ok(gzip?.content.kind === "unknown", "the gzip send did not arrive");
   assert.equal(new TextDecoder().decode(gzip.content.encoded.content), "gzip");
   assert.equal(gzip.content.encoded.fallback, "a note: gzip");
-
 }
 
 // A failed codec step makes no send attempt, on send and prepareMessage.
@@ -289,4 +310,41 @@ export async function codecPolicyFailureNeverPublishes(
 ): Promise<void> {
   await replyFailures(group, parent);
   await sendFailures(group);
+  await standardSubclassHooks(group);
+}
+
+// Standard subclasses retain custom hooks. The send path encodes only once.
+async function standardSubclassHooks(group: sdk.Group): Promise<void> {
+  class TextWithFallback extends sdk.TextCodec {
+    encodes = 0;
+    override encode(value: string): sdk.EncodedContent {
+      this.encodes++;
+      return { ...super.encode(value), fallback: undefined };
+    }
+    override fallback(value: string): string {
+      return `custom text: ${value}`;
+    }
+  }
+  const custom = new TextWithFallback();
+  const id = await group.send(custom, "subclass", { shouldPush: false });
+  assert.equal(custom.encodes, 1, "standard subclass encoded more than once");
+  assert.equal((await stored(group, id)).fallback, "custom text: subclass");
+
+  class BrokenFallback extends TextWithFallback {
+    override fallback(): string {
+      throw new Error("private fallback error");
+    }
+  }
+  const before = (await group.messages()).length;
+  const broken = new BrokenFallback();
+  await assert.rejects(
+    group.send(broken, "rejected", { shouldPush: false }),
+    isCodecEncodeFailed,
+  );
+  assert.equal(broken.encodes, 1, "throwing subclass encoded more than once");
+  assert.equal(
+    (await group.messages()).length,
+    before,
+    "throwing fallback published a message",
+  );
 }

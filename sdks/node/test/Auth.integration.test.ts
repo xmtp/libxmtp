@@ -1,22 +1,27 @@
 import { createSigner } from "@test/helpers";
+import { createRegisteredClient, clientOptions } from "@test/helpers";
+import { Backend, Client, XmtpError } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
-
-import { Client } from "@/Client";
-import { createBackend } from "@/utils/createBackend";
 
 describe("Node backend authentication", () => {
   it("keeps credential sources separate for the same endpoint", async () => {
     const { signer } = createSigner();
-    const identifier = await signer.getIdentifier();
+    const identifier = await signer.identity();
     const credential = {
       value: "Bearer sdk-auth-test-key-00000000000000000000",
-      expiresAtSeconds: Math.floor(Date.now() / 1000) + 3600,
+      expiresAtSeconds: BigInt(Math.floor(Date.now() / 1000) + 3600),
     };
     const first = vi.fn(async () => credential);
     const second = vi.fn(async () => credential);
     const backendUrl = process.env.XMTP_BACKEND_URL!;
-    const a = await createBackend({ backendUrl, authCallback: first });
-    const b = await createBackend({ backendUrl, authCallback: second });
+    const a = await Backend.connect({
+      url: backendUrl,
+      credentials: { credential: first },
+    });
+    const b = await Backend.connect({
+      url: backendUrl,
+      credentials: { credential: second },
+    });
     await Client.canMessage([identifier], a);
     expect(first).toHaveBeenCalledOnce();
     expect(second).not.toHaveBeenCalled();
@@ -26,45 +31,63 @@ describe("Node backend authentication", () => {
   });
   it("uses the callback during client creation and identity reads", async () => {
     const { signer } = createSigner();
-    const identifier = await signer.getIdentifier();
+    const identifier = await signer.identity();
     const authCallback = vi.fn(async () => ({
       value: "Bearer sdk-auth-test-key-00000000000000000000",
-      expiresAtSeconds: Math.floor(Date.now() / 1000) + 3600,
+      expiresAtSeconds: BigInt(Math.floor(Date.now() / 1000) + 3600),
     }));
     await Client.fetchServerConfiguration({
-      backendUrl: process.env.XMTP_BACKEND_URL!,
-      authCallback,
+      url: process.env.XMTP_BACKEND_URL!,
+      credentials: { credential: authCallback },
     });
     expect(authCallback).not.toHaveBeenCalled();
-    const client = await Client.build(identifier, {
-      backendUrl: process.env.XMTP_BACKEND_URL!,
-      dbPath: null,
-      disableDeviceSync: true,
-      authCallback,
+    const options = clientOptions({
+      backend: {
+        url: process.env.XMTP_BACKEND_URL!,
+        credentials: { credential: authCallback },
+      },
     });
+    const stored = await createRegisteredClient(signer, options);
+    await stored.end();
+    const client = await Client.build(identifier, options);
     try {
       expect(authCallback).toHaveBeenCalled();
       await expect(client.canMessage([identifier])).resolves.toBeInstanceOf(
         Map,
       );
     } finally {
-      await client.close();
+      await client.end();
     }
   });
 
   it("sanitizes callback failures through native bindings", async () => {
     const { signer } = createSigner();
-    const identifier = await signer.getIdentifier();
     const authCallback = vi.fn(() =>
       Promise.reject(new Error("private refresh response")),
     );
-    await expect(
-      Client.build(identifier, {
-        backendUrl: process.env.XMTP_BACKEND_URL!,
-        dbPath: null,
-        authCallback,
-      }),
-    ).rejects.not.toThrow("private refresh response");
+    let failure: unknown;
+    try {
+      await Client.create(
+        signer,
+        clientOptions({
+          backend: {
+            url: process.env.XMTP_BACKEND_URL!,
+            credentials: { credential: authCallback },
+          },
+        }),
+      );
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(XmtpError.CredentialCallbackFailed);
+    expect(failure).toMatchObject({
+      details: {
+        code: "CredentialCallbackFailed",
+        category: "callback",
+        retryable: true,
+      },
+    });
+    expect(String(failure)).not.toContain("private refresh response");
     expect(authCallback).toHaveBeenCalled();
   });
 
@@ -72,19 +95,60 @@ describe("Node backend authentication", () => {
     skip,
   }) => {
     const backendUrl = process.env.XMTP_BACKEND_URL!;
-    const configuration = await Client.fetchServerConfiguration(backendUrl);
+    const configuration = await Client.fetchServerConfiguration({
+      url: backendUrl,
+    });
     if (!configuration.auth.enabled) skip();
     const { signer } = createSigner();
-    const identifier = await signer.getIdentifier();
+    const identifier = await signer.identity();
     let calls = 0;
     const authCallback = vi.fn(async () => ({
       value:
         ++calls === 1
           ? "Bearer wrong-sdk-auth-key-00000000000000000000"
           : "Bearer sdk-auth-test-key-00000000000000000000",
-      expiresAtSeconds: Math.floor(Date.now() / 1000) + 3600,
+      expiresAtSeconds: BigInt(Math.floor(Date.now() / 1000) + 3600),
     }));
-    await Client.canMessage([identifier], { backendUrl, authCallback });
+    await Client.canMessage([identifier], {
+      url: backendUrl,
+      credentials: { credential: authCallback },
+    });
     expect(authCallback).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a permanently rejected credential with a public error kind", async ({
+    skip,
+  }) => {
+    const backendUrl = process.env.XMTP_BACKEND_URL!;
+    const configuration = await Client.fetchServerConfiguration({
+      url: backendUrl,
+    });
+    if (!configuration.auth.enabled) skip();
+    const { signer } = createSigner();
+    const identifier = await signer.identity();
+    const authCallback = vi.fn(async () => ({
+      value: "Bearer wrong-sdk-auth-key-00000000000000000000",
+      expiresAtSeconds: BigInt(Math.floor(Date.now() / 1000) + 3600),
+    }));
+    let failure: unknown;
+    try {
+      await Client.canMessage([identifier], {
+        url: backendUrl,
+        credentials: { credential: authCallback },
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(XmtpError.CredentialRejected);
+    expect(failure).toMatchObject({
+      details: {
+        code: "CredentialRejected",
+        category: "callback",
+        retryable: true,
+        message: "credential rejected",
+      },
+    });
+    expect(String(failure)).not.toContain("wrong-sdk-auth-key");
+    expect(authCallback).toHaveBeenCalled();
   });
 });

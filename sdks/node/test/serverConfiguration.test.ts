@@ -1,34 +1,24 @@
+import { createServer } from "node:net";
 import process from "node:process";
 
 import { createRegisteredClient, createSigner } from "@test/helpers";
+import { Client, XmtpError } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
-
-import { Client } from "@/Client";
-import {
-  AuthRequiredError,
-  BackendMismatchError,
-  ChainNotAcceptedError,
-  ClientVersionTooOldError,
-  ConfigurationInvalidError,
-  ConfigurationUnavailableError,
-  ServerConfigurationError,
-  toServerConfigurationError,
-} from "@/ServerConfiguration";
 
 const backendUrl = () => process.env.XMTP_BACKEND_URL!;
 
-/** Every `uint64` and `uint32` of spec 006 §5.2 is a JavaScript `number`. */
+/** Public integer fields retain their generated width. */
 const expectCount = (value: unknown) => {
-  expect(typeof value).toBe("number");
-  expect(Number.isInteger(value)).toBe(true);
-  expect(value as number).toBeGreaterThanOrEqual(0);
+  expect(["number", "bigint"]).toContain(typeof value);
+  if (typeof value === "number") expect(Number.isInteger(value)).toBe(true);
+  expect(value).toBeGreaterThanOrEqual(0);
 };
 
 describe("server configuration", () => {
   it("should read every field of the snapshot the client built with", async () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);
-    const configuration = client.serverConfiguration();
+    const configuration = client.serverConfiguration;
 
     // Top level.
     expect(typeof configuration.identifier).toBe("string");
@@ -113,11 +103,13 @@ describe("server configuration", () => {
     expect(mls.maxInstallationsPerInbox).toBeGreaterThan(0);
     expect(["boolean", "undefined"]).toContain(typeof mls.commitLogEnabled);
 
-    await client.close();
+    await client.end();
   });
 
   it("should fetch the configuration with no client and no database", async () => {
-    const fetched = await Client.fetchServerConfiguration(backendUrl());
+    const fetched = await Client.fetchServerConfiguration({
+      url: backendUrl(),
+    });
 
     expect(fetched.identifier.length).toBeGreaterThan(0);
     expect(fetched.serverVersion.length).toBeGreaterThan(0);
@@ -128,7 +120,7 @@ describe("server configuration", () => {
 
     // Network options and a bare URL reach the same deployment.
     const viaOptions = await Client.fetchServerConfiguration({
-      backendUrl: backendUrl(),
+      url: backendUrl(),
       appVersion: "test/1.0.0",
     });
     expect(viaOptions).toEqual(fetched);
@@ -136,58 +128,74 @@ describe("server configuration", () => {
     // And it agrees with what a built client is holding.
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);
-    expect(client.serverConfiguration()).toEqual(fetched);
-    await client.close();
+    expect(client.serverConfiguration).toEqual(fetched);
+    await client.end();
   });
 
   it("should require a backend URL to fetch", async () => {
-    await expect(Client.fetchServerConfiguration("  ")).rejects.toThrow(
-      "backendUrl is required",
+    await expect(
+      Client.fetchServerConfiguration({ url: "  " }),
+    ).rejects.toThrow("relative URL without a base");
+  });
+
+  it("reports an unreachable backend as ConfigurationUnavailable", async () => {
+    const server = createServer();
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
     );
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("Expected a TCP port");
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    await expect(
+      Client.fetchServerConfiguration({
+        url: `http://127.0.0.1:${address.port}`,
+      }),
+    ).rejects.toMatchObject({
+      details: {
+        code: "ConfigurationUnavailable",
+        category: "configuration",
+        retryable: true,
+      },
+    });
   });
 
   it("should refresh without changing the snapshot the client holds", async () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);
-    const snapshot = client.serverConfiguration();
+    const snapshot = client.serverConfiguration;
 
     const refreshed = await client.refreshServerConfiguration();
     expect(refreshed).toEqual(snapshot);
     // The snapshot is read once at build and never replaced.
-    expect(client.serverConfiguration()).toEqual(snapshot);
+    expect(client.serverConfiguration).toEqual(snapshot);
 
-    await client.close();
+    await client.end();
   });
 
   // verifies: CONF-064
-  it("should surface each configuration failure as its own type", () => {
+  it("exposes each configuration failure as a distinct public type", () => {
     const cases = [
-      ["ClientError::ConfigurationUnavailable", ConfigurationUnavailableError],
-      ["ClientError::ConfigurationInvalid", ConfigurationInvalidError],
-      ["ClientError::BackendMismatch", BackendMismatchError],
-      ["ClientError::ClientVersionTooOld", ClientVersionTooOldError],
-      ["ClientError::AuthRequired", AuthRequiredError],
-      ["ClientError::ChainNotAccepted", ChainNotAcceptedError],
+      ["ConfigurationUnavailable", XmtpError.ConfigurationUnavailable],
+      ["ConfigurationInvalid", XmtpError.ConfigurationInvalid],
+      ["BackendMismatch", XmtpError.BackendMismatch],
+      ["ClientVersionTooOld", XmtpError.ClientVersionTooOld],
+      ["AuthRequired", XmtpError.AuthRequired],
+      ["ChainNotAccepted", XmtpError.ChainNotAccepted],
     ] as const;
-
-    for (const [code, type] of cases) {
-      const binding = new Error(`[${code}] something went wrong`);
-      const typed = toServerConfigurationError(binding);
-      expect(typed).toBeInstanceOf(type);
-      expect(typed).toBeInstanceOf(ServerConfigurationError);
-      expect(typed?.code).toBe(code);
-      expect(typed?.message).toBe("something went wrong");
-      expect(typed?.cause).toBe(binding);
-      // Each class is distinct: no other case matches it.
-      for (const [otherCode, otherType] of cases) {
-        if (otherCode !== code) expect(typed).not.toBeInstanceOf(otherType);
-      }
+    for (const [code, Type] of cases) {
+      const error = new Type({
+        code,
+        category: "configuration",
+        retryable: false,
+        message: "configuration failure",
+      });
+      expect(error).toBeInstanceOf(XmtpError);
+      expect(error.details.code).toBe(code);
+      for (const [otherCode, Other] of cases)
+        if (otherCode !== code) expect(error).not.toBeInstanceOf(Other);
     }
-
-    // Anything else is left alone.
-    expect(
-      toServerConfigurationError(new Error("[GroupError::Sync] nope")),
-    ).toBeUndefined();
-    expect(toServerConfigurationError("not an error")).toBeUndefined();
   });
 });

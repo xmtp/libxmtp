@@ -1,6 +1,6 @@
 import { stdout } from "node:process";
 
-import { IdentifierKind } from "@xmtp/node-sdk";
+import type { PublicIdentityKind } from "@xmtp/node-sdk";
 
 export function isTTY(): boolean {
   // isTTY can be undefined when stdout is not a TTY (e.g., piped output)
@@ -12,16 +12,20 @@ export function jsonStringify(data: unknown, pretty = false): string {
   return JSON.stringify(
     data,
     (_, value: unknown) =>
-      typeof value === "bigint" ? value.toString() : value,
+      typeof value === "bigint"
+        ? value.toString()
+        : value instanceof Map
+          ? Object.fromEntries(value as Map<string, unknown>)
+          : value,
     pretty ? 2 : undefined,
   );
 }
 
-export function formatIdentifierKind(kind: IdentifierKind): string {
+export function formatPublicIdentityKind(kind: PublicIdentityKind): string {
   switch (kind) {
-    case IdentifierKind.Ethereum:
+    case "ethereum":
       return "Ethereum";
-    case IdentifierKind.Passkey:
+    case "passkey":
       return "Passkey";
     default: {
       kind satisfies never;

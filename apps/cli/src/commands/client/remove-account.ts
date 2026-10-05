@@ -1,6 +1,7 @@
 import { Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
+import { createEOASigner } from "@/utils/client";
 import { identifierKindMap } from "@/utils/enums";
 
 export default class ClientRemoveAccount extends BaseCommand {
@@ -59,7 +60,7 @@ this client's inbox.`;
 
     // Build identifier before confirming so invalid input fails fast
     const identifier = {
-      identifierKind: identifierKindMap[flags.kind],
+      kind: identifierKindMap[flags.kind],
       identifier: flags.identifier.toLowerCase(),
     };
 
@@ -68,7 +69,10 @@ this client's inbox.`;
       flags.force,
     );
 
-    await client.removeAccount(identifier);
+    await client.removeAccount(
+      createEOASigner(this.getConfig().walletKey!),
+      identifier,
+    );
 
     this.output({
       success: true,

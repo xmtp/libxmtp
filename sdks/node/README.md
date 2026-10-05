@@ -10,28 +10,24 @@ To learn how to use the XMTP client SDK for Node, see [Get started with the XMTP
 
 ## Backend configuration
 
-Pass `backendUrl` to `Client.create` or `Client.build`. The URL must include
-`http://` or `https://`. There is no default backend URL.
+Pass a backend and a storage location to `Client.create` or `Client.build`.
+The backend URL must include `http://` or `https://`.
 
 ```typescript
 const client = await Client.create(signer, {
-  backendUrl: "http://127.0.0.1:5050",
-  env: "local",
-  appVersion: "my-app/1.0.0",
+  backend: { url: "http://127.0.0.1:5050", appVersion: "my-app/1.0.0" },
+  storage: { location: "default", label: "local" },
 });
 ```
 
-`env` is an optional string. It only sets the label in the default database file
-name, `xmtp-<env>-<inboxId>.db3`. If omitted, the label is `default`.
-The API-client cache key is `<backendUrl>|<appVersion>`.
-Use `createBackend({ backendUrl, env, appVersion })` to build a backend for static
-client methods. The `topic` getters return the backend topic bytes as hex.
-File archives use `createArchive`, `importArchive`, and `archiveMetadata`.
+Messages have tagged content. For a text message, read `message.content.value`
+after checking `message.content.kind === "text"`. Custom codecs implement
+`ContentCodec<T>` and expose their `ContentTypeId` in the `type` field.
 
 ## Requirements
 
-- Node.js 20+
-- `glibc` 3.28+ (i.e. Ubuntu 24.04 or later)
+- Node.js 22.12 or later.
+- ESM imports.
 
 ## Install
 
@@ -55,17 +51,68 @@ yarn add @xmtp/node-sdk
 
 ## Developing
 
-For repository development, run `just install-js` once, then run `just js build`.
+For repository development, run `dev/nix-shell 'just install-js'` once. Generate the Node product with
+`dev/nix-shell 'just sdk generate node'`, then build with
+`NIX_DEVSHELL=js-node dev/nix-shell 'pnpm --filter @xmtp/node-sdk build'`.
+The release package is `target/sdk-packages/node`. The source package is a
+development shell. Do not publish the source directory.
+
+## Version 8 migration
+
+Use `Client.create(signer, options)` to register a client. Use
+`Client.build(identity, options)` to open stored client state. Set the network
+with `options.backend.url`. Set the database location with `options.storage`.
+The signer implements `identity()`, `kind()` and `sign(request)`.
+
+Read a group or DM state with `await conversation.state()`. Message times use
+`Timestamp`. Message counts are `bigint`. Messages contain tagged content;
+check `message.content.kind` before you read its `value`.
+Configuration `uint64` fields are `bigint`. The four frame-rate and burst
+fields remain `number`.
+
+Use `ConversationStream.open(client)` or `MessageStream.open(client)` and
+await `ready()`. Use `onValue()` for callbacks or `for await` for iteration.
+A failed stream closes once and reports `onClose({ kind: "failed", error })`.
+Later `next()` calls reject with the same terminal error.
+Open an explicit replacement when the app is ready. End streams and clients
+with `await stream.end()` and `await client.end()`.
+
+Without `selection.from`, only one default message reader can own delivery
+progress for a client database. Another default reader fails with
+`ConsumerOwned`, even for a different group, DM, or filter. End the current
+reader before opening another default reader.
+
+An explicit `selection.from` cursor opens an independent replay/live reader.
+These readers can run in parallel and do not change default delivery progress.
+They do not have separate durable consumer checkpoints. To resume a replay,
+save the last processed message's `deliveryCursor` and pass it as `from` when
+opening the next reader. The cursor must come from the same database.
+
+The next read acknowledges the prior message. In a `for await` loop, await all
+message processing before the next iteration. With `onValue()`, await all
+processing in the callback. Adding a message to an app queue or starting an
+unawaited task does not wait for that work before acknowledgement. `end()` and
+`return()` do not acknowledge the last message. They cannot undo an
+acknowledgement after its commit has been admitted.
+
+Import `ContentCodec<T>`, `EncodedContent` and `ContentTypeId` from this SDK.
+A codec has a `type` field. Encoded parameters use `Map<string, string>`.
+Stored-message content filters accept the supported built-in `ContentTypeId`
+values. The old `ContentType.Custom` wildcard category is removed. Custom
+content can still be sent, decoded and selected by an exact event filter.
+
+Use `client.attachments` for transfer operations and `client.archives` for
+archive operations. For application-hosted files, use the public Rust envelope
+and attachment encryption helpers.
 
 ## Testing
 
-For testing setup instructions, see our [testing guidelines](https://github.com/xmtp/xmtp-js/blob/main/CONTRIBUTING.md#testing) in the main repository.
+Run tests from the repository root inside Nix:
 
-### Useful commands
-
-- `just js build`: Builds the SDKs.
-- `just js test`: Runs all SDK tests.
-- `just js check`: Runs TypeScript checks.
+```bash
+dev/nix-shell 'just js test-node-sdk-ci'
+dev/nix-shell 'just js check'
+```
 
 ## Breaking revisions
 

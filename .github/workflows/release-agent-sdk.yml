@@ -126,6 +126,10 @@ jobs:
             echo "::error::invalid @xmtp/node-sdk version: $VERSION"
             exit 1
           fi
+          if [ "${VERSION%%.*}" -lt 8 ]; then
+            echo "::error::Agent SDK 8 requires @xmtp/node-sdk 8 or later"
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Pinning @xmtp/node-sdk to: $VERSION"
 
@@ -150,8 +154,8 @@ jobs:
 
       - uses: ./.github/actions/setup-js
 
-      - name: Stage node bindings
-        run: just js bindings-node
+      - name: Generate Node SDK
+        run: dev/nix-shell 'just sdk generate node'
 
       - name: Install + build agent-sdk
         run: |

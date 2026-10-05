@@ -14,12 +14,7 @@ try {
       const root = join(directory, `${side}-${target}`);
       await mkdir(root);
       const manifest = {
-        name:
-          side === "old"
-            ? `@xmtp/${target}-sdk`
-            : target === "node"
-              ? "xmtp-sdk"
-              : "xmtp-sdk-browser",
+        name: `@xmtp/${target}-sdk`,
         type: "module",
         exports: {
           ".": { types: "./types.d.ts", import: "./entry.mjs" },
@@ -54,7 +49,8 @@ try {
         "missing_pure",
         "null_pure",
         "root_codec",
-        ...(side === "old" ? ["wrong_name", "wrong_type"] : []),
+        "wrong_name",
+        "wrong_type",
       ]) {
         await writeFile(
           join(root, "package.json"),

@@ -5,25 +5,16 @@ import {
   TestCodec,
 } from "@test/helpers";
 import {
-  ConsentState,
-  ContentType,
-  contentTypeGroupUpdated,
-  contentTypeLeaveRequest,
-  ConversationType,
-  DeliveryStatus,
+  MessageStream,
+  Group,
+  Timestamp,
+  standardContentType,
   encodeText,
-  GroupMessageKind,
-  MetadataField,
-  metadataFieldName,
-  ReactionAction,
-  ReactionSchema,
-  SortDirection,
-  type GroupUpdated,
-  type MessageDisappearingSettings,
-} from "@xmtp/node-bindings";
+  type DisappearingSettings,
+  type Message,
+  type MessageContent,
+} from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
-
-import type { DecodedMessage } from "@/DecodedMessage";
 
 // Background workers (self-remove, disappearing messages) complete
 // asynchronously; poll until the expected state appears instead of pacing
@@ -31,6 +22,52 @@ import type { DecodedMessage } from "@/DecodedMessage";
 const WAIT = { timeout: 30_000, interval: 1000 };
 
 describe("Group", () => {
+  it("reports creator and invited membership states", async () => {
+    const creator = await createRegisteredClient(createSigner().signer);
+    const invited = await createRegisteredClient(createSigner().signer);
+    try {
+      const group = await creator.conversations.createGroup([invited.inboxId]);
+      expect((await group.state()).membershipState).toBe("allowed");
+      await invited.conversations.sync();
+      const received = await invited.conversations.getById(group.id);
+      expect(received).toBeInstanceOf(Group);
+      if (!(received instanceof Group)) throw new Error("Expected a group");
+      expect((await received.state()).membershipState).toBe("pending");
+    } finally {
+      await creator.end();
+      await invited.end();
+    }
+  });
+  it("delivers a deletion event for the removed message", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    const group = await client.conversations.createGroup([]);
+    const messageId = await group.sendText("delete this message");
+    const events = await client.events({
+      kinds: ["message.deleted"],
+      references_own_messages: false,
+    });
+    try {
+      const message = await client.conversations.getMessageById(messageId);
+      if (!message) throw new Error("Expected the sent message");
+      await message.delete();
+      const next = await events.next();
+      expect(next.done).toBe(false);
+      if (next.done || next.value.kind !== "message.deleted")
+        throw new Error("Expected a deletion event");
+      expect(Buffer.from(next.value.message_deleted.group_id)).toEqual(
+        Buffer.from(group.id, "hex"),
+      );
+      expect(Buffer.from(next.value.message_deleted.message_id)).toEqual(
+        Buffer.from(messageId, "hex"),
+      );
+      expect(
+        (await client.conversations.getMessageById(messageId))?.content.kind,
+      ).toBe("deletedMessage");
+    } finally {
+      await events.return();
+      await client.end();
+    }
+  });
   it("should create a group", async () => {
     const { signer: signer1 } = createSigner();
     const { signer: signer2 } = createSigner();
@@ -39,14 +76,12 @@ describe("Group", () => {
 
     const group = await client1.conversations.createGroup([client2.inboxId]);
     expect(group).toBeDefined();
-    expect(
-      (await client1.conversations.getConversationById(group.id))?.id,
-    ).toBe(group.id);
+    expect((await client1.conversations.getById(group.id))?.id).toBe(group.id);
     expect(group.id).toBeDefined();
     expect(group.createdAt).toBeDefined();
-    expect(group.createdAtNs).toBeDefined();
-    expect(group.isActive).toBe(true);
-    expect(group.name).toBe("");
+    expect(group.createdAt.ns).toBeDefined();
+    expect((await group.state()).common.isActive).toBe(true);
+    expect((await group.state()).name).toBe("");
     expect(group.addedByInboxId).toBe(client1.inboxId);
     expect((await group.messages()).length).toBe(1);
 
@@ -55,24 +90,27 @@ describe("Group", () => {
     const memberInboxIds = members.map((member) => member.inboxId);
     expect(memberInboxIds).toContain(client1.inboxId);
     expect(memberInboxIds).toContain(client2.inboxId);
-    expect(await group.metadata()).toEqual({
-      conversationType: ConversationType.Group,
+    expect({
+      conversationType: group.kind,
+      creatorInboxId: group.creatorInboxId,
+    }).toEqual({
+      conversationType: "group",
       creatorInboxId: client1.inboxId,
     });
 
-    expect(client1.conversations.listDms().length).toBe(0);
+    expect((await client1.conversations.listDms({})).length).toBe(0);
 
-    const groups = client1.conversations.listGroups();
+    const groups = await client1.conversations.listGroups({});
     expect(groups.length).toBe(1);
     expect(groups[0].id).toBe(group.id);
 
     // confirm group in other client
     await client2.conversations.sync();
-    const groups2 = client2.conversations.listGroups();
+    const groups2 = await client2.conversations.listGroups({});
     expect(groups2.length).toBe(1);
     expect(groups2[0].id).toBe(group.id);
 
-    expect(client2.conversations.listDms().length).toBe(0);
+    expect((await client2.conversations.listDms({})).length).toBe(0);
   });
 
   it("should create a group with an identifier", async () => {
@@ -80,18 +118,14 @@ describe("Group", () => {
     const { signer: signer2, identifier: identifier2 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
-    const group = await client1.conversations.createGroupWithIdentifiers([
-      identifier2,
-    ]);
+    const group = await client1.conversations.createGroup([identifier2]);
     expect(group).toBeDefined();
-    expect(
-      (await client1.conversations.getConversationById(group.id))?.id,
-    ).toBe(group.id);
+    expect((await client1.conversations.getById(group.id))?.id).toBe(group.id);
     expect(group.id).toBeDefined();
     expect(group.createdAt).toBeDefined();
-    expect(group.createdAtNs).toBeDefined();
-    expect(group.isActive).toBe(true);
-    expect(group.name).toBe("");
+    expect(group.createdAt.ns).toBeDefined();
+    expect((await group.state()).common.isActive).toBe(true);
+    expect((await group.state()).name).toBe("");
     expect(group.addedByInboxId).toBe(client1.inboxId);
     expect((await group.messages()).length).toBe(1);
 
@@ -100,37 +134,40 @@ describe("Group", () => {
     const memberInboxIds = members.map((member) => member.inboxId);
     expect(memberInboxIds).toContain(client1.inboxId);
     expect(memberInboxIds).toContain(client2.inboxId);
-    expect(await group.metadata()).toEqual({
-      conversationType: ConversationType.Group,
+    expect({
+      conversationType: group.kind,
+      creatorInboxId: group.creatorInboxId,
+    }).toEqual({
+      conversationType: "group",
       creatorInboxId: client1.inboxId,
     });
 
-    const groups = client1.conversations.listGroups();
+    const groups = await client1.conversations.listGroups({});
     expect(groups.length).toBe(1);
     expect(groups[0].id).toBe(group.id);
-    expect(client1.conversations.listDms().length).toBe(0);
+    expect((await client1.conversations.listDms({})).length).toBe(0);
 
     // confirm group in other client
     await client2.conversations.sync();
-    const groups2 = client2.conversations.listGroups();
+    const groups2 = await client2.conversations.listGroups({});
     expect(groups2.length).toBe(1);
     expect(groups2[0].id).toBe(group.id);
 
-    expect(client2.conversations.listDms().length).toBe(0);
+    expect((await client2.conversations.listDms({})).length).toBe(0);
   });
 
   it("should optimistically create a group", async () => {
     const { signer: signer1 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
-    const group = client1.conversations.createGroupOptimistic({
-      groupName: "foo",
-      groupDescription: "bar",
+    const group = await client1.conversations.createGroupOptimistic({
+      name: "foo",
+      description: "bar",
     });
 
     expect(group.id).toBeDefined();
-    expect(group.name).toBe("foo");
-    expect(group.description).toBe("bar");
-    expect(group.imageUrl).toBe("");
+    expect((await group.state()).name).toBe("foo");
+    expect((await group.state()).description).toBe("bar");
+    expect((await group.state()).imageUrl).toBe("");
     expect(group.addedByInboxId).toBe(client1.inboxId);
 
     const text = "gm";
@@ -138,15 +175,15 @@ describe("Group", () => {
 
     const messages = await group.messages();
     expect(messages.length).toBe(1);
-    expect(messages[0].content).toBe(text);
-    expect(messages[0].deliveryStatus).toBe(DeliveryStatus.Unpublished);
+    expect(messages[0].content).toEqual({ kind: "text", value: text });
+    expect(messages[0].deliveryStatus).toBe("unpublished");
 
     await group.publishMessages();
 
     const messages2 = await group.messages();
     expect(messages2.length).toBe(1);
-    expect(messages2[0].content).toBe(text);
-    expect(messages2[0].deliveryStatus).toBe(DeliveryStatus.Published);
+    expect(messages2[0].content).toEqual({ kind: "text", value: text });
+    expect(messages2[0].deliveryStatus).toBe("published");
   });
 
   it("should produce deterministic ids for a caller-set idempotency key", async () => {
@@ -177,15 +214,15 @@ describe("Group", () => {
     const { signer: signer2 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
-    const group = client1.conversations.createGroupOptimistic({
-      groupName: "foo",
-      groupDescription: "bar",
+    const group = await client1.conversations.createGroupOptimistic({
+      name: "foo",
+      description: "bar",
     });
 
     expect(group.id).toBeDefined();
-    expect(group.name).toBe("foo");
-    expect(group.description).toBe("bar");
-    expect(group.imageUrl).toBe("");
+    expect((await group.state()).name).toBe("foo");
+    expect((await group.state()).description).toBe("bar");
+    expect((await group.state()).imageUrl).toBe("");
     expect(group.addedByInboxId).toBe(client1.inboxId);
 
     const text = "gm";
@@ -193,8 +230,8 @@ describe("Group", () => {
 
     const messages = await group.messages();
     expect(messages.length).toBe(1);
-    expect(messages[0].content).toBe(text);
-    expect(messages[0].deliveryStatus).toBe(DeliveryStatus.Unpublished);
+    expect(messages[0].content).toEqual({ kind: "text", value: text });
+    expect(messages[0].deliveryStatus).toBe("unpublished");
 
     await group.addMembers([client2.inboxId]);
 
@@ -206,79 +243,89 @@ describe("Group", () => {
 
     const messages3 = await group.messages();
     expect(messages3.length).toBe(2);
-    expect(messages3[0].content).toBe(text);
-    expect(messages3[0].deliveryStatus).toBe(DeliveryStatus.Published);
-    expect(messages3[1].deliveryStatus).toBe(DeliveryStatus.Published);
+    expect(messages3[0].content).toEqual({ kind: "text", value: text });
+    expect(messages3[0].deliveryStatus).toBe("published");
+    expect(messages3[1].deliveryStatus).toBe("published");
   });
 
   it("should create a group with options", async () => {
     const { signer: signer1 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const group = await client1.conversations.createGroup([], {
-      groupName: "foo",
-      groupImageUrlSquare: "https://foo/bar.png",
-      groupDescription: "foo",
+      name: "foo",
+      imageUrl: "https://foo/bar.png",
+      description: "foo",
     });
-    expect(group.name).toBe("foo");
-    expect(group.imageUrl).toBe("https://foo/bar.png");
-    expect(group.description).toBe("foo");
+    expect((await group.state()).name).toBe("foo");
+    expect((await group.state()).imageUrl).toBe("https://foo/bar.png");
+    expect((await group.state()).description).toBe("foo");
   });
 
   it("should update group name", async () => {
     const { signer: signer1 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const group = await client1.conversations.createGroup([]);
-    expect(group.name).toBe("");
+    expect((await group.state()).name).toBe("");
     const newName = "foo";
     await group.updateName(newName);
-    expect(group.name).toBe(newName);
+    expect((await group.state()).name).toBe(newName);
     const messages = await group.messages();
     expect(messages.length).toBe(1);
-    const message = messages[0] as DecodedMessage<GroupUpdated>;
-    expect(message.content!.metadataFieldChanges).toHaveLength(1);
-    expect(message.content!.metadataFieldChanges[0].fieldName).toBe(
-      metadataFieldName(MetadataField.GroupName),
+    const message = messages[0] as Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    };
+    expect(message.content.value.metadataFieldChanges).toHaveLength(1);
+    expect(message.content.value.metadataFieldChanges[0].fieldName).toBe(
+      "group_name",
     );
-    expect(message.content!.metadataFieldChanges[0].oldValue).toBe("");
-    expect(message.content!.metadataFieldChanges[0].newValue).toBe(newName);
+    expect(message.content.value.metadataFieldChanges[0].oldValue).toBe("");
+    expect(message.content.value.metadataFieldChanges[0].newValue).toBe(
+      newName,
+    );
   });
 
   it("should update group image URL", async () => {
     const { signer: signer1 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const group = await client1.conversations.createGroup([]);
-    expect(group.imageUrl).toBe("");
+    expect((await group.state()).imageUrl).toBe("");
     const imageUrl = "https://foo/bar.jpg";
     await group.updateImageUrl(imageUrl);
-    expect(group.imageUrl).toBe(imageUrl);
+    expect((await group.state()).imageUrl).toBe(imageUrl);
     const messages = await group.messages();
     expect(messages.length).toBe(1);
-    const message = messages[0] as DecodedMessage<GroupUpdated>;
-    expect(message.content!.metadataFieldChanges).toHaveLength(1);
-    expect(message.content!.metadataFieldChanges[0].fieldName).toBe(
-      metadataFieldName(MetadataField.GroupImageUrlSquare),
+    const message = messages[0] as Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    };
+    expect(message.content.value.metadataFieldChanges).toHaveLength(1);
+    expect(message.content.value.metadataFieldChanges[0].fieldName).toBe(
+      "group_image_url_square",
     );
-    expect(message.content!.metadataFieldChanges[0].oldValue).toBe("");
-    expect(message.content!.metadataFieldChanges[0].newValue).toBe(imageUrl);
+    expect(message.content.value.metadataFieldChanges[0].oldValue).toBe("");
+    expect(message.content.value.metadataFieldChanges[0].newValue).toBe(
+      imageUrl,
+    );
   });
 
   it("should update group description", async () => {
     const { signer: signer1 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const group = await client1.conversations.createGroup([]);
-    expect(group.description).toBe("");
+    expect((await group.state()).description).toBe("");
     const newDescription = "foo";
     await group.updateDescription(newDescription);
-    expect(group.description).toBe(newDescription);
+    expect((await group.state()).description).toBe(newDescription);
     const messages = await group.messages();
     expect(messages.length).toBe(1);
-    const message = messages[0] as DecodedMessage<GroupUpdated>;
-    expect(message.content!.metadataFieldChanges).toHaveLength(1);
-    expect(message.content!.metadataFieldChanges[0].fieldName).toBe(
-      metadataFieldName(MetadataField.Description),
+    const message = messages[0] as Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    };
+    expect(message.content.value.metadataFieldChanges).toHaveLength(1);
+    expect(message.content.value.metadataFieldChanges[0].fieldName).toBe(
+      "description",
     );
-    expect(message.content!.metadataFieldChanges[0].oldValue).toBe("");
-    expect(message.content!.metadataFieldChanges[0].newValue).toBe(
+    expect(message.content.value.metadataFieldChanges[0].oldValue).toBe("");
+    expect(message.content.value.metadataFieldChanges[0].newValue).toBe(
       newDescription,
     );
   });
@@ -287,19 +334,23 @@ describe("Group", () => {
     const { signer: signer1 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const group = await client1.conversations.createGroup([]);
-    expect(group.appData).toBe("");
+    expect((await group.state()).appData).toBe("");
     const appData = "foo";
-    await group.updateAppData(appData);
-    expect(group.appData).toBe(appData);
+    await group.updateAppData(appData, undefined);
+    expect((await group.state()).appData).toBe(appData);
     const messages = await group.messages();
     expect(messages.length).toBe(1);
-    const message = messages[0] as DecodedMessage<GroupUpdated>;
-    expect(message.content!.metadataFieldChanges).toHaveLength(1);
-    expect(message.content!.metadataFieldChanges[0].fieldName).toBe(
-      metadataFieldName(MetadataField.AppData),
+    const message = messages[0] as Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    };
+    expect(message.content.value.metadataFieldChanges).toHaveLength(1);
+    expect(message.content.value.metadataFieldChanges[0].fieldName).toBe(
+      "app_data",
     );
-    expect(message.content!.metadataFieldChanges[0].oldValue).toBe("");
-    expect(message.content!.metadataFieldChanges[0].newValue).toBe(appData);
+    expect(message.content.value.metadataFieldChanges[0].oldValue).toBe("");
+    expect(message.content.value.metadataFieldChanges[0].newValue).toBe(
+      appData,
+    );
   });
 
   it("should send and list messages", async () => {
@@ -316,15 +367,15 @@ describe("Group", () => {
 
     const messages = await group.messages();
     expect(messages.length).toBe(2);
-    expect(messages[1].content).toBe(text);
+    expect(messages[1].content).toEqual({ kind: "text", value: text });
 
     const lastMessage = await group.lastMessage();
     expect(lastMessage).toBeDefined();
     expect(lastMessage?.id).toBe(messages[1].id);
-    expect(lastMessage?.content).toBe(text);
+    expect(lastMessage?.content).toEqual({ kind: "text", value: text });
 
     await client2.conversations.sync();
-    const groups = client2.conversations.listGroups();
+    const groups = await client2.conversations.listGroups({});
     expect(groups.length).toBe(1);
 
     const group2 = groups[0];
@@ -334,12 +385,12 @@ describe("Group", () => {
 
     const messages2 = await group2.messages();
     expect(messages2.length).toBe(2);
-    expect(messages2[1].content).toBe(text);
+    expect(messages2[1].content).toEqual({ kind: "text", value: text });
 
     const lastMessage2 = await group2.lastMessage();
     expect(lastMessage2).toBeDefined();
     expect(lastMessage2?.id).toBe(messages2[1].id);
-    expect(lastMessage2?.content).toBe(text);
+    expect(lastMessage2?.content).toEqual({ kind: "text", value: text });
   });
 
   it("should optimistically send and list messages", async () => {
@@ -354,10 +405,10 @@ describe("Group", () => {
 
     const messages = await group.messages();
     expect(messages.length).toBe(2);
-    expect(messages[1].content).toBe(text);
+    expect(messages[1].content).toEqual({ kind: "text", value: text });
 
     await client2.conversations.sync();
-    const groups = client2.conversations.listGroups();
+    const groups = await client2.conversations.listGroups({});
     expect(groups.length).toBe(1);
 
     const group2 = groups[0];
@@ -374,7 +425,7 @@ describe("Group", () => {
 
     const messages4 = await group2.messages();
     expect(messages4.length).toBe(2);
-    expect(messages4[1].content).toBe(text);
+    expect(messages4[1].content).toEqual({ kind: "text", value: text });
   });
 
   it("should filter messages with options", async () => {
@@ -389,7 +440,7 @@ describe("Group", () => {
 
     // leave request message
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
     await group2.requestRemoval();
     await group.sync();
 
@@ -397,7 +448,7 @@ describe("Group", () => {
     // request via the worker, adding a removal GroupUpdated commit. Wait for
     // it up front (poll until the member is gone) so message ordering and
     // counts below are deterministic.
-    await client1.conversations.syncAll();
+    await client1.conversations.syncAll(undefined);
     await vi.waitFor(async () => {
       await group.sync();
       expect((await group.members()).length).toBe(1);
@@ -410,18 +461,12 @@ describe("Group", () => {
       mimeType: "text/plain",
       content: new Uint8Array([1, 2, 3]),
     });
-    await group.sendReply({
-      reference: textMessageId,
-      referenceInboxId: client1.inboxId,
-      content: encodeText("gm"),
-    });
+    await group.sendReply(textMessageId, client1.inboxId, encodeText("gm"));
     const replyMessage = await group.lastMessage();
-    await group.sendReaction({
-      reference: textMessageId,
-      action: ReactionAction.Added,
+    await group.sendReaction(textMessageId, client1.inboxId, {
+      action: "added",
       content: "👍",
-      schema: ReactionSchema.Unicode,
-      referenceInboxId: client1.inboxId,
+      schema: "unicode",
     });
     await group.sendActions({
       id: "actions-1",
@@ -453,7 +498,7 @@ describe("Group", () => {
         },
       ],
     });
-    await group.sendReadReceipt();
+    const receiptId = await group.sendReadReceipt();
     await group.sendRemoteAttachment({
       url: "https://foo/bar.png",
       contentDigest: "1234567890",
@@ -483,49 +528,61 @@ describe("Group", () => {
     // read receipts and reactions are automatically filtered; the self-remove
     // commit adds one GroupUpdated message on top of the original 13.
     expect(messages.length).toBe(14);
+    expect(messages.map((message) => message.id)).not.toContain(receiptId);
+    expect(messages.map((message) => message.contentType)).not.toContainEqual(
+      standardContentType("readReceipt"),
+    );
 
     // default sort order
-    expect(messages[0].contentType).toEqual(contentTypeGroupUpdated());
+    expect(messages[0].contentType).toEqual(
+      standardContentType("groupUpdated"),
+    );
 
     // descending sort order
     const sortedMessages1 = await group.messages({
-      direction: SortDirection.Descending,
+      direction: "descending",
     });
-    expect(sortedMessages1[0].contentType).toEqual(testCodec.contentType);
+    expect(sortedMessages1[0].contentType).toEqual(testCodec.type);
 
     const filteredMessages1 = await group.messages({
-      contentTypes: [ContentType.Text, ContentType.Markdown, ContentType.Reply],
+      contentTypes: [
+        standardContentType("text"),
+        standardContentType("markdown"),
+        standardContentType("reply"),
+      ],
     });
     expect(filteredMessages1.length).toBe(3);
 
     const filteredMessages2 = await group.messages({
       contentTypes: [
-        ContentType.Actions,
-        ContentType.Intent,
-        ContentType.TransactionReference,
-        ContentType.WalletSendCalls,
+        standardContentType("actions"),
+        standardContentType("intent"),
+        standardContentType("transactionReference"),
+        standardContentType("walletSendCalls"),
       ],
     });
     expect(filteredMessages2.length).toBe(4);
 
     const filteredMessages3 = await group.messages({
       contentTypes: [
-        ContentType.Attachment,
-        ContentType.RemoteAttachment,
-        ContentType.MultiRemoteAttachment,
+        standardContentType("attachment"),
+        standardContentType("remoteAttachment"),
+        standardContentType("multiRemoteAttachment"),
       ],
     });
     expect(filteredMessages3.length).toBe(3);
 
     const filteredMessages4 = await group.messages({
       contentTypes: [
-        ContentType.GroupUpdated,
-        ContentType.LeaveRequest,
-        ContentType.Custom,
+        standardContentType("groupUpdated"),
+        standardContentType("leaveRequest"),
       ],
     });
-    // two GroupUpdated (initial add + self-remove) + LeaveRequest + Custom
-    expect(filteredMessages4.length).toBe(4);
+    // Two membership changes and one removal request.
+    expect(filteredMessages4.length).toBe(3);
+    await expect(
+      group.messages({ contentTypes: [testCodec.type] }),
+    ).rejects.toMatchObject({ details: { code: "InvalidArgument" } });
 
     const filteredMessages5 = await group.messages({
       excludeSenderInboxIds: [client2.inboxId],
@@ -534,38 +591,38 @@ describe("Group", () => {
 
     const filteredMessages6 = await group.messages({
       excludeContentTypes: [
-        ContentType.Text,
-        ContentType.Markdown,
-        ContentType.Reply,
+        standardContentType("text"),
+        standardContentType("markdown"),
+        standardContentType("reply"),
       ],
     });
     expect(filteredMessages6.length).toBe(11);
 
     const filteredMessages7 = await group.messages({
-      sentAfterNs: replyMessage?.sentAtNs,
+      sentAfter: replyMessage?.sentAt,
     });
     // does not include reaction and read receipt messages
     expect(filteredMessages7.length).toBe(7);
 
     const filteredMessages8 = await group.messages({
-      sentBeforeNs: replyMessage?.sentAtNs,
+      sentBefore: replyMessage?.sentAt,
     });
     // includes the self-remove commit, which is processed before the reply
     expect(filteredMessages8.length).toBe(6);
 
     // initial add + self-remove commit
     const filteredMessages9 = await group.messages({
-      kind: GroupMessageKind.MembershipChange,
+      kind: "membershipChange",
     });
     expect(filteredMessages9.length).toBe(2);
 
     await group.sendText("gm", { optimistic: true });
     const filteredMessages10 = await group.messages({
-      deliveryStatus: DeliveryStatus.Published,
+      deliveryStatus: "published",
     });
     expect(filteredMessages10.length).toBe(14);
     const filteredMessages11 = await group.messages({
-      deliveryStatus: DeliveryStatus.Unpublished,
+      deliveryStatus: "unpublished",
     });
     expect(filteredMessages11.length).toBe(1);
   });
@@ -578,17 +635,21 @@ describe("Group", () => {
     const group = await client1.conversations.createGroup([client2.inboxId]);
 
     await client2.conversations.sync();
-    const groups = client2.conversations.listGroups();
+    const groups = await client2.conversations.listGroups({});
     expect(groups.length).toBe(1);
     expect(groups[0].id).toBe(group.id);
 
-    const history = groups[0].messageHistorySnapshot(1);
+    const cursor = (
+      await groups[0].messages({ direction: "descending", limit: 1 })
+    )[0]?.deliveryCursor;
     const streamedMessages: unknown[] = [];
-    const stream = await groups[0].stream({
-      from: history.cursor,
-      onValue: (message) => {
-        streamedMessages.push(message.content);
-      },
+    const stream = MessageStream.openGroup(client2, groups[0], {
+      from: cursor ?? undefined,
+    });
+    await stream.ready();
+    void stream.onValue((message) => {
+      if (message.content.kind === "text")
+        streamedMessages.push(message.content.value);
     });
 
     await group.sendText("gm");
@@ -637,16 +698,16 @@ describe("Group", () => {
     expect(memberInboxIds3).not.toContain(client2.inboxId);
     expect(memberInboxIds3).toContain(client3.inboxId);
 
-    const messages = (await group.messages()) as DecodedMessage<GroupUpdated>[];
+    const messages = (await group.messages()) as (Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    })[];
     expect(messages.length).toBe(3);
-    expect(messages[0].content?.addedInboxes).toHaveLength(1);
-    expect(messages[0].content?.addedInboxes[0].inboxId).toBe(client2.inboxId);
-    expect(messages[1].content?.addedInboxes).toHaveLength(1);
-    expect(messages[1].content?.addedInboxes[0].inboxId).toBe(client3.inboxId);
-    expect(messages[2].content?.removedInboxes).toHaveLength(1);
-    expect(messages[2].content?.removedInboxes[0].inboxId).toBe(
-      client2.inboxId,
-    );
+    expect(messages[0].content.value.addedInboxes).toHaveLength(1);
+    expect(messages[0].content.value.addedInboxes[0]).toBe(client2.inboxId);
+    expect(messages[1].content.value.addedInboxes).toHaveLength(1);
+    expect(messages[1].content.value.addedInboxes[0]).toBe(client3.inboxId);
+    expect(messages[2].content.value.removedInboxes).toHaveLength(1);
+    expect(messages[2].content.value.removedInboxes[0]).toBe(client2.inboxId);
   });
 
   it("should add and remove admins", async () => {
@@ -656,30 +717,32 @@ describe("Group", () => {
     const client2 = await createRegisteredClient(signer2);
     const group = await client1.conversations.createGroup([client2.inboxId]);
 
-    expect(group.isSuperAdmin(client1.inboxId)).toBe(true);
-    expect(group.listSuperAdmins().length).toBe(1);
-    expect(group.listSuperAdmins()).toContain(client1.inboxId);
-    expect(group.isAdmin(client1.inboxId)).toBe(false);
-    expect(group.isAdmin(client2.inboxId)).toBe(false);
-    expect(group.listAdmins().length).toBe(0);
+    expect(await group.isSuperAdmin(client1.inboxId)).toBe(true);
+    expect((await group.listSuperAdmins()).length).toBe(1);
+    expect(await group.listSuperAdmins()).toContain(client1.inboxId);
+    expect(await group.isAdmin(client1.inboxId)).toBe(false);
+    expect(await group.isAdmin(client2.inboxId)).toBe(false);
+    expect((await group.listAdmins()).length).toBe(0);
 
     await group.addAdmin(client2.inboxId);
-    expect(group.isAdmin(client2.inboxId)).toBe(true);
-    expect(group.listAdmins().length).toBe(1);
-    expect(group.listAdmins()).toContain(client2.inboxId);
+    expect(await group.isAdmin(client2.inboxId)).toBe(true);
+    expect((await group.listAdmins()).length).toBe(1);
+    expect(await group.listAdmins()).toContain(client2.inboxId);
 
     await group.removeAdmin(client2.inboxId);
-    expect(group.isAdmin(client2.inboxId)).toBe(false);
-    expect(group.listAdmins().length).toBe(0);
+    expect(await group.isAdmin(client2.inboxId)).toBe(false);
+    expect((await group.listAdmins()).length).toBe(0);
 
-    const messages = (await group.messages()) as DecodedMessage<GroupUpdated>[];
+    const messages = (await group.messages()) as (Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    })[];
     expect(messages.length).toBe(3);
-    expect(messages[1].content?.addedAdminInboxes).toHaveLength(1);
-    expect(messages[1].content?.addedAdminInboxes[0].inboxId).toBe(
+    expect(messages[1].content.value.addedAdminInboxes).toHaveLength(1);
+    expect(messages[1].content.value.addedAdminInboxes[0]).toBe(
       client2.inboxId,
     );
-    expect(messages[2].content?.removedAdminInboxes).toHaveLength(1);
-    expect(messages[2].content?.removedAdminInboxes[0].inboxId).toBe(
+    expect(messages[2].content.value.removedAdminInboxes).toHaveLength(1);
+    expect(messages[2].content.value.removedAdminInboxes[0]).toBe(
       client2.inboxId,
     );
   });
@@ -691,30 +754,32 @@ describe("Group", () => {
     const client2 = await createRegisteredClient(signer2);
     const group = await client1.conversations.createGroup([client2.inboxId]);
 
-    expect(group.isSuperAdmin(client1.inboxId)).toBe(true);
-    expect(group.isSuperAdmin(client2.inboxId)).toBe(false);
-    expect(group.listSuperAdmins().length).toBe(1);
-    expect(group.listSuperAdmins()).toContain(client1.inboxId);
+    expect(await group.isSuperAdmin(client1.inboxId)).toBe(true);
+    expect(await group.isSuperAdmin(client2.inboxId)).toBe(false);
+    expect((await group.listSuperAdmins()).length).toBe(1);
+    expect(await group.listSuperAdmins()).toContain(client1.inboxId);
 
     await group.addSuperAdmin(client2.inboxId);
-    expect(group.isSuperAdmin(client2.inboxId)).toBe(true);
-    expect(group.listSuperAdmins().length).toBe(2);
-    expect(group.listSuperAdmins()).toContain(client1.inboxId);
-    expect(group.listSuperAdmins()).toContain(client2.inboxId);
+    expect(await group.isSuperAdmin(client2.inboxId)).toBe(true);
+    expect((await group.listSuperAdmins()).length).toBe(2);
+    expect(await group.listSuperAdmins()).toContain(client1.inboxId);
+    expect(await group.listSuperAdmins()).toContain(client2.inboxId);
 
     await group.removeSuperAdmin(client2.inboxId);
-    expect(group.isSuperAdmin(client2.inboxId)).toBe(false);
-    expect(group.listSuperAdmins().length).toBe(1);
-    expect(group.listSuperAdmins()).toContain(client1.inboxId);
+    expect(await group.isSuperAdmin(client2.inboxId)).toBe(false);
+    expect((await group.listSuperAdmins()).length).toBe(1);
+    expect(await group.listSuperAdmins()).toContain(client1.inboxId);
 
-    const messages = (await group.messages()) as DecodedMessage<GroupUpdated>[];
+    const messages = (await group.messages()) as (Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    })[];
     expect(messages.length).toBe(3);
-    expect(messages[1].content?.addedSuperAdminInboxes).toHaveLength(1);
-    expect(messages[1].content?.addedSuperAdminInboxes[0].inboxId).toBe(
+    expect(messages[1].content.value.addedSuperAdminInboxes).toHaveLength(1);
+    expect(messages[1].content.value.addedSuperAdminInboxes[0]).toBe(
       client2.inboxId,
     );
-    expect(messages[2].content?.removedSuperAdminInboxes).toHaveLength(1);
-    expect(messages[2].content?.removedSuperAdminInboxes[0].inboxId).toBe(
+    expect(messages[2].content.value.removedSuperAdminInboxes).toHaveLength(1);
+    expect(messages[2].content.value.removedSuperAdminInboxes[0]).toBe(
       client2.inboxId,
     );
   });
@@ -726,14 +791,14 @@ describe("Group", () => {
     const client2 = await createRegisteredClient(signer2);
     const group = await client1.conversations.createGroup([client2.inboxId]);
     expect(group).toBeDefined();
-    expect(group.consentState()).toBe(ConsentState.Allowed);
+    expect((await group.state()).common.consentState).toBe("allowed");
 
     await client2.conversations.sync();
-    const group2 = await client2.conversations.getConversationById(group.id);
+    const group2 = (await client2.conversations.getById(group.id)) as Group;
     expect(group2).toBeDefined();
-    expect(group2!.consentState()).toBe(ConsentState.Unknown);
+    expect((await group2.state()).common.consentState).toBe("unknown");
     await group2!.sendText("gm!");
-    expect(group2!.consentState()).toBe(ConsentState.Allowed);
+    expect((await group2.state()).common.consentState).toBe("allowed");
   });
 
   it("should handle disappearing messages", async () => {
@@ -742,25 +807,28 @@ describe("Group", () => {
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
 
-    const stream = await client1.conversations.streamDeletedMessages();
+    const stream = await client1.events({
+      kinds: ["message.expired"],
+      references_own_messages: false,
+    });
 
     // create message disappearing settings so that messages are deleted after 1 second
-    const messageDisappearingSettings: MessageDisappearingSettings = {
-      fromNs: 1n,
-      inNs: 2_000_000_000n,
+    const messageDisappearingSettings: DisappearingSettings = {
+      from: new Timestamp(1n),
+      retentionNs: 2_000_000_000n,
     };
 
     // create a group with message disappearing settings
     const group = await client1.conversations.createGroup([client2.inboxId], {
-      messageDisappearingSettings,
+      disappearing: messageDisappearingSettings,
     });
 
     // verify that the message disappearing settings are set and enabled
-    expect(group.messageDisappearingSettings()).toEqual({
-      fromNs: 1n,
-      inNs: 2_000_000_000n,
+    expect((await group.state()).common.disappearingSettings).toEqual({
+      from: new Timestamp(1n),
+      retentionNs: 2_000_000_000n,
     });
-    expect(group.isMessageDisappearingEnabled()).toBe(true);
+    expect((await group.state()).common.isDisappearingEnabled).toBe(true);
 
     // send messages to the group
     const messageId1 = await group.sendText("gm");
@@ -771,15 +839,15 @@ describe("Group", () => {
 
     // sync the messages to the other client
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
     await group2.sync();
 
     // verify that the message disappearing settings are set and enabled
-    expect(group2.messageDisappearingSettings()).toEqual({
-      fromNs: 1n,
-      inNs: 2_000_000_000n,
+    expect((await group2.state()).common.disappearingSettings).toEqual({
+      from: new Timestamp(1n),
+      retentionNs: 2_000_000_000n,
     });
-    expect(group2.isMessageDisappearingEnabled()).toBe(true);
+    expect((await group2.state()).common.isDisappearingEnabled).toBe(true);
 
     // poll until the disappearing-messages worker deletes the expired
     // messages
@@ -791,7 +859,7 @@ describe("Group", () => {
     expect((await group2.messages()).length).toBe(1);
 
     setTimeout(() => {
-      void stream.end();
+      void stream.return();
     }, 1000);
 
     let count = 0;
@@ -799,54 +867,67 @@ describe("Group", () => {
     for await (const message of stream) {
       count++;
       expect(message).toBeDefined();
-      messageIds.push(message.id);
+      if (message.kind === "message.expired")
+        messageIds.push(
+          Buffer.from(message.message_expired.message_id).toString("hex"),
+        );
     }
     expect(count).toBe(2);
     expect(messageIds).toContain(messageId1);
     expect(messageIds).toContain(messageId2);
 
     // remove the message disappearing settings
-    await group.removeMessageDisappearingSettings();
+    await group.updateDisappearingSettings(undefined);
 
     // verify that the message disappearing settings are removed
-    expect(group.messageDisappearingSettings()).toEqual({
-      fromNs: 0n,
-      inNs: 0n,
+    expect((await group.state()).common.disappearingSettings).toEqual({
+      from: new Timestamp(0n),
+      retentionNs: 0n,
     });
 
-    expect(group.isMessageDisappearingEnabled()).toBe(false);
+    expect((await group.state()).common.isDisappearingEnabled).toBe(false);
 
     // sync other group
     await group2.sync();
 
     // verify that the message disappearing settings are set and disabled
-    expect(group2.messageDisappearingSettings()).toEqual({
-      fromNs: 0n,
-      inNs: 0n,
+    expect((await group2.state()).common.disappearingSettings).toEqual({
+      from: new Timestamp(0n),
+      retentionNs: 0n,
     });
-    expect(group2.isMessageDisappearingEnabled()).toBe(false);
+    expect((await group2.state()).common.isDisappearingEnabled).toBe(false);
 
     // check for metadata field changes
     const messages = await group2.messages();
-    const fieldChange1 = messages[1] as DecodedMessage<GroupUpdated>;
-    expect(fieldChange1.content?.metadataFieldChanges).toBeDefined();
-    expect(fieldChange1.content?.metadataFieldChanges.length).toBe(1);
-    expect(fieldChange1.content?.metadataFieldChanges[0].fieldName).toBe(
-      metadataFieldName(MetadataField.MessageExpirationFromNs),
+    const fieldChange1 = messages[1] as Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    };
+    expect(fieldChange1.content.value.metadataFieldChanges).toBeDefined();
+    expect(fieldChange1.content.value.metadataFieldChanges.length).toBe(1);
+    expect(fieldChange1.content.value.metadataFieldChanges[0].fieldName).toBe(
+      "message_disappear_from_ns",
     );
-    expect(fieldChange1.content?.metadataFieldChanges[0].oldValue).toBe("1");
-    expect(fieldChange1.content?.metadataFieldChanges[0].newValue).toBe("0");
+    expect(fieldChange1.content.value.metadataFieldChanges[0].oldValue).toBe(
+      "1",
+    );
+    expect(fieldChange1.content.value.metadataFieldChanges[0].newValue).toBe(
+      "0",
+    );
 
-    const fieldChange2 = messages[2] as DecodedMessage<GroupUpdated>;
-    expect(fieldChange2.content?.metadataFieldChanges).toBeDefined();
-    expect(fieldChange2.content?.metadataFieldChanges.length).toBe(1);
-    expect(fieldChange2.content?.metadataFieldChanges[0].fieldName).toBe(
-      metadataFieldName(MetadataField.MessageExpirationInNs),
+    const fieldChange2 = messages[2] as Message & {
+      content: Extract<MessageContent, { kind: "groupUpdated" }>;
+    };
+    expect(fieldChange2.content.value.metadataFieldChanges).toBeDefined();
+    expect(fieldChange2.content.value.metadataFieldChanges.length).toBe(1);
+    expect(fieldChange2.content.value.metadataFieldChanges[0].fieldName).toBe(
+      "message_disappear_in_ns",
     );
-    expect(fieldChange2.content?.metadataFieldChanges[0].oldValue).toBe(
+    expect(fieldChange2.content.value.metadataFieldChanges[0].oldValue).toBe(
       "2000000000",
     );
-    expect(fieldChange2.content?.metadataFieldChanges[0].newValue).toBe("0");
+    expect(fieldChange2.content.value.metadataFieldChanges[0].newValue).toBe(
+      "0",
+    );
 
     // send messages to the group
     await group2.sendText("gm");
@@ -880,39 +961,39 @@ describe("Group", () => {
     await sleep(10);
     await group.sendText("text 3");
 
-    expect(await group.countMessages()).toBe(4);
+    expect(await group.countMessages({})).toBe(4n);
 
     // Time filters
     expect(
       await group.countMessages({
-        sentBeforeNs: timestamp1,
-        contentTypes: [ContentType.Text],
+        sentBefore: new Timestamp(timestamp1),
+        contentTypes: [standardContentType("text")],
       }),
-    ).toBe(1);
+    ).toBe(1n);
     expect(
       await group.countMessages({
-        sentAfterNs: timestamp1,
+        sentAfter: new Timestamp(timestamp1),
       }),
-    ).toBe(2);
+    ).toBe(2n);
     expect(
       await group.countMessages({
-        sentAfterNs: timestamp2,
-        contentTypes: [ContentType.Text],
+        sentAfter: new Timestamp(timestamp2),
+        contentTypes: [standardContentType("text")],
       }),
-    ).toBe(1);
+    ).toBe(1n);
     expect(
       await group.countMessages({
-        sentAfterNs: timestamp1,
-        sentBeforeNs: timestamp2,
+        sentAfter: new Timestamp(timestamp1),
+        sentBefore: new Timestamp(timestamp2),
       }),
-    ).toBe(1);
+    ).toBe(1n);
 
     // Content type filter
     expect(
       await group.countMessages({
-        contentTypes: [ContentType.Text],
+        contentTypes: [standardContentType("text")],
       }),
-    ).toBe(3);
+    ).toBe(3n);
   });
 
   it("should have pending removal state after requesting removal from the group", async () => {
@@ -923,16 +1004,22 @@ describe("Group", () => {
     await client1.conversations.createGroup([client2.inboxId]);
 
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
 
-    expect(group2.isPendingRemoval()).toBe(false);
+    expect((await group2.state()).membershipState === "pendingRemove").toBe(
+      false,
+    );
     await group2.requestRemoval();
-    expect(group2.isPendingRemoval()).toBe(true);
-    expect(group2.isActive).toBe(true);
+    expect((await group2.state()).membershipState === "pendingRemove").toBe(
+      true,
+    );
+    expect((await group2.state()).common.isActive).toBe(true);
 
     const messages = await group2.messages();
     const leaveRequestMessage = messages[1];
-    expect(leaveRequestMessage.contentType).toEqual(contentTypeLeaveRequest());
+    expect(leaveRequestMessage.contentType).toEqual(
+      standardContentType("leaveRequest"),
+    );
   });
 
   it("should remove a member after processing their removal request", async () => {
@@ -943,22 +1030,24 @@ describe("Group", () => {
     const group = await client1.conversations.createGroup([client2.inboxId]);
 
     await client2.conversations.sync();
-    const group2 = client2.conversations.listGroups()[0];
+    const group2 = (await client2.conversations.listGroups({}))[0];
 
     await group2.requestRemoval();
 
     // messages and welcomes must be synced
-    await client2.conversations.syncAll();
+    await client2.conversations.syncAll(undefined);
 
     // The removal worker publishes before either client must process the commit.
     // Wait for both clients to apply it.
     await vi.waitFor(async () => {
-      await client1.conversations.syncAll();
+      await client1.conversations.syncAll(undefined);
       await group2.sync();
-      expect(group2.isActive).toBe(false);
+      expect((await group2.state()).common.isActive).toBe(false);
       expect(await group.members()).toHaveLength(1);
       expect(await group2.members()).toHaveLength(1);
     }, WAIT);
-    expect(group2.isPendingRemoval()).toBe(true);
+    expect((await group2.state()).membershipState === "pendingRemove").toBe(
+      true,
+    );
   });
 });

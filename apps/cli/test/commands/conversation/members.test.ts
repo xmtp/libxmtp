@@ -8,9 +8,10 @@ import {
 
 interface Member {
   inboxId: string;
+  installationIds: string[];
   accountIdentifiers: Array<{
     identifier: string;
-    identifierKind: string;
+    kind: string;
   }>;
   permissionLevel: string;
 }
@@ -44,6 +45,12 @@ describe("conversation members", () => {
     expect(members.map((m) => m.inboxId)).toContain(creator.inboxId);
     expect(members.map((m) => m.inboxId)).toContain(member1.inboxId);
     expect(members.map((m) => m.inboxId)).toContain(member2.inboxId);
+    for (const identity of [creator, member1, member2]) {
+      expect(
+        members.find((member) => member.inboxId === identity.inboxId)
+          ?.installationIds,
+      ).toContain(identity.installationId);
+    }
   });
 
   it("lists members of a DM", async () => {
@@ -69,5 +76,11 @@ describe("conversation members", () => {
 
     const members = parseJsonOutput<Member[]>(membersResult.stdout);
     expect(members.length).toBe(2);
+    for (const identity of [sender, recipient]) {
+      expect(
+        members.find((member) => member.inboxId === identity.inboxId)
+          ?.installationIds,
+      ).toContain(identity.installationId);
+    }
   });
 });

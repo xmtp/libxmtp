@@ -1,16 +1,18 @@
-import { ConsentState, ConversationType, IdentifierKind } from "@xmtp/node-sdk";
-
-export const identifierKindMap: Record<string, IdentifierKind> = {
-  ethereum: IdentifierKind.Ethereum,
+import type {
+  ConsentState,
+  ConversationKind,
+  PublicIdentityKind,
+} from "@xmtp/node-sdk";
+export const identifierKindMap: Record<string, PublicIdentityKind> = {
+  ethereum: "ethereum",
+  passkey: "passkey",
 };
-
 export const consentStateMap: Record<string, ConsentState> = {
-  allowed: ConsentState.Allowed,
-  denied: ConsentState.Denied,
-  unknown: ConsentState.Unknown,
+  allowed: "allowed",
+  denied: "denied",
+  unknown: "unknown",
 };
-
-export const conversationTypeMap: Record<string, ConversationType> = {
-  dm: ConversationType.Dm,
-  group: ConversationType.Group,
+export const conversationTypeMap: Record<string, ConversationKind> = {
+  dm: "dm",
+  group: "group",
 };

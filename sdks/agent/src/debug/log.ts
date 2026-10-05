@@ -1,14 +1,14 @@
-import { type Client, LogLevel } from "@xmtp/node-sdk";
+import { type Client, type LogLevel } from "@xmtp/node-sdk";
 
 import type { Agent } from "@/core/Agent";
 
 const validLogLevels: LogLevel[] = [
-  LogLevel.Off,
-  LogLevel.Error,
-  LogLevel.Warn,
-  LogLevel.Info,
-  LogLevel.Debug,
-  LogLevel.Trace,
+  "off",
+  "error",
+  "warn",
+  "info",
+  "debug",
+  "trace",
 ];
 
 const isLogLevel = (level: string): level is LogLevel => {
@@ -22,8 +22,7 @@ export const getValidLogLevels = (): LogLevel[] => {
 
 /** Parse a case-insensitive log level, returning `null` for invalid input. */
 export const parseLogLevel = (rawLevel: string) => {
-  const normalizedLevel =
-    rawLevel.charAt(0).toUpperCase() + rawLevel.slice(1).toLowerCase();
+  const normalizedLevel = rawLevel.toLowerCase();
 
   if (isLogLevel(normalizedLevel)) {
     return normalizedLevel;
@@ -44,23 +43,21 @@ export const logDetails = async <ContentTypes>(agent: Agent<ContentTypes>) => {
   \x1b[0m`;
 
   const client = agent.client;
-  const clientsByAddress = client.accountIdentifier?.identifier;
+  const clientsByAddress = client.identity.identifier;
   const inboxId = client.inboxId;
   const installationId = client.installationId;
 
   const urls = [`http://xmtp.chat/dm/${clientsByAddress}`];
 
   const conversations = await client.conversations.list();
-  const inboxState = await client.preferences.inboxState();
-  const keyPackageStatuses = await client.fetchKeyPackageStatuses([
-    installationId,
-  ]);
+  const inboxState = await client.inboxState(false);
+  const keyPackageStatuses = await client.keyPackageStatuses([installationId]);
 
   let createdDate = new Date();
   let expiryDate = new Date();
 
   // Extract key package status for the specific installation
-  const keyPackageStatus = keyPackageStatuses[installationId] ?? {};
+  const keyPackageStatus = keyPackageStatuses.get(installationId) ?? {};
   if (keyPackageStatus.lifetime) {
     createdDate = new Date(Number(keyPackageStatus.lifetime.notBefore) * 1000);
     expiryDate = new Date(Number(keyPackageStatus.lifetime.notAfter) * 1000);
@@ -86,8 +83,8 @@ export const logDetails = async <ContentTypes>(agent: Agent<ContentTypes>) => {
  * @param client - Your XMTP client
  * @returns The URL to test your agent with
  */
-export const getTestUrl = <ContentTypes>(client: Client<ContentTypes>) => {
-  const address = client.accountIdentifier?.identifier;
+export const getTestUrl = <_ContentTypes>(client: Client) => {
+  const address = client.identity.identifier;
   return `http://xmtp.chat/dm/${address}`;
 };
 
@@ -104,29 +101,25 @@ export type InstallationInfo = {
 };
 
 /** Read installation count and determine whether this client is newest. */
-export const getInstallationInfo = async <ContentTypes>(
-  client: Client<ContentTypes>,
+export const getInstallationInfo = async <_ContentTypes>(
+  client: Client,
 ): Promise<InstallationInfo> => {
   const myInboxId = client.inboxId;
   const myInstallationId = client.installationId;
 
-  const inboxStates = await client.preferences.fetchInboxStates([myInboxId]);
+  const inboxStates = await client.inboxStates([myInboxId], true);
 
   const installations =
     inboxStates.find((state) => state.inboxId === myInboxId)?.installations ||
     [];
 
   const sortedInstallations = [...installations].sort((a, b) => {
-    const aTime = a.clientTimestampNs ?? 0n;
-    const bTime = b.clientTimestampNs ?? 0n;
+    const aTime = a.createdAt?.ns ?? 0n;
+    const bTime = b.createdAt?.ns ?? 0n;
     return bTime > aTime ? 1 : bTime < aTime ? -1 : 0;
   });
 
   const mostRecentInstallation = sortedInstallations[0];
-
-  const myInstallationIdHex = Buffer.from(client.installationIdBytes).toString(
-    "hex",
-  );
 
   const info: InstallationInfo = {
     totalInstallations: installations.length,
@@ -136,11 +129,9 @@ export const getInstallationInfo = async <ContentTypes>(
   };
 
   if (mostRecentInstallation) {
-    const mostRecentIdHex = Buffer.from(mostRecentInstallation.bytes).toString(
-      "hex",
-    );
+    const mostRecentIdHex = mostRecentInstallation.id;
     info.mostRecentInstallationId = mostRecentIdHex;
-    info.isMostRecent = myInstallationIdHex === mostRecentIdHex;
+    info.isMostRecent = myInstallationId === mostRecentIdHex;
   }
 
   return info;

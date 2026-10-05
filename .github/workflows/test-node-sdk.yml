@@ -4,6 +4,28 @@ on:
 env:
   NIX_DEVSHELL: js-node
 jobs:
+  retained-bindings:
+    name: Test retained Node bindings
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          docker-builder: "true"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - name: Start backend
+        run: dev/nix-shell 'just backend up'
+      - name: Run retained binding tests
+        run: dev/nix-shell 'just node test-ci'
+      - name: Lint retained binding tests
+        run: dev/nix-shell 'pnpm --filter @xmtp/node-bindings lint'
+      - name: Typecheck retained binding tests
+        run: dev/nix-shell 'pnpm --filter @xmtp/node-bindings typecheck'
   test:
     name: Test (node-sdk) shard ${{ matrix.shard }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -23,11 +45,11 @@ jobs:
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
       - name: Start backend
-        run: just backend up
+        run: dev/nix-shell 'just backend up'
       - name: Run node-sdk tests (shard ${{ matrix.shard }}/2)
-        run: just js test-node-sdk-ci --shard ${{ matrix.shard }}/2 --exclude test/streamRecovery.test.ts
+        run: dev/nix-shell 'just js test-node-sdk-ci --shard ${{ matrix.shard }}/2 --exclude test/streamRecovery.test.ts'
       - name: Run CLI tests (shard ${{ matrix.shard }}/2)
-        run: just cli test-ci --shard ${{ matrix.shard }}/2
+        run: dev/nix-shell 'just cli test-ci --shard ${{ matrix.shard }}/2'
   recovery:
     name: Test (node-sdk) recovery
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -45,11 +67,11 @@ jobs:
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
       - name: Start backend
-        run: just backend up
+        run: dev/nix-shell 'just backend up'
       - name: Build backend for graceful restart
-        run: just backend build
+        run: dev/nix-shell 'just backend build'
       # The budget exhaustion tests run only locally. See sdks/node/AGENTS.md.
       - name: Run public recovery matrix
         env:
           XMTP_RECOVERY_BACKEND_BINARY: ${{ github.workspace }}/result/bin/xmtp-backend
-        run: just js test-node-sdk-ci test/streamRecovery.test.ts
+        run: dev/nix-shell 'just js test-node-sdk-ci test/streamRecovery.test.ts'

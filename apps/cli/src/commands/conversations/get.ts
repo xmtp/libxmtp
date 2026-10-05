@@ -2,6 +2,7 @@ import { Args } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
 import { isDm, isGroup } from "@/utils/conversation";
+import { memberDetails } from "@/utils/members";
 
 export default class ConversationsGet extends BaseCommand {
   static description = `Get a conversation by ID.
@@ -47,46 +48,39 @@ Use this to inspect the full details of a specific conversation.`;
     const { args } = await this.parse(ConversationsGet);
     const client = await this.initClient();
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
     }
 
-    const metadata = await conversation.metadata();
+    const snapshot = await conversation.state();
+    const state = "common" in snapshot ? snapshot.common : snapshot;
     const members = await conversation.members();
 
     const base = {
       id: conversation.id,
       type: isGroup(conversation) ? "group" : "dm",
-      createdAt: conversation.createdAt.toISOString(),
-      createdAtNs: conversation.createdAtNs,
-      consentState: conversation.consentState(),
-      isActive: conversation.isActive,
+      createdAt: conversation.createdAt.date.toISOString(),
+      createdAtNs: conversation.createdAt.ns,
+      consentState: state.consentState,
+      isActive: state.isActive,
       addedByInboxId: conversation.addedByInboxId,
-      creatorInboxId: metadata.creatorInboxId,
+      creatorInboxId: conversation.creatorInboxId,
       memberCount: members.length,
-      members: members.map((m) => ({
-        inboxId: m.inboxId,
-        accountIdentifiers: m.accountIdentifiers,
-        installationIds: m.installationIds,
-        permissionLevel: m.permissionLevel,
-        consentState: m.consentState,
-      })),
+      members: await memberDetails(client, members),
     };
 
-    if (isGroup(conversation)) {
-      const permissions = conversation.permissions();
-      const admins = conversation.listAdmins();
-      const superAdmins = conversation.listSuperAdmins();
+    if (isGroup(conversation) && "common" in snapshot) {
+      const permissions = snapshot.permissions;
+      const admins = await conversation.listAdmins();
+      const superAdmins = await conversation.listSuperAdmins();
 
       this.output({
         ...base,
-        name: conversation.name,
-        description: conversation.description,
-        imageUrl: conversation.imageUrl,
+        name: snapshot.name,
+        description: snapshot.description,
+        imageUrl: snapshot.imageUrl,
         admins,
         superAdmins,
         permissions: {
@@ -97,7 +91,7 @@ Use this to inspect the full details of a specific conversation.`;
     } else if (isDm(conversation)) {
       this.output({
         ...base,
-        peerInboxId: conversation.peerInboxId,
+        peerInboxId: await conversation.peerInboxId(),
       });
     } else {
       this.output(base);
