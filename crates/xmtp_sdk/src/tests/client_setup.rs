@@ -22,17 +22,16 @@ async fn local_signer_and_signature_request_register() {
     client.end().await?;
 }
 
-#[xmtp_common::test(unwrap_try = true)]
-async fn added_account_opens_the_existing_inbox() {
-    let owner = Client::create(crate::generate_local_signer().await, options()).await?;
-    let second_signer = crate::generate_local_signer().await;
-    owner
-        .unsafe_add_account(second_signer.clone(), false)
-        .await?;
-    let identifier = signer::identity(second_signer.clone()).await?.to_core()?;
+/// Waits until the backend resolves `identity` to `expected`. A new client
+/// looks its inbox up there, so it must see the latest association.
+async fn wait_for_backend_inbox(
+    identity: &PublicIdentity,
+    expected: InboxId,
+) -> Result<(), XmtpError> {
+    let identifier = identity.to_core()?;
     let backend = options().backend.unwrap_or_default().resolve().await?;
     let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
-    let expected = owner.inbox_id().into_checked()?;
+    let expected = expected.into_checked()?;
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let found = api
@@ -46,12 +45,74 @@ async fn added_account_opens_the_existing_inbox() {
         }
     })
     .await
-    .expect("added account did not become visible to the backend")?;
+    .expect("the backend did not resolve the account to the expected inbox")
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn added_account_opens_the_existing_inbox() {
+    let owner = Client::create(crate::generate_local_signer().await, options()).await?;
+    let second_signer = crate::generate_local_signer().await;
+    owner
+        .unsafe_add_account(second_signer.clone(), false)
+        .await?;
+    let identity = signer::identity(second_signer.clone()).await?;
+    wait_for_backend_inbox(&identity, owner.inbox_id()).await?;
     let second = Client::create(second_signer, options()).await?;
     assert_eq!(second.inbox_id(), owner.inbox_id());
     assert!(owner.inbox_state(true).await?.identities.len() >= 2);
     second.end().await?;
     owner.end().await?;
+}
+
+/// An account that belongs to another inbox moves only when the caller allows
+/// reassignment. Without it, the add fails before it asks for a signature.
+#[xmtp_common::test(unwrap_try = true)]
+async fn account_moves_to_another_inbox_only_with_explicit_reassignment() {
+    let first_owner = crate::generate_local_signer().await;
+    let first = Client::create(first_owner.clone(), options()).await?;
+    let next = Client::create(crate::generate_local_signer().await, options()).await?;
+    let moved = signer::identity(first_owner.clone()).await?;
+
+    let refused = next.unsafe_add_account(first_owner.clone(), false).await;
+    assert!(
+        matches!(&refused, Err(XmtpError::InvalidInput(details))
+            if details.message == "identity belongs to another inbox"),
+        "an add without reassignment must refuse, got {refused:?}"
+    );
+    // Only the flag stops the add: with reassignment allowed, the same
+    // account gets a signature request.
+    next.unsafe_add_account_signature_request(moved.clone(), true)
+        .await?;
+
+    // Free the account from the first inbox, then move it to the next inbox.
+    let temporary = crate::generate_local_signer().await;
+    let temporary_identity = signer::identity(temporary.clone()).await?;
+    first.unsafe_add_account(temporary, true).await?;
+    first
+        .remove_account(first_owner.clone(), moved.clone())
+        .await?;
+    first
+        .change_recovery_identifier(first_owner.clone(), temporary_identity.clone())
+        .await?;
+    let state = first.inbox_state(true).await?;
+    let identifiers = state
+        .identities
+        .iter()
+        .map(|identity| identity.identifier.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(identifiers, [temporary_identity.identifier.as_str()]);
+    assert_eq!(
+        state.recovery_identity.identifier,
+        temporary_identity.identifier
+    );
+
+    next.unsafe_add_account(first_owner.clone(), true).await?;
+    wait_for_backend_inbox(&moved, next.inbox_id()).await?;
+    let reopened = Client::create(first_owner, options()).await?;
+    assert_eq!(reopened.inbox_id(), next.inbox_id());
+    reopened.end().await?;
+    next.end().await?;
+    first.end().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]

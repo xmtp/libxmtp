@@ -242,6 +242,54 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     b.end().await?;
 }
 
+/// Clearing the disappearing settings (`None`) stores zero values and turns
+/// disappearing off, for the sender and for a member after sync.
+#[xmtp_common::test(unwrap_try = true)]
+async fn cleared_disappearing_settings_read_back_as_zero_for_all_members() {
+    use crate::{Conversation, ConversationState, DisappearingSettings, Timestamp};
+
+    fn settings(state: &ConversationState) -> Option<(i64, i64)> {
+        state
+            .disappearing_settings
+            .as_ref()
+            .map(|settings| (settings.from.0, settings.retention_ns))
+    }
+
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = alix
+        .conversations()
+        .create_group(vec![bo.inbox_id()], None)
+        .await?;
+    let from = xmtp_common::time::now_ns();
+    group
+        .update_disappearing_settings(Some(DisappearingSettings {
+            from: Timestamp(from),
+            retention_ns: xmtp_common::NS_IN_MIN,
+        }))
+        .await?;
+    bo.conversations().sync().await?;
+    let Some(Conversation::Group { group: bo_group }) =
+        bo.conversations().get_by_id(group.id()).await?
+    else {
+        panic!("bo must receive the group");
+    };
+    bo_group.sync().await?;
+    for state in [group.state().await?.common, bo_group.state().await?.common] {
+        assert!(state.is_disappearing_enabled);
+        assert_eq!(settings(&state), Some((from, xmtp_common::NS_IN_MIN)));
+    }
+
+    group.update_disappearing_settings(None).await?;
+    bo_group.sync().await?;
+    for state in [group.state().await?.common, bo_group.state().await?.common] {
+        assert!(!state.is_disappearing_enabled);
+        assert_eq!(settings(&state), Some((0, 0)));
+    }
+    alix.end().await?;
+    bo.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn remove_members_rejects_account_address_and_keeps_nonmember_noop() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;

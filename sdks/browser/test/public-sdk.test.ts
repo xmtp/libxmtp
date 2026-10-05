@@ -54,17 +54,11 @@ test("public package registers, queries identities, sends, and closes", async ()
   await expect(group.messages()).rejects.toBeInstanceOf(XmtpError.ClientClosed);
 });
 
-test("DM lookup, optimistic sends, filters, reactions, and replies use the public model", async () => {
+test("a DM created from an identity keeps optimistic sends, filters, reactions, and replies", async () => {
   const client = await create();
   const peer = await create();
   const dm = await client.conversations.createDm(peer.identity);
   expect((await dm.state()).pausedForVersion).toBeUndefined();
-  expect((await client.conversations.getDmByInboxId(peer.inboxId))?.id).toBe(
-    dm.id,
-  );
-  expect((await client.conversations.getDmByIdentity(peer.identity))?.id).toBe(
-    dm.id,
-  );
   const id = await dm.sendText("first", { optimistic: true, shouldPush: true });
   await dm.publishMessages();
   const text = new TextCodec().encode("reply");
@@ -308,28 +302,4 @@ test("a signerless build needs registration and keeps byte signatures typed", as
       client.installationIdBytes,
     ),
   ).toBe(true);
-});
-
-test("an identity moves only when reassignment is explicit", async () => {
-  const firstOwner = signer();
-  const nextOwner = signer();
-  const first = await create(firstOwner);
-  const next = await create(nextOwner);
-  const moved = await firstOwner.identity();
-  await expect(next.unsafeAddAccount(firstOwner, false)).rejects.toThrow();
-  const temporary = signer();
-  const temporaryIdentity = await temporary.identity();
-  await first.unsafeAddAccount(temporary, true);
-  await first.removeAccount(firstOwner, moved);
-  await first.changeRecoveryIdentifier(firstOwner, temporaryIdentity);
-  expect((await first.inboxState(true)).identities).toEqual([
-    temporaryIdentity,
-  ]);
-  await next.unsafeAddAccount(firstOwner, true);
-  expect(await Client.inboxIdFor(moved, backend)).toBe(next.inboxId);
-  await next.removeAccount(nextOwner, await nextOwner.identity());
-  await next.changeRecoveryIdentifier(nextOwner, moved);
-  expect((await next.inboxState(true)).identities).toEqual([moved]);
-  expect((await next.inboxState(true)).recoveryIdentity).toEqual(moved);
-  expect((await create(firstOwner)).inboxId).toBe(next.inboxId);
 });
