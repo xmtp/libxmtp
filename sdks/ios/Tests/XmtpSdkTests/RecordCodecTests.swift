@@ -70,6 +70,9 @@ final class RecordCodecTests: XCTestCase {
 		XCTAssertEqual(remote.contentLength, 5)
 		XCTAssertEqual(remote.contentDigest, "74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0")
 		XCTAssertEqual(remote.secret, encrypted.keys.secret)
+		XCTAssertEqual(remote.salt, encrypted.keys.salt)
+		XCTAssertEqual(remote.nonce, encrypted.keys.nonce)
+		XCTAssertEqual(remote.scheme, "https://")
 		XCTAssertEqual(remote.filename, "file.bin")
 	}
 

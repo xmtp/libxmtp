@@ -74,6 +74,7 @@ final class InstalledClientTests: XCTestCase {
 
 	/// Smoke for the generated free function: it lowers [InboxId] and BackendSource
 	/// and lifts the [String: UInt64] result. No other Swift test lifts that dictionary.
+	/// The count is read with `Query`, which reads its own writes (API-202, OPS-009), so no poll is needed.
 	func testLatestInboxUpdatesCountWithoutClient() async throws {
 		let options = testOptions()
 		let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
