@@ -18,10 +18,6 @@ dev/nix-shell 'just ios docs'
 NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XmtpSdkTests.RetainedBehaviorTests/testRemoteAttachmentLength'
 NIX_DEVSHELL=ios dev/nix-shell 'ruby sdks/ios/script/test_podspec.rb'
 dev/nix-shell 'python3 sdks/ios/script/test_recipes.py'
-NIX_DEVSHELL=ios dev/nix-shell 'python3 sdks/ios/script/test_listener_gates.py'
-NIX_DEVSHELL=ios dev/nix-shell 'python3 sdks/ios/script/test_lifecycle_log.py'
-NIX_DEVSHELL=ios dev/nix-shell 'python3 sdks/ios/script/test_reader_overlap.py'
-NIX_DEVSHELL=ios dev/nix-shell 'python3 sdks/ios/script/test_event_iterator_overlap.py'
 ```
 
 The podspec test needs an existing Ruby runtime with `cocoapods-core`. Use the
@@ -29,12 +25,15 @@ same Ruby runtime as CocoaPods. It checks source selection, invalid receipts,
 and simulator exclusions. It does not install or download a pod.
 
 The recipe test checks the real Just commands without compiling the SDK.
-The listener gate test compiles the private Swift gate source. It checks that
-client close rejects a later pending or completed listener registration.
-The lifecycle log test checks that a failed resume does not log backend error text.
-The reader overlap test checks that a rejected read does not advance or close the
-active reader. It also checks read ownership after success, failure and cancellation.
-The event iterator test applies the same checks to event reads and checks an end race.
+
+`RuntimeFakes.swift` in `Tests/XmtpSdkTests` replaces the generated Rust-backed
+objects with fakes, so a test can run the Swift runtime without a backend. The
+listener gate, reader iterator and event iterator tests use it. These tests and
+`AppleLifecycleTests` need only the XCFramework from `just ios build`:
+
+```bash
+NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateTests|ReaderIteratorReadTests|EventIteratorReadTests|AppleLifecycleTests)"'
+```
 
 ## Rules
 

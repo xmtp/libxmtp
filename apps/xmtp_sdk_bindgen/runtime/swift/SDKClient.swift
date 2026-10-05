@@ -32,7 +32,8 @@ public final class SDKClient: @unchecked Sendable {
     let listenerGates = ListenerGates()
     private let codecs: CodecRegistry
 
-    private init(_ raw: Client, codecs: [any ContentCodec]) {
+    // Internal, not private, so tests can wrap a Client fake.
+    init(_ raw: Client, codecs: [any ContentCodec]) {
         self.raw = raw
         self.codecs = CodecRegistry(codecs)
         ClientRegistry.register(self)
