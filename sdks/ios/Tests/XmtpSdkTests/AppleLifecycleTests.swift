@@ -60,4 +60,10 @@ final class AppleLifecycleTests: XCTestCase {
 		XCTAssertEqual(result.suspends, 1)
 		XCTAssertEqual(result.resumes, 0)
 	}
+
+	#if canImport(UIKit)
+		func testManageStreamLifecycleDefaultsOn() {
+			XCTAssertTrue(SDKClient.manageStreamLifecycle)
+		}
+	#endif
 }
