@@ -1,3 +1,4 @@
+import OSLog
 import XCTest
 @testable import XmtpSdk
 
@@ -59,6 +60,41 @@ final class AppleLifecycleTests: XCTestCase {
 		let result = await calls.counts()
 		XCTAssertEqual(result.suspends, 1)
 		XCTAssertEqual(result.resumes, 0)
+	}
+
+	private struct BackendFailure: LocalizedError {
+		var errorDescription: String? {
+			"backend rejected credential-lifecycle-secret"
+		}
+	}
+
+	/// The resume failure log names the operation. It does not contain the error text.
+	func testFailedResumeLogOmitsErrorText() async throws {
+		guard #available(macOS 12, iOS 15, *) else {
+			throw XCTSkip("OSLogStore needs macOS 12 or iOS 15")
+		}
+		let store = try OSLogStore(scope: .currentProcessIdentifier)
+		let start = store.position(date: Date())
+		let manager = StreamLifecycleManager(suspend: {}, resume: { throw BackendFailure() })
+		await manager.setDesired(live: false)?.value
+		await manager.setDesired(live: true)?.value
+
+		// A log entry can reach the store after a short delay. One read can take seconds.
+		var messages: [String] = []
+		for _ in 0 ..< 20 {
+			messages = try store.getEntries(at: start)
+				.compactMap { $0 as? OSLogEntryLog }
+				.map(\.composedMessage)
+			if messages.contains(where: { $0.contains("Stream resume failed") }) {
+				break
+			}
+			try await Task.sleep(nanoseconds: 100_000_000)
+		}
+		XCTAssertTrue(messages.contains { $0.contains("Stream resume failed") }, "The failed resume did not log")
+		XCTAssertFalse(
+			messages.contains { $0.contains("credential-lifecycle-secret") },
+			"The lifecycle log contains the error text",
+		)
 	}
 
 	#if canImport(UIKit)
