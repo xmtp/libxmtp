@@ -41,7 +41,7 @@ export async function checkStreamOptions(client: Client): Promise<void> {
   await stream.end();
 }
 
-// EVENT-020 permits omission of references_own_messages.
+// EventFilter permits omission of references_own_messages.
 export async function checkEventFilterDefault(client: Client) {
   const filter: EventFilter = {
     kinds: ["conversation.joined"],
