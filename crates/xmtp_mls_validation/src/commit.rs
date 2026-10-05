@@ -656,6 +656,18 @@ pub fn validate_one_app_data_update(
     let membership = membership_inbox_ids(
         read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, openmls_group).as_deref(),
     );
+    if component_id == ComponentId::GROUP_MEMBERSHIP
+        && removes_super_admin(
+            operation,
+            read_from_app_data_dict(ComponentId::SUPER_ADMIN_LIST, openmls_group).as_deref(),
+        )
+    {
+        tracing::warn!(
+            proposer_inbox_id,
+            "AppDataUpdate proposal rejected: cannot remove super admin"
+        );
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
 
     validate_standalone_app_data_update(
         component_id,
@@ -714,6 +726,45 @@ pub(crate) fn validate_standalone_app_data_update(
         }
         _ => Ok(()),
     }
+}
+
+/// Whether a `GROUP_MEMBERSHIP` operation drops a member of the committed
+/// `SUPER_ADMIN_LIST` snapshot.
+///
+/// Super admins stay members. MLS Remove validation enforces this for
+/// leaves; this check enforces it for the membership entry. Without it, a
+/// receiver rejects an admin's Remove proposal but stores the paired
+/// membership proposal, which then fails every later commit of pending
+/// proposals.
+///
+/// A whole-component `Remove` returns `false`: commits omit it.
+/// A malformed delta or super-admin list also returns `false`; expansion
+/// and the commit-time checks reject those.
+// implements: PERM-003
+pub(crate) fn removes_super_admin(
+    operation: &openmls::messages::proposals::AppDataUpdateOperation,
+    super_admins: Option<&[u8]>,
+) -> bool {
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    use tls_codec::{Deserialize as _, VLBytes};
+    use xmtp_mls_common::{
+        app_data::{components::inbox_id_set::SuperAdminListComponent, typed::Component},
+        inbox_id::InboxId,
+        tls_map::{TlsMapDelta, TlsMapMutation},
+    };
+
+    let AppDataUpdateOperation::Update(payload) = operation else {
+        return false;
+    };
+    let (Some(super_admins), Ok(delta)) = (
+        super_admins.and_then(|bytes| SuperAdminListComponent::decode_value(bytes).ok()),
+        TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload.as_slice()),
+    ) else {
+        return false;
+    };
+    delta.mutations.iter().any(
+        |mutation| matches!(mutation, TlsMapMutation::Delete { key } if super_admins.contains(key)),
+    )
 }
 
 /// The inbox ids of a `GROUP_MEMBERSHIP` snapshot. `None` when the

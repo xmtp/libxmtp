@@ -537,14 +537,14 @@ async fn test_remove_proposal_validation_in_admin_group() {
                 .try_into()?,
             false,
         ))?;
-    assert_insufficient_permissions(
-        bo_group
-            .sync_until_intent_resolved(remove_alix_intent.id)
-            .await
-            .unwrap_err(),
-    );
+    // Bo rejects this before publishing; see
+    // test_admin_removing_super_admin_publishes_nothing.
+    bo_group
+        .sync_until_intent_resolved(remove_alix_intent.id)
+        .await
+        .expect_err("a super admin must not be removed");
 
-    // Alix syncs — proposal rejected (cannot remove super admin)
+    // Alix syncs — nothing to store (cannot remove super admin)
     let _ = alix_group.sync().await;
 
     let alix_pending = alix_group
@@ -561,6 +561,44 @@ async fn test_remove_proposal_validation_in_admin_group() {
     alix_group.sync().await?;
     let members = alix_group.members().await?;
     assert_eq!(members.len(), 3, "All members should still be in the group");
+}
+
+/// An admin may remove members but not a super admin. Receivers once
+/// rejected the Remove proposal but stored the paired membership proposal,
+/// so every later send failed to commit pending proposals. Receivers now
+/// reject both, and the sender publishes neither.
+// verifies: PERM-003
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_admin_removing_super_admin_publishes_nothing() {
+    use crate::groups::UpdateAdminListType;
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    alix_group
+        .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    let caro_group = caro.sync_welcomes().await?.first()?.clone();
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+
+    bo_group
+        .remove_members(&[alix.inbox_id()])
+        .await
+        .expect_err("an admin must not remove a super admin");
+
+    for group in [&caro_group, &alix_group, &bo_group] {
+        group.sync().await?;
+        group.send_message(b"after", Default::default()).await?;
+    }
+    assert_eq!(caro_group.members().await?.len(), 3);
+    // Caro saw nothing to reject: Bo published neither proposal.
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(caro_group.group_id);
+    assert!(caro.context.db().read_last_rejection(&topic)?.is_none());
 }
 
 /// Test that an admin can propose removing a member and a non-admin can commit it.

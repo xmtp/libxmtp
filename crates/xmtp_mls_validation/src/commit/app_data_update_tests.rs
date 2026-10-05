@@ -33,7 +33,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::{
-    AppDataUpdateInCommit, CommitRuleError, app_data_update_proposer_leaf,
+    AppDataUpdateInCommit, CommitRuleError, app_data_update_proposer_leaf, removes_super_admin,
     validate_app_data_update_sequence, validate_one_app_data_update_with_old_value,
     validate_standalone_app_data_update,
 };
@@ -417,6 +417,42 @@ fn multi_mutation_delta_all_allowed_returns_ok() {
 // ------------------------------------------------------------------------
 // validate_one_app_data_update_with_old_value — receiver invariants
 // ------------------------------------------------------------------------
+
+/// Super admins stay members, so a membership proposal may not delete one.
+/// An admin passes the membership policy; without this check a receiver
+/// stores the proposal, and every later commit of pending proposals fails.
+// verifies: PERM-003
+#[xmtp_common::test(unwrap_try = true)]
+fn membership_update_may_not_remove_super_admin() {
+    use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
+    use xmtp_mls_common::app_data::typed::Component;
+
+    let (super_admin, member) = (fake_inbox(0x42), fake_inbox(0x43));
+    let mut super_admins = TlsSet::new();
+    super_admins.insert(super_admin)?;
+    let super_admins = SuperAdminListComponent::encode_value(&super_admins)?;
+    let update = |delta: TlsMapDelta<InboxId, VLBytes>| {
+        AppDataUpdateOperation::Update(delta.tls_serialize_detached().unwrap().into())
+    };
+    let entry = || VLBytes::new(vec![1]);
+
+    let removes =
+        |operation: &AppDataUpdateOperation| removes_super_admin(operation, Some(&super_admins));
+    assert!(removes(&update(TlsMapDelta::new().delete(super_admin))));
+    assert!(removes(&update(
+        TlsMapDelta::new().delete(member).delete(super_admin)
+    )));
+    // Commits omit a whole-component Remove; it removes nobody.
+    assert!(!removes(&AppDataUpdateOperation::Remove));
+    assert!(!removes(&update(TlsMapDelta::new().delete(member))));
+    assert!(!removes(&update(
+        TlsMapDelta::new().update(super_admin, entry())
+    )));
+    assert!(!removes_super_admin(
+        &update(TlsMapDelta::new().delete(super_admin)),
+        None
+    ));
+}
 
 // verifies: PERM-004
 #[xmtp_common::test(unwrap_try = true)]

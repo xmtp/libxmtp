@@ -745,6 +745,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             IntentKind::ProposeMemberUpdate => {
                 let intent_data = ProposeMemberUpdateIntentData::try_from(intent.data.as_slice())?;
+                update_group_membership::reject_super_admin_removal(
+                    openmls_group,
+                    &intent_data.remove_inbox_ids,
+                )?;
                 let group_epoch = openmls_group.epoch().as_u64();
                 let signer = &self.context.identity().installation_keys;
                 let mut proposal_payloads = Vec::new();
