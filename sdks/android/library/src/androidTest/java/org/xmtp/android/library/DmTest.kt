@@ -25,27 +25,6 @@ class DmTest : BaseInstrumentedTest() {
         peer: InboxId,
     ): Dm = checkNotNull(client.conversations().getDmByInboxId(peer))
 
-    @Test fun testCannotCreateDmWithMemberNotOnV3() =
-        runBlocking {
-            val unregistered = createWallet().identity()
-            try {
-                bo.conversations().createDm(unregistered)
-                fail("An unregistered identity must fail")
-            } catch (_: XmtpException) {
-                assertNull(bo.conversations().getDmByIdentity(unregistered))
-            }
-        }
-
-    @Test fun testCannotStartDmWithSelf() =
-        runBlocking {
-            try {
-                bo.conversations().createDm(bo.inboxId())
-                fail("Recipient is sender")
-            } catch (_: XmtpException) {
-                assertTrue(bo.conversations().listDms(null).isEmpty())
-            }
-        }
-
     @Test fun testCanSendMessageToDm() =
         runBlocking {
             val dm = bo.conversations().createDm(alix.inboxId())

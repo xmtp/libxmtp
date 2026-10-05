@@ -130,6 +130,61 @@ async fn identity_routes_reject_a_malformed_element() {
     assert_eq!(listed.len(), 1, "a rejected create stored a conversation");
 }
 
+// A DM with the client's own inbox fails by inbox ID and by account, and
+// stores no conversation.
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_with_own_inbox_fails_and_stores_no_conversation() {
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let conversations = alix.conversations();
+    let by_inbox = conversations.create_dm(alix.inbox_id(), None).await.err();
+    let by_identity = conversations
+        .create_dm_with_identity(alix.identity(), None)
+        .await
+        .err();
+    for error in [by_inbox, by_identity] {
+        let error = error.expect("a DM with the own inbox must fail");
+        assert!(
+            error.to_string().contains("self-reference"),
+            "the DM must fail on its own inbox, got {error:?}"
+        );
+    }
+    assert!(conversations.list(None).await?.is_empty());
+    assert!(
+        conversations
+            .get_dm_by_inbox_id(alix.inbox_id())
+            .await?
+            .is_none()
+    );
+    alix.end().await?;
+}
+
+// A DM with an account that has no inbox fails because no inbox is found, and
+// the account lookup then finds no DM.
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_with_unregistered_account_fails_and_stores_no_conversation() {
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let unregistered = signer::identity(crate::generate_local_signer().await).await?;
+    let conversations = alix.conversations();
+    let error = conversations
+        .create_dm_with_identity(unregistered.clone(), None)
+        .await
+        .err()
+        .expect("a DM with an unregistered account must fail");
+    let expected = format!("inbox id for address {} not found", unregistered.identifier);
+    assert!(
+        error.to_string().contains(&expected),
+        "the DM must fail on the inbox lookup, got {error:?}"
+    );
+    assert!(
+        conversations
+            .get_dm_by_identity(unregistered)
+            .await?
+            .is_none()
+    );
+    assert!(conversations.list(None).await?.is_empty());
+    alix.end().await?;
+}
+
 // verifies: PROC-036
 #[xmtp_common::test(unwrap_try = true)]
 async fn inbox_member_add_error_logs_omit_installation_ids() {

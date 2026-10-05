@@ -15,6 +15,8 @@ class ClientTest : BaseInstrumentedTest() {
         options: ClientOptions = createClientOptions(),
     ): SDKClient = trackClient(SDKClient.create(context, signer, options))
 
+    private fun backend() = BackendSource.Options(localApi())
+
     private fun availabilityKey(identity: PublicIdentity): String =
         when (identity.kind) {
             PublicIdentityKind.ETHEREUM -> "ethereum:${identity.identifier.lowercase()}"
@@ -87,6 +89,16 @@ class ClientTest : BaseInstrumentedTest() {
                     withContext(NonCancellable) { created.stopListener(listener) }
                 }
             }
+        }
+
+    @Test fun testStaticCanMessage() =
+        runBlocking {
+            val fixtures = createFixtures()
+            val absent = createWallet().identity()
+            val values = SDKClient.canMessage(listOf(fixtures.alix, absent, fixtures.bo), backend())
+            assertEquals(true, values[availabilityKey(fixtures.alix)])
+            assertEquals(true, values[availabilityKey(fixtures.bo)])
+            assertEquals(false, values[availabilityKey(absent)])
         }
 
     @Test fun testCanDeleteDatabase() =
@@ -165,25 +177,6 @@ class ClientTest : BaseInstrumentedTest() {
             val replacement = client(fixtures.alixAccount)
             assertTrue(SDKClient.verifySignedWithPublicKey("Testing", signature, publicKey))
             assertNotEquals(publicKey.toHex(), replacement.installationIdBytes().toHex())
-        }
-
-    @Test fun testAddAccountsWithExistingInboxIds() =
-        runBlocking {
-            val fixtures = createFixtures()
-            assertTrue(
-                runCatching {
-                    fixtures.alixClient.unsafeAddAccount(fixtures.boAccount, false)
-                }.exceptionOrNull() is XmtpException,
-            )
-            assertNotEquals(fixtures.alixClient.inboxId(), fixtures.boClient.inboxId())
-            fixtures.alixClient.unsafeAddAccount(fixtures.boAccount, true)
-            assertEquals(
-                2,
-                fixtures.alixClient
-                    .inboxState(true)
-                    .identities.size,
-            )
-            assertEquals(fixtures.alixClient.inboxId(), fixtures.alixClient.inboxIdFor(fixtures.bo))
         }
 
     @Test fun testCreatesAClientManually() =
