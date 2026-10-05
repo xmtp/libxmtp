@@ -4,24 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **12 crates** with **420 total error codes**.
-
-## mobile
-
-### GenericError <sub>enum</sub>
-
-<small>`bindings/mobile/src/lib.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `GenericError::Generic` | Generic error. Unclassified error with string message. May be retryable. |
-| `GenericError::FailedToConvertToU32` | Failed to convert to u32. Numeric conversion failed. Not retryable. |
-| `GenericError::JoinError` | Join error. Tokio task join failed. Not retryable. |
-| `GenericError::IoError` | I/O error. File or network I/O failed. May be retryable. |
-| `GenericError::Log` | Log error. Error initializing debug log file. Not retryable. |
-| `GenericError::Expired` | Timer expired. Operation timed out. Retryable. |
-| `GenericError::BackendBuilder` | Backend configuration failed. This error is not retryable. |
-| `GenericError::Level` | Log Level failed to parse because it was invalid |
+**38 error types** across **11 crates** with **412 total error codes**.
 
 ## node
 

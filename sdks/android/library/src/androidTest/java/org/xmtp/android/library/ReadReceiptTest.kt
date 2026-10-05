@@ -1,60 +1,20 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
+import org.junit.Assert.*
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.xmtp.android.library.codecs.ContentTypeReadReceipt
-import org.xmtp.android.library.codecs.ReadReceipt
-import org.xmtp.android.library.codecs.ReadReceiptCodec
+import uniffi.xmtp_sdk.*
 
-@RunWith(AndroidJUnit4::class)
 class ReadReceiptTest : BaseInstrumentedTest() {
-    private lateinit var fixtures: TestFixtures
-    private lateinit var alixClient: Client
-    private lateinit var boClient: Client
-
-    @org.junit.Before
-    override fun setUp() {
-        super.setUp()
-        fixtures = runBlocking { createFixtures() }
-        alixClient = fixtures.alixClient
-        boClient = fixtures.boClient
-    }
-
-    @Test
-    fun testCanUseReadReceiptCodec() {
-        Client.register(codec = ReadReceiptCodec())
-
-        val alixConversation =
-            runBlocking {
-                alixClient.conversations.newConversation(boClient.inboxId)
-            }
-
-        runBlocking { alixConversation.send(text = "hey alice 2 bob") }
-
-        val readReceipt = ReadReceipt
-
+    @Test fun testCanUseReadReceiptCodec() =
         runBlocking {
-            alixConversation.send(
-                content = readReceipt,
-                options = SendOptions(contentType = ContentTypeReadReceipt),
-            )
+            val fixtures = createFixtures()
+            val dm = fixtures.alixClient.conversations().createDm(fixtures.boClient.inboxId())
+            val text = dm.sendText("hey alice 2 bob")
+            val receipt = dm.sendReadReceipt()
+            val message = dm.messageHistorySnapshot(10u).messages.single { it.id == receipt }
+            assertEquals(MessageContent.ReadReceipt, (message.content as SDKMessageContent.Standard).value)
+            assertEquals(ReadReceiptCodec().type, message.contentType)
+            assertEquals(text, checkNotNull(dm.lastMessage()).id)
         }
-        val messages = runBlocking { alixConversation.messages() }
-        assertEquals(messages.size, 3)
-        if (messages.size == 3) {
-            val contentType: String =
-                messages
-                    .first()
-                    .encodedContent.type.typeId
-            assertEquals(contentType, "readReceipt")
-        }
-        val convos = runBlocking { alixClient.conversations.list() }
-        assertEquals(
-            runBlocking { convos.first().lastMessage() }!!.encodedContent.type.typeId,
-            "text",
-        )
-    }
 }

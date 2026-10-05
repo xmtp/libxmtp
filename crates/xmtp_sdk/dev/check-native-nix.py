@@ -10,7 +10,8 @@ EXPRESSION = r"""
 systems:
 let
   p = systems.${builtins.currentSystem};
-  names = [ "xmtp-sdk-libs" "xmtp-sdk-bindgen" "xmtp-sdk-wasm" "xmtp-sdk-pure-wasm" ]
+  names = [ "xmtp-sdk-android-arm64-v8a" "xmtp-sdk-android-armeabi-v7a"
+    "xmtp-sdk-android-x86" "xmtp-sdk-android-x86_64" ] ++ [ "xmtp-sdk-libs" "xmtp-sdk-bindgen" "xmtp-sdk-wasm" "xmtp-sdk-pure-wasm" ]
     ++ (if builtins.hasAttr "xmtp-sdk-ios-device" p
         then [ "xmtp-sdk-ios-device" "xmtp-sdk-ios-simulator" ] else []);
   inputs = d: {
@@ -33,14 +34,18 @@ products = json.loads(
     )
 )
 for name, phases in products.items():
-    native = name == "xmtp-sdk-libs" or name.startswith("xmtp-sdk-ios-")
+    native = name == "xmtp-sdk-libs" or name.startswith(
+        ("xmtp-sdk-ios-", "xmtp-sdk-android-")
+    )
     for phase, inputs in phases.items():
         if native:
             if inputs["vendor"] != "0":
                 raise ValueError((name, phase, "vendored OpenSSL", inputs))
             if inputs["static"] != "1":
                 raise ValueError((name, phase, "static OpenSSL", inputs))
-            if "xmtp-sdk-ios-device" in products:
+            if "xmtp-sdk-ios-device" in products and not name.startswith(
+                "xmtp-sdk-android-"
+            ):
                 if inputs["macos"] != "11.0":
                     raise ValueError((name, phase, "macOS floor", inputs))
         if name.startswith("xmtp-sdk-ios-"):

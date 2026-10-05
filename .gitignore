@@ -13,7 +13,6 @@ wasm-pack.log
 # generated
 bindings_swift/Sources
 bindings_swift/xmtp-rust-swift.zip
-bindings/mobile/jniLibs
 
 # Logs
 logs

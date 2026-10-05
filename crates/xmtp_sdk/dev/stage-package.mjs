@@ -19,7 +19,6 @@ import {
 } from "node:fs";
 import { dirname, join, resolve, relative, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
-
 import { checkGeneratedAssets } from "./check-generated-assets.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");

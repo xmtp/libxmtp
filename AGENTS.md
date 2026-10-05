@@ -1,6 +1,6 @@
 # libxmtp
 
-Rust workspace. MLS messaging. Bindings: `bindings/{mobile,node,wasm}`. SDKs: `sdks/{agent,android,browser,ios,node}`.
+Rust workspace. MLS messaging. Bindings: `bindings/{node,wasm}`. SDKs: `sdks/{agent,android,browser,ios,node}`.
 
 ## Read first
 
@@ -70,12 +70,15 @@ and port block, so run `just backend status` for the checkout you are in. See th
   implementation, update the plan and keep going. Default to constants; a
   configuration knob should name the caller that needs a non-default value.
 - Before a broad source read, use `just outline <path>`. Use `just show <file>
-  <name>` for a known symbol. Use `rg` if an outline misses a symbol, and Serena
+<name>` for a known symbol. Use `rg` if an outline misses a symbol, and Serena
   for Rust references and types.
 - Use the Just recipes for builds and tests. If compact output hides a
   diagnostic, repeat the same recipe with `XMTP_RTK=0`. See `docs/agent-tools.md`.
 - For CI results use `just ci-status <pr>` and `just ci-failures <job>`, never a
   raw log fetch. See the `check-ci` skill.
+- `dev/nix-shell 'just sdk-manifest-check'` checks retention and source rows.
+  After generation, use `dev/nix-shell 'python3.11 dev/sdk/inventory.py --check'`
+  to also check the current generated public declaration counts.
 - After changes to the CI failure filter, run
   `dev/nix-shell 'just ci-failures-filter-test'`. It checks local log fixtures.
 

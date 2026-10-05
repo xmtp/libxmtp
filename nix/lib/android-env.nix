@@ -18,6 +18,7 @@ let
   # The Android emulator is only available for x86_64-linux and *-darwin.
   # aarch64-linux has no emulator binary in the Android SDK.
   hasEmulator = !stdenv.isLinux || hostArch == "x86_64";
+  hasApi23Emulator = stdenv.isLinux && hostArch == "x86_64";
 
   # SDK configuration - keep in sync with sdks/android/library/build.gradle
   # Library: compileSdk 35, Example: compileSdk 34
@@ -26,7 +27,8 @@ let
     platforms = [
       "34"
       "35"
-    ];
+    ]
+    ++ lib.optionals hasApi23Emulator [ "23" ];
     platformTools = "35.0.2";
     buildTools = [
       "34.0.0"
@@ -85,6 +87,9 @@ let
     ADB="${androidSdk}/platform-tools/adb"
     EMULATOR_BIN="${androidSdk}/emulator/emulator"
     AVDMANAGER="${composeDevPackages.androidsdk}/bin/avdmanager"
+    ANDROID_DEFAULT_EMULATOR_API="${emulatorConfig.platformVersion}"
+    ANDROID_API23_SUPPORTED="${if hasApi23Emulator then "1" else "0"}"
+    source ${./android-emulator-platform.sh}
 
     export ANDROID_SDK_ROOT="${androidSdk}"
     export ANDROID_USER_HOME=$(mktemp -d "''${TMPDIR:-/tmp}/nix-android-user-home-XXXX")
@@ -118,7 +123,7 @@ let
     # Create AVD
     yes "" | "$AVDMANAGER" create avd \
       --force -n "$DEVICE_NAME" \
-      -k "system-images;android-${emulatorConfig.platformVersion};${emulatorConfig.systemImageType};${emulatorConfig.abiVersion}" \
+      -k "system-images;android-$ANDROID_EMULATOR_API;${emulatorConfig.systemImageType};${emulatorConfig.abiVersion}" \
       -p "$ANDROID_AVD_HOME/$DEVICE_NAME.avd"
 
     # Hardware config
@@ -141,6 +146,12 @@ let
     done
 
     bash ${./android-sync-clock.sh} "$ADB" "$ANDROID_SERIAL"
+
+    actual_api="$("$ADB" -s "$ANDROID_SERIAL" shell getprop ro.build.version.sdk | tr -d '\r')"
+    if [[ "$actual_api" != "$ANDROID_EMULATOR_API" ]]; then
+      echo "Android emulator API mismatch: expected $ANDROID_EMULATOR_API, got $actual_api" >&2
+      exit 1
+    fi
 
     echo "Emulator ready (emulator-$port)" >&2
   '';

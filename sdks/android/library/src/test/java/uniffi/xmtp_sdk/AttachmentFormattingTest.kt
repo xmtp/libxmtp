@@ -1,0 +1,89 @@
+package uniffi.xmtp_sdk
+
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AttachmentFormattingTest {
+    private val url = "https://files.example.test/object?signature=url-bearer-sentinel"
+
+    private fun checkUrlText(vararg values: Any) {
+        for (value in values) {
+            val text = value.toString()
+            assertFalse(text.contains(url))
+            assertFalse(text.contains("url-bearer-sentinel"))
+            assertTrue(text.contains("url=<redacted>"))
+        }
+    }
+
+    @Test
+    fun remoteAttachmentTextPreservesStructuredUrl() {
+        val value =
+            RemoteAttachment(url, "digest", byteArrayOf(1, 2), byteArrayOf(3), byteArrayOf(4), "https", 2u, "file.txt")
+        checkUrlText(value, MessageBody.RemoteAttachment(value))
+        assertEquals(url, value.url)
+        assertArrayEquals(byteArrayOf(1, 2), value.secret)
+    }
+
+    @Test
+    fun remoteAttachmentTextPreservesStructuredSecret() {
+        val secret = byteArrayOf(65, 66, 67, 68)
+        val value = RemoteAttachment(url, "digest", secret, byteArrayOf(3), byteArrayOf(4), "https", 2u, "file.txt")
+        for (text in listOf(value.toString(), MessageBody.RemoteAttachment(value).toString())) {
+            assertFalse(text.contains(secret.contentToString()))
+            assertTrue(text.contains("secret=<redacted>"))
+        }
+        assertArrayEquals(secret, value.secret)
+    }
+
+    @Test
+    fun encodedRemoteAttachmentTextKeepsSecretStructured() {
+        val secret = "encoded-secret-sentinel"
+        val parameters = mapOf("secret" to secret, "scheme" to "https")
+        val value =
+            EncodedContent(
+                ContentTypeId("xmtp.org", "remoteStaticAttachment", 1u, 0u),
+                parameters,
+                null,
+                byteArrayOf(1),
+            )
+        val reply = ReplyContent("message", null, value)
+        val forms = listOf(value.toString(), reply.toString(), listOf(reply).toString())
+        assertEquals("Encoded diagnostics expose the test secret", 0, forms.count { it.contains(secret) })
+        assertEquals(parameters, value.parameters)
+        assertEquals(secret, reply.content.parameters["secret"])
+    }
+
+    @Test
+    fun encodedRemoteAttachmentTextKeepsUrlStructured() {
+        val attachment =
+            RemoteAttachment(url, "digest", byteArrayOf(1, 2), byteArrayOf(3), byteArrayOf(4), "https", 2u, "file.txt")
+        val codec = RemoteAttachmentCodec()
+        val encoded = codec.encode(attachment)
+        val reply = ReplyContent("message", null, encoded)
+        val urlBytes = url.toByteArray()
+        for (text in listOf(encoded.toString(), reply.toString(), listOf(reply).toString())) {
+            assertFalse("Encoded diagnostics expose the URL", text.contains(url))
+            assertFalse("Encoded diagnostics expose URL bytes", text.contains(urlBytes.joinToString(", ")))
+            assertTrue(text.contains("contentBytes=${encoded.content.size}"))
+        }
+        assertArrayEquals(urlBytes, encoded.content)
+        assertEquals(url, codec.decode(encoded).url)
+    }
+
+    @Test
+    fun attachmentRefTextPreservesStructuredUrl() {
+        val value = AttachmentRef("key", url, "digest")
+        checkUrlText(value, ClientEvent.AttachmentUploadStarted(value))
+        assertEquals(url, value.url)
+    }
+
+    @Test
+    fun attachmentFailureTextPreservesStructuredUrl() {
+        val value = AttachmentFailed("key", url, "digest", "network")
+        checkUrlText(value, ClientEvent.AttachmentUploadFailed(value))
+        assertEquals(url, value.url)
+    }
+}

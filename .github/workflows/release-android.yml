@@ -83,17 +83,16 @@ jobs:
         run: xmtp-release set-manifest-version --sdk android --version "$VERSION"
 
       - name: Build Android bindings
-        run: ./sdks/android/dev/bindings --release
+        run: NIX_DEVSHELL=android dev/nix-shell './sdks/android/dev/bindings --release'
 
       - name: Build and publish
-        working-directory: sdks/android
         env:
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
           SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
           MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
-        run: nix develop .#android --command ./gradlew :library:build publishToSonatype closeAndReleaseSonatypeStagingRepository
+        run: NIX_DEVSHELL=android dev/nix-shell 'cd sdks/android && ./gradlew :library:build publishToSonatype closeAndReleaseSonatypeStagingRepository'
 
       - name: Tag release
         env:

@@ -2,53 +2,66 @@ package org.xmtp.android.library
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
-import org.xmtp.android.library.libxmtp.DecodedMessage
-import uniffi.xmtpv3.FfiConversationMessageKind
+import org.junit.Assert.*
+import uniffi.xmtp_sdk.*
 
-/** Keeps callback reads and writes under one lock. */
+internal fun messageText(message: Message): String =
+    ((message.content as SDKMessageContent.Standard).value as MessageContent.Text).v1
+
+/** Reads and writes use the same lock. */
 internal class StreamTestMessages {
-    private val messages = mutableListOf<DecodedMessage>()
+    private val messages = mutableListOf<Message>()
 
-    fun add(message: DecodedMessage) {
+    fun add(message: Message) {
         synchronized(messages) { messages.add(message) }
     }
 
-    fun snapshot(): List<DecodedMessage> = synchronized(messages) { messages.toList() }
+    fun snapshot(): List<Message> = synchronized(messages) { messages.toList() }
 
-    /** Waits for the exact application ID and body order. Membership rows remain in the stream. */
     suspend fun awaitApplications(expected: List<Pair<String, String>>) {
         withTimeout(30_000) {
-            while (applications().size < expected.size) {
-                delay(10)
-            }
+            while (applications().size < expected.size) delay(10)
         }
         assertEquals(expected, applications())
     }
 
+    suspend fun awaitApplicationsAcrossConversations(
+        expected: List<Pair<String, String>>,
+        localHistory: suspend () -> List<Message>,
+    ) {
+        withTimeout(30_000) {
+            while (applications().size < expected.size) delay(10)
+        }
+        val actual = applications()
+        assertEquals(expected.size, actual.size)
+        assertEquals(actual.size, actual.map { it.first }.toSet().size)
+        assertEquals(expected.toSet(), actual.toSet())
+        val expectedIds = expected.map { it.first }.toSet()
+        val storedOrder = localHistory().filter { it.id in expectedIds }.map { it.id }
+        assertEquals("local delivery order", storedOrder, actual.map { it.first })
+    }
+
     private fun applications(): List<Pair<String, String>> =
         snapshot()
-            .filter { it.kind == FfiConversationMessageKind.APPLICATION }
-            .map { it.id to it.body }
+            .filter { it.kind == MessageKind.APPLICATION }
+            .map { it.id to messageText(it) }
 
-    /** Compares every decoded row in database delivery order and rejects duplicate IDs. */
-    suspend fun awaitHistory(expected: List<DecodedMessage>) {
+    suspend fun awaitHistory(expected: List<Message>) {
         withTimeout(30_000) {
-            while (snapshot().size < expected.size) {
-                delay(10)
-            }
+            while (snapshot().size < expected.size) delay(10)
         }
         assertHistory(expected)
     }
 
-    fun assertHistory(expected: List<DecodedMessage>) {
+    fun assertHistory(expected: List<Message>) {
         val actual = snapshot()
         assertEquals(actual.size, actual.map { it.id }.toSet().size)
         assertEquals(expected.map { it.id }, actual.map { it.id })
         expected.zip(actual).forEach { (stored, streamed) ->
             assertEquals(stored.conversationId, streamed.conversationId)
             assertEquals(stored.kind, streamed.kind)
-            assertEquals(stored.encodedContent, streamed.encodedContent)
+            assertEquals(stored.encoded, streamed.encoded)
+            assertArrayEquals(stored.rawBytes, streamed.rawBytes)
         }
     }
 }

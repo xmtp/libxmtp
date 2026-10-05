@@ -1,60 +1,81 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.*
 import org.junit.Test
-import org.junit.runner.RunWith
-import uniffi.xmtpv3.FfiException
+import uniffi.xmtp_sdk.*
+import java.nio.ByteBuffer
 
-@RunWith(AndroidJUnit4::class)
 class StreamFailureTest {
     // verifies: PROC-018
-    @Test
-    fun readsTypedDetailsFromThePublicErrorProperty() {
-        val message =
-            "[BarrierError::Incomplete] failed\n[XMTP_STREAM_FAILURE_V1]" +
-                """
-                {"kind":"barrier","code":"BarrierError::Incomplete",
-                 "message":"Processing barriers did not complete","retryable":true,
-                 "intentId":null,"publishedIntentIds":[],"summary":null,
-                 "barriers":[{"reason":"deadline","unfinished":[
-                   {"topic":"01","target":"7","received":"7","processed":"6",
-                    "unresolvedWelcomes":[],"inactive":false,"cause":null}]}]}
-                """.trimIndent()
-        val details = requireNotNull(FfiException.Exception(message).streamFailureDetails)
+    // Native operation failures need a separate installed proof.
+    @Test fun readsTypedDetailsFromThePublicErrorProperty() {
+        val failure =
+            StreamFailureDetails(
+                StreamFailureKind.BARRIER,
+                "BarrierError::Incomplete",
+                "Processing barriers did not complete",
+                true,
+                null,
+                emptyList(),
+                null,
+                listOf(
+                    StreamBarrierFailure(
+                        StreamBarrierReason.DEADLINE,
+                        listOf(
+                            StreamBarrierTopic(
+                                byteArrayOf(1),
+                                ULong.MAX_VALUE,
+                                7uL,
+                                7uL,
+                                6uL,
+                                listOf(9_007_199_254_740_993uL, ULong.MAX_VALUE),
+                                false,
+                                StreamBarrierCause(
+                                    StreamBarrierCauseKind.PROCESSING_PENDING,
+                                    null,
+                                    "Processing is pending",
+                                    true,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        val error = ErrorDetails("Unknown", ErrorCategory.STREAM, true, "failed", failure)
+        val buffer = ByteBuffer.allocate(FfiConverterTypeErrorDetails.allocationSize(error).toInt())
+        FfiConverterTypeErrorDetails.write(error, buffer)
+        buffer.flip()
+        val decoded = FfiConverterTypeErrorDetails.read(buffer)
+        val publicError = XmtpException.Unknown(decoded)
+        val details = requireNotNull(publicError.v1.streamFailure)
+        assertEquals(failure, details)
         assertEquals(StreamFailureKind.BARRIER, details.kind)
         assertEquals("BarrierError::Incomplete", details.code)
         assertEquals(StreamBarrierReason.DEADLINE, details.barriers.single().reason)
-        assertEquals(
-            7uL,
+        val topic =
             details.barriers
                 .single()
                 .unfinished
                 .single()
-                .target,
+        assertArrayEquals(byteArrayOf(1), topic.topic)
+        assertEquals(ULong.MAX_VALUE, topic.scopeGeneration)
+        assertEquals(7uL, topic.target)
+        assertEquals(7uL, topic.received)
+        assertEquals(6uL, topic.processed)
+        assertEquals(listOf(9_007_199_254_740_993uL, ULong.MAX_VALUE), topic.unresolvedWelcomes)
+        assertEquals(StreamBarrierCauseKind.PROCESSING_PENDING, topic.cause?.kind)
+        val wrapped = IllegalStateException("Unable to update group name", publicError)
+        assertEquals(details, (wrapped.cause as XmtpException.Unknown).v1.streamFailure)
+        assertNull(
+            XmtpException
+                .Unknown(
+                    ErrorDetails(
+                        "Unknown",
+                        ErrorCategory.UNKNOWN,
+                        false,
+                        "ordinary error",
+                    ),
+                ).v1.streamFailure,
         )
-        assertEquals(
-            6uL,
-            details.barriers
-                .single()
-                .unfinished
-                .single()
-                .processed,
-        )
-        val wrapped = XMTPException("Unable to update group name", FfiException.Exception(message))
-        val wrappedDetails = requireNotNull(wrapped.streamFailureDetails)
-        assertEquals(details.kind, wrappedDetails.kind)
-        assertEquals(details.code, wrappedDetails.code)
-        assertEquals(
-            7uL,
-            wrappedDetails.barriers
-                .single()
-                .unfinished
-                .single()
-                .target,
-        )
-        assertNull(FfiException.Exception("ordinary error").streamFailureDetails)
-        assertNull(IllegalStateException("ordinary error").streamFailureDetails)
     }
 }

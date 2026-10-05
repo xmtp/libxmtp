@@ -1,107 +1,122 @@
 package org.xmtp.android.library
 
-import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotSame
-import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
+import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.xmtp.android.library.messages.PrivateKeyBuilder
-import uniffi.xmtpv3.FfiException
+import uniffi.xmtp_sdk.*
 import java.util.concurrent.atomic.AtomicInteger
 
-@RunWith(AndroidJUnit4::class)
 class BackendAuthTest : BaseInstrumentedTest() {
-    @Test
-    fun rejectedCredentialIsRefreshedByNativeMiddleware() =
+    private fun api(block: suspend () -> Credential) =
+        localApi().copy(
+            credentials =
+                object : CredentialSource {
+                    override suspend fun credential() = block()
+                },
+        )
+
+    private fun source(options: BackendOptions) = BackendSource.Options(options)
+
+    @Test fun rejectedCredentialIsRefreshedByNativeMiddleware() =
         runBlocking {
-            assumeTrue(Client.fetchServerConfiguration(localApi()).auth.enabled)
+            assumeTrue(SDKClient.fetchServerConfiguration(source(localApi())).auth.enabled)
             val calls = AtomicInteger()
-            val api =
-                localApi().copy(authCallback = {
+            val options =
+                api {
                     val value = if (calls.incrementAndGet() == 1) "Bearer rejected-token" else AUTH_TEST_CREDENTIAL
-                    Credential(value, Long.MAX_VALUE)
-                })
-            assertTrue(Client.getOrCreateInboxId(api, PrivateKeyBuilder().publicIdentity).isNotBlank())
+                    Credential(null, value, Long.MAX_VALUE)
+                }
+            assertTrue(SDKClient.inboxIdFor(createWallet().identity(), source(options)).isNotBlank())
             assertEquals(2, calls.get())
         }
 
-    @Test
-    fun callbackFailureCrossesNativeBoundaryWithoutAppErrorText() =
+    @Test fun callbackFailureCrossesNativeBoundaryWithoutAppErrorText() =
         runBlocking {
             val calls = AtomicInteger()
-            val api =
-                localApi().copy(authCallback = {
+            val options =
+                api {
                     calls.incrementAndGet()
                     error("private-auth-error-token")
-                })
-            try {
-                Client.getOrCreateInboxId(api, PrivateKeyBuilder().publicIdentity)
-                fail("Expected authentication failure")
-            } catch (error: FfiException) {
-                assertTrue(calls.get() > 0)
-                assertFalse(error.toString().contains("private-auth-error-token"))
-            }
+                }
+            val failure =
+                runCatching {
+                    SDKClient.inboxIdFor(
+                        createWallet().identity(),
+                        source(options),
+                    )
+                }.exceptionOrNull()
+            assertTrue(failure is XmtpException.CredentialCallbackFailed)
+            assertTrue(calls.get() > 0)
+            assertFalse(checkNotNull(failure).toString().contains("private-auth-error-token"))
         }
 
-    @Test
-    fun forwardsCallbacksAndKeepsConnectionsSeparate() =
+    @Test fun forwardsCallbacksAndKeepsConnectionsSeparate() =
         runBlocking {
             val firstCalls = AtomicInteger()
             val secondCalls = AtomicInteger()
-            val firstApi =
-                localApi().copy(authCallback = {
+            val firstOptions =
+                api {
                     firstCalls.incrementAndGet()
-                    Credential(AUTH_TEST_CREDENTIAL, Long.MAX_VALUE)
-                })
-            val secondApi =
-                firstApi.copy(authCallback = {
+                    Credential(null, AUTH_TEST_CREDENTIAL, Long.MAX_VALUE)
+                }
+            val secondOptions =
+                api {
                     secondCalls.incrementAndGet()
-                    Credential(AUTH_TEST_CREDENTIAL, Long.MAX_VALUE)
-                })
-            val first = Client.connectToApiBackend(firstApi)
-            val repeated = Client.connectToApiBackend(firstApi)
-            val second = Client.connectToApiBackend(secondApi)
-            val anonymous = Client.connectToApiBackend(localApi())
+                    Credential(null, AUTH_TEST_CREDENTIAL, Long.MAX_VALUE)
+                }
+            val first =
+                Backend.connect(
+                    firstOptions.copy(credentials = SDKForeign.credentials(checkNotNull(firstOptions.credentials))),
+                )
+            val repeated =
+                Backend.connect(
+                    firstOptions.copy(credentials = SDKForeign.credentials(checkNotNull(firstOptions.credentials))),
+                )
+            val second =
+                Backend.connect(
+                    secondOptions.copy(credentials = SDKForeign.credentials(checkNotNull(secondOptions.credentials))),
+                )
+            val anonymous = Backend.connect(localApi())
             try {
                 assertNotSame(first, repeated)
                 assertNotSame(first, second)
                 assertNotSame(first, anonymous)
-                Client.getOrCreateInboxId(firstApi, PrivateKeyBuilder().publicIdentity)
+                SDKClient.inboxIdFor(createWallet().identity(), BackendSource.Connected(first))
                 assertTrue(firstCalls.get() > 0)
                 assertEquals(0, secondCalls.get())
-                val previousFirstCalls = firstCalls.get()
-                Client.getOrCreateInboxId(secondApi, PrivateKeyBuilder().publicIdentity)
-                assertEquals(previousFirstCalls, firstCalls.get())
+                val previous = firstCalls.get()
+                SDKClient.inboxIdFor(createWallet().identity(), BackendSource.Connected(second))
+                assertEquals(previous, firstCalls.get())
                 assertTrue(secondCalls.get() > 0)
-                val previousSecondCalls = secondCalls.get()
-                val client = createClient(PrivateKeyBuilder(), api = secondApi)
-                assertTrue(client.inboxId.isNotBlank())
-                assertTrue(secondCalls.get() > previousSecondCalls)
+                val created =
+                    createClient(
+                        createWallet(),
+                        secondOptions.copy(credential = Credential(null, "private-static-token", Long.MAX_VALUE)),
+                    )
+                assertTrue(created.inboxId().isNotBlank())
+                val projected = (created.options().backend as BackendSource.Options).options
+                assertNull(projected.credential)
+                assertNull(projected.credentials)
             } finally {
                 first.close()
                 repeated.close()
                 second.close()
+                anonymous.close()
             }
         }
 
-    @Test
-    fun discoveryDoesNotCallAuthentication() =
+    @Test fun discoveryDoesNotCallAuthentication() =
         runBlocking {
             var calls = 0
-            val api =
-                localApi().copy(authCallback = {
+            val options =
+                api {
                     calls++
                     error("Discovery must not call authentication")
-                })
-            assertTrue(Client.fetchServerConfiguration(api).identifier.isNotBlank())
+                }
+            assertTrue(SDKClient.fetchServerConfiguration(source(options)).identifier.isNotBlank())
             assertEquals(0, calls)
         }
 }
 
-// An auth-enabled test backend must accept this test-only static key.
 private const val AUTH_TEST_CREDENTIAL = "Bearer sdk-auth-test-key-00000000000000000000"

@@ -25,10 +25,16 @@ fun main() =
             callbackLifetime(BackendOptions(url = System.getenv("XMTP_BACKEND_URL")))
             return@runBlocking
         }
+        System.getenv("SDK_RETAINED_CASE")?.let { name ->
+            runRetainedConformanceCase(name, BackendOptions(url = System.getenv("XMTP_BACKEND_URL")))
+            return@runBlocking
+        }
         check(sdkVersion().startsWith("1.12.0"))
         val messageId: MessageId = "a".repeat(64)
         check(messageId.length == 64)
         println("Kotlin scenario 1: load, checksums, version passed")
+        checkPureInboxIdCalculation()
+        checkNativeConfigurationRecordProjection()
 
         // Client-free standard codecs encode the client's bytes and round trip.
         // verifies: CTYPE-007, CTYPE-026
@@ -178,6 +184,14 @@ fun main() =
         check(androidStorage.location == StorageLocation.Directory(androidFiles.resolve("xmtp_db").absolutePath))
         check(androidStorage.label == "phone")
         val backendOptions = BackendOptions(url = checkNotNull(System.getenv("XMTP_BACKEND_URL")))
+        checkCredentialCallbacksStayDistinct()
+        checkCredentialDisplayRedactsToken()
+        checkConfigurationDiscoveryDoesNotCallCredentials(backendOptions)
+        checkStoragePoolOptionsCrossTheNativeBoundary(backendOptions)
+        checkStorageReconnectAndRebuildKeepHistory(backendOptions)
+        checkConfigurationRefreshKeepsTheHeldSnapshot(backendOptions)
+        checkReaderCollectorBoundarySurvivesDatabaseReopen(backendOptions)
+        checkEndedClientCannotHandOffReaderValues(backendOptions)
         check(ClientOptions(storage = StorageOptions(location = StorageLocation.InMemory)).backend == null)
         val options =
             ClientOptions(
@@ -187,6 +201,7 @@ fun main() =
             )
         loggingConformance(options)
         checkReaderCursor(signer, backendOptions)
+        checkHistorySnapshots(backendOptions)
         checkRestoredPeer(backendOptions)
         checkIdentityRoutes(backendOptions)
         checkStorageLayout(backendOptions)
@@ -196,6 +211,8 @@ fun main() =
         checkAttachmentRecords(backendOptions)
         checkAttachmentEnd(backendOptions)
         val host = SDKClient.create(signer, options)
+        checkReaderReadFailuresEndExactlyOnce(host)
+        checkReaderCollectorCloseReasons(host)
         val client = host
         // Uppercase hex decodes, so only ID validation rejects it.
         val invalidId = runCatching { client.conversations().getMessageById("AB".repeat(32)) }.exceptionOrNull()

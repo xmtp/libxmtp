@@ -8,7 +8,6 @@
 let
   inherit (lib.fileset) unions fileFilter;
   inherit (xmtp) craneLib;
-  inherit (craneLib.fileset) commonCargoSources;
   root = ./../..;
   rust-toolchain = p: xmtp.mkToolchain p [ ] [ "llvm-tools-preview" ];
   rust = craneLib.overrideToolchain rust-toolchain;
@@ -17,8 +16,6 @@ let
     inherit root;
     fileset = unions [
       xmtp.filesets.libraries
-      # include xmtpv3 tests
-      (commonCargoSources (root + /bindings/mobile))
       # db snapshots
       (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
       (fileFilter (file: file.hasExt "json") (root + /crates))

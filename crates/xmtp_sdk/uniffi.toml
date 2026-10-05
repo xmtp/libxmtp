@@ -6,6 +6,10 @@ lower = "{}.data"
 lift = "Timestamp(ns: {})"
 lower = "{}.ns"
 
+[bindings.kotlin]
+android = true
+android_cleaner = true
+
 [bindings.kotlin.custom_types.Message]
 lift = "Message({})"
 lower = "{}.data"

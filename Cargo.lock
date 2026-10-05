@@ -11507,9 +11507,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76407f5f396a2c949a069eff4a9fca9ce462410eb872bffef4c2b7b89804a77a"
 dependencies = [
  "anyhow",
- "cargo_metadata",
- "uniffi_bindgen",
- "uniffi_build",
  "uniffi_core",
  "uniffi_macros",
  "uniffi_pipeline",
@@ -11543,19 +11540,7 @@ dependencies = [
  "uniffi_internal_macros",
  "uniffi_meta",
  "uniffi_pipeline",
- "uniffi_testing",
  "uniffi_udl",
-]
-
-[[package]]
-name = "uniffi_build"
-version = "0.32.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "925be5c36297fff0d416fa2f03585ace718b6e6c635466754128d00f0862d5f1"
-dependencies = [
- "anyhow",
- "camino",
- "uniffi_bindgen",
 ]
 
 [[package]]
@@ -11624,19 +11609,6 @@ dependencies = [
  "indexmap 2.14.0",
  "tempfile",
  "uniffi_internal_macros",
-]
-
-[[package]]
-name = "uniffi_testing"
-version = "0.32.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a15763458418c7534d47c98920c5a94cccb6b1083d96829536a9a02b81dbeaa5"
-dependencies = [
- "anyhow",
- "camino",
- "cargo_metadata",
- "fs-err",
- "once_cell",
 ]
 
 [[package]]
@@ -11752,7 +11724,6 @@ checksum = "bf3923a6f5c4c6382e0b653c4117f48d631ea17f38ed86e2a828e6f7412f5239"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
- "rand 0.10.2",
  "serde_core",
  "wasm-bindgen",
 ]
@@ -12673,7 +12644,6 @@ dependencies = [
  "clap",
  "clap_builder",
  "const-hex",
- "crc32fast",
  "crossbeam-utils",
  "crypto-common 0.1.7",
  "crypto-common 0.2.2",
@@ -12686,7 +12656,6 @@ dependencies = [
  "ed25519-dalek",
  "either",
  "elliptic-curve",
- "errno",
  "foldhash 0.2.0",
  "form_urlencoded",
  "futures",
@@ -12752,7 +12721,6 @@ dependencies = [
  "serde_core",
  "serde_json",
  "serde_spanned 1.1.1",
- "sha1 0.10.7",
  "sha2 0.10.9",
  "slab",
  "smallvec",
@@ -12772,7 +12740,6 @@ dependencies = [
  "tracing-subscriber",
  "typenum",
  "url",
- "winnow 0.7.15",
  "winnow 1.0.4",
  "zerocopy",
  "zeroize",
@@ -13555,45 +13522,6 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_db",
  "xmtp_events",
- "xmtp_id",
- "xmtp_logging",
- "xmtp_macro",
- "xmtp_mls",
- "xmtp_proto",
-]
-
-[[package]]
-name = "xmtpv3"
-version = "1.12.0-dev"
-dependencies = [
- "alloy",
- "async-trait",
- "chrono",
- "const-hex",
- "criterion",
- "ctor",
- "fdlimit",
- "futures",
- "parking_lot",
- "prost",
- "rand 0.10.2",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
- "uniffi",
- "uuid",
- "vergen-gix",
- "xmtp-workspace-hack",
- "xmtp_api",
- "xmtp_api_backend",
- "xmtp_api_grpc",
- "xmtp_archive",
- "xmtp_common",
- "xmtp_configuration",
- "xmtp_content_types",
- "xmtp_cryptography",
- "xmtp_db",
  "xmtp_id",
  "xmtp_logging",
  "xmtp_macro",

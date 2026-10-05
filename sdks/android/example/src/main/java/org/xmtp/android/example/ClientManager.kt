@@ -1,78 +1,76 @@
 package org.xmtp.android.example
 
 import android.content.Context
-import androidx.annotation.UiThread
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.example.utils.KeyUtil
-import org.xmtp.android.library.Client
-import org.xmtp.android.library.ClientOptions
-import org.xmtp.android.library.codecs.GroupUpdatedCodec
-import org.xmtp.android.library.libxmtp.IdentityKind
-import org.xmtp.android.library.libxmtp.PublicIdentity
+import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
 
 object ClientManager {
-    fun clientOptions(
-        appContext: Context,
+    suspend fun clientOptions(
+        context: Context,
         address: String,
     ): ClientOptions {
-        val keyUtil = KeyUtil(appContext)
+        val keys = KeyUtil(context)
         val encryptionKey =
-            keyUtil.retrieveKey(address)?.takeUnless { it.isEmpty() }
-                ?: SecureRandom().generateSeed(32).also { keyUtil.storeKey(address, it) }
-
+            keys.retrieveKey(address)?.takeUnless { it.isEmpty() }
+                ?: SecureRandom().generateSeed(32).also { keys.storeKey(address, it) }
+        val backend = BackendSource.Options(BackendOptions(url = BuildConfig.XMTP_BACKEND_URL))
+        val location =
+            exampleStorageLocation(context.filesDir) {
+                inboxIdForWithBackend(backend, PublicIdentity(address, PublicIdentityKind.ETHEREUM))
+            }
         return ClientOptions(
-            api =
-                ClientOptions.Api(
-                    backendUrl = "http://10.0.2.2:5050",
-                ),
-            appContext = appContext,
-            dbEncryptionKey = encryptionKey,
+            backend = backend,
+            storage = StorageOptions(location = location, encryptionKey = encryptionKey),
         )
     }
 
-    private val _clientState = MutableStateFlow<ClientState>(ClientState.Unknown)
-    val clientState: StateFlow<ClientState> = _clientState
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val lock = Mutex()
+    private val state = MutableStateFlow<ClientState>(ClientState.Unknown)
+    val clientState: StateFlow<ClientState> = state
+    private var current: SDKClient? = null
+    val client: SDKClient get() = checkNotNull(current) { "Client is not ready" }
 
-    private var _client: Client? = null
-
-    val client: Client
-        get() =
-            if (clientState.value == ClientState.Ready) {
-                _client!!
-            } else {
-                throw IllegalStateException("Client called before Ready state")
-            }
-
-    @UiThread
     fun createClient(
         address: String,
-        appContext: Context,
+        context: Context,
     ) {
-        if (clientState.value is ClientState.Ready) return
-        GlobalScope.launch(Dispatchers.IO) {
-            try {
-                _client =
-                    Client.build(
-                        PublicIdentity(IdentityKind.ETHEREUM, address),
-                        clientOptions(appContext, address),
-                    )
-                Client.register(codec = GroupUpdatedCodec())
-                _clientState.value = ClientState.Ready
-            } catch (e: Exception) {
-                _clientState.value = ClientState.Error(e.localizedMessage.orEmpty())
+        scope.launch {
+            lock.withLock {
+                if (current != null) return@withLock
+                try {
+                    current =
+                        SDKClient.build(
+                            context.applicationContext,
+                            PublicIdentity(address, PublicIdentityKind.ETHEREUM),
+                            clientOptions(context, address),
+                        )
+                    state.value = ClientState.Ready
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    state.value = ClientState.Error(error.message.orEmpty())
+                }
             }
         }
     }
 
-    @UiThread
     fun clearClient() {
-        _clientState.value = ClientState.Unknown
-        _client = null
+        scope.launch {
+            lock.withLock {
+                try {
+                    withContext(NonCancellable) { current?.end() }
+                } finally {
+                    current = null
+                    state.value = ClientState.Unknown
+                }
+            }
+        }
     }
 
     sealed class ClientState {

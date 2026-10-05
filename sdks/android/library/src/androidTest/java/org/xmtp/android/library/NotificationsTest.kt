@@ -6,21 +6,21 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
 
 class NotificationsTest : BaseInstrumentedTest() {
     @Test
-    @OptIn(DelicateApi::class)
     fun restoresNotificationStateRulesAndOverridesAfterRestart() =
         runBlocking {
             val wallet = createWallet()
             val options = createClientOptions(localApi(), deviceSyncEnabled = true)
-            var client = Client.create(account = wallet, options = options)
+            var client = trackClient(SDKClient.create(context, wallet, options))
             try {
-                val group = client.conversations.newGroup(emptyList())
-                val groupId = group.id
-                val installationId = client.installationId
-                val dbPath = client.dbPath
+                val group = client.conversations().createGroup(emptyList<InboxId>())
+                val groupId = group.id()
+                val installationId = client.installationId()
+                val dbPath = client.storagePath()
                 client.enableNotifications(
                     NotificationConfig(
                         channel = httpConfig().channel,
@@ -28,23 +28,23 @@ class NotificationsTest : BaseInstrumentedTest() {
                         includeWelcomes = false,
                     ),
                 )
-                group.setNotifications(NotificationOverride.Enabled)
-                client.dropLocalDatabaseConnection()
-                client = Client.create(account = wallet, options = options)
-                assertEquals(dbPath, client.dbPath)
-                assertEquals(installationId, client.installationId)
+                group.setNotifications(NotificationOverride.ENABLED)
+                client.end()
+                client = trackClient(SDKClient.create(context, wallet, options))
+                assertEquals(dbPath, client.storagePath())
+                assertEquals(installationId, client.installationId())
                 assertEquals(NotificationState.Enabled, client.notificationState())
-                val restored = requireNotNull(client.conversations.findGroup(groupId))
-                assertTrue(restored.notificationsEnabled())
-                restored.setNotifications(NotificationOverride.Default)
-                assertFalse(restored.notificationsEnabled())
+                val restored = (checkNotNull(client.conversations().getById(groupId)) as Conversation.Group).group
+                assertTrue(restored.state().common.notificationsEnabled)
+                restored.setNotifications(NotificationOverride.DEFAULT)
+                assertFalse(restored.state().common.notificationsEnabled)
                 client.disableNotifications()
-                client.dropLocalDatabaseConnection()
-                client = Client.create(account = wallet, options = options)
-                assertEquals(installationId, client.installationId)
+                client.end()
+                client = trackClient(SDKClient.create(context, wallet, options))
+                assertEquals(installationId, client.installationId())
                 assertEquals(NotificationState.Disabled, client.notificationState())
             } finally {
-                client.dropLocalDatabaseConnection()
+                client.end()
             }
         }
 
@@ -62,22 +62,22 @@ class NotificationsTest : BaseInstrumentedTest() {
         runBlocking {
             val fixtures = createFixtures()
             val client = fixtures.alixClient
-            val group = client.conversations.newGroup(listOf(fixtures.boClient.inboxId))
-            val dm = client.conversations.findOrCreateDm(fixtures.boClient.inboxId)
+            val group = client.conversations().createGroup(listOf(fixtures.boClient.inboxId()))
+            val dm = client.conversations().createDm(fixtures.boClient.inboxId())
             assertEquals(NotificationState.Disabled, client.notificationState())
             assertEquals(NotificationState.Enabled, client.enableNotifications(httpConfig()))
             assertEquals(NotificationState.Enabled, client.notificationState())
 
-            assertTrue(group.notificationsEnabled())
-            group.setNotifications(NotificationOverride.Disabled)
-            assertFalse(group.notificationsEnabled())
-            group.setNotifications(NotificationOverride.Default)
-            assertTrue(group.notificationsEnabled())
-            assertTrue(dm.notificationsEnabled())
-            dm.setNotifications(NotificationOverride.Disabled)
-            assertFalse(dm.notificationsEnabled())
-            dm.setNotifications(NotificationOverride.Default)
-            assertTrue(dm.notificationsEnabled())
+            assertTrue(group.state().common.notificationsEnabled)
+            group.setNotifications(NotificationOverride.DISABLED)
+            assertFalse(group.state().common.notificationsEnabled)
+            group.setNotifications(NotificationOverride.DEFAULT)
+            assertTrue(group.state().common.notificationsEnabled)
+            assertTrue(dm.state().notificationsEnabled)
+            dm.setNotifications(NotificationOverride.DISABLED)
+            assertFalse(dm.state().notificationsEnabled)
+            dm.setNotifications(NotificationOverride.DEFAULT)
+            assertTrue(dm.state().notificationsEnabled)
 
             client.enableNotifications(
                 NotificationConfig(
@@ -89,11 +89,11 @@ class NotificationsTest : BaseInstrumentedTest() {
                 ),
             )
             for (conversation in listOf(Conversation.Group(group), Conversation.Dm(dm))) {
-                assertFalse(conversation.notificationsEnabled())
-                conversation.setNotifications(NotificationOverride.Enabled)
-                assertTrue(conversation.notificationsEnabled())
-                conversation.setNotifications(NotificationOverride.Default)
-                assertFalse(conversation.notificationsEnabled())
+                assertFalse(notificationEnabled(conversation))
+                conversation.setNotifications(NotificationOverride.ENABLED)
+                assertTrue(notificationEnabled(conversation))
+                conversation.setNotifications(NotificationOverride.DEFAULT)
+                assertFalse(notificationEnabled(conversation))
             }
             client.disableNotifications()
             assertEquals(NotificationState.Disabled, client.notificationState())
@@ -107,14 +107,29 @@ class NotificationsTest : BaseInstrumentedTest() {
                 try {
                     client.enableNotifications(NotificationConfig(channel))
                     fail("An unconfigured channel must fail")
-                } catch (error: NotificationError) {
-                    assertEquals("NotificationError::ChannelNotConfigured", error.code)
+                } catch (error: XmtpException.ChannelNotConfigured) {
+                    assertEquals("ChannelNotConfigured", error.v1.code)
+                    assertEquals(ErrorCategory.NOTIFICATION, error.v1.category)
+                    assertFalse(error.v1.retryable)
                 }
                 val state = client.notificationState()
                 assertTrue(state is NotificationState.Failed)
-                assertEquals("NotificationError::ChannelNotConfigured", (state as NotificationState.Failed).error.code)
+                assertEquals(NotificationFailure.CHANNEL_NOT_CONFIGURED, (state as NotificationState.Failed).error)
                 client.disableNotifications()
                 assertEquals(NotificationState.Disabled, client.notificationState())
+            }
+        }
+
+    private suspend fun notificationEnabled(conversation: Conversation): Boolean =
+        when (conversation) {
+            is Conversation.Group -> {
+                conversation.group
+                    .state()
+                    .common.notificationsEnabled
+            }
+
+            is Conversation.Dm -> {
+                conversation.dm.state().notificationsEnabled
             }
         }
 }

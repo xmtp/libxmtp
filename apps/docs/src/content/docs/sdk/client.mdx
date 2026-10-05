@@ -83,11 +83,10 @@ Swift uses `SDKClient.create(signer:options:)` with `BackendOptions` and
 
 ```kotlin
 val options = ClientOptions(
-    api = ClientOptions.Api(backendUrl = "https://xmtp.example.com"),
-    appContext = appContext,
-    dbEncryptionKey = keyBytes
+    backend = BackendSource.Options(BackendOptions(url = "https://xmtp.example.com")),
+    storage = StorageOptions(StorageLocation.Default, encryptionKey = keyBytes),
 )
-val client = Client.create(account = signingKey, options = options)
+val client = SDKClient.create(context = appContext, signer = signingKey, options = options)
 ```
 
 </TabItem>
@@ -180,14 +179,16 @@ operator's secret in a public app.
 <TabItem label="Kotlin">
 
 ```kotlin
-fun authenticatedApi(
-    fetchToken: suspend () -> Pair<String, Long>
-): ClientOptions.Api = ClientOptions.Api(
-    backendUrl = "https://xmtp.example.com",
-    authCallback = {
-        val (token, expiresAtSeconds) = fetchToken()
-        Credential(value = "Bearer $token", expiresAtSeconds = expiresAtSeconds)
-    }
+fun authenticatedBackend(
+    fetchToken: suspend () -> Pair<String, Long>,
+): BackendOptions = BackendOptions(
+    url = "https://xmtp.example.com",
+    credentials = object : CredentialSource {
+        override suspend fun credential(): Credential {
+            val (token, expiresAtSeconds) = fetchToken()
+            return Credential(name = null, value = "Bearer $token", expiresAtSeconds = expiresAtSeconds)
+        }
+    },
 )
 ```
 
@@ -283,7 +284,7 @@ behavior is required. An `inboxId` alone does not select offline mode.
 <TabItem label="Kotlin">
 
 ```kotlin
-val client = Client.build(identity = identity, options = options)
+val client = SDKClient.build(context = appContext, identity = identity, options = options)
 ```
 
 </TabItem>
@@ -322,7 +323,9 @@ If the user chooses to delete their local database, they will lose all of their 
 <TabItem label="Kotlin">
 
 ```kotlin
-client.deleteLocalDatabase()
+val storage = client.storage()
+withContext(NonCancellable) { client.end() }
+storage.delete()
 ```
 
 </TabItem>

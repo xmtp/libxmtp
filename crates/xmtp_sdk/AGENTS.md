@@ -9,6 +9,9 @@ Run commands from the repository root in the Nix shell. Run
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
   the worker, the benchmark, and transport tests import it.
+- `dev/nix-shell 'just sdk check-package-scripts'` runs the normal packaging controls.
+  Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
+  which the main packaging suite loads as inherited test methods.
 - `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
   the checkout source identity with the generated and native Nix source filters.
   It does not compile a product.
@@ -27,6 +30,9 @@ Run commands from the repository root in the Nix shell. Run
   plus a real WASM trap from a test-only panic fixture in Vitest Playwright
   Chromium, then checks real OPFS and worker behavior. Its recipe builds the
   pure codec and panic fixtures in the Rust shell before the JS shell.
+  Kotlin JVM conformance uses small Android platform stand-ins for the storage
+  helper and cleaner. It selects the JNA cleaner branch. Installed Android tests
+  use the platform classes.
   Scenario 7 checks readers and streams. Scenario 8 checks events and listeners.
   The browser run also checks storage layouts and attachments, with failure
   records in the conformance-featured panic fixture. Worker death uses the
@@ -125,8 +131,9 @@ Run commands from the repository root in the Nix shell. Run
   and assets.
   The proof installs local copies under `target/sdk-codec-author/` and uses
   only the supported ESM roots in the codec package.
-- `dev/nix-shell 'just sdk manifest-check'` and
-  `dev/nix-shell 'just sdk-manifest-check'` check the same API manifest.
+- `dev/nix-shell 'just sdk-manifest-check'` checks source and retention rows
+  without generated products. `dev/nix-shell 'just sdk manifest-check'` also
+  checks the generated public projection counts and roots.
   A switched SDK keeps its pinned pre-switch retention and removal ledger.
   The same manifest counts its current public projection in a separate section.
   Unswitched SDKs still match their current source declarations. Missing current
@@ -240,3 +247,9 @@ Android staging dependency inputs:
   AAR output hashes do not prove dependency input coverage.
 - The switched Android project owns its own graph under Task 14. Do not copy
   staging lock state into a different Gradle root.
+
+- The switched Android stage builds `sdks/android/:library:assembleRelease`.
+  It checks that selected SDK root's `buildscript-gradle.lockfile`,
+  `library/gradle.lockfile`, and `gradle/verification-metadata.xml`.
+  The staging fixture inputs do not cover this graph. An explicit
+  `--sdk-root` selects the root whose inputs and output are used.

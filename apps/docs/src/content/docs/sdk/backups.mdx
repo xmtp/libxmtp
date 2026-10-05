@@ -38,10 +38,10 @@ The options can limit the time range and include messages, consent records, or b
 <TabItem label="Kotlin">
 
 ```kotlin
-client.createArchive(
+client.archives().exportToFile(
     path = "/path/to/archive.xmtp",
-    encryptionKey = encryptionKey,
-    opts = ArchiveOptions(excludeDisappearingMessages = true)
+    keyBytes = encryptionKey,
+    options = ArchiveOptions(excludeDisappearingMessages = true),
 )
 ```
 
@@ -83,7 +83,7 @@ try await client.archives().exportToFile(
 <TabItem label="Kotlin">
 
 ```kotlin
-client.importArchive(path = "/path/to/archive.xmtp", encryptionKey = encryptionKey)
+client.archives().importFromFile(path = "/path/to/archive.xmtp", keyBytes = encryptionKey)
 ```
 
 </TabItem>

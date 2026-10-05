@@ -31,7 +31,16 @@ to development shells. Run `dev/nix-shell 'just backend ci COMMAND'`.
 
 `xmtp-sdk-generated` includes the native, worker, and pure roots with matched
 contract records. `xmtp-sdk-pure-wasm` is a separate artifact and shares the
-worker dependency cache. The Node and Android package sets retain old outputs
-and add `xmtp-sdk-node-<platform>` and `xmtp-sdk-android-<abi>` library outputs.
-Darwin adds `xmtp-sdk-ios-device` and `xmtp-sdk-ios-simulator`. These outputs
-prepare the new SDK. They do not switch a shipped package or publish it.
+worker dependency cache. The generated library outputs are `xmtp-sdk-node-<platform>` and
+`xmtp-sdk-android-<abi>`. The Node package set still retains its old outputs.
+Darwin adds `xmtp-sdk-ios-device` and `xmtp-sdk-ios-simulator`. These outputs prepare the generated SDK packages. Building them does not publish a package.
+
+`android-sdk-libs` combines generated Kotlin, runtime and Android sources,
+the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`
+selects the host emulator ABI. The SDK Gradle build reads this layout. The
+mobile-stage command builds the SDK library AAR so platform helpers are included.
+
+The Android minimum-platform CI caller sets `NIX_ANDROID_EMULATOR_API=23`.
+Only Linux x86_64 includes this default x86_64 system image. Other callers use
+API 34. The launcher checks the selected API and runs the existing clock sync.
+Check the selector with `dev/nix-shell 'python3 nix/lib/test-android-emulator-platform.py'`.

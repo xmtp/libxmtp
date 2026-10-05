@@ -35,10 +35,15 @@ private fun <T, R> readerFlow(
         val opening = openerScope.async { open() }
         var reader: R? = null
         var failure: Throwable? = null
-        var collectorStopped = false
         val monitor = CoroutineScope(Dispatchers.Default)
         try {
-            val active = opening.await()
+            val active =
+                try {
+                    opening.await()
+                } catch (error: Throwable) {
+                    failure = error
+                    throw error
+                }
             reader = active
             if (onConnectionStateChange != null) {
                 monitor.launch {
@@ -61,18 +66,18 @@ private fun <T, R> readerFlow(
                 }
             }
             while (true) {
-                owner.raw.clientKey()
-                val value = next(active) ?: break
-                try {
-                    emit(value)
-                } catch (error: Throwable) {
-                    collectorStopped = true
-                    throw error
-                }
+                val value =
+                    try {
+                        owner.raw.clientKey()
+                        next(active)
+                    } catch (error: Throwable) {
+                        failure = error
+                        throw error
+                    } ?: break
+                // The next read can acknowledge after emit returns. A downstream
+                // buffer can return here before its consumer finishes processing.
+                emit(value)
             }
-        } catch (error: Throwable) {
-            failure = error
-            throw error
         } finally {
             monitor.cancel()
             val active = reader
@@ -88,7 +93,7 @@ private fun <T, R> readerFlow(
             }
             val reason =
                 failure
-                    ?.takeUnless { collectorStopped || it is CancellationException }
+                    ?.takeUnless { it is CancellationException }
                     ?.let(SDKStreamCloseReason::Failed) ?: SDKStreamCloseReason.Closed
             try {
                 onClose?.invoke(reason)

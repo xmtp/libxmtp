@@ -8,8 +8,7 @@ plugins {
 
 dokka {
     dokkaSourceSets.configureEach {
-        // The bindings are generated implementation details. Do not publish them.
-        suppressedFiles.from(file("${rootProject.projectDir}/.build/bindings"))
+        // The generated sources are the public API. Include them in the reference.
     }
 }
 
@@ -23,7 +22,7 @@ String worktreePort(String name, String fallback) {
     if (fromEnv != null && !fromEnv.isEmpty()) {
         return fromEnv
     }
-    File env = new File(rootProject.projectDir, "../../dev/docker/.env")
+    File env = new File(projectDir, "../../../dev/docker/.env")
     if (env.isFile()) {
         for (String line : env.readLines()) {
             if (line.startsWith(name + "=")) {
@@ -33,6 +32,11 @@ String worktreePort(String name, String fallback) {
         }
     }
     return fallback
+}
+
+String androidBackendURL() {
+    String url = System.getenv("XMTP_ANDROID_BACKEND_URL")
+    return url ?: "http://10.0.2.2:${worktreePort('XMTP_BACKEND_PORT', '5050')}"
 }
 
 android {
@@ -53,7 +57,7 @@ android {
         // the main checkout's. 10.0.2.2 is how the emulator reaches the host;
         // only the port moves.
         buildConfigField "String", "XMTP_BACKEND_URL",
-            "\"http://10.0.2.2:${worktreePort("XMTP_BACKEND_PORT", "5050")}\""
+            "\"${androidBackendURL()}\""
         buildConfigField "String", "ANVIL_URL",
             "\"http://10.0.2.2:${worktreePort("XMTP_ANVIL_PORT", "8545")}\""
     }
@@ -69,6 +73,7 @@ android {
         }
     }
     compileOptions {
+        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
@@ -77,6 +82,7 @@ android {
     }
     kotlinOptions {
         jvmTarget = '17'
+        freeCompilerArgs += ["-Xjvm-default=all"]
     }
     publishing {
         singleVariant("release") {
@@ -89,32 +95,41 @@ android {
         checkTestSources = false
         ignoreTestSources = true
     }
-    // Include generated bindings from Nix build
+    // Use one matched generated package and its JNI libraries.
     sourceSets {
         main {
-            java.srcDirs += ["${rootProject.projectDir}/.build/bindings/java"]
-            jniLibs.srcDirs += ["${rootProject.projectDir}/.build/bindings/jniLibs"]
+            def generated = System.getenv("XMTP_SDK_GENERATED_DIR")
+            def sources = generated ? "${generated}/kotlin" : "${projectDir.parentFile}/.build/bindings"
+            java.srcDirs += ["${sources}/uniffi", "${sources}/runtime", "${sources}/android"].collect { file(it).canonicalFile }
+            jniLibs.srcDirs += [System.getenv("XMTP_SDK_ANDROID_JNI_DIR") ?: "${projectDir.parentFile}/.build/bindings/jniLibs"]
+            assets.srcDirs += ["${buildDir}/generated/contract"]
         }
     }
 }
 
+def generatedRoot = System.getenv("XMTP_SDK_GENERATED_DIR")
+def contractSource = generatedRoot ? "${generatedRoot}/kotlin/sdk-contract.json" : "${projectDir.parentFile}/.build/bindings/sdk-contract.json"
+tasks.register("stageSDKContract", Copy) {
+    fileMode = 0644
+    from contractSource
+    into "${buildDir}/generated/contract"
+}
+tasks.named("preBuild").configure { dependsOn "stageSDKContract" }
+
 dependencies {
-    implementation 'com.google.crypto.tink:tink-android:1.8.0'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+    api 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0'
     implementation 'androidx.lifecycle:lifecycle-process:2.7.0'
-    implementation 'org.web3j:crypto:4.9.4'
-    implementation "net.java.dev.jna:jna:5.17.0@aar"
-    api 'com.google.protobuf:protobuf-kotlin-lite:3.22.3'
-    api 'org.xmtp:proto-kotlin:3.88.0'
+    implementation "net.java.dev.jna:jna:5.18.1@aar"
 
     testImplementation 'junit:junit:4.13.2'
-    testImplementation 'androidx.test:monitor:1.7.2'
-    androidTestImplementation 'app.cash.turbine:turbine:1.1.0'
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
+    // JVM tests need the host dispatcher that is absent from the Android AAR.
+    testRuntimeOnly 'net.java.dev.jna:jna:5.18.1@jar'
+    androidTestImplementation 'org.web3j:core:4.9.4'
     androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
-    androidTestImplementation 'org.web3j:core:4.9.4'
-    androidTestImplementation 'org.web3j:contracts:4.9.4'
 }
 
 afterEvaluate {
@@ -130,12 +145,12 @@ afterEvaluate {
                 pom {
                     name = "XMTP"
                     description = "XMTP Android Library"
-                    url = "https://github.com/xmtp/xmtp-android"
+                    url = "https://github.com/xmtp/libxmtp"
 
                     licenses {
                         license {
                             name = "MIT License"
-                            url = "https://github.com/xmtp/xmtp-android/blob/main/LICENSE"
+                            url = "https://github.com/xmtp/libxmtp/blob/self-hosted/sdks/android/LICENSE"
                         }
                     }
                     developers {
@@ -147,9 +162,9 @@ afterEvaluate {
                         }
                     }
                     scm {
-                        connection = "https://github.com/xmtp/xmtp-android.git"
-                        developerConnection = "https://github.com/xmtp/xmtp-android.git"
-                        url = "https://github.com/xmtp/xmtp-android/tree/main"
+                        connection = "https://github.com/xmtp/libxmtp.git"
+                        developerConnection = "https://github.com/xmtp/libxmtp.git"
+                        url = "https://github.com/xmtp/libxmtp/tree/self-hosted/sdks/android"
                     }
                 }
             }

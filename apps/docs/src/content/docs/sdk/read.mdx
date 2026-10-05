@@ -40,7 +40,7 @@ Kotlin and Swift default to descending order. Browser and Node default to ascend
 </TabItem><TabItem label="Kotlin">
 
 ```kotlin
-val messages = conversation.messages(limit = 10)
+val messages = conversation.messages(ListMessagesOptions(limit = 10u))
 ```
 
 </TabItem><TabItem label="Swift">
@@ -82,17 +82,17 @@ Here is how to paginate messages with the cursor that each SDK exposes:
 <TabItem label="Kotlin">
 
 ```kotlin
-val firstPage = group.messages(
-    limit = 20,
+val firstPage = group.messages(ListMessagesOptions(
+    limit = 20u,
     sortBy = MessageSortBy.INSERTED_AT,
-    direction = SortDirection.DESCENDING
-)
-val secondPage = group.messages(
-    limit = 20,
+    direction = MessageOrder.DESCENDING,
+))
+val secondPage = group.messages(ListMessagesOptions(
+    limit = 20u,
     sortBy = MessageSortBy.INSERTED_AT,
-    direction = SortDirection.DESCENDING,
-    insertedBeforeNs = firstPage.last().insertedAtNs
-)
+    direction = MessageOrder.DESCENDING,
+    insertedBefore = firstPage.lastOrNull()?.insertedAt,
+))
 ```
 
 </TabItem>
@@ -137,7 +137,7 @@ We recommend listing allowed conversations only. This ensures that spammy conver
 </TabItem><TabItem label="Kotlin">
 
 ```kotlin
-val conversations = client.conversations.list()
+val conversations = client.conversations().list()
 ```
 
 </TabItem><TabItem label="Swift">

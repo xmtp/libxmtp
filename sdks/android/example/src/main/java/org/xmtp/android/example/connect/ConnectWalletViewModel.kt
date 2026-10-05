@@ -6,7 +6,9 @@ import androidx.annotation.UiThread
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.walletconnect.wcmodal.client.Modal
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,11 +17,9 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.xmtp.android.example.ClientManager
-import org.xmtp.android.library.Client
-import org.xmtp.android.library.XMTPException
-import org.xmtp.android.library.codecs.GroupUpdatedCodec
-import org.xmtp.android.library.messages.PrivateKeyBuilder
+import uniffi.xmtp_sdk.*
 
 class ConnectWalletViewModel(
     application: Application,
@@ -36,19 +36,23 @@ class ConnectWalletViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = ConnectUiState.Loading
             try {
-                val wallet = PrivateKeyBuilder()
+                val wallet = generateLocalSigner()
+                val address = wallet.identity().identifier
                 val client =
-                    Client.create(
+                    SDKClient.create(
+                        getApplication(),
                         wallet,
-                        ClientManager.clientOptions(getApplication(), wallet.publicIdentity.identifier),
+                        ClientManager.clientOptions(getApplication(), address),
                     )
-                Client.register(codec = GroupUpdatedCodec())
-                _uiState.value =
-                    ConnectUiState.Success(
-                        wallet.publicIdentity.identifier,
-                    )
-            } catch (e: XMTPException) {
-                _uiState.value = ConnectUiState.Error(e.message.orEmpty())
+                try {
+                    client.inboxId()
+                } finally {
+                    withContext(NonCancellable) { client.end() }
+                }
+                _uiState.value = ConnectUiState.Success(address)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                _uiState.value = ConnectUiState.Error(error.message.orEmpty())
             }
         }
     }

@@ -21,20 +21,16 @@ from [release run 35742600105](https://github.com/xmtp/libxmtp/actions/runs/3574
 on `self-hosted`, at commit `9f72722`. Pin these versions instead of using an
 unversioned install or a moving `dev` tag.
 
-| SDK     | Package or dependency           | Dev version                                                                                                                   |
-| ------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Browser | `@xmtp/browser-sdk`             | [7.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.9f72722)                                           |
-| Node    | `@xmtp/node-sdk`                | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)                                              |
-| Agent   | `@xmtp/agent-sdk`               | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)                                             |
-| Kotlin  | `org.xmtp:android`              | [4.12.0-dev.9f72722](https://repo.maven.apache.org/maven2/org/xmtp/android/4.12.0-dev.9f72722/android-4.12.0-dev.9f72722.pom) |
-| Swift   | Swift package product `XmtpSdk` | Build the checked-out source with `dev/nix-shell 'just ios build'`.                                                           |
+| SDK     | Package or dependency           | Dev version                                                                         |
+| ------- | ------------------------------- | ----------------------------------------------------------------------------------- |
+| Browser | `@xmtp/browser-sdk`             | [7.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.9f72722) |
+| Node    | `@xmtp/node-sdk`                | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)    |
+| Agent   | `@xmtp/agent-sdk`               | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)   |
+| Kotlin  | `org.xmtp:android`              | Build the checked-out source with `dev/nix-shell 'just android build'`.             |
+| Swift   | Swift package product `XmtpSdk` | Build the checked-out source with `dev/nix-shell 'just ios build'`.                 |
 
 For example, install Node with
-`npm install @xmtp/node-sdk@6.2.0-dev.9f72722`. For Kotlin, use
-`implementation("org.xmtp:android:4.12.0-dev.9f72722")`.
-For Swift, build the current source and add the `XmtpSdk` product. Keep its
-Swift source and native archive from the same build. See the
-[installation guide](/get-started/install/) for local package setup.
+`npm install @xmtp/node-sdk@6.2.0-dev.9f72722`. For Kotlin, build the current Android source and use its matching AAR. For Swift, build the current source and add the `XmtpSdk` product. Keep its Swift source and native archive from the same build.
 
 Node and Browser depend on matching `@xmtp/node-bindings` and
 `@xmtp/wasm-bindings` versions, respectively: `1.12.0-dev.9f72722`. Let the SDK
@@ -69,7 +65,7 @@ Keep the label and database path stable after migration.
 | Browser | Pass `{ backendUrl: "https://xmtp.example.com" }` to `Client.create` and `Client.build`. A pre-built WASM `Backend` cannot cross the worker boundary.                                 |
 | Node    | Pass `{ backendUrl: "https://xmtp.example.com" }`, or `{ backend }` with a pre-built `Backend`. Do not pass both forms.                                                               |
 | Agent   | Set `XMTP_BACKEND_URL` or pass `backendUrl` to `Agent.createFromEnv`. The environment variable takes precedence. Remove `XMTP_GATEWAY_HOST`. `XMTP_ENV` now labels the database only. |
-| Kotlin  | Supply `ClientOptions(api = ClientOptions.Api(backendUrl = "https://xmtp.example.com"), ...)`. `env` defaults to `"local"`.                                                           |
+| Kotlin  | Import `uniffi.xmtp_sdk.*`. Use `BackendSource.Options(BackendOptions(url = backendUrl))` and `StorageOptions` in `ClientOptions`.                                                    |
 | Swift   | Import `XmtpSdk`. Pass `BackendOptions(url:)` through `ClientOptions.backend` and provide `StorageOptions`.                                                                           |
 
 See [Create a client](/sdk/client/#create-a-client) for complete examples.
@@ -111,9 +107,9 @@ Backend authentication is separate from the wallet signer used for XMTP identity
 The backend can require an API key or JWT. See
 [authentication configuration](/get-started/run-the-backend/#auth).
 
-Swift uses a `CredentialSource` in `BackendOptions.credentials`, passed through
-`ClientOptions.backend`. JavaScript and Kotlin use async `authCallback`
-in their current network options. See each platform example below before setup.
+Kotlin and Swift use a `CredentialSource` in `BackendOptions.credentials`, passed
+through `ClientOptions.backend`. JavaScript uses async `authCallback` in its
+current network options. Agents pass it through their client options.
 The callback returns a `Credential` with `value`, `expiresAtSeconds` (Unix
 seconds), and optional `name`. The default header is `authorization`. Include
 `Bearer` and one space before an API key or JWT.
@@ -122,12 +118,9 @@ The middleware caches the credential and requests a new one after expiry or
 rejection. Configuration discovery needs no credential and does not invoke the
 callback. Callback failures use a fixed error, without app error text.
 See [Backend authentication](/sdk/client/#backend-authentication) for examples.
-JavaScript and Kotlin low-level binding callback and handle APIs remain available.
 For Swift, implement `CredentialSource.credential() async throws -> Credential`.
-The SDK maps callback failures to a fixed typed error. Direct Kotlin binding
-callbacks use `FfiAuthCallbackException.Failed`. That dedicated callback error
-replaces the flat `FfiError`, which could
-abort the process when a foreign callback failed.
+For Kotlin, override `CredentialSource.credential()` as a suspend function that
+returns `Credential`. The SDK maps callback failures to a fixed typed error.
 
 Swift `SDKClient.inboxIdFor` returns lookup errors. Handle authentication and
 network failures instead of treating them as a new identity.

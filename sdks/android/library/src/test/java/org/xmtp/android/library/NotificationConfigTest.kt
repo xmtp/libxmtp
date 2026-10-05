@@ -2,8 +2,9 @@ package org.xmtp.android.library
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import uniffi.xmtpv3.FfiConsentState
-import uniffi.xmtpv3.FfiNotificationChannel
+import uniffi.xmtp_sdk.ConsentState
+import uniffi.xmtp_sdk.NotificationChannel
+import uniffi.xmtp_sdk.NotificationConfig
 
 class NotificationConfigTest {
     @Test
@@ -17,23 +18,23 @@ class NotificationConfigTest {
                     includeWelcomes = false,
                     includeSyncGroups = true,
                     includeCommits = true,
-                ).toFfi()
+                )
             when (channel) {
-                is NotificationChannel.Apns -> assertEquals(FfiNotificationChannel.Apns(channel.token), config.channel)
-                is NotificationChannel.Fcm -> assertEquals(FfiNotificationChannel.Fcm(channel.token), config.channel)
+                is NotificationChannel.Apns -> assertEquals(NotificationChannel.Apns(channel.token), config.channel)
+                is NotificationChannel.Fcm -> assertEquals(NotificationChannel.Fcm(channel.token), config.channel)
                 is NotificationChannel.Http -> error("Expected a provider channel")
             }
-            assertEquals(listOf(FfiConsentState.DENIED, FfiConsentState.UNKNOWN), config.consentStates)
+            assertEquals(listOf(ConsentState.DENIED, ConsentState.UNKNOWN), config.consentStates)
             assertEquals(false, config.includeWelcomes)
             assertEquals(true, config.includeSyncGroups)
             assertEquals(true, config.includeCommits)
 
-            val defaults = NotificationConfig(channel).toFfi()
+            val defaults = NotificationConfig(channel)
             assertEquals(config.channel, defaults.channel)
-            assertEquals(listOf(FfiConsentState.ALLOWED), defaults.consentStates)
-            assertEquals(true, defaults.includeWelcomes)
-            assertEquals(false, defaults.includeSyncGroups)
-            assertEquals(false, defaults.includeCommits)
+            assertEquals(null, defaults.consentStates)
+            assertEquals(null, defaults.includeWelcomes)
+            assertEquals(null, defaults.includeSyncGroups)
+            assertEquals(null, defaults.includeCommits)
         }
     }
 }

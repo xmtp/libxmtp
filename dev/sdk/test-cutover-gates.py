@@ -48,7 +48,33 @@ class CutoverGates(unittest.TestCase):
         }
         module.OUT = self.root / "docs/self-hosted/sdk-api-manifest.md"
         module.MOBILE_TEST_MAP = self.root / "dev/sdk/binding-test-map.tsv"
+        module.MOBILE_TEST_BASELINE = self.root / "dev/sdk/binding-test-baseline.tsv"
         return module
+
+    def test_mobile_retirement_keeps_every_original_test_name(self):
+        module = self.inventory()
+        module.MOBILE_TEST_MAP.parent.mkdir(parents=True)
+        module.MOBILE_TEST_BASELINE.write_text(
+            "# Source\tTest\nfixture.rs\tretained_case\n"
+        )
+        module.MOBILE_TEST_MAP.write_text(
+            "# Source\tTest\tCoverage\n"
+            "fixture.rs\tretained_case\tcore: `crates/fixture.rs::surviving_case`\n"
+        )
+        target = self.root / "crates/fixture.rs"
+        target.parent.mkdir(parents=True)
+        target.write_text("fn surviving_case() {}\n")
+        legacy = self.root / "bindings/mobile/src/fixture.rs"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text("#[test]\nfn retained_case() {}\n")
+        module.mobile_test_map()
+        shutil.rmtree(self.root / "bindings/mobile")
+        module.mobile_test_map()
+        module.MOBILE_TEST_MAP.write_text("# Source\tTest\tCoverage\n")
+        with self.assertRaisesRegex(
+            ValueError, "differs from the mobile test baseline"
+        ):
+            module.mobile_test_map()
 
     def test_switched_inventory_keeps_ledger_and_unswitched_source_checks(self):
         for source in ("docs/self-hosted/sdk-api-manifest.md",):
@@ -83,6 +109,9 @@ class CutoverGates(unittest.TestCase):
         self.assertIn("| Swift | 7132 |", built)
         module.OUT.write_text(built)
         self.assertEqual(module.build(), built)
+        source_only = module.build(source_only=True)
+        self.assertEqual(module.source_only_manifest(built), source_only)
+        self.assertEqual(module.build(source_only=True), source_only)
         with patch.object(sys, "argv", ["inventory.py", "--check"]):
             module.main()
         public.rename(public.with_suffix(".missing"))
@@ -96,11 +125,15 @@ class CutoverGates(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "pinned pre-switch ledger changed"):
             module.build()
+        with self.assertRaisesRegex(ValueError, "pinned pre-switch ledger changed"):
+            module.build(source_only=True)
         module.OUT.write_text(built)
         sibling = self.root / "sdks/node/src/index.ts"
         sibling.write_text(
             sibling.read_text() + "\nexport const unapprovedSiblingExport = true;\n"
         )
+        self.assertNotEqual(module.build(), built)
+        self.assertNotEqual(module.build(source_only=True), source_only)
         with patch.object(sys, "argv", ["inventory.py", "--check"]):
             with self.assertRaisesRegex(
                 SystemExit, "manifest differs from source inventory"
@@ -129,6 +162,48 @@ class CutoverGates(unittest.TestCase):
                 ValueError, "pure root misses retained exports"
             ):
                 module.switched_source_rows({"Browser"})
+
+    def test_switch_detection_keeps_each_sdk_independent(self):
+        for source in (
+            "sdks/node/package.json",
+            "sdks/browser/package.json",
+            "sdks/android/gradle.properties",
+            "sdks/android/library/build.gradle",
+        ):
+            self.copy(source)
+        for folder in ("node", "browser"):
+            (self.root / f"sdks/{folder}/package.json").write_text(
+                '{"version":"8.0.0","scripts":{"build":"legacy"}}'
+            )
+        (self.root / "sdks/android/gradle.properties").write_text("version=7.0.0\n")
+        (self.root / "sdks/android/library/build.gradle").write_text("legacy")
+        (self.root / "Package.swift").write_text('name: "XMTPiOS"')
+        module = self.inventory()
+        self.assertEqual(module.switched_sdks(self.root), set())
+        (self.root / "Package.swift").write_text(
+            'name: "XmtpSdk"; path: "sdks/ios/Sources/XmtpSdk"'
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift"})
+        (self.root / "sdks/node/package.json").write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package node"}}'
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node"})
+        (self.root / "sdks/android/gradle.properties").write_text("version=8.0.0\n")
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node"})
+        (self.root / "sdks/android/library/build.gradle").write_text(
+            "XMTP_SDK_GENERATED_DIR"
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node", "Kotlin"})
+        (self.root / "sdks/browser/package.json").write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package node"}}'
+        )
+        self.assertEqual(module.switched_sdks(self.root), {"Swift", "Node", "Kotlin"})
+        (self.root / "sdks/browser/package.json").write_text(
+            '{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package browser"}}'
+        )
+        self.assertEqual(
+            module.switched_sdks(self.root), {"Swift", "Node", "Kotlin", "Browser"}
+        )
 
 
 if __name__ == "__main__":

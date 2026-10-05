@@ -1,5 +1,6 @@
 <!-- The branded header uses HTML and places status badges before the title. -->
 <!-- markdownlint-configure-file {"MD041": false, "MD033": {"allowed_elements": ["h1", "p", "img", "br", "a"]}} -->
+
 [![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml)
 [![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
@@ -181,11 +182,11 @@ service
 
 ├ bindings/
 
-│ ├ [`mobile`](./bindings/mobile): FFI bindings for Android and iOS
-
 │ ├ [`node`](./bindings/node): Node.js bindings
 
 │ └ [`wasm`](./bindings/wasm): WebAssembly bindings
+
+├ [`sdks`](./sdks): Generated public SDK packages
 
 ├ crates/
 

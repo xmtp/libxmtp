@@ -1,4 +1,4 @@
-name: Test Bindings Check
+name: Test Native SDK Check
 on:
   workflow_call:
 jobs:
@@ -19,10 +19,10 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "true"
-      - name: Check iOS bindings compile
-        run: |
-          nix develop .#ios --command \
-            cargo check --target ${{ matrix.target }} --manifest-path bindings/mobile/Cargo.toml
+      - name: Check native SDK compile
+        env:
+          NIX_DEVSHELL: ios
+        run: dev/nix-shell 'dev/agent-run cargo check --locked -p xmtp_sdk --target ${{ matrix.target }}'
 
   check-android:
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -41,6 +41,6 @@ jobs:
           sccache: "true"
       - uses: taiki-e/install-action@just
       - name: Start backend
-        run: just backend up
-      - name: Check Android bindings compile
-        run: just android check
+        run: dev/nix-shell 'just backend up'
+      - name: Check Android SDK compile
+        run: dev/nix-shell 'just android check'

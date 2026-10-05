@@ -87,10 +87,11 @@ lint-rust:
 
 # Config linting: TOML, Nix, shell scripts, and the SDK API manifest
 lint-config: lint-treefmt sdk-manifest-check
+    python3.11 dev/tests/test_android_clock.py
 
-# Fail if docs/self-hosted/sdk-api-manifest.md differs from the SDK sources.
+# Check retention and source rows without requiring generated SDK products.
 sdk-manifest-check:
-    python3.11 dev/sdk/inventory.py --check
+    python3.11 dev/sdk/inventory.py --check-source
     python3.11 dev/sdk/test-cutover-gates.py
 
 lint-toml:
@@ -269,7 +270,7 @@ ci-failures job:
     set -euo pipefail
     # gh 2.97+ refuses to print a log that contains ANSI escapes (cargo colour
     # output) unless asked. Older gh has no such flag.
-    esc=""; gh api --help | grep -q -- --allow-escape-sequences && esc="--allow-escape-sequences"
+    esc=""; if gh api --help | grep -- --allow-escape-sequences >/dev/null; then esc="--allow-escape-sequences"; fi
     gh api $esc repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
       | dev/ci-failure-markers
 

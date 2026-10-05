@@ -1,5 +1,7 @@
 """Create and compare files for mobile package fixtures."""
 
+import json
+
 
 class MobilePackageTestFixtures:
     def seed_android_dependency_inputs(self):
@@ -19,3 +21,13 @@ class MobilePackageTestFixtures:
             for path in output.rglob("*")
             if path.is_file()
         }
+
+    def test_ios_public_stage_includes_host_and_mobile_libraries(self):
+        output = self.prepare_mobile_stage("ios")
+        self.assemble_mobile("ios")
+        contract = json.loads((output / "sdk-contract.json").read_text())
+        self.assertEqual(
+            set(contract["native"]),
+            {"aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin"},
+        )
+        self.assertIn(".macOS(.v11)", (output / "Package.swift").read_text())

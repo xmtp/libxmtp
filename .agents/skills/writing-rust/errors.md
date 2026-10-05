@@ -43,12 +43,12 @@ variant without `inherit` needs a `///` doc comment; the derive rejects a
 missing one. State in the doc whether the variant is retryable. The glossary
 copies the doc text verbatim.
 
-| Attribute | On | Effect |
-| --- | --- | --- |
-| `#[error_code(inherit)]` | variant with one field | return the inner error's code |
-| `#[error_code("Type::OldName")]` | variant or struct | keep a code after a rename; write the full string |
-| `#[error_code(internal)]` | type | drop the type from the glossary; codes still generated |
-| `#[error_code(remote = "path::Type")]` | mirror enum | implement `ErrorCode` for a foreign type (`crates/xmtp_common/src/error_code.rs`) |
+| Attribute                              | On                     | Effect                                                                            |
+| -------------------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
+| `#[error_code(inherit)]`               | variant with one field | return the inner error's code                                                     |
+| `#[error_code("Type::OldName")]`       | variant or struct      | keep a code after a rename; write the full string                                 |
+| `#[error_code(internal)]`              | type                   | drop the type from the glossary; codes still generated                            |
+| `#[error_code(remote = "path::Type")]` | mirror enum            | implement `ErrorCode` for a foreign type (`crates/xmtp_common/src/error_code.rs`) |
 
 After adding variants: `dev/nix-shell 'dev/gen-error-glossary'` regenerates
 `docs/error_glossary.md`.
@@ -69,11 +69,11 @@ before assuming, and add the missing impl when a code must cross FFI.
 Each surface has one wrapper that emits `"[{code}] {message}"`. Use it. Do not
 format error strings by hand.
 
-| Surface | Wrapper | Use |
-| --- | --- | --- |
-| node | `ErrorWrapper<E>` in `bindings/node/src/lib.rs` | `.map_err(ErrorWrapper::from)?` |
-| wasm | `ErrorWrapper<E>` in `bindings/wasm/src/errors.rs` | `.map_err(ErrorWrapper::js)?`; keeps the JS `code` property |
-| mobile | `FfiError` in `bindings/mobile/src/lib.rs` | `?` through `From<T: Into<GenericError>>` |
+| Surface | Wrapper                                            | Use                                                         |
+| ------- | -------------------------------------------------- | ----------------------------------------------------------- |
+| node    | `ErrorWrapper<E>` in `bindings/node/src/lib.rs`    | `.map_err(ErrorWrapper::from)?`                             |
+| wasm    | `ErrorWrapper<E>` in `bindings/wasm/src/errors.rs` | `.map_err(ErrorWrapper::js)?`; keeps the JS `code` property |
+| SDK     | `XmtpError` in `crates/xmtp_sdk/src/error.rs`      | Use the canonical typed cause conversion.                   |
 
 ## Backend
 

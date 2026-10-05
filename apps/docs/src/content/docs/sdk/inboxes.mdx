@@ -106,9 +106,9 @@ Static state lookup and revocation can run without a logged-in client. Browser a
 
 ```kotlin
 val state = client.inboxState(refreshFromNetwork = true)
-val states = Client.inboxStatesForInboxIds(inboxIds, api)
-client.revokeInstallations(installationIds)
-client.revokeAllOtherInstallations()
+val states = SDKClient.inboxStates(inboxIds, backend)
+client.revokeInstallations(signer, installationIds)
+client.revokeAllOtherInstallations(signer)
 ```
 
 </TabItem>

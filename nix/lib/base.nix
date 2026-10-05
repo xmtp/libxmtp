@@ -29,13 +29,6 @@ let
     fileset = xmtp.filesets.workspace;
   };
 
-  # Full fileset for buildPackage — includes all source files needed to compile
-  # the xmtpv3 crate and its workspace dependencies.
-  bindingsFileset = lib.fileset.toSource {
-    root = ./../..;
-    fileset = xmtp.filesets.forCrate ./../../bindings/mobile;
-  };
-
   # The suffix strictly for the build platform/native machine building the code
   # _not_ the compilation target (which is different when cross-compiling)
   buildPlatformSuffix =
@@ -122,7 +115,6 @@ in
 {
   inherit
     depsFileset
-    bindingsFileset
     commonArgs
     mkCargoArtifacts
     ;

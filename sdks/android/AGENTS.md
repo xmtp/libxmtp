@@ -1,43 +1,92 @@
 # XMTP Android SDK
 
-Kotlin. Wraps `bindings/mobile` through uniffi.
+Kotlin package `uniffi.xmtp_sdk`. The SDK uses generated bindings and runtime from
+`xmtp_sdk`. The version is 8.0.0. Main source adds Android storage, process
+lifecycle, and file log helpers.
 
 ## Commands
 
-Each recipe uses the Android Nix shell.
+`just android check` and `just android test` stage the matched host SDK library for native JVM calls.
+The test runtime includes host JNA. For `test-unit` with existing generated output,
+set `JAVA_TOOL_OPTIONS=-Djna.library.path=PATH` to the matched host SDK library
+directory.
+
+Run from the repository root. Each recipe uses the Android Nix shell.
+Build tools use normal parallelism and preserve caller job settings.
+The format recipe uses strict dependency verification and stops its Gradle daemon.
+The dependency locks include the pinned Spotless formatter graph.
+The config check tests settings service startup and clock failure before emulator tests.
 
 ```bash
-just android build             # Build native libraries and Kotlin bindings.
-just android assemble          # Compile the library, example, and instrumented tests.
-just android check             # Build bindings and run the Gradle build.
-just android lint              # Run Spotless and Android Lint.
-just android format            # Format Kotlin code.
-just android test              # Build bindings and run JVM unit tests.
-just android test-integration  # Build bindings and run tests on an emulator.
-just android docs              # Generate the Kotlin API reference.
-NIX_DEVSHELL=android dev/nix-shell 'cd sdks/android && ./dev/bindings && ./gradlew -p . library:testDebugUnitTest --tests org.xmtp.android.library.ClientCacheKeyTest'
+dev/nix-shell 'just android build'
+dev/nix-shell 'just android assemble'
+dev/nix-shell 'just android check'
+dev/nix-shell 'just android lint'
+dev/nix-shell 'just android format'
+dev/nix-shell 'just android test'
+dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifecycleTest'
+dev/nix-shell 'just android test-integration'
+dev/nix-shell 'just android test-min-sdk'
+dev/nix-shell 'just android docs'
 ```
+
+The Android floor is API 23. Generated timestamps use `java.time.Instant`. Keep
+core library desugaring on in the library and app consumers, with pinned
+`com.android.tools:desugar_jdk_libs:2.1.5`. Dependency locks and SHA256 Gradle
+verification metadata cover the final resolved graph.
+
+`test-min-sdk` requires a Linux x86_64 runner. It loads release JNI and checks
+generated `Instant` and `Date` conversions on API 23. It also creates public
+clients with explicit and in-memory storage, then closes them. It also cancels a
+public reader collector and checks unacknowledged replay. Start the normal
+backend before this route. Kotlin generation uses the stock Android cleaner
+mode: JNA below API 34 and `SystemCleaner` on API 34 or later. The Nix emulator launcher
+checks the guest API and synchronizes its clock before it starts the test.
+
+`dev/bindings` stages `android-sdk-libs-fast`. `dev/bindings --release` stages
+`android-sdk-libs` with arm64-v8a, armeabi-v7a, x86_64, and x86 JNI libraries.
+Gradle uses the matched generated sources and contract. The release AAR contains
+`libxmtp_sdk.so` and `assets/sdk-contract.json`.
+
+For an already generated package, set `XMTP_SDK_GENERATED_DIR` to its root and
+`XMTP_SDK_ANDROID_JNI_DIR` to its `jniLibs` directory. This skips native generation
+when Gradle runs directly through `dev/nix-shell`. The `test-unit` recipe uses
+these existing matched bindings and accepts Gradle test filters.
 
 ## Local services
 
-- Run `just backend up` for the main test stack.
-- To use the published backend image, run `./dev/docker/up`.
-- `sdks/android/dev/local/compose` forwards commands to the shared stack.
-- Emulator tests use `localApi()`, which reads `BuildConfig.XMTP_BACKEND_URL`. `library/build.gradle` sets it from `XMTP_BACKEND_PORT`, so each worktree reaches its own backend. The main checkout resolves to `http://10.0.2.2:5050`.
-- Smart contract wallet tests use anvil at `http://10.0.2.2:8545`.
-- Supply `ClientOptions.Api(backendUrl = "http://10.0.2.2:5050")`. The URL has no default. The optional `env` string selects the database file alias.
+Run `dev/nix-shell 'just backend up'`. The library test BuildConfig reads backend
+and anvil ports from the worktree environment. The emulator reaches these
+services through `10.0.2.2`. Attachments use the backend's advertised loopback URL.
+Set `XMTP_ANDROID_BACKEND_URL` to use a test relay or another reachable endpoint.
+The integration recipe uses `adb reverse` for `XMTP_S3_PORT`; it must match the
+backend attachment URL. Tests set `allowPrivateNetwork = true` for this fixture.
 
-## Test requirements
+## Tests and lifecycle
 
-- Run `./dev/bindings` before Gradle compilation or tests. It builds the native libraries and matching Kotlin bindings.
-- `library/src/test` contains JVM unit tests.
-- `library/src/androidTest` contains instrumented tests. These tests need a running backend and an emulator.
-- Instrumented fixtures disable automatic stream lifecycle handling and resume streams. They restore the setting after each test. There is no foreground Activity to keep streams active.
+`library/src/test` has JVM helper tests. `library/src/androidTest` has installed
+Android tests. Kotlin conformance under `crates/xmtp_sdk/conformance/kotlin`
+checks the generated runtime. Host JVM checks do not prove an Android AAR loads.
+
+Instrumentation has no foreground Activity. Its fixtures disable
+`AndroidStreamLifecycle.enabled`, resume native streams, and restore the flag.
+Android client Context overloads resolve default storage under `filesDir/xmtp_db`
+and enable process lifecycle control by default. Explicit storage stays explicit.
+End clients in `withContext(NonCancellable)`.
 
 ## Message delivery
 
-- Message streams keep native acknowledgement tokens through the SDK queue. The direct Flow collector return is the acknowledgement boundary. App-added buffering has a separate boundary.
-- `MessageReader.next()` acknowledges the previous item, not the returned item. Close the reader when finished. Close and cancellation do not acknowledge pending items.
-- `messageReader(from = cursor)` opens independent replay. `messageHistorySnapshot` returns messages and a cursor from one database snapshot. Each delivered message has a typed `deliveryCursor`.
-- Readers expose scope and filter updates, catch-up snapshots, and change waits. Catch-up keeps the current generation and at most one previous generation.
-- Read `error.streamFailureDetails` for typed barrier, publish-confirmation, and catch-up failures. A null target means capture failed; zero is a captured empty target. All cursors and counts remain `ULong` values.
+A native message reader acknowledges the previous message at the next `next()`
+call. With direct sequential Flow collection, the collector callback finishes
+before acknowledgement starts. A buffer or another asynchronous operator
+can let `emit` return before downstream processing ends. Cancellation after the
+acknowledgement does not restore the message to default progress. Do not claim
+durable acknowledgements for each downstream consumer. Cancellation closes the
+reader in `NonCancellable`; replay is preserved before ACK commit admission.
+
+Only one default message reader can own progress in a client database. Different
+group or DM scopes do not create separate default owners. A second active default
+message reader fails with `XmtpException.ConsumerOwned`. Explicit `from` cursors
+permit independent replay/live readers that do not advance default progress. Use the
+generated reader options for scopes, filters, and replay. Keep typed errors and
+`ULong` values.
