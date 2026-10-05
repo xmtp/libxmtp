@@ -23,7 +23,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.xmtp.android.example.connect.ConnectWalletActivity
 import org.xmtp.android.example.conversation.ConversationDetailActivity
 import org.xmtp.android.example.conversation.ConversationsAdapter
@@ -45,12 +44,6 @@ class MainActivity :
     private var bottomSheet: NewConversationBottomSheet? = null
     private var groupBottomSheet: NewGroupBottomSheet? = null
     private var logsBottomSheet: LogViewerBottomSheet? = null
-
-    // Add constant for SharedPreferences
-    companion object {
-        private const val PREFS_NAME = "XMTPPreferences"
-        private const val KEY_LOGS_ACTIVATED = "logs_activated"
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -157,10 +150,8 @@ class MainActivity :
 
     override fun onResume() {
         super.onResume()
-        // Check if logs were previously activated and reactivate if needed
-        if (isLogsActivated()) {
-            activateLogs()
-        }
+        // Read saved state after any pending writer change.
+        changeLogs(activated = true, restoreOnly = true)
 
         // If we're still in error state, make sure retry is running
         if (ClientManager.clientState.value is ClientManager.ClientState.Error) {
@@ -198,14 +189,12 @@ class MainActivity :
             }
 
             R.id.activate_logs -> {
-                activateLogs(showNotice = true)
+                changeLogs(activated = true, showNotice = true)
                 true
             }
 
             R.id.deactivate_logs -> {
-                SDKClient.deactivatePersistentLibXMTPLogWriter()
-                setLogsActivated(false)
-                Toast.makeText(this, "Persistent logs deactivated", Toast.LENGTH_SHORT).show()
+                changeLogs(activated = false, showNotice = true)
                 true
             }
 
@@ -326,42 +315,27 @@ class MainActivity :
         )
     }
 
-    private fun activateLogs(showNotice: Boolean = false) {
+    private fun changeLogs(
+        activated: Boolean,
+        restoreOnly: Boolean = false,
+        showNotice: Boolean = false,
+    ) {
+        val change = PersistentLogs.controller(applicationContext).setActivated(activated, restoreOnly)
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    initLogging(LoggingOptions(level = LogLevel.DEBUG))
-                    SDKClient.activatePersistentLibXMTPLogWriter(
-                        applicationContext,
-                        LogLevel.DEBUG,
-                        LogRotation.MINUTELY,
-                        3u,
-                    )
-                }
-                setLogsActivated(true)
+                change.await()
                 if (showNotice) {
                     Toast
                         .makeText(
                             this@MainActivity,
-                            "Persistent logs activated",
+                            if (activated) "Persistent logs activated" else "Persistent logs deactivated",
                             Toast.LENGTH_SHORT,
                         ).show()
                 }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
-                setLogsActivated(false)
                 showError(error.message.orEmpty())
             }
         }
-    }
-
-    private fun isLogsActivated(): Boolean {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getBoolean(KEY_LOGS_ACTIVATED, false)
-    }
-
-    private fun setLogsActivated(activated: Boolean) {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(KEY_LOGS_ACTIVATED, activated).apply()
     }
 }
