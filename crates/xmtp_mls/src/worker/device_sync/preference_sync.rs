@@ -35,6 +35,12 @@ where
             PreferenceUpdate::Hmac { .. } => self.metrics.increment_metric(SyncMetric::HmacSent),
         });
 
+        #[cfg(test)]
+        worker::test_hooks::observe_preferences(
+            self.context.installation_id(),
+            worker::test_hooks::PreferenceStage::Published,
+            &updates,
+        );
         Ok(updates)
     }
 

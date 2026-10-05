@@ -49,8 +49,139 @@ type PendingEvent = Arc<Mutex<Option<(u64, xmtp_events::EventEnvelope<InternalEv
 
 #[cfg(test)]
 pub(crate) mod test_hooks {
-    use std::sync::Arc;
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::{Arc, LazyLock, Weak},
+    };
     use tokio::sync::Notify;
+    use xmtp_db::consent_record::StoredConsentRecord;
+    use xmtp_proto::types::InstallationId;
+
+    use super::PreferenceUpdate;
+
+    pub(crate) type ConsentKey = (i32, String);
+
+    #[derive(Clone, Copy, Debug)]
+    pub(crate) enum PreferenceStage {
+        Published,
+        Received,
+        Completed,
+    }
+
+    #[derive(Clone, Debug)]
+    pub(crate) struct ConsentObservation {
+        pub(crate) installation: InstallationId,
+        pub(crate) stage: PreferenceStage,
+        pub(crate) record: StoredConsentRecord,
+    }
+
+    struct PreferenceCaptureState {
+        keys: HashSet<ConsentKey>,
+        records: parking_lot::Mutex<Vec<ConsentObservation>>,
+        changed: Notify,
+    }
+
+    static PREFERENCE_CAPTURES: LazyLock<
+        parking_lot::Mutex<HashMap<InstallationId, Weak<PreferenceCaptureState>>>,
+    > = LazyLock::new(parking_lot::Mutex::default);
+
+    pub(crate) struct PreferenceCapture {
+        installations: Vec<InstallationId>,
+        state: Arc<PreferenceCaptureState>,
+    }
+
+    impl PreferenceCapture {
+        #[track_caller]
+        pub(crate) fn new(
+            installations: Vec<InstallationId>,
+            records: &[StoredConsentRecord],
+        ) -> Self {
+            let state = Arc::new(PreferenceCaptureState {
+                keys: records
+                    .iter()
+                    .map(|record| (record.entity_type as i32, record.entity.clone()))
+                    .collect(),
+                records: parking_lot::Mutex::default(),
+                changed: Notify::new(),
+            });
+            let mut captures = PREFERENCE_CAPTURES.lock();
+            for installation in &installations {
+                assert!(
+                    captures.get(installation).and_then(Weak::upgrade).is_none(),
+                    "one preference capture per installation"
+                );
+                captures.insert(*installation, Arc::downgrade(&state));
+            }
+            Self {
+                installations,
+                state,
+            }
+        }
+
+        pub(crate) fn snapshot(&self) -> Vec<ConsentObservation> {
+            self.state.records.lock().clone()
+        }
+
+        pub(crate) async fn changed(&self) {
+            self.state.changed.notified().await;
+        }
+    }
+
+    impl Drop for PreferenceCapture {
+        fn drop(&mut self) {
+            let mut captures = PREFERENCE_CAPTURES.lock();
+            for installation in &self.installations {
+                if captures
+                    .get(installation)
+                    .is_some_and(|capture| Weak::ptr_eq(capture, &Arc::downgrade(&self.state)))
+                {
+                    captures.remove(installation);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn captures_preferences(installation: InstallationId) -> bool {
+        PREFERENCE_CAPTURES
+            .lock()
+            .get(&installation)
+            .and_then(Weak::upgrade)
+            .is_some()
+    }
+
+    pub(crate) fn observe_preferences(
+        installation: InstallationId,
+        stage: PreferenceStage,
+        updates: &[PreferenceUpdate],
+    ) {
+        let capture = PREFERENCE_CAPTURES
+            .lock()
+            .get(&installation)
+            .and_then(Weak::upgrade);
+        let Some(capture) = capture else {
+            return;
+        };
+        let mut records = capture.records.lock();
+        let before = records.len();
+        for update in updates {
+            if let PreferenceUpdate::Consent(record) = update
+                && capture
+                    .keys
+                    .contains(&(record.entity_type as i32, record.entity.clone()))
+            {
+                records.push(ConsentObservation {
+                    installation,
+                    stage,
+                    record: record.clone(),
+                });
+            }
+        }
+        let changed = records.len() != before;
+        drop(records);
+        if changed {
+            capture.changed.notify_one();
+        }
+    }
 
     type BlockHook = (Vec<u8>, Arc<Notify>, Arc<Notify>);
     pub(crate) static FAIL_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<
@@ -258,6 +389,18 @@ where
     ) -> Result<(), DeviceSyncError> {
         // Pending state stays owned here until the event succeeds.
         Box::pin(self.handle_event(event.clone())).await?;
+        #[cfg(test)]
+        if let Some(InternalEvent::PreferencesChanged {
+            updates,
+            origin: PreferenceOrigin::Local,
+        }) = &event.internal
+        {
+            test_hooks::observe_preferences(
+                self.client.context.installation_id(),
+                test_hooks::PreferenceStage::Completed,
+                updates,
+            );
+        }
         let mut pending = self.pending.lock();
         if pending
             .as_ref()
@@ -527,6 +670,9 @@ where
 
         match content {
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
+                #[cfg(test)]
+                let observed_updates =
+                    test_hooks::captures_preferences(installation_id).then(|| updates.clone());
                 if is_external {
                     log_incoming_preference_updates(&updates);
                 }
@@ -556,6 +702,20 @@ where
                     },
                 )?
                 .into_continued();
+                #[cfg(test)]
+                if let Some(observed_updates) = observed_updates {
+                    test_hooks::observe_preferences(
+                        installation_id,
+                        test_hooks::PreferenceStage::Received,
+                        &observed_updates
+                            .into_iter()
+                            .map(|update| {
+                                PreferenceUpdate::try_from(update)
+                                    .expect("valid observed preference update")
+                            })
+                            .collect::<Vec<_>>(),
+                    );
+                }
             }
             ContentProto::Acknowledge(DeviceSyncAcknowledge { .. }) => {
                 return Ok(());
