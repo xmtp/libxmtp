@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check artifact reuse, toolchain inputs, and stale output cleanup."""
+"""Check artifact reuse, render input checks, toolchain inputs, and stale output cleanup."""
 
 import argparse
 import importlib.util
@@ -469,6 +469,43 @@ class ArtifactTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertEqual(len(self.calls), before + 1)
         self.assertEqual(self.calls[-1][1], "generate")
+
+    def test_tampered_artifact_rejected_before_render_runs_it(self):
+        self.args.targets = ("swift",)
+        artifacts.build(self.args)
+        for path in ("bindgen/xmtp-sdk-bindgen", "native/libxmtp_sdk.a"):
+            with self.subTest(path=path):
+                artifact = self.args.artifacts / path
+                original = artifact.read_bytes()
+                artifact.write_text("altered after build")
+                before = len(self.calls)
+                with self.assertRaisesRegex(ValueError, "artifact mismatch"):
+                    artifacts.render(self.args)
+                self.assertEqual(len(self.calls), before)
+                self.assertFalse(self.args.out.exists())
+                artifact.write_bytes(original)
+
+    def test_stale_node_and_browser_render_rejected_before_generator_runs(self):
+        self.args.targets = artifacts.TARGETS
+        artifacts.build(self.args)
+        for target in ("node", "browser"):
+            for changed, message in ((False, "source"), (True, "generator")):
+                with (
+                    self.subTest(target=target, changed=message),
+                    patch.object(
+                        artifacts,
+                        "source_hash",
+                        side_effect=lambda generator=False, changed=changed: (
+                            "current" if generator == changed else "fixture-source"
+                        ),
+                    ),
+                ):
+                    self.args.targets = (target,)
+                    before = len(self.calls)
+                    with self.assertRaisesRegex(ValueError, f"{message} mismatch"):
+                        artifacts.render(self.args)
+                    self.assertEqual(len(self.calls), before)
+                    self.assertFalse(self.args.out.exists())
 
     def tree_bytes(self, root):
         return {

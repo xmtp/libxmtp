@@ -138,8 +138,10 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
   build WASM. Full and pure WASM use separate output directories.
 - `dev/nix-shell 'just sdk render [swift,kotlin,node,browser]'` uses those artifacts. It deletes
   and regenerates each selected target and does not change other targets.
-  It does not compare the artifacts with the current source, so run `build` first
-  after a Rust or generator change.
+  It first checks the artifact bytes against `artifacts.json`. For `node` and
+  `browser` it also rejects artifacts from older Rust or generator source. Swift
+  and Kotlin output is checked later by mobile preflight and Swift conformance
+  staging. Run `build` first after a Rust or generator change.
   Package staging requires exact generated asset sets and hashes. Unlisted
   generated files fail before runtime or compiler work.
   `dev/nix-shell 'just sdk generate [targets]'` runs both steps. Use `--profile release` on the

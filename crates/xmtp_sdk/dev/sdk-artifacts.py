@@ -362,7 +362,17 @@ def render(args):
     """Regenerate the selected targets and overwrite their earlier output."""
     index = json.loads((args.artifacts / "artifacts.json").read_text())["artifacts"]
     selected = {kind: index[kind] for kind in required(args.targets)}
+    # Render runs the bindgen binary and copies native bytes into the output.
+    for record in selected.values():
+        verify(record)
     generator = selected["bindgen"]["generator"]
+    # Node and Browser staging trusts sdk-contract.json and has no later source
+    # check. Mobile preflight and Swift conformance staging check it themselves.
+    if {"node", "browser"} & set(args.targets):
+        if generator != source_hash(True):
+            raise ValueError("generator mismatch; run build first")
+        if any(record["source"] != source_hash() for record in selected.values()):
+            raise ValueError("source mismatch; run build first")
     contract = hashlib.sha256(
         json.dumps(
             {
