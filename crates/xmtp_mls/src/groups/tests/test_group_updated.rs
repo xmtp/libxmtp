@@ -417,9 +417,7 @@ async fn test_group_updated_admin_changes() {
 /// is correct on the wire. The legacy metadata map that the commit diff
 /// reads from has no way to express "absent", so it defaults these four
 /// fields to an empty string. Without that default the SDKs surfaced
-/// `undefined` instead of `""` for `metadataFieldChanges[0].oldValue`,
-/// which is the exact shape asserted by the `Group.test.ts` suites in
-/// both the browser and node SDKs.
+/// `undefined` instead of `""` for `metadataFieldChanges[0].oldValue`.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_first_metadata_update_reports_empty_old_value() {
     tester!(alix);

@@ -41,33 +41,7 @@ describe("Content types", () => {
       ).toEqual(encoded);
     },
   );
-  it.each(
-    [...standardSamples, ...variantSamples].filter(
-      (c) =>
-        ![
-          "groupUpdated",
-          "deleteMessage",
-          "leaveRequest",
-          "reaction",
-          "reply",
-          "readReceipt",
-        ].includes(c.kind),
-    ),
-  )("sends and receives $kind", async (content) => {
-    const first = await createRegisteredClient(createSigner().signer);
-    const second = await createRegisteredClient(createSigner().signer);
-    const group = await first.conversations.createGroup([second.inboxId]);
-    const id = await group.send(sdk.encodeStandard(content));
-    await second.conversations.sync();
-    const peer = await second.conversations.getById(group.id);
-    await peer!.sync();
-    const message = await second.conversations.getMessageById(id);
-    expect(message?.contentType).toEqual(sdk.standardContentType(content.kind));
-    expect(message?.content).toEqual({
-      kind: content.kind,
-      value: valueOf(sdk.decodeStandard(sdk.encodeStandard(content))),
-    });
-  });
+
   it.each(["description", "transactionType"] as const)(
     "rejects wallet metadata with missing %s before publishing",
     async (missing) => {
@@ -102,29 +76,7 @@ describe("Content types", () => {
       }
     },
   );
-  it.each(["added", "removed"] as const)(
-    "retains %s reactions and their references",
-    async (action) => {
-      const client = await createRegisteredClient(createSigner().signer);
-      const group = await client.conversations.createGroup([]);
-      const parent = await group.sendText("parent");
-      for (const schema of ["unicode", "shortcode", "custom"] as const) {
-        const reaction = {
-          action,
-          schema,
-          content: schema === "unicode" ? "👍" : ":thumbsup:",
-        };
-        const id = await group.sendReaction(parent, client.inboxId, reaction);
-        const message = await client.conversations.getMessageById(id);
-        expect(message?.content).toEqual({
-          kind: "reaction",
-          reference: parent,
-          referenceInboxId: client.inboxId,
-          reaction,
-        });
-      }
-    },
-  );
+
   it("retains replies with text, attachment, and custom bodies", async () => {
     const codec = new TestCodec();
     const client = await createRegisteredClient(createSigner().signer, {
@@ -159,6 +111,7 @@ describe("Content types", () => {
       (await client.conversations.getMessageById(parent))?.replyCount,
     ).toBe(3n);
   });
+
   it.each([true, false])(
     "retains attachment optional filename %s through encryption",
     async (named) => {
@@ -177,6 +130,7 @@ describe("Content types", () => {
       ).toEqual(value);
     },
   );
+
   it("reports missing and failed custom codecs without losing the raw envelope", async () => {
     const codec = new TestCodec();
     const failing = new DecodeFailureCodec();

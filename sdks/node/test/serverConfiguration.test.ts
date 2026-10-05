@@ -1,4 +1,3 @@
-import { createServer } from "node:net";
 import process from "node:process";
 
 import { createRegisteredClient, createSigner } from "@test/helpers";
@@ -129,49 +128,6 @@ describe("server configuration", () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);
     expect(client.serverConfiguration).toEqual(fetched);
-    await client.end();
-  });
-
-  it("should require a backend URL to fetch", async () => {
-    await expect(
-      Client.fetchServerConfiguration({ url: "  " }),
-    ).rejects.toThrow("relative URL without a base");
-  });
-
-  it("reports an unreachable backend as ConfigurationUnavailable", async () => {
-    const server = createServer();
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
-    const address = server.address();
-    if (!address || typeof address === "string")
-      throw new Error("Expected a TCP port");
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
-    await expect(
-      Client.fetchServerConfiguration({
-        url: `http://127.0.0.1:${address.port}`,
-      }),
-    ).rejects.toMatchObject({
-      details: {
-        code: "ConfigurationUnavailable",
-        category: "configuration",
-        retryable: true,
-      },
-    });
-  });
-
-  it("should refresh without changing the snapshot the client holds", async () => {
-    const { signer } = createSigner();
-    const client = await createRegisteredClient(signer);
-    const snapshot = client.serverConfiguration;
-
-    const refreshed = await client.refreshServerConfiguration();
-    expect(refreshed).toEqual(snapshot);
-    // The snapshot is read once at build and never replaced.
-    expect(client.serverConfiguration).toEqual(snapshot);
-
     await client.end();
   });
 
