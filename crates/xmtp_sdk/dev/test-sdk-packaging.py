@@ -787,6 +787,25 @@ class PackagingTests(
                 with self.assertRaisesRegex(ValueError, "binding generator mismatch"):
                     mobile.preflight(self.args.out, self.root / "mobile", platform)
 
+    def test_render_without_build_keeps_stale_source_for_preflight(self):
+        self.args.targets = ("swift", "kotlin")
+        source = self.root / "crates/xmtp_sdk/src/lib.rs"
+        source.parent.mkdir(parents=True)
+        source.write_text("pub fn original() {}")
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        for platform in ("ios", "android"):
+            self.native_receipts(platform)
+            mobile.preflight(self.args.out, self.root / "mobile", platform)
+        generator = artifacts.source_hash(True)
+        source.write_text("pub fn changed() {}")
+        self.assertEqual(artifacts.source_hash(True), generator)
+        artifacts.render(self.args)
+        for platform in ("ios", "android"):
+            with self.subTest(platform=platform):
+                with self.assertRaisesRegex(ValueError, "binding source mismatch"):
+                    mobile.preflight(self.args.out, self.root / "mobile", platform)
+
     def test_generator_only_change_reuses_verified_native_provenance(self):
         self.args.targets = ("swift", "kotlin")
         artifacts.build(self.args)

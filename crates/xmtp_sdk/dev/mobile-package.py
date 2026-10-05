@@ -145,6 +145,9 @@ def preflight(generated_dir, artifact_dir, target):
     if generated["generator"] != artifacts.source_hash(True):
         raise ValueError("mobile binding generator mismatch")
     binding = generated["artifact"]
+    # Render does not check source. Reject bindings and receipts from old Rust source here.
+    if binding["source"] != artifacts.source_hash():
+        raise ValueError("mobile binding source mismatch")
     if binding["features"]:
         raise ValueError("mobile binding feature mismatch: expected default bindings")
     for name, expected in generated["files"].items():
