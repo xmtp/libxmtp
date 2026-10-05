@@ -57,13 +57,9 @@ def invoke(config, request):
     def command(*args, cleanup=False):
         argv = [config.get("xcrun", "xcrun"), "simctl", *args]
         remaining = (
-            CLEANUP_SECONDS
-            if cleanup
-            else max(0.01, deadline - time.monotonic())
+            CLEANUP_SECONDS if cleanup else max(0.01, deadline - time.monotonic())
         )
-        result = subprocess.run(
-            argv, text=True, capture_output=True, timeout=remaining
-        )
+        result = subprocess.run(argv, text=True, capture_output=True, timeout=remaining)
         commands.append(
             {
                 "argv": argv,

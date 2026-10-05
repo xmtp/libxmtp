@@ -117,7 +117,9 @@ def invoke(config, request, output):
         stdout, stderr = process.communicate()
         output.with_suffix(".stdout").write_text(stdout)
         output.with_suffix(".stderr").write_text(stderr)
-        raise ValueError(f"Adapter timeout: {request['phase']} {request.get('workload')}")
+        raise ValueError(
+            f"Adapter timeout: {request['phase']} {request.get('workload')}"
+        )
     output.with_suffix(".stdout").write_text(stdout)
     output.with_suffix(".stderr").write_text(stderr)
     if process.returncode:
