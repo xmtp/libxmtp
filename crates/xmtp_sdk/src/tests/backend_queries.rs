@@ -123,6 +123,11 @@ async fn can_message_keeps_kinds_for_static_and_instance_queries() {
         assert!(result[&expected_registered]);
     };
     verify(client.can_message(identities.clone()).await?);
+    assert_eq!(client.inbox_id_for(identities[0].clone()).await?, None);
+    assert_eq!(
+        client.inbox_id_for(registered.clone()).await?,
+        Some(client.inbox_id())
+    );
     for source in [
         BackendSource::Connected { backend },
         BackendSource::Options {
@@ -207,6 +212,14 @@ async fn latest_inbox_update_counts_preserve_registered_and_unknown_keys() {
     assert_eq!(counts.len(), 2);
     assert!(counts[own.checked()?] > 0);
     assert_eq!(counts[unknown.checked()?], 0);
+    assert_eq!(
+        client.own_inbox_updates_count(true).await?,
+        counts[own.checked()?]
+    );
+    let backend = options().backend.expect("backend options");
+    let without_client =
+        crate::static_helpers::latest_inbox_updates_count(vec![own.clone()], backend).await?;
+    assert_eq!(without_client[own.checked()?], counts[own.checked()?]);
     client.end().await?;
 }
 
