@@ -3,6 +3,19 @@
 use super::*;
 use xmtp_common::snippet::Snippet;
 
+// implements: PROC-036
+fn log_publish_error(error: &GroupError) {
+    if let GroupError::FailedToVerifyInstallations(failed) = error {
+        tracing::error!(
+            error_kind = "FailedToVerifyInstallations",
+            failed_installation_count = failed.0.len(),
+            "Sync: error publishing intents"
+        );
+    } else {
+        tracing::error!("Sync: error publishing intents {error:?}");
+    }
+}
+
 impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
@@ -149,7 +162,7 @@ where
         // Even if publish fails, continue to receiving
         let result = self.publish_intents().await;
         if let Err(e) = result {
-            tracing::error!("Sync: error publishing intents {e:?}",);
+            log_publish_error(&e);
             summary.add_publish_err(e);
         }
 
