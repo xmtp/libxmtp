@@ -25,8 +25,12 @@ fun SDKClient.Companion.getXMTPLogFilePaths(context: Context): List<String> =
         .filter { it.isFile }
         .map { it.absolutePath }
 
-/** Stop the file writer and return the number of files deleted. */
+/** Try to stop the file writer and return the number of files deleted. */
 fun SDKClient.Companion.clearXMTPLogs(context: Context): Int {
-    exitDebugWriter()
+    try {
+        exitDebugWriter()
+    } catch (_: Exception) {
+        // Old files can exist before native logging is initialized.
+    }
     return getXMTPLogFilePaths(context).count { File(it).delete() }
 }
