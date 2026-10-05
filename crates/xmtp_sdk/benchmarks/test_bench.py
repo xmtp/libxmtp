@@ -59,27 +59,48 @@ def running(pid):
 
 
 class SamplerControls(unittest.TestCase):
+    SHORT_CHILD = [sys.executable, "-c", "import sys; sys.stdin.read(); print('short')"]
+
+    @staticmethod
+    def delayed_sampler(*args, **kwargs):
+        # Replaces only the sampler module's Thread, so no other thread waits.
+        target = kwargs["target"]
+
+        def held():
+            time.sleep(0.2)
+            target()
+
+        kwargs["target"] = held
+        return threading.Thread(*args, **kwargs)
+
     def test_delayed_thread_start_short_child(self):
-        original = threading.Thread
-
-        def delayed(*args, **kwargs):
-            target = kwargs["target"]
-
-            def held():
-                time.sleep(0.2)
-                target()
-
-            kwargs["target"] = held
-            return original(*args, **kwargs)
-
-        with patch.object(processes.threading, "Thread", side_effect=delayed):
-            result = processes.execute(
-                [sys.executable, "-c", "import sys; sys.stdin.read(); print('short')"],
-                "go",
-            )
+        with patch.object(processes, "Thread", side_effect=self.delayed_sampler):
+            result = processes.execute(self.SHORT_CHILD, "go")
         self.assertEqual(result[0], 0)
         self.assertEqual(result[1].strip(), "short")
         self.assertGreater(result[4], 0)
+
+    def test_zero_first_sample_is_sampled_again(self):
+        # A process that has just started can report zero RSS. With the
+        # sampler delayed past the child's exit, only the first samples count.
+        real = processes.process_table
+        calls = []
+
+        def first_reading_zero():
+            rows = real()
+            calls.append(len(rows))
+            if len(calls) == 1:
+                return [(pid, parent, 0) for pid, parent, _ in rows]
+            return rows
+
+        with (
+            patch.object(processes, "Thread", side_effect=self.delayed_sampler),
+            patch.object(processes, "process_table", side_effect=first_reading_zero),
+        ):
+            result = processes.execute(self.SHORT_CHILD, "go")
+        self.assertEqual(result[0], 0)
+        self.assertGreater(result[4], 0)
+        self.assertGreaterEqual(len(calls), 2)
 
     def test_sampling_error_and_child_failure(self):
         with patch.object(
