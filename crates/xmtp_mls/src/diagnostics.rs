@@ -23,6 +23,10 @@ use xmtp_db::{
     ConnectionExt, NotFound, TransactionOutcome, XmtpMlsStorageProvider,
     consent_record::ConsentState, group::GroupMembershipState, prelude::*,
 };
+use xmtp_mls_common::app_data::{
+    components::inbox_id_set::{AdminListComponent, SuperAdminListComponent},
+    typed_facade::MlsGroupAppData,
+};
 use xmtp_proto::types::GroupId;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -49,6 +53,12 @@ pub struct GroupSnapshot {
     pub epoch: u64,
     pub epoch_authenticator: String,
     pub members: Vec<MemberSnapshot>,
+    /// Admin inbox IDs in the committed dictionary.
+    #[serde(default)]
+    pub admins: Vec<String>,
+    /// Super admin inbox IDs in the committed dictionary.
+    #[serde(default)]
+    pub super_admins: Vec<String>,
     /// Serialized public context extensions, including all metadata and app data.
     pub metadata: String,
     pub membership_state: GroupMembershipState,
@@ -125,6 +135,8 @@ impl<C: XmtpSharedContext> MlsGroup<C> {
                     epoch: 0,
                     epoch_authenticator: String::new(),
                     members: Vec::new(),
+                    admins: Vec::new(),
+                    super_admins: Vec::new(),
                     metadata: String::new(),
                     membership_state: stored.membership_state,
                     active: false,
@@ -151,11 +163,22 @@ impl<C: XmtpSharedContext> MlsGroup<C> {
                 })
                 .collect::<Result<Vec<_>, GroupError>>()?;
             members.sort();
+            let roles = MlsGroupAppData::new(group.extensions());
+            let admins: Vec<String> = roles
+                .get::<AdminListComponent>()?
+                .map(|set| set.iter().map(|id| id.to_hex()).collect())
+                .unwrap_or_default();
+            let super_admins: Vec<String> = roles
+                .get::<SuperAdminListComponent>()?
+                .map(|set| set.iter().map(|id| id.to_hex()).collect())
+                .unwrap_or_default();
             Ok::<_, GroupError>(TransactionOutcome::Continue(GroupSnapshot {
                 group_id: hex::encode(self.group_id),
                 epoch: group.epoch().as_u64(),
                 epoch_authenticator: hex::encode(group.epoch_authenticator().as_slice()),
                 members,
+                admins,
+                super_admins,
                 metadata: hex::encode(group.extensions().tls_serialize_detached()?),
                 membership_state: stored.membership_state,
                 active: stored.membership_state != GroupMembershipState::Restored

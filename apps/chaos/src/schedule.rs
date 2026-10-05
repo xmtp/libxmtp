@@ -13,7 +13,7 @@ const MAX_FAULTS: usize = 3;
 const MIN_WINDOW_MS: u64 = 500;
 const MAX_WINDOW_MS: u64 = 8_000;
 const FAULT_SEED_DOMAIN: u64 = 0xb89b_430f_1fe7_3ad6;
-const OPERATION_KINDS: u64 = 12;
+const OPERATION_KINDS: u64 = 18;
 const FAULT_KINDS: &[&str] = &[
     "disconnect",
     "latency",
@@ -44,6 +44,18 @@ pub(crate) struct InstanceView {
 pub(crate) struct GroupView {
     pub id: String,
     pub members: Vec<String>,
+    pub admins: Vec<String>,
+    pub super_admins: Vec<String>,
+}
+
+impl GroupView {
+    /// Whether `inbox` passes an admin-only policy. Super admins are admins.
+    pub fn is_admin(&self, inbox: &str) -> bool {
+        self.admins
+            .iter()
+            .chain(&self.super_admins)
+            .any(|admin| admin == inbox)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -230,7 +242,24 @@ impl Scheduler {
             return scheduled(any, Operation::SyncAll);
         };
         let actors = members(population, group);
-        let actor = actors[self.rng.random_range(0..actors.len())];
+        // Privileged operations prefer actors that hold the role, so most of
+        // them commit. Without one, the permission rejection is still tested.
+        let privileged: Vec<_> = actors
+            .iter()
+            .copied()
+            .filter(|actor| match kind {
+                14 => group.is_admin(&actor.inbox_id),
+                16 => group.super_admins.contains(&actor.inbox_id),
+                17 => !group.super_admins.contains(&actor.inbox_id),
+                _ => false,
+            })
+            .collect();
+        let pool = if privileged.is_empty() {
+            &actors
+        } else {
+            &privileged
+        };
+        let actor = pool[self.rng.random_range(0..pool.len())];
         let other = actors
             .iter()
             .find(|candidate| candidate.inbox_id != actor.inbox_id);
@@ -266,6 +295,32 @@ impl Scheduler {
                 state: self.rng.random_range(0..=2),
             }),
             11 => Some(Operation::UpdateInstallations {
+                group: group.id.clone(),
+            }),
+            12 => Some(Operation::DisplayName {
+                group: group.id.clone(),
+                value: self
+                    .rng
+                    .random_bool(0.75)
+                    .then(|| format!("name-{round}-{index}")),
+            }),
+            13 => Some(Operation::Description {
+                group: group.id.clone(),
+                value: format!("description-{round}-{index}"),
+            }),
+            14 => Some(Operation::Disappearing {
+                group: group.id.clone(),
+                enabled: self.rng.random_bool(0.5),
+            }),
+            15 => Some(Operation::KeyUpdate {
+                group: group.id.clone(),
+            }),
+            16 => other.map(|candidate| Operation::Admin {
+                group: group.id.clone(),
+                inbox: candidate.inbox_id.clone(),
+                promote: !group.admins.contains(&candidate.inbox_id),
+            }),
+            17 => Some(Operation::Leave {
                 group: group.id.clone(),
             }),
             _ => None,
@@ -333,6 +388,7 @@ pub(crate) fn scheduled(instance: &InstanceView, operation: Operation) -> Schedu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::Command;
     use std::collections::BTreeSet;
 
     fn population() -> (Vec<InstanceView>, Vec<GroupView>) {
@@ -340,10 +396,14 @@ mod tests {
             GroupView {
                 id: "first".into(),
                 members: vec!["inbox-0".into(), "inbox-1".into(), "inbox-2".into()],
+                admins: Vec::new(),
+                super_admins: vec!["inbox-0".into()],
             },
             GroupView {
                 id: "second".into(),
                 members: vec!["inbox-3".into(), "inbox-4".into(), "inbox-5".into()],
+                admins: vec!["inbox-4".into()],
+                super_admins: vec!["inbox-3".into()],
             },
         ];
         let population = (0..6)
@@ -401,6 +461,8 @@ mod tests {
             "remove_with_pending_intent",
             "installation_during_commits",
             "sync_racing_stream",
+            "profile_during_removal",
+            "leave_during_commits",
         ] {
             assert!(recipes.contains(recipe), "missing recipe {recipe}");
         }
@@ -418,6 +480,12 @@ mod tests {
             "restart_stream",
             "consent",
             "update_installations",
+            "display_name",
+            "description",
+            "disappearing",
+            "key_update",
+            "admin",
+            "leave",
         ] {
             assert!(
                 operations.contains(operation),
@@ -451,7 +519,13 @@ mod tests {
                     | Operation::PendingSend { group, .. }
                     | Operation::Sync { group }
                     | Operation::Consent { group, .. }
-                    | Operation::UpdateInstallations { group } => {
+                    | Operation::UpdateInstallations { group }
+                    | Operation::DisplayName { group, .. }
+                    | Operation::Description { group, .. }
+                    | Operation::Disappearing { group, .. }
+                    | Operation::KeyUpdate { group }
+                    | Operation::Admin { group, .. }
+                    | Operation::Leave { group } => {
                         assert!(local.groups.contains(&group))
                     }
                     Operation::SyncAll | Operation::RestartStream => {}
@@ -460,6 +534,47 @@ mod tests {
             assert!(creates <= MAX_GROUPS);
             assert!(installs <= MAX_INSTALLATIONS);
         }
+    }
+
+    /// Admin-gated operations must come from role holders when the group has
+    /// one; otherwise nearly every disappearing-settings or admin-list write
+    /// is a permission rejection and those commit paths go untested. A leave
+    /// must come from a non-super-admin, because super admins cannot leave.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn role_gated_operations_use_role_holders() {
+        let (population, groups) = population();
+        let mut scheduler = Scheduler::new(7);
+        let mut seen = BTreeSet::new();
+        for round in 0..200 {
+            for scheduled in scheduler
+                .next(round, &population, &groups)
+                .bursts
+                .into_iter()
+                .flat_map(|burst| burst.operations)
+            {
+                let inbox = &population[scheduled.instance].inbox_id;
+                let group = |id: &str| groups.iter().find(|group| group.id == id).unwrap();
+                match &scheduled.operation {
+                    Operation::Disappearing { group: id, .. } => {
+                        assert!(group(id).is_admin(inbox));
+                    }
+                    Operation::Admin { group: id, .. } => {
+                        assert!(group(id).super_admins.contains(inbox));
+                    }
+                    Operation::Leave { group: id } => {
+                        assert!(!group(id).super_admins.contains(inbox));
+                    }
+                    _ => continue,
+                }
+                seen.insert(
+                    Command::Operation {
+                        operation: scheduled.operation,
+                    }
+                    .name(),
+                );
+            }
+        }
+        assert_eq!(seen, BTreeSet::from(["admin", "disappearing", "leave"]));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

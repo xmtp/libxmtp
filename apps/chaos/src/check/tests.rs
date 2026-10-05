@@ -20,6 +20,8 @@ fn group() -> GroupSnapshot {
                 installation_id: id.into(),
             })
             .collect(),
+        admins: Vec::new(),
+        super_admins: vec!["inbox-a".into()],
         metadata: "metadata".into(),
         membership_state: GroupMembershipState::Allowed,
         active: true,

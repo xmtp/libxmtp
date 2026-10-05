@@ -17,6 +17,25 @@ use rstest::rstest;
 use xmtp_db::{group_intent::IntentKind, prelude::*};
 use xmtp_mls_validation::commit::CommitRuleError;
 
+/// The sender refused the intent before publishing: the typed cause is the
+/// publish error, and no receiver processed anything.
+pub(super) fn assert_insufficient_permissions_before_publish(error: crate::groups::GroupError) {
+    use crate::groups::{GroupError, validated_commit::CommitValidationError};
+    let GroupError::Sync(summary) = error else {
+        panic!("expected a rejected intent summary, got {error:?}");
+    };
+    assert!(
+        matches!(
+            summary.publish_errors.as_slice(),
+            [GroupError::CommitValidation(CommitValidationError::Rule(
+                CommitRuleError::InsufficientPermissions
+            ))]
+        ),
+        "expected one pre-publish permission rejection, got {summary:?}"
+    );
+    assert!(summary.process.errored.is_empty());
+}
+
 pub(super) fn assert_insufficient_permissions(error: crate::groups::GroupError) {
     use crate::groups::{
         GroupError, mls_sync::GroupMessageProcessingError, validated_commit::CommitValidationError,

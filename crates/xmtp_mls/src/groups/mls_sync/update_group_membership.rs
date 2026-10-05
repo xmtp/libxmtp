@@ -18,13 +18,17 @@ use tls_codec::VLBytes;
 use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_mls_common::{
     app_data::{
-        component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
+        component_id::ComponentId,
+        components::{
+            inbox_id_set::SuperAdminListComponent, tls_map_components::GroupMembershipComponent,
+        },
         typed::Component,
+        typed_facade::MlsGroupAppData,
     },
     inbox_id::InboxId,
     tls_map::TlsMapDelta,
 };
-use xmtp_mls_validation::commit::extract_group_membership;
+use xmtp_mls_validation::commit::{CommitRuleError, extract_group_membership};
 use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
 /// Inbox ids that received at least one Add proposal in this commit.
@@ -176,6 +180,24 @@ pub(super) fn build_membership_delta(
     })
 }
 
+/// Super admins stay members. Receivers reject both the Remove proposal and
+/// the membership proposal that would drop one, so publish neither.
+pub(super) fn reject_super_admin_removal(
+    openmls_group: &OpenMlsGroup,
+    removed: &[String],
+) -> Result<(), GroupError> {
+    let super_admins = MlsGroupAppData::new(openmls_group.extensions())
+        .get::<SuperAdminListComponent>()?
+        .unwrap_or_default();
+    if super_admins
+        .iter()
+        .any(|admin| removed.contains(&admin.to_hex()))
+    {
+        return Err(CommitValidationError::Rule(CommitRuleError::InsufficientPermissions).into());
+    }
+    Ok(())
+}
+
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
 #[xmtp_common::mls_span]
@@ -187,6 +209,7 @@ pub(crate) fn apply_update_group_membership_intent(
     catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
+    reject_super_admin_removal(openmls_group, &intent_data.removed_members)?;
     let extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
     let mut new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
