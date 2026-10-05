@@ -12,6 +12,7 @@ Run commands from the repository root in the Nix shell. Run
 - `dev/nix-shell 'just sdk check-package-scripts'` runs the normal packaging controls.
   Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
   which the main packaging suite loads as inherited test methods.
+  Both packaging suites share the fixture in `dev/packaging_test_base.py`.
 - `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
   the checkout source identity with the generated and native Nix source filters.
   It does not compile a product.
@@ -19,6 +20,7 @@ Run commands from the repository root in the Nix shell. Run
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
 - `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
+  Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
   It checks shared public value types on Node and browser, including negative
   consumers for readonly records, transport fields, credentials, and bytes. It also
   rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and
