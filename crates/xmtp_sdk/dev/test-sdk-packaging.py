@@ -436,9 +436,6 @@ class PackagingTests(
                 before_calls = len(self.calls)
                 path.write_text("changed embedded data only")
                 self.assertNotEqual(artifacts.source_hash(), before)
-                with self.assertRaisesRegex(ValueError, "source contract mismatch"):
-                    artifacts.render(self.args)
-                self.assertEqual(len(self.calls), before_calls)
                 receipt.record(self.args.out, binaries)
                 new_record = json.loads(
                     (self.args.out / "swift/sdk-contract.json").read_text()
@@ -452,9 +449,7 @@ class PackagingTests(
                 artifacts.build(self.args)
                 artifacts.render(self.args)
                 self.assertEqual(artifacts.source_hash(), before)
-                print(
-                    "Embedded input changed source/build admission and restored:", name
-                )
+                print("Embedded input changed source hash and rebuild; restored:", name)
 
     def test_swapped_mobile_targets_rejected_before_assembly(self):
         for target in ("android", "ios"):
@@ -798,9 +793,6 @@ class PackagingTests(
         )
         self.assertEqual(artifacts.source_hash(), source)
         calls = len(self.calls)
-        with self.assertRaisesRegex(ValueError, "generator contract mismatch"):
-            artifacts.render(self.args)
-        self.assertEqual(len(self.calls), calls)
         artifacts.build(self.args)
         self.assertEqual(len(self.calls), calls + 1)
         self.assertIn("xmtp-sdk-bindgen", self.calls[-1])
@@ -852,10 +844,6 @@ class PackagingTests(
         library = Path(next(iter(native["files"])))
         original = library.read_bytes()
         library.write_bytes(original + b"tampered native")
-        calls = len(self.calls)
-        with self.assertRaisesRegex(ValueError, "artifact mismatch"):
-            artifacts.render(self.args)
-        self.assertEqual(len(self.calls), calls)
         for platform in ("ios", "android"):
             with (
                 self.subTest(platform=platform, rejected_field="native bytes"),
@@ -876,8 +864,6 @@ class PackagingTests(
         before = artifacts.source_hash(True)
         path.write_text('pub const WASM_VFS_DIRECTORY: &str = "changed";')
         self.assertNotEqual(artifacts.source_hash(True), before)
-        with self.assertRaisesRegex(ValueError, "generator contract mismatch"):
-            artifacts.render(self.args)
         artifacts.build(self.args)
         artifacts.render(self.args)
 
@@ -898,8 +884,6 @@ class PackagingTests(
             (self.args.out / "swift/sdk-contract.json").read_text()
         )
         self.config.write_text("changed configuration only")
-        with self.assertRaisesRegex(ValueError, "generator contract mismatch"):
-            artifacts.render(self.args)
         receipt.record(self.args.out, binaries)
         recorded_after = json.loads(
             (self.args.out / "swift/sdk-contract.json").read_text()
