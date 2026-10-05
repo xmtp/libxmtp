@@ -773,6 +773,20 @@ class PackagingTests(
         for path, original in original_receipts.items():
             self.assertEqual(path.read_bytes(), original)
 
+    def test_render_without_build_keeps_stale_generator_for_preflight(self):
+        self.args.targets = ("swift", "kotlin")
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        for platform in ("ios", "android"):
+            self.native_receipts(platform)
+            mobile.preflight(self.args.out, self.root / "mobile", platform)
+        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
+        artifacts.render(self.args)
+        for platform in ("ios", "android"):
+            with self.subTest(platform=platform):
+                with self.assertRaisesRegex(ValueError, "binding generator mismatch"):
+                    mobile.preflight(self.args.out, self.root / "mobile", platform)
+
     def test_generator_only_change_reuses_verified_native_provenance(self):
         self.args.targets = ("swift", "kotlin")
         artifacts.build(self.args)
