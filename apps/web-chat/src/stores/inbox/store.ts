@@ -1,17 +1,13 @@
 import {
-  contentTypeGroupUpdated,
   Dm,
   Group,
   type Conversation,
-  type DecodedMessage,
-  type GroupMember,
-  type GroupUpdated,
-  type SafeConversation,
+  type Message as XmtpMessage,
+  type Member,
+  type GroupPermissions,
 } from "@xmtp/browser-sdk";
-import { contentTypesAreEqual } from "@xmtp/content-type-primitives";
 import { createStore } from "zustand";
 
-import type { ContentTypes } from "@/contexts/XMTPContext";
 import {
   getLastCreatedAt,
   isLastSentAt,
@@ -32,49 +28,44 @@ type MessageId = string;
 
 export type InboxState = {
   // all conversations
-  conversations: Map<ConversationId, Conversation<ContentTypes>>;
+  conversations: Map<ConversationId, Conversation>;
   // the most recent conversation creation timestamp
   lastCreatedAt?: bigint;
   // the last message for each conversation
-  lastMessages: Map<ConversationId, DecodedMessage<ContentTypes> | undefined>;
+  lastMessages: Map<ConversationId, XmtpMessage | undefined>;
   // the last message sent timestamp for each conversation
   lastSentAt: Map<ConversationId, bigint | undefined>;
   // the members of each conversation
-  members: Map<ConversationId, Map<InboxId, GroupMember>>;
+  members: Map<ConversationId, Map<InboxId, Member>>;
   // all conversation messages
-  messages: Map<ConversationId, Map<MessageId, DecodedMessage<ContentTypes>>>;
+  messages: Map<ConversationId, Map<MessageId, XmtpMessage>>;
   // the metadata for each conversation
   metadata: Map<ConversationId, ConversationMetadata>;
   // the permissions for each conversation
-  permissions: Map<ConversationId, SafeConversation["permissions"]>;
+  permissions: Map<ConversationId, GroupPermissions>;
   // sorted conversations by most recent activity
-  sortedConversations: Conversation<ContentTypes>[];
+  sortedConversations: Conversation[];
   // sorted messages by last sent timestamp
-  sortedMessages: Map<ConversationId, DecodedMessage<ContentTypes>[]>;
+  sortedMessages: Map<ConversationId, XmtpMessage[]>;
   // the last attempted sync timestamp
   lastSyncedAt?: bigint;
 };
 
 export type InboxActions = {
-  addConversation: (conversation: Conversation<ContentTypes>) => Promise<void>;
-  addConversations: (
-    conversations: Conversation<ContentTypes>[],
-  ) => Promise<void>;
-  getConversation: (id: string) => Conversation<ContentTypes> | undefined;
+  addConversation: (conversation: Conversation) => Promise<void>;
+  addConversations: (conversations: Conversation[]) => Promise<void>;
+  getConversation: (id: string) => Conversation | undefined;
   hasConversation: (id: string) => boolean;
-  addMessage: (
-    conversationId: string,
-    message: DecodedMessage<ContentTypes>,
-  ) => Promise<void>;
+  addMessage: (conversationId: string, message: XmtpMessage) => Promise<void>;
   addMessages: (
     conversationId: string,
-    messages: DecodedMessage<ContentTypes>[],
+    messages: XmtpMessage[],
   ) => Promise<void>;
   getMessage: (
     conversationId: string,
     messageId: string,
-  ) => DecodedMessage<ContentTypes> | undefined;
-  getMessages: (conversationId: string) => DecodedMessage<ContentTypes>[];
+  ) => XmtpMessage | undefined;
+  getMessages: (conversationId: string) => XmtpMessage[];
   hasMessage: (conversationId: string, messageId: string) => boolean;
   setLastSyncedAt: (timestamp: bigint) => void;
   syncPermissions: (conversationId: string) => Promise<void>;
@@ -93,7 +84,7 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
     permissions: new Map(),
     sortedConversations: [],
     sortedMessages: new Map(),
-    addConversation: async (conversation: Conversation<ContentTypes>) => {
+    addConversation: async (conversation: Conversation) => {
       const state = get();
       // update conversations state
       const newConversations = new Map(state.conversations);
@@ -108,13 +99,12 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
       const newPermissions = new Map(state.permissions);
       const newMetadata = new Map(state.metadata);
       if (conversation instanceof Group) {
-        // update permissions state
-        newPermissions.set(conversation.id, await conversation.permissions());
-        // update metadata state
+        const snapshot = await conversation.state();
+        newPermissions.set(conversation.id, snapshot.permissions);
         newMetadata.set(conversation.id, {
-          name: conversation.name,
-          description: conversation.description,
-          imageUrl: conversation.imageUrl,
+          name: snapshot.name,
+          description: snapshot.description,
+          imageUrl: snapshot.imageUrl,
         });
       } else if (conversation instanceof Dm) {
         const member = members.find(
@@ -144,16 +134,16 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
         ),
       });
     },
-    addConversations: async (conversations: Conversation<ContentTypes>[]) => {
+    addConversations: async (conversations: Conversation[]) => {
       if (conversations.length === 0) {
         return;
       }
       const state = get();
       // get conversation members in parallel
-      const allMembers = new Map<string, GroupMember[]>(
+      const allMembers = new Map<string, Member[]>(
         await Promise.all(
           conversations.map(
-            async (conversation): Promise<[string, GroupMember[]]> => [
+            async (conversation): Promise<[string, Member[]]> => [
               conversation.id,
               await conversation.members(),
             ],
@@ -161,15 +151,12 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
         ),
       );
       // get conversation last messages in parallel
-      const allLastMessages = new Map<
-        string,
-        DecodedMessage<ContentTypes> | undefined
-      >(
+      const allLastMessages = new Map<string, XmtpMessage | undefined>(
         await Promise.all(
           conversations.map(
             async (
               conversation,
-            ): Promise<[string, DecodedMessage<ContentTypes> | undefined]> => [
+            ): Promise<[string, XmtpMessage | undefined]> => [
               conversation.id,
               await conversation.lastMessage(),
             ],
@@ -193,13 +180,12 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
           new Map(members.map((m) => [m.inboxId, m])),
         );
         if (conversation instanceof Group) {
-          // update permissions state
-          newPermissions.set(conversation.id, await conversation.permissions());
-          // update metadata state
+          const snapshot = await conversation.state();
+          newPermissions.set(conversation.id, snapshot.permissions);
           newMetadata.set(conversation.id, {
-            name: conversation.name,
-            description: conversation.description,
-            imageUrl: conversation.imageUrl,
+            name: snapshot.name,
+            description: snapshot.description,
+            imageUrl: snapshot.imageUrl,
           });
         } else if (conversation instanceof Dm) {
           const member = members.find(
@@ -235,17 +221,13 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
     hasConversation: (id: string) => {
       return get().conversations.has(id);
     },
-    addMessage: async (
-      conversationId: string,
-      message: DecodedMessage<ContentTypes>,
-    ) => {
+    addMessage: async (conversationId: string, message: XmtpMessage) => {
       const state = get();
       const conversation = state.conversations.get(conversationId);
       // update messages state
       const newMessagesState = new Map(state.messages);
       const conversationMessages =
-        newMessagesState.get(conversationId) ||
-        new Map<string, DecodedMessage<ContentTypes>>();
+        newMessagesState.get(conversationId) || new Map<string, XmtpMessage>();
       const newMessages = new Map(conversationMessages);
       newMessages.set(message.id, message);
       newMessagesState.set(conversationId, newMessages);
@@ -254,7 +236,7 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
       const newLastSentAt = new Map(state.lastSentAt);
       const newLastMessages = new Map(state.lastMessages);
       if (isLastSentAt(message, state.lastSentAt.get(conversationId))) {
-        newLastSentAt.set(conversationId, message.sentAtNs);
+        newLastSentAt.set(conversationId, message.sentAt.ns);
         newLastMessages.set(conversationId, message);
       }
 
@@ -266,17 +248,16 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
       const newMetadata = new Map(state.metadata);
 
       // check for updated members and metadata
-      if (
-        contentTypesAreEqual(
-          message.contentType,
-          await contentTypeGroupUpdated(),
-        )
-      ) {
-        const groupUpdated = message.content as GroupUpdated;
+      if (message.content.kind === "groupUpdated") {
+        const groupUpdated = message.content.value;
 
         // member updates
         if (conversation) {
-          const isActive = await conversation.isActive();
+          const isActive = await conversation
+            .state()
+            .then((state) =>
+              "common" in state ? state.common.isActive : state.isActive,
+            );
           // ensure group is active before syncing
           if (isActive) {
             await conversation.sync();
@@ -323,15 +304,12 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
         sortedMessages: newSortedMessages,
       });
     },
-    addMessages: async (
-      conversationId: string,
-      messages: DecodedMessage<ContentTypes>[],
-    ) => {
+    addMessages: async (conversationId: string, messages: XmtpMessage[]) => {
       const state = get();
       const newMessagesByConversation = new Map(state.messages);
       const conversationMessages =
         newMessagesByConversation.get(conversationId) ||
-        new Map<string, DecodedMessage<ContentTypes>>();
+        new Map<string, XmtpMessage>();
       const newMessages = new Map(conversationMessages);
       let lastSentAt = state.lastSentAt.get(conversationId);
       let lastMessage = state.lastMessages.get(conversationId);
@@ -342,23 +320,22 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
       for (const message of messages) {
         newMessages.set(message.id, message);
         if (isLastSentAt(message, lastSentAt)) {
-          lastSentAt = message.sentAtNs;
+          lastSentAt = message.sentAt.ns;
           lastMessage = message;
         }
 
         // check for updated members and metadata
-        if (
-          contentTypesAreEqual(
-            message.contentType,
-            await contentTypeGroupUpdated(),
-          )
-        ) {
-          const groupUpdated = message.content as GroupUpdated;
+        if (message.content.kind === "groupUpdated") {
+          const groupUpdated = message.content.value;
 
           // member updates
           const conversation = state.conversations.get(message.conversationId);
           if (conversation) {
-            const isActive = await conversation.isActive();
+            const isActive = await conversation
+              .state()
+              .then((state) =>
+                "common" in state ? state.common.isActive : state.isActive,
+              );
             // ensure group is active before syncing
             if (isActive) {
               await conversation.sync();
@@ -441,7 +418,10 @@ export const inboxStore = createStore<InboxState & InboxActions>()(
       const conversation = state.conversations.get(conversationId);
       if (conversation instanceof Group) {
         const newPermissions = new Map(state.permissions);
-        newPermissions.set(conversationId, await conversation.permissions());
+        newPermissions.set(
+          conversationId,
+          await conversation.state().then((state) => state.permissions),
+        );
         set({
           permissions: newPermissions,
         });

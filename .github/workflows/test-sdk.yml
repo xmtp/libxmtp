@@ -51,8 +51,6 @@ jobs:
         run: dev/nix-shell 'just sdk check-clean-generate'
       - name: Initialize generated SDK WASM
         run: dev/nix-shell 'just sdk wasm-init'
-      - name: Check SDK manifest roots
-        run: dev/nix-shell 'just sdk manifest-check'
       - name: Installed Node ESM package smoke
         run: dev/nix-shell 'just sdk package-smoke node'
       - name: Installed browser pure and worker package smoke

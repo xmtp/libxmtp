@@ -180,12 +180,6 @@ clients & network
 
 service
 
-├ bindings/
-
-│ ├ [`node`](./bindings/node): Node.js bindings
-
-│ └ [`wasm`](./bindings/wasm): WebAssembly bindings
-
 ├ [`sdks`](./sdks): Generated public SDK packages
 
 ├ crates/

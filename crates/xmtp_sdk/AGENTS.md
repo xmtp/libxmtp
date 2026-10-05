@@ -109,10 +109,7 @@ Run commands from the repository root in the Nix shell. Run
   binding Client, its factories, the generated identity routes, the browser
   worker session, and private package paths stay private. The Node root must
   export exactly the public names through ESM imports. It has no CJS or
-  `require` entry point. Its engine floor is Node 22.12. Before it compiles them,
-  `dev/check-public-members.py` checks that every retained Client member in
-  `docs/self-hosted/sdk-api-manifest.md` is public in each installed product,
-  in the static or instance placement that the manifest names.
+  `require` entry point. Its engine floor is Node 22.12.
   Run `dev/nix-shell 'just sdk generate'` first.
 - `dev/nix-shell 'just sdk codec-author types'` stages independent Node and browser codec
   packages and checks valid calls plus six wrong-value rejections per target.
@@ -126,19 +123,6 @@ Run commands from the repository root in the Nix shell. Run
   and assets.
   The proof installs local copies under `target/sdk-codec-author/` and uses
   only the supported ESM roots in the codec package.
-- `dev/nix-shell 'just sdk-manifest-check'` checks source and retention rows
-  without generated products. `dev/nix-shell 'just sdk manifest-check'` also
-  checks the generated public projection counts and roots.
-  A switched SDK keeps its pinned pre-switch retention and removal ledger.
-  The same manifest counts its current public projection in a separate section.
-  Unswitched SDKs still match their current source declarations. Missing current
-  generated source or changed pinned rows fail. The checks also test rejection
-  of missing projections, altered ledger rows, and unswitched sibling changes.
-  Run generation first for each switched target. `XMTP_SDK_GENERATED_DIR`
-  selects the matched generated source input. After a source change, update the
-  current count with `dev/nix-shell 'python3.11 dev/sdk/inventory.py --write'`.
-  The SDK check also verifies retained TypeScript root exports for switched
-  targets. Before any switch, it verifies both TypeScript roots.
 - `dev/nix-shell 'just test crate xmtp_sdk'` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

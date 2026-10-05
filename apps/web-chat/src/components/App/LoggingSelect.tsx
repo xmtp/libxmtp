@@ -1,24 +1,24 @@
 import { Group, NativeSelect, Stack, Text } from "@mantine/core";
-import { LogLevel } from "@xmtp/browser-sdk";
+import { type LogLevel } from "@xmtp/browser-sdk";
 
 import { useSettings } from "@/hooks/useSettings";
 
-const loggingLevelStringToEnum = {
-  Off: LogLevel.Off,
-  Error: LogLevel.Error,
-  Warn: LogLevel.Warn,
-  Info: LogLevel.Info,
-  Debug: LogLevel.Debug,
-  Trace: LogLevel.Trace,
+const loggingLevelStringToEnum: Record<string, LogLevel> = {
+  Off: "off",
+  Error: "error",
+  Warn: "warn",
+  Info: "info",
+  Debug: "debug",
+  Trace: "trace",
 };
 
 const loggingLevelEnumToString = {
-  [LogLevel.Off]: "Off",
-  [LogLevel.Error]: "Error",
-  [LogLevel.Warn]: "Warn",
-  [LogLevel.Info]: "Info",
-  [LogLevel.Debug]: "Debug",
-  [LogLevel.Trace]: "Trace",
+  ["off"]: "Off",
+  ["error"]: "Error",
+  ["warn"]: "Warn",
+  ["info"]: "Info",
+  ["debug"]: "Debug",
+  ["trace"]: "Trace",
 };
 
 export const LoggingSelect: React.FC = () => {
@@ -40,7 +40,7 @@ export const LoggingSelect: React.FC = () => {
         </Text>
         <NativeSelect
           data={Object.keys(loggingLevelStringToEnum)}
-          value={loggingLevelEnumToString[loggingLevel ?? LogLevel.Off]}
+          value={loggingLevelEnumToString[loggingLevel]}
           onChange={handleChange}
         />
       </Group>

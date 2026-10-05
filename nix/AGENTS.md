@@ -31,9 +31,11 @@ to development shells. Run `dev/nix-shell 'just backend ci COMMAND'`.
 
 `xmtp-sdk-generated` includes the native, worker, and pure roots with matched
 contract records. `xmtp-sdk-pure-wasm` is a separate artifact and shares the
-worker dependency cache. The generated library outputs are `xmtp-sdk-node-<platform>` and
-`xmtp-sdk-android-<abi>`. The Node package set still retains its old outputs.
-Darwin adds `xmtp-sdk-ios-device` and `xmtp-sdk-ios-simulator`. These outputs prepare the generated SDK packages. Building them does not publish a package.
+worker dependency cache. The generated library outputs are
+`xmtp-sdk-node-<platform>` and `xmtp-sdk-android-<abi>`. Darwin adds `xmtp-sdk-ios-device` and
+`xmtp-sdk-ios-simulator`. Public SDK packaging stages these matched generated
+artifacts. The Browser package uses `xmtp-sdk-generated` through the `wasm.bin`
+output. Building and staging do not publish a package.
 
 `android-sdk-libs` combines generated Kotlin, runtime and Android sources,
 the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`

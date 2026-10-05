@@ -1,5 +1,17 @@
 import { enrichLive } from "./live.mjs";
 
+export function seedRows(fixture, stream) {
+  const keys = stream ? fixture.stream_keys : fixture.page_keys;
+  const selected = new Set(keys);
+  const byKey = new Map(fixture.messages.map((row) => [row.key, row]));
+  return keys.map((key) => {
+    const row = byKey.get(key);
+    if (!row || (row.reply_to !== null && !selected.has(row.reply_to)))
+      throw new Error(`Invalid benchmark seed row ${key}`);
+    return row;
+  });
+}
+
 // Equal application work for the Node process and real Chromium worker.
 export async function seed(api, fixture, paths, stream) {
   const state = {
@@ -27,7 +39,7 @@ export async function seed(api, fixture, paths, stream) {
       await api.syncConversations(receiver);
       await api.group(receiver, state.groupId);
     }
-    for (const row of fixture.messages) {
+    for (const row of seedRows(fixture, stream)) {
       const id = await api.prepare(group, row, state.ids, state.senderInbox);
       state.ids.push(id);
       state.eventIds.push(id);
@@ -37,9 +49,19 @@ export async function seed(api, fixture, paths, stream) {
         );
       }
     }
+    state.unpublishedBeforePublish = await api.countUnpublished(group);
+    console.info(
+      JSON.stringify({
+        benchmarkSeed: stream ? "stream" : "page",
+        preparedPrimary: state.ids.length,
+        preparedEvents: state.eventIds.length,
+        unpublished: state.unpublishedBeforePublish,
+      }),
+    );
     if (!stream) {
       await api.publish(group);
       await group.sync();
+      state.publishedAfterPublish = await api.countPublished(group);
     }
     return state;
   } finally {

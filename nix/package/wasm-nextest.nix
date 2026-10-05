@@ -23,9 +23,9 @@ let
     inherit root;
     fileset = unions [
       xmtp.filesets.libraries
-      # All bindings and apps cargo sources so the full workspace resolves
+      # Include SDK sources so the full workspace resolves
       # with --locked. crane replaces source with dummies for buildDepsOnly.
-      (commonCargoSources (root + /bindings/wasm))
+      (commonCargoSources (root + /crates/xmtp_sdk))
       # db snapshots
       (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
       (fileFilter (file: file.hasExt "json") (root + /crates))
@@ -50,7 +50,7 @@ let
     CARGO_PROFILE = "wasm-test";
   };
 
-  wasmPackages = "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_backend -p xmtp_content_types -p xmtp_attachments -p bindings_wasm";
+  wasmPackages = "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_backend -p xmtp_content_types -p xmtp_attachments -p xmtp_sdk";
 
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
     (removeAttrs commonArgs [ "src" ])

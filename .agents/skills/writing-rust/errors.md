@@ -66,14 +66,8 @@ before assuming, and add the missing impl when a code must cross FFI.
 
 ## Bindings
 
-Each surface has one wrapper that emits `"[{code}] {message}"`. Use it. Do not
-format error strings by hand.
-
-| Surface | Wrapper                                            | Use                                                         |
-| ------- | -------------------------------------------------- | ----------------------------------------------------------- |
-| node    | `ErrorWrapper<E>` in `bindings/node/src/lib.rs`    | `.map_err(ErrorWrapper::from)?`                             |
-| wasm    | `ErrorWrapper<E>` in `bindings/wasm/src/errors.rs` | `.map_err(ErrorWrapper::js)?`; keeps the JS `code` property |
-| SDK     | `XmtpError` in `crates/xmtp_sdk/src/error.rs`      | Use the canonical typed cause conversion.                   |
+The SDK uses `XmtpError` in `crates/xmtp_sdk/src/error.rs`. Use its canonical
+typed cause conversion. Do not format error strings by hand.
 
 ## Backend
 

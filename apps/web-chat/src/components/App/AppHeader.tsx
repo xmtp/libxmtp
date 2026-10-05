@@ -47,8 +47,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const navigate = useNavigate();
   const { backendUrl } = useSettings();
-  const accountIdentifier =
-    client.accountIdentifier?.identifier.toLowerCase() ?? null;
+  const accountIdentifier = client.identity.identifier.toLowerCase();
 
   const handleClick = () => {
     void navigate("/identity");

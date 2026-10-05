@@ -13,7 +13,6 @@ crates/xmtp_sdk/dev/check-public-names "$generated"
 crates/xmtp_sdk/dev/check-test-hooks --self-test
 crates/xmtp_sdk/dev/check-test-hooks "$generated"
 crates/xmtp_sdk/dev/check-conformance-exports "$generated"
-crates/xmtp_sdk/dev/check-worker-kinds "$generated"
 crates/xmtp_sdk/dev/check-encoded-content-shape "$generated"
 python3 crates/xmtp_sdk/dev/check-storage-path-async "$generated"
 crates/xmtp_sdk/dev/check-message-lifts "$generated"

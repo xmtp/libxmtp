@@ -19,7 +19,7 @@ export const AppLockModal: React.FC<AppLockModalProps> = ({
 }) => {
   const fullScreen = useCollapsedMediaQuery();
   const contentHeight = fullScreen ? "auto" : 500;
-  const { releaseLock } = useXMTP();
+  const { acquireLock } = useXMTP();
   const { setAutoConnect } = useSettings();
 
   const footer = (
@@ -29,7 +29,7 @@ export const AppLockModal: React.FC<AppLockModalProps> = ({
         onClick={() => {
           onClose();
           setAutoConnect(false);
-          releaseLock();
+          acquireLock(true);
           onDisconnect();
         }}>
         Disconnect other session

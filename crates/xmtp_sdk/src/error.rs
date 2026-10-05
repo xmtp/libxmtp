@@ -1,6 +1,6 @@
 mod wrappers;
 pub(crate) use wrappers::CoreError;
-#[cfg(all(test, not(feature = "pure-only")))]
+#[cfg(all(test, not(target_arch = "wasm32"), not(feature = "pure-only")))]
 pub(crate) use wrappers::{CORE_ERROR_ROOTS, OPENED_WRAPPERS};
 
 /// The kind of a façade failure.

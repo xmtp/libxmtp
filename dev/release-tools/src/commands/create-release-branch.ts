@@ -65,11 +65,6 @@ export function builder(yargs: Argv<GlobalArgs>) {
       default: "none",
       choices: BUMP_OPTIONS,
       describe: "CLI version bump type",
-    })
-    .option("wasm", {
-      type: "boolean",
-      default: false,
-      describe: "Include WASM bindings in release",
     });
 }
 
@@ -82,7 +77,6 @@ interface CreateReleaseBranchArgs extends GlobalArgs {
   browserSdk?: string;
   agentSdk?: string;
   cli?: string;
-  wasm: boolean;
 }
 
 export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
@@ -111,16 +105,10 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
     sdkBumps.push({ sdk: Sdk.Cli, bump: argv.cli as BumpType });
   }
 
-  // Collect SDK includes (WASM just set the version directly)
-  const sdkIncludes: Sdk[] = [];
-  if (argv.wasm) {
-    sdkIncludes.push(Sdk.WasmBindings);
-  }
-
   // Validate at least one SDK is being released
-  if (sdkBumps.length === 0 && sdkIncludes.length === 0) {
+  if (sdkBumps.length === 0) {
     throw new Error(
-      "At least one SDK must be bumped (use --ios/--android/--node-sdk/--browser-sdk/--agent-sdk/--cli with a bump type, or --wasm)",
+      "At least one SDK must be bumped (use --ios/--android/--node-sdk/--browser-sdk/--agent-sdk/--cli with a bump type)",
     );
   }
 
@@ -144,23 +132,6 @@ export function handler(argv: ArgumentsCamelCase<CreateReleaseBranchArgs>) {
     console.log(`Release notes: ${notesPath}`);
 
     bumpedSdks.push(`${sdk} ${newVersion}`);
-  }
-
-  // Process WASM SDKs (set version directly, no semver bump)
-  for (const sdk of sdkIncludes) {
-    const config = getSdkConfig(sdk);
-    const currentVersion = config.manifest.readVersion(cwd);
-    const candidateTag = `${config.tagPrefix}${currentVersion}`;
-    const sinceTag = tagExists(cwd, candidateTag) ? candidateTag : null;
-
-    console.log(`Setting ${sdk} version to ${argv.version}...`);
-    setManifestVersion(sdk, argv.version, cwd);
-
-    console.log(`Scaffolding ${sdk} release notes...`);
-    const notesPath = scaffoldNotes(sdk, cwd, currentVersion, sinceTag);
-    console.log(`Release notes: ${notesPath}`);
-
-    bumpedSdks.push(`${sdk} ${argv.version}`);
   }
 
   // Always set the libxmtp (Cargo.toml) version to the release version

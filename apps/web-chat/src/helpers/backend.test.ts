@@ -31,4 +31,10 @@ describe("backend helpers", () => {
       "a-b-5050-026174",
     );
   });
+
+  it("gives different backend paths at one origin the same legacy label", async () => {
+    expect(await backendLabel("https://example.com/a")).toBe(
+      await backendLabel("https://example.com/b"),
+    );
+  });
 });

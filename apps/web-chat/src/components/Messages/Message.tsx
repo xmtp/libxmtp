@@ -1,8 +1,7 @@
 import { Badge, Box, Button, Group, Text } from "@mantine/core";
 import {
-  ReactionAction,
-  ReactionSchema,
-  type DecodedMessage,
+  type ReactionAction,
+  type Message as XmtpMessage,
 } from "@xmtp/browser-sdk";
 import { useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
@@ -11,7 +10,6 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useConversationContext } from "@/contexts/ConversationContext";
 import { useClient } from "@/contexts/XMTPContext";
 import { isActionable } from "@/helpers/messages";
-import { useConversation } from "@/hooks/useConversation";
 
 import { MessageContentWithWrapper } from "./MessageContentWithWrapper";
 import { ReactionPopover } from "./ReactionPopover";
@@ -24,7 +22,7 @@ type Reaction = {
 };
 
 export type MessageProps = {
-  message: DecodedMessage;
+  message: XmtpMessage;
   scrollToMessage: (id: string) => void;
 };
 
@@ -33,8 +31,7 @@ export const Message: React.FC<MessageProps> = ({
   scrollToMessage,
 }) => {
   const navigate = useNavigate();
-  const { setReplyTarget, conversationId } = useConversationContext();
-  const { conversation } = useConversation(conversationId);
+  const { setReplyTarget } = useConversationContext();
   const client = useClient();
 
   const isSender = client.inboxId === message.senderInboxId;
@@ -43,28 +40,27 @@ export const Message: React.FC<MessageProps> = ({
 
   const handleReaction = useCallback(
     (content: string, action: ReactionAction) => () => {
-      void conversation.sendReaction({
-        action,
-        reference: message.id,
-        referenceInboxId: message.senderInboxId,
-        schema: ReactionSchema.Unicode,
-        content,
-      });
+      void client.conversations.reactToMessage(
+        message.id,
+        {
+          action,
+          schema: "unicode",
+          content,
+        },
+        { shouldPush: true },
+      );
     },
-    [conversation, message.id, message.senderInboxId],
+    [client.conversations, message.id],
   );
 
   const reactions = useMemo(() => {
     return message.reactions
-      .filter((r) => r.content?.schema === ReactionSchema.Unicode)
+      .filter((r) => r.reaction.schema === "unicode")
       .reduce<Record<string, Reaction>>((acc, r) => {
-        const reactionContent = r.content;
-        if (!reactionContent) {
-          return acc;
-        }
+        const reactionContent = r.reaction;
         const { content: reaction, action } = reactionContent;
         const count = acc[reaction]?.count || 0;
-        const isAdding = action === ReactionAction.Added;
+        const isAdding = action === "added";
         // oxlint-disable-next-line typescript/no-unnecessary-condition
         const prevDidAdd = acc[reaction]?.didAdd ?? false;
         const didAdd =
@@ -120,10 +116,7 @@ export const Message: React.FC<MessageProps> = ({
             rightSection={
               count > 1 ? <Text size="sm">{count}</Text> : undefined
             }
-            onClick={handleReaction(
-              reaction,
-              didAdd ? ReactionAction.Removed : ReactionAction.Added,
-            )}>
+            onClick={handleReaction(reaction, didAdd ? "removed" : "added")}>
             {reaction}
           </Badge>
         ))}

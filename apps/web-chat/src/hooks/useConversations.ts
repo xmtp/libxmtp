@@ -1,13 +1,15 @@
 import {
-  ConversationType,
+  Timestamp,
+  ConversationStream,
+  MessageStream,
   type Conversation,
   type CreateGroupOptions,
-  type DecodedMessage,
-  type Identifier,
+  type Message as XmtpMessage,
+  type PublicIdentity,
 } from "@xmtp/browser-sdk";
 import { useCallback, useState } from "react";
 
-import { useClient, type ContentTypes } from "@/contexts/XMTPContext";
+import { useClient } from "@/contexts/XMTPContext";
 import { dateToNs } from "@/helpers/date";
 import { isReaction } from "@/helpers/messages";
 import {
@@ -28,7 +30,10 @@ export const useConversations = () => {
     setLoading(true);
     try {
       const convos = await client.conversations.list({
-        createdAfterNs: inboxStore.getState().lastCreatedAt,
+        createdAfter:
+          inboxStore.getState().lastCreatedAt === undefined
+            ? undefined
+            : new Timestamp(inboxStore.getState().lastCreatedAt!),
       });
       await addConversations(convos);
       setLastSyncedAt(dateToNs(new Date()));
@@ -59,7 +64,7 @@ export const useConversations = () => {
     setSyncing(true);
 
     try {
-      await client.conversations.syncAll();
+      await client.conversations.syncAll(undefined);
     } finally {
       setSyncing(false);
     }
@@ -71,8 +76,7 @@ export const useConversations = () => {
     setLoading(true);
 
     try {
-      const conversation =
-        await client.conversations.getConversationById(conversationId);
+      const conversation = await client.conversations.getById(conversationId);
       return conversation;
     } finally {
       setLoading(false);
@@ -120,17 +124,16 @@ export const useConversations = () => {
   };
 
   const createGroupWithIdentifiers = async (
-    identifiers: Identifier[],
+    identifiers: PublicIdentity[],
     options?: CreateGroupOptions,
   ) => {
     setLoading(true);
 
     try {
-      const conversation =
-        await client.conversations.createGroupWithIdentifiers(
-          identifiers,
-          options,
-        );
+      const conversation = await client.conversations.createGroup(
+        identifiers,
+        options,
+      );
       void addConversation(conversation);
       return conversation;
     } finally {
@@ -150,12 +153,11 @@ export const useConversations = () => {
     }
   };
 
-  const createDmWithIdentifier = async (identifier: Identifier) => {
+  const createDmWithIdentifier = async (identifier: PublicIdentity) => {
     setLoading(true);
 
     try {
-      const conversation =
-        await client.conversations.createDmWithIdentifier(identifier);
+      const conversation = await client.conversations.createDm(identifier);
       void addConversation(conversation);
       return conversation;
     } finally {
@@ -164,18 +166,13 @@ export const useConversations = () => {
   };
 
   const stream = useCallback(async () => {
-    const onValue = (conversation: Conversation<ContentTypes>) => {
-      const shouldAdd =
-        conversation.metadata?.conversationType === ConversationType.Dm ||
-        conversation.metadata?.conversationType === ConversationType.Group;
-      if (shouldAdd) {
-        void addConversation(conversation);
-      }
+    const onValue = (conversation: Conversation) => {
+      void addConversation(conversation);
     };
 
-    const stream = await client.conversations.stream({
-      onValue,
-    });
+    const stream = ConversationStream.open(client);
+    await stream.ready();
+    void stream.onValue(onValue).catch(console.error);
 
     return () => {
       void stream.end();
@@ -183,23 +180,22 @@ export const useConversations = () => {
   }, [addConversation, client]);
 
   const streamAllMessages = useCallback(async () => {
-    const onValue = (message: DecodedMessage<ContentTypes>) => {
-      if (isReaction(message) && message.content?.reference) {
-        void client.conversations
-          .getMessageById(message.content.reference)
-          .then((updatedMessage) => {
-            if (updatedMessage) {
-              void addMessage(updatedMessage.conversationId, updatedMessage);
-            }
-          });
+    const onValue = async (message: XmtpMessage) => {
+      if (isReaction(message) && message.content.reference) {
+        const updatedMessage = await client.conversations.getMessageById(
+          message.content.reference,
+        );
+        if (updatedMessage) {
+          await addMessage(updatedMessage.conversationId, updatedMessage);
+        }
         return;
       }
-      void addMessage(message.conversationId, message);
+      await addMessage(message.conversationId, message);
     };
 
-    const stream = await client.conversations.streamAllMessages({
-      onValue,
-    });
+    const stream = MessageStream.open(client);
+    await stream.ready();
+    void stream.onValue(onValue).catch(console.error);
 
     return () => {
       void stream.end();

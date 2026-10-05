@@ -17,5 +17,5 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - name: Lint WASM binding Rust
+      - name: Lint WASM SDK
         run: just wasm lint

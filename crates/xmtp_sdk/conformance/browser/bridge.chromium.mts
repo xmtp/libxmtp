@@ -26,6 +26,7 @@ const address = server.httpServer?.address();
 if (!address || typeof address === "string")
   throw new Error("Vite has no port");
 const browser = await chromium.launch({ headless: true });
+const readerOpeningOnly = process.argv.includes("--reader-opening-only");
 try {
   const page = await browser.newPage();
   await page.goto(
@@ -33,7 +34,15 @@ try {
   );
   const backendURL = process.env.XMTP_BACKEND_URL;
   assert.ok(backendURL, "missing worktree backend URL");
-  const result = await page.evaluate(async (url) => {
+  const result = await page.evaluate(async ({ url, readerOpeningOnly }) => {
+    const { checkLateReaderOpen, checkClientEndDuringReaderOpen } =
+      await import("./stream-opening.chromium.ts");
+    // These cases need only the normal worker product, without Rust fixtures.
+    if (readerOpeningOnly) {
+      await checkLateReaderOpen(url);
+      await checkClientEndDuringReaderOpen(url);
+      return "reader opening";
+    }
     const { checkWorkerFailure } = await import("./bridge.failure.chromium.ts");
     await checkWorkerFailure();
     const { checkPureCodecs } = await import("./pure-codecs.chromium.ts");
@@ -43,6 +52,8 @@ try {
     await checkDeletedMessages(url);
     const { checkMessageStream } = await import("./stream.chromium.ts");
     await checkMessageStream(url);
+    await checkLateReaderOpen(url);
+    await checkClientEndDuringReaderOpen(url);
     const { checkCustomMessageLift } =
       await import("./message.custom.chromium.ts");
     checkCustomMessageLift();
@@ -51,11 +62,16 @@ try {
     checkStandardMessageLift();
     await checkStandardMessages(url);
     return count;
-  }, backendURL);
-  assert.equal(result, 15);
-  console.log(
-    "Chromium worker failure, 15 pure codecs, deleted messages, message stream, custom lift, and standard messages passed",
-  );
+  }, { url: backendURL, readerOpeningOnly });
+  if (readerOpeningOnly) {
+    assert.equal(result, "reader opening");
+    console.log("Chromium late reader opening and client end during opening passed");
+  } else {
+    assert.equal(result, 15);
+    console.log(
+      "Chromium worker failure, 15 pure codecs, deleted messages, message stream, late reader opening, client end during opening, custom lift, and standard messages passed",
+    );
+  }
 } finally {
   await browser.close();
   await server.close();

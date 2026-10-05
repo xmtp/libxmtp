@@ -45,15 +45,20 @@ this class/record gate.
 
 `fixtures.py` creates 10,000 primary messages. Every four messages contain text,
 a reply with its eager text parent, a 128-byte attachment, and text with a `+1`
-reaction. There are 2,500 additional reaction events. Hosts normalize actual
-public values. The driver checks the complete content digest and message count.
-It does not accept a host-supplied digest for page or stream data.
+reaction. Node, Swift, and Kotlin stream runs select all 10,000 messages and
+2,500 reaction events. Browser stream runs select the first 500 messages and
+125 reaction events. This is the version 2 Browser fixture, with seed
+`xmtp-cutover-browser-stream-500-v2`. Both installed Browser packages use that
+same fixture and its recorded digest. Page and other workloads keep their
+previous size. Hosts normalize actual public values. The driver checks the
+complete content digest, primary count, and Browser event count. It does not
+accept a host-supplied digest for page or stream data.
 
 | Workload             | Timed work                                                                                                                  |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `cold_start`         | A fresh `Client.create`, after module load and signer key generation. Browser worker creation occurs inside this operation. |
 | `page`               | Read and normalize 1,000 rich messages in ascending order.                                                                  |
-| `stream`             | Publish 12,500 prepared events, consume all event IDs, then read and normalize the same 10,000 rich primary messages.       |
+| `stream`             | Publish 625 Browser events or 12,500 other events; consume all IDs; normalize 500 or 10,000 rich primary messages.          |
 | `callback_immediate` | Last signer callback entry through completion of client creation. Includes signing and subsequent backend work.             |
 | `callback_slow`      | The same callback boundary with a controlled 25 ms hold before signing.                                                     |
 | `build_clean`        | The declared complete production build after deleting its declared output/cache directory.                                  |
@@ -265,7 +270,8 @@ pending. Those controls are not evidence of real SDK speed or package size.
 The stream controls execute the actual JavaScript live decoder and measured
 helper in Node and Chromium. The Swift and Kotlin controls compile the same
 live enrichment functions used by their host adapters. Each control retains a
-correct 10,000-message history result while dropping or changing live text,
+correct 10,000-message history result as a decoder stress check, including the
+Browser control, while dropping or changing live text,
 reply bodies, attachment bytes, or reaction content. Bad live values must fail;
 restored values must pass. Native controls also change eager parent content.
 All four controls reject a weaker history-fallback implementation. To reproduce

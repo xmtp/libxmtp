@@ -30,13 +30,6 @@ let
         )
         || file.name == "Cargo.toml"
       ) (root + /apps))
-      (lib.fileset.fileFilter (
-        file:
-        (
-          lib.hasSuffix ".rs" file.name || lib.hasSuffix ".proto" file.name || lib.hasSuffix ".sql" file.name
-        )
-        || file.name == "Cargo.toml"
-      ) (root + /bindings))
       (root + /flake.lock)
       (root + /rust-toolchain.toml)
       (root + /crates/xmtp_sdk)

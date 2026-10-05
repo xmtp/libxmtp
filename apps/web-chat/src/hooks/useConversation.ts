@@ -1,10 +1,11 @@
+import { Timestamp, type Intent } from "@xmtp/browser-sdk";
 import type {
-  Intent,
-  Reaction,
+  EncodedContent,
   RemoteAttachment,
-  SendMessageOpts,
+  SendOptions,
+  ReplyContent,
+  ReactionV2Content,
 } from "@xmtp/browser-sdk";
-import type { EncodedContent } from "@xmtp/content-type-primitives";
 import { useCallback, useState } from "react";
 
 import {
@@ -40,7 +41,11 @@ export const useConversation = (conversationId: string) => {
         setSyncing(true);
 
         try {
-          const isActive = await conversation.isActive();
+          const isActive = await conversation
+            .state()
+            .then((state) =>
+              "common" in state ? state.common.isActive : state.isActive,
+            );
           // ensure group is active before syncing
           if (isActive) {
             await conversation.sync();
@@ -54,7 +59,12 @@ export const useConversation = (conversationId: string) => {
 
       try {
         const msgs = await conversation.messages({
-          sentAfterNs: inboxStore.getState().lastSentAt.get(conversationId),
+          sentAfter:
+            inboxStore.getState().lastSentAt.get(conversationId) === undefined
+              ? undefined
+              : new Timestamp(
+                  inboxStore.getState().lastSentAt.get(conversationId)!,
+                ),
         });
         await addMessages(conversation.id, msgs);
         return msgs;
@@ -66,11 +76,11 @@ export const useConversation = (conversationId: string) => {
   );
 
   const send = useCallback(
-    async (content: EncodedContent, options?: SendMessageOpts) => {
+    async (content: EncodedContent, options?: SendOptions) => {
       setSending(true);
 
       try {
-        await conversation.send(content, options);
+        await conversation.send(content, { shouldPush: true, ...options });
       } finally {
         setSending(false);
       }
@@ -83,7 +93,7 @@ export const useConversation = (conversationId: string) => {
       setSending(true);
 
       try {
-        await conversation.sendText(text);
+        await conversation.sendText(text, { shouldPush: true });
       } finally {
         setSending(false);
       }
@@ -91,13 +101,18 @@ export const useConversation = (conversationId: string) => {
     [conversation],
   );
 
-  type Reply = Parameters<typeof conversation.sendReply>[0];
+  type Reply = ReplyContent;
 
   const sendReply = useCallback(
     async (reply: Reply) => {
       setSending(true);
       try {
-        await conversation.sendReply(reply);
+        await conversation.sendReply(
+          reply.reference,
+          reply.referenceInboxId,
+          reply.content,
+          { shouldPush: true },
+        );
       } finally {
         setSending(false);
       }
@@ -109,7 +124,9 @@ export const useConversation = (conversationId: string) => {
     async (remoteAttachment: RemoteAttachment) => {
       setSending(true);
       try {
-        await conversation.sendRemoteAttachment(remoteAttachment);
+        await conversation.sendRemoteAttachment(remoteAttachment, {
+          shouldPush: true,
+        });
       } finally {
         setSending(false);
       }
@@ -121,7 +138,7 @@ export const useConversation = (conversationId: string) => {
     async (intent: Intent) => {
       setSending(true);
       try {
-        await conversation.sendIntent(intent);
+        await conversation.sendIntent(intent, { shouldPush: true });
       } finally {
         setSending(false);
       }
@@ -130,10 +147,15 @@ export const useConversation = (conversationId: string) => {
   );
 
   const sendReaction = useCallback(
-    async (reaction: Reaction) => {
+    async (reaction: ReactionV2Content) => {
       setSending(true);
       try {
-        await conversation.sendReaction(reaction);
+        await conversation.sendReaction(
+          reaction.reference,
+          reaction.referenceInboxId,
+          reaction.reaction,
+          { shouldPush: true },
+        );
       } finally {
         setSending(false);
       }

@@ -131,75 +131,12 @@ pub enum GroupIntentError {
 }
 ```
 
-## How codes propagate through FFI bindings
+## How codes propagate through generated SDK bindings
 
-All three binding layers format errors as `[ErrorCode] human-readable message`.
-
-### Mobile (UniFFI)
-
-In `bindings/mobile/src/lib.rs`:
-
-```rust
-#[derive(thiserror::Error, Debug, ErrorCode)]
-pub enum GenericError {
-    #[error("Client error: {0}")]
-    #[error_code(inherit)]
-    Client(#[from] ClientError),
-    // ... most variants inherit
-}
-
-#[derive(Debug, uniffi::Error)]
-#[uniffi(flat_error)]
-pub enum FfiError {
-    Error(GenericError),
-}
-
-impl std::fmt::Display for FfiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FfiError::Error(e) => write!(f, "[{}] {}", e.error_code(), e),
-        }
-    }
-}
-```
-
-### Node.js (NAPI)
-
-In `bindings/node/src/lib.rs`:
-
-```rust
-pub struct ErrorWrapper<E>(pub E) where E: ErrorCode;
-
-impl<T: ErrorCode> From<ErrorWrapper<T>> for napi::bindgen_prelude::Error {
-    fn from(e: ErrorWrapper<T>) -> napi::bindgen_prelude::Error {
-        let code = e.0.error_code();
-        Error::from_reason(format!("[{}] {}", code, e.0))
-    }
-}
-```
-
-### WASM
-
-In `bindings/wasm/src/lib.rs`:
-
-```rust
-pub struct ErrorWrapper<E>(pub E) where E: ErrorCode;
-
-impl<T: ErrorCode> From<ErrorWrapper<T>> for JsError {
-    fn from(e: ErrorWrapper<T>) -> JsError {
-        let code = e.0.error_code();
-        let js_error = JsError::new(&format!("[{}] {}", code, e.0));
-        let js_value: JsValue = js_error.clone().into();
-        // Also set `code` as a JS property on the error object
-        let _ = js_sys::Reflect::set(
-            &js_value,
-            &JsValue::from_str("code"),
-            &JsValue::from_str(code),
-        );
-        js_error
-    }
-}
-```
+`crates/xmtp_sdk/src/error.rs` maps core errors to the typed `XmtpError`
+contract. Generated SDKs preserve `ErrorDetails` with its code, category,
+retryability, and message. Use the typed cause conversion instead of a formatted
+error string.
 
 ## Adding a new error code: step by step
 
@@ -325,8 +262,5 @@ When adding new error types, add tests verifying:
 | ------ | --------- |
 | `crates/xmtp_common/src/error_code.rs` | `ErrorCode` trait definition, remote impls, tests |
 | `crates/xmtp_macro/src/lib.rs` | `#[derive(ErrorCode)]` proc macro implementation |
-| `bindings/mobile/src/lib.rs` | `GenericError`, `FfiError`, `parse_xmtp_error` |
-| `bindings/node/src/lib.rs` | `ErrorWrapper` for NAPI |
-| `bindings/wasm/src/lib.rs` | `ErrorWrapper` for WASM with `.code` property |
 | `docs/error_glossary.md` | Auto-generated SDK consumer-facing error code reference |
 | `apps/error_glossary/` | Glossary generator source |

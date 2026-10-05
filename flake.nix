@@ -70,7 +70,7 @@
             js = pkgs.callPackage ./nix/js.nix { };
             js-node = pkgs.callPackage ./nix/js-node.nix { };
             docs = pkgs.callPackage ./nix/docs.nix { };
-            wasm = (pkgs.callPackage ./nix/package/wasm.nix { }).devShell;
+            wasm = pkgs.callPackage ./nix/shells/wasm.nix { };
           }
           // lib.optionalAttrs pkgs.stdenv.isDarwin {
             ios = pkgs.callPackage ./nix/shells/ios.nix { };
@@ -89,8 +89,6 @@
               napi-rs-cli
               wasm-bindgen-cli
               ;
-            wasm-bindings = (pkgs.callPackage ./nix/package/wasm.nix { }).bin;
-            wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
           }
           // lib.optionalAttrs pkgs.stdenv.isDarwin {
             xmtp-sdk-ios-device =

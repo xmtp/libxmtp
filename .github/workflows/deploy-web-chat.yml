@@ -1,14 +1,11 @@
 name: Deploy xmtp.chat
 
-# Vercel cannot build this app. web-chat depends on the in-tree browser SDK
-# through the pnpm workspace, and the browser SDK depends on the in-tree
-# @xmtp/wasm-bindings package, whose dist/ is a
-# Nix build of a Rust crate. So the build happens here, where the Nix sticky
-# disk already makes it cheap, and Vercel only stores and serves the output.
+# Build the generated SDK package before Vercel builds the app. The SDK stage
+# contains the worker, WASM modules, and pinned runtimes from this source tree.
 
 on:
   # Every merge to self-hosted deploys, with no paths filter. The app bundles
-  # the Rust WASM bindings, so a commit touching only crates/ still changes
+  # the SDK WASM modules, so a commit touching only crates/ still changes
   # what ships; keeping the trigger unfiltered means the deployed build always
   # matches the branch head.
   push:
@@ -58,9 +55,7 @@ jobs:
         if: steps.current.outputs.deploy == 'true'
       - uses: ./.github/actions/setup-js
         if: steps.current.outputs.deploy == 'true'
-      # Builds the WASM bindings and the linked browser SDK, which `vercel
-      # build` below cannot do. It also produces dist/, which vercel rebuilds;
-      # that rebuild is cheap and reuses everything staged here.
+      # Stage the complete generated browser package before the app build.
       - name: Build the linked SDK
         if: steps.current.outputs.deploy == 'true'
         env:

@@ -26,10 +26,10 @@ dev/nix-shell 'just web-chat dev'
 
 ## Useful commands
 
-- `just web-chat check`: Typecheck the app against the in-tree SDK.
-- `just web-chat lint`: Run oxlint.
-- `just web-chat build`: Create a production build.
-- `just web-chat test`: Run browser tests against the worktree backend.
+- `dev/nix-shell 'just web-chat check'`: Typecheck the app against the in-tree SDK.
+- `dev/nix-shell 'just web-chat lint'`: Run oxlint.
+- `dev/nix-shell 'just web-chat build'`: Create a production build.
+- `dev/nix-shell 'just web-chat test'`: Run browser tests against the worktree backend.
 
 ## Deployment
 
@@ -37,12 +37,10 @@ The app is deployed at <https://self-hosted.xmtp.chat>. A merge to
 `self-hosted` deploys it with `.github/workflows/deploy-web-chat.yml`. Pull
 requests do not deploy.
 
-The build runs in GitHub Actions under Nix, not on Vercel. The app resolves
-`@xmtp/browser-sdk` through a `portal:` dependency, and that SDK resolves
-`@xmtp/wasm-bindings` through another one, whose `dist/` comes from a Nix build
-of a Rust crate. The Vercel build container has neither Nix nor a Rust
-toolchain, so the workflow builds `dist/` and uploads it with
-`vercel deploy --prebuilt`. Vercel serves static files only.
+GitHub Actions generates and stages `@xmtp/browser-sdk` under Nix. The stage
+contains the worker, pure codecs, WASM assets, and pinned runtime. The app
+uses the workspace package. The workflow builds `dist/` and uploads it with
+`vercel deploy --prebuilt`. Vercel serves these static files.
 
 The deployed app has no default backend URL. Each user enters one in the
 settings panel. `XMTP_BACKEND_URL` and `VITE_PROJECT_ID` are inlined by Vite at

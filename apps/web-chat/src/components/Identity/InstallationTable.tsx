@@ -27,8 +27,8 @@ const InstallationTableRow: React.FC<InstallationTableRowProps> = ({
 }) => {
   const { revokeInstallation, revoking } = useIdentity();
 
-  const handleRevokeInstallation = async (installationIdBytes: Uint8Array) => {
-    await revokeInstallation(installationIdBytes);
+  const handleRevokeInstallation = async (installationId: string) => {
+    await revokeInstallation(installationId);
     await refreshInstallations();
   };
 
@@ -37,7 +37,7 @@ const InstallationTableRow: React.FC<InstallationTableRowProps> = ({
     sm: "20rem",
   });
 
-  const createdAt = nsToDate(installation.clientTimestampNs ?? 0n);
+  const createdAt = nsToDate(installation.createdAt?.ns ?? 0n);
   const notAfter = installation.keyPackageStatus?.lifetime?.notAfter
     ? new Date(Number(installation.keyPackageStatus.lifetime.notAfter) * 1000)
     : undefined;
@@ -94,7 +94,7 @@ const InstallationTableRow: React.FC<InstallationTableRowProps> = ({
           <Button
             size="xs"
             loading={revoking}
-            onClick={() => void handleRevokeInstallation(installation.bytes)}>
+            onClick={() => void handleRevokeInstallation(installation.id)}>
             Revoke
           </Button>
         )}

@@ -77,11 +77,6 @@ on:
         required: false
         type: boolean
         default: false
-      wasm:
-        description: "Include WASM bindings in release"
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   create-branch:
@@ -115,8 +110,7 @@ jobs:
             --browser-sdk "$BROWSER_SDK_BUMP" \
             --agent-sdk "$AGENT_SDK_BUMP" \
             --cli "$CLI_BUMP" \
-            ${{ inputs.node && '--node' || '' }} \
-            ${{ inputs.wasm && '--wasm' || '' }}
+            ${{ inputs.node && '--node' || '' }}
 
           git push -u origin "release/${RELEASE_VERSION}"
       - name: Create pull request

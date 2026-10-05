@@ -1,9 +1,7 @@
 import { Box, Group, NativeSelect, Stack, Text, Tooltip } from "@mantine/core";
 import {
-  GroupPermissionsOptions,
-  MetadataField,
-  PermissionPolicy,
-  PermissionUpdateType,
+  type GroupPolicyType,
+  type PermissionPolicy,
   Group as XmtpGroup,
   type Conversation,
   type PermissionPolicySet,
@@ -11,192 +9,87 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 const PERMISSION_VALUES = [
-  { value: "0", label: "Everyone" },
-  { value: "1", label: "Disabled" },
-  { value: "2", label: "Admin only" },
-  { value: "3", label: "Super admin only" },
+  { value: "allow", label: "Everyone" },
+  { value: "deny", label: "Disabled" },
+  { value: "admin", label: "Admin only" },
+  { value: "superAdmin", label: "Super admin only" },
 ];
 
-const toPermissionValue = (permission: PermissionPolicy) => {
-  switch (permission) {
-    case PermissionPolicy.Allow:
-      return "0";
-    case PermissionPolicy.Deny:
-      return "1";
-    case PermissionPolicy.Admin:
-      return "2";
-    case PermissionPolicy.SuperAdmin:
-      return "3";
-  }
-};
+const toPermissionValue = (permission: PermissionPolicy) => permission;
 
 export const defaultPolicySet: PermissionPolicySet = {
-  addAdminPolicy: PermissionPolicy.SuperAdmin,
-  addMemberPolicy: PermissionPolicy.Allow,
-  removeAdminPolicy: PermissionPolicy.SuperAdmin,
-  removeMemberPolicy: PermissionPolicy.Admin,
-  updateGroupNamePolicy: PermissionPolicy.Allow,
-  updateGroupDescriptionPolicy: PermissionPolicy.Allow,
-  updateGroupImageUrlSquarePolicy: PermissionPolicy.Allow,
-  updateMessageDisappearingPolicy: PermissionPolicy.Admin,
-  updateAppDataPolicy: PermissionPolicy.Allow,
+  addAdmin: "superAdmin",
+  addMember: "allow",
+  removeAdmin: "superAdmin",
+  removeMember: "admin",
+  updateName: "allow",
+  updateDescription: "allow",
+  updateImage: "allow",
+  updateDisappearing: "admin",
+  updateAppData: "allow",
 };
 
 export const adminPolicySet: PermissionPolicySet = {
-  addAdminPolicy: PermissionPolicy.SuperAdmin,
-  addMemberPolicy: PermissionPolicy.Admin,
-  removeAdminPolicy: PermissionPolicy.SuperAdmin,
-  removeMemberPolicy: PermissionPolicy.Admin,
-  updateGroupNamePolicy: PermissionPolicy.Admin,
-  updateGroupDescriptionPolicy: PermissionPolicy.Admin,
-  updateGroupImageUrlSquarePolicy: PermissionPolicy.Admin,
-  updateMessageDisappearingPolicy: PermissionPolicy.Admin,
-  updateAppDataPolicy: PermissionPolicy.Admin,
+  addAdmin: "superAdmin",
+  addMember: "admin",
+  removeAdmin: "superAdmin",
+  removeMember: "admin",
+  updateName: "admin",
+  updateDescription: "admin",
+  updateImage: "admin",
+  updateDisappearing: "admin",
+  updateAppData: "admin",
 };
 
 export const processPermissionsUpdate = async (
   conversation: Conversation,
-  permissionsPolicy: GroupPermissionsOptions,
+  permissionsPolicy: GroupPolicyType,
   policySet: PermissionPolicySet,
 ) => {
   if (!(conversation instanceof XmtpGroup)) {
     return;
   }
 
-  const permissions = await conversation.permissions();
-
-  // policy type has changed and is not a custom policy
+  const permissions = await conversation
+    .state()
+    .then((state) => state.permissions);
   if (
-    permissions.policyType !== permissionsPolicy &&
-    permissionsPolicy !== GroupPermissionsOptions.CustomPolicy
+    permissions.policyType === permissionsPolicy &&
+    permissionsPolicy !== "custom"
   ) {
-    switch (permissionsPolicy) {
-      case GroupPermissionsOptions.Default: {
-        await conversation.updatePermission(
-          PermissionUpdateType.AddMember,
-          defaultPolicySet.addMemberPolicy,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.RemoveMember,
-          defaultPolicySet.removeMemberPolicy,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.AddAdmin,
-          defaultPolicySet.addAdminPolicy,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.RemoveAdmin,
-          defaultPolicySet.removeAdminPolicy,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.UpdateMetadata,
-          defaultPolicySet.updateGroupNamePolicy,
-          MetadataField.GroupName,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.UpdateMetadata,
-          defaultPolicySet.updateGroupDescriptionPolicy,
-          MetadataField.Description,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.UpdateMetadata,
-          defaultPolicySet.updateGroupImageUrlSquarePolicy,
-          MetadataField.GroupImageUrlSquare,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.UpdateMetadata,
-          defaultPolicySet.updateAppDataPolicy,
-          MetadataField.AppData,
-        );
-        break;
-      }
-      case GroupPermissionsOptions.AdminOnly: {
-        await conversation.updatePermission(
-          PermissionUpdateType.AddMember,
-          adminPolicySet.addMemberPolicy,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.RemoveMember,
-          adminPolicySet.removeMemberPolicy,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.AddAdmin,
-          adminPolicySet.addAdminPolicy,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.RemoveAdmin,
-          adminPolicySet.removeAdminPolicy,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.UpdateMetadata,
-          adminPolicySet.updateGroupNamePolicy,
-          MetadataField.GroupName,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.UpdateMetadata,
-          adminPolicySet.updateGroupDescriptionPolicy,
-          MetadataField.Description,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.UpdateMetadata,
-          adminPolicySet.updateGroupImageUrlSquarePolicy,
-          MetadataField.GroupImageUrlSquare,
-        );
-        await conversation.updatePermission(
-          PermissionUpdateType.UpdateMetadata,
-          adminPolicySet.updateAppDataPolicy,
-          MetadataField.AppData,
-        );
-      }
-    }
+    return;
   }
-
-  // policy type is a custom policy
-  if (permissionsPolicy === GroupPermissionsOptions.CustomPolicy) {
-    await conversation.updatePermission(
-      PermissionUpdateType.AddMember,
-      policySet.addMemberPolicy,
-    );
-    await conversation.updatePermission(
-      PermissionUpdateType.RemoveMember,
-      policySet.removeMemberPolicy,
-    );
-    await conversation.updatePermission(
-      PermissionUpdateType.AddAdmin,
-      policySet.addAdminPolicy,
-    );
-    await conversation.updatePermission(
-      PermissionUpdateType.RemoveAdmin,
-      policySet.removeAdminPolicy,
-    );
-    await conversation.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      policySet.updateGroupNamePolicy,
-      MetadataField.GroupName,
-    );
-    await conversation.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      policySet.updateGroupDescriptionPolicy,
-      MetadataField.Description,
-    );
-    await conversation.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      policySet.updateGroupImageUrlSquarePolicy,
-      MetadataField.GroupImageUrlSquare,
-    );
-    await conversation.updatePermission(
-      PermissionUpdateType.UpdateMetadata,
-      policySet.updateAppDataPolicy,
-      MetadataField.AppData,
-    );
+  const next =
+    permissionsPolicy === "allMembers"
+      ? defaultPolicySet
+      : permissionsPolicy === "adminOnly"
+        ? adminPolicySet
+        : policySet;
+  const fields = [
+    ["addMember", "addMember", undefined],
+    ["removeMember", "removeMember", undefined],
+    ["addAdmin", "addAdmin", undefined],
+    ["removeAdmin", "removeAdmin", undefined],
+    ["updateName", "updateMetadata", "name"],
+    ["updateDescription", "updateMetadata", "description"],
+    ["updateImage", "updateMetadata", "imageUrl"],
+    ["updateDisappearing", "updateMetadata", "disappearing"],
+    ["updateAppData", "updateMetadata", "appData"],
+  ] as const;
+  let updated = false;
+  for (const [field, kind, metadataField] of fields) {
+    if (next[field] === permissions.policySet[field]) continue;
+    await conversation.updatePermission(kind, next[field], metadataField);
+    updated = true;
+  }
+  if (!updated && permissions.policyType !== permissionsPolicy) {
+    await conversation.updatePermission("addMember", next.addMember, undefined);
   }
 };
 
 export type PermissionsProps = {
   conversation?: Conversation;
-  onPermissionsPolicyChange: (
-    permissionsPolicy: GroupPermissionsOptions,
-  ) => void;
+  onPermissionsPolicyChange: (permissionsPolicy: GroupPolicyType) => void;
   onPolicySetChange: (policySet: PermissionPolicySet) => void;
 };
 
@@ -206,14 +99,14 @@ export const Permissions: React.FC<PermissionsProps> = ({
   onPolicySetChange,
 }) => {
   const [permissionsPolicy, setPermissionsPolicy] =
-    useState<GroupPermissionsOptions>(GroupPermissionsOptions.Default);
+    useState<GroupPolicyType>("allMembers");
   const [policySet, setPolicySet] =
     useState<PermissionPolicySet>(defaultPolicySet);
 
   const policyTooltip = useMemo(() => {
-    if (permissionsPolicy === GroupPermissionsOptions.Default) {
+    if (permissionsPolicy === "allMembers") {
       return "All members of the group can perform group actions";
-    } else if (permissionsPolicy === GroupPermissionsOptions.AdminOnly) {
+    } else if (permissionsPolicy === "adminOnly") {
       return "Only admins can perform group actions";
     }
     return "Custom policy as defined below";
@@ -234,20 +127,22 @@ export const Permissions: React.FC<PermissionsProps> = ({
 
     let active = true;
     const loadPermissions = async () => {
-      const permissions = await conversation.permissions();
+      const permissions = await conversation
+        .state()
+        .then((state) => state.permissions);
       if (!active) return;
       const policyType = permissions.policyType;
       switch (policyType) {
-        case GroupPermissionsOptions.Default:
-          setPermissionsPolicy(GroupPermissionsOptions.Default);
+        case "allMembers":
+          setPermissionsPolicy("allMembers");
           setPolicySet(defaultPolicySet);
           break;
-        case GroupPermissionsOptions.AdminOnly:
-          setPermissionsPolicy(GroupPermissionsOptions.AdminOnly);
+        case "adminOnly":
+          setPermissionsPolicy("adminOnly");
           setPolicySet(adminPolicySet);
           break;
-        case GroupPermissionsOptions.CustomPolicy:
-          setPermissionsPolicy(GroupPermissionsOptions.CustomPolicy);
+        case "custom":
+          setPermissionsPolicy("custom");
           setPolicySet(permissions.policySet);
           break;
       }
@@ -267,21 +162,18 @@ export const Permissions: React.FC<PermissionsProps> = ({
             <NativeSelect
               value={permissionsPolicy}
               onChange={(event) => {
-                const policy = parseInt(
-                  event.currentTarget.value,
-                  10,
-                ) as GroupPermissionsOptions;
+                const policy = event.currentTarget.value as GroupPolicyType;
                 setPermissionsPolicy(policy);
-                if (policy === GroupPermissionsOptions.Default) {
+                if (policy === "allMembers") {
                   setPolicySet(defaultPolicySet);
-                } else if (policy === GroupPermissionsOptions.AdminOnly) {
+                } else if (policy === "adminOnly") {
                   setPolicySet(adminPolicySet);
                 }
               }}
               data={[
-                { value: "0", label: "Default" },
-                { value: "1", label: "Admin only" },
-                { value: "2", label: "Custom policy" },
+                { value: "allMembers", label: "Default" },
+                { value: "adminOnly", label: "Admin only" },
+                { value: "custom", label: "Custom policy" },
               ]}
             />
           </Tooltip>
@@ -289,17 +181,12 @@ export const Permissions: React.FC<PermissionsProps> = ({
         <Group gap="md" justify="space-between" align="center">
           <Text size="sm">Add members</Text>
           <NativeSelect
-            disabled={
-              permissionsPolicy !== GroupPermissionsOptions.CustomPolicy
-            }
-            value={toPermissionValue(policySet.addMemberPolicy)}
+            disabled={permissionsPolicy !== "custom"}
+            value={toPermissionValue(policySet.addMember)}
             onChange={(event) => {
               setPolicySet({
                 ...policySet,
-                addMemberPolicy: parseInt(
-                  event.currentTarget.value,
-                  10,
-                ) as PermissionPolicy,
+                addMember: event.currentTarget.value as PermissionPolicy,
               });
             }}
             data={PERMISSION_VALUES}
@@ -308,17 +195,12 @@ export const Permissions: React.FC<PermissionsProps> = ({
         <Group gap="md" justify="space-between" align="center">
           <Text size="sm">Remove members</Text>
           <NativeSelect
-            disabled={
-              permissionsPolicy !== GroupPermissionsOptions.CustomPolicy
-            }
-            value={toPermissionValue(policySet.removeMemberPolicy)}
+            disabled={permissionsPolicy !== "custom"}
+            value={toPermissionValue(policySet.removeMember)}
             onChange={(event) => {
               setPolicySet({
                 ...policySet,
-                removeMemberPolicy: parseInt(
-                  event.currentTarget.value,
-                  10,
-                ) as PermissionPolicy,
+                removeMember: event.currentTarget.value as PermissionPolicy,
               });
             }}
             data={PERMISSION_VALUES}
@@ -327,17 +209,12 @@ export const Permissions: React.FC<PermissionsProps> = ({
         <Group gap="md" justify="space-between" align="center">
           <Text size="sm">Add admins</Text>
           <NativeSelect
-            disabled={
-              permissionsPolicy !== GroupPermissionsOptions.CustomPolicy
-            }
-            value={toPermissionValue(policySet.addAdminPolicy)}
+            disabled={permissionsPolicy !== "custom"}
+            value={toPermissionValue(policySet.addAdmin)}
             onChange={(event) => {
               setPolicySet({
                 ...policySet,
-                addAdminPolicy: parseInt(
-                  event.currentTarget.value,
-                  10,
-                ) as PermissionPolicy,
+                addAdmin: event.currentTarget.value as PermissionPolicy,
               });
             }}
             data={PERMISSION_VALUES}
@@ -346,17 +223,12 @@ export const Permissions: React.FC<PermissionsProps> = ({
         <Group gap="md" justify="space-between" align="center">
           <Text size="sm">Remove admins</Text>
           <NativeSelect
-            disabled={
-              permissionsPolicy !== GroupPermissionsOptions.CustomPolicy
-            }
-            value={toPermissionValue(policySet.removeAdminPolicy)}
+            disabled={permissionsPolicy !== "custom"}
+            value={toPermissionValue(policySet.removeAdmin)}
             onChange={(event) => {
               setPolicySet({
                 ...policySet,
-                removeAdminPolicy: parseInt(
-                  event.currentTarget.value,
-                  10,
-                ) as PermissionPolicy,
+                removeAdmin: event.currentTarget.value as PermissionPolicy,
               });
             }}
             data={PERMISSION_VALUES}
@@ -365,17 +237,12 @@ export const Permissions: React.FC<PermissionsProps> = ({
         <Group gap="md" justify="space-between" align="center">
           <Text size="sm">Update group name</Text>
           <NativeSelect
-            disabled={
-              permissionsPolicy !== GroupPermissionsOptions.CustomPolicy
-            }
-            value={toPermissionValue(policySet.updateGroupNamePolicy)}
+            disabled={permissionsPolicy !== "custom"}
+            value={toPermissionValue(policySet.updateName)}
             onChange={(event) => {
               setPolicySet({
                 ...policySet,
-                updateGroupNamePolicy: parseInt(
-                  event.currentTarget.value,
-                  10,
-                ) as PermissionPolicy,
+                updateName: event.currentTarget.value as PermissionPolicy,
               });
             }}
             data={PERMISSION_VALUES}
@@ -384,17 +251,13 @@ export const Permissions: React.FC<PermissionsProps> = ({
         <Group gap="md" justify="space-between" align="center">
           <Text size="sm">Update group description</Text>
           <NativeSelect
-            disabled={
-              permissionsPolicy !== GroupPermissionsOptions.CustomPolicy
-            }
-            value={toPermissionValue(policySet.updateGroupDescriptionPolicy)}
+            disabled={permissionsPolicy !== "custom"}
+            value={toPermissionValue(policySet.updateDescription)}
             onChange={(event) => {
               setPolicySet({
                 ...policySet,
-                updateGroupDescriptionPolicy: parseInt(
-                  event.currentTarget.value,
-                  10,
-                ) as PermissionPolicy,
+                updateDescription: event.currentTarget
+                  .value as PermissionPolicy,
               });
             }}
             data={PERMISSION_VALUES}
@@ -403,17 +266,12 @@ export const Permissions: React.FC<PermissionsProps> = ({
         <Group gap="md" justify="space-between" align="center">
           <Text size="sm">Update group image</Text>
           <NativeSelect
-            disabled={
-              permissionsPolicy !== GroupPermissionsOptions.CustomPolicy
-            }
-            value={toPermissionValue(policySet.updateGroupImageUrlSquarePolicy)}
+            disabled={permissionsPolicy !== "custom"}
+            value={toPermissionValue(policySet.updateImage)}
             onChange={(event) => {
               setPolicySet({
                 ...policySet,
-                updateGroupImageUrlSquarePolicy: parseInt(
-                  event.currentTarget.value,
-                  10,
-                ) as PermissionPolicy,
+                updateImage: event.currentTarget.value as PermissionPolicy,
               });
             }}
             data={PERMISSION_VALUES}
@@ -422,17 +280,12 @@ export const Permissions: React.FC<PermissionsProps> = ({
         <Group gap="md" justify="space-between" align="center">
           <Text size="sm">Update app data</Text>
           <NativeSelect
-            disabled={
-              permissionsPolicy !== GroupPermissionsOptions.CustomPolicy
-            }
-            value={toPermissionValue(policySet.updateAppDataPolicy)}
+            disabled={permissionsPolicy !== "custom"}
+            value={toPermissionValue(policySet.updateAppData)}
             onChange={(event) => {
               setPolicySet({
                 ...policySet,
-                updateAppDataPolicy: parseInt(
-                  event.currentTarget.value,
-                  10,
-                ) as PermissionPolicy,
+                updateAppData: event.currentTarget.value as PermissionPolicy,
               });
             }}
             data={PERMISSION_VALUES}

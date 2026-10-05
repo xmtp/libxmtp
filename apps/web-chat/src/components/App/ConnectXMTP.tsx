@@ -14,6 +14,8 @@ import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
 import { useSettings } from "@/hooks/useSettings";
 import { useWallet } from "@/hooks/useWallet";
 
+import { LocalDatabases } from "./LocalDatabases";
+
 import classes from "./ConnectXMTP.module.css";
 
 export const ConnectXMTP: React.FC = () => {
@@ -28,7 +30,7 @@ export const ConnectXMTP: React.FC = () => {
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
 
   const handleConnectClick = useCallback(() => {
-    if (lockState !== "available") {
+    if (lockState === "locked") {
       setShowLockModal(true);
       return;
     }
@@ -63,6 +65,7 @@ export const ConnectXMTP: React.FC = () => {
             <BackendUrlInput />
             <AuthTokenInput />
             <LoggingSelect />
+            <LocalDatabases />
           </Stack>
           <Group
             justify="space-between"

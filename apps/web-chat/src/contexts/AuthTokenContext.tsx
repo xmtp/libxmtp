@@ -1,4 +1,4 @@
-import type { AuthCallback, Credential } from "@xmtp/browser-sdk";
+import type { CredentialSource, Credential } from "@xmtp/browser-sdk";
 import {
   createContext,
   useCallback,
@@ -54,7 +54,7 @@ export type AuthTokenContextValue = {
    * a memo shared across clients would read a fresh client's first ask as a
    * rejection of a token that client never sent.
    */
-  createAuthCallback: () => AuthCallback;
+  createCredentialSource: () => CredentialSource;
   /** Non-null while the modal should be open. */
   request: AuthTokenRequest | null;
   /** Open the prompt from the settings panel, outside a backend request. */
@@ -62,8 +62,10 @@ export type AuthTokenContextValue = {
 };
 
 export const AuthTokenContext = createContext<AuthTokenContextValue>({
-  createAuthCallback: () => () =>
-    Promise.reject(new Error("AuthTokenProvider not available")),
+  createCredentialSource: () => ({
+    credential: () =>
+      Promise.reject(new Error("AuthTokenProvider not available")),
+  }),
   request: null,
   promptForToken: () => {},
 });
@@ -91,7 +93,9 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
   const credentialFor = useCallback(
     (token: string): Credential => ({
       value: token === "" ? "" : withBearerPrefix(token),
-      expiresAtSeconds: Math.floor(Date.now() / 1000) + TOKEN_LIFETIME_SECONDS,
+      expiresAtSeconds: BigInt(
+        Math.floor(Date.now() / 1000) + TOKEN_LIFETIME_SECONDS,
+      ),
     }),
     [],
   );
@@ -130,45 +134,47 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
     [setAuthToken],
   );
 
-  const createAuthCallback = useCallback<() => AuthCallback>(() => {
+  const createCredentialSource = useCallback<() => CredentialSource>(() => {
     // Per consumer, matching one SDK credential cache.
     let supplied = new Set<string>();
     let generation = generationRef.current;
 
-    return () => {
-      if (generation !== generationRef.current) {
-        // A newer token exists than anything this consumer has offered.
-        supplied = new Set<string>();
-        generation = generationRef.current;
-      }
-      const stored = authTokenRef.current.trim();
+    return {
+      credential: () => {
+        if (generation !== generationRef.current) {
+          // A newer token exists than anything this consumer has offered.
+          supplied = new Set<string>();
+          generation = generationRef.current;
+        }
+        const stored = authTokenRef.current.trim();
 
-      // A token this consumer has not yet offered: hand it over and wait to
-      // see whether the backend accepts it.
-      if (stored !== "" && !supplied.has(stored)) {
-        supplied.add(stored);
-        return Promise.resolve(credentialFor(stored));
-      }
+        // A token this consumer has not yet offered: hand it over and wait to
+        // see whether the backend accepts it.
+        if (stored !== "" && !supplied.has(stored)) {
+          supplied.add(stored);
+          return Promise.resolve(credentialFor(stored));
+        }
 
-      // No token stored, and this consumer has not probed yet. The deployment
-      // may not want one at all, so answer with an empty credential rather
-      // than interrupting the user. A deployment that needs auth rejects this
-      // and asks again.
-      if (stored === "" && !supplied.has(EMPTY_TOKEN_PROBE)) {
-        supplied.add(EMPTY_TOKEN_PROBE);
-        return Promise.resolve(credentialFor(EMPTY_TOKEN_PROBE));
-      }
+        // No token stored, and this consumer has not probed yet. The deployment
+        // may not want one at all, so answer with an empty credential rather
+        // than interrupting the user. A deployment that needs auth rejects this
+        // and asks again.
+        if (stored === "" && !supplied.has(EMPTY_TOKEN_PROBE)) {
+          supplied.add(EMPTY_TOKEN_PROBE);
+          return Promise.resolve(credentialFor(EMPTY_TOKEN_PROBE));
+        }
 
-      // Everything this consumer has has been offered and refused. Hold the
-      // promise until the user submits: rejecting would fail the request that
-      // triggered this and, repeated, reach the backend's consecutive-failure
-      // lockout.
-      return new Promise<Credential>((resolve) => {
-        waitingRef.current.push((token: string) => {
-          resolve(credentialFor(token));
+        // Everything this consumer has has been offered and refused. Hold the
+        // promise until the user submits: rejecting would fail the request that
+        // triggered this and, repeated, reach the backend's consecutive-failure
+        // lockout.
+        return new Promise<Credential>((resolve) => {
+          waitingRef.current.push((token: string) => {
+            resolve(credentialFor(token));
+          });
+          openPrompt(stored !== "");
         });
-        openPrompt(stored !== "");
-      });
+      },
     };
   }, [credentialFor, openPrompt]);
 
@@ -177,8 +183,8 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
   }, [openPrompt]);
 
   const value = useMemo(
-    () => ({ createAuthCallback, request, promptForToken }),
-    [createAuthCallback, request, promptForToken],
+    () => ({ createCredentialSource, request, promptForToken }),
+    [createCredentialSource, request, promptForToken],
   );
 
   return (

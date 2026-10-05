@@ -12,7 +12,7 @@ const SAMPLE_PACKAGE_JSON = `{
   "description": "XMTP Node client SDK",
   "dependencies": {
     "@xmtp/content-type-primitives": "3.0.0",
-    "@xmtp/node-bindings": "portal:../../../bindings/node"
+    "@xmtp/node-sdk": "portal:../../../sdks/node"
   }
 }
 `;
@@ -34,17 +34,17 @@ describe("setPackageJsonDependency", () => {
   it("rewrites a portal: spec to a real published version", () => {
     setPackageJsonDependency(
       packageJsonPath,
-      "@xmtp/node-bindings",
+      "@xmtp/node-sdk",
       "1.11.0-nightly.20260604.90d0bfb",
     );
     const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-    expect(parsed.dependencies["@xmtp/node-bindings"]).toBe(
+    expect(parsed.dependencies["@xmtp/node-sdk"]).toBe(
       "1.11.0-nightly.20260604.90d0bfb",
     );
   });
 
   it("leaves all other fields and formatting intact", () => {
-    setPackageJsonDependency(packageJsonPath, "@xmtp/node-bindings", "1.11.0");
+    setPackageJsonDependency(packageJsonPath, "@xmtp/node-sdk", "1.11.0");
     const content = fs.readFileSync(packageJsonPath, "utf-8");
     const parsed = JSON.parse(content);
 
@@ -91,7 +91,7 @@ describe("setPackageJsonDependency", () => {
       '{ "name": "minimal", "version": "1.0.0" }\n',
     );
     expect(() =>
-      setPackageJsonDependency(packageJsonPath, "@xmtp/node-bindings", "1.0.0"),
-    ).toThrow("Dependency @xmtp/node-bindings not found in dependencies of");
+      setPackageJsonDependency(packageJsonPath, "@xmtp/node-sdk", "1.0.0"),
+    ).toThrow("Dependency @xmtp/node-sdk not found in dependencies of");
   });
 });

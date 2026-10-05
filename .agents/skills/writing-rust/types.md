@@ -70,7 +70,7 @@ xmtp_common::rng(); xmtp_common::rand_array::<32>(); xmtp_common::rand_secret::<
 Native entry points call `xmtp_cryptography::install_crypto_provider()` before
 building any TLS client. It is idempotent. The `ctor` fallback does not run
 inside an Apple static library, so the bindings call it explicitly
-(`bindings/node/src/client/create_client.rs`, `crates/xmtp_sdk/src/client.rs`).
+(`crates/xmtp_sdk/src/client.rs`).
 
 Installation keys: `XmtpInstallationCredential` with `CredentialSign` and
 `CredentialVerify`. Test wallet: `generate_local_wallet()`.

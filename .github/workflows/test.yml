@@ -23,8 +23,8 @@ jobs:
       sdk: ${{ steps.filter.outputs.sdk }}
       sdk_swift: ${{ steps.filter.outputs.sdk_swift }}
       backend_ci: ${{ steps.filter.outputs.backend_ci }}
-      wasm: ${{ steps.filter.outputs.wasm }}
       browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
+      wasm: ${{ steps.filter.outputs.wasm }}
       node_sdk: ${{ steps.filter.outputs.node_sdk }}
       agent_sdk: ${{ steps.filter.outputs.agent_sdk }}
       ios: ${{ steps.filter.outputs.ios }}
@@ -56,11 +56,10 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
+              - '.config/nextest.toml'
               - 'rust-toolchain.toml'
               - 'apps/**/Cargo.toml'
               - 'apps/**/build.rs'
-              - 'bindings/**/Cargo.toml'
-              - 'bindings/**/build.rs'
               - 'docs/schemas/backend-v1.json'
               - 'nix/**'
               - 'flake.nix'
@@ -70,7 +69,6 @@ jobs:
             workspace:
               - 'proto/**'
               - 'crates/**'
-              - 'bindings/**'
               - 'apps/backend/**'
               - 'apps/db_tools/**'
               - 'apps/error_glossary/**'
@@ -79,6 +77,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
+              - '.config/nextest.toml'
               - 'rust-toolchain.toml'
               - 'dev/docker/**'
               - 'dev/up'
@@ -105,6 +104,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
+              - '.config/nextest.toml'
               - 'rust-toolchain.toml'
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -142,23 +142,6 @@ jobs:
               - 'crates/xmtp_sdk/**'
               - 'apps/xmtp_sdk_bindgen/**'
               - '.github/workflows/test-sdk.yml'
-            wasm:
-              - '.config/nextest.toml'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - 'dev/js/**'
-              - '.oxlintrc.json'
-              - 'apps/backend/**'
-              - 'crates/**'
-              - 'proto/**'
-              - 'bindings/wasm/**'
-              - 'Cargo.*'
-              - 'nix/**'
-              - 'flake.*'
-              - 'dev/docker/**'
-              - '.github/workflows/test-wasm.yml'
-              - '.github/workflows/test.yml'
             browser_sdk:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -168,7 +151,6 @@ jobs:
               - 'apps/backend/**'
               - 'crates/**'
               - 'proto/**'
-              - 'bindings/wasm/**'
               - 'sdks/browser/**'
               - 'sdks/node/**'
               - 'sdks/agent/**'
@@ -179,6 +161,16 @@ jobs:
               - 'flake.*'
               - 'dev/docker/**'
               - '.github/workflows/test-browser-sdk.yml'
+            wasm:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.config/nextest.toml'
+              - 'nix/**'
+              - 'flake.lock'
+              - 'dev/docker/**'
+              - 'dev/up'
+              - '.github/workflows/test-wasm.yml'
             node_sdk:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -385,6 +377,12 @@ jobs:
     uses: ./.github/workflows/test-keepalive-probe.yml
     secrets: inherit
 
+  test-wasm:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.wasm == 'true'
+    uses: ./.github/workflows/test-wasm.yml
+    secrets: inherit
+
   test-node-sdk:
     needs: detect-changes
     if: needs.detect-changes.outputs.node_sdk == 'true'
@@ -401,12 +399,6 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.workspace == 'true'
     uses: ./.github/workflows/test-xdbg.yml
-    secrets: inherit
-
-  test-wasm:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.wasm == 'true'
-    uses: ./.github/workflows/test-wasm.yml
     secrets: inherit
 
   test-browser-sdk:

@@ -408,7 +408,7 @@ export async function checkWorkerAdmission(
       } else if (mode === "overlap-end") {
         // A second read while the first value is in transit must reject.
         // It must not acknowledge the first value before the end below.
-        // Catch the error before the test runner checks for unhandled errors.
+        // Catch the expected error before the test runner checks for unhandled errors.
         const second = stream.next().then(
           () => ({ accepted: true as const }),
           (error: unknown) => ({ accepted: false as const, error }),

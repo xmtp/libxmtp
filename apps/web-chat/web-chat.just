@@ -5,10 +5,7 @@ _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 set shell := ["../../dev/nix-shell"]
 
-bindings:
-    ../../dev/js/bindings wasm
-
-sdk: bindings
+sdk:
     cd {{ root }} && pnpm -r --filter '@xmtp/browser-sdk...' run build
 
 dev: sdk
@@ -17,11 +14,11 @@ dev: sdk
 test: sdk
     {{ _env }} && pnpm --filter @xmtp/xmtp.chat run test
 
-check: bindings
+check: sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/xmtp.chat...' run typecheck
 
-lint: bindings
+lint: sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/xmtp.chat...' run lint
 
-build: bindings
+build: sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/xmtp.chat...' run build

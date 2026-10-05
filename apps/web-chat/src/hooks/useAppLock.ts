@@ -25,7 +25,10 @@ const isLockStale = (lastActive: number | null) => {
   return lastActive === null || Date.now() - lastActive > STALE_THRESHOLD;
 };
 
-export const useAppLock = (onLockLost?: () => void) => {
+export const useAppLock = (
+  onLockLost?: () => void,
+  onPageHide?: () => Promise<void> | void,
+) => {
   // random UUID to identify the lock
   const [sessionLockId] = useState(() => crypto.randomUUID());
   // flag to track if the lock has been acquired
@@ -93,9 +96,28 @@ export const useAppLock = (onLockLost?: () => void) => {
 
   const releaseLock = useCallback((): void => {
     hadLockRef.current = false;
+    const currentLockId = readLocalStorageValue<string | null>({
+      key: APP_LOCK_ID_KEY,
+      defaultValue: null,
+    });
+    if (currentLockId !== sessionLockId) {
+      return;
+    }
     setLockId(null);
     setLastActive(null);
-  }, [setLockId, setLastActive]);
+  }, [sessionLockId, setLockId, setLastActive]);
+
+  // Read storage at the time of use. React state can still show the old owner
+  // while a storage event is waiting to run.
+  const ownsLock = useCallback(
+    () =>
+      hadLockRef.current &&
+      readLocalStorageValue<string | null>({
+        key: APP_LOCK_ID_KEY,
+        defaultValue: null,
+      }) === sessionLockId,
+    [sessionLockId],
+  );
 
   // if the lock is lost, call the onLockLost callback
   // this is helpful for disconnecting the user when the lock is lost
@@ -116,7 +138,13 @@ export const useAppLock = (onLockLost?: () => void) => {
 
     // update the last active time at the set interval
     const interval = setInterval(() => {
-      setLastActive(Date.now());
+      const currentLockId = readLocalStorageValue<string | null>({
+        key: APP_LOCK_ID_KEY,
+        defaultValue: null,
+      });
+      if (currentLockId === sessionLockId) {
+        setLastActive(Date.now());
+      }
     }, ACTIVE_INTERVAL);
 
     return () => {
@@ -133,14 +161,23 @@ export const useAppLock = (onLockLost?: () => void) => {
     }
 
     const handlePageHide = () => {
-      releaseLock();
+      try {
+        const cleanup = onPageHide?.();
+        if (cleanup) {
+          void cleanup.then(releaseLock).catch(() => {});
+        } else {
+          releaseLock();
+        }
+      } catch {
+        // Keep the lock when cleanup cannot be recorded.
+      }
     };
 
     window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
     };
-  }, [lockState, lockId, releaseLock, sessionLockId]);
+  }, [lockState, lockId, onPageHide, releaseLock, sessionLockId]);
 
-  return { lockState, acquireLock, releaseLock };
+  return { lockState, acquireLock, releaseLock, ownsLock };
 };

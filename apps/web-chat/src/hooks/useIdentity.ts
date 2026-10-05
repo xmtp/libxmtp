@@ -1,11 +1,11 @@
 import type {
-  Identifier,
+  PublicIdentity,
   KeyPackageStatus,
   Installation as XmtpInstallation,
 } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useClient } from "@/contexts/XMTPContext";
+import { useClient, useXMTP } from "@/contexts/XMTPContext";
 
 export type Installation = XmtpInstallation & {
   keyPackageStatus: KeyPackageStatus | undefined;
@@ -13,20 +13,21 @@ export type Installation = XmtpInstallation & {
 
 type Identity = {
   inboxId: string | null;
-  recoveryIdentifier: Identifier | null;
-  accountIdentifiers: Identifier[];
+  recoveryIdentity: PublicIdentity | null;
+  identities: PublicIdentity[];
   installations: Installation[];
 };
 
 const EMPTY_IDENTITY: Identity = {
   inboxId: null,
-  recoveryIdentifier: null,
-  accountIdentifiers: [],
+  recoveryIdentity: null,
+  identities: [],
   installations: [],
 };
 
 export const useIdentity = (syncOnMount: boolean = false) => {
   const client = useClient();
+  const { signer } = useXMTP();
   const [refreshingClient, setRefreshingClient] = useState<typeof client>();
   const [revoking, setRevoking] = useState(false);
   const [result, setResult] = useState<{
@@ -39,22 +40,22 @@ export const useIdentity = (syncOnMount: boolean = false) => {
     const request = ++generation.current;
     let identity: Identity | undefined;
     try {
-      const inboxState = await client.preferences.fetchInboxState();
+      const inboxState = await client.inboxState(true);
       const installations = inboxState.installations.toSorted((a, b) => {
-        if (a.clientTimestampNs! > b.clientTimestampNs!) {
+        if ((a.createdAt?.ns ?? 0n) > (b.createdAt?.ns ?? 0n)) {
           return -1;
-        } else if (a.clientTimestampNs! < b.clientTimestampNs!) {
+        } else if ((a.createdAt?.ns ?? 0n) < (b.createdAt?.ns ?? 0n)) {
           return 1;
         }
         return 0;
       });
-      const keyPackageStatuses = await client.fetchKeyPackageStatuses(
+      const keyPackageStatuses = await client.keyPackageStatuses(
         installations.map((installation) => installation.id),
       );
       identity = {
         inboxId: inboxState.inboxId,
-        accountIdentifiers: inboxState.accountIdentifiers,
-        recoveryIdentifier: inboxState.recoveryIdentifier,
+        identities: inboxState.identities,
+        recoveryIdentity: inboxState.recoveryIdentity,
         installations: installations.map((installation) => ({
           ...installation,
           keyPackageStatus: keyPackageStatuses.get(installation.id),
@@ -92,11 +93,12 @@ export const useIdentity = (syncOnMount: boolean = false) => {
     }
   }, [client, loadIdentity]);
 
-  const revokeInstallation = async (installationIdBytes: Uint8Array) => {
+  const revokeInstallation = async (installationId: string) => {
     setRevoking(true);
 
     try {
-      await client.revokeInstallations([installationIdBytes]);
+      if (!signer) throw new Error("Wallet signer not available");
+      await client.revokeInstallations(signer, [installationId]);
     } finally {
       setRevoking(false);
     }
@@ -106,7 +108,8 @@ export const useIdentity = (syncOnMount: boolean = false) => {
     setRevoking(true);
 
     try {
-      await client.revokeAllOtherInstallations();
+      if (!signer) throw new Error("Wallet signer not available");
+      await client.revokeAllOtherInstallations(signer);
     } finally {
       setRevoking(false);
     }

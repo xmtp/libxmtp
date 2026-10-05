@@ -1,8 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
-import type { Conversation } from "@xmtp/browser-sdk";
+import { Timestamp, type Conversation } from "@xmtp/browser-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ContentTypes } from "@/contexts/XMTPContext";
 import { inboxStore } from "@/stores/inbox/store";
 
 import { useConversation } from "./useConversation";
@@ -46,7 +45,7 @@ describe("sync callbacks", () => {
       await result.current.sync();
     });
     expect(client.conversations.list).toHaveBeenLastCalledWith({
-      createdAfterNs: 42n,
+      createdAfter: new Timestamp(42n),
     });
     unmount();
   });
@@ -54,16 +53,13 @@ describe("sync callbacks", () => {
   it("keeps message sync stable after message progress changes", async () => {
     const conversation = {
       id: "conversation",
-      isActive: vi.fn(async () => true),
+      state: vi.fn(async () => ({ isActive: true })),
       sync: vi.fn(async () => {}),
       messages: vi.fn(async () => []),
     };
     inboxStore.setState({
       conversations: new Map([
-        [
-          conversation.id,
-          conversation as unknown as Conversation<ContentTypes>,
-        ],
+        [conversation.id, conversation as unknown as Conversation],
       ]),
     });
     const { result, rerender, unmount } = renderHook(() =>
@@ -84,7 +80,7 @@ describe("sync callbacks", () => {
       await result.current.sync();
     });
     expect(conversation.messages).toHaveBeenLastCalledWith({
-      sentAfterNs: 84n,
+      sentAfter: new Timestamp(84n),
     });
     unmount();
   });

@@ -1,10 +1,5 @@
 import { Button, Paper, Stack, type ButtonVariant } from "@mantine/core";
-import {
-  ActionStyle,
-  type Action,
-  type Actions,
-  type Intent,
-} from "@xmtp/browser-sdk";
+import { type Action, type Actions, type Intent } from "@xmtp/browser-sdk";
 import { isAfter } from "date-fns";
 import { useCallback, useEffect, useState } from "react";
 
@@ -18,15 +13,15 @@ export type ActionsContentProps = {
 };
 
 const styleToVariantMap: Record<Required<Action>["style"], ButtonVariant> = {
-  [ActionStyle.Primary]: "filled",
-  [ActionStyle.Secondary]: "default",
-  [ActionStyle.Danger]: "filled",
+  ["primary"]: "filled",
+  ["secondary"]: "default",
+  ["danger"]: "filled",
 };
 
 const styleToColorMap: Record<Required<Action>["style"], string | undefined> = {
-  [ActionStyle.Primary]: undefined,
-  [ActionStyle.Secondary]: undefined,
-  [ActionStyle.Danger]: "red",
+  ["primary"]: undefined,
+  ["secondary"]: undefined,
+  ["danger"]: "red",
 };
 
 export const ActionsContent: React.FC<ActionsContentProps> = ({ content }) => {
@@ -36,7 +31,7 @@ export const ActionsContent: React.FC<ActionsContentProps> = ({ content }) => {
 
   useEffect(() => {
     const deadlines = content.actions.flatMap((action) => {
-      const expiresAtNs = action.expiresAtNs || content.expiresAtNs;
+      const expiresAtNs = action.expiresAt?.ns ?? content.expiresAt?.ns;
       return expiresAtNs ? [nsToDate(expiresAtNs).getTime()] : [];
     });
     const nextDeadline = Math.min(...deadlines.filter((time) => time >= now));
@@ -64,16 +59,16 @@ export const ActionsContent: React.FC<ActionsContentProps> = ({ content }) => {
     },
     [sendIntent, content],
   );
-  const actionsExpiration = content.expiresAtNs
-    ? nsToDate(content.expiresAtNs)
+  const actionsExpiration = content.expiresAt?.ns
+    ? nsToDate(content.expiresAt.ns)
     : undefined;
   return (
     <Paper p="sm" radius="md" withBorder>
       <Stack gap="xxs">
         <BreakableText>{content.description}</BreakableText>
         {content.actions.map((action) => {
-          const actionExpiration = action.expiresAtNs
-            ? nsToDate(action.expiresAtNs)
+          const actionExpiration = action.expiresAt?.ns
+            ? nsToDate(action.expiresAt.ns)
             : undefined;
           const expiration = actionExpiration ?? actionsExpiration;
           const isExpired = expiration && isAfter(now, expiration);

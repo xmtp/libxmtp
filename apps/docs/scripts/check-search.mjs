@@ -8,7 +8,6 @@ export const SEARCH_CASES = [
   ["error code", "/reference/error-glossary/"],
   ["rate limit", "/reference/limits/"],
   ["MLS", "/protocol/overview/"],
-  ["stream messages", "/sdk/stream/"],
 ];
 
 export async function checkSearch(pagefind, cases = SEARCH_CASES) {

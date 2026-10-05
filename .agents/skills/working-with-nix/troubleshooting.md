@@ -175,7 +175,7 @@ Use the dedicated WASM shell:
 
 ```bash
 nix develop .#wasm
-wasm-pack build --target web bindings/wasm
+dev/nix-shell 'just js build-browser-sdk'
 ```
 
 The WASM shell uses Chrome/ChromeDriver for testing (not Firefox). It has a separate `fenix.stable` Rust toolchain with the WASM target pre-configured.
@@ -252,23 +252,6 @@ The WASM shell uses Chrome/ChromeDriver for testing (not Firefox). It has a sepa
 
 ---
 
-## Issue: Node Build Fails with Sandbox Error
-
-**Symptoms:**
-
-- `nix build .#node-bindings-js` fails with network errors
-- Sandbox violation during `yarn install`
-
-**Cause:** The `node-bindings-js` package uses `__noChroot = true` because it needs network access for `yarn install`. Linux enforces `sandbox=true` by default.
-
-**Solution:**
-
-Run `node-bindings-js` builds on macOS, which doesn't enforce the Nix sandbox. For Linux, you would need to set `sandbox = false` in `nix.conf` (not recommended for general use).
-
-The per-target `.node` builds (`node-bindings-*`) do NOT require network access and work on both platforms.
-
----
-
 ## Issue: WASM Tests Fail — Playwright Executable Doesn't Exist
 
 **Symptoms:**
@@ -283,7 +266,7 @@ The per-target `.node` builds (`node-bindings-*`) do NOT require network access 
 
 ```bash
 nix eval --raw .#devShells.x86_64-linux.js.PLAYWRIGHT_VERSION
-# Set "playwright": "=<that version>" in bindings/wasm/package.json, then:
+# Set "playwright": "=<that version>" in package.json, then:
 pnpm install
 ```
 

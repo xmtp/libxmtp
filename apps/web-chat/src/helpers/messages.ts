@@ -1,49 +1,36 @@
-import {
-  type DecodedMessage,
-  type EnrichedReply,
-  type Reaction,
-  type RemoteAttachment,
-} from "@xmtp/browser-sdk";
+import type { Message, MessageBody, MessageContent } from "@xmtp/browser-sdk";
 
 import { jsonStringify } from "@/helpers/strings";
 
-export const isReaction = (m: DecodedMessage): m is DecodedMessage<Reaction> =>
-  m.contentType.typeId === "reaction";
-
-export const isReply = (
-  m: DecodedMessage,
-): m is DecodedMessage<EnrichedReply> => m.contentType.typeId === "reply";
-
-export const isTextReply = (
-  m: DecodedMessage,
-): m is DecodedMessage<EnrichedReply<string>> =>
-  isReply(m) && typeof m.content?.content === "string";
-
-export const isText = (m: DecodedMessage): m is DecodedMessage<string> =>
-  m.contentType.typeId === "text";
-
-export const isRemoteAttachment = (
-  m: DecodedMessage,
-): m is DecodedMessage<RemoteAttachment> =>
-  m.contentType.typeId === "staticRemoteAttachment";
-
-export const stringify = (message: DecodedMessage): string => {
-  switch (true) {
-    case isReaction(message):
-    case isTextReply(message):
-      return message.content!.content;
-    case isText(message):
-      return message.content!;
-    case typeof message.content === "string":
-      return message.content;
-    case typeof message.fallback === "string":
-      return message.fallback;
-    default:
-      return jsonStringify(message.content ?? message.fallback);
-  }
+type WithContent<K extends MessageContent["kind"]> = Message & {
+  content: Extract<MessageContent, { kind: K }>;
 };
-
-export const isActionable = (message: DecodedMessage) =>
+export const isReaction = (
+  message: Message,
+): message is WithContent<"reaction"> => message.content.kind === "reaction";
+export const isReply = (message: Message): message is WithContent<"reply"> =>
+  message.content.kind === "reply";
+export const isTextReply = (
+  message: Message,
+): message is WithContent<"reply"> & {
+  content: { body: Extract<MessageBody, { kind: "text" }> };
+} => isReply(message) && message.content.body.kind === "text";
+export const isText = (message: Message): message is WithContent<"text"> =>
+  message.content.kind === "text";
+export const isRemoteAttachment = (
+  message: Message,
+): message is WithContent<"remoteAttachment"> =>
+  message.content.kind === "remoteAttachment";
+export const stringify = (message: Message): string => {
+  const content = message.content;
+  if (content.kind === "reaction") return content.reaction.content;
+  if (content.kind === "reply" && content.body.kind === "text")
+    return content.body.value;
+  if (content.kind === "text" || content.kind === "markdown")
+    return content.value;
+  return message.fallback ?? jsonStringify(content);
+};
+export const isActionable = (message: Message) =>
   isText(message) ||
   isReaction(message) ||
   isTextReply(message) ||

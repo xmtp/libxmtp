@@ -1,21 +1,20 @@
 import {
   type Conversation,
-  type DecodedMessage,
-  type GroupMember,
+  type Message as XmtpMessage,
+  type Member,
 } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
 import { useStore } from "zustand";
 
-import type { ContentTypes } from "@/contexts/XMTPContext";
 import { inboxStore, type ConversationMetadata } from "@/stores/inbox/store";
 
 const EMPTY_METADATA: ConversationMetadata = {};
-const EMPTY_MEMBERS = new Map<string, GroupMember>();
-const EMPTY_MESSAGES: DecodedMessage<ContentTypes>[] = [];
+const EMPTY_MEMBERS = new Map<string, Member>();
+const EMPTY_MESSAGES: XmtpMessage[] = [];
 
 export const useConversation = (
   conversationId: string,
-): Conversation<ContentTypes> | undefined => {
+): Conversation | undefined => {
   return useStore(inboxStore, (state) => state.getConversation(conversationId));
 };
 

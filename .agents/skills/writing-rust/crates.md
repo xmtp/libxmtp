@@ -67,7 +67,7 @@ a shared crate.
   `uniffi_builder` generate `new()` and setters from
   `#[builder(required | optional | default = ".." | skip)]`. An unannotated
   `Option<T>` is `optional`. `build()` is always hand-written
-  (`bindings/wasm/src/client/backend.rs`).
+  (`crates/xmtp_sdk/src/client.rs`).
 - FFI entry points get `#[xmtp_common::err_span]`. Native ones call
   `install_crypto_provider()` first.
 - `dist/` and `src/gen/**` are build products. Regenerate with the commands in

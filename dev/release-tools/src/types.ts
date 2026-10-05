@@ -1,7 +1,6 @@
 export enum Sdk {
   Ios = "ios",
   Android = "android",
-  WasmBindings = "wasm-bindings",
   BrowserSdk = "browser-sdk",
   NodeSdk = "node-sdk",
   AgentSdk = "agent-sdk",
@@ -50,7 +49,7 @@ export const BUMP_OPTIONS = ["major", "minor", "patch", "none"] as const;
 
 /**
  * How an SDK's version relates to the libxmtp (1.x) version computed from commits.
- * - follows-libxmtp: take the 1.x oracle number verbatim (node/wasm bindings)
+ * - follows-libxmtp: take the 1.x oracle number verbatim (libxmtp)
  * - independent: own base version; mirror the 1.x bump KIND onto it (iOS/Android)
  */
 export type VersionTrack = "follows-libxmtp" | "independent";

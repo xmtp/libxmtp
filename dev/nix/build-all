@@ -3,7 +3,7 @@ set -euo pipefail
 
 ARCHS=("x86_64-linux" "aarch64-linux")
 SHELLS=("default" "android" "js" "wasm")
-PACKAGES=("wasm-bindings" "wasm-bindgen-cli")
+PACKAGES=("xmtp-sdk-wasm" "wasm-bindgen-cli")
 
 for arch in "${ARCHS[@]}"; do
     for shell in "${SHELLS[@]}"; do

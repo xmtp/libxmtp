@@ -35,6 +35,7 @@ pub(crate) struct StartHook {
 
 #[cfg(test)]
 impl StartHook {
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn new() -> (Arc<Self>, std::sync::mpsc::Sender<()>) {
         let (sender, receiver) = std::sync::mpsc::channel();
         (
@@ -67,22 +68,22 @@ pub(crate) struct ListenerRegistry {
 }
 
 impl ListenerRegistry {
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn set_start_hook_for_test(&self, hook: Arc<StartHook>) {
         *self.start_hook.lock() = Some(hook);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn set_registration_hook_for_test(&self, hook: Arc<StartHook>) {
         *self.registration_hook.lock() = Some(hook);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn set_stop_hook_for_test(&self, hook: Arc<StartHook>) {
         *self.stop_hook.lock() = Some(hook);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn active_count_for_test(&self) -> usize {
         self.state.lock().listeners.len()
     }

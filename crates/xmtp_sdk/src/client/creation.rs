@@ -251,7 +251,7 @@ impl Client {
         if let Some(workers) = options.workers.clone() {
             builder = builder.worker_config(workers.into());
         }
-        #[cfg(any(test, feature = "conformance"))]
+        #[cfg(any(all(test, not(target_arch = "wasm32")), feature = "conformance"))]
         if let Some(components) = crate::metadata::conformance::application_components() {
             builder = builder.application_components_for_test(components);
         }

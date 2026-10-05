@@ -4,16 +4,16 @@ The instructions below apply to the JavaScript SDKs in `node`, `browser`, and
 `agent`. See `android/AGENTS.md` and `ios/AGENTS.md` for the native SDKs.
 
 The JavaScript SDKs use the root pnpm workspace. Node and Browser use the
-generated Rust SDK product. Agent uses Node. During the cutover, `sdk-stage`
-reads each source build script and keeps an unchanged sibling on its old binding. Published package names
+generated Rust SDK product. Agent uses Node. Published package names
 stay `@xmtp/node-sdk`, `@xmtp/browser-sdk`, and `@xmtp/agent-sdk`.
 
 ## Commands
 
 ```bash
 just install-js                        # install the root pnpm workspace once
-just js sdk-products                       # stage each SDK product selected by its manifest
+just js sdk-products                    # stage Node and Browser products
 just js build-node-sdk                  # stage the generated Node product
+just js build-browser-sdk               # stage the generated Browser product
 just js check-node                       # typecheck Node and agent SDKs
 just js check-notification-surface       # published Node types; Browser/WASM absence
 just js lint-node                      # lint Node and agent SDKs
@@ -27,6 +27,7 @@ just js test                            # needs `just backend up`
 ## Shared SDK rules
 
 - Require an explicit `backend` for client creation. Do not select a URL from `env`.
+  Browser also requires explicit `storage`.
 - Use `env` only as the label in the default database file name.
 - Keep the API-client cache key as `<backendUrl>|<appVersion>`.
 - Keep file archive export and import tests.

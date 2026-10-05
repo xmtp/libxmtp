@@ -65,9 +65,8 @@ No package switches or publication occur in Tasks 1 and 2.
 
 ## Retained public surface
 
-The existing `sdk-api-manifest.md` is the retained member inventory. Do not add
-a second member database. `dev/check-public-members.py` checks its exact Client
-members and static or instance placement through staged supported roots.
+The temporary member inventory and its check are retired after the final
+package switch. Do not add a second member database.
 `conformance/public/` has SwiftPM, Android Context, Node, and browser consumers.
 
 | Host | Supported root | Current reader exposure |
@@ -151,7 +150,6 @@ const IMMUTABLE_PROPERTIES: &[&str] = &[
   SDK-037 native exclusions, pure module exports, and platform members. The pure
   list includes metadataFieldRef; public platform-specific declarations have no skip.
 - `check-public-names` rejects `_at_ns` names.
-- `dev/sdk/inventory.py --check` checks the retained public manifest.
 
 ## Shared storage and later boundaries
 

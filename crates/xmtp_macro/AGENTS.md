@@ -1,6 +1,6 @@
 # xmtp_macro
 
-Proc macros. `#[xmtp_common::test]`, builders, error codes, spans.
+Proc macros. `#[xmtp_common::test]`, error codes, spans.
 
 ## Commands
 

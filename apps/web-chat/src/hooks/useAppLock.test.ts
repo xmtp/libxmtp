@@ -70,6 +70,17 @@ describe("useAppLock", () => {
       expect(localStorage.getItem(APP_LOCK_ID_KEY)).not.toBeNull();
     });
 
+    it("reads current ownership before a storage event arrives", () => {
+      const { result } = renderHook(() => useAppLock());
+      act(() => {
+        result.current.acquireLock();
+      });
+      expect(result.current.ownsLock()).toBe(true);
+
+      localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("other-session-id"));
+      expect(result.current.ownsLock()).toBe(false);
+    });
+
     it("does not acquire lock when another session has it", () => {
       localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("other-session-id"));
       localStorage.setItem(
@@ -125,26 +136,39 @@ describe("useAppLock", () => {
       expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).toBeNull();
     });
 
-    it("releases the lock when another session has it", () => {
-      localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("other-session-id"));
-      localStorage.setItem(
-        APP_LOCK_LAST_ACTIVE_KEY,
-        JSON.stringify(Date.now()),
-      );
+    it("keeps a new owner's lock after shutdown completes", async () => {
       const { result } = renderHook(() => useAppLock());
 
       act(() => {
         result.current.acquireLock();
       });
 
-      expect(result.current.lockState).toBe("locked");
-
+      const shutdown = Promise.withResolvers<void>();
+      const pending = shutdown.promise.then(() => result.current.releaseLock());
+      const otherLockId = JSON.stringify("other-session-id");
+      const otherLastActive = JSON.stringify(Date.now());
       act(() => {
-        result.current.releaseLock();
+        localStorage.setItem(APP_LOCK_ID_KEY, otherLockId);
+        localStorage.setItem(APP_LOCK_LAST_ACTIVE_KEY, otherLastActive);
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key: APP_LOCK_ID_KEY,
+            newValue: otherLockId,
+            storageArea: localStorage,
+          }),
+        );
       });
 
-      expect(result.current.lockState).toBe("available");
-      expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).toBeNull();
+      await act(async () => {
+        shutdown.resolve();
+        await pending;
+      });
+
+      expect(result.current.lockState).toBe("locked");
+      expect(localStorage.getItem(APP_LOCK_ID_KEY)).toBe(otherLockId);
+      expect(localStorage.getItem(APP_LOCK_LAST_ACTIVE_KEY)).toBe(
+        otherLastActive,
+      );
     });
   });
 
@@ -243,6 +267,25 @@ describe("useAppLock", () => {
       expect(updatedLastActive).toBeGreaterThan(initialLastActive);
     });
 
+    it("does not refresh another owner's lock before its storage event arrives", () => {
+      const { result } = renderHook(() => useAppLock());
+      act(() => {
+        result.current.acquireLock();
+      });
+
+      const otherLastActive = JSON.stringify(Date.now());
+      localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("other-session-id"));
+      localStorage.setItem(APP_LOCK_LAST_ACTIVE_KEY, otherLastActive);
+
+      act(() => {
+        vi.advanceTimersByTime(ACTIVE_INTERVAL);
+      });
+
+      expect(localStorage.getItem(APP_LOCK_LAST_ACTIVE_KEY)).toBe(
+        otherLastActive,
+      );
+    });
+
     it("clears interval on unmount", () => {
       const { result, unmount } = renderHook(() => useAppLock());
 
@@ -269,6 +312,47 @@ describe("useAppLock", () => {
   });
 
   describe("pagehide event", () => {
+    it("records cleanup and holds the lock until plaintext removal completes", async () => {
+      const cleanup = Promise.withResolvers<void>();
+      const onPageHide = vi.fn(() => {
+        localStorage.setItem("pending-cleanup", "recorded");
+        return cleanup.promise;
+      });
+      const { result } = renderHook(() => useAppLock(undefined, onPageHide));
+      act(() => {
+        result.current.acquireLock();
+      });
+
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      expect(onPageHide).toHaveBeenCalledOnce();
+      expect(localStorage.getItem("pending-cleanup")).toBe("recorded");
+      expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).not.toBeNull();
+
+      await act(async () => cleanup.resolve());
+      expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).toBeNull();
+    });
+
+    it("keeps the lock when pagehide shutdown fails", async () => {
+      const onPageHide = vi.fn(() =>
+        Promise.reject(new Error("Shutdown failed")),
+      );
+      const { result } = renderHook(() => useAppLock(undefined, onPageHide));
+      act(() => {
+        result.current.acquireLock();
+      });
+
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(onPageHide).toHaveBeenCalledOnce();
+      expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).not.toBeNull();
+    });
+
     it("releases lock on pagehide when lock is active", () => {
       const { result } = renderHook(() => useAppLock());
 

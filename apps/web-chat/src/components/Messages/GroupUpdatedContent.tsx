@@ -1,5 +1,5 @@
 import { Group, Stack, Text } from "@mantine/core";
-import { Dm, PermissionLevel, type GroupUpdated } from "@xmtp/browser-sdk";
+import { Dm, type PermissionLevel, type GroupUpdated } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
 
 import { DateLabel } from "@/components/DateLabel";
@@ -127,11 +127,11 @@ const GroupMembersLeftContent: React.FC<
 
 const permissionLevelToLabel = (permissionLevel: PermissionLevel) => {
   switch (permissionLevel) {
-    case PermissionLevel.SuperAdmin:
+    case "superAdmin":
       return "super admin";
-    case PermissionLevel.Admin:
+    case "admin":
       return "admin";
-    case PermissionLevel.Member:
+    case "member":
       return "member";
   }
 };
@@ -289,7 +289,7 @@ export const GroupUpdatedContent: React.FC<GroupUpdatedContentProps> = ({
         <DateLabel date={nsToDate(sentAtNs)} align="center" padding="sm" />
         <GroupMembersUpdatedContent
           type="added"
-          updatedMembers={content.addedInboxes.map((inbox) => inbox.inboxId)}
+          updatedMembers={content.addedInboxes}
           initiatedBy={content.initiatedByInboxId}
         />
       </Stack>
@@ -302,7 +302,7 @@ export const GroupUpdatedContent: React.FC<GroupUpdatedContentProps> = ({
         <DateLabel date={nsToDate(sentAtNs)} align="center" padding="sm" />
         <GroupMembersUpdatedContent
           type="removed"
-          updatedMembers={content.removedInboxes.map((inbox) => inbox.inboxId)}
+          updatedMembers={content.removedInboxes}
           initiatedBy={content.initiatedByInboxId}
         />
       </Stack>
@@ -313,9 +313,7 @@ export const GroupUpdatedContent: React.FC<GroupUpdatedContentProps> = ({
     return (
       <Stack gap="xxxs" align="center">
         <DateLabel date={nsToDate(sentAtNs)} align="center" padding="sm" />
-        <GroupMembersLeftContent
-          updatedMembers={content.leftInboxes.map((inbox) => inbox.inboxId)}
-        />
+        <GroupMembersLeftContent updatedMembers={content.leftInboxes} />
       </Stack>
     );
   }
@@ -326,10 +324,8 @@ export const GroupUpdatedContent: React.FC<GroupUpdatedContentProps> = ({
         <DateLabel date={nsToDate(sentAtNs)} align="center" padding="sm" />
         <GroupMembersPermissionsContent
           type="added"
-          permissionLevel={PermissionLevel.Admin}
-          updatedMembers={content.addedAdminInboxes.map(
-            (inbox) => inbox.inboxId,
-          )}
+          permissionLevel={"admin"}
+          updatedMembers={content.addedAdminInboxes}
           initiatedBy={content.initiatedByInboxId}
         />
       </Stack>
@@ -342,10 +338,8 @@ export const GroupUpdatedContent: React.FC<GroupUpdatedContentProps> = ({
         <DateLabel date={nsToDate(sentAtNs)} align="center" padding="sm" />
         <GroupMembersPermissionsContent
           type="removed"
-          permissionLevel={PermissionLevel.Admin}
-          updatedMembers={content.removedAdminInboxes.map(
-            (inbox) => inbox.inboxId,
-          )}
+          permissionLevel={"admin"}
+          updatedMembers={content.removedAdminInboxes}
           initiatedBy={content.initiatedByInboxId}
         />
       </Stack>
@@ -358,10 +352,8 @@ export const GroupUpdatedContent: React.FC<GroupUpdatedContentProps> = ({
         <DateLabel date={nsToDate(sentAtNs)} align="center" padding="sm" />
         <GroupMembersPermissionsContent
           type="added"
-          permissionLevel={PermissionLevel.SuperAdmin}
-          updatedMembers={content.addedSuperAdminInboxes.map(
-            (inbox) => inbox.inboxId,
-          )}
+          permissionLevel={"superAdmin"}
+          updatedMembers={content.addedSuperAdminInboxes}
           initiatedBy={content.initiatedByInboxId}
         />
       </Stack>
@@ -374,10 +366,8 @@ export const GroupUpdatedContent: React.FC<GroupUpdatedContentProps> = ({
         <DateLabel date={nsToDate(sentAtNs)} align="center" padding="sm" />
         <GroupMembersPermissionsContent
           type="removed"
-          permissionLevel={PermissionLevel.SuperAdmin}
-          updatedMembers={content.removedSuperAdminInboxes.map(
-            (inbox) => inbox.inboxId,
-          )}
+          permissionLevel={"superAdmin"}
+          updatedMembers={content.removedSuperAdminInboxes}
           initiatedBy={content.initiatedByInboxId}
         />
       </Stack>

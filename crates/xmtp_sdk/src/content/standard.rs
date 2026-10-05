@@ -187,6 +187,7 @@ pub(crate) fn catalogue_push_default(content_type: &ContentTypeId) -> bool {
 /// True when `content_type` is an XMTP catalogue content type. A catalogue
 /// type keeps its catalogue push default; a host content codec's push hook
 /// applies only to other types.
+#[cfg(any(test, not(target_arch = "wasm32"), feature = "pure-only"))]
 #[xmtp_macro::sdk_export(pure)]
 pub fn is_catalogue_content_type(content_type: ContentTypeId) -> bool {
     catalogue_entry(&content_type).is_some()

@@ -2,8 +2,6 @@
 members = [
   # Applications
   "apps/*",
-  # Bindings
-  "bindings/*",
   # Core crates
   "crates/*",
 ]
@@ -13,8 +11,6 @@ exclude = ["apps/android", "apps/cli", "apps/docs", "apps/web-chat"]
 # Default build and test members. Portable crates do not inherit the client workspace hack.
 default-members = [
   "apps/backend",
-  # Bindings
-  "bindings/*",
   # Core crates
   "crates/*",
 ]
@@ -266,8 +262,6 @@ webpki-roots = "1"
 zeroize = "1.9"
 
 # Internal Crate Dependencies
-bindings-wasm = { path = "bindings/wasm" }
-bindings_wasm_macros = { path = "crates/wasm_macros" }
 uniffi_bindgen = "=0.32.2"
 uniffi_meta = "=0.32.2"
 xmtp-workspace-hack = "0.1.0"

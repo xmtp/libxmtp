@@ -25,6 +25,7 @@ const { chromium } = await import(
 const hosts = dirname(fileURLToPath(import.meta.url));
 const server = await createServer({
   root: hosts,
+  cacheDir: join(root, "vite-cache"),
   configFile: false,
   logLevel: "error",
   resolve: {

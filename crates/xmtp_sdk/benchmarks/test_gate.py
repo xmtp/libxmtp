@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from benchmark_stats import paired_summary
-from fixtures import dataset, digest, expected_observation
+from fixtures import dataset, digest, expected_observation, expected_stream_counts
 from packages import inventory
 
 sys.path.insert(0, str(Path(__file__).parent / "hosts"))
@@ -57,7 +57,7 @@ def configuration(target="node"):
 
 
 def ledger(target="node", factor=1):
-    fixture = dataset()
+    fixture = dataset(target)
     rows = []
     for workload in WORKLOADS:
         for pair in range(20):
@@ -77,6 +77,10 @@ def ledger(target="node", factor=1):
                         else ["class", "record"],
                     },
                 }
+                if workload == "stream" and target == "browser":
+                    primary, events = expected_stream_counts(fixture)
+                    response["streamed_primary"] = primary
+                    response["streamed_events"] = events
                 rows.append(
                     {
                         "workload": workload,
@@ -180,6 +184,21 @@ class StatisticsTests(unittest.TestCase):
 
 
 class ReceiptTests(unittest.TestCase):
+    def test_browser_stream_keeps_500_primary_and_625_events(self):
+        fixture = dataset("browser")
+        self.assertEqual(expected_stream_counts(fixture), (500, 625))
+        self.assertEqual(expected_observation(fixture, "stream")["count"], 500)
+        self.assertEqual(expected_stream_counts(dataset("node")), (10000, 12500))
+        row = next(
+            row for row in ledger("browser")["samples"] if row["workload"] == "stream"
+        )
+        validate_measurement(row, fixture, "browser")
+        for key in ("streamed_primary", "streamed_events"):
+            missing = copy.deepcopy(row)
+            missing["response"][key] -= 1
+            with self.assertRaises(ValueError):
+                validate_measurement(missing, fixture, "browser")
+
     def test_missing_duplicate_or_reordered_pairs_fail(self):
         source = ledger()
         for mutation in (

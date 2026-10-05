@@ -13,7 +13,7 @@ on:
         required: true
         type: string
       sdk:
-        description: "SDK name for release tools (e.g. node-bindings, wasm-bindings)"
+        description: "SDK name for release tools (e.g. node-sdk, browser-sdk)"
         required: true
         type: string
       version:
@@ -34,7 +34,7 @@ on:
         type: boolean
         default: false
       dep-name:
-        description: "Dependency name to pin before publish (e.g. @xmtp/node-bindings)"
+        description: "Dependency name to pin before publish (e.g. @xmtp/node-sdk)"
         required: false
         type: string
         default: ""

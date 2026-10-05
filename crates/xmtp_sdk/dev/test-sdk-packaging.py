@@ -144,6 +144,13 @@ class PackagingTests(
         ):
             mobile.main()
 
+    def product_files(self, output):
+        return {
+            str(path.relative_to(output)): path.read_bytes()
+            for path in output.rglob("*")
+            if path.is_file()
+        }
+
     def test_mobile_late_tool_failure_preserves_prior_and_cleans_fresh_stage(self):
         for target in ("ios", "android"):
             with self.subTest(target=target):
@@ -896,12 +903,6 @@ class PackagingTests(
         receipt.record(self.args.out, binaries)
         recorded_after = json.loads(
             (self.args.out / "swift/sdk-contract.json").read_text()
-        )
-        print(
-            "Config-only contract before:",
-            recorded_before["contract"],
-            "after:",
-            recorded_after["contract"],
         )
         self.assertNotEqual(recorded_before["contract"], recorded_after["contract"])
         self.assertNotEqual(before["generator"], recorded_after["generator"])

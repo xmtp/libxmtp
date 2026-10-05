@@ -1,5 +1,5 @@
 import { CloseButton, Group, Paper, Stack, Text } from "@mantine/core";
-import { ConsentState, Dm, GroupPermissionsOptions } from "@xmtp/browser-sdk";
+import { type ConsentState, Dm, type GroupPolicyType } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router";
 
@@ -13,24 +13,24 @@ import type { ConversationOutletContext } from "./ConversationOutletContext";
 
 const consentStateLabel = (state: ConsentState) => {
   switch (state) {
-    case ConsentState.Unknown:
+    case "unknown":
       return "Unknown";
-    case ConsentState.Allowed:
+    case "allowed":
       return "Allowed";
-    case ConsentState.Denied:
+    case "denied":
       return "Denied";
     default:
       return "N/A";
   }
 };
 
-const permissionTypeLabel = (type: GroupPermissionsOptions) => {
+const permissionTypeLabel = (type: GroupPolicyType) => {
   switch (type) {
-    case GroupPermissionsOptions.Default:
+    case "allMembers":
       return "Default";
-    case GroupPermissionsOptions.AdminOnly:
+    case "adminOnly":
       return "Admin Only";
-    case GroupPermissionsOptions.CustomPolicy:
+    case "custom":
       return "Custom Policy";
     default:
       return "N/A";
@@ -48,7 +48,11 @@ export const ManageDetailsModal: React.FC = () => {
 
   useEffect(() => {
     const loadConsentState = async () => {
-      const state = await conversation.consentState();
+      const state = await conversation
+        .state()
+        .then((state) =>
+          "common" in state ? state.common.consentState : state.consentState,
+        );
       setConsentState(state);
     };
     void loadConsentState();
@@ -124,7 +128,7 @@ export const ManageDetailsModal: React.FC = () => {
                 </Text>
                 <BadgeWithCopy
                   value={permissionTypeLabel(
-                    permissions?.policyType ?? GroupPermissionsOptions.Default,
+                    permissions?.policyType ?? "allMembers",
                   )}
                 />
               </Group>

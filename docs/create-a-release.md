@@ -23,7 +23,6 @@ Dev releases can be created from **any branch**. They append `-dev.<commit_hash>
    | `ios` | Check to release iOS SDK |
    | `android` | Check to release Android SDK |
    | `node` | Check to release Node bindings |
-   | `wasm` | Check to release WASM bindings |
 
 3. Click **Run workflow**
 
@@ -65,7 +64,6 @@ Final releases go through three phases: **create branch → publish RC → publi
    | `node-sdk-bump` | Version bump for Node SDK: `none`, `patch`, `minor`, or `major` |
    | `browser-sdk-bump` | Version bump for Browser SDK: `none`, `patch`, `minor`, or `major` |
    | `node` | Include Node bindings in release |
-   | `wasm` | Include WASM bindings in release |
 
 3. Click **Run workflow**
 
@@ -94,7 +92,6 @@ To manually edit notes, push changes directly to the release branch. The AI will
    | `ios` | Check to release iOS SDK |
    | `android` | Check to release Android SDK |
    | `node` | Check to release Node bindings |
-   | `wasm` | Check to release WASM bindings |
 
 3. Click **Run workflow**
 
@@ -114,7 +111,6 @@ Once the RC is validated:
    | `ios` | Check to release iOS SDK |
    | `android` | Check to release Android SDK |
    | `node` | Check to release Node bindings |
-   | `wasm` | Check to release WASM bindings |
    | `no-merge` | Check to skip auto-merging the release PR to main |
 
 3. Click **Run workflow**
@@ -141,5 +137,5 @@ Use the `--no-merge` flag if you are creating a patch to a previous major/minor 
 | iOS (final) | `ios-<version>` | `ios-4.9.0` |
 | iOS (artifact) | `libxmtp-ios-<sha7>` | `libxmtp-ios-b8bed44` |
 | Android | `android-<version>` | `android-5.1.0` |
-| Node | `node-bindings-<version>` | `node-bindings-1.10.0` |
-| WASM | `wasm-bindings-<version>` | `wasm-bindings-1.10.0` |
+| Node | `node-sdk-<version>` | `node-sdk-8.0.0` |
+| Browser | `browser-sdk-<version>` | `browser-sdk-8.0.0` |

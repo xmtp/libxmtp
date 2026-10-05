@@ -18,8 +18,8 @@ sdk-products target="all":
 build-node-sdk:
     ../dev/js/sdk-package node
 
-bindings-wasm:
-    ../dev/js/bindings wasm
+build-browser-sdk:
+    ../dev/js/sdk-package browser
 
 # Typecheck all SDKs with their task dependencies. SDK products are staged first.
 check: sdk-products
@@ -61,8 +61,8 @@ test: sdk-products
 test-node-sdk-ci *args="": build-node-sdk
     {{ _env }} && pnpm --filter @xmtp/node-sdk run test {{ args }}
 
-# CI: browser-sdk tests (Playwright). Bindings are a nix cache hit (test-wasm).
-test-browser-sdk-ci *args="": bindings-wasm
+# CI: Browser tests use the matched public product.
+test-browser-sdk-ci *args="": build-browser-sdk
     {{ _env }} && pnpm --filter @xmtp/browser-sdk run test {{ args }}
 
 # CI: agent-sdk tests. Runs against the local node-sdk (workspace dependency),

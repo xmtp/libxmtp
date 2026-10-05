@@ -1,14 +1,8 @@
-import {
-  MessageSortBy,
-  SortDirection,
-  type Client,
-  type Conversation,
-  type Group,
-} from "@xmtp/browser-sdk";
+import { type Client, type Conversation, type Group } from "@xmtp/browser-sdk";
 
 export async function readMessages(conversation: Conversation) {
   // #region messages
-  const messages = await conversation.messages({ limit: 10n });
+  const messages = await conversation.messages({ limit: 10 });
   // #endregion messages
   return messages;
 }
@@ -16,15 +10,15 @@ export async function readMessages(conversation: Conversation) {
 export async function paginateMessages(group: Group) {
   // #region pagination
   const firstPage = await group.messages({
-    limit: 20n,
-    sortBy: MessageSortBy.SentAt,
-    direction: SortDirection.Descending,
+    limit: 20,
+    sortBy: "sentAt",
+    direction: "descending",
   });
   const secondPage = await group.messages({
-    limit: 20n,
-    sortBy: MessageSortBy.SentAt,
-    direction: SortDirection.Descending,
-    sentBeforeNs: firstPage.at(-1)?.sentAtNs,
+    limit: 20,
+    sortBy: "sentAt",
+    direction: "descending",
+    sentBefore: firstPage.at(-1)?.sentAt,
   });
   // #endregion pagination
   return secondPage;

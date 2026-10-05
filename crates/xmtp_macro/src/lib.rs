@@ -1,8 +1,6 @@
 extern crate proc_macro;
 
 mod async_trait;
-mod builder;
-mod builders;
 mod error_code;
 mod log_macros;
 mod logging;
@@ -11,8 +9,6 @@ mod span_macro;
 mod test_macro;
 mod timeout_macro;
 
-#[cfg(test)]
-mod builder_test;
 #[cfg(test)]
 mod sdk_export_test;
 #[cfg(test)]
@@ -94,70 +90,6 @@ pub fn async_trait(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     async_trait::async_trait(attr, input)
-}
-
-/// Attribute macro that generates a NAPI-annotated builder pattern for a struct.
-///
-/// Each field must be annotated with one of:
-/// - `#[builder(required)]` — passed in the constructor; no setter generated
-/// - `#[builder(optional)]` — field type must be `Option<T>`; setter takes `T`, wraps in `Some`
-/// - `#[builder(default = "expr")]` — has a default value; setter takes the full type
-/// - `#[builder(skip)]` — no setter; initialized via `Default::default()`
-///
-/// The macro generates a `new()` constructor (with all required fields as parameters)
-/// and fluent setters for optional/default fields. The `build()` method is NOT generated;
-/// implement it manually.
-///
-/// # Example
-///
-/// ```ignore
-/// #[napi_builder]
-/// pub struct FooBuilder {
-///     #[builder(required)]
-///     name: String,
-///     #[builder(optional)]
-///     desc: Option<String>,
-///     #[builder(default = "42")]
-///     count: u32,
-///     #[builder(skip)]
-///     internal: Vec<u8>,
-/// }
-/// ```
-#[proc_macro_attribute]
-pub fn napi_builder(
-    attr: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    builders::napi_builder(attr, input)
-}
-
-/// Attribute macro that generates a wasm_bindgen-annotated builder pattern for a struct.
-///
-/// Behaves identically to [`napi_builder`] but emits `#[wasm_bindgen]` annotations
-/// instead of `#[napi]`, and generates `js_name = camelCase` attributes on setters.
-///
-/// See [`napi_builder`] for field attribute documentation.
-#[proc_macro_attribute]
-pub fn wasm_builder(
-    attr: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    builders::wasm_builder(attr, input)
-}
-
-/// Attribute macro that generates a UniFFI-annotated builder pattern for a struct.
-///
-/// Emits `#[derive(uniffi::Object)]` on the struct and `#[uniffi::export]` on the
-/// impl block. UniFFI annotates the impl block as a whole rather than individual
-/// methods, so `constructor_ann` and `setter_ann` are empty.
-///
-/// See [`napi_builder`] for field attribute documentation.
-#[proc_macro_attribute]
-pub fn uniffi_builder(
-    attr: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    builders::uniffi_builder(attr, input)
 }
 
 /// A test macro that delegates to the appropriate test framework based on the target architecture.

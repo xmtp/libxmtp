@@ -1,126 +1,70 @@
-# XMTP client SDK for browsers
+# XMTP Browser SDK
 
-This package provides the XMTP client SDK for browsers.
-
-To keep up with the latest SDK developments, see the [Issues tab](https://github.com/xmtp/xmtp-js/issues) in this repo.
-
-## Documentation
-
-To learn how to use the XMTP client SDK for browsers, see [Get started with the XMTP Browser SDK](https://docs.xmtp.org/sdks/browser).
-
-## Backend configuration
-
-Pass `backendUrl` to `Client.create` or `Client.build`. The URL must include
-`http://` or `https://`. There is no default backend URL.
-
-```typescript
-const client = await Client.create(signer, {
-  backendUrl: "http://127.0.0.1:5050",
-  env: "local",
-  appVersion: "my-app/1.0.0",
-});
-```
-
-`env` is an optional string. It only sets the label in the default database file
-name, `xmtp-<env>-<inboxId>.db3`. If omitted, the label is `default`.
-The API-client cache key is `<backendUrl>|<appVersion>`.
-Use `createBackend({ backendUrl, env, appVersion })` to build a backend for static
-client methods. The `topic` getters return the backend topic bytes as hex.
-File archives use `createArchive`, `importArchive`, and `archiveMetadata`.
-
-## SDK reference
-
-Coming soon
-
-## Limitations
-
-This SDK uses the [origin private file system](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system) (OPFS) to persist a SQLite database and the [SyncAccessHandle Pool VFS](https://sqlite.org/wasm/doc/trunk/persistence.md#vfs-opfs-sahpool) to access it. This VFS does not support multiple simultaneous connections.
-
-This means that when using this SDK in your app, you must prevent multiple browser tabs or windows from accessing your app at the same time.
-
-### Bundlers
-
-This SDK and some of its dependencies use `import.meta.url`. Some bundlers must be configured to account for this during development.
-
-#### Vite
-
-Add the following to `vite.config.ts`:
-
-```typescript
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  optimizeDeps: {
-    exclude: ["@xmtp/wasm-bindings", "@xmtp/browser-sdk"],
-    include: ["@xmtp/proto"],
-  },
-});
-```
-
-## Install
-
-### NPM
-
-```bash
-npm install @xmtp/browser-sdk
-```
-
-### PNPM
-
-```bash
-pnpm install @xmtp/browser-sdk
-```
-
-### Yarn
-
-```bash
-yarn add @xmtp/browser-sdk
-```
-
-## Signer utilities
-
-The SDK exports `createEOASigner` and `createSCWSigner` helper functions for creating XMTP-compatible signers. These require `viem` as a peer dependency, which is optional and only needs to be installed if you use these utilities.
-
-```bash
-npm install viem
-```
-
-Example:
+Version 8 uses one generated package. The package owns its worker and OPFS
+storage. Apps use the public root. Pure codecs use the `/pure` entry.
 
 ```ts
-import { createEOASigner } from "@xmtp/browser-sdk";
+import { Client, XmtpError, type Signer } from "@xmtp/browser-sdk";
+import { initPureWasm, TextCodec } from "@xmtp/browser-sdk/pure";
 
-// Create an EOA signer (generates a random key if none provided)
-const eoaSigner = createEOASigner();
+await initPureWasm();
+const encoded = new TextCodec().encode("hello"); // Synchronous after init.
+
+const client = await Client.create(signer, {
+  backend: { url: "https://your-backend.example", appVersion: "my-app/1" },
+  storage: { location: "default", label: "production" },
+});
+const group = await client.conversations.createGroup([]);
+await group.send(encoded, { shouldPush: true });
+await client.end();
 ```
 
-## Developing
+A signer implements async `identity`, `kind`, and `sign` methods. Identity uses
+`{ identifier, kind: "ethereum" }`. An EOA kind uses `{ kind: "eoa" }`.
+The sign method receives a request with `text`. It returns
+`{ kind: "ecdsa", value: signatureBytes }`.
 
-For repository development, run `just install-js` once, then run `just js build`.
+Keep the worker and WASM assets beside the package entry. Do not copy one WASM
+file from a different build. Vite must preserve the package asset URLs:
 
-### Useful commands
+```ts
+export default defineConfig({
+  optimizeDeps: { exclude: ["@xmtp/browser-sdk", "@xmtp/browser-sdk/pure"] },
+});
+```
 
-- `just js build`: Builds the SDKs.
-- `just js test`: Runs all SDK tests.
-- `just js check`: Runs TypeScript checks.
+OPFS has one owner per origin. A second tab that opens persistent storage gets
+`XmtpError.StorageBusy`. Show this error to the user. Ask the user to close the
+other tab, then retry. Await `client.end()` before another client takes storage.
+Use `Storage.admin()` to inspect or restore storage before a client exists.
+Await `admin.end()` when the operation ends.
 
-## Breaking revisions
+Only one message reader without `from` can be active per client database. A
+second reader fails with `XmtpError.ConsumerOwned`, even for a different group,
+DM, or filter. End the first reader before opening another. An explicit `from`
+cursor starts independent replay and live delivery. It does not advance default
+delivery progress or create another durable consumer checkpoint. Save the last
+processed message's `deliveryCursor` in the app and use it only with the same
+database.
 
-Because this SDK is in active development, you should expect breaking revisions that might require you to adopt the latest SDK release to enable your app to continue working as expected.
+Requesting the next item acknowledges the previous item. Await message handling
+before the next read, and return or await asynchronous work in an `onValue`
+callback. Queued or unawaited work does not delay acknowledgement. `end()` and
+iterator `return()` do not acknowledge the last item. They cannot undo an
+acknowledgement after its commit has been admitted.
 
-Breaking revisions in a Browser SDK release are described on the [Releases page](https://github.com/xmtp/xmtp-js/releases).
+Messages have a `content.kind` discriminator. For example, text is
+`{ kind: "text", value: "hello" }`. A message returns its public client through
+`message.client()`. Timestamps use `Timestamp` and nanoseconds use `.ns`.
+Byte values use `Uint8Array`. Public enums use string values.
 
-## Deprecation
+Use `client.attachments` for uploads and downloads. The SDK owns transfer state
+and recovery. A completed download returns an OPFS path.
 
-Older versions of the SDK will eventually be deprecated, which means:
+Run repository commands from the repository root:
 
-1. The network will not support and eventually actively reject connections from clients using deprecated versions.
-2. Bugs will not be fixed in deprecated versions.
-
-The following table provides the deprecation schedule.
-
-| Announced                   | Effective   | Minimum Version | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| --------------------------- | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| No more support for XMTP V2 | May 1, 2025 | >=1.1.4         | In a move toward better security with MLS and the ability to decentralize, we will be shutting down XMTP V2 and moving entirely to XMTP V3. To learn more about V2 deprecation, see [XIP-53: XMTP V2 deprecation plan](https://community.xmtp.org/t/xip-53-xmtp-v2-deprecation-plan/867). To learn how to upgrade, see [@xmtp/browser-sdk v1.1.4](https://github.com/xmtp/xmtp-js/releases/tag/%40xmtp%2Fbrowser-sdk%401.1.4). |
-
-Bug reports, feature requests, and PRs are welcome in accordance with these [contribution guidelines](https://github.com/xmtp/xmtp-js/blob/main/CONTRIBUTING.md).
+```sh
+dev/nix-shell 'just install-js'
+dev/nix-shell 'just js build-browser-sdk'
+dev/nix-shell 'just js test-browser-sdk-ci'
+```
