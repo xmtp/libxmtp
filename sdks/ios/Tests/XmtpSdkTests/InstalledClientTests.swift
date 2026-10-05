@@ -72,6 +72,18 @@ final class InstalledClientTests: XCTestCase {
 		}
 	}
 
+	/// Smoke for the generated free function: it lowers [InboxId] and BackendSource
+	/// and lifts the [String: UInt64] result. No other Swift test lifts that dictionary.
+	func testLatestInboxUpdatesCountWithoutClient() async throws {
+		let options = testOptions()
+		let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
+		let inboxId = client.inboxId()
+		try await client.end()
+		let backend = try XCTUnwrap(options.backend)
+		let counts = try await latestInboxUpdatesCount(inboxIds: [inboxId], backend: backend)
+		XCTAssertEqual(counts, [inboxId: 1])
+	}
+
 	func testHistorySnapshotKeepsTypedMessagesAndResumesAfterCursor() async throws {
 		let codec = SnapshotFailingCodec()
 		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions(), codecs: [codec])
