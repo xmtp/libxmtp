@@ -53,6 +53,14 @@ Run commands from the repository root in the Nix shell. Run
   replace only the upload URL in a real backend response. Native clients use
   the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
   preserve gRPC status trailers.
+- `dev/nix-shell 'just sdk bench <node|browser|swift|kotlin> [--samples N]'` measures
+  the staged package on one host against this worktree's backend and writes
+  `results.json` (p50 and p95, no pass or fail). Stage the package first. For
+  browser, swift and kotlin, set `NIX_DEVSHELL=js`, `ios` or `android` inside
+  the command, for example `dev/nix-shell 'NIX_DEVSHELL=js just sdk bench browser'`.
+  See `benchmarks/README.md`. CI does not run it.
+- `dev/nix-shell 'just sdk bench-check'` runs the benchmark unit tests and static runner
+  checks. It needs no backend, device or SDK build.
 - `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and
   real reader pre-poll, pending and READY handoff. It counts native cancel/free
   calls in generated conformance copies and requires the prior item to replay.

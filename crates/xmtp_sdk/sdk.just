@@ -126,6 +126,16 @@ mobile-build target:
 mobile-stage target:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py stage "{{ target }}"
 
+# Measure the staged package on one host (node, browser, swift or kotlin).
+# Writes results.json under target/sdk-bench/. See benchmarks/README.md.
+bench host *args:
+    {{ _env }} && cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/bench.py {{ quote(host) }} {{ args }}
+
+# Check the benchmark runners without a backend, device or SDK build.
+bench-check:
+    cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/bench.py check
+
 # Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
 check-android-toolchain:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
