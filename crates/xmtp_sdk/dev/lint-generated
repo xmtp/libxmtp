@@ -7,6 +7,14 @@ cd "$root"
 crates/xmtp_sdk/dev/check-file-sizes
 
 generated=target/sdk-generated
+# The checks below read every target root. A missing root makes rg exit 2,
+# and a check that tests `if rg ...` then passes without reading a file.
+for language in swift kotlin typescript-napi typescript-wasm typescript-pure; do
+  if [ ! -d "$generated/$language" ]; then
+    echo "missing $generated/$language: run \`just sdk generate\` (or \`just sdk render\` after \`just sdk build\`) first" >&2
+    exit 1
+  fi
+done
 crates/xmtp_sdk/dev/check-fork-pin
 dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings
 crates/xmtp_sdk/dev/check-public-names "$generated"

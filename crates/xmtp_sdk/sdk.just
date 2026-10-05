@@ -12,6 +12,7 @@ check-clean-generate:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-generate-cleans-stale"
 
 # Check generated names, test hooks, and the TypeScript bridge we maintain.
+# Run `just sdk generate` first: lint reads every generated target root.
 lint:
     bash "{{ root }}/crates/xmtp_sdk/dev/lint-generated"
 
@@ -102,6 +103,7 @@ check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-native-build-context.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-staging.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-source-package.py
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-package-smoke-path.mjs
