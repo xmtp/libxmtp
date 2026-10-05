@@ -161,7 +161,7 @@ export default defineConfig({
             ...referenceSidebar,
             {
               label: "Swift SDK",
-              link: "/reference/swift/documentation/xmtpios/",
+              link: "/reference/swift/documentation/xmtpsdk/",
             },
             { label: "Kotlin SDK", link: "/reference/kotlin/" },
             { label: "Rust", link: "/rust/" },

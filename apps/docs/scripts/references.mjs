@@ -62,7 +62,7 @@ export async function installReferences({
   if (!skipNative) {
     const swiftModuleIndex = resolve(
       siteRoot,
-      "reference/swift/documentation/xmtpios/index.html",
+      "reference/swift/documentation/xmtpsdk/index.html",
     );
     await access(swiftModuleIndex, constants.R_OK).catch(() => {
       throw new Error(`Swift module index is missing: ${swiftModuleIndex}`);
