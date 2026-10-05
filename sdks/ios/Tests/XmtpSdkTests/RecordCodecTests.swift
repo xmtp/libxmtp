@@ -53,6 +53,26 @@ final class RecordCodecTests: XCTestCase {
 		XCTAssertEqual(try codec.decode(present), value)
 	}
 
+	// Smoke for the host-only init in RemoteAttachmentProjection.swift. The Rust
+	// pure_codec_tests.rs::remote_attachment_projection_* tests cover the projection rules.
+	func testRemoteAttachmentFromEncryptedContent() throws {
+		let encrypted = EncryptedEncodedContent(
+			ciphertext: Data([1, 2, 3, 4, 5]),
+			keys: EncryptionKeys(
+				secret: Data(repeating: 1, count: 32), salt: Data(repeating: 2, count: 32),
+				nonce: Data(repeating: 3, count: 12), digest: "wrong", length: 999,
+			),
+		)
+		let remote = try RemoteAttachment(
+			url: "https://example.com/file", encryptedEncodedContent: encrypted, filename: "file.bin",
+		)
+		XCTAssertEqual(remote.url, "https://example.com/file")
+		XCTAssertEqual(remote.contentLength, 5)
+		XCTAssertEqual(remote.contentDigest, "74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0")
+		XCTAssertEqual(remote.secret, encrypted.keys.secret)
+		XCTAssertEqual(remote.filename, "file.bin")
+	}
+
 	func testLeaveRequestEmptyNoteNormalization() throws {
 		XCTAssertNil(LeaveRequest().authenticatedNote)
 		XCTAssertNil(LeaveRequest(authenticatedNote: Data()).authenticatedNote)

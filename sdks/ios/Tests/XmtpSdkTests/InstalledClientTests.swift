@@ -121,6 +121,24 @@ final class InstalledClientTests: XCTestCase {
 			XCTAssertEqual(text, "installed package")
 			XCTAssertEqual(sent.senderInboxId, sender.inboxId())
 			XCTAssertEqual(sent.conversationId, conversation.id())
+			// Smoke for the host-only Message actions (SDKTypes.swift). Rust tests
+			// cover the core behavior, not these Swift forwards.
+			let replyId = try await sent.reply("reply")
+			let reactionId = try await sent.react(Reaction(content: "+1", action: .added, schema: .shortcode))
+			let replies = try await conversation.messages(options: nil)
+			let reply = try XCTUnwrap(replies.first { $0.id == replyId })
+			let parent = try await reply.parent()
+			XCTAssertEqual(parent?.id, sentId)
+			let refreshed = try await sent.refresh()
+			let related = try XCTUnwrap(refreshed)
+			XCTAssertEqual(related.replyCount, 1)
+			XCTAssertEqual(related.reactions.map(\.id), [reactionId])
+			_ = try await sent.delete()
+			let afterDelete = try await sent.refresh()
+			let deleted = try XCTUnwrap(afterDelete)
+			guard case .standard(.deletedMessage) = deleted.content else {
+				return XCTFail("Message.delete did not delete the message")
+			}
 		}
 		try await receiver.end()
 		try await sender.end()
