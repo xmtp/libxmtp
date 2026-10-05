@@ -171,6 +171,18 @@ jobs:
       - uses: crazy-max/ghaction-chocolatey@v4
         with:
           args: install protoc
+      - name: Verify protoc for Rust builds
+        shell: pwsh
+        run: |
+          $protoc = Join-Path $env:ChocolateyInstall 'lib\protoc\tools\bin\protoc.exe'
+          if (-not (Test-Path -LiteralPath $protoc -PathType Leaf)) {
+            throw "Chocolatey protoc executable is missing: $protoc"
+          }
+          & $protoc --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "protoc --version failed with exit code $LASTEXITCODE"
+          }
+          "PROTOC=$protoc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Build xmtp_sdk and generator
         run: cargo build --locked -p xmtp_sdk -p xmtp-sdk-bindgen
       - name: Generate TypeScript bindings
