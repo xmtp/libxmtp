@@ -13,7 +13,7 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         writeln!(code, "export type {name} = {{")?;
     }
     for field in &record.fields {
-        // The binding factory fills Rust defaults. EVENT-020 has a public
+        // The binding factory fills Rust defaults. EventFilter has a public
         // false default that lowering supplies before binding conversion.
         let optional = if matches!(field.ty, Type::Optional { .. })
             || field.default.is_some()
