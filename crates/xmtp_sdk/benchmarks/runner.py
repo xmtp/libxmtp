@@ -94,6 +94,13 @@ def validate_config(config):
         raise ValueError("Record each adapter source file")
 
 
+def adapter_hashes(package):
+    return {
+        str(Path(p).resolve()): hashlib.sha256(Path(p).read_bytes()).hexdigest()
+        for p in package["adapter_sources"]
+    }
+
+
 def invoke(config, request, output):
     package = config["package"]
     env = dict(os.environ, NODE_ENV="production")
@@ -297,10 +304,7 @@ def run(config_path, output, target=None):
     write_json(output / "fixture.json", fixture)
     package = config["package"]
     inventory_value = inventory(package["root"], package["assets"], config["target"])
-    sources = {
-        str(Path(p).resolve()): hashlib.sha256(Path(p).read_bytes()).hexdigest()
-        for p in package["adapter_sources"]
-    }
+    sources = adapter_hashes(package)
     ledger = {
         "schema": 2,
         "config": config,
@@ -343,6 +347,14 @@ def run(config_path, output, target=None):
                 ledger["samples"].append(row)
                 write_json(output / "ledger.json", ledger)
                 validate_measurement(row, fixture, config["target"])
+        # The report states the package and adapter recorded above. A build
+        # workload or host build must not have changed them.
+        if inventory_value != inventory(
+            package["root"], package["assets"], config["target"]
+        ):
+            raise ValueError("Installed package changed during measurements")
+        if sources != adapter_hashes(package):
+            raise ValueError("Adapter source changed during measurements")
         report = summarize(ledger)
         write_json(output / "report.json", report)
         (output / "report.md").write_text(markdown(report))

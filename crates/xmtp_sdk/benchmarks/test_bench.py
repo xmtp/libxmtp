@@ -1,4 +1,5 @@
-"""Check the benchmark tool: sampler, outer timeout cleanup, and result shape."""
+"""Check the benchmark tool: sampler, outer timeout cleanup, result shape, and
+run integrity."""
 
 import json
 import os
@@ -229,6 +230,106 @@ class StreamResultControls(unittest.TestCase):
                     }
                     with self.assertRaisesRegex(ValueError, error):
                         runner.validate_measurement(row, fixture, target)
+
+
+# A host adapter double. It answers each request and, during "measure",
+# appends to the file named in its second argument, unless that is "none".
+ADAPTER_DOUBLE = """
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from fixtures import digest
+request = json.loads(sys.stdin.read())
+response = {"request_sha256": digest(request), "ready": True}
+if request["phase"] == "measure":
+    if sys.argv[2] != "none":
+        with open(sys.argv[2], "a") as changed:
+            changed.write("changed")
+    response.update(
+        completed=True,
+        duration_ms=1.0,
+        peak_memory_bytes=1,
+        safety={"correctness": True, "deadlock": False,
+                "use_after_end": False, "retained_growth": False},
+    )
+print(json.dumps(response))
+"""
+
+
+class RunIntegrityControls(unittest.TestCase):
+    def run_with_change(self, root, changed):
+        package = root / "package"
+        package.mkdir()
+        for name in ("index.js", "native.node", "runtime.js"):
+            (package / name).write_text(name)
+        adapter = root / "adapter.py"
+        adapter.write_text(textwrap.dedent(ADAPTER_DOUBLE))
+        targets = {"package": package / "native.node", "adapter": adapter}
+        config = {
+            "schema": 1,
+            "target": "node",
+            "samples": 1,
+            "timeout_seconds": 30,
+            **{
+                key: "test"
+                for key in (
+                    "runner_class",
+                    "os",
+                    "hardware",
+                    "runtime",
+                    "clean_build_policy",
+                    "warm_build_policy",
+                    "memory_scope",
+                    "cache_policy",
+                )
+            },
+            "package": {
+                "version": "0",
+                "commit": "0",
+                "compiler": "test",
+                "production_flags": "test",
+                "profile": "release",
+                "public_api": True,
+                "root": str(package),
+                "assets": {
+                    "public": ["index.js"],
+                    "native": ["native.node"],
+                    "runtime": ["runtime.js"],
+                },
+                "adapter_sources": [str(adapter)],
+                "command": [
+                    sys.executable,
+                    str(adapter),
+                    str(BENCH),
+                    str(targets[changed]) if changed else "none",
+                ],
+            },
+        }
+        (root / "config.json").write_text(json.dumps(config))
+        with patch.object(runner, "WORKLOADS", ("cold_start",)):
+            return runner.run(root / "config.json", root / "out")
+
+    def test_unchanged_run_writes_the_report(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self.assertEqual(self.run_with_change(root, None), 0)
+            self.assertTrue((root / "out/report.json").exists())
+
+    def test_changed_package_or_adapter_fails_the_run(self):
+        for changed, error in [
+            ("package", "Installed package changed"),
+            ("adapter", "Adapter source changed"),
+        ]:
+            with (
+                self.subTest(changed=changed),
+                tempfile.TemporaryDirectory() as folder,
+            ):
+                root = Path(folder)
+                with self.assertRaisesRegex(ValueError, error):
+                    self.run_with_change(root, changed)
+                self.assertFalse((root / "out/report.json").exists())
+                self.assertIn(
+                    error, json.loads((root / "out/error.json").read_text())["error"]
+                )
 
 
 if __name__ == "__main__":

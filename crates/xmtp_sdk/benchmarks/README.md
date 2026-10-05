@@ -13,7 +13,9 @@ A later change adds `just sdk bench` and `just sdk bench-check`.
 
 - `runner.py` runs setup, then `samples` reset and measure calls for each
   workload, through one host command. It writes `ledger.json`, `report.json`,
-  and `report.md` to a new output directory.
+  and `report.md` to a new output directory. Before it writes the report, it
+  hashes the package and adapter sources again and fails the run if they
+  changed.
 - `fixtures.py` holds the deterministic message dataset. `packages.py`
   inventories the installed package closure and records its raw and
   compressed size.
@@ -35,5 +37,6 @@ A later change adds `just sdk bench` and `just sdk bench-check`.
 - `hosts/signer-server.mjs` signs with generated test accounts for the mobile
   hosts.
 - `test_bench.py` checks the process-tree memory sampler, the outer-timeout
-  app cleanup, and the stream result shape. Run it with
+  app cleanup, the stream result shape, and that a run fails when the
+  package or an adapter source changes during measurements. Run it with
   `python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'`.
