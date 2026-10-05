@@ -1,6 +1,22 @@
 //! Post-commit work: installations, welcomes, and HMAC keys.
 
 use super::*;
+use xmtp_common::snippet::Snippet;
+
+fn log_missing_installations(
+    inbox_id: &str,
+    installation_id: &[u8],
+    intent_data: &UpdateGroupMembershipIntentData,
+) {
+    debug!(
+        inbox_id,
+        installation_id = installation_id.snippet(),
+        membership_update_count = intent_data.membership_updates.len(),
+        removed_member_count = intent_data.removed_members.len(),
+        failed_installation_count = intent_data.failed_installations.len(),
+        "Adding missing installations"
+    );
+}
 
 impl<Context> MlsGroup<Context>
 where
@@ -58,11 +74,10 @@ where
             return Ok(());
         }
 
-        debug!(
-            inbox_id = self.context.inbox_id(),
-            installation_id = %self.context.installation_id(),
-            "Adding missing installations {:?}",
-            intent_data
+        log_missing_installations(
+            self.context.inbox_id(),
+            self.context.installation_id().as_slice(),
+            &intent_data,
         );
 
         let intent = QueueIntent::update_group_membership()
@@ -280,5 +295,38 @@ where
         }
 
         Ok(result)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use xmtp_logging::{Level, test_logging::LogCapture};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn missing_installation_log_omits_full_ids() {
+        let failed_id = (32_u8..64).collect::<Vec<_>>();
+        let local_id = (64_u8..96).collect::<Vec<_>>();
+        let intent = UpdateGroupMembershipIntentData::new(
+            HashMap::from([("updated-inbox".to_string(), 7)]),
+            vec!["removed-inbox".to_string()],
+            vec![failed_id.clone()],
+        );
+        let encoded: Vec<u8> = intent.into();
+        let restored = UpdateGroupMembershipIntentData::try_from(encoded)?;
+        assert_eq!(restored.failed_installations, vec![failed_id.clone()]);
+        let capture = LogCapture::new(Level::Debug);
+        tracing::dispatcher::with_default(&capture.dispatch(), || {
+            log_missing_installations("local-inbox", &local_id, &restored);
+        });
+        let output = capture.output();
+        assert!(!output.contains(&format!("{failed_id:?}")));
+        assert!(!output.contains(&hex::encode(&failed_id)));
+        assert!(!output.contains(&hex::encode(&local_id)));
+        let record: serde_json::Value = serde_json::from_str(output.trim())?;
+        assert_eq!(record["message"], "Adding missing installations");
+        assert_eq!(record["membership_update_count"], 1);
+        assert_eq!(record["removed_member_count"], 1);
+        assert_eq!(record["failed_installation_count"], 1);
     }
 }

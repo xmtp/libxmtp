@@ -20,6 +20,8 @@ import {
 import { dirname, join, resolve, relative, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { checkGeneratedAssets } from "./check-generated-assets.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = resolve(
   process.env.XMTP_SDK_GENERATED_DIR ?? "target/sdk-generated",
@@ -54,11 +56,18 @@ function files(directory) {
     return item.isDirectory() ? files(path) : [path];
   });
 }
-for (let i = 0; i < trees.length; i++) {
-  for (const [path, expected] of Object.entries(contracts[i].files)) {
-    if (hash(join(generated, trees[i], path)) !== expected)
-      throw new Error(`SDK generated asset mismatch: ${path}`);
+function makeWritable(directory) {
+  chmodSync(directory, 0o755);
+  for (const item of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, item.name);
+    if (item.isSymbolicLink())
+      throw new Error(`copied SDK runtime has a symbolic link: ${path}`);
+    if (item.isDirectory()) makeWritable(path);
+    else chmodSync(path, 0o644);
   }
+}
+for (let i = 0; i < trees.length; i++) {
+  checkGeneratedAssets(generated, trees[i], contracts[i]);
 }
 mkdirSync(output, { recursive: true });
 const staging = mkdtempSync(join(output, ".sdk-stage-"));
@@ -96,9 +105,14 @@ try {
     cpSync(runtimeSource, join(destination, "node_modules/@ubjs", name), {
       recursive: true,
       dereference: true,
+      // Tests and nested dependencies are outside the runtime package files.
+      filter: (path) =>
+        !relative(runtimeSource, path)
+          .split(/[\\/]/)
+          .some((part) => part === "tests" || part === "node_modules"),
     });
     const runtime = join(destination, "node_modules/@ubjs", name);
-    for (const path of files(runtime)) chmodSync(path, 0o644);
+    makeWritable(runtime);
     rmSync(join(runtime, "dist/cjs"), { recursive: true, force: true });
     const manifestFile = join(runtime, "package.json");
     const manifest = JSON.parse(readFileSync(manifestFile));

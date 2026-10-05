@@ -516,3 +516,127 @@ async fn stored_identity_opens_only_for_an_identifier_of_its_inbox() {
         .build()
         .await?;
 }
+
+// verifies: PROC-036
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn client_creation_logs_omit_full_id_with_retained_envelope() {
+    use std::sync::Arc;
+    use tracing::instrument::WithSubscriber;
+    use xmtp_db::incoming_envelope::{
+        IncomingLimits, NetworkEntityKind, NewIncomingEnvelope, PendingBudget,
+        QueryIncomingEnvelope, StreamTopic,
+    };
+    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
+    use xmtp_proto::types::Cursor;
+
+    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
+    impl LogSinkTarget for Capture {
+        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+            self.0.lock().push(record);
+            Ok(())
+        }
+    }
+    let path = tmp_path();
+    let wallet = generate_local_wallet();
+    let identifier = wallet.identifier();
+    let client = Client::builder(IdentityStrategy::new(
+        identifier.inbox_id(0)?,
+        identifier,
+        0,
+    ))
+    .api_client(DefaultTestClientCreator::create().build()?)
+    .store(xmtp_db::TestDb::create_persistent_store(Some(path.clone())).await)
+    .default_mls_store()?
+    .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+    .with_disable_workers(true)
+    .build()
+    .await?;
+    register_client(&client, &wallet).await;
+    let full_id = hex::encode(client.installation_public_key());
+    let topic = StreamTopic {
+        entity_id: vec![42; 32],
+        kind: NetworkEntityKind::Group,
+    };
+    let retained = NewIncomingEnvelope {
+        sequence_id: Cursor(1),
+        envelope: vec![1, 2, 3],
+    };
+    let budget = PendingBudget {
+        rows: 8,
+        bytes: 1024,
+    };
+    client.context.db().admit_ordered_batch(
+        &topic,
+        Cursor(0),
+        std::slice::from_ref(&retained),
+        IncomingLimits {
+            batch: budget,
+            topic: budget,
+            kind: budget,
+        },
+    )?;
+    assert!(
+        client
+            .context
+            .db()
+            .pending_envelope(&topic, Cursor(1))?
+            .is_some()
+    );
+    client.close().await?;
+    drop(client);
+
+    let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
+    let capture = LogCapture::with_sink(Level::Debug, Some(sink.clone()));
+    let identifier = wallet.identifier();
+    let reopened = Client::builder(IdentityStrategy::new(
+        identifier.inbox_id(0)?,
+        identifier,
+        0,
+    ))
+    .api_client(DefaultTestClientCreator::create().build()?)
+    .store(xmtp_db::TestDb::create_persistent_store(Some(path)).await)
+    .default_mls_store()?
+    .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+    .with_disable_workers(true)
+    .build()
+    .with_subscriber(capture.dispatch())
+    .await?;
+    assert_eq!(hex::encode(reopened.installation_public_key()), full_id);
+    assert_eq!(
+        reopened
+            .context
+            .db()
+            .pending_envelope(&topic, Cursor(1))?
+            .unwrap()
+            .envelope,
+        retained.envelope
+    );
+    {
+        let records = sink.0.lock();
+        records
+            .iter()
+            .find(|record| {
+                record
+                    .message
+                    .contains(xmtp_common::Event::ClientCreated.metadata().doc)
+            })
+            .expect("reopen emits the creation event");
+        let json_has_full_id = capture.output().contains(&full_id);
+        assert!(
+            records
+                .iter()
+                .any(|record| record.message == "Found existing identity in store")
+        );
+        let app_has_full_id = records.iter().any(|record| {
+            record.message.contains(&full_id)
+                || record.fields.values().any(|value| value.contains(&full_id))
+        });
+        assert_eq!(
+            (json_has_full_id, app_has_full_id),
+            (false, false),
+            "creation logs include the full ID while an envelope remains pending"
+        );
+    }
+    reopened.close().await?;
+}

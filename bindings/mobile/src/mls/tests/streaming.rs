@@ -723,13 +723,22 @@ async fn test_stream_consent() {
         .unwrap();
     // Have alix_b sync the sync group
     alix_b.sync_all_device_sync_groups().await.unwrap();
-    // Wait for alix_b to process the new consent
-    alix_b
-        .worker()
-        .register_interest(SyncMetric::ConsentReceived, 2)
-        .wait()
-        .await
-        .unwrap();
+    // Replayed consent can satisfy a metric count before the new state arrives.
+    wait_for_eq(
+        || async {
+            alix_b.sync_all_device_sync_groups().await.unwrap();
+            stream_b_callback
+                .consent_updates
+                .lock()
+                .iter()
+                .any(|consent| {
+                    consent.entity == bo.inbox_id() && consent.state == FfiConsentState::Allowed
+                })
+        },
+        true,
+    )
+    .await
+    .unwrap();
 
     // This consent should stream
     wait_for_ge(|| async { stream_a_callback.consent_updates_count() }, 2)

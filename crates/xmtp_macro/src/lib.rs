@@ -28,6 +28,7 @@ mod timeout_macro_test;
 ///
 /// Use `native_only` or `wasm_only` to limit the whole item to one target.
 /// Use `pure` for a synchronous free function with value-only arguments.
+/// A pure function can forward stock argument defaults with `pure, default(name = None)`.
 /// The SDK generator rejects object, client, and foreign-trait arguments on a
 /// pure export.
 /// The caller must depend on `uniffi` and `tracing`.
@@ -282,8 +283,9 @@ pub fn rpc_span(
 }
 
 /// Instrument an `xmtp_db` query method as `operation = "db.<fn_name>"` in
-/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Surfaces as
-/// `xmtp.db.*` Collector metrics. See [`span`] for the shared rationale.
+/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Use
+/// `#[db_span(redact_error)]` to log a fixed error field and return the original
+/// error unchanged. Surfaces as `xmtp.db.*` Collector metrics. See [`span`] for the shared rationale.
 #[proc_macro_attribute]
 pub fn db_span(
     attr: proc_macro::TokenStream,
@@ -293,8 +295,9 @@ pub fn db_span(
 }
 
 /// Instrument a high-level MLS operation as `operation = "mls.<fn_name>"` in
-/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Surfaces as
-/// `xmtp.mls.*` Collector metrics. See [`span`] for the shared rationale.
+/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Use
+/// `#[mls_span(redact_error)]` to log a fixed error field and return the original
+/// error unchanged. Surfaces as `xmtp.mls.*` Collector metrics. See [`span`] for the shared rationale.
 #[proc_macro_attribute]
 pub fn mls_span(
     attr: proc_macro::TokenStream,

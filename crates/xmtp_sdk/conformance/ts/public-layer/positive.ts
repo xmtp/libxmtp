@@ -109,8 +109,11 @@ export async function typedCodecHooks(message: Message): Promise<Client> {
   // @ts-expect-error A codec's value type does not widen.
   const widened: ContentCodec<string | number> = textCodec;
   void widened;
-  // @ts-expect-error A fallback hook takes the codec's value type.
-  const wrongHook: ContentCodec<Point> = { ...pointCodec, fallback: (text: string) => text };
+  const wrongHook: ContentCodec<Point> = {
+    ...pointCodec,
+    // @ts-expect-error A fallback hook takes the codec's value type.
+    fallback: (text: string) => text,
+  };
   void wrongHook;
   // A codec with hooks still registers with others of any value type.
   return Client.create(signer, {
@@ -142,8 +145,8 @@ export async function streamsAndErrors(client: Client, group: Group) {
     break;
   }
   const events: EventStream = await client.events({
-    kinds: ["conversationJoined"],
-    referencesOwnMessages: false,
+    kinds: ["conversation.joined"],
+    references_own_messages: false,
   });
   void events;
   try {

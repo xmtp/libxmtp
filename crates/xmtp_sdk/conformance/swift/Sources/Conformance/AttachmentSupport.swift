@@ -54,7 +54,7 @@ let attachmentKinds: [EventKind] = [
 
 func attachmentFilter(_ kinds: [EventKind] = attachmentKinds) -> EventFilter {
     EventFilter(
-        kinds: kinds + [.conversationJoined], conversationIds: nil,
+        kinds: kinds + [.conversationJoined], groupIds: nil,
         contentTypes: nil, referencesOwnMessages: false
     )
 }
@@ -65,7 +65,7 @@ struct AttachmentEvent: Equatable {
     var attachmentKey: String
     var url: String
     var contentDigest: String
-    var cause: AttachmentFailureCause?
+    var cause: String?
 
     init(_ kind: EventKind, _ attachment: AttachmentRef) {
         self.kind = kind
@@ -83,7 +83,7 @@ struct AttachmentEvent: Equatable {
     }
 
     /// This event with another kind and cause.
-    func with(_ kind: EventKind, cause: AttachmentFailureCause? = nil) -> AttachmentEvent {
+    func with(_ kind: EventKind, cause: String? = nil) -> AttachmentEvent {
         var event = self
         event.kind = kind
         event.cause = cause
@@ -182,8 +182,8 @@ final class EventQueue {
         var events: [AttachmentEvent] = []
         while true {
             let event = try await next()
-            if case let .conversationJoined(conversationId, _, _, _) = event {
-                if conversationId == marker {
+            if case let .conversationJoined(conversationJoined: joined) = event {
+                if joined.groupId.map { String(format: "%02x", $0) }.joined() == marker {
                     return events
                 }
                 continue

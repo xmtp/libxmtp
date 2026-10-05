@@ -2,16 +2,7 @@ use prost::Message as _;
 use xmtp_content_types::encryption as core;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::XmtpError;
-
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct EncryptionKeys {
-    pub secret: Vec<u8>,
-    pub salt: Vec<u8>,
-    pub nonce: Vec<u8>,
-    pub digest: String,
-    pub length: u64,
-}
+use crate::{EncryptedEncodedContent, EncryptionKeys, XmtpError};
 
 impl From<core::EncryptionKeys> for EncryptionKeys {
     fn from(value: core::EncryptionKeys) -> Self {
@@ -35,12 +26,6 @@ impl From<EncryptionKeys> for core::EncryptionKeys {
             length: value.length,
         }
     }
-}
-
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct EncryptedEncodedContent {
-    pub ciphertext: Vec<u8>,
-    pub keys: EncryptionKeys,
 }
 
 impl From<core::EncryptedEncodedContent> for EncryptedEncodedContent {

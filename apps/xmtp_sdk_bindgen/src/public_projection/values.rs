@@ -1,13 +1,17 @@
 use std::fmt::Write as _;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use uniffi_meta::{EnumMetadata, RecordMetadata, Type};
 
 use super::{camel, convert, policy::cursor_type, public_type};
 
 pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
     let name = &record.name;
-    writeln!(code, "export type {name} = {{")?;
+    if record.fields.is_empty() {
+        writeln!(code, "export type {name} = Record<string, never>;\n")?;
+    } else {
+        writeln!(code, "export type {name} = {{")?;
+    }
     for field in &record.fields {
         // A field with a Rust default can be left out; the binding factory
         // fills it in.
@@ -19,11 +23,13 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         writeln!(
             code,
             "readonly {}{optional}: {};",
-            camel(&field.name),
+            public_record_field(name, &field.name),
             cursor_type(name, &camel(&field.name), public_type(&field.ty))
         )?;
     }
-    code.push_str("};\n");
+    if !record.fields.is_empty() {
+        code.push_str("};\n");
+    }
     for lower in [false, true] {
         let (direction, source, target) = if lower {
             ("lower", name.to_owned(), format!("B.{name}"))
@@ -35,7 +41,8 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
             .fields
             .iter()
             .map(|field| {
-                let field_name = camel(&field.name);
+                let binding_name = camel(&field.name);
+                let public_name = public_record_field(name, &field.name);
                 if defaults && field.default.is_some() {
                     // An explicit undefined would replace the factory default,
                     // so a left-out field stays out.
@@ -43,16 +50,18 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
                         Type::Optional { inner_type } => inner_type,
                         ty => ty,
                     };
-                    let converted = convert(ty, &format!("value.{field_name}"), lower);
+                    let converted = convert(ty, &format!("value.{public_name}"), lower);
                     (
                         true,
                         format!(
-                            "value.{field_name} === undefined ? {{}} : {{ {field_name}: {converted} }}"
+                            "value.{public_name} === undefined ? {{}} : {{ {binding_name}: {converted} }}"
                         ),
                     )
                 } else {
-                    let converted = convert(&field.ty, &format!("value.{field_name}"), lower);
-                    (false, format!("{field_name}: {converted}"))
+                    let source_name = if lower { &public_name } else { &binding_name };
+                    let output_name = if lower { &binding_name } else { &public_name };
+                    let converted = convert(&field.ty, &format!("value.{source_name}"), lower);
+                    (false, format!("{output_name}: {converted}"))
                 }
             })
             .collect::<Vec<_>>();
@@ -76,20 +85,68 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         } else {
             body
         };
+        let unused_value = if record.fields.is_empty() {
+            "void value; "
+        } else {
+            ""
+        };
         writeln!(
             code,
-            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; return {body}; }}"
+            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; {unused_value}return {body}; }}"
         )?;
     }
     Ok(())
 }
 
+fn public_record_field(record: &str, field: &str) -> String {
+    if matches!(
+        record,
+        "AttachmentRef"
+            | "AttachmentFailed"
+            | "ConversationJoined"
+            | "ConversationRemoved"
+            | "MembershipChanged"
+            | "MetadataChanged"
+            | "ConversationPaused"
+            | "EventContentTypeId"
+            | "MessageReceived"
+            | "MessageStatusChanged"
+            | "MessageDeleted"
+            | "MessageRef"
+            | "ConsentChanged"
+            | "HmacKeysUpdated"
+            | "IdentityRegistered"
+            | "InstallationRef"
+            | "InstallationRevoked"
+            | "ClientRejectedByServer"
+            | "LockoutChanged"
+            | "GroupRef"
+            | "NotificationsFailed"
+            | "ArchiveRestored"
+            | "ConnectionStateChanged"
+            | "Lagged"
+            | "EventFilter"
+    ) {
+        field.to_owned()
+    } else {
+        camel(field)
+    }
+}
+
 pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()> {
     let name = &value.name;
+    if name == "ClientEvent"
+        && value
+            .variants
+            .iter()
+            .any(|variant| variant.fields.len() != 1 || variant.fields[0].name.is_empty())
+    {
+        bail!("each ClientEvent kind must have one named payload");
+    }
     let flat = !value.shape.is_error() && value.variants.iter().all(|v| v.fields.is_empty());
     writeln!(code, "export type {name} =")?;
     for variant in &value.variants {
-        let kind = camel(&variant.name);
+        let kind = public_variant_kind(name, &variant.name)?;
         if flat {
             writeln!(code, "| '{kind}'")?;
             continue;
@@ -103,7 +160,11 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                     format!("value{i}")
                 }
             } else {
-                camel(&field.name)
+                if name == "ClientEvent" {
+                    field.name.clone()
+                } else {
+                    camel(&field.name)
+                }
             };
             let optional = if matches!(field.ty, Type::Optional { .. }) {
                 "?"
@@ -145,7 +206,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
             writeln!(code, "switch ({discriminant}) {{")?;
         }
         for variant in &value.variants {
-            let kind = camel(&variant.name);
+            let kind = public_variant_kind(name, &variant.name)?;
             let raw_variant = format!("B.{name}.{}", variant.name);
             let case = if lower {
                 format!("'{kind}'")
@@ -177,7 +238,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                 .iter()
                 .enumerate()
                 .map(|(i, field)| {
-                    let field_name = if field.name.is_empty() {
+                    let binding_name = if field.name.is_empty() {
                         if variant.fields.len() == 1 {
                             "value".into()
                         } else {
@@ -186,16 +247,22 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                     } else {
                         camel(&field.name)
                     };
+                    let public_name = if name == "ClientEvent" && !field.name.is_empty() {
+                        field.name.clone()
+                    } else {
+                        binding_name.clone()
+                    };
                     let raw = if lower {
-                        format!("value.{field_name}")
+                        format!("value.{public_name}")
                     } else if named {
-                        format!("value.inner.{field_name}")
+                        format!("value.inner.{binding_name}")
                     } else {
                         format!("value.inner[{i}]")
                     };
                     let converted = convert(&field.ty, &raw, lower);
                     if !lower || named {
-                        format!("{field_name}: {converted}")
+                        let output_name = if lower { binding_name } else { public_name };
+                        format!("{output_name}: {converted}")
                     } else {
                         converted
                     }
@@ -220,4 +287,82 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
         code.push_str("}\n");
     }
     Ok(())
+}
+
+fn public_variant_kind(name: &str, variant: &str) -> Result<String> {
+    if name == "DeletionCause" {
+        return Ok(match variant {
+            "Deleted" => "deleted",
+            "DeletedLocally" => "deleted_locally",
+            _ => bail!("{name}: unmapped public cause {variant}"),
+        }
+        .to_owned());
+    }
+    if name == "RejectionCause" {
+        return Ok(match variant {
+            "BackendMismatch" => "backend_mismatch",
+            "VersionTooOld" => "version_too_old",
+            _ => bail!("{name}: unmapped public cause {variant}"),
+        }
+        .to_owned());
+    }
+    if name != "EventKind" && name != "ClientEvent" {
+        return Ok(camel(variant));
+    }
+    // The filter kind and emitted event kind use the same public string.
+    let kind = match variant {
+        "ConversationJoined" => "conversation.joined",
+        "ConversationRemoved" => "conversation.removed",
+        "ConversationMembershipChanged" => "conversation.membership_changed",
+        "ConversationMetadataChanged" => "conversation.metadata_changed",
+        "ConversationPaused" => "conversation.paused",
+        "MessageReceived" => "message.received",
+        "MessageStatusChanged" => "message.status_changed",
+        "MessageDeleted" => "message.deleted",
+        "MessageExpired" => "message.expired",
+        "ConsentChanged" => "consent.changed",
+        "HmacKeysUpdated" => "hmac_keys.updated",
+        "IdentityRegistered" => "identity.registered",
+        "IdentityOwnInstallationAdded" => "identity.own_installation_added",
+        "IdentityOwnInstallationRevoked" => "identity.own_installation_revoked",
+        "ClientRejectedByServer" => "client.rejected_by_server",
+        "ClientLockoutChanged" => "client.lockout_changed",
+        "ConversationForkDetected" => "conversation.fork_detected",
+        "NotificationsFailed" => "notifications.failed",
+        "ArchiveRestored" => "archive.restored",
+        "ConnectionStateChanged" => "connection.state_changed",
+        "AttachmentUploadStarted" => "attachment.upload_started",
+        "AttachmentUploadCompleted" => "attachment.upload_completed",
+        "AttachmentUploadFailed" => "attachment.upload_failed",
+        "AttachmentDownloadStarted" => "attachment.download_started",
+        "AttachmentDownloadCompleted" => "attachment.download_completed",
+        "AttachmentDownloadFailed" => "attachment.download_failed",
+        "AttachmentDeleted" => "attachment.deleted",
+        "Lagged" => "lagged",
+        _ => bail!("{name}: unmapped public event kind {variant}"),
+    };
+    Ok(kind.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::public_variant_kind;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn event_causes_use_specified_public_names() -> anyhow::Result<()> {
+        assert_eq!(public_variant_kind("DeletionCause", "Deleted")?, "deleted");
+        assert_eq!(
+            public_variant_kind("DeletionCause", "DeletedLocally")?,
+            "deleted_locally"
+        );
+        assert_eq!(
+            public_variant_kind("RejectionCause", "BackendMismatch")?,
+            "backend_mismatch"
+        );
+        assert_eq!(
+            public_variant_kind("RejectionCause", "VersionTooOld")?,
+            "version_too_old"
+        );
+        Ok(())
+    }
 }

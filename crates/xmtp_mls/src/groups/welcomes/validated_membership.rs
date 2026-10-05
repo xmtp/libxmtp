@@ -7,6 +7,7 @@ use crate::identity_updates::{
 };
 use openmls::prelude::{BasicCredential, StagedWelcome};
 use std::collections::{HashMap, HashSet};
+use xmtp_common::snippet::Snippet;
 use xmtp_db::DbQuery;
 use xmtp_mls_validation::commit::extract_group_membership;
 
@@ -155,7 +156,7 @@ where
                     .contains(remaining_installation_id)
                 {
                     tracing::error!(
-                        installation_id = hex::encode(remaining_installation_id),
+                        installation_id = %remaining_installation_id.as_slice().snippet(),
                         "Installation ID in expected members not found in ratchet tree",
                     );
                     return Err(GroupError::InvalidGroupMembership);

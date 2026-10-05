@@ -13,7 +13,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
-IOS = ("aarch64-apple-ios", "aarch64-apple-ios-sim")
+IOS = ("aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin")
 ANDROID = {
     "arm64-v8a": "aarch64-linux-android",
     "armeabi-v7a": "armv7-linux-androideabi",
@@ -123,13 +123,13 @@ def openssl_environment(triple, env):
     # Use caller target paths, or build OpenSSL instead of linking host libraries.
     env.setdefault(openssl_prefix + "NO_VENDOR", "1" if target_openssl else "0")
     if (
-        openssl_prefix + "DIR" in env
+        target_openssl
         and env[openssl_prefix + "NO_VENDOR"] != "0"
-        and any("OPENSSL_" + key in env for key in ("LIB_DIR", "INCLUDE_DIR"))
+        and any("OPENSSL_" + key in env for key in ("DIR", "LIB_DIR", "INCLUDE_DIR"))
     ):
-        # Keep host dependencies separate from the explicit target root.
+        # Keep host dependencies separate from explicit target paths.
         host_prefix = artifacts.compiler_host().upper().replace("-", "_") + "_OPENSSL_"
-        for component in ("LIB_DIR", "INCLUDE_DIR"):
+        for component in ("DIR", "LIB_DIR", "INCLUDE_DIR"):
             generic = "OPENSSL_" + component
             if generic in env:
                 value = env.pop(generic)
@@ -241,7 +241,7 @@ def main():
             )
             (output / "Package.swift").write_text("""// swift-tools-version: 6.1
 import PackageDescription
-let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
+let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14), .macOS(.v11)],
     products: [.library(name: "XmtpSdk", targets: ["XmtpSdk"])],
     targets: [.binaryTarget(name: "xmtp_sdkFFI", path: "XmtpSdkFFI.xcframework"),
               .target(name: "XmtpSdk", dependencies: ["xmtp_sdkFFI"])],
@@ -277,7 +277,6 @@ let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
                     "assembleRelease",
                     "--no-daemon",
                     "--dependency-verification=strict",
-                    "--max-workers=2",
                 ],
                 env=env,
             )

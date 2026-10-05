@@ -21,11 +21,11 @@ async fn events_registered_before_return() {
     );
     assert!(matches!(
         reader.next().await?,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     assert!(matches!(
         reader.next().await?,
-        Some(ClientEvent::ArchiveRestored { complete: true })
+        Some(ClientEvent::ArchiveRestored { archive_restored }) if archive_restored.complete
     ));
     reader.end().await?;
     client.end().await?;
@@ -59,15 +59,15 @@ async fn reader_delivers_attachment_events_in_order_by_filter() {
     assert_attachment_kinds(&events);
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), reader.next()).await??,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), deleted.next()).await??,
-        Some(ClientEvent::AttachmentDeleted { attachment }) if attachment.attachment_key == "down"
+        Some(ClientEvent::AttachmentDeleted { attachment_deleted }) if attachment_deleted.attachment_key == "down"
     ));
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), deleted.next()).await??,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     reader.end().await?;
     deleted.end().await?;
@@ -98,22 +98,22 @@ async fn listener_delivers_attachment_events_in_order() {
     assert_attachment_kinds(&events);
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), received.recv()).await?,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     client.stop_listener(id).await;
     client.end().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-fn unknown_attachment_event_cause_reports_local_storage() {
+fn attachment_event_cause_preserves_core_value() {
     let event = ClientEvent::from_core(xmtp_events::ClientEvent::AttachmentDownloadFailed(
         core_attachment_failed("odd", "no_such_cause"),
     ));
     assert!(matches!(
         event,
-        ClientEvent::AttachmentDownloadFailed { attachment }
-            if attachment.cause == crate::AttachmentFailureCause::LocalStorage
-                && attachment.attachment_key == "odd"
+        ClientEvent::AttachmentDownloadFailed { attachment_download_failed }
+            if attachment_download_failed.cause == "no_such_cause"
+                && attachment_download_failed.attachment_key == "odd"
     ));
 }
 
@@ -159,7 +159,7 @@ async fn event_reader_and_listener_create_no_network_interest() {
     emit_hmac(&client);
     assert!(matches!(
         reader.next().await?,
-        Some(ClientEvent::HmacKeysUpdated)
+        Some(ClientEvent::HmacKeysUpdated { .. })
     ));
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
@@ -280,11 +280,10 @@ async fn client_end_waits_for_in_flight_event_read() {
 async fn event_filter_selects_before_queueing() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let filter = EventFilter {
-        content_types: Some(vec![crate::ContentTypeId {
+        content_types: Some(vec![crate::EventContentTypeId {
             authority_id: "xmtp.org".into(),
             type_id: "reply".into(),
             version_major: 1,
-            version_minor: 9,
         }]),
         references_own_messages: true,
         ..event_filter(vec![EventKind::MessageReceived])
@@ -335,7 +334,7 @@ async fn event_filter_matches_stitched_dm_identifier() {
     let dm_identifier = dm.dm_id.clone().expect("DM ID");
     let reader = client
         .events(EventFilter {
-            conversation_ids: Some(vec![dm.group_id.into()]),
+            group_ids: Some(vec![dm.group_id.as_slice().to_vec()]),
             ..event_filter(vec![EventKind::ConversationJoined])
         })
         .await?;
@@ -394,7 +393,7 @@ async fn consent_event_for_stitched_dm_reaches_group_filter() {
 
     let reader = client
         .events(EventFilter {
-            conversation_ids: Some(vec![dm_a.group_id.into()]),
+            group_ids: Some(vec![dm_a.group_id.as_slice().to_vec()]),
             ..event_filter(vec![EventKind::ConsentChanged])
         })
         .await?;
@@ -409,7 +408,7 @@ async fn consent_event_for_stitched_dm_reaches_group_filter() {
         .await?;
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(5), reader.next()).await??,
-        Some(ClientEvent::ConsentChanged { entity: received, .. }) if received == entity
+        Some(ClientEvent::ConsentChanged { consent_changed }) if consent_changed.entity == entity
     ));
     reader.end().await?;
     other.end().await?;
@@ -422,7 +421,7 @@ async fn event_filter_accepts_unknown_conversation_id() {
     let unknown = xmtp_proto::types::GroupId::from([0xee; 16]);
     let reader = client
         .events(EventFilter {
-            conversation_ids: Some(vec![unknown.into()]),
+            group_ids: Some(vec![unknown.as_slice().to_vec()]),
             ..event_filter(vec![EventKind::ConversationJoined])
         })
         .await?;
@@ -450,7 +449,7 @@ async fn event_filter_reports_storage_error_when_resolving_dm() {
     client.inner.context.db().disconnect()?;
     let result = client
         .events(EventFilter {
-            conversation_ids: Some(vec![dm.group_id.into()]),
+            group_ids: Some(vec![dm.group_id.as_slice().to_vec()]),
             ..event_filter(vec![EventKind::ConversationJoined])
         })
         .await;

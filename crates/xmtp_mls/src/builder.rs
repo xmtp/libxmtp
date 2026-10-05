@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use xmtp_api::ApiClientWrapper;
 use xmtp_api_backend::TrackedStatsClient;
+use xmtp_common::snippet::Snippet;
 use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{DbConnection, XmtpMlsStorageProvider, prelude::*};
@@ -663,7 +664,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         debug!(
             inbox_id = identity.inbox_id(),
-            installation_id = hex::encode(identity.installation_keys.public_bytes()),
+            installation_id = identity.installation_keys.public_bytes().snippet(),
             "Initialized identity"
         );
         if !allow_offline {
@@ -877,7 +878,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             Event::ClientCreated,
             context.installation_id(),
             inbox_id = context.inbox_id(),
-            full_installation_id = hex::encode(context.installation_id()),
             device_sync_enabled = context.device_sync_worker_enabled(),
             disabled_workers = disable_workers,
         );

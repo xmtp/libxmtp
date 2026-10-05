@@ -269,9 +269,11 @@ impl<Context: XmtpSharedContext> Client<Context> {
         {
             return Err(NotificationError::TaskRunnerDisabled);
         }
-        if let NotificationChannel::Http { signing_key, .. } = &config.channel
-            && !(16..=64).contains(&signing_key.len())
-        {
+        let valid_channel = match &config.channel {
+            NotificationChannel::Apns { .. } | NotificationChannel::Fcm { .. } => true,
+            NotificationChannel::Http { signing_key, .. } => (16..=64).contains(&signing_key.len()),
+        };
+        if !valid_channel {
             return Err(NotificationError::InvalidArgument);
         }
         let generation = {

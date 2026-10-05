@@ -3,6 +3,7 @@
 import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import {
   attachmentFilter,
+  attachmentPayload,
   attachmentsDir,
   bytesSource,
   drain,
@@ -129,13 +130,17 @@ export async function checkAttachmentFlow(
     const uploaded = await drain(sender, events);
     same(
       uploaded.map((event) => event.kind),
-      ["attachmentUploadStarted", "attachmentUploadCompleted"],
+      ["attachment.upload_started", "attachment.upload_completed"],
       "expected one shared upload",
     );
-    same(uploaded[0]!.attachment, uploaded[1]!.attachment, "upload refs");
-    equal(uploaded[0]!.attachment.url, remote.url, "upload event URL");
+    same(
+      attachmentPayload(uploaded[0]!),
+      attachmentPayload(uploaded[1]!),
+      "upload refs",
+    );
+    equal(attachmentPayload(uploaded[0]!).url, remote.url, "upload event URL");
     equal(
-      uploaded[0]!.attachment.contentDigest,
+      attachmentPayload(uploaded[0]!).content_digest,
       remote.contentDigest,
       "upload event digest",
     );
@@ -204,7 +209,7 @@ export async function checkAttachmentFlow(
 
     // Download events arrive in order; a filtered reader sees only its kind.
     const deletedOnly = await receiver.events(
-      attachmentFilter(["attachmentDeleted"]),
+      attachmentFilter(["attachment.deleted"]),
     );
     const downloaded = await receiving.download(received);
     same(
@@ -236,23 +241,34 @@ export async function checkAttachmentFlow(
     expect(!(await existsOpfs(downloaded.path)), "deleted file remains");
     const downloads = await drain(receiver, receiverEvents);
     same(
-      downloads.map((event) => [event.kind, event.attachment.contentDigest]),
+      downloads.map((event) => [
+        event.kind,
+        attachmentPayload(event).content_digest,
+      ]),
       [
-        ["attachmentDownloadStarted", received.contentDigest],
-        ["attachmentDownloadCompleted", received.contentDigest],
-        ["attachmentDownloadStarted", pathRemote.contentDigest],
-        ["attachmentDownloadCompleted", pathRemote.contentDigest],
-        ["attachmentDeleted", received.contentDigest],
+        ["attachment.download_started", received.contentDigest],
+        ["attachment.download_completed", received.contentDigest],
+        ["attachment.download_started", pathRemote.contentDigest],
+        ["attachment.download_completed", pathRemote.contentDigest],
+        ["attachment.deleted", received.contentDigest],
       ],
       "download events",
     );
-    equal(downloads[0]!.attachment.url, received.url, "download event URL");
+    equal(
+      attachmentPayload(downloads[0]!).url,
+      received.url,
+      "download event URL",
+    );
     expect(
-      downloads[0]!.attachment.attachmentKey !==
-        downloads[2]!.attachment.attachmentKey,
+      attachmentPayload(downloads[0]!).attachment_key !==
+        attachmentPayload(downloads[2]!).attachment_key,
       "two downloads share a key",
     );
-    same(downloads[4]!.attachment, downloads[0]!.attachment, "deleted ref");
+    same(
+      attachmentPayload(downloads[4]!),
+      attachmentPayload(downloads[0]!),
+      "deleted ref",
+    );
     same(await drain(receiver, deletedOnly), [downloads[4]], "filtered reader");
     await deletedOnly.return();
     await receiverEvents.return();
@@ -300,12 +316,12 @@ export async function checkAttachmentFailures(
     const failed = await drain(client, events);
     same(
       failed.map((event) => event.kind),
-      ["attachmentUploadStarted", "attachmentUploadFailed"],
+      ["attachment.upload_started", "attachment.upload_failed"],
       "upload failure events",
     );
     same(
-      failed[1]!.attachment,
-      { ...failed[0]!.attachment, cause: "stagedUnusable" },
+      attachmentPayload(failed[1]!),
+      { ...attachmentPayload(failed[0]!), cause: "staged_unusable" },
       "upload failure ref",
     );
     // A source the SDK cannot read fails create.
@@ -406,11 +422,16 @@ export async function checkAttachmentFailures(
     const downloadFailures = await drain(downloader, downloadEvents);
     same(
       downloadFailures.flatMap((event) =>
-        event.kind === "attachmentDownloadFailed"
-          ? [event.attachment.cause]
+        event.kind === "attachment.download_failed"
+          ? [event.attachment_download_failed.cause]
           : [],
       ),
-      ["httpStatus", "tooManyRedirects", "digestMismatch", "decryptionFailed"],
+      [
+        "http_status",
+        "too_many_redirects",
+        "digest_mismatch",
+        "decryption_failed",
+      ],
       "download failure events",
     );
     await downloadEvents.return();

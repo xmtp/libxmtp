@@ -28,6 +28,7 @@ import {
 } from "./node-codecs.mts";
 import { logging } from "./node-logging.mts";
 import { metadataFields } from "./node-metadata.mts";
+import { readerAckFault } from "./node-reader-ack-fault.mts";
 import { readerDelivery } from "./node-reader-delivery.mts";
 import { storageLayout } from "./node-storage-layout.mts";
 import { streamFailures } from "./node-stream-failures.mts";
@@ -300,6 +301,7 @@ assert.throws(
 console.log("Node scenario 2: create, reopen, end passed");
 
 const delivery = await readerDelivery(reopened);
+await readerAckFault(backendOptions);
 await streamLifecycle(reopened);
 await streamFailures(reopened, delivery);
 
@@ -808,8 +810,8 @@ console.log("Node scenario 9: archive bytes and file passed");
 // verifies: EVENT-050
 // verifies: EVENT-053
 const eventFilter: sdk.EventFilter = {
-  kinds: ["conversationJoined"],
-  referencesOwnMessages: false,
+  kinds: ["conversation.joined"],
+  references_own_messages: false,
 };
 const eventReader = await reopened.events(eventFilter);
 let listenerCalls = 0;
@@ -818,7 +820,7 @@ const listenerId = await reopened.startListener(eventFilter, async () => {
 });
 await reopened.conversations.createGroup([]);
 const sampleEvent = (await eventReader.next()).value;
-assert.equal(sampleEvent?.kind, "conversationJoined");
+assert.equal(sampleEvent?.kind, "conversation.joined");
 for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
   await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(listenerCalls, 1);

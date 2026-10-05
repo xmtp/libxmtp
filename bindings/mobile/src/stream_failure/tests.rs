@@ -15,6 +15,7 @@ fn barrier(target: Option<u64>) -> BarrierError {
         reason: BarrierFailure::Deadline,
         unfinished: vec![BarrierTopic {
             topic: Topic::new_welcome_message([7; 32].into()),
+            scope_generation: None,
             target: target.map(Cursor),
             received: Cursor(u64::MAX),
             processed: Cursor(9_007_199_254_740_993),
@@ -34,6 +35,7 @@ fn flat_group_error_keeps_missing_target_and_typed_cursors() {
     let topic = &details.barriers[0].unfinished[0];
     assert_eq!(details.kind, FfiStreamFailureKind::Barrier);
     assert_eq!(topic.target, None);
+    assert_eq!(topic.scope_generation, None);
     assert_eq!(topic.received, u64::MAX);
     assert_eq!(topic.processed, 9_007_199_254_740_993);
     assert_eq!(topic.unresolved_welcomes, vec![u64::MAX]);
@@ -44,6 +46,15 @@ fn flat_group_error_keeps_missing_target_and_typed_cursors() {
     assert_eq!(
         topic.cause.as_ref()?.kind,
         FfiStreamBarrierCauseKind::TargetPending
+    );
+    let mut barrier = barrier(None);
+    let BarrierError::Incomplete { unfinished, .. } = &mut barrier;
+    unfinished[0].scope_generation = Some(u64::MAX);
+    let error: FfiError = GroupError::StreamBarrier(barrier).into();
+    let details = get_stream_failure_details(error.to_string())?;
+    assert_eq!(
+        details.barriers[0].unfinished[0].scope_generation,
+        Some(u64::MAX)
     );
 }
 

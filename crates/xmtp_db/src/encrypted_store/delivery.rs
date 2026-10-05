@@ -415,8 +415,49 @@ pub trait QueryDelivery: ConnectionExt + Sized {
         limit: u32,
         max_bytes: u64,
     ) -> Result<DeliverySnapshot, StorageError> {
+        self.delivery_history_snapshot_projected(
+            scope,
+            filter,
+            now_ns,
+            limit,
+            max_bytes,
+            |_, snapshot| Ok(snapshot),
+        )
+    }
+
+    /// Project selected rows before the history read transaction ends.
+    fn delivery_history_snapshot_projected<T>(
+        &self,
+        scope: &DeliveryScope,
+        filter: &DeliveryFilter,
+        now_ns: i64,
+        limit: u32,
+        max_bytes: u64,
+        project: impl FnOnce(&mut SqliteConnection, DeliverySnapshot) -> Result<T, StorageError>,
+    ) -> Result<T, StorageError> {
+        self.delivery_history_snapshot_projected_with_clock(
+            scope,
+            filter,
+            || now_ns,
+            limit,
+            max_bytes,
+            project,
+        )
+    }
+
+    /// Sample expiry time after acquiring the history read connection.
+    fn delivery_history_snapshot_projected_with_clock<T>(
+        &self,
+        scope: &DeliveryScope,
+        filter: &DeliveryFilter,
+        clock: impl FnOnce() -> i64,
+        limit: u32,
+        max_bytes: u64,
+        project: impl FnOnce(&mut SqliteConnection, DeliverySnapshot) -> Result<T, StorageError>,
+    ) -> Result<T, StorageError> {
         self.raw_query(|conn| {
             Ok(conn.transaction::<_, StorageError, _>(|conn| {
+                let now_ns = clock();
                 let cursor = current_cursor(conn)?;
                 let mut messages = read_messages(
                     conn,
@@ -431,7 +472,7 @@ pub trait QueryDelivery: ConnectionExt + Sized {
                     },
                 )?;
                 messages.reverse();
-                Ok(DeliverySnapshot { messages, cursor })
+                project(conn, DeliverySnapshot { messages, cursor })
             }))
         })?
     }

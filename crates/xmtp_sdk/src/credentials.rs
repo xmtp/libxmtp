@@ -3,11 +3,21 @@ use xmtp_common::{BoxDynError, MaybeSend, MaybeSync};
 
 use crate::{XmtpError, foreign};
 
-#[derive(Clone, Debug, uniffi::Record)]
+#[derive(Clone, uniffi::Record)]
 pub struct Credential {
     pub name: Option<String>,
     pub value: String,
     pub expires_at_seconds: i64,
+}
+
+impl std::fmt::Debug for Credential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credential")
+            .field("name", &self.name)
+            .field("value", &"[redacted]")
+            .field("expires_at_seconds", &self.expires_at_seconds)
+            .finish()
+    }
 }
 
 impl Credential {
@@ -95,11 +105,15 @@ impl BackendSource {
 
 pub(crate) struct AuthBridge {
     source: Arc<dyn CredentialSource>,
+    callback_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AuthBridge {
     pub(crate) fn new(source: Arc<dyn CredentialSource>) -> Self {
-        Self { source }
+        Self {
+            source,
+            callback_lock: Arc::new(tokio::sync::Mutex::new(())),
+        }
     }
 }
 
@@ -107,10 +121,16 @@ impl AuthBridge {
 impl xmtp_api_backend::AuthCallback for AuthBridge {
     async fn on_auth_required(&self) -> Result<xmtp_api_backend::Credential, BoxDynError> {
         let source = self.source.clone();
-        let result = foreign::call(async move { source.credential().await })
-            .await
-            .map_err(|_| "auth callback failed")?
-            .map_err(|_| "auth callback failed")?;
+        let callback_guard = self.callback_lock.clone().lock_owned().await;
+        let result = foreign::call(async move {
+            // The foreign task outlives a cancelled caller. Keep its callback
+            // guard until the foreign callback returns.
+            let _callback_guard = callback_guard;
+            source.credential().await
+        })
+        .await
+        .map_err(|_| "auth callback failed")?
+        .map_err(|_| "auth callback failed")?;
         let name = result
             .name
             .map(|name| name.parse::<http::header::HeaderName>())
@@ -176,5 +196,25 @@ impl Backend {
             handle.set(credential.to_backend()?).await;
         }
         Ok(backend)
+    }
+}
+
+#[cfg(test)]
+mod credential_debug_tests {
+    use super::Credential;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn credential_debug_redacts_direct_and_nested_value() {
+        let secret = "credential-bearer-sentinel-5e9741";
+        let credential = Credential {
+            name: Some("authorization".to_string()),
+            value: secret.to_string(),
+            expires_at_seconds: 123,
+        };
+        assert_eq!(credential.value, secret);
+        assert_eq!(credential.name.as_deref(), Some("authorization"));
+        assert_eq!(credential.expires_at_seconds, 123);
+        assert!(!format!("{credential:?}").contains(secret));
+        assert!(!format!("{:?}", Some(vec![credential])).contains(secret));
     }
 }

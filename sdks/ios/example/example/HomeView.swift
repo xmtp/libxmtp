@@ -1,6 +1,6 @@
 import SwiftData
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 /// Screen displayed by default when the user has logged in.
 ///
@@ -72,7 +72,7 @@ private struct ConversationItem: View {
 	var body: some View {
 		VStack(alignment: .leading, spacing: 3) {
 			// TODO: something prettier
-			Text(session.conversations[conversationId].value?.name ?? "Untitled")
+			Text(session.conversationNames[conversationId].value ?? "Conversation")
 				.foregroundColor(.primary)
 				.lineLimit(1)
 				.font(.headline)

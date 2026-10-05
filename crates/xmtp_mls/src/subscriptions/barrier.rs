@@ -46,6 +46,8 @@ pub enum BarrierCause {
 pub struct BarrierTopic {
     /// The group, Welcome, or identity topic covered by this obligation.
     pub topic: Topic,
+    /// The captured scope that owns this obligation. None precedes admission.
+    pub scope_generation: Option<u64>,
     /// Fixed backend head H. `None` means target capture did not succeed.
     pub target: Option<Cursor>,
     /// Durable received prefix F, including retained pending envelopes.
@@ -61,6 +63,15 @@ pub struct BarrierTopic {
 }
 
 impl BarrierTopic {
+    pub(crate) fn capture_scope_generation(&mut self, snapshot: &super::incoming::IncomingStatus) {
+        self.scope_generation = snapshot
+            .topics
+            .iter()
+            .find(|entry| entry.topic == self.topic)
+            .map(|entry| entry.scope_generation)
+            .or_else(|| self.target.map(|_| snapshot.scope_generation));
+    }
+
     /// Receipt alone does not complete a processing obligation.
     pub fn complete(&self) -> bool {
         self.cause.is_none()
@@ -147,6 +158,7 @@ pub(crate) fn durable_complete(
 fn read_topic<C: XmtpSharedContext>(context: &C, topic: &Topic, target: Cursor) -> BarrierTopic {
     let mut status = BarrierTopic {
         topic: topic.clone(),
+        scope_generation: None,
         target: Some(target),
         received: Cursor::default(),
         processed: Cursor::default(),
@@ -542,6 +554,9 @@ async fn wait_for_targets_snapshot<C: XmtpSharedContext>(
             } else {
                 topics.push(failure);
             }
+        }
+        for topic in &mut topics {
+            topic.capture_scope_generation(&receiver);
         }
         if topics.iter().all(BarrierTopic::complete) {
             return (BarrierSnapshot { topics }, None);

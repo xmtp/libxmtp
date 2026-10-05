@@ -1,7 +1,7 @@
 import OSLog
 import SwiftData
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 /// Initially, the App handles getting the user logged-in.
 ///

@@ -28,6 +28,10 @@
 //! or promise exactly-once callbacks across a process crash.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use prost::Message;
 use tokio::sync::{mpsc, oneshot};
@@ -367,6 +371,7 @@ where
     incoming: Option<mpsc::Receiver<IncomingFrame>>,
     incoming_pending: std::vec::IntoIter<IncomingEvent>,
     incoming_failure: IncomingFailure,
+    connected: Arc<AtomicBool>,
     cmds: mpsc::UnboundedSender<Cmd<B>>,
 }
 
@@ -410,12 +415,14 @@ where
     pub fn into_incoming_subscription(self) -> IncomingSubscription<TransportError> {
         let cmds = self.cmds.clone();
         let id = self.id;
+        let connected = self.connected.clone();
         let events = futures::stream::unfold(self, |mut lease| async move {
             lease.next_incoming().await.map(|event| (event, lease))
         });
         IncomingSubscription::new(Box::pin(events), move |cursors| {
             let _ = cmds.send(Cmd::Received { id, cursors });
         })
+        .with_connection_source(move || connected.load(Ordering::Acquire))
     }
 }
 
@@ -667,6 +674,7 @@ where
     events: mpsc::Sender<LeaseEvent<B>>,
     incoming: Option<(mpsc::Sender<IncomingFrame>, IncomingBatchLimits)>,
     incoming_failure: IncomingFailure,
+    connected: Arc<AtomicBool>,
     incoming_pending: VecDeque<Vec<IncomingEvent>>,
     paused_at: Option<Instant>,
     pause_entries: u64,
@@ -854,6 +862,15 @@ where
         let Some(_) = &lease.incoming else {
             return;
         };
+        // Only this lease's accepted topic registrations restore its source.
+        lease.connected.store(
+            lease.floors.keys().all(|topic| {
+                self.registrations.get(topic).is_some_and(|registration| {
+                    matches!(registration.state, RegistrationState::Active)
+                })
+            }),
+            Ordering::Release,
+        );
         let mut starts = TopicCursor::new();
         let mut targets = TopicCursor::new();
         for topic in topics {
@@ -1032,6 +1049,7 @@ where
                 events,
                 incoming: None,
                 incoming_failure: IncomingFailure::default(),
+                connected: Arc::new(AtomicBool::new(false)),
                 incoming_pending: VecDeque::new(),
                 paused_at: None,
                 pause_entries: 0,
@@ -1046,6 +1064,7 @@ where
         self.pending_updates.clear();
         self.dirty_topics.clear();
         for lease in self.leases.values_mut() {
+            lease.connected.store(false, Ordering::Release);
             lease.obligations.clear();
             lease.unmet = lease.floors.len();
             if lease.incoming.is_some() {
@@ -1168,6 +1187,11 @@ where
                 RegistrationState::Removing => {}
                 _ if !B::covers(&floor, &registration.delivered) => {
                     registration.state = RegistrationState::Removing;
+                    for holder in &registration.holders {
+                        if let Some(lease) = self.leases.get(holder) {
+                            lease.connected.store(false, Ordering::Release);
+                        }
+                    }
                     removes.push(topic);
                 }
                 _ => {
@@ -1633,6 +1657,7 @@ where
             .get(&id)
             .map(|lease| lease.incoming_failure.clone())
             .unwrap_or_default();
+        let connected = self.ledger.leases[&id].connected.clone();
         if cold {
             self.outbox.updates.extend(self.ledger.prepare_adds(subs));
             let Some((_, initial)) = self.outbox.updates.pop_front() else {
@@ -1680,6 +1705,7 @@ where
             incoming,
             incoming_pending: Vec::new().into_iter(),
             incoming_failure,
+            connected,
             cmds,
         }));
         Flow::Continue

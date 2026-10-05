@@ -23,7 +23,7 @@ impl From<xmtp_content_types::attachment::Attachment> for Attachment {
     }
 }
 
-#[derive(Clone, Debug, uniffi::Record)]
+#[derive(Clone, uniffi::Record)]
 pub struct RemoteAttachment {
     pub url: String,
     pub content_digest: String,
@@ -33,6 +33,22 @@ pub struct RemoteAttachment {
     pub scheme: String,
     pub content_length: Option<u32>,
     pub filename: Option<String>,
+}
+
+impl std::fmt::Debug for RemoteAttachment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RemoteAttachment")
+            .field("url", &"<redacted>")
+            .field("content_digest", &self.content_digest)
+            .field("secret", &"<redacted>")
+            .field("salt", &self.salt)
+            .field("nonce", &self.nonce)
+            .field("scheme", &self.scheme)
+            .field("content_length", &self.content_length)
+            .field("filename", &self.filename)
+            .finish()
+    }
 }
 
 impl From<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAttachment {
@@ -448,4 +464,32 @@ impl TryFrom<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpd
                 .collect(),
         })
     }
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct EncryptionKeys {
+    pub secret: Vec<u8>,
+    pub salt: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub digest: String,
+    pub length: u64,
+}
+
+impl std::fmt::Debug for EncryptionKeys {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EncryptionKeys")
+            .field("secret", &"<redacted>")
+            .field("salt", &self.salt)
+            .field("nonce", &self.nonce)
+            .field("digest", &self.digest)
+            .field("length", &self.length)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct EncryptedEncodedContent {
+    pub ciphertext: Vec<u8>,
+    pub keys: EncryptionKeys,
 }

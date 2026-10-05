@@ -7,10 +7,7 @@ pub use filter::EventFilter;
 pub use listener::{EventListener, ListenerError};
 pub use reader::EventReader;
 
-use crate::{
-    AttachmentFailureCause, ConnectionState, ContentTypeId, ConversationId, InboxId,
-    InstallationId, MessageId,
-};
+use crate::{ConnectionState, InboxId};
 use xmtp_events as core;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -118,7 +115,7 @@ impl From<core::ConnectionState> for ConnectionState {
 }
 
 /// The attachment an `attachment.*` event reports.
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AttachmentRef {
     pub attachment_key: String,
     pub url: String,
@@ -126,12 +123,33 @@ pub struct AttachmentRef {
 }
 
 /// The attachment a failed transfer reports, with its failure cause.
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AttachmentFailed {
     pub attachment_key: String,
     pub url: String,
     pub content_digest: String,
-    pub cause: AttachmentFailureCause,
+    pub cause: String,
+}
+
+impl std::fmt::Debug for AttachmentRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentRef")
+            .field("attachment_key", &self.attachment_key)
+            .field("url", &"<redacted>")
+            .field("content_digest", &self.content_digest)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for AttachmentFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentFailed")
+            .field("attachment_key", &self.attachment_key)
+            .field("url", &"<redacted>")
+            .field("content_digest", &self.content_digest)
+            .field("cause", &self.cause)
+            .finish()
+    }
 }
 
 impl From<core::AttachmentRef> for AttachmentRef {
@@ -146,144 +164,241 @@ impl From<core::AttachmentRef> for AttachmentRef {
 
 impl From<core::AttachmentFailed> for AttachmentFailed {
     fn from(value: core::AttachmentFailed) -> Self {
-        let cause =
-            xmtp_attachments::AttachmentFailureCause::parse(&value.cause).unwrap_or_else(|| {
-                tracing::warn!(cause = %value.cause, "unknown attachment event failure cause");
-                xmtp_attachments::AttachmentFailureCause::LocalStorage
-            });
         Self {
             attachment_key: value.attachment_key,
             url: value.url,
             content_digest: value.content_digest,
-            cause: cause.into(),
+            cause: value.cause,
         }
     }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ConversationJoined {
+    pub group_id: Vec<u8>,
+    pub conversation_type: EventConversationType,
+    pub origin: JoinOrigin,
+    pub adder_inbox_id: Option<InboxId>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ConversationRemoved {
+    pub group_id: Vec<u8>,
+    pub cause: RemovalCause,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct MembershipChanged {
+    pub group_id: Vec<u8>,
+    pub added_inbox_ids: Vec<InboxId>,
+    pub removed_inbox_ids: Vec<InboxId>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct MetadataChanged {
+    pub group_id: Vec<u8>,
+    pub changed: Vec<String>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ConversationPaused {
+    pub group_id: Vec<u8>,
+    pub floor: String,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct EventContentTypeId {
+    pub authority_id: String,
+    pub type_id: String,
+    pub version_major: u32,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct MessageReceived {
+    pub group_id: Vec<u8>,
+    pub message_id: Vec<u8>,
+    pub content_type: Option<EventContentTypeId>,
+    pub sender_inbox_id: InboxId,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct MessageStatusChanged {
+    pub group_id: Vec<u8>,
+    pub message_id: Vec<u8>,
+    pub previous: EventMessageStatus,
+    pub current: EventMessageStatus,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct MessageDeleted {
+    pub group_id: Vec<u8>,
+    pub message_id: Vec<u8>,
+    pub cause: DeletionCause,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct MessageRef {
+    pub group_id: Vec<u8>,
+    pub message_id: Vec<u8>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ConsentChanged {
+    pub entity_kind: ConsentEntityKind,
+    pub entity: String,
+    pub state: EventConsentState,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct HmacKeysUpdated {}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct IdentityRegistered {
+    pub inbox_id: InboxId,
+    pub installation_key: Vec<u8>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct InstallationRef {
+    pub installation_key: Vec<u8>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct InstallationRevoked {
+    pub installation_key: Vec<u8>,
+    pub is_this_installation: bool,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ClientRejectedByServer {
+    pub cause: RejectionCause,
+    pub min_libxmtp_version: Option<String>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct LockoutChanged {
+    pub change: LockoutChange,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct GroupRef {
+    pub group_id: Vec<u8>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct NotificationsFailed {
+    pub cause: String,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ArchiveRestored {
+    pub complete: bool,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ConnectionStateChanged {
+    pub previous: ConnectionState,
+    pub current: ConnectionState,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct Lagged {
+    pub discarded: u64,
 }
 
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ClientEvent {
     ConversationJoined {
-        conversation_id: ConversationId,
-        conversation_type: EventConversationType,
-        origin: JoinOrigin,
-        adder_inbox_id: Option<InboxId>,
+        conversation_joined: ConversationJoined,
     },
     ConversationRemoved {
-        conversation_id: ConversationId,
-        cause: RemovalCause,
+        conversation_removed: ConversationRemoved,
     },
     ConversationMembershipChanged {
-        conversation_id: ConversationId,
-        added_inbox_ids: Vec<InboxId>,
-        removed_inbox_ids: Vec<InboxId>,
+        membership_changed: MembershipChanged,
     },
     ConversationMetadataChanged {
-        conversation_id: ConversationId,
-        changed: Vec<String>,
+        metadata_changed: MetadataChanged,
     },
     ConversationPaused {
-        conversation_id: ConversationId,
-        floor: String,
+        conversation_paused: ConversationPaused,
     },
     MessageReceived {
-        conversation_id: ConversationId,
-        message_id: MessageId,
-        content_type: Option<ContentTypeId>,
-        sender_inbox_id: InboxId,
+        message_received: MessageReceived,
     },
     MessageStatusChanged {
-        conversation_id: ConversationId,
-        message_id: MessageId,
-        previous: EventMessageStatus,
-        current: EventMessageStatus,
+        message_status_changed: MessageStatusChanged,
     },
     MessageDeleted {
-        conversation_id: ConversationId,
-        message_id: MessageId,
-        cause: DeletionCause,
+        message_deleted: MessageDeleted,
     },
     MessageExpired {
-        conversation_id: ConversationId,
-        message_id: MessageId,
+        message_expired: MessageRef,
     },
     ConsentChanged {
-        entity_kind: ConsentEntityKind,
-        entity: String,
-        state: EventConsentState,
+        consent_changed: ConsentChanged,
     },
-    HmacKeysUpdated,
+    HmacKeysUpdated {
+        hmac_keys_updated: HmacKeysUpdated,
+    },
     IdentityRegistered {
-        inbox_id: InboxId,
-        installation_id: InstallationId,
+        identity_registered: IdentityRegistered,
     },
     IdentityOwnInstallationAdded {
-        installation_id: InstallationId,
+        own_installation_added: InstallationRef,
     },
     IdentityOwnInstallationRevoked {
-        installation_id: InstallationId,
-        is_this_installation: bool,
+        own_installation_revoked: InstallationRevoked,
     },
     ClientRejectedByServer {
-        cause: RejectionCause,
-        min_libxmtp_version: Option<String>,
+        rejected_by_server: ClientRejectedByServer,
     },
     ClientLockoutChanged {
-        change: LockoutChange,
+        lockout_changed: LockoutChanged,
     },
     ConversationForkDetected {
-        conversation_id: ConversationId,
+        conversation_fork_detected: GroupRef,
     },
     NotificationsFailed {
-        cause: String,
+        notifications_failed: NotificationsFailed,
     },
     ArchiveRestored {
-        complete: bool,
+        archive_restored: ArchiveRestored,
     },
     ConnectionStateChanged {
-        previous: ConnectionState,
-        current: ConnectionState,
+        connection_state_changed: ConnectionStateChanged,
     },
     AttachmentUploadStarted {
-        attachment: AttachmentRef,
+        attachment_upload_started: AttachmentRef,
     },
     AttachmentUploadCompleted {
-        attachment: AttachmentRef,
+        attachment_upload_completed: AttachmentRef,
     },
     AttachmentUploadFailed {
-        attachment: AttachmentFailed,
+        attachment_upload_failed: AttachmentFailed,
     },
     AttachmentDownloadStarted {
-        attachment: AttachmentRef,
+        attachment_download_started: AttachmentRef,
     },
     AttachmentDownloadCompleted {
-        attachment: AttachmentRef,
+        attachment_download_completed: AttachmentRef,
     },
     AttachmentDownloadFailed {
-        attachment: AttachmentFailed,
+        attachment_download_failed: AttachmentFailed,
     },
     AttachmentDeleted {
-        attachment: AttachmentRef,
+        attachment_deleted: AttachmentRef,
     },
     Lagged {
-        discarded: u64,
+        lagged: Lagged,
     },
 }
 
-fn conversation_id(bytes: Vec<u8>) -> ConversationId {
-    ConversationId::unchecked(hex::encode(bytes))
-}
-fn message_id(bytes: Vec<u8>) -> MessageId {
-    MessageId::unchecked(hex::encode(bytes))
-}
-fn installation_id(bytes: Vec<u8>) -> InstallationId {
-    InstallationId::unchecked(hex::encode(bytes))
-}
-fn content_type(value: xmtp_events::ContentTypeId) -> ContentTypeId {
-    ContentTypeId {
+fn content_type(value: xmtp_events::ContentTypeId) -> EventContentTypeId {
+    EventContentTypeId {
         authority_id: value.authority_id,
         type_id: value.type_id,
         version_major: value.version_major,
-        version_minor: 0,
     }
 }
 
@@ -291,128 +406,174 @@ impl ClientEvent {
     pub(crate) fn from_core(value: core::ClientEvent) -> Self {
         match value {
             core::ClientEvent::ConversationJoined(v) => Self::ConversationJoined {
-                conversation_id: conversation_id(v.group_id),
-                conversation_type: v.conversation_type.into(),
-                origin: v.origin.into(),
-                adder_inbox_id: v.adder_inbox_id.map(InboxId::unchecked),
+                conversation_joined: ConversationJoined {
+                    group_id: v.group_id,
+                    conversation_type: v.conversation_type.into(),
+                    origin: v.origin.into(),
+                    adder_inbox_id: v.adder_inbox_id.map(InboxId::unchecked),
+                },
             },
             core::ClientEvent::ConversationRemoved(v) => Self::ConversationRemoved {
-                conversation_id: conversation_id(v.group_id),
-                cause: v.cause.into(),
+                conversation_removed: ConversationRemoved {
+                    group_id: v.group_id,
+                    cause: v.cause.into(),
+                },
             },
             core::ClientEvent::ConversationMembershipChanged(v) => {
                 Self::ConversationMembershipChanged {
-                    conversation_id: conversation_id(v.group_id),
-                    added_inbox_ids: v
-                        .added_inbox_ids
-                        .into_iter()
-                        .map(InboxId::unchecked)
-                        .collect(),
-                    removed_inbox_ids: v
-                        .removed_inbox_ids
-                        .into_iter()
-                        .map(InboxId::unchecked)
-                        .collect(),
+                    membership_changed: MembershipChanged {
+                        group_id: v.group_id,
+                        added_inbox_ids: v
+                            .added_inbox_ids
+                            .into_iter()
+                            .map(InboxId::unchecked)
+                            .collect(),
+                        removed_inbox_ids: v
+                            .removed_inbox_ids
+                            .into_iter()
+                            .map(InboxId::unchecked)
+                            .collect(),
+                    },
                 }
             }
             core::ClientEvent::ConversationMetadataChanged(v) => {
                 Self::ConversationMetadataChanged {
-                    conversation_id: conversation_id(v.group_id),
-                    changed: v.changed,
+                    metadata_changed: MetadataChanged {
+                        group_id: v.group_id,
+                        changed: v.changed,
+                    },
                 }
             }
             core::ClientEvent::ConversationPaused(v) => Self::ConversationPaused {
-                conversation_id: conversation_id(v.group_id),
-                floor: v.floor,
+                conversation_paused: ConversationPaused {
+                    group_id: v.group_id,
+                    floor: v.floor,
+                },
             },
             core::ClientEvent::MessageReceived(v) => Self::MessageReceived {
-                conversation_id: conversation_id(v.group_id),
-                message_id: message_id(v.message_id),
-                content_type: v.content_type.map(content_type),
-                sender_inbox_id: InboxId::unchecked(v.sender_inbox_id),
+                message_received: MessageReceived {
+                    group_id: v.group_id,
+                    message_id: v.message_id,
+                    content_type: v.content_type.map(content_type),
+                    sender_inbox_id: InboxId::unchecked(v.sender_inbox_id),
+                },
             },
             core::ClientEvent::MessageStatusChanged(v) => Self::MessageStatusChanged {
-                conversation_id: conversation_id(v.group_id),
-                message_id: message_id(v.message_id),
-                previous: v.previous.into(),
-                current: v.current.into(),
+                message_status_changed: MessageStatusChanged {
+                    group_id: v.group_id,
+                    message_id: v.message_id,
+                    previous: v.previous.into(),
+                    current: v.current.into(),
+                },
             },
             core::ClientEvent::MessageDeleted(v) => Self::MessageDeleted {
-                conversation_id: conversation_id(v.group_id),
-                message_id: message_id(v.message_id),
-                cause: v.cause.into(),
+                message_deleted: MessageDeleted {
+                    group_id: v.group_id,
+                    message_id: v.message_id,
+                    cause: v.cause.into(),
+                },
             },
             core::ClientEvent::MessageExpired(v) => Self::MessageExpired {
-                conversation_id: conversation_id(v.group_id),
-                message_id: message_id(v.message_id),
+                message_expired: MessageRef {
+                    group_id: v.group_id,
+                    message_id: v.message_id,
+                },
             },
             core::ClientEvent::ConsentChanged(v) => Self::ConsentChanged {
-                entity_kind: v.entity_kind.into(),
-                entity: v.entity,
-                state: v.state.into(),
+                consent_changed: ConsentChanged {
+                    entity_kind: v.entity_kind.into(),
+                    entity: v.entity,
+                    state: v.state.into(),
+                },
             },
-            core::ClientEvent::HmacKeysUpdated(_) => Self::HmacKeysUpdated,
+            core::ClientEvent::HmacKeysUpdated(_) => Self::HmacKeysUpdated {
+                hmac_keys_updated: HmacKeysUpdated {},
+            },
             core::ClientEvent::IdentityRegistered(v) => Self::IdentityRegistered {
-                inbox_id: InboxId::unchecked(v.inbox_id),
-                installation_id: installation_id(v.installation_key),
+                identity_registered: IdentityRegistered {
+                    inbox_id: InboxId::unchecked(v.inbox_id),
+                    installation_key: v.installation_key,
+                },
             },
             core::ClientEvent::IdentityOwnInstallationAdded(v) => {
                 Self::IdentityOwnInstallationAdded {
-                    installation_id: installation_id(v.installation_key),
+                    own_installation_added: InstallationRef {
+                        installation_key: v.installation_key,
+                    },
                 }
             }
             core::ClientEvent::IdentityOwnInstallationRevoked(v) => {
                 Self::IdentityOwnInstallationRevoked {
-                    installation_id: installation_id(v.installation_key),
-                    is_this_installation: v.is_this_installation,
+                    own_installation_revoked: InstallationRevoked {
+                        installation_key: v.installation_key,
+                        is_this_installation: v.is_this_installation,
+                    },
                 }
             }
             core::ClientEvent::ClientRejectedByServer(v) => Self::ClientRejectedByServer {
-                cause: v.cause.into(),
-                min_libxmtp_version: v.min_libxmtp_version,
+                rejected_by_server: ClientRejectedByServer {
+                    cause: v.cause.into(),
+                    min_libxmtp_version: v.min_libxmtp_version,
+                },
             },
             core::ClientEvent::ClientLockoutChanged(v) => Self::ClientLockoutChanged {
-                change: v.change.into(),
+                lockout_changed: LockoutChanged {
+                    change: v.change.into(),
+                },
             },
             core::ClientEvent::ConversationForkDetected(v) => Self::ConversationForkDetected {
-                conversation_id: conversation_id(v.group_id),
+                conversation_fork_detected: GroupRef {
+                    group_id: v.group_id,
+                },
             },
-            core::ClientEvent::NotificationsFailed(v) => {
-                Self::NotificationsFailed { cause: v.cause }
-            }
+            core::ClientEvent::NotificationsFailed(v) => Self::NotificationsFailed {
+                notifications_failed: NotificationsFailed { cause: v.cause },
+            },
             core::ClientEvent::ArchiveRestored(v) => Self::ArchiveRestored {
-                complete: v.complete,
+                archive_restored: ArchiveRestored {
+                    complete: v.complete,
+                },
             },
             core::ClientEvent::ConnectionStateChanged(v) => Self::ConnectionStateChanged {
-                previous: v.previous.into(),
-                current: v.current.into(),
+                connection_state_changed: ConnectionStateChanged {
+                    previous: v.previous.into(),
+                    current: v.current.into(),
+                },
             },
             core::ClientEvent::AttachmentUploadStarted(v) => Self::AttachmentUploadStarted {
-                attachment: v.into(),
+                attachment_upload_started: v.into(),
             },
             core::ClientEvent::AttachmentUploadCompleted(v) => Self::AttachmentUploadCompleted {
-                attachment: v.into(),
+                attachment_upload_completed: v.into(),
             },
             core::ClientEvent::AttachmentUploadFailed(v) => Self::AttachmentUploadFailed {
-                attachment: v.into(),
+                attachment_upload_failed: v.into(),
             },
             core::ClientEvent::AttachmentDownloadStarted(v) => Self::AttachmentDownloadStarted {
-                attachment: v.into(),
+                attachment_download_started: v.into(),
             },
             core::ClientEvent::AttachmentDownloadCompleted(v) => {
                 Self::AttachmentDownloadCompleted {
-                    attachment: v.into(),
+                    attachment_download_completed: v.into(),
                 }
             }
             core::ClientEvent::AttachmentDownloadFailed(v) => Self::AttachmentDownloadFailed {
-                attachment: v.into(),
+                attachment_download_failed: v.into(),
             },
             core::ClientEvent::AttachmentDeleted(v) => Self::AttachmentDeleted {
-                attachment: v.into(),
+                attachment_deleted: v.into(),
             },
             core::ClientEvent::Lagged(v) => Self::Lagged {
-                discarded: v.discarded,
+                lagged: Lagged {
+                    discarded: v.discarded,
+                },
             },
         }
     }
 }
+
+#[cfg(test)]
+mod diagnostics;
+
+#[cfg(test)]
+mod schema_tests;

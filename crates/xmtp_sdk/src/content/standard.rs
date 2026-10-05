@@ -1,5 +1,5 @@
 /// Content at this boundary is uncompressed. Send options control wire compression.
-#[derive(Clone, Debug, uniffi::Record)]
+#[derive(Clone, uniffi::Record)]
 pub struct EncodedContent {
     pub r#type: ContentTypeId,
     #[uniffi(default)]
@@ -7,6 +7,21 @@ pub struct EncodedContent {
     #[uniffi(default = None)]
     pub fallback: Option<String>,
     pub content: Vec<u8>,
+}
+
+impl std::fmt::Debug for EncodedContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut parameters = self.parameters.clone();
+        if let Some(secret) = parameters.get_mut("secret") {
+            *secret = "<redacted>".into();
+        }
+        f.debug_struct("EncodedContent")
+            .field("type", &self.r#type)
+            .field("parameters", &parameters)
+            .field("fallback", &self.fallback)
+            .field("content_bytes", &self.content.len())
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -175,6 +190,12 @@ pub(crate) fn catalogue_push_default(content_type: &ContentTypeId) -> bool {
 #[xmtp_macro::sdk_export(pure)]
 pub fn is_catalogue_content_type(content_type: ContentTypeId) -> bool {
     catalogue_entry(&content_type).is_some()
+}
+
+/// The catalogue push value. Unknown custom content types default to push.
+#[xmtp_macro::sdk_export(pure)]
+pub fn catalogue_content_type_should_push(content_type: ContentTypeId) -> bool {
+    catalogue_push_default(&content_type)
 }
 
 #[xmtp_macro::sdk_export(pure)]

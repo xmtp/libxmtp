@@ -1,6 +1,20 @@
 //! Sync entry points and the intent-resolution loop.
 
 use super::*;
+use xmtp_common::snippet::Snippet;
+
+// implements: PROC-036
+fn log_publish_error(error: &GroupError) {
+    if let GroupError::FailedToVerifyInstallations(failed) = error {
+        tracing::error!(
+            error_kind = "FailedToVerifyInstallations",
+            failed_installation_count = failed.0.len(),
+            "Sync: error publishing intents"
+        );
+    } else {
+        tracing::error!("Sync: error publishing intents {error:?}");
+    }
+}
 
 impl<Context> MlsGroup<Context>
 where
@@ -27,7 +41,7 @@ where
         let epoch = self.epoch().await?;
         tracing::debug!(
             inbox_id = self.context.inbox_id(),
-            installation_id = %self.context.installation_id(),
+            installation_id = self.context.installation_id().as_slice().snippet(),
             group_id = self.group_id.short_hex(),
             epoch,
             "syncing group",
@@ -148,7 +162,7 @@ where
         // Even if publish fails, continue to receiving
         let result = self.publish_intents().await;
         if let Err(e) = result {
-            tracing::error!("Sync: error publishing intents {e:?}",);
+            log_publish_error(&e);
             summary.add_publish_err(e);
         }
 
@@ -231,7 +245,8 @@ where
             group_id = self.group_id
         );
 
-        let result = self.sync_until_intent_resolved_inner(intent_id).await;
+        // Keep the round future off the containing group sync poll stack.
+        let result = Box::pin(self.sync_until_intent_resolved_inner(intent_id)).await;
         let summary = match &result {
             Ok(summary) => Some(summary),
             Err(GroupError::Sync(summary)) => Some(&**summary),

@@ -488,6 +488,7 @@ jobs:
       - test-backend
       - test-native-backend
       - test-workspace
+      - test-sdk
       - test-xdbg
       - test-keepalive-probe
       - test-node

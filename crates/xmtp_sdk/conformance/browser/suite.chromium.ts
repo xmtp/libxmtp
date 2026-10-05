@@ -587,19 +587,19 @@ export async function runBrowserBridgeConformance(
     );
 
     const eventFilter: sdk.EventFilter = {
-      kinds: ["conversationJoined"],
-      referencesOwnMessages: false,
+      kinds: ["conversation.joined"],
+      references_own_messages: false,
     };
     const eventReader = await reopened.events(eventFilter);
     let listenerCalls = 0;
     const listenerId = await reopened.startListener(eventFilter, (event) => {
-      equal(event.kind, "conversationJoined", "listener event changed");
+      equal(event.kind, "conversation.joined", "listener event changed");
       listenerCalls += 1;
     });
     await reopened.conversations.createGroup([]);
     equal(
       (await eventReader.next()).value?.kind,
-      "conversationJoined",
+      "conversation.joined",
       "event stream missed the join",
     );
     for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
@@ -611,7 +611,7 @@ export async function runBrowserBridgeConformance(
     await reopened.conversations.createGroup([]);
     equal(
       (await eventStream.next()).value?.kind,
-      "conversationJoined",
+      "conversation.joined",
       "event stream missed the join",
     );
     await eventStream.return();

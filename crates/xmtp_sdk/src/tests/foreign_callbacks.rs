@@ -1,6 +1,73 @@
 use super::*;
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn credential_callbacks_stay_serial_after_caller_abort() {
+    use std::sync::atomic::AtomicUsize;
+    use tokio::sync::{Semaphore, mpsc};
+    use xmtp_api_backend::AuthCallback;
+
+    struct HeldCredential {
+        entered: mpsc::UnboundedSender<()>,
+        release: Semaphore,
+        active: AtomicUsize,
+        maximum: AtomicUsize,
+        calls: AtomicUsize,
+    }
+
+    #[xmtp_common::async_trait]
+    impl CredentialSource for HeldCredential {
+        async fn credential(&self) -> Result<Credential, CredentialError> {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.maximum.fetch_max(active, Ordering::SeqCst);
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.entered.send(()).unwrap();
+            self.release.acquire().await.unwrap().forget();
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(Credential {
+                name: None,
+                value: "test-token".into(),
+                expires_at_seconds: i64::MAX,
+            })
+        }
+    }
+
+    let (entered, mut entries) = mpsc::unbounded_channel();
+    let source = Arc::new(HeldCredential {
+        entered,
+        release: Semaphore::new(0),
+        active: AtomicUsize::new(0),
+        maximum: AtomicUsize::new(0),
+        calls: AtomicUsize::new(0),
+    });
+    let bridge = Arc::new(AuthBridge::new(source.clone()));
+    let first_bridge = bridge.clone();
+    let first = tokio::spawn(async move { first_bridge.on_auth_required().await });
+    entries.recv().await.unwrap();
+    first.abort();
+    assert!(first.await.unwrap_err().is_cancelled());
+
+    let mut cancelled_waiter = Box::pin(bridge.on_auth_required());
+    assert!(futures::poll!(cancelled_waiter.as_mut()).is_pending());
+    drop(cancelled_waiter);
+
+    let second = tokio::spawn(async move { bridge.on_auth_required().await });
+    let overlapped = xmtp_common::time::timeout(Duration::from_millis(100), entries.recv())
+        .await
+        .is_ok();
+    source.release.add_permits(1);
+    if !overlapped {
+        xmtp_common::time::timeout(Duration::from_secs(5), entries.recv()).await?;
+    }
+    source.release.add_permits(3);
+    xmtp_common::time::timeout(Duration::from_secs(5), second)
+        .await??
+        .unwrap();
+    assert_eq!(source.maximum.load(Ordering::SeqCst), 1);
+    assert_eq!(source.active.load(Ordering::SeqCst), 0);
+    assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn foreign_call_not_dropped_on_cancel() {
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
@@ -211,10 +278,9 @@ async fn malformed_host_ids_fail_operations_with_invalid_argument() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn malformed_event_filter_ids_fail_before_client_access() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let valid: ConversationId = host_id(&"ab".repeat(16));
     let filter = || EventFilter {
         kinds: vec![EventKind::MessageReceived],
-        conversation_ids: Some(vec![valid.clone(), host_id(&uppercase_hex(16))]),
+        group_ids: Some(vec![vec![0xab; 16], vec![]]),
         ..EventFilter::default()
     };
     client.end().await?;

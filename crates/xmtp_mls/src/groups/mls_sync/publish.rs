@@ -42,23 +42,18 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// result retries the saved bytes, except `OUT_OF_RANGE`, which a recovery
     /// read settles instead. A state-changing attempt blocks later work until
     /// ordered processing resolves it.
-    #[xmtp_common::mls_span]
+    #[xmtp_common::mls_span(redact_error)]
     pub(in crate::groups) async fn publish_intents(&self) -> Result<(), GroupError> {
         // Nothing this client prepared is published once
         // its connection is blocked. The intent stays queued for a client that can.
         self.context.server_configuration().check()?;
         let mut sent = HashSet::new();
+        let mut after = None;
         let mut rejected_request = None;
         let upper_id = self
             .context
             .db()
-            .find_group_intents(
-                self.group_id,
-                Some(vec![IntentState::ToPublish, IntentState::Published]),
-                Some(IntentKind::all().collect()),
-            )?
-            .last()
-            .map(|intent| intent.id);
+            .last_publish_intent_id(self.group_id.as_ref())?;
         let Some(upper_id) = upper_id else {
             return Ok(());
         };
@@ -66,21 +61,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         loop {
             let next = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
                 tx.with_group(self.group_id, |group, storage| {
-                    let intents = storage.db().find_group_intents(
-                        self.group_id,
-                        Some(vec![IntentState::ToPublish, IntentState::Published]),
-                        Some(IntentKind::all().collect()),
+                    let intent = storage.db().next_publish_intent(
+                        self.group_id.as_ref(),
+                        after,
+                        upper_id,
                     )?;
-                    // A prepared state change must reach ordered resolution first.
-                    let blocking = intents.iter().find(|intent| {
-                        intent.state == IntentState::Published
-                            && intent.kind != IntentKind::SendMessage
-                    });
-                    let intent = blocking.or_else(|| {
-                        intents
-                            .iter()
-                            .find(|intent| intent.id <= upper_id && !sent.contains(&intent.id))
-                    });
                     let Some(intent) = intent else {
                         return Ok(Continue(None));
                     };
@@ -93,16 +78,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             .prepared_envelopes(intent.id)?
                             .ok_or(OutgoingPreparationError::MissingPreparedAttempt(intent.id))?;
                         let attempt = PreparedAttempt::decode(&bytes)?;
-                        attempt.validate_intent(intent)?;
-                        return Ok(Continue(Some(NextPublish::Prepared(
-                            intent.clone(),
-                            attempt,
-                        ))));
+                        attempt.validate_intent(&intent)?;
+                        return Ok(Continue(Some(NextPublish::Prepared(intent, attempt))));
                     }
                     if storage.db().prepared_envelopes(intent.id)?.is_some() {
                         return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
                     }
-                    let requirements = PublishRequirements::capture(group, intent)?;
+                    let requirements = PublishRequirements::capture(group, &intent)?;
                     Ok::<_, GroupError>(Continue(Some(NextPublish::Resolve(requirements))))
                 })
             })?
@@ -149,6 +131,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         {
                             if self.reject_unprepared_request(&requirements)? {
                                 sent.insert(requirements.intent.id);
+                                after = Some(requirements.intent.id);
                                 rejected_request.get_or_insert(error);
                             }
                             continue;
@@ -156,6 +139,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         Err(error) => return Err(error),
                         Ok(None) => {
                             sent.insert(requirements.intent.id);
+                            after = Some(requirements.intent.id);
                             continue;
                         }
                         Ok(Some(attempt)) => (requirements.intent, attempt),
@@ -163,6 +147,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }
             };
             sent.insert(intent.id);
+            // A blocker can be ahead of earlier messages. Do not skip those messages.
+            if intent.state != IntentState::Published || intent.kind == IntentKind::SendMessage {
+                after = Some(intent.id);
+            }
             if attempt.receipts.is_none() {
                 // The writer and every mutable MLS object were dropped above.
                 // An ambiguous error keeps this exact attempt eligible for retry.
@@ -359,14 +347,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     if group.pending_commit().is_some() {
                         return Err(OutgoingPreparationError::UnexpectedPendingCommit.into());
                     }
-                    let has_pending_change = db
-                        .find_group_intents(
-                            self.group_id,
-                            Some(vec![IntentState::Published]),
-                            Some(IntentKind::all().collect()),
-                        )?
-                        .iter()
-                        .any(|other| other.kind != IntentKind::SendMessage);
+                    let has_pending_change =
+                        db.has_published_group_change(self.group_id.as_ref())?;
                     if has_pending_change {
                         return Err(OutgoingPreparationError::StateChanged.into());
                     }

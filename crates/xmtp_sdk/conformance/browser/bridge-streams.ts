@@ -12,7 +12,7 @@ function latch() {
 
 export function registerStreamTests(): void {
   // verifies: PROC-052
-  it("runs one underlying read at a time for concurrent stream reads", async () => {
+  it("rejects a second read until the first reaches the app", async () => {
     let inFlight = 0;
     let most = 0;
     const releases: (() => void)[] = [];
@@ -31,11 +31,14 @@ export function registerStreamTests(): void {
     };
     const stream = new MessageStream(async () => reader, {});
     const first = stream.next();
-    const second = stream.next();
+    await expect(stream.next()).rejects.toThrow(
+      "reader iterator read is active",
+    );
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
     expect(most).toBe(1);
     releases.shift()!();
     expect(await first).toEqual({ done: false, value: 1 });
+    const second = stream.next();
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
     releases.shift()!();
     expect(await second).toEqual({ done: false, value: 2 });
@@ -43,22 +46,26 @@ export function registerStreamTests(): void {
     await stream.end();
   });
 
-  // A queued read after end of stream does not wait for the reader's end.
-  it("answers a queued read at once when the stream closes", async () => {
+  // A pending read after end of stream does not wait for the reader's end.
+  it("answers one pending read at once when the stream closes", async () => {
+    const entered = latch();
     const reader = {
       async next(): Promise<number | undefined> {
-        return undefined;
+        entered.resolve();
+        return new Promise<number | undefined>(() => {});
       },
       end(): Promise<void> {
         return new Promise<void>(() => {});
       },
     };
     const stream = new MessageStream(async () => reader, {});
-    void stream.next();
-    const second = await Promise.race([
-      stream.next(),
+    const pending = stream.next();
+    await entered.promise;
+    void stream.end();
+    const result = await Promise.race([
+      pending,
       new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 200)),
     ]);
-    expect(second).toEqual({ done: true, value: undefined });
+    expect(result).toEqual({ done: true, value: undefined });
   });
 }

@@ -123,7 +123,7 @@ async fn default_storage_requires_a_host_location() {
     ));
 }
 
-// verifies: STORE-009
+// verifies: STORE-009, STORE-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn labelled_directory_opens_the_deployment_layout_offline_from_its_record() {
     let relay = CountingRelay::start().await?;
@@ -166,6 +166,16 @@ async fn labelled_directory_opens_the_deployment_layout_offline_from_its_record(
     relay.refuse();
     settings.allow_offline = true;
     let identity = signer::identity(signer).await?;
+    let stranger = signer::identity(crate::generate_local_signer().await).await?;
+    let denied = Client::build(stranger, settings.clone(), Some(inbox_id.clone())).await;
+    if let Ok(client) = &denied {
+        client.end().await?;
+    }
+    assert!(
+        is_identity_mismatch(&denied),
+        "offline supplied inbox: {:?}",
+        denied.err()
+    );
     let offline = Client::build(identity.clone(), settings.clone(), Some(inbox_id.clone())).await?;
     assert_eq!(relay.connections(), 0, "offline build sent a request");
     assert_eq!(
@@ -289,22 +299,47 @@ async fn explicit_storage_opens_only_for_an_identity_of_its_inbox() {
     );
     let built = Client::build(stranger.clone(), settings.clone(), None).await;
     assert!(is_identity_mismatch(&built), "build: {:?}", built.err());
+    let supplied = Client::build(stranger.clone(), settings.clone(), Some(inbox_id.clone())).await;
+    if let Ok(client) = &supplied {
+        client.end().await?;
+    }
+    assert!(
+        is_identity_mismatch(&supplied),
+        "supplied inbox: {:?}",
+        supplied.err()
+    );
 
     let online = Client::build(added.clone(), settings.clone(), None).await?;
     assert_eq!(online.inbox_id(), inbox_id);
     online.end().await?;
+    let online_supplied =
+        Client::build(added.clone(), settings.clone(), Some(inbox_id.clone())).await?;
+    assert_eq!(online_supplied.inbox_id(), inbox_id);
+    online_supplied.end().await?;
 
     relay.refuse();
     settings.allow_offline = true;
-    let built = Client::build(stranger, settings.clone(), None).await;
+    let built = Client::build(stranger.clone(), settings.clone(), None).await;
     assert!(
         is_identity_mismatch(&built),
         "offline build: {:?}",
         built.err()
     );
-    let offline = Client::build(added, settings, None).await?;
+    let supplied = Client::build(stranger, settings.clone(), Some(inbox_id.clone())).await;
+    if let Ok(client) = &supplied {
+        client.end().await?;
+    }
+    assert!(
+        is_identity_mismatch(&supplied),
+        "offline supplied inbox: {:?}",
+        supplied.err()
+    );
+    let offline = Client::build(added.clone(), settings.clone(), None).await?;
     assert_eq!(offline.inbox_id(), inbox_id);
     offline.end().await?;
+    let offline_supplied = Client::build(added, settings, Some(inbox_id.clone())).await?;
+    assert_eq!(offline_supplied.inbox_id(), inbox_id);
+    offline_supplied.end().await?;
     assert_eq!(relay.connections(), 0, "offline check sent a request");
     std::fs::remove_dir_all(root)?;
 }
@@ -653,6 +688,7 @@ async fn explicit_storage_refuses_its_creator_offline_when_membership_needs_a_wa
     let creator = signer::identity(creator_signer.clone()).await?;
     let client = Client::create(creator_signer.clone(), settings.clone()).await?;
     let inbox_id = client.inner.inbox_id().to_owned();
+    let supplied_id = client.inbox_id();
 
     // The database alone holds an update in which the creator adds a smart
     // contract wallet. The mock verifier accepts the wallet's signature here;
@@ -694,11 +730,20 @@ async fn explicit_storage_refuses_its_creator_offline_when_membership_needs_a_wa
 
     relay.refuse();
     settings.allow_offline = true;
-    let offline = Client::build(creator, settings, None).await;
+    let offline = Client::build(creator.clone(), settings.clone(), None).await;
     assert!(
         is_identity_mismatch(&offline),
         "offline build: {:?}",
         offline.err()
+    );
+    let supplied = Client::build(creator, settings, Some(supplied_id)).await;
+    if let Ok(client) = &supplied {
+        client.end().await?;
+    }
+    assert!(
+        is_identity_mismatch(&supplied),
+        "offline supplied inbox: {:?}",
+        supplied.err()
     );
     assert_eq!(relay.connections(), 0, "offline check sent a request");
     std::fs::remove_dir_all(root)?;
@@ -720,7 +765,13 @@ async fn explicit_storage_reports_an_unreadable_identity_update_offline() {
     let creator = signer::identity(creator_signer.clone()).await?;
     let client = Client::create(creator_signer, settings.clone()).await?;
     let inbox_id = client.inner.inbox_id().to_owned();
-    let db = client.inner.context.db();
+    client.end().await?;
+
+    relay.refuse();
+    settings.allow_offline = true;
+    let valid = Client::build(creator.clone(), settings.clone(), None).await?;
+    assert_eq!(valid.inner.inbox_id(), inbox_id);
+    let db = valid.inner.context.db();
     let last = db.get_identity_updates(&inbox_id, None, None)?;
     let sequence_id = last.last().expect("the creator's updates").sequence_id + 1;
     db.insert_or_ignore_identity_updates(&[StoredIdentityUpdate::new(
@@ -729,15 +780,25 @@ async fn explicit_storage_reports_an_unreadable_identity_update_offline() {
         0,
         vec![0xff; 8],
     )])?;
-    client.end().await?;
+    valid.end().await?;
 
-    relay.refuse();
-    settings.allow_offline = true;
     let offline = Client::build(creator, settings, None).await;
+    let details = match offline {
+        Err(XmtpError::Unknown(details)) => details,
+        other => panic!("offline build: {:?}", other.err()),
+    };
+    assert_eq!(details.code, "Unknown");
+    assert!(matches!(
+        details.category,
+        crate::error::ErrorCategory::Unknown
+    ));
+    assert!(!details.retryable);
     assert!(
-        matches!(&offline, Err(error) if !matches!(error, XmtpError::IdentityMismatch(_))),
-        "offline build: {:?}",
-        offline.err()
+        details
+            .message
+            .starts_with("Association error: decoding proto"),
+        "offline build cause: {}",
+        details.message
     );
     assert_eq!(relay.connections(), 0, "offline check sent a request");
     std::fs::remove_dir_all(root)?;

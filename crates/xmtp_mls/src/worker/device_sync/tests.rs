@@ -6,18 +6,139 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, StoredGroup},
 };
 
+// verifies: PROC-036
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn device_sync_creation_logs_omit_full_private_ids() {
+    use tracing::instrument::WithSubscriber;
+    use xmtp_logging::{Level, test_logging::LogCapture};
+
+    tester!(alix, disable_workers);
+    let sync = alix.context.device_sync_client();
+    assert!(sync.primary_sync_group()?.is_none());
+    let capture = LogCapture::new(Level::Trace);
+    let group = sync
+        .get_sync_group()
+        .with_subscriber(capture.dispatch())
+        .await?;
+    let output = capture.output();
+    let event = output
+        .lines()
+        .find(|line| line.contains("Creating sync group:"))
+        .expect("group creation emitted its INFO event");
+    assert!(
+        !event.contains(&hex::encode(alix.context.installation_id())),
+        "group creation log contains the full installation ID"
+    );
+    assert!(
+        !event.contains(&hex::encode(group.group_id)),
+        "group creation log contains the full sync group ID"
+    );
+}
+
+// verifies: PROC-036
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn device_sync_logs_omit_installation_id_and_message_payload() {
+    use futures::FutureExt;
+    use preference_sync::PreferenceUpdate;
+    use xmtp_logging::{Level, test_logging::LogCapture};
+
+    tester!(alix, disable_workers);
+    let sync = alix.context.device_sync_client();
+    sync.get_sync_group().await?;
+    let capture = LogCapture::new(Level::Trace);
+    tracing::dispatcher::with_default(&capture.dispatch(), || {
+        let content = ContentProto::PreferenceUpdates(
+            xmtp_proto::xmtp::device_sync::content::PreferenceUpdates {
+                updates: vec![
+                    PreferenceUpdate::Hmac {
+                        key: vec![93; 32],
+                        cycled_at_ns: 1,
+                    }
+                    .into(),
+                ],
+            },
+        );
+        let _ = sync.send_device_sync_message(content).now_or_never();
+    });
+    let output = capture.output();
+    let event = output
+        .lines()
+        .find(|line| line.contains("Sending sync message to group"))
+        .expect("send emitted its INFO event");
+    assert!(
+        !event.contains(&alix.context.installation_id().to_string()),
+        "send log contains the full installation ID"
+    );
+    assert!(
+        !output.contains("\"content\":"),
+        "send span records the message payload"
+    );
+}
+
 // verifies: EVENT-024, SYNC-020
 #[rstest::rstest]
 #[timeout(std::time::Duration::from_secs(180))]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn thousand_local_consent_changes_publish_once_without_echo() {
+    use super::preference_sync::PreferenceUpdate;
+    use crate::subscriptions::internal::PreferenceOrigin;
     use std::sync::Arc;
     use tokio::sync::Notify;
 
     tester!(alix1, sync_worker);
     tester!(alix2, from: alix1);
     alix1.test_has_same_sync_group_as(&alix2).await?;
+    use worker::test_hooks::{PreferenceCapture, PreferenceStage};
+
+    // These clients initialize in order. The second creates the shared group
+    // and welcomes the first. The helper above waits for that adoption.
+    // Welcome and marker writes use the same event lock and FIFO worker queue,
+    // so marker completion follows the welcome's consent replay.
+    {
+        let ready = [
+            StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                "consent-ready-source".into(),
+            ),
+            StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                "consent-ready-receiver".into(),
+            ),
+        ];
+        let capture =
+            PreferenceCapture::new(vec![alix1.installation_id, alix2.installation_id], &ready);
+        alix1.set_consent_states(&ready[..1]).await?;
+        alix2.set_consent_states(&ready[1..]).await?;
+        xmtp_common::time::timeout(std::time::Duration::from_secs(160), async {
+            loop {
+                let observations = capture.snapshot();
+                let ready_on_both = [alix1.installation_id, alix2.installation_id]
+                    .iter()
+                    .enumerate()
+                    .all(|(index, installation)| {
+                        observations.iter().any(|event| {
+                            event.installation == *installation
+                                && matches!(event.stage, PreferenceStage::Completed)
+                                && event.record.entity == ready[index].entity
+                        }) && observations.iter().any(|event| {
+                            event.installation != *installation
+                                && matches!(event.stage, PreferenceStage::Received)
+                                && event.record.entity == ready[index].entity
+                        })
+                    });
+                if ready_on_both {
+                    break;
+                }
+                capture.changed().await;
+            }
+        })
+        .await?;
+    }
     alix1.worker().clear_metric(SyncMetric::ConsentSent);
     alix2.worker().clear_metric(SyncMetric::ConsentSent);
     alix2.worker().clear_metric(SyncMetric::ConsentReceived);
@@ -29,30 +150,120 @@ async fn thousand_local_consent_changes_publish_once_without_echo() {
         entered.clone(),
         release.clone(),
     ));
-    let record = |index| {
-        StoredConsentRecord::new(
-            ConsentType::InboxId,
-            ConsentState::Allowed,
-            format!("consent-burst-{index}"),
-        )
-    };
-    alix1.set_consent_states(&[record(0)]).await?;
+    use std::collections::HashMap;
+
+    let records: Vec<_> = (0..1_000)
+        .map(|index| {
+            StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                format!("consent-burst-{index}"),
+            )
+        })
+        .collect();
+    let control = StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Allowed,
+        "consent-unrelated-control".into(),
+    );
+    let mut observed_records = records.clone();
+    observed_records.push(control.clone());
+    let expected: HashMap<_, usize> = observed_records
+        .iter()
+        .map(|record| ((record.entity_type as i32, record.entity.clone()), 1))
+        .collect();
+    let capture = PreferenceCapture::new(
+        vec![alix1.installation_id, alix2.installation_id],
+        &observed_records,
+    );
+    let receiver_local = alix2.context.events().subscribe(
+        xmtp_events::EventFilter::default().with_internal(|event| {
+            matches!(
+                event,
+                InternalEvent::PreferencesChanged {
+                    origin: PreferenceOrigin::Local,
+                    ..
+                }
+            )
+        }),
+        None,
+    );
+    alix1.set_consent_states(&records[..1]).await?;
     xmtp_common::time::timeout(std::time::Duration::from_secs(10), entered.notified()).await?;
-    for index in 1..1_000 {
-        alix1.set_consent_states(&[record(index)]).await?;
+    for record in &records[1..] {
+        alix1
+            .set_consent_states(std::slice::from_ref(record))
+            .await?;
     }
+    // A separate consent change must not alter the count for the burst.
+    alix1.set_consent_states(&[control]).await?;
     release.notify_one();
     xmtp_common::time::timeout(std::time::Duration::from_secs(160), async {
-        while alix1.worker().get(SyncMetric::ConsentSent) < 1_000
-            || alix2.worker().get(SyncMetric::ConsentReceived) < 1_000
-        {
-            xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+        loop {
+            let mut sent = HashMap::new();
+            let mut received = HashMap::new();
+            let mut completed = HashMap::new();
+            for observation in capture.snapshot() {
+                assert_eq!(observation.record.state, ConsentState::Allowed);
+                let key = (
+                    observation.record.entity_type as i32,
+                    observation.record.entity,
+                );
+                let counts = match observation.stage {
+                    PreferenceStage::Published => {
+                        assert_eq!(
+                            observation.installation, alix1.installation_id,
+                            "receiver must not publish observed consent"
+                        );
+                        &mut sent
+                    }
+                    PreferenceStage::Received
+                        if observation.installation == alix2.installation_id =>
+                    {
+                        &mut received
+                    }
+                    PreferenceStage::Completed
+                        if observation.installation == alix1.installation_id =>
+                    {
+                        &mut completed
+                    }
+                    _ => continue,
+                };
+                let count = counts.entry(key.clone()).or_insert(0);
+                *count += 1;
+                assert_eq!(
+                    *count, 1,
+                    "consent record {key:?} must occur once at {:?}",
+                    observation.stage
+                );
+            }
+            assert!(
+                !receiver_local.is_closed(),
+                "receiver subscription must stay open"
+            );
+            for event in receiver_local.drain() {
+                assert!(
+                    !matches!(event.client, Some(xmtp_events::ClientEvent::Lagged(_))),
+                    "receiver subscription must not lose events"
+                );
+                if let Some(InternalEvent::PreferencesChanged { updates, .. }) = event.internal {
+                    for update in updates {
+                        if let PreferenceUpdate::Consent(record) = update {
+                            assert!(
+                                !expected.contains_key(&(record.entity_type as i32, record.entity)),
+                                "received consent must not have local origin"
+                            );
+                        }
+                    }
+                }
+            }
+            if sent == expected && received == expected && completed == expected {
+                break;
+            }
+            capture.changed().await;
         }
     })
     .await?;
-    assert_eq!(alix1.worker().get(SyncMetric::ConsentSent), 1_000);
-    assert_eq!(alix2.worker().get(SyncMetric::ConsentReceived), 1_000);
-    assert_eq!(alix2.worker().get(SyncMetric::ConsentSent), 0);
 }
 
 #[rstest::rstest]
@@ -711,4 +922,170 @@ async fn sync_message_from_another_inbox_is_not_applied() {
         Some(vec![2; 42])
     );
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
+}
+
+// The same event reaches the JSON destination and the public app log callback.
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg(not(target_arch = "wasm32"))]
+fn incoming_preference_logs_omit_secret_material() {
+    use std::sync::Arc;
+    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
+
+    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
+    impl LogSinkTarget for Capture {
+        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+            self.0.lock().push(record);
+            Ok(())
+        }
+    }
+
+    let key = b"synthetic-private-sync-key-e7a619c3".to_vec();
+    let entity = "synthetic-private-consent-identity";
+    let updates = vec![
+        preference_sync::PreferenceUpdate::Hmac {
+            key: key.clone(),
+            cycled_at_ns: 9_007_199_254_740_993,
+        }
+        .into(),
+        preference_sync::PreferenceUpdate::Consent(StoredConsentRecord::new(
+            ConsentType::InboxId,
+            ConsentState::Denied,
+            entity.to_string(),
+        ))
+        .into(),
+    ];
+    let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
+    let capture = LogCapture::with_sink(Level::Info, Some(sink.clone()));
+    tracing::dispatcher::with_default(&capture.dispatch(), || {
+        worker::log_incoming_preference_updates(&updates);
+    });
+    let json = capture.output();
+    assert!(json.contains("Incoming preference updates"));
+    let records = sink.0.lock();
+    assert_eq!(records.len(), 1);
+    assert!(records[0].message.contains("Incoming preference updates"));
+    for sensitive in [
+        format!("{key:?}"),
+        entity.to_string(),
+        "9007199254740993".to_string(),
+    ] {
+        assert!(
+            !json.contains(&sensitive),
+            "sensitive sync material reached JSON logging; synthetic JSON: {json}; synthetic app records: {records:?}"
+        );
+        assert!(
+            !records[0].message.contains(&sensitive),
+            "sensitive material reached the app log message"
+        );
+        assert!(
+            records[0]
+                .fields
+                .values()
+                .all(|value| !value.contains(&sensitive)),
+            "sensitive material reached app log fields"
+        );
+    }
+    assert!(json.contains("\"update_count\":2"));
+    assert_eq!(records[0].message, "Incoming preference updates");
+    assert_eq!(
+        records[0].fields.get("update_count"),
+        Some(&"2".to_string())
+    );
+}
+
+// verifies: PROC-036
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg(not(target_arch = "wasm32"))]
+async fn stored_preference_logs_omit_installation_id_and_secret_material() {
+    use std::sync::Arc;
+    use tracing::instrument::WithSubscriber;
+    use xmtp_db::user_preferences::StoredUserPreferences;
+    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
+    use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
+
+    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
+    impl LogSinkTarget for Capture {
+        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+            self.0.lock().push(record);
+            Ok(())
+        }
+    }
+
+    tester!(alix, disable_workers);
+    let client = alix.device_sync_client();
+    let group = client.get_sync_group().await?;
+    let mut key = b"synthetic-private-sync-key-4bd3e901".to_vec();
+    key.resize(42, 0xa7);
+    let entity = "synthetic-private-consent-identifier";
+    let updates = vec![
+        preference_sync::PreferenceUpdate::Hmac {
+            key: key.clone(),
+            cycled_at_ns: i64::MAX - 1,
+        }
+        .into(),
+        preference_sync::PreferenceUpdate::Consent(StoredConsentRecord::new(
+            ConsentType::InboxId,
+            ConsentState::Denied,
+            entity.into(),
+        ))
+        .into(),
+    ];
+    group
+        .send_message(
+            &sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
+                updates,
+            })),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    let db = alix.context.db();
+    let messages = db.unprocessed_sync_group_messages()?;
+    assert_eq!(messages.len(), 1);
+    let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
+    let capture = LogCapture::with_sink(Level::Info, Some(sink.clone()));
+    client
+        .process_sync_group_messages(&client.metrics, messages)
+        .with_subscriber(capture.dispatch())
+        .await?;
+
+    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+    assert_eq!(
+        StoredUserPreferences::load(&db)?.hmac_key,
+        Some(key.clone())
+    );
+    assert_eq!(
+        db.get_consent_record(entity.into(), ConsentType::InboxId)??
+            .state,
+        ConsentState::Denied
+    );
+    let json = capture.output();
+    let records = sink.0.lock();
+    assert!(json.contains("storing preference updates"));
+    assert!(
+        records
+            .iter()
+            .any(|record| record.message.contains("storing preference updates"))
+    );
+    for sensitive in [
+        alix.context.installation_id().to_string(),
+        hex::encode(alix.context.installation_id()),
+        format!("{key:?}"),
+        hex::encode(&key),
+        entity.into(),
+    ] {
+        assert!(
+            !json.contains(&sensitive),
+            "sensitive preference data reached JSON"
+        );
+        assert!(
+            records.iter().all(|record| {
+                !record.message.contains(&sensitive)
+                    && record
+                        .fields
+                        .values()
+                        .all(|value| !value.contains(&sensitive))
+            }),
+            "sensitive preference data reached the log sink"
+        );
+    }
 }

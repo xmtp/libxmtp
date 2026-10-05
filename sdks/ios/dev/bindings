@@ -1,50 +1,25 @@
-#!/bin/bash
-source "$(dirname "$0")/.setup"
-
-SWIFT_OUT="${ROOT}/bindings/mobile/build/swift"
-
-# --- Preflight sanity check on the nix binary cache ---
-if ! nix config show substituters 2>/dev/null | grep -q "xmtp.cachix.org"; then
-    echo "⚠️  xmtp.cachix.org is not in your nix substituters."
-    echo "    Without it, nix will rebuild every dependency from source,"
-    echo "    which on macOS typically fails inside aws-lc-sys."
-    echo "    Run ./dev/nix-cache-up to configure the cache, then retry."
-    echo ""
-    read -p "Continue anyway? (y/N) " -n 1 -r; echo
-    [[ $REPLY =~ ^[Yy]$ ]] || exit 1
-fi
-
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+output="$ROOT/target/ios-sdk"
+package="$ROOT/sdks/ios/Sources/XmtpSdk"
 if [[ "${1:-}" == "--release" ]]; then
-    echo "Building iOS xcframeworks (all targets)..."
-    nix build "${ROOT}#ios-xcframeworks" --out-link "${ROOT}/bindings/mobile/build/release"
-    rm -rf "$SWIFT_OUT"
-    mkdir -p "$SWIFT_OUT"
-    cp -rL "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFI/LibXMTPSwiftFFI.xcframework" "$SWIFT_OUT/"
-    cp -rL "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFIDynamic/LibXMTPSwiftFFIDynamic.xcframework" "$SWIFT_OUT/"
-    chmod -R u+w "$SWIFT_OUT"
-    cp -f "${ROOT}/bindings/mobile/build/release/LibXMTPSwiftFFI/Sources/LibXMTP/xmtpv3.swift" \
-        "${ROOT}/sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
+  nix build --max-jobs 1 "$ROOT#ios-xcframeworks" --out-link "$output"
+  framework="$output/XmtpSdkFFI/XmtpSdkFFI.xcframework"
+  sources="$output/XmtpSdkFFI/Sources/XmtpSdk"
 else
-    echo "Building iOS xcframeworks (simulator + macOS only)..."
-    # Materialize the xcframework instead of symlinking ---
-    rm -rf "$SWIFT_OUT"
-    nix build "${ROOT}#ios-xcframeworks-fast" \
-        --out-link "${ROOT}/bindings/mobile/build/nix-fast"
-    mkdir -p "$SWIFT_OUT"
-    cp -rL "${ROOT}/bindings/mobile/build/nix-fast/LibXMTPSwiftFFI.xcframework" "$SWIFT_OUT/"
-    cp -f  "${ROOT}/bindings/mobile/build/nix-fast/xmtpv3.swift" "$SWIFT_OUT/xmtpv3.swift"
-    chmod -R u+w "$SWIFT_OUT"
-    # Update SDK source tree with freshly generated Swift bindings
-    cp -f "$SWIFT_OUT/xmtpv3.swift" "${ROOT}/sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
+  nix build --max-jobs 1 "$ROOT#ios-xcframeworks-fast" --out-link "$output"
+  framework="$output/XmtpSdkFFI.xcframework"
+  sources="$output/swift"
 fi
-
-# Invalidate Xcode's staged binary-target cache ---
-DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData"
-if [[ -d "$DERIVED_DATA" ]]; then
-    shopt -s nullglob
-    for staged in "$DERIVED_DATA"/*/SourcePackages/artifacts/libxmtp; do
-        echo "Invalidating stale Xcode SPM artifact cache: $staged"
-        rm -rf "$staged"
-    done
-    shopt -u nullglob
+mkdir -p "$ROOT/sdks/ios/Artifacts" "$package"
+rm -rf "$ROOT/sdks/ios/Artifacts/XmtpSdkFFI.xcframework"
+cp -rL "$framework" "$ROOT/sdks/ios/Artifacts/"
+cp "$sources/xmtp_sdk.swift" "$package/"
+if [[ -d "$sources/runtime" ]]; then
+  rm -rf "$package/runtime"
+  cp -r "$sources/runtime" "$package/"
+else
+  cp -r "$sources/." "$package/"
 fi
+chmod -R u+w "$ROOT/sdks/ios/Artifacts" "$package"

@@ -42,15 +42,22 @@ suspend fun configurePush(client: Client, conversation: Conversation, token: Str
 ### Swift
 
 ```swift
-func configurePush(client: Client, conversation: Conversation, token: String) async throws {
-    _ = try await client.enableNotifications(NotificationConfig(channel: .apns(token: token)))
-    try await conversation.setNotifications(.disabled)
-    let enabled = try await conversation.notificationsEnabled()
-    try await conversation.setNotifications(.default)
-    if case let .failed(error) = try await client.notificationState() {
-        print(error.code)
-    }
-    try await client.disableNotifications()
+func configurePush(client: SDKClient, conversation: Conversation, token: String) async throws {
+  try await client.enableNotifications(config: NotificationConfig(channel: .apns(token: token)))
+  try await conversation.setNotifications(value: .disabled)
+  let enabled: Bool
+  switch conversation {
+  case let .group(group):
+    enabled = try await group.state().common.notificationsEnabled
+  case let .dm(dm):
+    enabled = try await dm.state().notificationsEnabled
+  }
+  print(enabled)
+  try await conversation.setNotifications(value: .default)
+  if case let .failed(error) = try client.notificationState() {
+    print(error)
+  }
+  try await client.disableNotifications()
 }
 ```
 

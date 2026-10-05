@@ -38,13 +38,150 @@ use xmtp_proto::xmtp::{
     mls::message_contents::EncodedContent,
 };
 
+pub(super) fn log_incoming_preference_updates(
+    updates: &[xmtp_proto::xmtp::device_sync::content::PreferenceUpdate],
+) {
+    tracing::info!(update_count = updates.len(), "Incoming preference updates");
+}
+
 const MAX_ATTEMPTS: i32 = 3;
 type PendingEvent = Arc<Mutex<Option<(u64, xmtp_events::EventEnvelope<InternalEvent>)>>>;
 
 #[cfg(test)]
 pub(crate) mod test_hooks {
-    use std::sync::Arc;
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::{Arc, LazyLock, Weak},
+    };
     use tokio::sync::Notify;
+    use xmtp_db::consent_record::StoredConsentRecord;
+    use xmtp_proto::types::InstallationId;
+
+    use super::PreferenceUpdate;
+
+    pub(crate) type ConsentKey = (i32, String);
+
+    #[derive(Clone, Copy, Debug)]
+    pub(crate) enum PreferenceStage {
+        Published,
+        Received,
+        Completed,
+    }
+
+    #[derive(Clone, Debug)]
+    pub(crate) struct ConsentObservation {
+        pub(crate) installation: InstallationId,
+        pub(crate) stage: PreferenceStage,
+        pub(crate) record: StoredConsentRecord,
+    }
+
+    struct PreferenceCaptureState {
+        keys: HashSet<ConsentKey>,
+        records: parking_lot::Mutex<Vec<ConsentObservation>>,
+        changed: Notify,
+    }
+
+    static PREFERENCE_CAPTURES: LazyLock<
+        parking_lot::Mutex<HashMap<InstallationId, Weak<PreferenceCaptureState>>>,
+    > = LazyLock::new(parking_lot::Mutex::default);
+
+    pub(crate) struct PreferenceCapture {
+        installations: Vec<InstallationId>,
+        state: Arc<PreferenceCaptureState>,
+    }
+
+    impl PreferenceCapture {
+        #[track_caller]
+        pub(crate) fn new(
+            installations: Vec<InstallationId>,
+            records: &[StoredConsentRecord],
+        ) -> Self {
+            let state = Arc::new(PreferenceCaptureState {
+                keys: records
+                    .iter()
+                    .map(|record| (record.entity_type as i32, record.entity.clone()))
+                    .collect(),
+                records: parking_lot::Mutex::default(),
+                changed: Notify::new(),
+            });
+            let mut captures = PREFERENCE_CAPTURES.lock();
+            for installation in &installations {
+                assert!(
+                    captures.get(installation).and_then(Weak::upgrade).is_none(),
+                    "one preference capture per installation"
+                );
+                captures.insert(*installation, Arc::downgrade(&state));
+            }
+            Self {
+                installations,
+                state,
+            }
+        }
+
+        pub(crate) fn snapshot(&self) -> Vec<ConsentObservation> {
+            self.state.records.lock().clone()
+        }
+
+        pub(crate) async fn changed(&self) {
+            self.state.changed.notified().await;
+        }
+    }
+
+    impl Drop for PreferenceCapture {
+        fn drop(&mut self) {
+            let mut captures = PREFERENCE_CAPTURES.lock();
+            for installation in &self.installations {
+                if captures
+                    .get(installation)
+                    .is_some_and(|capture| Weak::ptr_eq(capture, &Arc::downgrade(&self.state)))
+                {
+                    captures.remove(installation);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn captures_preferences(installation: InstallationId) -> bool {
+        PREFERENCE_CAPTURES
+            .lock()
+            .get(&installation)
+            .and_then(Weak::upgrade)
+            .is_some()
+    }
+
+    pub(crate) fn observe_preferences(
+        installation: InstallationId,
+        stage: PreferenceStage,
+        updates: &[PreferenceUpdate],
+    ) {
+        let capture = PREFERENCE_CAPTURES
+            .lock()
+            .get(&installation)
+            .and_then(Weak::upgrade);
+        let Some(capture) = capture else {
+            return;
+        };
+        let mut records = capture.records.lock();
+        let before = records.len();
+        for update in updates {
+            if let PreferenceUpdate::Consent(record) = update
+                && capture
+                    .keys
+                    .contains(&(record.entity_type as i32, record.entity.clone()))
+            {
+                records.push(ConsentObservation {
+                    installation,
+                    stage,
+                    record: record.clone(),
+                });
+            }
+        }
+        let changed = records.len() != before;
+        drop(records);
+        if changed {
+            capture.changed.notify_one();
+        }
+    }
 
     type BlockHook = (Vec<u8>, Arc<Notify>, Arc<Notify>);
     pub(crate) static FAIL_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<
@@ -172,13 +309,15 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
-        self.sync_init().await?;
+        // Keep the large startup future off the worker poll stack.
+        Box::pin(self.sync_init()).await?;
         // Receipt must outlive each sync call so remote updates can wake this worker.
         let _receipt = IncomingCoordinator::for_context(&self.client.context)
             .acquire(IncomingScope::DeviceSyncGroups);
         self.metrics.increment_metric(SyncMetric::Init);
 
-        self.run_internal().await
+        // Keep event futures off the containing worker poll stack.
+        Box::pin(self.run_internal()).await
     }
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
@@ -248,7 +387,20 @@ where
         id: u64,
         event: xmtp_events::EventEnvelope<InternalEvent>,
     ) -> Result<(), DeviceSyncError> {
-        self.handle_event(event.clone()).await?;
+        // Pending state stays owned here until the event succeeds.
+        Box::pin(self.handle_event(event.clone())).await?;
+        #[cfg(test)]
+        if let Some(InternalEvent::PreferencesChanged {
+            updates,
+            origin: PreferenceOrigin::Local,
+        }) = &event.internal
+        {
+            test_hooks::observe_preferences(
+                self.client.context.installation_id(),
+                test_hooks::PreferenceStage::Completed,
+                updates,
+            );
+        }
         let mut pending = self.pending.lock();
         if pending
             .as_ref()
@@ -259,7 +411,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn", event = ?event))]
+    #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
     async fn handle_event(
         &mut self,
         event: xmtp_events::EventEnvelope<InternalEvent>,
@@ -305,7 +457,8 @@ where
                     Event::DeviceSyncNoPrimarySyncGroup,
                     self.client.context.installation_id()
                 );
-                let sync_group = client.get_sync_group().await?;
+                // Sync-group creation polls membership publication below this call.
+                let sync_group = Box::pin(client.get_sync_group()).await?;
                 log_event!(
                     Event::DeviceSyncCreatedPrimarySyncGroup,
                     self.client.context.installation_id(),
@@ -337,6 +490,18 @@ where
 
         // Cycle the HMAC
         self.client.cycle_hmac().await?;
+
+        // Consent can be stored before this primary group is adopted.
+        let updates = self
+            .client
+            .db()
+            .consent_records()?
+            .into_iter()
+            .map(PreferenceUpdate::Consent)
+            .collect::<Vec<_>>();
+        if !updates.is_empty() {
+            self.client.sync_preferences(updates).await?;
+        }
 
         Ok(())
     }
@@ -505,13 +670,14 @@ where
 
         match content {
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
+                #[cfg(test)]
+                let observed_updates =
+                    test_hooks::captures_preferences(installation_id).then(|| updates.clone());
                 if is_external {
-                    tracing::info!("Incoming preference updates: {updates:?}");
+                    log_incoming_preference_updates(&updates);
                 }
-                tracing::info!(
-                    "{} storing preference updates",
-                    self.context.installation_id()
-                );
+                // implements: PROC-036
+                tracing::info!(update_count = updates.len(), "storing preference updates");
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                 crate::state_tx::state_write_with_events(
                     self.context.mls_storage(),
@@ -536,6 +702,20 @@ where
                     },
                 )?
                 .into_continued();
+                #[cfg(test)]
+                if let Some(observed_updates) = observed_updates {
+                    test_hooks::observe_preferences(
+                        installation_id,
+                        test_hooks::PreferenceStage::Received,
+                        &observed_updates
+                            .into_iter()
+                            .map(|update| {
+                                PreferenceUpdate::try_from(update)
+                                    .expect("valid observed preference update")
+                            })
+                            .collect::<Vec<_>>(),
+                    );
+                }
             }
             ContentProto::Acknowledge(DeviceSyncAcknowledge { .. }) => {
                 return Ok(());
@@ -569,6 +749,135 @@ mod startup_tests {
     use crate::{tester, worker::WorkerConfig};
     use futures::FutureExt;
     use xmtp_events::EventWriter;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn consent_published_before_primary_adoption_reaches_new_installation() {
+        use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+
+        tester!(source, disable_workers);
+        let source_sync = source.device_sync_client();
+        let old_primary = source_sync.get_sync_group().await?;
+        let group = source.create_group(None, None)?;
+        let record = StoredConsentRecord {
+            entity_type: ConsentType::ConversationId,
+            state: ConsentState::Denied,
+            entity: hex::encode(group.group_id),
+            consented_at_ns: xmtp_common::time::now_ns(),
+        };
+        source
+            .set_consent_states(std::slice::from_ref(&record))
+            .await?;
+        let record = source
+            .context
+            .db()
+            .get_consent_record(record.entity.clone(), record.entity_type)?
+            .unwrap();
+
+        tester!(copy, from: source, disable_workers);
+        let copy_sync = copy.device_sync_client();
+        let new_primary = copy_sync.get_sync_group().await?;
+        assert_ne!(old_primary.group_id, new_primary.group_id);
+        assert_eq!(
+            source_sync.primary_sync_group()?.unwrap().group_id,
+            old_primary.group_id
+        );
+        assert!(
+            copy.context
+                .db()
+                .find_group(&old_primary.group_id)?
+                .is_none()
+        );
+
+        // Publish before the source can adopt the new installation's group.
+        source_sync
+            .sync_preferences(vec![PreferenceUpdate::Consent(record.clone())])
+            .await?;
+        source.sync_welcomes().await?;
+        assert_eq!(
+            source_sync.primary_sync_group()?.unwrap().group_id,
+            new_primary.group_id
+        );
+        assert!(
+            copy.context
+                .db()
+                .get_consent_record(record.entity.clone(), record.entity_type)?
+                .is_none()
+        );
+
+        // Run the actual welcome handler, then consume its primary-group messages.
+        let source_worker = SyncWorker::new(
+            source.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        source_worker.evt_new_sync_group_from_welcome().await?;
+        new_primary.sync().await?;
+        let copy_worker = SyncWorker::new(
+            copy.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        copy_worker.evt_new_sync_group_msg(false).await?;
+        let received = copy
+            .context
+            .db()
+            .get_consent_record(record.entity.clone(), record.entity_type)?;
+        assert_eq!(
+            received.as_ref(),
+            Some(&record),
+            "a consent published before primary adoption must reach the new installation"
+        );
+        assert_eq!(received.unwrap().consented_at_ns, record.consented_at_ns);
+        source.close().await?;
+        copy.close().await?;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn worker_turn_span_omits_hmac_key() {
+        tester!(alix, disable_workers);
+        let mut worker = SyncWorker::new(
+            alix.context.clone(),
+            None,
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let key = (1_u8..=42).collect::<Vec<_>>();
+        let key_debug = format!("{key:?}");
+        let event = xmtp_events::EventEnvelope::new(
+            None,
+            Some(InternalEvent::PreferencesChanged {
+                updates: vec![PreferenceUpdate::Hmac {
+                    key,
+                    cycled_at_ns: 1,
+                }],
+                origin: PreferenceOrigin::Sync,
+            }),
+            Default::default(),
+        );
+        let (result, spans) = xmtp_logging::test_logging::with_trace_layer(true, || {
+            worker
+                .handle_event(event)
+                .now_or_never()
+                .expect("the Sync-origin handler must finish without IO")
+        });
+        result?;
+        let span = spans
+            .iter()
+            .find(|span| span.name == "handle_event")
+            .expect("the actual worker handler must export its span");
+        let fields = format!("{:?}", span.attributes);
+        assert!(fields.contains("worker_turn"));
+        assert!(fields.contains("DeviceSync"));
+        assert!(
+            !fields.contains(&key_debug),
+            "worker span must not export the HMAC root key"
+        );
+        alix.close().await?;
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn queued_event_precedes_first_periodic_turn() {

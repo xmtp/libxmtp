@@ -176,8 +176,6 @@ def build(output, udid, derived):
         f"platform=iOS Simulator,id={udid}",
         "-derivedDataPath",
         str(derived),
-        "-jobs",
-        "2",
         "ARCHS=arm64",
         "ONLY_ACTIVE_ARCH=YES",
         "CODE_SIGNING_ALLOWED=NO",

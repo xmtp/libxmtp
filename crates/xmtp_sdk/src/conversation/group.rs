@@ -119,26 +119,34 @@ impl Group {
         .await
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn add_members(
         &self,
         members: Vec<InboxId>,
     ) -> Result<crate::MembershipResult, XmtpError> {
-        let group = self.inner.clone();
-        let ids = members
-            .into_iter()
-            .map(InboxId::into_checked)
-            .collect::<Result<Vec<_>, _>>()?;
-        on_sdk_worker(
-            self.inner.context.clone(),
-            Box::pin(async move {
-                group
-                    .add_members(&ids)
-                    .await
-                    .map_err(XmtpError::from_core)?
-                    .try_into()
-            }),
-        )
-        .await
+        let result = async {
+            let group = self.inner.clone();
+            let ids = members
+                .into_iter()
+                .map(InboxId::into_checked)
+                .collect::<Result<Vec<_>, _>>()?;
+            on_sdk_worker(
+                self.inner.context.clone(),
+                Box::pin(async move {
+                    group
+                        .add_members(&ids)
+                        .await
+                        .map_err(XmtpError::from_core)?
+                        .try_into()
+                }),
+            )
+            .await
+        }
+        .await;
+        if result.is_err() {
+            tracing::error!(error = "operation failed");
+        }
+        result
     }
 
     pub async fn remove_members(&self, members: Vec<InboxId>) -> Result<(), XmtpError> {
@@ -147,6 +155,14 @@ impl Group {
             .into_iter()
             .map(InboxId::into_checked)
             .collect::<Result<Vec<_>, _>>()?;
+        if ids
+            .iter()
+            .any(|id| id.starts_with("0x") || id.starts_with("0X"))
+        {
+            return Err(XmtpError::invalid_argument(
+                "Inbox IDs cannot start with '0x'.",
+            ));
+        }
         on_sdk_worker(
             self.inner.context.clone(),
             Box::pin(async move {
@@ -162,26 +178,34 @@ impl Group {
 
     /// Add members by account identity. Hosts present this as an
     /// `addMembers` overload or union.
+    #[tracing::instrument(skip_all)]
     pub async fn add_members_by_identity(
         &self,
         members: Vec<PublicIdentity>,
     ) -> Result<crate::MembershipResult, XmtpError> {
-        let group = self.inner.clone();
-        let members = members
-            .iter()
-            .map(PublicIdentity::to_core)
-            .collect::<Result<Vec<_>, _>>()?;
-        on_sdk_worker(
-            self.inner.context.clone(),
-            Box::pin(async move {
-                group
-                    .add_members_by_identity(&members)
-                    .await
-                    .map_err(XmtpError::from_core)?
-                    .try_into()
-            }),
-        )
-        .await
+        let result = async {
+            let group = self.inner.clone();
+            let members = members
+                .iter()
+                .map(PublicIdentity::to_core)
+                .collect::<Result<Vec<_>, _>>()?;
+            on_sdk_worker(
+                self.inner.context.clone(),
+                Box::pin(async move {
+                    group
+                        .add_members_by_identity(&members)
+                        .await
+                        .map_err(XmtpError::from_core)?
+                        .try_into()
+                }),
+            )
+            .await
+        }
+        .await;
+        if result.is_err() {
+            tracing::error!(error = "operation failed");
+        }
+        result
     }
 
     /// Remove members by account identity. Hosts present this as a

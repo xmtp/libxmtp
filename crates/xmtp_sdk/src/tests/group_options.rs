@@ -168,3 +168,39 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     a.end().await?;
     b.end().await?;
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn remove_members_rejects_account_address_and_keeps_nonmember_noop() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let nonmember = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let before = group
+        .members()
+        .await?
+        .into_iter()
+        .map(|member| member.inbox_id)
+        .collect::<std::collections::HashSet<_>>();
+    for prefix in ["0x", "0X"] {
+        let address = format!("{prefix}{}", "a".repeat(40));
+        let error = group
+            .remove_members(vec![crate::InboxId::unchecked(address)])
+            .await
+            .expect_err("account address must not be accepted as an inbox ID");
+        let crate::XmtpError::InvalidArgument(details) = error else {
+            panic!("expected InvalidArgument, got {error:?}");
+        };
+        assert_eq!(details.code, "InvalidArgument");
+        assert!(matches!(details.category, crate::ErrorCategory::Input));
+        assert!(!details.retryable);
+    }
+    group.remove_members(vec![nonmember.inbox_id()]).await?;
+    let after = group
+        .members()
+        .await?
+        .into_iter()
+        .map(|member| member.inbox_id)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(after, before);
+    client.end().await?;
+    nonmember.end().await?;
+}

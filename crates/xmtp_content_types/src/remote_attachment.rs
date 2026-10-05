@@ -4,7 +4,6 @@ use crate::{
     CodecError, ContentCodec,
     attachment::{Attachment, AttachmentCodec},
     encryption::{self, EncryptionKeys},
-    utils::get_param_or_default,
 };
 
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -16,7 +15,7 @@ pub struct RemoteAttachmentCodec {}
 /// Result of encrypting an attachment for remote storage.
 ///
 /// Contains the encrypted bytes to upload and all metadata needed to create a `RemoteAttachment`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EncryptedAttachment {
     /// The encrypted bytes to upload to the remote server
     pub payload: Vec<u8>,
@@ -32,6 +31,21 @@ pub struct EncryptedAttachment {
     pub content_length: u32,
     /// The filename of the attachment
     pub filename: Option<String>,
+}
+
+impl std::fmt::Debug for EncryptedAttachment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EncryptedAttachment")
+            .field("payload", &self.payload)
+            .field("content_digest", &self.content_digest)
+            .field("secret", &"<redacted>")
+            .field("salt", &self.salt)
+            .field("nonce", &self.nonce)
+            .field("content_length", &self.content_length)
+            .field("filename", &self.filename)
+            .finish()
+    }
 }
 
 /// Encrypts an attachment for storage as a remote attachment.
@@ -144,15 +158,20 @@ impl ContentCodec<RemoteAttachment> for RemoteAttachmentCodec {
     fn decode(encoded: EncodedContent) -> Result<RemoteAttachment, CodecError> {
         // Extract parameters
         let parameters: &HashMap<String, String> = &encoded.parameters;
+        let required = |name| {
+            parameters
+                .get(name)
+                .ok_or_else(|| CodecError::Decode(format!("missing {name} parameter")))
+        };
 
-        let content_digest = get_param_or_default(parameters, "contentDigest").to_string();
-        let salt = hex::decode(get_param_or_default(parameters, "salt"))
+        let content_digest = required("contentDigest")?.clone();
+        let salt = hex::decode(required("salt")?)
             .map_err(|e| CodecError::Decode(format!("invalid hex in salt parameter: {e}")))?;
-        let nonce = hex::decode(get_param_or_default(parameters, "nonce"))
+        let nonce = hex::decode(required("nonce")?)
             .map_err(|e| CodecError::Decode(format!("invalid hex in nonce parameter: {e}")))?;
-        let secret = hex::decode(get_param_or_default(parameters, "secret"))
+        let secret = hex::decode(required("secret")?)
             .map_err(|e| CodecError::Decode(format!("invalid hex in secret parameter: {e}")))?;
-        let scheme = get_param_or_default(parameters, "scheme").to_string();
+        let scheme = required("scheme")?.clone();
         let content_length = parameters
             .get("contentLength")
             .map(|s| {

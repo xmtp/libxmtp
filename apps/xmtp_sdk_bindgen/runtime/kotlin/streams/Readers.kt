@@ -93,7 +93,7 @@ private fun <T, R> readerFlow(
             try {
                 onClose?.invoke(reason)
             } catch (error: Throwable) {
-                System.err.println("XMTP stream close callback failed: $error")
+                System.err.println("XMTP stream close callback failed")
             }
         }
     }

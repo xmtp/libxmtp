@@ -1,10 +1,11 @@
 included:
   - Sources
   - XMTPiOSExample
+  - example
 excluded:
   - Tests
-  - Sources/XMTPiOS/Libxmtp/xmtpv3.swift
-  - Sources/XMTPiOS/Proto
+  - Sources/XmtpSdk/xmtp_sdk.swift
+  - Sources/XmtpSdk/runtime
 
 disabled_rules: # rule identifiers turned on by default to exclude from running
   - type_name

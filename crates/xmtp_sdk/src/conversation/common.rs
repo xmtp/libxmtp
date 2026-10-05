@@ -481,6 +481,27 @@ macro_rules! common_conversation {
                 .await
             }
 
+            pub async fn message_history_snapshot(
+                &self,
+                limit: u32,
+            ) -> Result<crate::MessageHistorySnapshot, XmtpError> {
+                let context = self.inner.context.clone();
+                let group_id = self.inner.group_id;
+                let client_key = self.client_key;
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    crate::delivery::history_snapshot(
+                        &context,
+                        &xmtp_mls::subscriptions::local_delivery::DeliveryScope::Groups(vec![
+                            group_id,
+                        ]),
+                        &Default::default(),
+                        limit,
+                        client_key,
+                    )
+                })
+                .await
+            }
+
             #[uniffi::method(default(options = None))]
             pub async fn message_reader(
                 &self,

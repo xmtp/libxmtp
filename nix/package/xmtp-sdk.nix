@@ -41,18 +41,29 @@ let
       (root + /rust-toolchain.toml)
       (root + /crates/xmtp_sdk)
       (root + /apps/xmtp_sdk_bindgen)
+      (root + /crates/xmtp_configuration)
     ];
   };
   common = xmtp.base.commonArgs // {
     version = xmtp.mkVersion rust;
     doNotPostBuildInstallCargoBinaries = true;
   };
+  nativeArgs = {
+    OPENSSL_NO_VENDOR = "0";
+    OPENSSL_STATIC = "1";
+  }
+  // lib.optionalAttrs pkgs.stdenv.isDarwin {
+    MACOSX_DEPLOYMENT_TARGET = "11.0";
+    # Darwin setup replaces this variable before the Cargo build.
+    preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
+  };
   native = rust.buildPackage (
     common
+    // nativeArgs
     // {
       pname = "xmtp-sdk-libs";
       src = sdkSource;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false nativeArgs;
       buildPhaseCargoCommand = "cargo build --release --locked -p xmtp_sdk --lib";
       installPhaseCommand = ''
           mkdir -p $out/lib
@@ -99,7 +110,7 @@ let
     // {
       pname = "xmtp-sdk-bindgen";
       src = sdkSource;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false { };
       buildPhaseCargoCommand = "cargo build --release --locked -p xmtp-sdk-bindgen";
       installPhaseCommand = ''
           mkdir -p $out/bin
@@ -122,16 +133,20 @@ let
       in
       iosRust.buildPackage (
         common
+        // nativeArgs
         // {
           pname = "xmtp-sdk-ios-${target}";
           src = sdkSource;
           CARGO_BUILD_TARGET = target;
           __noChroot = true;
-          cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false {
-            CARGO_BUILD_TARGET = target;
-            __noChroot = true;
-            buildPhaseCargoCommand = command;
-          };
+          cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (
+            nativeArgs
+            // {
+              CARGO_BUILD_TARGET = target;
+              __noChroot = true;
+              buildPhaseCargoCommand = command;
+            }
+          );
           buildPhaseCargoCommand = command;
           installPhaseCommand = ''
             mkdir -p $out/lib

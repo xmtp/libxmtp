@@ -741,3 +741,283 @@ async fn test_optimistic_send() {
         ]
     );
 }
+
+// verifies: PROC-036
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn envelope_processing_logs_omit_full_installation_ids_while_pending() {
+    use crate::groups::mls_sync::GroupHeadOutcome;
+    use std::sync::Arc;
+    use tracing::instrument::WithSubscriber;
+
+    use crate::groups::intents::{QueueIntent, UpdateMetadataIntentData};
+    use xmtp_db::incoming_envelope::{
+        IncomingLimits, NetworkEntityKind, NewIncomingEnvelope, PendingBudget,
+        QueryIncomingEnvelope, StreamTopic,
+    };
+    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
+    use xmtp_proto::types::{Cursor, OrderedEnvelopeBatch, Topic};
+
+    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
+    impl LogSinkTarget for Capture {
+        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+            self.0.lock().push(record);
+            Ok(())
+        }
+    }
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let sender = alix.create_group(None, None)?;
+    sender.add_members(&[bo.inbox_id()]).await?;
+    let receiver = receive_group_invite(&bo).await;
+    receiver.receive().await?;
+    let message_topic = StreamTopic::group(receiver.group_id);
+    let before = bo.context.db().topic_progress(&message_topic)?;
+    let topic = StreamTopic {
+        entity_id: vec![42; 32],
+        kind: NetworkEntityKind::Group,
+    };
+    let retained = NewIncomingEnvelope {
+        sequence_id: Cursor(1),
+        envelope: vec![1, 2, 3],
+    };
+    let budget = PendingBudget {
+        rows: 8,
+        bytes: 1024,
+    };
+    bo.context.db().admit_ordered_batch(
+        &topic,
+        Cursor(0),
+        std::slice::from_ref(&retained),
+        IncomingLimits {
+            batch: budget,
+            topic: budget,
+            kind: budget,
+        },
+    )?;
+    assert!(
+        bo.context
+            .db()
+            .pending_envelope(&topic, Cursor(1))?
+            .is_some()
+    );
+
+    let payload = b"pending-log-control";
+    sender
+        .send_message(payload, SendMessageOpts::default())
+        .await?;
+    let wire_topic = Topic::new_group_message(receiver.group_id);
+    let envelopes = bo
+        .context
+        .api()
+        .query_all(
+            [(wire_topic.clone(), before.received)].into(),
+            bo.context.api().limits().max_query_limit as u32,
+        )
+        .await?;
+    assert_eq!(envelopes.len(), 1);
+    bo.mls_store().admit_incoming_batch(
+        &OrderedEnvelopeBatch {
+            topic: wire_topic,
+            after: before.received,
+            envelopes,
+        },
+        bo.context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(message_topic.kind),
+    )?;
+    assert!(
+        bo.context
+            .db()
+            .first_pending_envelope(&message_topic)?
+            .is_some()
+    );
+    let full_ids = [
+        hex::encode(bo.context.installation_id()),
+        hex::encode(alix.context.installation_id()),
+    ];
+    let pending_is_retained = || {
+        assert_eq!(
+            bo.context
+                .db()
+                .pending_envelope(&topic, Cursor(1))?
+                .unwrap()
+                .envelope,
+            retained.envelope
+        );
+        Ok::<_, GroupError>(())
+    };
+    let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
+    let capture = LogCapture::with_sink(Level::Debug, Some(sink.clone()));
+    let stream = bo
+        .stream_all_messages(None, None)
+        .with_subscriber(capture.dispatch())
+        .await?;
+    drop(stream);
+    let stream = bo
+        .stream_all_messages_owned(None, None)
+        .with_subscriber(capture.dispatch())
+        .await?;
+    drop(stream);
+    let outcome = tracing::dispatcher::with_default(&capture.dispatch(), || {
+        receiver.process_pending_group_head(None)
+    })?;
+    assert!(matches!(
+        outcome,
+        GroupHeadOutcome::Progress { result: Ok(_), .. }
+    ));
+    assert_eq!(
+        get_latest_message(&receiver).await.decrypted_message_bytes,
+        payload
+    );
+    pending_is_retained()?;
+    QueueIntent::metadata_update()
+        .data(UpdateMetadataIntentData::new_update_group_name(
+            "pending log group".into(),
+        ))
+        .queue(&sender)?;
+    sender.publish_intents().await?;
+    for group in [&sender, &receiver] {
+        let commit_topic = StreamTopic::group(group.group_id);
+        let after = group.context.db().topic_progress(&commit_topic)?.received;
+        let wire_topic = Topic::new_group_message(group.group_id);
+        let envelopes = group
+            .context
+            .api()
+            .query_all(
+                [(wire_topic.clone(), after)].into(),
+                group.context.api().limits().max_query_limit as u32,
+            )
+            .await?;
+        assert!(!envelopes.is_empty());
+        let count = envelopes.len();
+        crate::mls_store::MlsStore::new(group.context.clone()).admit_incoming_batch(
+            &OrderedEnvelopeBatch {
+                topic: wire_topic,
+                after,
+                envelopes,
+            },
+            group
+                .context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(commit_topic.kind),
+        )?;
+        for _ in 0..count {
+            let outcome = tracing::dispatcher::with_default(&capture.dispatch(), || {
+                group.process_pending_group_head(None)
+            })?;
+            assert!(matches!(
+                outcome,
+                GroupHeadOutcome::Progress { result: Ok(_), .. }
+            ));
+        }
+    }
+    {
+        let records = sink.0.lock();
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| record.message == "stream all messages")
+                .count(),
+            2
+        );
+        assert!(
+            records
+                .iter()
+                .any(|record| record.message.contains("processing own message for intent"))
+        );
+        let extracted = records
+            .iter()
+            .find(|record| record.message.contains("extracted sender inbox id"))
+            .expect("actual envelope processing emits the sender record");
+        assert!(extracted.fields.contains_key("installation_id"));
+        assert!(records.iter().any(
+            |record| record.fields.contains_key("sender_installation_id")
+                && !record.fields.contains_key("actor_installation_id")
+        ));
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| {
+                    record.fields.contains_key("actor_installation_id")
+                        || record.message.contains("actor_installation_id")
+                })
+                .count(),
+            2,
+            "both own and external staged commits reach the app sink"
+        );
+    }
+    tester!(alix2, from: alix, disable_workers);
+    assert_ne!(alix2.installation_id, alix.installation_id);
+    receiver.sync().with_subscriber(capture.dispatch()).await?;
+    receiver
+        .maybe_update_installations(Some(0))
+        .with_subscriber(capture.dispatch())
+        .await?;
+    pending_is_retained()?;
+    let welcome_sender = alix.create_group(None, None)?;
+    welcome_sender.add_members(&[bo.inbox_id()]).await?;
+    let welcome = bo
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await?
+        .into_iter()
+        .max_by_key(|welcome| welcome.cursor)
+        .unwrap();
+    let pending =
+        crate::groups::welcome_sync::pending_welcome_for_test(&bo.context, &welcome).await?;
+    let joined = crate::groups::welcomes::XmtpWelcome::builder()
+        .context(bo.context.clone())
+        .welcome(&welcome)
+        .pending(pending)
+        .validator(crate::groups::welcomes::InitialMembershipValidator::new(
+            bo.context.clone(),
+        ))
+        .process()
+        .with_subscriber(capture.dispatch())
+        .await?
+        .unwrap();
+    assert_eq!(joined.group_id, welcome_sender.group_id);
+    pending_is_retained()?;
+    let records = sink.0.lock();
+    assert!(
+        records
+            .iter()
+            .any(|record| record.message == "syncing group")
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record.message.starts_with("Adding missing installations"))
+    );
+    let welcome_record = records
+        .iter()
+        .find(|record| record.message == "updated message cursor from welcome metadata")
+        .expect("actual Welcome processing emits the cursor record");
+    assert!(welcome_record.fields.contains_key("installation_id"));
+    let json = capture.output();
+    let json_disclosures = full_ids
+        .iter()
+        .filter(|id| json.contains(id.as_str()))
+        .count();
+    let app_disclosures = full_ids
+        .iter()
+        .filter(|id| {
+            records.iter().any(|record| {
+                record.message.contains(id.as_str())
+                    || record
+                        .fields
+                        .values()
+                        .any(|value| value.contains(id.as_str()))
+            })
+        })
+        .count();
+    assert_eq!(
+        (json_disclosures, app_disclosures),
+        (0, 0),
+        "envelope processing logs full local or sender installation IDs while a row is pending"
+    );
+}

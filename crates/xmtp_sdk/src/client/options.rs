@@ -4,25 +4,30 @@ pub enum StorageLocation {
     Default,
     InMemory,
     /// A directory that holds a database for each deployment and inbox.
-    /// Create and build without an inbox ID fail `IdentityMismatch` when the
-    /// identity is not a member of the inbox they open.
+    /// Create and build fail `IdentityMismatch` when the identity is not a
+    /// member of the inbox they open.
     Directory {
         directory: String,
     },
     /// A database file and an attachments directory the app names. Create
-    /// and build without an inbox ID use the inbox stored in the database,
-    /// and fail `IdentityMismatch` when the identity does not belong to it.
+    /// and build without an inbox ID use the inbox stored in the database.
+    /// Build fails `IdentityMismatch` when the identity does not belong to it.
     Explicit {
         db_path: String,
         attachments_dir: String,
     },
 }
 
-#[derive(Clone, Debug, Default, uniffi::Record)]
+#[derive(Clone, Default, uniffi::Record)]
 pub struct StorageOptions {
     pub location: StorageLocation,
     #[uniffi(default = None)]
     pub label: Option<String>,
+    /// An optional 32-byte key for native database encryption.
+    /// No key is required. When the key is absent, the database is not encrypted
+    /// by the SDK. Encryption is recommended for stored messages and keys.
+    /// If you supply a key, store it securely and use the same key to reopen
+    /// the database.
     #[cfg(not(target_arch = "wasm32"))]
     #[uniffi(default = None)]
     pub encryption_key: Option<Vec<u8>>,
@@ -30,6 +35,24 @@ pub struct StorageOptions {
     pub pool: Option<StoragePoolOptions>,
     #[uniffi(default = false)]
     pub single_connection: bool,
+}
+
+impl std::fmt::Debug for StorageOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut record = f.debug_struct("StorageOptions");
+        record
+            .field("location", &self.location)
+            .field("label", &self.label);
+        #[cfg(not(target_arch = "wasm32"))]
+        record.field(
+            "encryption_key",
+            &self.encryption_key.as_ref().map(|_| "[redacted]"),
+        );
+        record
+            .field("pool", &self.pool)
+            .field("single_connection", &self.single_connection)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Default, uniffi::Record)]

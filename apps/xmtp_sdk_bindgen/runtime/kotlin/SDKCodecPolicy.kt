@@ -51,9 +51,10 @@ internal fun <T : Any> codecType(codec: ContentCodec<T>): ContentTypeId = codecS
 
 // A copy of the codec's envelope with its own type and parameters. The
 // generated record has `var` fields, so a hook that keeps and changes the
-// codec's envelope object cannot change the checked copy. The content bytes
-// are not copied: they do not decide the type or the push policy.
-private fun EncodedContent.snapshot(): EncodedContent = copy(type = type.copy(), parameters = parameters.toMap())
+// codec's envelope object cannot change the checked copy. Copy the content
+// bytes so later codec changes cannot change the send.
+private fun EncodedContent.snapshot(): EncodedContent =
+    copy(type = type.copy(), parameters = parameters.toMap(), content = content.copyOf())
 
 /**
  * The envelope of [value] for a send. An envelope that already has a fallback
@@ -79,7 +80,7 @@ internal fun <T : Any> encodeForSend(
     if (encoded.type.authorityId.isEmpty() || encoded.type.typeId.isEmpty()) {
         throw codecEncodeFailed("encode", "the envelope type has an empty authority or type ID")
     }
-    if (encoded.fallback != null) return encoded
+    if (encoded.fallback != null || usesRustStandardFallback(codec)) return encoded
     val fallback = codecStep("fallback") { codec.fallback(value) } ?: return encoded
     return encoded.copy(fallback = fallback)
 }
@@ -189,3 +190,21 @@ suspend fun <T : Any> Conversation.prepareMessage(
     val (encoded, sendOptions) = sendParts(codec, value, options)
     return prepareMessage(encoded, sendOptions)
 }
+
+// Standard encoders already apply their canonical fallback, including null.
+private fun usesRustStandardFallback(codec: Any): Boolean =
+    codec is TextCodec ||
+        codec is MarkdownCodec ||
+        codec is ReadReceiptCodec ||
+        codec is ReactionV2Codec ||
+        codec is AttachmentCodec ||
+        codec is RemoteAttachmentCodec ||
+        codec is MultiRemoteAttachmentCodec ||
+        codec is TransactionReferenceCodec ||
+        codec is WalletSendCallsCodec ||
+        codec is ActionsCodec ||
+        codec is IntentCodec ||
+        codec is ReplyCodec ||
+        codec is GroupUpdatedCodec ||
+        codec is DeleteMessageCodec ||
+        codec is LeaveRequestCodec

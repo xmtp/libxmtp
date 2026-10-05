@@ -14,6 +14,8 @@ import zipfile
 from unittest.mock import Mock, patch
 import unittest
 
+from mobile_package_test_fixtures import MobilePackageTestFixtures
+
 
 def load(name, file):
     spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(file))
@@ -27,7 +29,7 @@ receipt = load("receipt", "record-generated.py")
 mobile = load("mobile", "mobile-package.py")
 
 
-class PackagingTests(unittest.TestCase):
+class PackagingTests(MobilePackageTestFixtures, unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -65,17 +67,6 @@ class PackagingTests(unittest.TestCase):
         for item in reversed(self.patches):
             item.stop()
         self.temporary.cleanup()
-
-    def seed_android_dependency_inputs(self):
-        project = self.root / "crates/xmtp_sdk/packaging/android"
-        for name in (
-            "gradle.lockfile",
-            "buildscript-gradle.lockfile",
-            "gradle/verification-metadata.xml",
-        ):
-            file = project / name
-            file.parent.mkdir(parents=True, exist_ok=True)
-            file.write_text("fixture dependency input")
 
     def prepare_mobile_stage(self, target):
         self.args.targets = ("swift",) if target == "ios" else ("kotlin",)
@@ -140,12 +131,15 @@ class PackagingTests(unittest.TestCase):
         ):
             mobile.main()
 
-    def product_files(self, output):
-        return {
-            str(path.relative_to(output)): path.read_bytes()
-            for path in output.rglob("*")
-            if path.is_file()
-        }
+    def test_ios_public_stage_includes_host_and_mobile_libraries(self):
+        output = self.prepare_mobile_stage("ios")
+        self.assemble_mobile("ios")
+        contract = json.loads((output / "sdk-contract.json").read_text())
+        self.assertEqual(
+            set(contract["native"]),
+            {"aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin"},
+        )
+        self.assertIn(".macOS(.v11)", (output / "Package.swift").read_text())
 
     def test_android_dependency_inputs_are_required_before_tool_use(self):
         for name in (
@@ -173,7 +167,7 @@ class PackagingTests(unittest.TestCase):
         def tool(command, **kwargs):
             self.assertEqual(command[0], "sdks/android/gradlew")
             self.assertIn("--dependency-verification=strict", command)
-            self.assertIn("--max-workers=2", command)
+            self.assertFalse(any(arg.startswith("--max-workers") for arg in command))
             self.assertFalse(
                 any(
                     arg.startswith(
@@ -603,8 +597,23 @@ class PackagingTests(unittest.TestCase):
         finally:
             self.patches[2].start()
 
+    def test_apple_native_build_pins_supported_deployment_floors(self):
+        with (
+            patch.object(artifacts.sys, "platform", "darwin"),
+            patch.dict(
+                os.environ,
+                {
+                    "MACOSX_DEPLOYMENT_TARGET": "14.0",
+                    "IPHONEOS_DEPLOYMENT_TARGET": "17",
+                },
+            ),
+        ):
+            artifacts.build(self.args)
+            self.assertEqual(os.environ["MACOSX_DEPLOYMENT_TARGET"], "11.0")
+            self.assertEqual(os.environ["IPHONEOS_DEPLOYMENT_TARGET"], "14")
+
     def test_cargo_compiler_inputs_change_native_cache_admission(self):
-        names = ("MACOSX_DEPLOYMENT_TARGET", "RUSTC", "CARGO_BUILD_RUSTC")
+        names = ("RUSTC", "CARGO_BUILD_RUSTC")
         environment = {
             key: value for key, value in os.environ.items() if key not in names
         }
@@ -624,9 +633,7 @@ class PackagingTests(unittest.TestCase):
                         (self.args.artifacts / "artifacts.json").read_text()
                     )
                     calls = len(self.calls)
-                    os.environ[name] = (
-                        "11.0" if name == "MACOSX_DEPLOYMENT_TARGET" else str(compiler)
-                    )
+                    os.environ[name] = str(compiler)
                     artifacts.build(self.args)
                     after = json.loads(
                         (self.args.artifacts / "artifacts.json").read_text()
@@ -743,7 +750,7 @@ class PackagingTests(unittest.TestCase):
             path: path.read_bytes()
             for path in (self.root / "mobile").rglob("artifacts.json")
         }
-        self.assertEqual(len(original_receipts), 6)
+        self.assertEqual(len(original_receipts), 7)
         (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
         for platform in ("ios", "android"):
             output = self.root / "products" / platform
@@ -774,7 +781,7 @@ class PackagingTests(unittest.TestCase):
             path: path.read_bytes()
             for path in (self.root / "mobile").rglob("artifacts.json")
         }
-        self.assertEqual(len(native_receipts), 6)
+        self.assertEqual(len(native_receipts), 7)
         manifest = self.args.artifacts / "artifacts.json"
         native = json.loads(manifest.read_text())["artifacts"]["native"]
         source = artifacts.source_hash()

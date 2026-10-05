@@ -47,7 +47,9 @@ async function fixture() {
     if (message.t !== "call") return;
     const value =
       message.key === "EventReader.next"
-        ? B.ClientEvent.ArchiveRestored.new({ complete: true })
+        ? B.ClientEvent.ArchiveRestored.new({
+            archiveRestored: { complete: true },
+          })
         : undefined;
     if (message.key === "EventReader.end") stops++;
     if (message.key === "Client.stopListener") listenerStops++;
@@ -138,7 +140,10 @@ export function registerEventEndingTests(): void {
         if (delivered) {
           // A for-await break calls return after the loop body ends its client.
           for await (const event of stream) {
-            expect(event).toEqual({ kind: "archiveRestored", complete: true });
+            expect(event).toEqual({
+              kind: "archive.restored",
+              archive_restored: { complete: true },
+            });
             session.fenceOwner(owner);
             session.closeOwner(owner, []);
             break;

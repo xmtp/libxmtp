@@ -121,13 +121,14 @@ class IosOpenSslTests(unittest.TestCase):
                                             "OPENSSL_" + key in child,
                                             "Host path shadows target root",
                                         )
-                                        self.assertEqual(
-                                            child[host_prefix + key],
-                                            inputs.get(
-                                                host_prefix + key,
-                                                inputs["OPENSSL_" + key],
-                                            ),
-                                        )
+                                        if host_prefix != prefix:
+                                            self.assertEqual(
+                                                child[host_prefix + key],
+                                                inputs.get(
+                                                    host_prefix + key,
+                                                    inputs["OPENSSL_" + key],
+                                                ),
+                                            )
 
     def test_equal_host_target_cannot_restore_generic_root_shadow(self):
         for triple in mobile.IOS:
@@ -149,6 +150,47 @@ class IosOpenSslTests(unittest.TestCase):
                         "OPENSSL_LIB_DIR" in child, "Generic path shadows target root"
                     )
                     self.assertEqual(dict(os.environ), inputs)
+
+    def test_component_only_target_paths_separate_all_generic_host_paths(self):
+        host_prefix = "AARCH64_APPLE_DARWIN_OPENSSL_"
+        for triple in mobile.IOS:
+            prefix = triple.upper().replace("-", "_") + "_OPENSSL_"
+            for component in (None, "LIB_DIR", "INCLUDE_DIR"):
+                for policy in (None, "0", "1"):
+                    inputs = {
+                        "OPENSSL_" + key: "/host/" + key
+                        for key in ("DIR", "LIB_DIR", "INCLUDE_DIR")
+                    }
+                    if component:
+                        inputs[prefix + component] = "/target/" + component
+                    if policy is not None:
+                        inputs[prefix + "NO_VENDOR"] = policy
+                    with self.subTest(triple=triple, path=component, policy=policy):
+                        with (
+                            patch.dict(os.environ, inputs, clear=True),
+                            patch.object(
+                                mobile.artifacts,
+                                "compiler_host",
+                                return_value="aarch64-apple-darwin",
+                            ),
+                        ):
+                            child = mobile.ios_environment(triple)
+                            self.assertEqual(dict(os.environ), inputs)
+                            if component:
+                                self.assertEqual(
+                                    child[prefix + component],
+                                    inputs[prefix + component],
+                                )
+                            for key in ("DIR", "LIB_DIR", "INCLUDE_DIR"):
+                                generic = "OPENSSL_" + key
+                                if not component or policy == "0":
+                                    self.assertEqual(child[generic], inputs[generic])
+                                else:
+                                    self.assertNotIn(generic, child)
+                                    if host_prefix != prefix:
+                                        self.assertEqual(
+                                            child[host_prefix + key], inputs[generic]
+                                        )
 
     def test_production_build_forwards_each_selected_target_environment(self):
         calls = []
