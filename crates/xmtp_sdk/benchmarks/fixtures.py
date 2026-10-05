@@ -69,13 +69,7 @@ def expected_stream_counts(fixture):
     return len(rows), sum(1 + len(row["reactions"]) for row in rows)
 
 
-def expected_observation(fixture, workload):
-    if workload in {"page", "stream", "mobile_record"}:
-        rows = (
-            stream_rows(fixture) if workload == "stream" else fixture["messages"][:1000]
-        )
-        return {"count": len(rows), "semantic_sha256": digest(rows)}
-    return {
-        "count": 1,
-        "semantic_sha256": digest({"workload": workload, "completed": True}),
-    }
+def expected_observation(fixture):
+    """The public values that the page workload must return."""
+    rows = fixture["messages"][:1000]
+    return {"count": len(rows), "semantic_sha256": digest(rows)}

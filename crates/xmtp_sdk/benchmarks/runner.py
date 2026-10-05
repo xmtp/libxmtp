@@ -19,6 +19,7 @@ from fixtures import (
     expected_observation,
     expected_stream_counts,
 )
+from ios_cleanup import terminate_registered
 from packages import inventory
 
 TARGETS = ("swift", "kotlin", "node", "browser")
@@ -117,6 +118,8 @@ def invoke(config, request, output):
         stdout, stderr = process.communicate()
         output.with_suffix(".stdout").write_text(stdout)
         output.with_suffix(".stderr").write_text(stderr)
+        # The group kill cannot reach a separate iOS Simulator app process.
+        terminate_registered(request)
         raise ValueError(
             f"Adapter timeout: {request['phase']} {request.get('workload')}"
         )
@@ -132,15 +135,20 @@ def invoke(config, request, output):
 
 def validate_measurement(row, fixture, target):
     response = row["response"]
-    if response.get("observation") != expected_observation(fixture, row["workload"]):
-        raise ValueError("Incorrect or incomplete observed public values")
-    if target == "browser" and row["workload"] == "stream":
-        primary, events = expected_stream_counts(fixture)
-        if (response.get("streamed_primary"), response.get("streamed_events")) != (
-            primary,
-            events,
-        ):
-            raise ValueError("Incorrect Browser stream event counts")
+    if row["workload"] == "page":
+        if response.get("observation") != expected_observation(fixture):
+            raise ValueError("Incorrect or incomplete observed public values")
+    else:
+        # Only page returns content. Other workloads report completion only.
+        if "observation" in response:
+            raise ValueError("Only page measurements carry observed public values")
+        if response.get("completed") is not True:
+            raise ValueError("The host did not complete its public operation")
+    if row["workload"] == "stream" and (
+        response.get("streamed_primary"),
+        response.get("streamed_events"),
+    ) != expected_stream_counts(fixture):
+        raise ValueError("Incorrect stream delivered-ID counts")
     if set(response.get("safety", {})) != set(SAFETY):
         raise ValueError("Missing independent correctness or lifetime outcome")
     if any(
@@ -153,8 +161,6 @@ def validate_measurement(row, fixture, target):
     for key in ("duration_ms", "peak_memory_bytes"):
         if not positive(response.get(key)):
             raise ValueError(f"Invalid {key}")
-    if row["workload"] == "stream" and not positive(response.get("streamed_events")):
-        raise ValueError("Invalid streamed_events")
     if (
         row["workload"] == "callback_slow"
         and response["duration_ms"] < fixture["callback_delay_ms"]

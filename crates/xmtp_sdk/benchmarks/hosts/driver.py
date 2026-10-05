@@ -43,20 +43,28 @@ def command(argv, request, log):
     return response
 
 
-def record_observation(response, fixture, workload, log):
-    if workload == "page" and "observed_messages" not in response:
-        raise ValueError("Page measurements require observed public values")
-    if "observed_messages" in response:
-        values = response.pop("observed_messages")
-        response["observation"] = {
-            "count": len(values),
-            "semantic_sha256": digest(values),
-        }
-        (log.with_suffix(".observations.json")).write_text(json.dumps(values))
-    else:
-        if response.pop("completed", None) is not True:
+def record_observation(response, workload, log):
+    # Only the page workload returns content. Other workloads report completion
+    # and, for stream, delivered-ID counts. No observation is made up for them.
+    if workload != "page":
+        if "observed_messages" in response:
+            raise ValueError("Only page measurements return observed public values")
+        if response.get("completed") is not True:
             raise ValueError("The host did not complete its public operation")
-        response["observation"] = expected_observation(fixture, workload)
+        if workload == "stream" and not all(
+            type(response.get(key)) is int
+            for key in ("streamed_primary", "streamed_events")
+        ):
+            raise ValueError("Stream measurements require delivered-ID counts")
+        return
+    if "observed_messages" not in response:
+        raise ValueError("Page measurements require observed public values")
+    values = response.pop("observed_messages")
+    response["observation"] = {
+        "count": len(values),
+        "semantic_sha256": digest(values),
+    }
+    (log.with_suffix(".observations.json")).write_text(json.dumps(values))
 
 
 def main():
@@ -112,15 +120,19 @@ def main():
             "package_sha256": request["package_sha256"],
         }:
             raise ValueError("The host did not identify its fixture and package")
-        record_observation(response, fixture, workload, log)
+        record_observation(response, workload, log)
         if request["target"] == "browser" and workload.startswith("build_"):
             response["long_tasks_ms"] = []
         # These flags cover this timed operation only. The separate callback
         # matrix must establish retained-work and lifetime behavior across cycles.
         safety = response.setdefault("safety", {})
         # Exact page observations establish content correctness only.
-        observed = response["observation"] == expected_observation(fixture, workload)
-        safety.setdefault("correctness", observed if workload == "page" else None)
+        safety.setdefault(
+            "correctness",
+            response["observation"] == expected_observation(fixture)
+            if workload == "page"
+            else None,
+        )
         for outcome in ("deadlock", "use_after_end", "retained_growth"):
             safety.setdefault(outcome, None)
     print(json.dumps(response))

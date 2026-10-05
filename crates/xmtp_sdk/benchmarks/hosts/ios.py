@@ -12,10 +12,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fixtures import canonical, digest
+import ios_cleanup
 
 MEMORY_SCOPE = "ios-app-resident-high-water"
-# Termination after a failed or finished operation gets its own short deadline.
-CLEANUP_SECONDS = 15
 
 
 def checked_result(envelope, value):
@@ -57,7 +56,9 @@ def invoke(config, request):
     def command(*args, cleanup=False):
         argv = [config.get("xcrun", "xcrun"), "simctl", *args]
         remaining = (
-            CLEANUP_SECONDS if cleanup else max(0.01, deadline - time.monotonic())
+            ios_cleanup.CLEANUP_SECONDS
+            if cleanup
+            else max(0.01, deadline - time.monotonic())
         )
         result = subprocess.run(argv, text=True, capture_output=True, timeout=remaining)
         commands.append(
@@ -77,6 +78,12 @@ def invoke(config, request):
         return result
 
     try:
+        # The runner runs this command if its outer timeout kills this process.
+        ios_cleanup.register(
+            request,
+            [config.get("xcrun", "xcrun"), "simctl", "terminate", udid, bundle],
+            logs,
+        )
         # Every path, including install/launch failure, ends with termination.
         command("terminate", udid, bundle, cleanup=True)
         if request["phase"] == "setup":
@@ -131,6 +138,7 @@ def invoke(config, request):
             command("terminate", udid, bundle, cleanup=True)
         finally:
             (logs / "commands.json").write_text(json.dumps(commands, indent=2))
+        ios_cleanup.clear(request)
 
 
 def main():
