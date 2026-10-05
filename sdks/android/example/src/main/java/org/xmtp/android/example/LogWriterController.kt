@@ -14,12 +14,13 @@ import kotlinx.coroutines.withContext
 internal class LogWriterController(
     private val scope: CoroutineScope,
     private val activate: suspend () -> Unit,
-    private val deactivate: () -> Unit,
+    private val deactivate: suspend () -> Unit,
     private val isActivated: () -> Boolean,
     private val saveActivated: (Boolean) -> Unit,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val mutex = Mutex()
+    private var active = false
 
     fun setActivated(
         activated: Boolean,
@@ -30,15 +31,20 @@ internal class LogWriterController(
             mutex.withLock {
                 withContext(dispatcher) {
                     if (restoreOnly && !isActivated()) return@withContext
+                    if (restoreOnly && active) return@withContext
                     if (activated) {
-                        try {
-                            activate()
-                        } catch (error: Throwable) {
-                            saveActivated(false)
-                            throw error
+                        if (!active) {
+                            try {
+                                activate()
+                                active = true
+                            } catch (error: Throwable) {
+                                saveActivated(false)
+                                throw error
+                            }
                         }
                     } else {
                         deactivate()
+                        active = false
                     }
                     saveActivated(activated)
                 }

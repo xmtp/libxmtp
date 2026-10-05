@@ -17,18 +17,23 @@ internal object PersistentLogs {
         controller ?: run {
             val application = context.applicationContext
             val preferences = application.getSharedPreferences("XMTPPreferences", Context.MODE_PRIVATE)
+            val session =
+                PersistentLogSession(
+                    setLevel = { initLogging(LoggingOptions(level = it)) },
+                    enter = {
+                        SDKClient.activatePersistentLibXMTPLogWriter(
+                            application,
+                            LogLevel.DEBUG,
+                            LogRotation.MINUTELY,
+                            3u,
+                        )
+                    },
+                    exit = { SDKClient.deactivatePersistentLibXMTPLogWriter() },
+                )
             LogWriterController(
                 scope = scope,
-                activate = {
-                    initLogging(LoggingOptions(level = LogLevel.DEBUG))
-                    SDKClient.activatePersistentLibXMTPLogWriter(
-                        application,
-                        LogLevel.DEBUG,
-                        LogRotation.MINUTELY,
-                        3u,
-                    )
-                },
-                deactivate = { SDKClient.deactivatePersistentLibXMTPLogWriter() },
+                activate = { session.activate() },
+                deactivate = { session.deactivate() },
                 isActivated = { preferences.getBoolean("logs_activated", false) },
                 saveActivated = { preferences.edit().putBoolean("logs_activated", it).apply() },
             ).also { controller = it }
