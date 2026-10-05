@@ -6,13 +6,13 @@ use xmtp_db::{
 
 // verifies: PROC-052, PROC-046
 #[xmtp_common::test(unwrap_try = true)]
-async fn reader_review_cancel_after_load_rechecks_scope() {
+async fn reader_cancel_after_load_rechecks_scope() {
     cancel_after_load(false).await?;
 }
 
 // verifies: PROC-052, PROC-046
 #[xmtp_common::test(unwrap_try = true)]
-async fn reader_review_cancel_after_load_rechecks_consent() {
+async fn reader_cancel_after_load_rechecks_consent() {
     cancel_after_load(true).await?;
 }
 
@@ -80,7 +80,7 @@ async fn cancel_after_load(consent: bool) -> Result<(), Box<dyn std::error::Erro
 
 // verifies: PROC-052, PROC-040
 #[xmtp_common::test(unwrap_try = true)]
-async fn reader_review_callback_commit_failure_replays_on_same_connection() {
+async fn reader_callback_commit_failure_replays_on_same_connection() {
     use xmtp_db::diesel::{
         Connection, RunQueryDsl,
         connection::{SimpleConnection, TransactionManager},

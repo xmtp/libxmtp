@@ -252,7 +252,7 @@ impl Client {
             builder = builder.worker_config(workers.into());
         }
         #[cfg(any(all(test, not(target_arch = "wasm32")), feature = "conformance"))]
-        if let Some(components) = crate::metadata::conformance::application_components() {
+        if let Some(components) = crate::metadata::catalogue_override::application_components() {
             builder = builder.application_components_for_test(components);
         }
         let built = builder

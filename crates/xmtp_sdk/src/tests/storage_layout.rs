@@ -532,7 +532,7 @@ async fn explicit_storage_fetches_a_removal_made_on_another_installation() {
     std::fs::remove_dir_all(root)?;
 }
 
-// verifies: CONF-033
+// verifies: CONF-030, CONF-033, CONF-064
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_sends_no_identity_request_to_a_deployment_it_refuses() {
     use xmtp_db::{ConnectionExt, diesel::prelude::*, prelude::QueryServerConfiguration};
@@ -591,7 +591,7 @@ async fn explicit_storage_sends_no_identity_request_to_a_deployment_it_refuses()
     std::fs::remove_dir_all(root)?;
 }
 
-// verifies: CONF-072
+// verifies: CONF-064, CONF-072
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_without_identity_sends_no_request_after_a_recorded_conflict() {
     use xmtp_db::prelude::QueryServerConfiguration;

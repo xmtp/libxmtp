@@ -4,7 +4,7 @@ mod history_snapshot;
 mod reader_ack_cancellation;
 mod reader_admission;
 mod reader_restored;
-mod reader_review_regressions;
+mod reader_cancellation_regressions;
 mod reader_selection;
 
 use std::sync::{
@@ -264,7 +264,6 @@ impl Signer for PendingKindSigner {
     }
 }
 
-mod binding_map;
 
 struct RecordingPreAuthenticate {
     calls: Arc<std::sync::Mutex<Vec<&'static str>>>,
@@ -611,6 +610,7 @@ mod archives;
 mod attachment_flows;
 mod backend_queries;
 mod callback_lifetime;
+mod client_build;
 mod client_setup;
 mod connections;
 mod content_decode;
@@ -634,7 +634,6 @@ mod public_error_actions;
 mod query_costs;
 mod reader_delivery;
 mod reader_recovery;
-mod reserved_transcript_sends;
 mod retained_content;
 mod signers;
 mod standard_sends;

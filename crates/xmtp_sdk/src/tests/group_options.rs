@@ -1,66 +1,139 @@
 use super::*;
 
+/// Group and DM create options reach the conversation state, the immutable
+/// group fields read no database row, and the debug, capability and message
+/// list options map to the core.
 #[xmtp_common::test(unwrap_try = true)]
-async fn group_options_metadata_members_and_message_filters() {
-    use crate::{CreateGroupOptions, GroupPermissionMode, ListMessagesOptions, MessageOrder};
+async fn create_options_reach_state_and_immutable_fields_read_no_rows() {
+    use crate::{
+        CreateDmOptions, CreateGroupOptions, DisappearingSettings, GroupPermissionMode,
+        GroupPolicyType, ListMessagesOptions, MessageOrder, Timestamp,
+    };
 
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let group = client
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let settings = DisappearingSettings {
+        from: Timestamp(xmtp_common::time::now_ns()),
+        retention_ns: 2_000_000_000,
+    };
+    let group = alix
         .conversations()
         .create_group(
-            vec![],
+            vec![bo.inbox_id()],
             Some(CreateGroupOptions {
                 permissions: Some(GroupPermissionMode::AdminOnly),
-                name: Some("first name".into()),
+                name: Some("Group Name".into()),
+                image_url: Some("url".into()),
+                description: Some("group description".into()),
+                disappearing: Some(settings.clone()),
                 ..Default::default()
             }),
         )
         .await?;
     let state = group.state().await?;
-    assert_eq!(state.name, "first name");
+    assert_eq!(state.name, "Group Name");
+    assert_eq!(state.image_url, "url");
+    assert_eq!(state.description, "group description");
+    assert!(matches!(
+        state.permissions.policy_type,
+        GroupPolicyType::AdminOnly
+    ));
+    assert!(state.common.is_disappearing_enabled);
+    let stored = state.common.disappearing_settings.expect("settings");
+    assert_eq!(stored.from, settings.from);
+    assert_eq!(stored.retention_ns, settings.retention_ns);
     let (_, immutable_reads, _) = xmtp_db::count_sql_queries(|| {
-        assert_eq!(group.creator_inbox_id(), Some(client.inbox_id()));
-        assert_eq!(group.added_by_inbox_id(), Some(client.inbox_id()));
+        assert_eq!(group.creator_inbox_id(), Some(alix.inbox_id()));
+        assert_eq!(group.added_by_inbox_id(), Some(alix.inbox_id()));
         assert!(group.is_creator());
         assert!(!group.topic().is_empty());
     });
     assert_eq!(immutable_reads, 0, "immutable fields read the database");
+
+    // A zero start time keeps the settings but leaves disappearing off.
+    let all_members = alix
+        .conversations()
+        .create_group(
+            vec![],
+            Some(CreateGroupOptions {
+                permissions: Some(GroupPermissionMode::AllMembers),
+                disappearing: Some(DisappearingSettings {
+                    from: Timestamp(0),
+                    retention_ns: 5,
+                }),
+                ..Default::default()
+            }),
+        )
+        .await?;
+    let state = all_members.state().await?;
     assert!(matches!(
         state.permissions.policy_type,
-        crate::GroupPolicyType::AdminOnly
+        GroupPolicyType::AllMembers
     ));
-    assert!(
-        group
-            .members()
-            .await?
-            .iter()
-            .any(|member| member.inbox_id == client.inbox_id())
+    assert!(!state.common.is_disappearing_enabled);
+    assert_eq!(
+        state
+            .common
+            .disappearing_settings
+            .expect("zero settings")
+            .retention_ns,
+        5
     );
-    let debug = group.debug_info().await?;
+    let debug = all_members.debug_info().await?;
     assert!(!debug.cursor.is_empty());
-    let capabilities = group.membership_capabilities().await?;
+    let capabilities = all_members.membership_capabilities().await?;
     assert!(capabilities.members.iter().any(|member| {
-        member.inbox_id == client.inbox_id()
+        member.inbox_id == alix.inbox_id()
             && member
                 .installations
                 .iter()
                 .any(|installation| installation.is_own)
     }));
-    group.update_name("second name".into()).await?;
-    assert_eq!(group.state().await?.name, "second name");
-    let first = group.send_text("first".into(), None).await?;
-    let second = group.send_text("second".into(), None).await?;
-    let messages = group
+    let first = all_members.send_text("first".into(), None).await?;
+    let second = all_members.send_text("second".into(), None).await?;
+    let newest = all_members
         .messages(Some(ListMessagesOptions {
             limit: Some(1),
             direction: Some(MessageOrder::Descending),
             ..Default::default()
         }))
         .await?;
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].0.id, second);
+    assert_eq!(newest.len(), 1);
+    assert_eq!(newest[0].0.id, second);
     assert_ne!(first, second);
-    client.end().await?;
+    let text_type = crate::encode_text("sample".into())?.r#type;
+    let without_text = all_members
+        .messages(Some(ListMessagesOptions {
+            exclude_content_types: Some(vec![text_type]),
+            ..Default::default()
+        }))
+        .await?;
+    assert!(
+        without_text
+            .iter()
+            .all(|message| message.0.id != first && message.0.id != second)
+    );
+
+    let dm = alix
+        .conversations()
+        .create_dm(
+            bo.inbox_id(),
+            Some(CreateDmOptions {
+                disappearing: Some(settings),
+            }),
+        )
+        .await?;
+    let dm_state = dm.state().await?;
+    assert!(dm_state.is_disappearing_enabled);
+    assert_eq!(
+        dm_state
+            .disappearing_settings
+            .expect("DM settings")
+            .retention_ns,
+        2_000_000_000
+    );
+    alix.end().await?;
+    bo.end().await?;
 }
 
 // verifies: DMS-007
@@ -203,4 +276,37 @@ async fn remove_members_rejects_account_address_and_keeps_nonmember_noop() {
     assert_eq!(after, before);
     client.end().await?;
     nonmember.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn member_consent_is_visible_in_group_member_record() {
+    use crate::{ConsentEntity, ConsentRecord, ConsentState};
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = alix
+        .conversations()
+        .create_group(vec![bo.inbox_id()], None)
+        .await?;
+    let entity = ConsentEntity::Inbox {
+        inbox_id: bo.inbox_id(),
+    };
+    alix.preferences()
+        .set_consent_states(vec![ConsentRecord {
+            entity: entity.clone(),
+            state: ConsentState::Allowed,
+        }])
+        .await?;
+    assert!(matches!(
+        alix.preferences().consent_state(entity).await?,
+        ConsentState::Allowed
+    ));
+    let member = group
+        .members()
+        .await?
+        .into_iter()
+        .find(|member| member.inbox_id == bo.inbox_id())
+        .expect("peer member");
+    assert!(matches!(member.consent_state, ConsentState::Allowed));
+    alix.end().await?;
+    bo.end().await?;
 }

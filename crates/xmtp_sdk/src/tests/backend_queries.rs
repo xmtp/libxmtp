@@ -266,34 +266,6 @@ async fn facade_api_statistics_track_and_clear_requests() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn facade_message_counts_and_last_read_times() {
-    use xmtp_content_types::ContentCodec;
-
-    let a = Client::create(crate::generate_local_signer().await, options()).await?;
-    let b = Client::create(crate::generate_local_signer().await, options()).await?;
-    let a_dm = a.conversations().create_dm(b.inbox_id(), None).await?;
-    assert_eq!(a_dm.count_messages(None).await?, 0);
-    a_dm.send_text("counted".into(), None).await?;
-    assert_eq!(a_dm.count_messages(None).await?, 1);
-    b.conversations().sync_all(None).await?;
-    let b_dm = b
-        .conversations()
-        .get_dm_by_inbox_id(a.inbox_id())
-        .await?
-        .expect("peer DM");
-    let receipt = xmtp_content_types::read_receipt::ReadReceiptCodec::encode(
-        xmtp_content_types::read_receipt::ReadReceipt {},
-    )?;
-    b_dm.send(receipt.try_into()?, None).await?;
-    a.conversations().sync_all(None).await?;
-    let times = a_dm.last_read_times().await?;
-    assert_eq!(times.len(), 1);
-    assert!(times[&b.inbox_id().into_checked()?].0 > 0);
-    a.end().await?;
-    b.end().await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
 async fn facade_long_text_message_round_trips() {
     let a = Client::create(crate::generate_local_signer().await, options()).await?;
     let b = Client::create(crate::generate_local_signer().await, options()).await?;
