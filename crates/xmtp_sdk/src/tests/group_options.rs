@@ -310,3 +310,60 @@ async fn member_consent_is_visible_in_group_member_record() {
     alix.end().await?;
     bo.end().await?;
 }
+
+/// The façade reads conversation consent from the DM state and writes it with
+/// `update_consent_state`. The creator starts allowed, the peer that joined from
+/// a Welcome starts unknown, and each update is read back from the DM state and
+/// from the conversation consent record.
+// verifies: CONS-020, CONS-041
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_consent_is_read_and_updated_through_the_dm() {
+    use crate::{ConsentEntity, ConsentState};
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let alix_dm = alix.conversations().create_dm(bo.inbox_id(), None).await?;
+    assert!(matches!(
+        alix_dm.state().await?.consent_state,
+        ConsentState::Allowed
+    ));
+    bo.conversations().sync_all(None).await?;
+    let bo_dm = bo
+        .conversations()
+        .get_dm_by_inbox_id(alix.inbox_id())
+        .await?
+        .expect("peer DM");
+    assert!(matches!(
+        bo_dm.state().await?.consent_state,
+        ConsentState::Unknown
+    ));
+
+    alix_dm.update_consent_state(ConsentState::Denied).await?;
+    assert!(matches!(
+        alix_dm.state().await?.consent_state,
+        ConsentState::Denied
+    ));
+    assert!(matches!(
+        alix.preferences()
+            .consent_state(ConsentEntity::Conversation {
+                conversation_id: alix_dm.id(),
+            })
+            .await?,
+        ConsentState::Denied
+    ));
+
+    bo_dm.update_consent_state(ConsentState::Allowed).await?;
+    assert!(matches!(
+        bo_dm.state().await?.consent_state,
+        ConsentState::Allowed
+    ));
+    assert!(matches!(
+        bo.preferences()
+            .consent_state(ConsentEntity::Conversation {
+                conversation_id: bo_dm.id(),
+            })
+            .await?,
+        ConsentState::Allowed
+    ));
+    alix.end().await?;
+    bo.end().await?;
+}

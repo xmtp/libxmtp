@@ -265,6 +265,64 @@ async fn facade_api_statistics_track_and_clear_requests() {
     client.end().await?;
 }
 
+/// `count_messages` passes its list options to the core count, and
+/// `last_read_times` keys each read receipt by its sender's inbox id with the
+/// receipt's sent time. A text from the same sender is not a read receipt.
+#[xmtp_common::test(unwrap_try = true)]
+async fn facade_message_counts_and_read_receipt_times() {
+    use crate::{ContentTypeId, ListMessagesOptions};
+    use xmtp_content_types::ContentCodec;
+
+    let a = Client::create(crate::generate_local_signer().await, options()).await?;
+    let b = Client::create(crate::generate_local_signer().await, options()).await?;
+    let a_dm = a.conversations().create_dm(b.inbox_id(), None).await?;
+    assert_eq!(a_dm.count_messages(None).await?, 0);
+    a_dm.send_text("counted".into(), None).await?;
+    assert_eq!(a_dm.count_messages(None).await?, 1);
+    assert!(a_dm.last_read_times().await?.is_empty());
+
+    b.conversations().sync_all(None).await?;
+    let b_dm = b
+        .conversations()
+        .get_dm_by_inbox_id(a.inbox_id())
+        .await?
+        .expect("peer DM");
+    b_dm.send_text("not a receipt".into(), None).await?;
+    a.conversations().sync_all(None).await?;
+    assert!(a_dm.last_read_times().await?.is_empty());
+
+    let receipt = xmtp_content_types::read_receipt::ReadReceiptCodec::encode(
+        xmtp_content_types::read_receipt::ReadReceipt {},
+    )?;
+    let receipt_id = b_dm.send(receipt.try_into()?, None).await?;
+    a.conversations().sync_all(None).await?;
+    let receipt = a
+        .conversations()
+        .get_message_by_id(receipt_id)
+        .await?
+        .expect("read receipt");
+    assert!(matches!(receipt.0.content, MessageContent::ReadReceipt));
+
+    assert_eq!(a_dm.count_messages(None).await?, 3);
+    let receipts_only = ListMessagesOptions {
+        content_types: Some(vec![ContentTypeId {
+            authority_id: "xmtp.org".into(),
+            type_id: "readReceipt".into(),
+            version_major: 1,
+            version_minor: 0,
+        }]),
+        ..Default::default()
+    };
+    assert_eq!(a_dm.count_messages(Some(receipts_only)).await?, 1);
+
+    let times = a_dm.last_read_times().await?;
+    assert_eq!(times.len(), 1);
+    let b_inbox = b.inbox_id().into_checked()?;
+    assert_eq!(times[&b_inbox].0, receipt.0.sent_at.0);
+    a.end().await?;
+    b.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn facade_long_text_message_round_trips() {
     let a = Client::create(crate::generate_local_signer().await, options()).await?;
