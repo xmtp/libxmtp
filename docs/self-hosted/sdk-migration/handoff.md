@@ -87,7 +87,9 @@ This does not close the Android device/emulator row. Chromium pure codecs fail
 when initialization is omitted and pass after `await initPureWasm()`. These
 focused products record `final_gate = false`; every target row above stays PENDING.
 
-After public staging, compile each guide example in this same worktree:
+Build each SDK package under `sdks/` first (`just ios build`, `just android build`,
+or `pnpm --filter @xmtp/<host>-sdk build`). Then compile each guide example in
+this same worktree:
 
 ```sh
 dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples swift'
@@ -96,7 +98,7 @@ dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples node'
 dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples browser'
 ```
 
-The compiler helper never overwrites an existing fixture. It removes only the
+The compiler helper never overwrites an existing file. It removes only the
 copy it makes. Runtime calls still need a real signer/backend, persistent paths,
 and the named host environment. Record them separately.
 
@@ -104,7 +106,6 @@ Existing commands from the repository root:
 
 ```sh
 dev/nix-shell 'just sdk generate'
-dev/nix-shell 'just sdk public-consumer'
 dev/nix-shell 'just sdk conformance swift'
 dev/nix-shell 'just sdk conformance kotlin'
 dev/nix-shell 'just sdk conformance node'

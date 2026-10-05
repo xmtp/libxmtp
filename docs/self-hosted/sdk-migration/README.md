@@ -11,10 +11,8 @@ Use ESM imports on Node and in a browser. Node requires **22.12 or later**.
 Replace `require`, CommonJS entry points, and deep binding imports. The new SDK
 has no CommonJS adapter and no legacy codec adapter.
 
-The staging package names are `xmtp-sdk` for Node and `xmtp-sdk-browser` for the
-browser. Browser pure helpers use `xmtp-sdk-browser/pure`. These names identify
-local test products. The Phase 2 package owners keep the approved public package
-names when they switch their contents. Swift imports `XmtpSdk`. Kotlin imports
+Node imports `@xmtp/node-sdk` and the browser imports `@xmtp/browser-sdk`.
+Browser pure helpers use `@xmtp/browser-sdk/pure`. Swift imports `XmtpSdk`. Kotlin imports
 `uniffi.xmtp_sdk.*`. Use `SDKClient` on Swift and Kotlin and `Client` on TypeScript.
 Do not access `.raw` or import a private binding path.
 
@@ -206,14 +204,14 @@ Kotlin and TypeScript use `ContentCodec<Value>`. Do not import legacy
 parameters map, content bytes, and optional fallback. The codec can supply
 `fallback` and `shouldPush` hooks. Register codecs per client. The mixed receive
 registry erases the value type; typed `send`, `prepareMessage`, and `reply` keep
-it. The existing installed codec consumers show all four host forms:
+it. These codecs in the repository show the host forms:
 
-- [Node codec](../../../crates/xmtp_sdk/conformance/public/node/src/codecs.ts)
-- [Browser codec](../../../crates/xmtp_sdk/conformance/public/browser/src/codecs.ts)
-- [Swift codec](../../../crates/xmtp_sdk/conformance/public/swift/Sources/PublicConsumer/Codecs.swift)
-- [Kotlin codec](../../../crates/xmtp_sdk/conformance/public/kotlin/consumer/src/main/kotlin/Codecs.kt)
+- [TypeScript codec](../../../apps/docs/examples/content-types-overview.ts). The
+  browser `ContentCodec` has the same shape.
+- [Swift codec](../../../sdks/ios/Tests/XmtpSdkTests/InstalledClientTests.swift)
+- [Kotlin codec](../../../sdks/android/library/src/androidTest/java/org/xmtp/android/library/CodecTest.kt)
 
-For standalone browser codecs, import from `xmtp-sdk-browser/pure` and await
+For standalone browser codecs, import from `@xmtp/browser-sdk/pure` and await
 `initPureWasm()` before you construct `TextCodec`, `ReactionV2Codec`, or another
 standard codec. The [browser example](browser.ts) shows this order and checks
 both codec round trips. A client open does not replace this pure-module setup.

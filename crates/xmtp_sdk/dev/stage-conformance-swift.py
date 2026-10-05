@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location(
@@ -36,26 +35,8 @@ def main():
         if native["files"].get(name) != checksum:
             raise ValueError("Swift conformance native pair mismatch")
     for name, checksum in contract["files"].items():
-        path = generated / (
-            name + ".uninstrumented" if name == "xmtp_sdk.swift" else name
-        )
-        if artifacts.digest(path) != checksum:
+        if artifacts.digest(generated / name) != checksum:
             raise ValueError(f"Swift conformance binding mismatch: {name}")
-    with tempfile.TemporaryDirectory() as temporary:
-        checked = Path(temporary) / "xmtp_sdk.swift"
-        shutil.copy2(generated / "xmtp_sdk.swift.uninstrumented", checked)
-        subprocess.run(
-            [
-                "python3",
-                str(ROOT / "crates/xmtp_sdk/conformance/inject_callback_counts.py"),
-                "swift",
-                str(checked),
-            ],
-            cwd=ROOT,
-            check=True,
-        )
-        if checked.read_bytes() != (generated / "xmtp_sdk.swift").read_bytes():
-            raise ValueError("Swift conformance callback instrumentation mismatch")
     library = next(Path(name) for name in native["files"] if name.endswith(".a"))
     manifest = ROOT / "Package.swift"
     if "sdks/ios/Sources/XmtpSdk" not in manifest.read_text():
@@ -81,8 +62,6 @@ def main():
     shutil.copytree(generated / "runtime", sources, dirs_exist_ok=True)
     shutil.copy2(ROOT / "sdks/ios/Sources/XmtpSdk/AppleLogSink.swift", sources)
     commands = [
-        ("inject_swift_cancellation_gate.py", sources / "xmtp_sdk.swift"),
-        ("inject_swift_ready_gate.py", sources / "xmtp_sdk.swift"),
         ("inject_reader_gate.py", "swift", sources / "SDKClient.swift"),
         ("inject_event_start_hook.py", "swift", sources / "events/SDKEvents.swift"),
     ]

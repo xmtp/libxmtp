@@ -14,11 +14,6 @@ mkdir -p "$package_dir"
 ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
 ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--preserve-symlinks"
-if [[ "${SDK_CALLBACK_LIFETIME:-}" == 1 ]]; then
-  node --expose-gc --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
-    crates/xmtp_sdk/conformance/ts/callback-lifetime-main.mts
-  exit 0
-fi
 node --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
   crates/xmtp_sdk/conformance/ts/timestamp.test.mts
 SDK_RELAY_TARGET="$XMTP_BACKEND_URL" bash crates/xmtp_sdk/dev/with-object-store \

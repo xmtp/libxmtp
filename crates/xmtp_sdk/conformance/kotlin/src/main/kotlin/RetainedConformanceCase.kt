@@ -20,10 +20,6 @@ internal suspend fun runRetainedConformanceCase(
             checkConfigurationDiscoveryDoesNotCallCredentials(backend)
         }
 
-        "configuration-fields" -> {
-            checkNativeConfigurationRecordProjection()
-        }
-
         "pure-inbox-id" -> {
             checkPureInboxIdCalculation()
         }

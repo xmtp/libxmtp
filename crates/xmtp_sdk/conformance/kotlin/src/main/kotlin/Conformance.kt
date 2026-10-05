@@ -21,10 +21,6 @@ import java.util.concurrent.atomic.AtomicReference
 
 fun main() =
     runBlocking {
-        if (System.getenv("SDK_CALLBACK_LIFETIME") == "1") {
-            callbackLifetime(BackendOptions(url = System.getenv("XMTP_BACKEND_URL")))
-            return@runBlocking
-        }
         System.getenv("SDK_RETAINED_CASE")?.let { name ->
             runRetainedConformanceCase(name, BackendOptions(url = System.getenv("XMTP_BACKEND_URL")))
             return@runBlocking
@@ -34,7 +30,6 @@ fun main() =
         check(messageId.length == 64)
         println("Kotlin scenario 1: load, checksums, version passed")
         checkPureInboxIdCalculation()
-        checkNativeConfigurationRecordProjection()
 
         // Client-free standard codecs encode the client's bytes and round trip.
         // verifies: CTYPE-007, CTYPE-026

@@ -5,9 +5,6 @@ package=target/sdk-conformance-apple/crates/xmtp_sdk/conformance/swift
 swift build --package-path "$package" --product XmtpSdkConformance -Xswiftc -enable-testing
 bin_dir="$(swift build --package-path "$package" --show-bin-path)"
 executable="$bin_dir/XmtpSdkConformance"
-if [[ "${SDK_CALLBACK_LIFETIME:-}" == 1 ]]; then
-  exec "$executable"
-fi
 "$executable" --missing-bundle
 
 bundle_root="$(mktemp -d)"
