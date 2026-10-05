@@ -83,7 +83,8 @@ no backend, device or SDK build.
   The launcher stops the app after each call, also after a timeout.
 - `hosts/android_host.py` and `hosts/android/` are the release APK and its
   instrumentation launcher.
-- `test_bench.py` checks the memory sampler, the percentile helper, the sample
-  checks, the run integrity check and the iOS timeout cleanup.
+- `test_bench.py` checks the memory sampler (also with zero RSS readings), the
+  percentile helper, the sample checks, the run integrity check and the iOS
+  timeout cleanup.
   `test_workload.mjs` checks that the stream teardown runs once, outside the
   timer, and also after a read or publish failure.

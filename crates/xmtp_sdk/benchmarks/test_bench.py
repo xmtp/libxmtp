@@ -24,20 +24,28 @@ def child(code):
 
 class SamplerControls(unittest.TestCase):
     def test_delayed_thread_start_short_child(self):
-        original = threading.Thread
-
         def delayed(*args, **kwargs):
+            # Only the sampler thread of the processes module waits.
             target = kwargs["target"]
 
             def held(*values):
-                time.sleep(0.2)
+                if target.__name__ == "sample":
+                    time.sleep(0.2)
                 target(*values)
 
-            return original(*args, **{**kwargs, "target": held})
+            return threading.Thread(*args, **{**kwargs, "target": held})
 
-        with patch.object(processes.threading, "Thread", side_effect=delayed):
+        with patch.object(processes, "Thread", side_effect=delayed):
             code, stdout, _, _, peak = processes.execute(child("print('short')"), "go")
         self.assertEqual((code, stdout.strip()), (0, "short"))
+        self.assertGreater(peak, 0)
+
+    def test_zero_readings_keep_the_child_high_water(self):
+        # A process that has just started can report zero RSS.
+        table = SimpleNamespace(stdout=f"{1 << 30} 1 0\n")
+        with patch.object(processes.subprocess, "run", return_value=table):
+            code, _, _, _, peak = processes.execute(child("pass"), "go")
+        self.assertEqual(code, 0)
         self.assertGreater(peak, 0)
 
     def test_sampling_error_and_child_failure(self):

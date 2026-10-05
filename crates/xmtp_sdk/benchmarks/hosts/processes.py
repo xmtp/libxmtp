@@ -4,7 +4,7 @@ import os
 import signal
 import subprocess
 import sys
-import threading
+from threading import Event, Thread, Timer
 import time
 
 # ru_maxrss is in bytes on macOS and in KiB on Linux.
@@ -27,7 +27,7 @@ def execute(argv, input_text=None, timeout=None):
         start_new_session=True,
     )
     peak = [0]
-    stopped = threading.Event()
+    stopped = Event()
     errors = []
     output = {}
 
@@ -68,7 +68,7 @@ def execute(argv, input_text=None, timeout=None):
         except ProcessLookupError:
             pass
 
-    timed_out = threading.Event()
+    timed_out = Event()
 
     def expire():
         timed_out.set()
@@ -82,13 +82,13 @@ def execute(argv, input_text=None, timeout=None):
         child.communicate()
         raise
     threads = [
-        threading.Thread(target=sample, daemon=True),
-        threading.Thread(target=read, args=("stdout", child.stdout), daemon=True),
-        threading.Thread(target=read, args=("stderr", child.stderr), daemon=True),
+        Thread(target=sample, daemon=True),
+        Thread(target=read, args=("stdout", child.stdout), daemon=True),
+        Thread(target=read, args=("stderr", child.stderr), daemon=True),
     ]
     for thread in threads:
         thread.start()
-    timer = threading.Timer(timeout, expire) if timeout else None
+    timer = Timer(timeout, expire) if timeout else None
     if timer:
         timer.start()
     try:
