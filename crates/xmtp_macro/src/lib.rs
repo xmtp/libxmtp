@@ -283,8 +283,9 @@ pub fn rpc_span(
 }
 
 /// Instrument an `xmtp_db` query method as `operation = "db.<fn_name>"` in
-/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Surfaces as
-/// `xmtp.db.*` Collector metrics. See [`span`] for the shared rationale.
+/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Use
+/// `#[db_span(redact_error)]` to log a fixed error field and return the original
+/// error unchanged. Surfaces as `xmtp.db.*` Collector metrics. See [`span`] for the shared rationale.
 #[proc_macro_attribute]
 pub fn db_span(
     attr: proc_macro::TokenStream,
@@ -294,8 +295,9 @@ pub fn db_span(
 }
 
 /// Instrument a high-level MLS operation as `operation = "mls.<fn_name>"` in
-/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Surfaces as
-/// `xmtp.mls.*` Collector metrics. See [`span`] for the shared rationale.
+/// libxmtp's canonical, OTEL-safe span form (`err, skip_all`). Use
+/// `#[mls_span(redact_error)]` to log a fixed error field and return the original
+/// error unchanged. Surfaces as `xmtp.mls.*` Collector metrics. See [`span`] for the shared rationale.
 #[proc_macro_attribute]
 pub fn mls_span(
     attr: proc_macro::TokenStream,
