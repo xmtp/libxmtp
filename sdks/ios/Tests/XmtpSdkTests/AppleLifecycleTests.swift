@@ -96,4 +96,10 @@ final class AppleLifecycleTests: XCTestCase {
 			"The lifecycle log contains the error text",
 		)
 	}
+
+	#if canImport(UIKit)
+		func testManageStreamLifecycleDefaultsOn() {
+			XCTAssertTrue(SDKClient.manageStreamLifecycle)
+		}
+	#endif
 }

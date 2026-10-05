@@ -332,6 +332,52 @@ async fn test_removed_members_cannot_send_message_to_others() {
     assert!(amal_messages.is_empty());
 }
 
+/// A removed member that syncs after a remaining member sends does not store
+/// that message. It keeps the message from before its removal.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_removed_member_does_not_receive_later_messages() {
+    tester!(amal);
+    tester!(bola);
+    tester!(charlie);
+
+    let amal_group = amal.create_group(None, None)?;
+    amal_group
+        .add_members(&[bola.inbox_id(), charlie.inbox_id()])
+        .await?;
+    let bola_group = receive_group_invite(&bola).await;
+    let charlie_group = receive_group_invite(&charlie).await;
+
+    charlie_group
+        .send_message(b"before removal", SendMessageOpts::default())
+        .await?;
+    bola_group.sync().await?;
+    let texts = |group: &TestMlsGroup| {
+        group
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
+            .unwrap()
+            .into_iter()
+            .map(|message| message.decrypted_message_bytes)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(texts(&bola_group), vec![b"before removal".to_vec()]);
+
+    amal_group.remove_members(&[bola.inbox_id()]).await?;
+    charlie_group.sync().await?;
+    assert_eq!(charlie_group.members().await?.len(), 2);
+    charlie_group
+        .send_message(b"after removal", SendMessageOpts::default())
+        .await?;
+    amal_group.sync().await?;
+    assert!(texts(&amal_group).contains(&b"after removal".to_vec()));
+
+    bola_group.sync().await?;
+    assert!(!bola_group.is_active()?);
+    assert_eq!(texts(&bola_group), vec![b"before removal".to_vec()]);
+}
+
 #[xmtp_common::test]
 async fn test_add_missing_installations() {
     // Setup for test

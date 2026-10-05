@@ -2,7 +2,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-# The small fixture covers reuse and failure paths. One real render checks
+# The small fixture covers reuse and stale cleanup. One real render checks
 # cleanup with the artifacts already built by this job.
 python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
 out=target/sdk-cleanup-real

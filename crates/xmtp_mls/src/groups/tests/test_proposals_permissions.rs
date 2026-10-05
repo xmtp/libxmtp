@@ -7,7 +7,9 @@ use crate::{
 };
 use xmtp_db::{group_intent::IntentKind, prelude::*};
 
-use super::test_proposals::assert_insufficient_permissions;
+use super::test_proposals::{
+    assert_insufficient_permissions, assert_insufficient_permissions_before_publish,
+};
 
 /// Test that proposals from non-admins are rejected when received in admin-only groups.
 /// Pattern: Alix (admin) creates admin-only group, adds Bo (non-admin), Bo proposes to add Caro,
@@ -537,14 +539,15 @@ async fn test_remove_proposal_validation_in_admin_group() {
                 .try_into()?,
             false,
         ))?;
-    assert_insufficient_permissions(
-        bo_group
-            .sync_until_intent_resolved(remove_alix_intent.id)
-            .await
-            .unwrap_err(),
-    );
+    // Bo rejects this before publishing; see
+    // test_admin_removing_super_admin_publishes_nothing.
+    bo_group
+        .sync_until_intent_resolved(remove_alix_intent.id)
+        .await
+        .map(|_| panic!("a super admin must not be removed"))
+        .unwrap_or_else(assert_insufficient_permissions_before_publish);
 
-    // Alix syncs — proposal rejected (cannot remove super admin)
+    // Alix syncs — nothing to store (cannot remove super admin)
     let _ = alix_group.sync().await;
 
     let alix_pending = alix_group
@@ -561,6 +564,114 @@ async fn test_remove_proposal_validation_in_admin_group() {
     alix_group.sync().await?;
     let members = alix_group.members().await?;
     assert_eq!(members.len(), 3, "All members should still be in the group");
+}
+
+/// An admin may remove members but not a super admin. Receivers once
+/// rejected the Remove proposal but stored the paired membership proposal,
+/// so every later send failed to commit pending proposals. Receivers now
+/// reject both, and the sender publishes neither.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_admin_removing_super_admin_publishes_nothing() {
+    use crate::groups::UpdateAdminListType;
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    alix_group
+        .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    let caro_group = caro.sync_welcomes().await?.first()?.clone();
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+
+    bo_group
+        .remove_members(&[alix.inbox_id()])
+        .await
+        .map(|_| panic!("an admin must not remove a super admin"))
+        .unwrap_or_else(assert_insufficient_permissions_before_publish);
+
+    for group in [&caro_group, &alix_group, &bo_group] {
+        group.sync().await?;
+        group.send_message(b"after", Default::default()).await?;
+    }
+    assert_eq!(caro_group.members().await?.len(), 3);
+    // Caro saw nothing to reject: Bo published neither proposal.
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(caro_group.group_id);
+    assert!(caro.context.db().read_last_rejection(&topic)?.is_none());
+}
+
+/// A modified client can skip the send-side check and publish a standalone
+/// membership delete of the super admin. Every receiver must reject it, or
+/// it stays pending and fails each later commit of pending proposals.
+// verifies: GMOD-019
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_receivers_reject_raw_membership_delete_of_super_admin() {
+    use crate::{
+        groups::{GroupError, UpdateAdminListType},
+        state_tx::state_write,
+    };
+    use openmls::{messages::proposals::AppDataUpdateOperation, prelude::tls_codec::Serialize};
+    use tls_codec::VLBytes;
+    use xmtp_db::{TransactionOutcome::Continue, XmtpOpenMlsProviderRef};
+    use xmtp_mls_common::{
+        app_data::{
+            component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
+            typed::Component,
+        },
+        inbox_id::InboxId,
+        tls_map::TlsMapDelta,
+    };
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    alix_group
+        .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    let caro_group = caro.sync_welcomes().await?.first()?.clone();
+    bo_group.sync().await?;
+    caro_group.sync().await?;
+
+    let delta = TlsMapDelta::<InboxId, VLBytes>::new().delete(
+        InboxId::from_hex(alix.inbox_id())
+            .map_err(|error| GroupError::ComponentSource(error.into()))?,
+    );
+    let payload = <GroupMembershipComponent as Component>::encode_mutation(&delta)
+        .map_err(|error| GroupError::ComponentSource(error.into()))?;
+    let message = state_write(bo.context.mls_storage(), |tx| {
+        tx.with_group(bo_group.group_id, |mls, storage| {
+            let (message, _) = mls
+                .propose_app_data_update(
+                    &XmtpOpenMlsProviderRef::new(storage),
+                    &bo.context.identity().installation_keys,
+                    ComponentId::GROUP_MEMBERSHIP.as_u16(),
+                    AppDataUpdateOperation::Update(payload.clone().into()),
+                )
+                .map_err(GroupError::Proposal)?;
+            Ok::<_, GroupError>(Continue(message.tls_serialize_detached()?))
+        })
+    })?
+    .into_continued();
+    let messages = bo_group.prepare_group_messages(vec![(message.as_slice(), false)])?;
+    bo.context.api().send_group_messages(messages).await?;
+
+    for group in [&alix_group, &caro_group] {
+        group.sync().await?;
+        assert_eq!(
+            group.with_group_snapshot(|mls| Ok(mls.pending_proposals().count()))?,
+            0,
+            "a receiver must not keep the delete"
+        );
+        group.send_message(b"after", Default::default()).await?;
+    }
 }
 
 /// Test that an admin can propose removing a member and a non-admin can commit it.

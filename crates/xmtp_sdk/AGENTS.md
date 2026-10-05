@@ -136,15 +136,17 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
 - `dev/nix-shell 'just sdk build [swift,kotlin,node,browser]'` builds selected artifacts once.
   It records file hashes under `target/sdk-artifacts/`. Native targets do not
   build WASM. Full and pure WASM use separate output directories.
-- `dev/nix-shell 'just sdk render [swift,kotlin,node,browser]'` uses those artifacts. It rejects
-  a changed binary or generator contract before it replaces generated output.
+- `dev/nix-shell 'just sdk render [swift,kotlin,node,browser]'` uses those artifacts. It deletes
+  and regenerates each selected target and does not change other targets.
+  It first checks the artifact bytes against `artifacts.json`. For `node` and
+  `browser` it also rejects artifacts from older Rust or generator source. Swift
+  and Kotlin output is checked later by mobile preflight and Swift conformance
+  staging. Run `build` first after a Rust or generator change.
   Package staging requires exact generated asset sets and hashes. Unlisted
   generated files fail before runtime or compiler work.
-  It replaces only selected targets and keeps valid unselected targets with
-  their original receipts. It removes stale unselected targets and unknown roots.
   `dev/nix-shell 'just sdk generate [targets]'` runs both steps. Use `--profile release` on the
   build recipe for release proofs. Conformance shares the bindgen artifact.
-- `dev/nix-shell 'just sdk check-package-scripts'` checks reuse, mismatch rejection, and cleanup
+- `dev/nix-shell 'just sdk check-package-scripts'` checks reuse, toolchain inputs, and cleanup
   with a small fixture. `dev/nix-shell 'just sdk check-clean-generate'` adds one real Swift
   render. It uses existing artifacts and does not rebuild Rust.
   The script checks also reject missing or extra pure WASM functions and pure

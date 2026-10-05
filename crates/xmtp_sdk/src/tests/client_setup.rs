@@ -349,3 +349,54 @@ async fn create_and_build_run_off_the_calling_thread() {
     built.end().await?;
     let _ = std::fs::remove_file(&path);
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn passkey_signature_associates_identity_through_facade() {
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let passkey = xmtp_id::utils::passkey::PasskeyUser::new().await;
+    let identity = PublicIdentity::from(passkey.get_identifier()?);
+    let request = alix
+        .unsafe_add_account_signature_request(identity.clone(), false)
+        .await?;
+    let UnverifiedSignature::Passkey(signature) = passkey.sign(&request.signature_text().await)?
+    else {
+        panic!("passkey fixture returned the wrong signature kind");
+    };
+    request
+        .add_signature(Signature::Passkey {
+            signature: signature.signature,
+            public_key: signature.public_key,
+            authenticator_data: signature.authenticator_data,
+            client_data_json: signature.client_data_json,
+        })
+        .await?;
+    alix.unsafe_apply_signature_request(request).await?;
+    let state = alix.inbox_state(true).await?;
+    assert!(
+        state
+            .identities
+            .iter()
+            .any(|value| value.identifier == identity.identifier
+                && matches!(value.kind, PublicIdentityKind::Passkey))
+    );
+    alix.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn unsigned_signature_request_cannot_register() {
+    let mut settings = options();
+    settings.registration.auto = false;
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    let request = client
+        .unsafe_create_inbox_signature_request()
+        .await?
+        .expect("new inbox request");
+    assert!(
+        client
+            .unsafe_apply_signature_request(request)
+            .await
+            .is_err()
+    );
+    assert!(!client.is_registered().await?);
+    client.end().await?;
+}

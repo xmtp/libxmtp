@@ -288,3 +288,38 @@ async fn explicit_storage_creates_its_database_directory_private() {
     std::fs::remove_dir_all(root)?;
     std::fs::write(std::env::var_os(CHILD).expect("child marker"), b"passed")?;
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn storage_key_rejects_wrong_key_for_existing_database() {
+    let path = std::env::temp_dir().join(format!(
+        "xmtp-sdk-storage-key-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns(),
+    ));
+    let signer = crate::generate_local_signer().await;
+    let mut first_options = options();
+    first_options.storage = StorageOptions {
+        location: explicit_location(&path),
+        encryption_key: Some(vec![7; 32]),
+        ..Default::default()
+    };
+    let first = Client::create(signer.clone(), first_options.clone()).await?;
+    assert!(
+        first.options().storage.encryption_key.is_none(),
+        "options exposed the database key"
+    );
+    first.end().await?;
+    let second = Client::create(
+        signer,
+        ClientOptions {
+            storage: StorageOptions {
+                encryption_key: Some(vec![8; 32]),
+                ..first_options.storage
+            },
+            ..first_options
+        },
+    )
+    .await;
+    assert!(second.is_err(), "a different database key must fail");
+    std::fs::remove_file(path)?;
+}

@@ -17,6 +17,13 @@ test("navigation works and the page has the main landmarks", async ({
   await expect(page).toHaveURL(
     new RegExp(destination.replace(/[.*+?^$()|[\]\\]/g, "\\$&")),
   );
+  await expect(
+    page.getByRole("link", {
+      name: "Swift SDK",
+      exact: true,
+      includeHidden: true,
+    }),
+  ).toHaveAttribute("href", "/reference/swift/documentation/xmtpsdk/");
 });
 
 test("search opens from the button and keyboard shortcut", async ({ page }) => {
@@ -193,7 +200,7 @@ test("native references load their content and styles", async ({ page }) => {
       : [
           "/rust/",
           "/reference/kotlin/",
-          "/reference/swift/documentation/xmtpios/",
+          "/reference/swift/documentation/xmtpsdk/",
         ];
   for (const path of paths) {
     await page.goto(path);

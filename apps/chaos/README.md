@@ -6,10 +6,31 @@ The suite uses this worktree's backend and one Toxiproxy proxy per process.
 One additional process shares a database; only its stream lease holder streams.
 
 Each seeded round runs concurrent operations, clears faults, and checks
-barrier obligations, membership, group state, and message delivery. A seed
+barrier obligations, membership, group state, and message delivery. Before
+the checkpoint, each installation syncs every group in turn. This publishes
+intents left queued by calls that stopped waiting, such as a removal that
+lost its epoch race three times. Otherwise such an intent would land during
+the roll-call and change membership after the checkpoint. A seed
 fixes the schedule. Operating system timing can change the actual interleaving.
 Each run creates fresh inboxes, even when it repeats a schedule seed. This keeps
 old installations on the backend from entering the new run's membership.
+
+## Operations
+
+A round runs 24 operations: three same-epoch bursts, one recipe, and a mixed
+tail. The tail draws from group creation, member add, remove, and re-add,
+metadata, display name, description, disappearing settings, key update, admin
+promotion and demotion, leave, sends, syncs, consent, new installations, and
+stream restarts. Admin changes come from super admins, disappearing settings
+from admins, and leaves from members who are not super admins. Without such
+an actor, the operation runs as any actor and checks the refusal path.
+
+Recipes are `same_epoch_contention`, `join_race`, `remove_and_readd`,
+`remove_with_pending_intent`, `installation_during_commits`,
+`profile_during_removal`, `leave_during_commits`, and `sync_racing_stream`.
+The state check compares group metadata, which includes display names and
+admin lists. `just chaos inspect` prints `operation_totals` for each kind with
+its success and error counts and the most common error.
 
 ## Start with small local checks
 

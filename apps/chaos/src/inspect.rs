@@ -339,6 +339,11 @@ fn recent_records(output: &mut BoundedOutput, path: &Path, group: Option<&str>) 
         ));
     }
     let operations = read_jsonl_tail(&round.join("ops.jsonl"))?;
+    if group.is_none() {
+        for line in operation_totals(&operations) {
+            output.line(&line);
+        }
+    }
     let mut starts = BTreeMap::new();
     let mut rows = Vec::new();
     for record in &operations {
@@ -396,6 +401,34 @@ fn recent_records(output: &mut BoundedOutput, path: &Path, group: Option<&str>) 
         }
     }
     Ok(found)
+}
+
+/// Outcomes per operation kind, with the most common redacted error. A kind
+/// that always fails, even without faults, is a harness or SDK defect, not churn.
+fn operation_totals(operations: &[Value]) -> Vec<String> {
+    let mut totals: BTreeMap<String, (u64, BTreeMap<String, u64>)> = BTreeMap::new();
+    for record in operations.iter().filter(|record| record["event"] == "end") {
+        let (ok, errors) = totals
+            .entry(scalar(&record["operation"]["kind"]))
+            .or_default();
+        match record["outcome"]["error"].as_str() {
+            Some(error) => *errors.entry(safe_error(error)).or_default() += 1,
+            None => *ok += 1,
+        }
+    }
+    totals
+        .into_iter()
+        .map(|(kind, (ok, errors))| {
+            let failed: u64 = errors.values().sum();
+            let common = errors
+                .into_iter()
+                .max_by_key(|(_, count)| *count)
+                .map_or_else(String::new, |(error, count)| {
+                    format!(" top_error({count})={}", clipped(&error, 160))
+                });
+            format!("operation_totals kind={kind} ok={ok} err={failed}{common}")
+        })
+        .collect()
 }
 
 pub(crate) fn render_findings(output: &mut BoundedOutput, value: &Value, group: Option<&str>) {
@@ -767,6 +800,35 @@ mod tests {
         let group = inspect(temp.path(), Some("abc"), None);
         assert!(group.contains("StorageError: database is locked"));
         assert_bounded(&group);
+    }
+
+    /// A kind that always fails is invisible in the round line's error total,
+    /// so inspection reports outcomes per kind with the dominant redacted cause.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn operation_totals_count_outcomes_per_kind_without_private_values() {
+        let end = |kind: &str, outcome: Value| json!({"event":"end","operation":{"kind":kind,"value":"private-name"},"outcome":outcome});
+        let records = [
+            json!({"event":"start","operation":{"kind":"admin"}}),
+            end(
+                "admin",
+                json!({"error":"Group error: Insufficient permissions value=\"private-name\""}),
+            ),
+            end(
+                "admin",
+                json!({"error":"Group error: Insufficient permissions value=\"private-name\""}),
+            ),
+            end("admin", json!({"error":"Storage error: timeout"})),
+            end("display_name", json!({"ok":{}})),
+            json!({"event":"rollcall","token":"private-name","sent":true}),
+        ];
+        let totals = operation_totals(&records);
+        assert_eq!(
+            totals,
+            [
+                "operation_totals kind=\"admin\" ok=0 err=3 top_error(2)=Group error: Insufficient permissions value=[value]",
+                "operation_totals kind=\"display_name\" ok=1 err=0",
+            ]
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -25,7 +25,16 @@ use xmtp_db::{
     sql_key_store::SqlKeyStore,
 };
 use xmtp_id::InboxOwner;
-use xmtp_mls::{Client, context::XmtpMlsLocalContext, identity::IdentityStrategy};
+use xmtp_mls::{
+    Client,
+    context::XmtpMlsLocalContext,
+    groups::UpdateAdminListType,
+    identity::IdentityStrategy,
+    mls_common::{
+        app_data::fields::{ComponentMutation, FieldValue, MetadataFieldRef, UserFieldUpdate},
+        group_mutable_metadata::MessageDisappearingSettings,
+    },
+};
 use xmtp_proto::{api::ToBoxedClient, types::GroupId};
 
 type ChaosClient = Client<
@@ -40,6 +49,8 @@ type ChaosGroup = xmtp_mls::groups::MlsGroup<
 >;
 const STREAM_TOKEN_CAP: usize = 4096;
 const STREAM_ERROR_CAP: usize = 16;
+/// Longer than any soak, so no roll-call token expires before it is checked.
+const DISAPPEAR_IN_NS: i64 = 30 * 24 * 60 * 60 * 1_000_000_000;
 
 fn published_token_bytes(
     connection: &mut xmtp_db::diesel::SqliteConnection,
@@ -367,6 +378,63 @@ impl State {
                 self.group(&group)?.update_installations().await?;
                 Ok(json!({}))
             }
+            Operation::DisplayName { group, value } => {
+                self.group(&group)?
+                    .update_user_data(&[UserFieldUpdate {
+                        field: MetadataFieldRef::USER_DISPLAY_NAME,
+                        value: value.map(FieldValue::String),
+                    }])
+                    .await?;
+                Ok(json!({}))
+            }
+            Operation::Description { group, value } => {
+                self.group(&group)?
+                    .update_metadata_field(
+                        &MetadataFieldRef::GROUP_DESCRIPTION,
+                        &ComponentMutation::Replace(FieldValue::String(value)),
+                    )
+                    .await?;
+                Ok(json!({}))
+            }
+            Operation::Disappearing { group, enabled } => {
+                let group = self.group(&group)?;
+                if enabled {
+                    group
+                        .update_conversation_message_disappearing_settings(
+                            MessageDisappearingSettings::new(
+                                xmtp_common::time::now_ns(),
+                                DISAPPEAR_IN_NS,
+                            ),
+                        )
+                        .await?;
+                } else {
+                    group
+                        .remove_conversation_message_disappearing_settings()
+                        .await?;
+                }
+                Ok(json!({}))
+            }
+            Operation::KeyUpdate { group } => {
+                self.group(&group)?.key_update().await?;
+                Ok(json!({}))
+            }
+            Operation::Admin {
+                group,
+                inbox,
+                promote,
+            } => {
+                let change = if promote {
+                    UpdateAdminListType::Add
+                } else {
+                    UpdateAdminListType::Remove
+                };
+                self.group(&group)?.update_admin_list(change, inbox).await?;
+                Ok(json!({}))
+            }
+            Operation::Leave { group } => {
+                self.group(&group)?.leave_group().await?;
+                Ok(json!({}))
+            }
         }
     }
 
@@ -444,7 +512,15 @@ impl State {
                 self.recover_stream().await?;
                 Ok(json!({}))
             }
-            Command::Drain => Ok(json!({})),
+            // A call that stops waiting leaves its intent queued for the next sync.
+            // Publish it here so the checkpoint observes it, not a later roll-call send.
+            Command::Drain => {
+                let mut unpublished = 0;
+                for group in self.groups()? {
+                    unpublished += usize::from(group.sync().await.is_err());
+                }
+                Ok(json!({"unpublished":unpublished}))
+            }
             Command::Shutdown => {
                 self.stream(false).await?;
                 self.client.close().await?;

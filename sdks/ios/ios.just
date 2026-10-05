@@ -42,7 +42,7 @@ build:
 
 # Run the suite on an installed iOS simulator.
 test-simulator destination="platform=iOS Simulator,name=iPhone 17":
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" TEST_RUNNER_XMTP_IOS_PERFORMANCE="${XMTP_IOS_PERFORMANCE:-0}" env -u LD xcodebuild test -scheme XmtpSdk -destination '{{ destination }}'
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" env -u LD xcodebuild test -scheme XmtpSdk -destination '{{ destination }}'
 
 # Generate a static DocC site. The output path is relative to the repository root.
 docs output="apps/docs/generated/reference/swift":

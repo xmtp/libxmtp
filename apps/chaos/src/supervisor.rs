@@ -753,6 +753,8 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
                             .collect::<BTreeSet<_>>()
                             .into_iter()
                             .collect(),
+                        admins: g.admins.clone(),
+                        super_admins: g.super_admins.clone(),
                     },
                 )
             })

@@ -2,11 +2,14 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --features conformance --artifacts target/sdk-conformance-artifacts "$@"
-python3 crates/xmtp_sdk/dev/sdk-artifacts.py render --artifacts target/sdk-conformance-artifacts --out target/sdk-conformance "$@"
-
 generated=target/sdk-conformance
-# The renderer writes only the selected target directories.
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --features conformance --artifacts target/sdk-conformance-artifacts "$@"
+# Render replaces only the selected trees and keeps the others. A kept tree from
+# an earlier run already has callback counters, so start from an empty output.
+rm -rf "$generated"
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py render --artifacts target/sdk-conformance-artifacts --out "$generated" "$@"
+
+# The output now holds only the selected target directories.
 # Read real foreign callback tables only in these conformance copies.
 if [[ -d "$generated/swift" ]]; then
   cp "$generated/swift/xmtp_sdk.swift" "$generated/swift/xmtp_sdk.swift.uninstrumented"

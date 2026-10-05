@@ -38,14 +38,15 @@ p.add_argument("--out", default="target/sdk-conformance")
 a = p.parse_args()
 if a.operation == "render":
     out = Path(a.out)
-    if out.exists():
-        shutil.rmtree(out)
     source = Path(os.environ["SDK_TEST_GENERATED"])
     bindings = {"swift":"swift/xmtp_sdk.swift", "kotlin":"kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt", "node":"typescript-napi/xmtp_sdk.ts"}
     for target in a.targets.split(","):
         names = [bindings[target]] if target != "browser" else ["typescript-wasm/index.ts", "typescript-pure/index.ts"]
         for name in names:
             destination = out / name
+            tree = out / Path(name).parts[0]
+            if tree.exists():
+                shutil.rmtree(tree)
             destination.parent.mkdir(parents=True, exist_ok=True)
             if not os.environ.get("SDK_TEST_OMIT_BINDING"):
                 shutil.copy2(source / name, destination)
@@ -53,7 +54,7 @@ if a.operation == "render":
 
 
 class TargetTests(unittest.TestCase):
-    def check_targets(self, selected, missing=False):
+    def check_targets(self, selected, missing=False, earlier=()):
         targets = selected or "swift,kotlin,node,browser"
         with tempfile.TemporaryDirectory(prefix="sdk-conformance-target-") as temporary:
             root = Path(temporary)
@@ -67,23 +68,31 @@ class TargetTests(unittest.TestCase):
                 conformance,
             )
             (dev / "sdk-artifacts.py").write_text(RENDERER)
-            command = ["bash", str(dev / "conformance-generate")]
-            if selected:
-                command += ["--targets", selected]
-            result = subprocess.run(
-                command,
-                cwd=root,
-                env=os.environ
-                | {
-                    "SDK_TEST_GENERATED": str(GENERATED),
-                    "SDK_TEST_OMIT_BINDING": "1" if missing else "",
-                },
-                text=True,
-                capture_output=True,
-            )
+
+            def generate(chosen, omit=False):
+                command = ["bash", str(dev / "conformance-generate")]
+                if chosen:
+                    command += ["--targets", chosen]
+                return subprocess.run(
+                    command,
+                    cwd=root,
+                    env=os.environ
+                    | {
+                        "SDK_TEST_GENERATED": str(GENERATED),
+                        "SDK_TEST_OMIT_BINDING": "1" if omit else "",
+                    },
+                    text=True,
+                    capture_output=True,
+                )
+
+            # CI runs several targets in sequence against one output directory.
+            for previous in earlier:
+                result = generate(previous)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = generate(selected, missing)
             if missing:
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("FileNotFoundError", result.stderr)
+                self.assertIn("No such file or directory", result.stderr)
                 self.assertIn(BINDINGS["swift"], result.stderr)
                 return
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -114,6 +123,9 @@ class TargetTests(unittest.TestCase):
 
     def test_missing_requested_binding(self):
         self.check_targets("swift", missing=True)
+
+    def test_sequential_targets(self):
+        self.check_targets("kotlin", earlier=["node"])
 
 
 for name, targets in [

@@ -419,14 +419,20 @@ async fn revoked_pending_add_does_not_block_publication(
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
+    tester!(eve, disable_workers);
     let group = alix
-        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .create_group_with_members(
+            &[bo.inbox_id(), caro.inbox_id(), eve.inbox_id()],
+            None,
+            None,
+        )
         .await?;
     caro.sync_welcomes().await?;
     let caro_group = caro.group(&group.group_id)?;
     caro_group.receive().await?;
     tester!(bo2, from: bo, disable_workers);
-    assert!(caro_group.remove_members(&[alix.inbox_id()]).await.is_err());
+    // Caro is not an admin, so receivers reject the removal.
+    assert!(caro_group.remove_members(&[eve.inbox_id()]).await.is_err());
     receive_completed_prefix(&caro_group, &group).await?;
     group.with_group_snapshot(|mls| {
         assert!(mls.pending_proposals().any(|proposal| {
@@ -706,15 +712,21 @@ async fn send_after_rejected_membership_refreshes_pending_adds_immediately() {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
+    tester!(eve, disable_workers);
     let group = alix
-        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .create_group_with_members(
+            &[bo.inbox_id(), caro.inbox_id(), eve.inbox_id()],
+            None,
+            None,
+        )
         .await?;
     bo.sync_welcomes().await?;
     caro.sync_welcomes().await?;
     let caro_group = caro.group(&group.group_id)?;
     caro_group.receive().await?;
     tester!(bo2, from: bo, disable_workers);
-    assert!(caro_group.remove_members(&[alix.inbox_id()]).await.is_err());
+    // Caro is not an admin, so receivers reject the removal.
+    assert!(caro_group.remove_members(&[eve.inbox_id()]).await.is_err());
     receive_completed_prefix(&caro_group, &group).await?;
     // A successful recent check must not hide a valid pending installation Add.
     group
@@ -752,8 +764,13 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
     tester!(dave, disable_workers);
+    tester!(eve, disable_workers);
     let group = alix
-        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .create_group_with_members(
+            &[bo.inbox_id(), caro.inbox_id(), eve.inbox_id()],
+            None,
+            None,
+        )
         .await?;
     bo.sync_welcomes().await?;
     caro.sync_welcomes().await?;
@@ -767,7 +784,8 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
     // The removal also discovers a valid new installation for another member.
     // Publish and process this attempt before any later installation refresh.
     tester!(bo2, from: bo, disable_workers);
-    let result = caro_group.remove_members(&[alix.inbox_id()]).await;
+    // Caro is not an admin, so receivers reject the removal.
+    let result = caro_group.remove_members(&[eve.inbox_id()]).await;
     let Err(GroupError::Sync(summary)) = result else {
         panic!("expected a permission rejection, got {result:?}");
     };
@@ -779,7 +797,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
     )));
     for peer in [&group, &bo_group, &caro_group] {
         receive_completed_prefix(&caro_group, peer).await?;
-        assert_eq!(peer.members().await?.len(), 3);
+        assert_eq!(peer.members().await?.len(), 4);
         assert_eq!(peer.epoch().await?, committed_epoch);
         assert_eq!(peer.epoch_authenticator().await?, committed_authenticator);
         peer.with_group_snapshot(|mls_group| {
@@ -1044,7 +1062,7 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
         .expect("every member must process the last confirmed send");
         assert_eq!(
             peer.members().await?.len(),
-            if concurrent_adds { 4 } else { 3 }
+            if concurrent_adds { 5 } else { 4 }
         );
         assert_eq!(
             peer.epoch_authenticator().await?,

@@ -88,3 +88,36 @@ async fn create_rejects_unlisted_scw_chain_with_typed_error() {
     .await;
     assert!(matches!(result, Err(XmtpError::ChainNotAccepted(_))));
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn static_revoke_checks_recovery_signer_and_removes_target() {
+    let signer = crate::generate_local_signer().await;
+    let first = Client::create(signer.clone(), options()).await?;
+    let second = Client::create(signer.clone(), options()).await?;
+    let backend = options().backend.expect("backend");
+    let target = second.installation_id();
+    let wrong = crate::generate_local_signer().await;
+    assert!(
+        crate::static_helpers::revoke_installations_with_backend(
+            backend.clone(),
+            wrong,
+            first.inbox_id(),
+            vec![target.clone()]
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(first.inbox_state(true).await?.installations.len(), 2);
+    crate::static_helpers::revoke_installations_with_backend(
+        backend,
+        signer,
+        first.inbox_id(),
+        vec![target],
+    )
+    .await?;
+    let state = first.inbox_state(true).await?;
+    assert_eq!(state.installations.len(), 1);
+    assert_eq!(state.installations[0].id, first.installation_id());
+    first.end().await?;
+    second.end().await?;
+}

@@ -1,4 +1,52 @@
+//! Client create and build: stored identity, storage and backend
+//! admission, offline builds, catch-up, and installation revocation.
+
 use super::*;
+
+async fn build_on_new_database_fails_identity_not_found(
+    allow_offline: bool,
+) -> Result<(), XmtpError> {
+    use xmtp_db::{Fetch, identity::StoredIdentity};
+
+    let signer = crate::generate_local_signer().await;
+    let identity = signer::identity(signer).await?;
+    let inbox_id = InboxId::try_from(
+        identity
+            .to_core()?
+            .inbox_id(0)
+            .map_err(XmtpError::unknown)?,
+    )?;
+    let path = std::env::temp_dir().join(format!(
+        "sdk-build-new-{}-{}-{}.db3",
+        allow_offline,
+        std::process::id(),
+        xmtp_common::time::now_ns(),
+    ));
+    let mut settings = options();
+    settings.storage.location = explicit_location(&path);
+    settings.allow_offline = allow_offline;
+    settings.backend = Some(BackendSource::Options {
+        options: BackendOptions {
+            url: "http://127.0.0.1:1".into(),
+            ..Default::default()
+        },
+    });
+
+    let result = Client::build(identity, settings.clone(), Some(inbox_id.clone())).await;
+    assert!(
+        matches!(result, Err(XmtpError::IdentityNotFound(ref details))
+        if details.code == "IdentityNotFound"
+            && matches!(details.category, crate::ErrorCategory::Identity)
+            && !details.retryable)
+    );
+    assert!(!path.exists(), "build created a new database");
+    let store = crate::client::open_store(&settings.storage, Some(&path.to_string_lossy())).await?;
+    let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::unknown)?;
+    assert!(stored.is_none(), "build registered a new identity");
+    drop(store);
+    std::fs::remove_file(path).map_err(XmtpError::unknown)?;
+    Ok(())
+}
 
 // verifies: STORE-007
 #[xmtp_common::test(unwrap_try = true)]
@@ -172,128 +220,6 @@ async fn catch_up_replays_once_and_preserves_bounded_progress() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn dm_create_is_idempotent_and_peer_ids_survive_lookup() {
-    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
-    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
-    let first = alix.conversations().create_dm(bo.inbox_id(), None).await?;
-    assert_eq!(first.peer_inbox_id().await?, Some(bo.inbox_id()));
-    let again = alix.conversations().create_dm(bo.inbox_id(), None).await?;
-    assert_eq!(again.id(), first.id());
-    let listed = alix.conversations().list(None).await?;
-    let dms = listed
-        .into_iter()
-        .filter_map(|conversation| match conversation {
-            crate::Conversation::Dm { dm } => Some(dm),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(dms.len(), 1);
-    assert_eq!(dms[0].id(), first.id());
-    assert_eq!(dms[0].peer_inbox_id().await?, Some(bo.inbox_id()));
-    let groups = alix
-        .conversations()
-        .list(Some(crate::ListConversationsOptions {
-            kind: Some(crate::ConversationKind::Group),
-            ..Default::default()
-        }))
-        .await?;
-    assert!(groups.is_empty());
-    let only_dms = alix
-        .conversations()
-        .list(Some(crate::ListConversationsOptions {
-            kind: Some(crate::ConversationKind::Dm),
-            ..Default::default()
-        }))
-        .await?;
-    assert_eq!(only_dms.len(), 1);
-
-    let alix_summary = alix.conversations().sync_all(None).await?;
-    let bo_summary = bo.conversations().sync_all(None).await?;
-    assert_eq!(alix_summary.eligible, 1);
-    assert_eq!(alix_summary.synced, 1);
-    assert_eq!(bo_summary.eligible, 1);
-    assert_eq!(bo_summary.synced, 1);
-    let from_peer = bo
-        .conversations()
-        .get_dm_by_inbox_id(alix.inbox_id())
-        .await?
-        .expect("the peer DM");
-    assert_eq!(from_peer.id(), first.id());
-    assert_eq!(from_peer.peer_inbox_id().await?, Some(alix.inbox_id()));
-    let peer_groups = bo
-        .conversations()
-        .list(Some(crate::ListConversationsOptions {
-            kind: Some(crate::ConversationKind::Group),
-            ..Default::default()
-        }))
-        .await?;
-    assert!(peer_groups.is_empty());
-    alix.end().await?;
-    bo.end().await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn custom_permission_set_is_converted_and_invalid_set_is_rejected() {
-    use crate::{
-        CreateGroupOptions, GroupPermissionMode, PermissionPolicy as Policy, PermissionPolicySet,
-    };
-    let policy_set = PermissionPolicySet {
-        add_member: Policy::Allow,
-        remove_member: Policy::Deny,
-        add_admin: Policy::Admin,
-        remove_admin: Policy::Admin,
-        update_name: Policy::Admin,
-        update_description: Policy::Allow,
-        update_image: Policy::Admin,
-        update_disappearing: Policy::Admin,
-        update_app_data: Policy::SuperAdmin,
-    };
-    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
-    let group = alix
-        .conversations()
-        .create_group(
-            vec![],
-            Some(CreateGroupOptions {
-                permissions: Some(GroupPermissionMode::Custom {
-                    policy_set: policy_set.clone(),
-                }),
-                ..Default::default()
-            }),
-        )
-        .await?;
-    let actual = group.state().await?.permissions.policy_set;
-    assert!(matches!(actual.add_member, Policy::Allow));
-    assert!(matches!(actual.remove_member, Policy::Deny));
-    assert!(matches!(actual.add_admin, Policy::Admin));
-    assert!(matches!(actual.remove_admin, Policy::Admin));
-    assert!(matches!(actual.update_name, Policy::Admin));
-    assert!(matches!(actual.update_description, Policy::Allow));
-    assert!(matches!(actual.update_image, Policy::Admin));
-    assert!(matches!(actual.update_disappearing, Policy::Admin));
-    assert!(matches!(actual.update_app_data, Policy::SuperAdmin));
-
-    let invalid = PermissionPolicySet {
-        add_admin: Policy::Allow,
-        ..policy_set
-    };
-    assert!(matches!(
-        alix.conversations()
-            .create_group(
-                vec![],
-                Some(CreateGroupOptions {
-                    permissions: Some(GroupPermissionMode::Custom {
-                        policy_set: invalid
-                    }),
-                    ..Default::default()
-                })
-            )
-            .await,
-        Err(XmtpError::InvalidInput(_))
-    ));
-    alix.end().await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
 async fn backend_url_is_required_and_offline_choice_is_explicit() {
     use xmtp_db::prelude::QueryServerConfiguration;
 
@@ -406,7 +332,7 @@ async fn backend_url_is_required_and_offline_choice_is_explicit() {
     std::fs::remove_file(path)?;
 }
 
-// verifies: CONF-076
+// verifies: CONF-034, CONF-076
 #[xmtp_common::test(unwrap_try = true)]
 async fn offline_build_with_moved_url_uses_stored_copy() {
     use xmtp_db::prelude::QueryServerConfiguration;

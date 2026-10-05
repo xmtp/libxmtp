@@ -11,7 +11,7 @@ use crate::{
     MetadataComponentType, MetadataFieldDescriptor, MetadataFieldRef, MetadataFieldValue,
     MetadataKeyType, MetadataPolicy, MetadataScalarType, MetadataValue, SetMutation,
     UserFieldUpdate, UserFieldValue, WellKnownMetadataField as WellKnown,
-    metadata::conformance::use_application_components, metadata_field_ref,
+    metadata::catalogue_override::use_application_components, metadata_field_ref,
 };
 
 const STATUS: u16 = 0xC001;
@@ -215,9 +215,9 @@ fn expect_kind(error: XmtpError, name: &str, category: ErrorCategory) {
 }
 
 mod calls;
-mod collections;
 #[cfg(not(target_arch = "wasm32"))]
-mod conformance_creation;
+mod catalogue_admission;
+mod collections;
 mod descriptors;
 mod profiles;
 mod reads;
