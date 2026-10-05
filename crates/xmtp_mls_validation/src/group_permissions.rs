@@ -973,11 +973,14 @@ impl PolicySet {
             let is_ok = policy.evaluate(actor, change);
             if !is_ok {
                 tracing::info!(
-                    "Policy {:?} failed for actor {:?} (proposer: {:?}) and change {:?}",
-                    policy,
-                    actor,
-                    change.proposer.is_some(),
-                    change
+                    has_proposer = change.proposer.is_some(),
+                    actor_is_creator = actor.is_creator,
+                    actor_is_admin = actor.is_admin,
+                    actor_is_super_admin = actor.is_super_admin,
+                    subject_is_creator = change.is_creator,
+                    subject_is_admin = change.is_admin,
+                    subject_is_super_admin = change.is_super_admin,
+                    "Membership policy rejected change"
                 );
             }
             is_ok
