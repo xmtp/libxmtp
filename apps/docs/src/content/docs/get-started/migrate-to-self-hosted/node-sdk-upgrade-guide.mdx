@@ -6,7 +6,7 @@ description: Update Node SDK calls, options, and results for a self-hosted backe
 Start with [Migrate to a self-hosted backend](/get-started/migrate-to-self-hosted/)
 for the backend, database, history, and push steps. This guide lists changes
 from [`main` at `cc878025da`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247)
-to [`self-hosted` at `73636909dd`](https://github.com/xmtp/libxmtp/tree/73636909ddabfae64e370375ef8227c58f2abc5a).
+to [`self-hosted` at `610175f3b3`](https://github.com/xmtp/libxmtp/tree/610175f3b3108e7d8c6b8b01df6d99296a6e08b2).
 A call can keep its name and still have different parameters, results, or
 behavior. The **Before** examples use the old SDK. The **After** examples use
 the new SDK.
@@ -504,9 +504,9 @@ payload field names. Optional fields use `undefined`; record fields are read-onl
 
 ## Streams and live events
 
-Replace the old asynchronous stream factories with `MessageStream` and
-`ConversationStream`. `open` returns a stream immediately. `await stream.ready()`
-waits for local reader readiness; it does not prove that the backend is online.
+Use stream methods on `client.conversations`, a group, or a DM. Each method
+returns a stream immediately. `await stream.ready()` waits for the local reader
+to open. It does not prove that the backend is online or catch-up is complete.
 
 | Previous call                                                                                 | Current call                                                                                                                                                        |
 | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -557,7 +557,7 @@ message. Do not also iterate a callback stream.
 
 Only one default message reader owns delivery progress for a database. This
 includes readers that select different conversations. A second default reader
-fails with `ConsumerOwned`. Use `selection.from` for independent replay.
+fails with `ConsumerOwned`. Use `options.from` for independent replay.
 `message.deliveryCursor` is a string or `null`; it is local to one database.
 `conversations.beginningDeliveryCursor()` selects the first retained message.
 Save a replay message's cursor only after processing succeeds.
