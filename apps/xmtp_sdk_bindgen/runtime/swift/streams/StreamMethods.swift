@@ -62,53 +62,40 @@ private func streamOwner(_ key: UInt64) throws -> SDKClient {
     return owner
 }
 
-public extension Conversations {
-    /// The sequence holds its client only after a reader opens.
-    func stream(options: ConversationStreamOptions = .init()) async throws -> SDKConversationStream {
-        try Task.checkCancellation()
-        let owner = try streamOwner(sdkStreamOwnerKey())
-        return makeSDKConversationStream(kind: options.conversationKind, consentStates: options.consentStates,
-                                         owner: owner, onClose: options.onClose, onConnectionStateChange: options.onConnectionStateChange)
-    }
-
-    /// The next read acknowledges the previous message. The active reader holds its client.
-    func streamAllMessages(options: MessageStreamOptions = .init()) async throws -> SDKMessageStream {
-        try Task.checkCancellation()
-        let owner = try streamOwner(sdkStreamOwnerKey())
-        let selection = MessageReaderOptions(conversationKind: options.conversationKind, consentStates: options.consentStates, from: options.from)
-        return makeSDKMessageStream(open: { try await self.messageReader(options: selection) }, owner: owner,
-                                    onClose: options.onClose, onConnectionStateChange: options.onConnectionStateChange)
-    }
+// These typed adapters own selection and host lifetime policy. The generator
+// supplies only the declared owner getter and reader opener.
+private func openConversationStreamOptions(
+    ownerKey: () -> UInt64,
+    open: @escaping @Sendable (ConversationReaderOptions?) async throws -> ConversationReader,
+    options: ConversationStreamOptions
+) async throws -> SDKConversationStream {
+    try Task.checkCancellation()
+    let owner = try streamOwner(ownerKey())
+    let selection = ConversationReaderOptions(kind: options.conversationKind, consentStates: options.consentStates)
+    return makeSDKConversationStream(open: { try await open(selection) }, owner: owner,
+                                     onClose: options.onClose, onConnectionStateChange: options.onConnectionStateChange)
 }
 
-public extension Group {
-    /// The next read acknowledges the previous message. The active reader holds its client.
-    func streamMessages(options: ConversationMessageStreamOptions = .init()) async throws -> SDKMessageStream {
-        try Task.checkCancellation()
-        let owner = try streamOwner(sdkStreamOwnerKey())
-        let selection = ConversationMessageReaderOptions(from: options.from)
-        return makeSDKMessageStream(open: { try await self.messageReader(options: selection) }, owner: owner,
-                                    onClose: options.onClose, onConnectionStateChange: options.onConnectionStateChange)
-    }
+private func openMessageStreamOptions(
+    ownerKey: () -> UInt64,
+    open: @escaping @Sendable (MessageReaderOptions?) async throws -> MessageReader,
+    options: MessageStreamOptions
+) async throws -> SDKMessageStream {
+    try Task.checkCancellation()
+    let owner = try streamOwner(ownerKey())
+    let selection = MessageReaderOptions(conversationKind: options.conversationKind, consentStates: options.consentStates, from: options.from)
+    return makeSDKMessageStream(open: { try await open(selection) }, owner: owner,
+                                onClose: options.onClose, onConnectionStateChange: options.onConnectionStateChange)
 }
 
-public extension Dm {
-    /// The next read acknowledges the previous message. The active reader holds its client.
-    func streamMessages(options: ConversationMessageStreamOptions = .init()) async throws -> SDKMessageStream {
-        try Task.checkCancellation()
-        let owner = try streamOwner(sdkStreamOwnerKey())
-        let selection = ConversationMessageReaderOptions(from: options.from)
-        return makeSDKMessageStream(open: { try await self.messageReader(options: selection) }, owner: owner,
-                                    onClose: options.onClose, onConnectionStateChange: options.onConnectionStateChange)
-    }
-}
-
-public extension Conversation {
-    /// The next read acknowledges the previous message. The active reader holds its client.
-    func streamMessages(options: ConversationMessageStreamOptions = .init()) async throws -> SDKMessageStream {
-        switch self {
-        case let .group(group): return try await group.streamMessages(options: options)
-        case let .dm(dm): return try await dm.streamMessages(options: options)
-        }
-    }
+private func openConversationMessageStreamOptions(
+    ownerKey: () -> UInt64,
+    open: @escaping @Sendable (ConversationMessageReaderOptions?) async throws -> MessageReader,
+    options: ConversationMessageStreamOptions
+) async throws -> SDKMessageStream {
+    try Task.checkCancellation()
+    let owner = try streamOwner(ownerKey())
+    let selection = ConversationMessageReaderOptions(from: options.from)
+    return makeSDKMessageStream(open: { try await open(selection) }, owner: owner,
+                                onClose: options.onClose, onConnectionStateChange: options.onConnectionStateChange)
 }

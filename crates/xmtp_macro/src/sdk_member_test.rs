@@ -226,7 +226,7 @@ fn member_options_reject_the_wrong_member() {
         ),
         (
             quote!(impl Client { #[sdk(native_only)] pub async fn sync(&self) {} }),
-            "unknown sdk option; expected immutable, host_internal, kind",
+            "unknown sdk option; expected immutable, host_internal, stream(...), kind",
         ),
         (
             quote!(
@@ -287,7 +287,10 @@ fn member_options_reject_the_wrong_member() {
             }
         ),
     );
-    assert!(message.contains("unknown sdk option; expected immutable, host_internal, kind"));
+    assert!(
+        message
+            .contains("unknown sdk option; expected immutable, host_internal, stream(...), kind")
+    );
     let message = error(
         quote!(),
         quote!(impl Client {
@@ -897,4 +900,197 @@ fn host_internal_rejects_other_locations_duplicates_and_written_markers() {
         )
         .contains("free function")
     );
+}
+
+#[test]
+fn stream_declaration_emits_checked_names() {
+    let output = export(
+        quote!(),
+        quote! {
+            impl FourthReceiver {
+                #[sdk(stream(name = "consume", options = "MessageStreamOptions", owner = "private_owner"))]
+                pub async fn selected_reader(&self, selection: Option<crate::MessageReaderOptions>) -> Result<Arc<MessageReader>, XmtpError> { todo!() }
+            }
+        },
+    );
+    assert!(output.contains("@xmtp-stream=consume:MessageStreamOptions:private_owner"));
+    assert!(!output.contains("sdk (stream"));
+}
+
+#[test]
+fn stream_parameters_reject_missing_repeated_unknown_and_unsafe_values() {
+    for (parameters, expected) in [
+        (
+            quote!(name = "consume", options = "MessageStreamOptions"),
+            "stream is missing owner",
+        ),
+        (
+            quote!(
+                name = "consume",
+                options = "MessageStreamOptions",
+                owner = "key",
+                extra = "value"
+            ),
+            "unknown stream parameter",
+        ),
+        (
+            quote!(
+                name = "consume",
+                options = "MessageStreamOptions",
+                owner = "key",
+                owner = "other"
+            ),
+            "stream parameter is repeated",
+        ),
+        (
+            quote!(
+                name = "consume();evil",
+                options = "MessageStreamOptions",
+                owner = "key"
+            ),
+            "ASCII identifier string",
+        ),
+        (
+            quote!(
+                name = "consume",
+                options = "MessageStreamOptions",
+                owner = concat!("key")
+            ),
+            "ASCII identifier string",
+        ),
+    ] {
+        let item = quote!(impl Object {
+            #[sdk(stream(#parameters))]
+            pub async fn reader(&self, options: Option<Options>) -> Result<Arc<MessageReader>, XmtpError> { todo!() }
+        });
+        let message = error(quote!(), item);
+        assert!(message.contains(expected), "{message}");
+    }
+    let message = error(
+        quote!(),
+        quote!(impl Object {
+            #[sdk(stream(name = "one", options = "MessageStreamOptions", owner = "key"))]
+            #[sdk(stream(name = "two", options = "MessageStreamOptions", owner = "key"))]
+            pub async fn reader(&self, options: Option<Options>) -> Result<Arc<MessageReader>, XmtpError> { todo!() }
+        }),
+    );
+    assert!(message.contains("sdk option is repeated"));
+}
+
+#[test]
+fn stream_declaration_rejects_unsupported_signatures_and_locations() {
+    for method in [
+        quote!(
+            pub fn reader(
+                &self,
+                options: Option<Options>,
+            ) -> Result<Arc<MessageReader>, XmtpError> {
+                todo!()
+            }
+        ),
+        quote!(
+            pub async fn reader(
+                &mut self,
+                options: Option<Options>,
+            ) -> Result<Arc<MessageReader>, XmtpError> {
+                todo!()
+            }
+        ),
+        quote!(
+            pub async fn reader(&self) -> Result<Arc<MessageReader>, XmtpError> {
+                todo!()
+            }
+        ),
+        quote!(
+            pub async fn reader(&self, options: Options) -> Result<Arc<MessageReader>, XmtpError> {
+                todo!()
+            }
+        ),
+        quote!(
+            pub async fn reader(&self, options: Option<Options>) -> Arc<MessageReader> {
+                todo!()
+            }
+        ),
+        quote!(
+            pub async fn reader(
+                &self,
+                options: Option<Options>,
+            ) -> Result<Arc<EventReader>, XmtpError> {
+                todo!()
+            }
+        ),
+        quote!(
+            pub async fn reader(
+                &self,
+                options: Option<Options>,
+            ) -> Result<Arc<MessageReader>, OtherError> {
+                todo!()
+            }
+        ),
+    ] {
+        let message = error(
+            quote!(),
+            quote!(impl Object {
+                #[sdk(stream(name = "consume", options = "MessageStreamOptions", owner = "key"))]
+                #method
+            }),
+        );
+        assert!(
+            message.contains("needs an async object reader method"),
+            "{message}"
+        );
+    }
+    for item in [
+        quote!(
+            #[derive(uniffi::Record)]
+            struct Record {
+                #[sdk(stream(name = "consume", options = "MessageStreamOptions", owner = "key"))]
+                value: u64,
+            }
+        ),
+        quote!(
+            #[derive(uniffi::Enum)]
+            enum Kind {
+                #[sdk(stream(name = "consume", options = "MessageStreamOptions", owner = "key"))]
+                One,
+            }
+        ),
+    ] {
+        assert!(error(quote!(), item).contains("applies to object reader methods"));
+    }
+    assert!(
+        error(
+            quote!(),
+            quote!(
+                trait Api {
+                    #[sdk(stream(
+                        name = "consume",
+                        options = "MessageStreamOptions",
+                        owner = "key"
+                    ))]
+                    async fn reader(
+                        &self,
+                        options: Option<Options>,
+                    ) -> Result<Arc<MessageReader>, XmtpError>;
+                }
+            )
+        )
+        .contains("needs an async object reader method")
+    );
+    assert!(
+        error(
+            quote!(),
+            quote!(
+                #[sdk(stream(name = "consume", options = "MessageStreamOptions", owner = "key"))]
+                async fn reader(options: Option<Options>) -> Result<Arc<MessageReader>, XmtpError> {
+                    todo!()
+                }
+            )
+        )
+        .contains("free function")
+    );
+    assert!(error(quote!(), quote!(impl Object {
+        #[doc = "@xmtp-stream=consume:MessageStreamOptions:key"]
+        pub async fn reader(&self, options: Option<Options>) -> Result<Arc<MessageReader>, XmtpError> { todo!() }
+    })).contains("write #[sdk(stream(...))]"));
 }

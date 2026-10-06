@@ -6,20 +6,21 @@ import {
   lowerConversationReaderOptions,
   lowerMessageReaderOptions,
   publicError,
-  unwrapConversations,
-  unwrapDm,
-  unwrapGroup,
   type ConnectionState,
   type Conversation,
   XmtpError,
   type ConversationKind,
   type ConsentState,
   type DeliveryCursor,
-  type Conversations,
-  type Dm,
-  type Group,
 } from "../../public-values.gen";
-import type { ConnectionState as BoundState } from "../../xmtp_sdk";
+import type {
+  ConnectionState as BoundState,
+  ConversationReaderOptions as BoundConversationReaderOptions,
+  MessageReaderOptions as BoundMessageReaderOptions,
+  ConversationMessageReaderOptions as BoundConversationMessageReaderOptions,
+  ConversationReaderLike,
+  MessageReaderLike,
+} from "../../xmtp_sdk";
 import {
   ReaderStream,
   type ReaderLike,
@@ -109,16 +110,18 @@ export type ConversationMessageStreamOptions = StreamOptions & {
   readonly from?: DeliveryCursor;
 };
 
-type StreamReceiver = { sdkStreamOwnerKey(): bigint };
-let resolveOwner: (source: StreamReceiver) => Client | undefined;
+let resolveOwner: (
+  source: object,
+  ownerKey: () => bigint,
+) => Client | undefined;
 
 /** Install the host lookup with the public projection. */
 export function installStreamOwner(resolve: typeof resolveOwner): void {
   resolveOwner = resolve;
 }
 
-function receiverOwner(source: StreamReceiver): Client {
-  const owner = resolveOwner(source);
+function receiverOwner(source: object, ownerKey: () => bigint): Client {
+  const owner = resolveOwner(source, ownerKey);
   if (owner === undefined)
     throw new XmtpError.ClientClosed({
       code: "ClientClosed",
@@ -184,12 +187,18 @@ export class ConversationStream extends ReaderStream<Conversation> {
   }
 }
 
-export function openConversationStream(
-  receiver: Conversations,
+type ReaderOpener<O, R> = (
+  selection: O,
+  asyncOptions: { signal: AbortSignal },
+) => Promise<R>;
+
+export function openConversationStreamOptions(
+  source: object,
+  ownerKey: () => bigint,
+  open: ReaderOpener<BoundConversationReaderOptions, ConversationReaderLike>,
   options: ConversationStreamOptions = {},
 ): ConversationStream {
-  const source = unwrapConversations(receiver);
-  const client = receiverOwner(source);
+  const client = receiverOwner(source, ownerKey);
   const projection = currentProjection();
   const selection = lowerConversationReaderOptions(
     {
@@ -203,21 +212,21 @@ export function openConversationStream(
   );
   return conversationStream(
     async (signal) =>
-      publicReader(
-        await rethrow(() => source.conversationReader(selection, { signal })),
-        (value) => liftConversation(value, projection),
+      publicReader(await rethrow(() => open(selection, { signal })), (value) =>
+        liftConversation(value, projection),
       ),
     client,
     options,
   );
 }
 
-export function openAllMessages(
-  receiver: Conversations,
+export function openMessageStreamOptions(
+  source: object,
+  ownerKey: () => bigint,
+  open: ReaderOpener<BoundMessageReaderOptions, MessageReaderLike>,
   options: MessageStreamOptions = {},
 ): MessageStream {
-  const source = unwrapConversations(receiver);
-  const client = receiverOwner(source);
+  const client = receiverOwner(source, ownerKey);
   const projection = currentProjection();
   const selection = lowerMessageReaderOptions(
     {
@@ -232,35 +241,21 @@ export function openAllMessages(
   );
   return messageStream(
     async (signal) =>
-      publicReader(
-        await rethrow(() => source.messageReader(selection, { signal })),
-        (value) => projection.liftMessage(value),
+      publicReader(await rethrow(() => open(selection, { signal })), (value) =>
+        projection.liftMessage(value),
       ),
     client,
     options,
   );
 }
 
-export function openGroupMessages(
-  receiver: Group,
-  options?: ConversationMessageStreamOptions,
-): MessageStream {
-  return openMessages(unwrapGroup(receiver), options);
-}
-export function openDmMessages(
-  receiver: Dm,
-  options?: ConversationMessageStreamOptions,
-): MessageStream {
-  return openMessages(unwrapDm(receiver), options);
-}
-function openMessages(
-  source: Pick<
-    ReturnType<typeof unwrapGroup>,
-    "messageReader" | "sdkStreamOwnerKey"
-  >,
+export function openConversationMessageStreamOptions(
+  source: object,
+  ownerKey: () => bigint,
+  open: ReaderOpener<BoundConversationMessageReaderOptions, MessageReaderLike>,
   options: ConversationMessageStreamOptions = {},
 ): MessageStream {
-  const client = receiverOwner(source);
+  const client = receiverOwner(source, ownerKey);
   const projection = currentProjection();
   const selection = lowerConversationMessageReaderOptions(
     { from: options.from },
@@ -268,9 +263,8 @@ function openMessages(
   );
   return messageStream(
     async (signal) =>
-      publicReader(
-        await rethrow(() => source.messageReader(selection, { signal })),
-        (value) => projection.liftMessage(value),
+      publicReader(await rethrow(() => open(selection, { signal })), (value) =>
+        projection.liftMessage(value),
       ),
     client,
     options,

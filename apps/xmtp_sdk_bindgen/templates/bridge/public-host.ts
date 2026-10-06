@@ -43,14 +43,12 @@ import { owner } from "../../host-message.gen.js";
 import { wrapClient } from "../../public-client.gen.js";
 import { RemoteObject, sessionOf } from "../bridge/main/remote-object.js";
 
-export function streamOwner(source: {
-  sdkStreamOwnerKey(): bigint;
-}): import("../../public-client.gen.js").Client | undefined {
+export function streamOwner(
+  source: object,
+  ownerKey: () => bigint,
+): import("../../public-client.gen.js").Client | undefined {
   if (!(source instanceof RemoteObject))
     throw new TypeError("not an XMTP receiver");
-  const client = owner(
-    sessionOf(source),
-    source.sdkStreamOwnerKey(),
-  )?.client.deref();
+  const client = owner(sessionOf(source), ownerKey())?.client.deref();
   return client === undefined ? undefined : wrapClient(client);
 }

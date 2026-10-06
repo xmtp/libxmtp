@@ -27,6 +27,8 @@ pub(crate) const INTERNAL: &str = "@xmtp-internal";
 
 /// An object method that only the host runtime can call.
 pub(crate) const HOST_INTERNAL: &str = "@xmtp-host-internal";
+/// A checked reader-to-stream declaration.
+pub(crate) const STREAM: &str = "@xmtp-stream";
 /// A field that diagnostic text hides: `@xmtp-redact`, or
 /// `@xmtp-redact=secret` for one key of a string map.
 pub(crate) const REDACT: &str = "@xmtp-redact";
@@ -41,6 +43,7 @@ const VOCABULARY: &[&str] = &[
     IMMUTABLE,
     INTERNAL,
     HOST_INTERNAL,
+    STREAM,
     KIND,
     PURE,
     REDACT,
@@ -191,6 +194,8 @@ fn check_doc(owner: &str, doc: &str) -> Result<()> {
 /// The other markers take no value.
 fn check_value(owner: &str, name: &str, value: Option<&str>) -> Result<()> {
     match (name, value) {
+        (STREAM, Some(value)) => crate::streams::parameters(value).map(|_| ()),
+        (STREAM, None) => bail!("{owner}: {STREAM} needs name:options:owner"),
         (KIND, Some(kind))
             if kind
                 .chars()
@@ -278,6 +283,9 @@ fn check_redaction(item: &Metadata) -> Result<()> {
 /// Check the markers of every docstring in the metadata.
 pub(crate) fn validate(groups: &MetadataGroupMap) -> Result<()> {
     for group in groups.values() {
+        if has(group.namespace_docstring.as_deref(), STREAM) {
+            bail!("stream markers apply to object reader methods");
+        }
         if has(group.namespace_docstring.as_deref(), HOST_INTERNAL) {
             bail!(
                 "{}: {HOST_INTERNAL} applies to object methods",
@@ -296,6 +304,12 @@ pub(crate) fn validate(groups: &MetadataGroupMap) -> Result<()> {
         for item in &group.items {
             check_redaction(item)?;
             for (owner, doc) in docstrings(item) {
+                let stream_count = markers(doc.unwrap_or_default())
+                    .filter(|(name, _)| *name == STREAM)
+                    .count();
+                if stream_count > 0 && (stream_count != 1 || !matches!(item, Metadata::Method(_))) {
+                    bail!("{owner}: {STREAM} needs one object reader method");
+                }
                 let count = markers(doc.unwrap_or_default())
                     .filter(|(name, _)| *name == HOST_INTERNAL)
                     .count();
@@ -480,8 +494,8 @@ mod tests {
             "{error}"
         );
         assert!(error.contains(
-            "@xmtp-client-static, @xmtp-immutable, @xmtp-internal, @xmtp-host-internal, @xmtp-kind, \
-             @xmtp-pure, @xmtp-redact, @xmtp-redacted, @xmtp-worker"
+            "@xmtp-client-static, @xmtp-immutable, @xmtp-internal, @xmtp-host-internal, @xmtp-stream, \
+             @xmtp-kind, @xmtp-pure, @xmtp-redact, @xmtp-redacted, @xmtp-worker"
         ));
 
         // A marker with punctuation attached is not a marker; it must not

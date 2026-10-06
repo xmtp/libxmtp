@@ -172,6 +172,7 @@ final class FakeConversationReader: ConversationReader, @unchecked Sendable {
 }
 
 final class FakeConversations: Conversations, @unchecked Sendable {
+	var readerOpened: (@Sendable (ConversationReaderOptions?) async -> Void)?
 	var ownerKey: UInt64 = 0
 	override func sdkStreamOwnerKey() -> UInt64 {
 		ownerKey
@@ -188,7 +189,8 @@ final class FakeConversations: Conversations, @unchecked Sendable {
 		fatalError("A fake has no Rust handle")
 	}
 
-	override func conversationReader(options _: ConversationReaderOptions?) async throws -> ConversationReader {
-		reader
+	override func conversationReader(options: ConversationReaderOptions?) async throws -> ConversationReader {
+		await readerOpened?(options)
+		return reader
 	}
 }

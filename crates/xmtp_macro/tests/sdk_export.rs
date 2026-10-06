@@ -5,5 +5,6 @@ fn callback_error_and_sdk_export_compile() {
     cases.compile_fail("tests/ui/sdk_export_unmarked_getter.rs");
     cases.compile_fail("tests/ui/sdk_export_redacted_debug.rs");
     cases.compile_fail("tests/ui/sdk_export_host_internal.rs");
+    cases.compile_fail("tests/ui/sdk_export_stream.rs");
     cases.pass("tests/ui/sdk_export_pass.rs");
 }

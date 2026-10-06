@@ -12,6 +12,7 @@ mod message_fields;
 mod native_visibility;
 mod public_projection;
 mod redaction;
+mod streams;
 mod swift_async;
 mod swift_events;
 mod swift_records;
@@ -122,6 +123,12 @@ fn generate(
         }
     })?;
     markers::validate(&metadata)?;
+    let streams = streams::resolve(
+        &metadata
+            .values()
+            .flat_map(|group| &group.items)
+            .collect::<Vec<_>>(),
+    )?;
     if pure_only {
         if !matches!(language, Language::TypescriptWasm) {
             bail!("pure-only generation requires typescript-wasm");
@@ -386,13 +393,14 @@ fn generate(
             fs::remove_file(public.join("codecs.ts"))?;
             public_projection::Target::Browser
         };
-        public_projection::generate(&metadata, out, target)?;
+        public_projection::generate(&metadata, &streams, out, target)?;
     }
     if pure_only {
-        public_projection::generate(&metadata, out, public_projection::Target::Pure)?;
+        public_projection::generate(&metadata, &streams, out, public_projection::Target::Pure)?;
     }
     if matches!(language, Language::Swift | Language::Kotlin) {
         forwarding::generate(&metadata, language, out)?;
+        streams::generate_native(&streams, language, out)?;
     }
     if matches!(language, Language::Swift) {
         // Forwarding adds documentation after the initial binding rewrite.

@@ -21,6 +21,7 @@ use crate::sdk_export::returns_result;
 pub(crate) const CLIENT_STATIC: &str = "@xmtp-client-static";
 const IMMUTABLE: &str = "@xmtp-immutable";
 const HOST_INTERNAL: &str = "@xmtp-host-internal";
+const STREAM: &str = "@xmtp-stream";
 const KIND: &str = "@xmtp-kind";
 pub(crate) const PURE: &str = "@xmtp-pure";
 const REDACT: &str = "@xmtp-redact";
@@ -31,7 +32,7 @@ const REDACTED: &str = "@xmtp-redacted";
 /// itself, so it never crosses the bridge.
 const WORKER: &str = "@xmtp-worker";
 
-const MEMBER_OPTIONS: &str = "unknown sdk option; expected immutable, host_internal, kind = \"name\", redact, redact = \"key\", or shown";
+const MEMBER_OPTIONS: &str = "unknown sdk option; expected immutable, host_internal, stream(...), kind = \"name\", redact, redact = \"key\", or shown";
 
 /// The target an export is limited to.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -72,6 +73,7 @@ enum Redact {
 struct MemberOptions {
     immutable: Option<Span>,
     host_internal: Option<Span>,
+    stream: Option<(Span, String)>,
     redact: Option<(Span, Redact)>,
     shown: Option<Span>,
     kind: Option<(Span, String)>,
@@ -79,6 +81,12 @@ struct MemberOptions {
 
 impl MemberOptions {
     fn reject_immutable(&self) -> syn::Result<()> {
+        if let Some((span, _)) = &self.stream {
+            return Err(syn::Error::new(
+                *span,
+                "#[sdk(stream(...))] applies to object reader methods",
+            ));
+        }
         if let Some(span) = self.host_internal {
             return Err(syn::Error::new(
                 span,
@@ -146,6 +154,126 @@ fn kind_value(value: &Expr) -> Option<String> {
     valid.then_some(kind)
 }
 
+/// Stream parameters are names, not host-language expressions.
+fn stream_value(list: &syn::MetaList) -> syn::Result<String> {
+    let mut parameters = std::collections::BTreeMap::new();
+    for parameter in list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)? {
+        let Meta::NameValue(pair) = &parameter else {
+            return Err(syn::Error::new_spanned(
+                parameter,
+                "stream needs name, options, and owner string parameters",
+            ));
+        };
+        let key = pair
+            .path
+            .get_ident()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        if !["name", "options", "owner"].contains(&key.as_str()) {
+            return Err(syn::Error::new_spanned(
+                parameter,
+                "unknown stream parameter; expected name, options, or owner",
+            ));
+        }
+        let value = string_value(&pair.value)
+            .filter(|value| {
+                value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    && syn::parse_str::<Ident>(value).is_ok()
+            })
+            .ok_or_else(|| {
+                syn::Error::new_spanned(
+                    &pair.value,
+                    "stream parameters need an ASCII identifier string",
+                )
+            })?;
+        if parameters.insert(key, value).is_some() {
+            return Err(syn::Error::new_spanned(
+                parameter,
+                "stream parameter is repeated",
+            ));
+        }
+    }
+    let values = ["name", "options", "owner"].map(|key| {
+        parameters
+            .get(key)
+            .cloned()
+            .ok_or_else(|| syn::Error::new_spanned(list, format!("stream is missing {key}")))
+    });
+    let [name, options, owner] = values;
+    Ok(format!("{}:{}:{}", name?, options?, owner?))
+}
+
+fn type_arguments<'a>(ty: &'a Type, name: &str) -> Option<Vec<&'a Type>> {
+    let Type::Path(path) = ty else { return None };
+    let segment = path.path.segments.last()?;
+    if segment.ident != name {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return None;
+    };
+    arguments
+        .args
+        .iter()
+        .map(|argument| match argument {
+            syn::GenericArgument::Type(ty) => Some(ty),
+            _ => None,
+        })
+        .collect()
+}
+
+fn stream_signature(signature: &Signature) -> bool {
+    let Some(receiver) = signature.receiver() else {
+        return false;
+    };
+    if signature.asyncness.is_none() || !reads_only(receiver) || signature.inputs.len() != 2 {
+        return false;
+    }
+    let Some(FnArg::Typed(input)) = signature.inputs.last() else {
+        return false;
+    };
+    let Some(input) = type_arguments(&input.ty, "Option") else {
+        return false;
+    };
+    if input.len() != 1 || !matches!(input[0], Type::Path(_)) {
+        return false;
+    }
+    let ReturnType::Type(_, output) = &signature.output else {
+        return false;
+    };
+    let Some(output) = type_arguments(output, "Result") else {
+        return false;
+    };
+    if output.len() != 2 {
+        return false;
+    }
+    let Type::Path(error) = output[1] else {
+        return false;
+    };
+    if !error
+        .path
+        .segments
+        .last()
+        .is_some_and(|part| part.ident == "XmtpError")
+    {
+        return false;
+    }
+    let Some(reader) = type_arguments(output[0], "Arc") else {
+        return false;
+    };
+    if reader.len() != 1 {
+        return false;
+    }
+    let Type::Path(reader) = reader[0] else {
+        return false;
+    };
+    reader
+        .path
+        .segments
+        .last()
+        .is_some_and(|part| part.ident == "MessageReader" || part.ident == "ConversationReader")
+}
+
 /// Remove every `#[sdk(...)]` attribute and return its options.
 fn take(attrs: &mut Vec<Attribute>) -> syn::Result<MemberOptions> {
     let mut options = MemberOptions::default();
@@ -162,6 +290,15 @@ fn take(attrs: &mut Vec<Attribute>) -> syn::Result<MemberOptions> {
             let span = meta.span();
             let repeated = || syn::Error::new(span, "sdk option is repeated");
             match &meta {
+                Meta::List(list) if list.path.is_ident("stream") => {
+                    if options
+                        .stream
+                        .replace((span, stream_value(list)?))
+                        .is_some()
+                    {
+                        return Err(repeated());
+                    }
+                }
                 Meta::Path(path) if path.is_ident("host_internal") => {
                     if options.host_internal.replace(span).is_some() {
                         return Err(repeated());
@@ -261,6 +398,7 @@ pub(crate) fn derives_uniffi_error(attrs: &[Attribute]) -> bool {
 pub(crate) const WRITTEN_BY_OPTIONS: &[(&str, &str)] = &[
     (CLIENT_STATIC, "#[sdk_export(client_static)]"),
     (HOST_INTERNAL, "#[sdk(host_internal)]"),
+    (STREAM, "#[sdk(stream(...))]"),
     (IMMUTABLE, "#[sdk(immutable)]"),
     (KIND, "#[sdk(kind = \"...\")]"),
     (PURE, "#[sdk_export(pure)]"),
@@ -447,6 +585,15 @@ pub(crate) fn method(
     let options = take(attrs)?;
     options.reject_display()?;
     options.reject_kind()?;
+    if let Some((span, value)) = &options.stream {
+        if !object || options.host_internal.is_some() || !stream_signature(signature) {
+            return Err(syn::Error::new(
+                *span,
+                "#[sdk(stream(...))] needs an async object reader method with one optional record input and Result<Arc<MessageReader or ConversationReader>, XmtpError>",
+            ));
+        }
+        push_marker(attrs, &format!("{STREAM}={value}"));
+    }
     if let Some(span) = options.host_internal {
         if !object || signature.receiver().is_none() {
             return Err(syn::Error::new(
@@ -490,6 +637,7 @@ pub(crate) fn function(attrs: &mut Vec<Attribute>, name: &Ident) -> syn::Result<
     let span = options
         .immutable
         .or(options.host_internal)
+        .or(options.stream.map(|(span, _)| span))
         .or(options.redact.map(|(span, _)| span))
         .or(options.shown)
         .or(options.kind.map(|(span, _)| span));

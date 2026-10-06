@@ -25,7 +25,68 @@ private actor FailedShutdown {
 	}
 }
 
+private actor ConversationSelections {
+	private(set) var values: [ConversationReaderOptions?] = []
+
+	func opened(_ options: ConversationReaderOptions?) {
+		values.append(options)
+	}
+}
+
+private final class EmptyStreamConversationReader: ConversationReader, @unchecked Sendable {
+	override func next() async throws -> Conversation? {
+		nil
+	}
+
+	override func end() async throws {}
+	override func connectionState() async -> ConnectionState {
+		.connected
+	}
+
+	override func connectionStateChanged(previous _: ConnectionState) async throws -> ConnectionState {
+		.closed
+	}
+}
+
 final class StreamOwnerTests: XCTestCase {
+	// verifies: CONS-030, CONS-042, CONS-043, CONS-044
+	func testConversationStreamUsesSelectedReaderAndExactOptionsLazily() async throws {
+		let selectedCalls = ConversationSelections()
+		let namespaceCalls = ConversationSelections()
+		let raw = FakeClient(noHandle: Client.NoHandle())
+		let namespace = FakeConversations(EmptyStreamConversationReader(noHandle: ConversationReader.NoHandle()))
+		namespace.readerOpened = { await namespaceCalls.opened($0) }
+		raw.fakeConversations = namespace
+		let client = makeSDKClient(raw)
+		let selected = FakeConversations(EmptyStreamConversationReader(noHandle: ConversationReader.NoHandle()))
+		selected.ownerKey = raw.clientKey()
+		selected.readerOpened = { await selectedCalls.opened($0) }
+		let receiver: Conversations = selected
+		let cases: [(ConversationStreamOptions, ConversationReaderOptions)] = [
+			(
+				.init(conversationKind: .dm, consentStates: [.allowed, .unknown]),
+				.init(kind: .dm, consentStates: [.allowed, .unknown])
+			),
+			(.init(conversationKind: .group, consentStates: []), .init(kind: .group, consentStates: [])),
+		]
+		var expected: [ConversationReaderOptions?] = []
+		for (options, selection) in cases {
+			let stream = try await receiver.stream(options: options)
+			let beforeSelected = await selectedCalls.values
+			let beforeNamespace = await namespaceCalls.values
+			XCTAssertEqual(beforeSelected, expected, "Stream creation opened the selected reader")
+			XCTAssertTrue(beforeNamespace.isEmpty, "Stream creation opened the owner namespace reader")
+			let value = try await stream.makeAsyncIterator().next()
+			XCTAssertNil(value)
+			expected.append(selection)
+			let afterSelected = await selectedCalls.values
+			let afterNamespace = await namespaceCalls.values
+			XCTAssertEqual(afterSelected, expected, "The selected reader lost the exact kind or consent selection")
+			XCTAssertTrue(afterNamespace.isEmpty, "The stream reopened through the owner namespace")
+		}
+		try await client.end()
+	}
+
 	func testReceiverRejectsOwnerAfterFailedShutdownAndEndCanRetry() async throws {
 		let shutdown = FailedShutdown()
 		let raw = FakeClient(noHandle: Client.NoHandle())

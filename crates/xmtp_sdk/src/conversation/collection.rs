@@ -151,6 +151,7 @@ impl Conversations {
     }
 
     #[uniffi::method(default(options = None))]
+    #[sdk(stream(name = "stream_all_messages", options = "MessageStreamOptions", owner = "sdk_stream_owner_key"))]
     pub async fn message_reader(
         &self,
         options: Option<crate::MessageReaderOptions>,
@@ -197,6 +198,7 @@ impl Conversations {
         .await
     }
 
+    #[sdk(stream(name = "stream", options = "ConversationStreamOptions", owner = "sdk_stream_owner_key"))]
     pub async fn conversation_reader(
         &self,
         options: Option<crate::ConversationReaderOptions>,

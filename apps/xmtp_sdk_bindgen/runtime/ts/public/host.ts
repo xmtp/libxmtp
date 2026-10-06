@@ -24,8 +24,9 @@ export function checkStorage(_storage: object): void {}
 
 import { ClientRegistry, type Client } from "../client";
 
-export function streamOwner(source: {
-  sdkStreamOwnerKey(): bigint;
-}): Client | undefined {
-  return ClientRegistry.get(source.sdkStreamOwnerKey());
+export function streamOwner(
+  _source: object,
+  ownerKey: () => bigint,
+): Client | undefined {
+  return ClientRegistry.get(ownerKey());
 }

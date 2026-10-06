@@ -33,7 +33,7 @@ pub(crate) enum Target {
 
 #[cfg(test)]
 pub(crate) fn public_api_for_test(items: &[&Metadata], target: Target) -> String {
-    objects::public_api(items, target)
+    objects::public_api(items, target, &[])
 }
 
 #[cfg(test)]
@@ -43,7 +43,12 @@ pub(crate) fn client_members_for_test(items: &[&Metadata]) -> Result<String> {
     Ok(code)
 }
 
-pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target) -> Result<()> {
+pub(crate) fn generate(
+    groups: &MetadataGroupMap,
+    streams: &[crate::streams::Stream],
+    out: &Utf8Path,
+    target: Target,
+) -> Result<()> {
     let items = groups
         .values()
         .flat_map(|group| &group.items)
@@ -67,8 +72,11 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
         // go through its proxies, and storage admin through its template.
         code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker, initLoggingInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\nimport { BridgeError } from './runtime/bridge/wire.js';\n");
     }
+    code.push_str(&crate::streams::typescript_import(
+        streams,
+        target == Target::Pure,
+    ));
     if target != Target::Pure {
-        code.push_str("import { openConversationStream, openAllMessages, openGroupMessages, openDmMessages, type ConversationStream, type MessageStream, type ConversationStreamOptions, type MessageStreamOptions, type ConversationMessageStreamOptions } from './runtime/public/streams.js';\n");
         code.push_str("import type { ContentCodec } from './runtime/public/codec.js';\nimport { contentForSend } from './runtime/public/codec-policy.js';\n");
     }
     if target == Target::Pure {
@@ -88,7 +96,7 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
             }
             Metadata::Object(value) if value.imp.has_struct() => {
                 if !objects::template_object(&value.name, target) {
-                    objects::object(&mut code, &items, &value.name, target)?;
+                    objects::object(&mut code, &items, &value.name, target, streams)?;
                 }
             }
             Metadata::Object(value) if value.imp.has_callback_interface() => {
@@ -140,7 +148,7 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
         &path,
         crate::format::typescript("public-values.gen.ts", &code)?,
     )?;
-    let api = objects::public_api(&items, target);
+    let api = objects::public_api(&items, target, streams);
     fs::write(
         out.join("index.ts"),
         crate::format::typescript("index.ts", &api)?,

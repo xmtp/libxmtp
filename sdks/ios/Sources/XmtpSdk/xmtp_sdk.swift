@@ -28512,7 +28512,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_beginning_delivery_cursor() != 8739) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_conversation_reader() != 23386) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_conversation_reader() != 30366) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm() != 578) {
@@ -28563,7 +28563,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_message_history_snapshot() != 20729) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_message_reader() != 42952) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_message_reader() != 20097) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_react_to_message() != 16620) {
@@ -28632,7 +28632,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_message_history_snapshot() != 11434) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_message_reader() != 14429) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_message_reader() != 16038) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_messages() != 55325) {
@@ -28806,7 +28806,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_message_history_snapshot() != 50554) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_message_reader() != 34239) {
+    if (uniffi_xmtp_sdk_checksum_method_group_message_reader() != 32244) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_messages() != 9628) {

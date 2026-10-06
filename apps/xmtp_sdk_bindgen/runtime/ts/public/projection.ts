@@ -18,7 +18,7 @@ class HostProjection extends ObjectProjection {
 
 installProjection(new HostProjection());
 
-installStreamOwner((source) => {
-  const owner = streamOwner(source);
+installStreamOwner((source, ownerKey) => {
+  const owner = streamOwner(source, ownerKey);
   return owner === undefined ? undefined : publicClient(owner);
 });
