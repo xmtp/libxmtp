@@ -57,6 +57,12 @@ describe("create-release-branch", () => {
       `{\n  "name": "@xmtp/cli",\n  "version": "0.3.0"\n}\n`,
     );
 
+    fs.mkdirSync(path.join(tmpDir, "sdks/agent"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "sdks/agent/package.json"),
+      '{"name":"@xmtp/agent-sdk","version":"8.0.0"}\n',
+    );
+
     // Create release notes directory
     fs.mkdirSync(path.join(tmpDir, "docs/release-notes"), { recursive: true });
 
@@ -109,9 +115,9 @@ describe("create-release-branch", () => {
     );
     expect(gradle).toContain("version=1.0.0");
 
-    // Check Cargo.toml version was set to --version
+    // The branch version does not change the Rust workspace version.
     const cargoToml = fs.readFileSync(path.join(tmpDir, "Cargo.toml"), "utf-8");
-    expect(cargoToml).toContain('version = "1.1.0"');
+    expect(cargoToml).toContain('version = "0.0.0"');
 
     // Check release notes were created for iOS only
     expect(
@@ -383,7 +389,161 @@ describe("create-release-branch", () => {
     );
   });
 
-  it("throws error when no SDKs are bumped", async () => {
+  it("keeps selected SDK versions and preserves prepared notes", async () => {
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
+    const { getSdkConfig } = await import("../../src/lib/sdk-config");
+    const sdks = ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk"];
+    for (const sdk of sdks) {
+      getSdkConfig(sdk).manifest.writeVersion(tmpDir, "8.0.0");
+    }
+    const notesPath = path.join(tmpDir, "docs/release-notes/ios/8.0.0.md");
+    fs.mkdirSync(path.dirname(notesPath), { recursive: true });
+    const notes = "# iOS SDK 8.0.0\n\nReviewed migration instructions.\n";
+    fs.writeFileSync(notesPath, notes);
+    for (const sdk of sdks) {
+      const preparedPath = path.join(
+        tmpDir,
+        "docs/release-notes",
+        sdk,
+        "8.0.0.md",
+      );
+      fs.mkdirSync(path.dirname(preparedPath), { recursive: true });
+      fs.writeFileSync(preparedPath, notes);
+    }
+    const cargoPath = path.join(tmpDir, "Cargo.toml");
+    fs.writeFileSync(
+      cargoPath,
+      '[workspace.package]\nversion = "1.12.0-dev"\n',
+    );
+    execSync("git add . && git commit -m 'prepare 8.0'", { cwd: tmpDir });
+    const before = fs.readFileSync(cargoPath, "utf-8");
+    const sourceCommit = execSync("git rev-parse HEAD", { cwd: tmpDir })
+      .toString()
+      .trim();
+
+    handler({
+      repoRoot: tmpDir,
+      version: "8.0.0",
+      base: "HEAD",
+      ios: "keep",
+      android: "keep",
+      nodeSdk: "keep",
+      browserSdk: "keep",
+      agentSdk: "keep",
+      _: [],
+      $0: "test",
+    });
+
+    expect(
+      execSync("git branch --show-current", { cwd: tmpDir }).toString().trim(),
+    ).toBe("release/8.0.0");
+    for (const sdk of sdks) {
+      expect(getSdkConfig(sdk).manifest.readVersion(tmpDir)).toBe("8.0.0");
+      expect(
+        fs.existsSync(path.join(tmpDir, "docs/release-notes", sdk, "8.0.0.md")),
+      ).toBe(true);
+    }
+    expect(fs.readFileSync(cargoPath, "utf-8")).toBe(before);
+    expect(fs.readFileSync(notesPath, "utf-8")).toBe(notes);
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(tmpDir, "docs/release-notes/release-8.0.0.json"),
+          "utf-8",
+        ),
+      ),
+    ).toEqual({
+      version: "8.0.0",
+      sourceCommit,
+      libxmtpVersion: "1.12.0-dev",
+      sdks: Object.fromEntries(sdks.map((sdk) => [sdk, "8.0.0"])),
+    });
+    expect(
+      execSync("git diff --name-only HEAD^ HEAD", { cwd: tmpDir })
+        .toString()
+        .trim(),
+    ).toBe("docs/release-notes/release-8.0.0.json");
+    expect(execSync("git status --porcelain", { cwd: tmpDir }).toString()).toBe(
+      "",
+    );
+  });
+
+  it("uses the last stable SDK tag for a kept version", async () => {
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
+    execSync("git -c tag.gpgSign=false tag node-sdk-6.1.0", { cwd: tmpDir });
+    execSync("git -c tag.gpgSign=false tag node-sdk-8.0.0-dev.abc1234", {
+      cwd: tmpDir,
+    });
+    fs.writeFileSync(
+      path.join(tmpDir, "sdks/node/package.json"),
+      '{"name":"@xmtp/node-sdk","version":"8.0.0"}\n',
+    );
+    execSync("git add . && git commit -m 'prepare Node 8'", { cwd: tmpDir });
+    handler({
+      repoRoot: tmpDir,
+      version: "8.0.0",
+      base: "HEAD",
+      ios: "none",
+      android: "none",
+      nodeSdk: "keep",
+      _: [],
+      $0: "test",
+    });
+    const notes = fs.readFileSync(
+      path.join(tmpDir, "docs/release-notes/node-sdk/8.0.0.md"),
+      "utf-8",
+    );
+    expect(notes).toContain('previous_release_version = "6.1.0"');
+    expect(notes).toContain('previous_release_tag = "node-sdk-6.1.0"');
+    expect(notes).not.toContain("dev.abc1234");
+  });
+
+  it("uses the repository root as the first-release note baseline", async () => {
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
+    const root = execSync("git rev-parse HEAD", { cwd: tmpDir })
+      .toString()
+      .trim();
+    handler({
+      repoRoot: tmpDir,
+      version: "8.0.0",
+      base: "HEAD",
+      ios: "none",
+      android: "none",
+      agentSdk: "keep",
+      _: [],
+      $0: "test",
+    });
+    const notes = fs.readFileSync(
+      path.join(tmpDir, "docs/release-notes/agent-sdk/8.0.0.md"),
+      "utf-8",
+    );
+    expect(notes).toContain(`previous_release_tag = "${root}"`);
+    expect(notes).not.toContain("previous_release_version");
+  });
+
+  it("sets the Rust workspace version only with an explicit option", async () => {
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
+    handler({
+      repoRoot: tmpDir,
+      version: "8.0.0",
+      base: "HEAD",
+      libxmtpVersion: "1.12.0",
+      ios: "none",
+      android: "none",
+      agentSdk: "keep",
+      _: [],
+      $0: "test",
+    });
+    expect(fs.readFileSync(path.join(tmpDir, "Cargo.toml"), "utf-8")).toContain(
+      'version = "1.12.0"',
+    );
+  });
+
+  it("throws error when no SDKs are selected", async () => {
     const { handler } =
       await import("../../src/commands/create-release-branch");
 
@@ -397,7 +557,7 @@ describe("create-release-branch", () => {
         _: [],
         $0: "",
       }),
-    ).toThrow("At least one SDK must be bumped");
+    ).toThrow("Select at least one SDK");
   });
 
   it("includes previous_release_tag when matching git tag exists", async () => {

@@ -9,7 +9,7 @@ on:
         required: false
         type: string
       version:
-        description: "Release version number (e.g. 1.8.0)"
+        description: "Release branch version (e.g. 8.0.0); does not set SDK or Rust versions"
         required: true
         type: string
       ios-bump:
@@ -18,6 +18,7 @@ on:
         type: choice
         options:
           - "none"
+          - "keep"
           - "patch"
           - "minor"
           - "major"
@@ -28,6 +29,7 @@ on:
         type: choice
         options:
           - "none"
+          - "keep"
           - "patch"
           - "minor"
           - "major"
@@ -38,6 +40,7 @@ on:
         type: choice
         options:
           - "none"
+          - "keep"
           - "patch"
           - "minor"
           - "major"
@@ -48,6 +51,7 @@ on:
         type: choice
         options:
           - "none"
+          - "keep"
           - "patch"
           - "minor"
           - "major"
@@ -58,6 +62,7 @@ on:
         type: choice
         options:
           - "none"
+          - "keep"
           - "patch"
           - "minor"
           - "major"
@@ -68,15 +73,20 @@ on:
         type: choice
         options:
           - "none"
+          - "keep"
           - "patch"
           - "minor"
           - "major"
         default: "none"
-      node:
-        description: "Include Node bindings in release"
+      libxmtp-version:
+        description: "Optional Rust workspace version; leave empty to keep its current version"
         required: false
-        type: boolean
-        default: false
+        type: string
+      pr-base:
+        description: "Release PR target branch"
+        required: false
+        type: string
+        default: "self-hosted"
 
 jobs:
   create-branch:
@@ -100,7 +110,12 @@ jobs:
           BROWSER_SDK_BUMP: ${{ inputs.browser-sdk-bump }}
           AGENT_SDK_BUMP: ${{ inputs.agent-sdk-bump }}
           CLI_BUMP: ${{ inputs.cli-bump }}
+          LIBXMTP_VERSION: ${{ inputs.libxmtp-version }}
         run: |
+          EXTRA_ARGS=()
+          if [ -n "$LIBXMTP_VERSION" ]; then
+            EXTRA_ARGS+=(--libxmtp-version "$LIBXMTP_VERSION")
+          fi
           xmtp-release create-release-branch \
             --version "$RELEASE_VERSION" \
             --base "$BASE_REF" \
@@ -110,17 +125,18 @@ jobs:
             --browser-sdk "$BROWSER_SDK_BUMP" \
             --agent-sdk "$AGENT_SDK_BUMP" \
             --cli "$CLI_BUMP" \
-            ${{ inputs.node && '--node' || '' }}
+            "${EXTRA_ARGS[@]}"
 
           git push -u origin "release/${RELEASE_VERSION}"
       - name: Create pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ inputs.version }}
+          PR_BASE: ${{ inputs.pr-base }}
         run: |
           BRANCH="release/${RELEASE_VERSION}"
           gh pr create \
-            --base main \
+            --base "$PR_BASE" \
             --head "$BRANCH" \
             --title "Release ${RELEASE_VERSION}" \
             --body "$(cat <<EOF
@@ -130,7 +146,7 @@ jobs:
 
           ### Checklist
           - [ ] Release notes reviewed and finalized
-          - [ ] All SDK versions bumped
+          - [ ] Selected SDK versions verified
           - [ ] RC published and validated
           - [ ] Final release published via Release workflow
 

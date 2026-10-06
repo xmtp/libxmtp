@@ -22,6 +22,16 @@ describe("filterAndSortTags", () => {
     expect(result).toEqual(["4.10.0", "4.9.0", "4.8.0"]);
   });
 
+  it("keeps SDK tags when there is no artifact suffix", () => {
+    expect(
+      filterAndSortTags(
+        ["node-sdk-6.1.0", "node-sdk-8.0.0-rc1", "ios-4.11.0"],
+        "node-sdk-",
+        "",
+      ),
+    ).toEqual(["6.1.0"]);
+  });
+
   it("includes prerelease tags when flag is set", () => {
     const tags = ["ios-4.9.0", "ios-4.10.0-rc1", "ios-4.10.0-dev.abc1234"];
     const result = filterAndSortTags(tags, "ios-", "-libxmtp", true);

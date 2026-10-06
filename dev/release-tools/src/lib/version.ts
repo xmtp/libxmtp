@@ -32,7 +32,7 @@ export function filterAndSortTags(
     const versionStr = tag.slice(prefix.length);
 
     // Exclude artifact tags (e.g. ios-4.9.0-libxmtp)
-    if (versionStr.endsWith(artifactSuffix)) continue;
+    if (artifactSuffix && versionStr.endsWith(artifactSuffix)) continue;
 
     const parsed = semver.parse(versionStr);
     if (!parsed) continue;
