@@ -43,7 +43,6 @@ jobs:
       NIX_DEVSHELL: rust
       TRIAL_DIR: ${{ github.workspace }}/target/cache-trial/${{ matrix.arm }}
       KACHE_CACHE_DIR: ${{ github.workspace }}/target/cache-trial/${{ matrix.arm }}/action-store
-      KACHE_RUNTIME_DIR: ${{ runner.temp }}/kache-action-${{ matrix.arm }}
     steps:
       - name: Record runner start
         run: date -u +%FT%TZ > "$RUNNER_TEMP/cache-trial-start.txt"
