@@ -225,6 +225,19 @@ class AndroidHost(unittest.TestCase):
         stop = names.index(self.FORCE_STOP[:3])
         self.assertEqual(names[stop - 1], ["shell", "am", "instrument"])
 
+    def test_input_directory_keeps_the_setgid_group(self):
+        def complete(argv, timeout):
+            stdout = "benchmark=complete\nINSTRUMENTATION_CODE: 0\n"
+            return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+        self.invoke(complete)
+        modes = [c[2] for c in self.calls if c[:2] == ["shell", "chmod"]]
+        self.assertEqual(len(modes), 1)
+        # The app writes response.json as its own uid with mode 0660. Without
+        # setgid the file has the app's group and `adb shell cat` is denied.
+        self.assertTrue(int(modes[0], 8) & 0o2000, modes[0])
+        self.assertEqual(int(modes[0], 8) & 0o777, 0o777, modes[0])
+
     def test_backend_without_a_port_uses_the_scheme_default(self):
         cases = {
             "http://localhost:5050": [5050],

@@ -11,6 +11,8 @@ HOSTS = Path(__file__).resolve().parent
 ROOT = HOSTS.parents[3]
 PACKAGE = "org.xmtp.benchmark"
 REMOTE = f"/sdcard/Android/data/{PACKAGE}/files/benchmark-input"
+# setgid + rwx for all: the app writes, the app's files inherit the group.
+INPUT_MODE = "2777"
 SOURCES = ["Benchmark.kt", "Sdk.kt"]
 # Dependency locks and checksums. The build runs with strict verification.
 DEPENDENCY_INPUTS = [
@@ -131,7 +133,10 @@ def invoke(config, request, log):
     key = "bench-" + hashlib.sha256(str(root).encode()).hexdigest()[:24]
     adb(config, "shell", "mkdir", "-p", REMOTE)
     # A shell-created directory must permit the release app to write its result.
-    adb(config, "shell", "chmod", "0777", REMOTE)
+    # Keep the setgid bit that mkdir inherits from the app's files directory:
+    # then response.json gets the ext_data_rw group, which the shell user can
+    # read. A plain 0777 clears it, and on API 36 `cat` is then denied.
+    adb(config, "shell", "chmod", INPUT_MODE, REMOTE)
     local = log.with_suffix(".request.json")
     local.write_text(json.dumps({**request, "state_key": key}))
     host = log.with_suffix(".host.json")
