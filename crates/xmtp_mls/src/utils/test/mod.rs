@@ -17,6 +17,7 @@ use crate::{
     Client, InboxOwner,
     builder::{ClientBuilder, DeviceSyncMode},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
+    groups::{GroupError, MlsGroup},
     identity::IdentityStrategy,
 };
 use std::{sync::Arc, time::Duration};
@@ -158,6 +159,29 @@ where
             .await
             .unwrap();
         ids.first().is_some_and(Option::is_some)
+    }
+
+    /// Sync welcomes until at least one new group arrives, and return the new groups.
+    ///
+    /// One `sync_welcomes` call can miss a welcome that was sent just before it. The call
+    /// targets the newest welcome position that the backend reads from a replica, and the
+    /// replica can lag the primary (`docs/specs/PROC-message-processing.md`, known
+    /// limitations). Use this helper when a test needs a welcome that it just sent.
+    ///
+    /// A `sync_welcomes` error returns at once. Panics if no welcome arrives in 20 s.
+    pub async fn wait_for_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
+        let poll = async {
+            loop {
+                let groups = self.sync_welcomes().await?;
+                if !groups.is_empty() {
+                    return Ok(groups);
+                }
+                xmtp_common::task::yield_now().await;
+            }
+        };
+        xmtp_common::time::timeout(Duration::from_secs(20), poll)
+            .await
+            .expect("no welcome arrived within 20 s")
     }
 }
 

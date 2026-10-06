@@ -258,7 +258,7 @@ async fn test_display_name_is_self_owned() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
 
     write(
         &group,
@@ -294,7 +294,7 @@ async fn test_display_name_must_be_utf8() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
 
     let invalid = insert_name(alix.inbox_id(), &[0xC3, 0x28]);
     assert_peer_rejects(
@@ -316,7 +316,7 @@ async fn test_profile_values_are_bounded() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
 
     let name = vec![b'n'; MAX_ELEMENT];
     write(
@@ -357,7 +357,7 @@ async fn test_group_image_is_opaque() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
 
     let image = vec![0x00, 0xFF, 0xC3, 0x28, 0x0A];
     write(&group, ComponentId::GROUP_IMAGE, image.clone()).await?;
@@ -376,8 +376,8 @@ async fn test_removal_deletes_removed_member_entries() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
-    let carol_group = carol.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
+    let carol_group = carol.wait_for_welcomes().await?.pop()?;
     for (member, inbox_id, name) in [
         (&bo_group, bo.inbox_id(), b"Bo".as_slice()),
         (&carol_group, carol.inbox_id(), b"Carol".as_slice()),
@@ -427,8 +427,8 @@ async fn test_removal_omits_forbidden_cleanup() {
             .update_admin_list(UpdateAdminListType::Add, admin.to_string())
             .await?;
     }
-    let bo_group = bo.sync_welcomes().await?.pop()?;
-    let carol_group = carol.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
+    let carol_group = carol.wait_for_welcomes().await?.pop()?;
     carol_group.sync().await?;
     write(
         &carol_group,
@@ -487,8 +487,8 @@ async fn test_removal_without_cleanup_is_accepted() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
-    let carol_group = carol.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
+    let carol_group = carol.wait_for_welcomes().await?.pop()?;
     write(
         &carol_group,
         ComponentId::USER_DISPLAY_NAME,
@@ -530,7 +530,7 @@ async fn test_immutable_field_is_written_once() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
 
     write(&group, ONCE, b"first".to_vec()).await?;
     assert!(write(&group, ONCE, b"second".to_vec()).await.is_err());

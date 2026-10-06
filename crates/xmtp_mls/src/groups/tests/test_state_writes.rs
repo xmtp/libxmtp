@@ -17,7 +17,7 @@ async fn archive_stub_keeps_a_group_joined_by_another_writer() {
     tester!(bo, disable_workers);
     let group = alix.create_group(None, None)?;
     group.invite(&bo).await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     let before = group.epoch_authenticator().await?;
 
     MlsGroup::insert(
@@ -42,7 +42,7 @@ async fn failed_intent_insert_rolls_back_optimistic_message() {
     tester!(bo, disable_workers);
     let group = alix.create_group(None, None)?;
     group.invite(&bo).await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     let db = alix.context.db();
     db.raw_query(|conn| {
         diesel::sql_query(

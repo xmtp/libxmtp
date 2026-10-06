@@ -11,7 +11,7 @@ async fn test_members_func_from_non_creator() {
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Get bola's version of the same group
-    let bola_groups = bola.sync_welcomes().await.unwrap();
+    let bola_groups = bola.wait_for_welcomes().await.unwrap();
     let bola_group = bola_groups.first().unwrap();
 
     // Call sync for both
@@ -57,7 +57,7 @@ async fn test_add_member_conflict() {
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
     // Get bola's version of the same group
-    let bola_groups = bola.sync_welcomes().await.unwrap();
+    let bola_groups = bola.wait_for_welcomes().await.unwrap();
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
 

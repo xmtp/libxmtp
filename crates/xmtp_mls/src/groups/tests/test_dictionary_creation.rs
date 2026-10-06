@@ -223,7 +223,7 @@ async fn test_creation_registers_configured_fields() {
 
     let registry = value(&group, ComponentId::COMPONENT_REGISTRY)?;
     group.add_members(&[bo.inbox_id()]).await?;
-    let joined = bo.sync_welcomes().await?.pop()?;
+    let joined = bo.wait_for_welcomes().await?.pop()?;
     assert_eq!(value(&joined, ComponentId::COMPONENT_REGISTRY)?, registry);
 }
 
@@ -251,15 +251,15 @@ async fn test_membership_commit_registers_missing_fields() {
     group
         .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
-    let dave_group = dave.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
+    let dave_group = dave.wait_for_welcomes().await?.pop()?;
     bo_group.sync().await?;
     dave_group.sync().await?;
 
     bo_group.add_members(&[carol.inbox_id()]).await?;
     group.sync().await?;
     dave_group.sync().await?;
-    let carol_group = carol.sync_welcomes().await?.pop()?;
+    let carol_group = carol.wait_for_welcomes().await?.pop()?;
     let topic = StreamTopic::group(group.group_id);
     assert!(alix.context.db().read_last_rejection(&topic)?.is_none());
     assert!(dave.context.db().read_last_rejection(&topic)?.is_none());
@@ -294,7 +294,7 @@ async fn test_metadata_write_registers_missing_fields() {
     group
         .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     bo_group.sync().await?;
     assert!(application_ids(&bo_group)?.is_empty());
 
@@ -334,7 +334,7 @@ async fn test_reconciliation_never_overwrites_an_entry() {
     group
         .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     bo_group.sync().await?;
 
     bo_group.add_members(&[carol.inbox_id()]).await?;
@@ -356,7 +356,7 @@ async fn test_membership_commit_without_authority_skips_registration() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
 
     bo_group.add_members(&[carol.inbox_id()]).await?;
     group.sync().await?;
@@ -374,7 +374,7 @@ async fn test_dm_participant_registers_missing_fields() {
     tester!(alix, configured: |c| c.application_components = catalogue());
     tester!(bo);
     let bo_dm = bo.find_or_create_dm(alix.inbox_id(), None).await?;
-    let dm = alix.sync_welcomes().await?.pop()?;
+    let dm = alix.wait_for_welcomes().await?.pop()?;
     assert!(application_ids(&dm)?.is_empty());
     tester!(_bo2, from: bo);
 
@@ -408,8 +408,8 @@ async fn test_racing_membership_commits_register_once() {
             .update_admin_list(UpdateAdminListType::AddSuper, admin.to_string())
             .await?;
     }
-    let bo_group = bo.sync_welcomes().await?.pop()?;
-    let carol_group = carol.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
+    let carol_group = carol.wait_for_welcomes().await?.pop()?;
     bo_group.sync().await?;
     carol_group.sync().await?;
 

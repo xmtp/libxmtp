@@ -248,12 +248,12 @@ async fn test_inviting_members_results_in_consistent_state() {
     let group_id = &alix_group.group_id;
     assert_cursors(&alix.db(), &alix.db(), group_id);
 
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     assert_cursors(&alix.db(), &bo.db(), group_id);
 
     alix_group.add_members(&[caro.inbox_id()]).await?;
 
-    let caro_group = caro.sync_welcomes().await?.pop()?;
+    let caro_group = caro.wait_for_welcomes().await?.pop()?;
     alix_group.sync().await?;
     assert_cursors(&caro.db(), &caro.db(), group_id);
     assert_cursors(&caro.db(), &alix.db(), group_id);
@@ -410,7 +410,7 @@ async fn test_spoofed_inbox_id() {
             .send_message("hi".as_bytes(), SendMessageOpts::default())
             .await?;
         bo_group.add_members(&[caro.inbox_id()]).await?;
-        let caro_groups = caro.sync_welcomes().await?;
+        let caro_groups = caro.wait_for_welcomes().await?;
         let caro_group = caro_groups.first().unwrap();
         caro_group.sync().await?;
         caro_group

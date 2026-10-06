@@ -67,7 +67,7 @@ async fn test_successful_commit_log_types() {
         ]
     );
 
-    let b = b_client.sync_welcomes().await?.first()?.to_owned();
+    let b = b_client.wait_for_welcomes().await?.first()?.to_owned();
     b.sync().await?;
     assert_eq!(
         b.local_commit_log().await?[0].commit_type,
@@ -131,7 +131,7 @@ async fn test_failed_application_message_not_added_to_commit_log() {
     );
 
     // Fast-forward 3 epochs so that a's next message will initially fail with an epoch error
-    let b = b_client.sync_welcomes().await?.first()?.to_owned();
+    let b = b_client.wait_for_welcomes().await?.first()?.to_owned();
     b.sync().await?;
     b.add_members(&[caro.inbox_id()]).await?;
     b.add_members(&[devon.inbox_id()]).await?;
@@ -174,7 +174,7 @@ async fn test_welcome_commit_log() {
         ]
     );
 
-    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    let b = bo.wait_for_welcomes().await?.first()?.to_owned();
     b.sync().await?;
     // Commits before the welcome should not be logged
     assert_eq!(
@@ -210,7 +210,7 @@ async fn test_commit_log_retriable_error() {
         let a = a_client
             .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
             .await?;
-        let b = b_client.sync_welcomes().await?.first()?.to_owned();
+        let b = b_client.wait_for_welcomes().await?.first()?.to_owned();
         b.sync().await?;
         assert_eq!(a.local_commit_log().await?.len(), 2); // GroupCreation + UpdateGroupMembership
         assert_eq!(b.local_commit_log().await?.len(), 1); // Welcome
@@ -252,7 +252,7 @@ async fn test_commit_log_non_retriable_error() {
     let a = a_client
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let b = b_client.sync_welcomes().await?.first()?.to_owned();
+    let b = b_client.wait_for_welcomes().await?.first()?.to_owned();
     assert_eq!(
         get_type(&a.local_commit_log().await?),
         &[

@@ -59,7 +59,7 @@ async fn test_commit_log_signer_on_group_creation() {
     tester!(bo);
 
     let a = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    let b = bo.wait_for_welcomes().await?.first()?.to_owned();
     let a_metadata = a.mutable_metadata()?;
     let b_metadata = b.mutable_metadata()?;
     let a_commit_log_signer = a_metadata.commit_log_signer();
@@ -79,7 +79,7 @@ async fn test_commit_log_signer_on_group_creation() {
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    let b = bo.wait_for_welcomes().await?.first()?.to_owned();
     let a_metadata = a.mutable_metadata()?;
     let b_metadata = b.mutable_metadata()?;
     let a_commit_log_signer = a_metadata.commit_log_signer();
@@ -1028,7 +1028,7 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
 
     // Create a DM between alix and bo
     let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-    let bo_dm = bo.sync_welcomes().await?.first()?.to_owned();
+    let bo_dm = bo.wait_for_welcomes().await?.first()?.to_owned();
 
     // Both parties make commits to generate entries for publishing
     // Alix's first message should trigger a KeyUpdate commit (key rotation) first
@@ -1110,7 +1110,7 @@ async fn test_consecutive_entries_verification_happy_case() {
 
     // Create a DM between alix and bo
     let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-    let bo_dm = bo.sync_welcomes().await?.first()?.to_owned();
+    let bo_dm = bo.wait_for_welcomes().await?.first()?.to_owned();
 
     // Sync messages to bo
     bo_dm.sync().await?;
@@ -1367,11 +1367,11 @@ async fn test_update_commit_log_signer_sync_across_parties() {
         .unwrap();
 
     // Bo and charlie sync welcomes to join the group
-    let bo_welcomes = bo.sync_welcomes().await.unwrap();
+    let bo_welcomes = bo.wait_for_welcomes().await.unwrap();
     assert_eq!(bo_welcomes.len(), 1);
     let bo_group = bo_welcomes[0].clone();
 
-    let charlie_welcomes = charlie.sync_welcomes().await.unwrap();
+    let charlie_welcomes = charlie.wait_for_welcomes().await.unwrap();
     assert_eq!(charlie_welcomes.len(), 1);
     let charlie_group = charlie_welcomes[0].clone();
 
@@ -1497,7 +1497,7 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
     // Add bo to the group
     group.add_members(&[bo.inbox_id()]).await.unwrap();
 
-    let bo_groups = bo.sync_welcomes().await.unwrap();
+    let bo_groups = bo.wait_for_welcomes().await.unwrap();
     assert_eq!(bo_groups.len(), 1);
     let bo_group = &bo_groups[0];
 
@@ -1571,11 +1571,11 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
         .await
         .unwrap();
 
-    let bo_groups = bo.sync_welcomes().await.unwrap();
+    let bo_groups = bo.wait_for_welcomes().await.unwrap();
     assert_eq!(bo_groups.len(), 1);
     let bo_group = &bo_groups[0];
 
-    let charlie_groups = charlie.sync_welcomes().await.unwrap();
+    let charlie_groups = charlie.wait_for_welcomes().await.unwrap();
     assert_eq!(charlie_groups.len(), 1);
     let charlie_group = &charlie_groups[0];
 

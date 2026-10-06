@@ -607,7 +607,7 @@ async fn test_staged_welcome() {
 
     // Bola syncs groups - this will decrypt the Welcome, identify who added Bola
     // and then store that value on the group and insert into the database
-    let bola_groups = bola.sync_welcomes().await.unwrap();
+    let bola_groups = bola.wait_for_welcomes().await.unwrap();
 
     // Bola gets the group id. This will be needed to fetch the group from
     // the database.

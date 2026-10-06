@@ -192,7 +192,7 @@ async fn test_e2e_propose_add_member_flow() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -218,19 +218,27 @@ async fn test_e2e_propose_add_member_flow() {
         .sync_until_intent_resolved(propose_intent.id)
         .await?;
 
-    // 3. Bo syncs to receive the proposal
-    bo_group.sync().await?;
-
-    // Check if Bo has pending proposals
-    let bo_has_pending = bo_group
+    // 3. Bo syncs until it holds every proposal that Alix sent. Alix sends the Add
+    // proposal and the membership proposal as separate messages. While the backend
+    // replica lags, one sync can return only some of them, and Bo would then commit
+    // a partial set that does not add Caro.
+    let alix_pending = alix_group
         .load_mls_group_with_lock_async(async |openmls_group| {
-            Ok::<bool, crate::groups::GroupError>(
-                openmls_group.pending_proposals().next().is_some(),
-            )
+            Ok::<usize, crate::groups::GroupError>(openmls_group.pending_proposals().count())
         })
         .await?;
-
-    tracing::info!("Bo has pending proposals: {}", bo_has_pending);
+    assert!(alix_pending > 0);
+    xmtp_common::wait_for_some(|| async {
+        bo_group.sync().await.ok()?;
+        let bo_pending = bo_group
+            .load_mls_group_with_lock_async(async |openmls_group| {
+                Ok::<usize, crate::groups::GroupError>(openmls_group.pending_proposals().count())
+            })
+            .await
+            .ok()?;
+        (bo_pending == alix_pending).then_some(())
+    })
+    .await?;
 
     // 4. Bo commits the pending proposals
     let bo_db = bo_group.context.db();
@@ -245,28 +253,24 @@ async fn test_e2e_propose_add_member_flow() {
         .sync_until_intent_resolved(commit_intent.id)
         .await?;
 
-    // 5. Sync alix to see the commit
-    alix_group.sync().await?;
+    // 5. Alix syncs until it sees Bo's commit. One sync can miss it while the replica lags.
+    xmtp_common::wait_for_eq(
+        || async {
+            alix_group.sync().await.ok()?;
+            Some(alix_group.members().await.ok()?.len())
+        },
+        Some(3),
+    )
+    .await?;
 
     // 6. Caro receives welcome and joins
-    let caro_groups = caro.sync_welcomes().await?;
-    if let Some(caro_group) = caro_groups.first() {
-        caro_group.sync().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
+    let caro_group = caro_groups.first()?;
+    caro_group.sync().await?;
 
-        // Verify all members see 3 members
-        let caro_members = caro_group.members().await?;
-        tracing::info!("Caro sees {} members", caro_members.len());
-    }
-
-    // Verify alix and bo see updated membership
-    let alix_members = alix_group.members().await?;
-    let bo_members = bo_group.members().await?;
-
-    tracing::info!(
-        "Alix sees {} members, Bo sees {} members",
-        alix_members.len(),
-        bo_members.len()
-    );
+    // Verify all members see 3 members
+    assert_eq!(caro_group.members().await?.len(), 3);
+    assert_eq!(bo_group.members().await?.len(), 3);
 }
 
 /// Test end-to-end proposal remove flow:
@@ -287,11 +291,11 @@ async fn test_e2e_propose_remove_member_flow() {
         .await?;
 
     // Sync all members
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     let caro_group = caro_groups.first()?;
     caro_group.sync().await?;
 
@@ -413,7 +417,7 @@ async fn test_propose_invalid_member_operations(#[case] is_add: bool) {
         .await
         .unwrap();
 
-    let bo_groups = bo.sync_welcomes().await.unwrap();
+    let bo_groups = bo.wait_for_welcomes().await.unwrap();
     let bo_group = bo_groups.first().unwrap();
     bo_group.sync().await.unwrap();
 
@@ -482,7 +486,7 @@ async fn test_message_auto_commits_pending_proposals() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -589,7 +593,7 @@ async fn test_multiple_add_proposals_before_commit() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -659,7 +663,7 @@ async fn test_multiple_add_proposals_before_commit() {
     );
 
     // Sync new members
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     let dave_groups = dave.sync_welcomes().await?;
 
     tracing::info!(
@@ -684,11 +688,11 @@ async fn test_mixed_add_remove_proposals_before_commit() {
         .await?;
 
     // Sync all initial members
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     let caro_group = caro_groups.first()?;
     caro_group.sync().await?;
 
@@ -752,7 +756,7 @@ async fn test_mixed_add_remove_proposals_before_commit() {
     alix_group.sync().await?;
 
     // Dave should receive welcome
-    let dave_groups = dave.sync_welcomes().await?;
+    let dave_groups = dave.wait_for_welcomes().await?;
     tracing::info!("Dave received {} welcomes", dave_groups.len());
     assert!(dave_groups.len() == 1);
     assert!(dave_groups.first().unwrap().is_active().unwrap());
@@ -817,7 +821,7 @@ async fn test_proposer_can_commit_own_proposal() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -929,11 +933,11 @@ async fn test_concurrent_proposals_from_different_members() {
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     let caro_group = caro_groups.first()?;
     caro_group.sync().await?;
 
