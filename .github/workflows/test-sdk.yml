@@ -1,5 +1,6 @@
 name: Test SDK façade
 on:
+  workflow_dispatch:
   workflow_call:
     inputs:
       run_swift:
@@ -7,6 +8,7 @@ on:
         default: false
 jobs:
   node-platforms:
+    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/build-sdk-node-platforms.yml
     secrets: inherit
 
@@ -143,6 +145,7 @@ jobs:
 
   windows-load:
     name: Windows SDK load (win32-x64)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
