@@ -244,7 +244,7 @@ id = "PROC-041"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The legacy SDK readers in sdks/ do not deliver a close notification with a reason for every stream end, until they are removed at cutover. The new SDK has evidence for Node (TypeScript) only. Swift and Kotlin have no linked test yet, and Kotlin reports Closed, not Failed, when a collector throws, by design."
+reason = "The legacy SDK readers in sdks/ do not deliver a close notification with a reason for every stream end, until they are removed at cutover. The new SDK has linked tests for Node, the browser, Swift (conformance ReaderLoopExit and ReaderOpeningCancellation) and Kotlin (MessageStreamTest, MessageDeliveryFlowTest and DurableReplayTest). Kotlin reports Closed, not Failed, when a collector throws, by design."
 
 [[waiver]]
 id = "PROC-042"
