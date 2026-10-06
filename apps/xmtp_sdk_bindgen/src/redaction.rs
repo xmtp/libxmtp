@@ -111,6 +111,20 @@ fn swift_text(owner: &str, fields: &[FieldMetadata], values: &[String]) -> Resul
     Ok(format!("{owner}({})", parts.join(", ")))
 }
 
+/// The members that the generated Swift extension declares. A record field
+/// or an enum case of the same name would be declared twice.
+const SWIFT_MEMBERS: &[&str] = &["description", "debugDescription"];
+
+fn check_swift_member(owner: &str, member: &str) -> Result<()> {
+    if SWIFT_MEMBERS.contains(&member) {
+        bail!(
+            "{owner}.{member}: the Swift description of a type with a redacted field declares \
+             `description` and `debugDescription`; rename the field or case"
+        );
+    }
+    Ok(())
+}
+
 fn swift_extension(code: &mut String, name: &str, body: &str) -> Result<()> {
     writeln!(
         code,
@@ -122,6 +136,9 @@ fn swift_extension(code: &mut String, name: &str, body: &str) -> Result<()> {
 fn swift_record(code: &mut String, record: &RecordMetadata) -> Result<()> {
     // UniFFI's Swift type name.
     let name = record.name.to_upper_camel_case();
+    for (index, field) in record.fields.iter().enumerate() {
+        check_swift_member(&name, &field_name(field, index))?;
+    }
     let values = record
         .fields
         .iter()
@@ -137,6 +154,7 @@ fn swift_enum(code: &mut String, value: &EnumMetadata) -> Result<()> {
     let mut body = String::from("        switch self {\n");
     for variant in &value.variants {
         let case = variant.name.to_lower_camel_case();
+        check_swift_member(&name, &case)?;
         let owner = format!("{name}.{case}");
         if variant.fields.is_empty() {
             writeln!(body, "        case .{case}: return \"{owner}\"")?;
@@ -282,6 +300,50 @@ mod tests {
             Some("@xmtp-redact=x-secret.v1_2"),
         )];
         assert!(kotlin_text("EncodedContent", &fields)?.contains("entry.key == \"x-secret.v1_2\""));
+    }
+
+    // The Swift extension declares `description` and `debugDescription`, so a
+    // record field or an enum case of either name would be declared twice.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn swift_description_names_cannot_be_fields_or_cases() {
+        let secret = || field("token", Type::String, Some("@xmtp-redact"));
+        for (item, member) in [
+            (
+                record(
+                    "Session",
+                    vec![secret(), field("description", Type::String, None)],
+                ),
+                "Session.description",
+            ),
+            (
+                record(
+                    "Session",
+                    vec![secret(), field("debug_description", Type::String, None)],
+                ),
+                "Session.debugDescription",
+            ),
+            (
+                enumeration(
+                    "Channel",
+                    vec![
+                        variant("Apns", None, vec![secret()]),
+                        variant("Description", None, vec![]),
+                    ],
+                ),
+                "Channel.description",
+            ),
+        ] {
+            let error = swift(&groups(vec![item])).unwrap_err().to_string();
+            assert!(
+                error.starts_with(&format!("{member}: the Swift description")),
+                "{error}"
+            );
+        }
+        // A type without a redacted field gets no extension.
+        swift(&groups(vec![record(
+            "Plain",
+            vec![field("description", Type::String, None)],
+        )]))?;
     }
 
     // Swift gets a description for each record and enum with a redacted
