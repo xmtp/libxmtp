@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { playwright } from "@vitest/browser-playwright";
@@ -9,6 +10,12 @@ import { recoveryProxyCommands } from "./test/recovery-proxy";
 // Keep package asset URLs inside the workspace during browser tests.
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
+// `sdkVersion()` returns the Rust workspace version.
+const sdkVersion = /^version = "([^"]+)"$/m.exec(
+  readFileSync(new URL("../../Cargo.toml", import.meta.url), "utf8"),
+)?.[1];
+if (sdkVersion === undefined) throw new Error("workspace version not found");
+
 // https://vitejs.dev/config/
 const viteConfig = defineConfig({
   resolve: {
@@ -18,6 +25,7 @@ const viteConfig = defineConfig({
     "import.meta.env.XMTP_BACKEND_URL": JSON.stringify(
       process.env.XMTP_BACKEND_URL,
     ),
+    "import.meta.env.XMTP_SDK_VERSION": JSON.stringify(sdkVersion),
   },
   server: {
     fs: {

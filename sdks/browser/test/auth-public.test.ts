@@ -82,6 +82,18 @@ test("the real worker keeps private credential failures out of public errors", a
   expect(callback).toHaveBeenCalled();
 });
 
+test("64-bit credential expiries cross the worker from a callback and setCredential", async () => {
+  // 2^53 + 1: a Number conversion would change it.
+  const expiresAtSeconds = 9_007_199_254_740_993n;
+  const callback = vi.fn(async () => ({ ...credential(), expiresAtSeconds }));
+  const client = await create(signer(), {
+    backend: { ...backend, credentials: { credential: callback } },
+  });
+  expect(callback).toHaveBeenCalled();
+  await client.setCredential({ ...credential(), expiresAtSeconds });
+  expect(await client.isRegistered()).toBe(true);
+});
+
 test("an authenticated backend refreshes a rejected credential through the worker", async ({
   skip,
 }) => {
