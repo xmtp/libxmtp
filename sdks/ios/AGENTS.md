@@ -41,8 +41,10 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
 - Start the backend with `dev/nix-shell 'just backend up'`.
 - Tests read `XMTP_BACKEND_URL`. The test recipe loads this worktree's URL.
 - The stream recovery test sends its client through a loopback relay
-  (`TestRelay.swift`). The lifecycle test suspends the process streams and
-  resumes them before it asserts. Other clients on the backend are not affected.
+  (`TestRelay.swift`). The live lifecycle tests suspend the process streams and
+  resume them before they assert. The test that posts the UIKit background and
+  foreground notifications runs only in `test-simulator`. Other clients on the
+  backend are not affected.
 - CI runs the test, example, and simulator recipes through `just backend ci`.
   This starts disposable native PostgreSQL, S3, and backend services.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.

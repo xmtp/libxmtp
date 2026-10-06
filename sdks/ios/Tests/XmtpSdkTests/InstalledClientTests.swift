@@ -11,6 +11,10 @@ private func testOptions() -> ClientOptions {
 	)
 }
 
+private func memberIds(_ group: Group) async throws -> Set<InboxId> {
+	try await Set(group.members().map(\.inboxId))
+}
+
 final class InstalledClientTests: XCTestCase {
 	// verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
 	func testPreAuthenticateRunsBeforeSigner() async throws {
@@ -59,6 +63,37 @@ final class InstalledClientTests: XCTestCase {
 			_ = try await client.conversations().createGroup(members: [identity])
 			XCTFail("Group creation accepted an unregistered identity")
 		} catch {}
+		try await client.end()
+	}
+
+	/// The account-identity overloads in `runtime/IdentityRoutes.swift` make the
+	/// same change as their inbox ID forms. Rust `identity_routes.rs` tests the
+	/// methods they forward to.
+	func testIdentityOverloadsChangeMembership() async throws {
+		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
+		let peer = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
+		let conversations = client.conversations()
+		let me = client.inboxId()
+		let other = peer.inboxId()
+		let empty = try await conversations.createGroup(members: [PublicIdentity]())
+		let alone = try await memberIds(empty)
+		XCTAssertEqual(alone, [me])
+		let group = try await conversations.createGroup(members: [peer.identity()])
+		let created = try await memberIds(group)
+		XCTAssertEqual(created, [me, other])
+		try await group.removeMembers(members: [peer.identity()])
+		let removed = try await memberIds(group)
+		XCTAssertEqual(removed, [me])
+		let added = try await group.addMembers(members: [peer.identity()])
+		XCTAssertEqual(added.added, [other])
+		let readded = try await memberIds(group)
+		XCTAssertEqual(readded, [me, other])
+		let dm = try await conversations.createDm(peer: peer.identity())
+		let dmPeer = try await dm.peerInboxId()
+		XCTAssertEqual(dmPeer, other)
+		let byInbox = try await conversations.createDm(peer: other)
+		XCTAssertEqual(byInbox.id(), dm.id())
+		try await peer.end()
 		try await client.end()
 	}
 

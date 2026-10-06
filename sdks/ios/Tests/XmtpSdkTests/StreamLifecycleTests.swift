@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+	import UIKit
+#endif
 import XCTest
 @testable import XmtpSdk
 
@@ -74,6 +77,35 @@ final class StreamLifecycleTests: XCTestCase {
 	/// foreground event the open stream delivers the message sent meanwhile.
 	func testBackgroundSuspendsAndForegroundResumesALiveStream() async throws {
 		let manager = StreamLifecycleManager()
+		try await checkBackgroundCycle(
+			background: { await manager.setDesired(live: false)?.value },
+			foreground: { await manager.setDesired(live: true)?.value },
+		)
+	}
+
+	#if canImport(UIKit)
+		/// The UIKit background and foreground notifications drive the shared
+		/// manager that client creation registers.
+		func testApplicationNotificationsSuspendAndResumeALiveStream() async throws {
+			XCTAssertTrue(SDKClient.manageStreamLifecycle)
+			try await checkBackgroundCycle(
+				background: { await Self.post(UIApplication.didEnterBackgroundNotification) },
+				foreground: { await Self.post(UIApplication.willEnterForegroundNotification) },
+			)
+		}
+
+		/// Posts `name` and waits until the shared manager has applied it.
+		private static func post(_ name: Notification.Name) async {
+			await MainActor.run { NotificationCenter.default.post(name: name, object: nil) }
+			await StreamLifecycleManager.shared.enableIfNeeded()
+		}
+	#endif
+
+	/// Opens a live stream, runs `background`, sends a message, and runs
+	/// `foreground`. The message must arrive only after `foreground`.
+	private func checkBackgroundCycle(
+		background: () async -> Void, foreground: () async -> Void,
+	) async throws {
 		let receiver = try await SDKClient.create(signer: generateLocalSigner(), options: liveOptions())
 		let sender = try await SDKClient.create(signer: generateLocalSigner(), options: liveOptions())
 		let group = try await sender.conversations().createGroup(members: [receiver.inboxId()])
@@ -92,12 +124,12 @@ final class StreamLifecycleTests: XCTestCase {
 		let live = await eventually(seconds: 30) { received.value.contains(foregroundId) }
 		XCTAssertTrue(live, "The stream did not deliver before the background event")
 
-		await manager.setDesired(live: false)?.value
+		await background()
 		let backgroundId = try await group.sendText(text: "background")
 		let deliveredInBackground = await eventually(seconds: 3) { received.value.contains(backgroundId) }
 		// Resume before any assertion can stop the test, so later tests in this
 		// process keep live streams.
-		await manager.setDesired(live: true)?.value
+		await foreground()
 		XCTAssertFalse(deliveredInBackground, "A suspended stream received a network message")
 		let resumed = await eventually(seconds: 60) { received.value.contains(backgroundId) }
 		XCTAssertTrue(resumed, "The foreground event did not resume the stream")
