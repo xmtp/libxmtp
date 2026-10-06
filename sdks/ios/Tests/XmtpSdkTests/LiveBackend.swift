@@ -58,19 +58,45 @@ func eventually(seconds: Double, _ condition: () async throws -> Bool) async ret
 }
 
 /// The result of `operation`, or nil when it does not finish in `seconds`.
-/// The operation task is cancelled at the deadline.
+/// At the deadline the helper cancels the operation task and returns without
+/// waiting for it, so an operation that ignores cancellation cannot hang a test.
+/// A task group cannot do this: it waits for all of its child tasks.
 func within<T: Sendable>(
 	seconds: Double, _ operation: @escaping @Sendable () async throws -> T,
 ) async throws -> T? {
-	let work = Task { try await operation() }
-	let timer = Task {
-		try? await pause(seconds: seconds)
-		work.cancel()
+	try await withCheckedThrowingContinuation { continuation in
+		let race = Race(continuation)
+		let work = Task {
+			do {
+				let value = try await operation()
+				race.finish(.success(value))
+			} catch {
+				race.finish(.failure(error))
+			}
+		}
+		Task {
+			try? await pause(seconds: seconds)
+			// Finish before the cancel, so the cancelled operation cannot win.
+			race.finish(.success(nil))
+			work.cancel()
+		}
 	}
-	defer { timer.cancel() }
-	do {
-		return try await work.value
-	} catch is CancellationError where work.isCancelled {
-		return nil
+}
+
+/// Resumes a continuation once, with the first result that arrives.
+private final class Race<T: Sendable>: @unchecked Sendable {
+	private let lock = NSLock()
+	private var continuation: CheckedContinuation<T?, Error>?
+
+	init(_ continuation: CheckedContinuation<T?, Error>) {
+		self.continuation = continuation
+	}
+
+	func finish(_ result: Result<T?, Error>) {
+		lock.lock()
+		let first = continuation
+		continuation = nil
+		lock.unlock()
+		first?.resume(with: result)
 	}
 }
