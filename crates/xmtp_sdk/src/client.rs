@@ -291,8 +291,9 @@ pub(crate) async fn open_store(
         ($builder:expr) => {{
             match &options.encryption_key {
                 Some(bytes) => {
-                    let key =
-                        EncryptionKey::try_from(bytes.as_slice()).map_err(XmtpError::from_core)?;
+                    let key = EncryptionKey::try_from(bytes.as_slice()).map_err(|_| {
+                        XmtpError::invalid("storage encryption key must be 32 bytes")
+                    })?;
                     $builder.key(key).build().map_err(XmtpError::from_core)?
                 }
                 None => $builder.build_unencrypted().map_err(XmtpError::from_core)?,

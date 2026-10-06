@@ -323,3 +323,31 @@ async fn storage_key_rejects_wrong_key_for_existing_database() {
     assert!(second.is_err(), "a different database key must fail");
     std::fs::remove_file(path)?;
 }
+
+// The key length check runs before the SDK opens a database, so an in-memory
+// store and no backend are enough.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn storage_key_of_wrong_length_is_invalid_input() {
+    for key in [vec![0xA5; 31], vec![0xA5; 33], Vec::new()] {
+        let storage = StorageOptions {
+            location: crate::StorageLocation::InMemory,
+            encryption_key: Some(key.clone()),
+            ..Default::default()
+        };
+        let result = crate::client::open_store(&storage, None).await;
+        match result {
+            Err(XmtpError::InvalidInput(details)) => {
+                assert_eq!(details.code, "InvalidInput");
+                assert!(matches!(details.category, crate::ErrorCategory::Input));
+                assert!(!details.retryable);
+                assert_eq!(details.message, "storage encryption key must be 32 bytes");
+            }
+            Err(error) => panic!(
+                "{}-byte key: expected invalid input, got {error}",
+                key.len()
+            ),
+            Ok(_) => panic!("{}-byte key opened a database", key.len()),
+        }
+    }
+}

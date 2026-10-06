@@ -191,8 +191,8 @@ async fn client_log_secrets_are_redacted() {
         assert!(
             matches!(
                 &created,
-                Err(crate::XmtpError::Unknown(details))
-                    if details.message == "could not convert slice to array"
+                Err(crate::XmtpError::InvalidInput(details))
+                    if details.message == "storage encryption key must be 32 bytes"
             ),
             "create did not fail on the invalid database key: {:?}",
             created.as_ref().err()
