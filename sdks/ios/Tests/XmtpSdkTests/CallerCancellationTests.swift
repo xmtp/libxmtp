@@ -158,33 +158,33 @@ final class CallerCancellationTests: XCTestCase {
 	/// A read cancelled before its first poll throws and does not acknowledge
 	/// the prior item.
 	func testReadCancelledBeforeFirstPollKeepsPriorItem() async throws {
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: cancellationOptions())
-		let group = try await client.conversations().createGroup(members: [InboxId]())
-		let first = try await group.sendText(text: "delivered before the cancelled read")
-		let reader = try await group.messageReader(options: nil)
-		let delivered = try await reader.next()
-		XCTAssertEqual(delivered?.id, first)
+		try await withClients { scope in
+			let client = try await scope.create(signer: generateLocalSigner(), options: cancellationOptions())
+			let group = try await client.conversations().createGroup(members: [InboxId]())
+			let first = try await group.sendText(text: "delivered before the cancelled read")
+			let reader = try await group.messageReader(options: nil)
+			let delivered = try await reader.next()
+			XCTAssertEqual(delivered?.id, first)
 
-		let gate = StartGate()
-		let call = Task {
-			await gate.wait()
-			return try await reader.next()
-		}
-		call.cancel()
-		await gate.release()
-		let result = await settle(call, "The cancelled read before poll")
-		guard result != nil else {
-			try await client.end()
-			return
-		}
-		assertCancelled(result)
+			let gate = StartGate()
+			let call = Task {
+				await gate.wait()
+				return try await reader.next()
+			}
+			call.cancel()
+			await gate.release()
+			let result = await settle(call, "The cancelled read before poll")
+			guard result != nil else {
+				return
+			}
+			assertCancelled(result)
 
-		try await reader.end()
-		let replay = try await group.messageReader(options: nil)
-		let replayed = try await replay.next()
-		XCTAssertEqual(replayed?.id, first, "The cancelled read acknowledged the prior item")
-		try await replay.end()
-		try await client.end()
+			try await reader.end()
+			let replay = try await group.messageReader(options: nil)
+			let replayed = try await replay.next()
+			XCTAssertEqual(replayed?.id, first, "The cancelled read acknowledged the prior item")
+			try await replay.end()
+		}
 	}
 
 	/// Cancelling a pending read cancels the native future. Nothing else wakes
@@ -194,32 +194,31 @@ final class CallerCancellationTests: XCTestCase {
 		guard #available(macOS 15.0, iOS 18.0, *) else {
 			throw XCTSkip("The call executor needs a task executor")
 		}
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: cancellationOptions())
-		let group = try await client.conversations().createGroup(members: [InboxId]())
-		let reader = try await group.messageReader(options: nil)
+		try await withClients { scope in
+			let client = try await scope.create(signer: generateLocalSigner(), options: cancellationOptions())
+			let group = try await client.conversations().createGroup(members: [InboxId]())
+			let reader = try await group.messageReader(options: nil)
 
-		// The generated glue checks cancellation before its first suspension.
-		// After the first job returns, only the native future cancel can end the read.
-		let executor = CallExecutor()
-		let call = Task(executorPreference: executor) { try await reader.next() }
-		guard await waitUntil("The read did not suspend", { executor.returnedJobs > 0 }) else {
+			// The generated glue checks cancellation before its first suspension.
+			// After the first job returns, only the native future cancel can end the read.
+			let executor = CallExecutor()
+			let call = Task(executorPreference: executor) { try await reader.next() }
+			guard await waitUntil("The read did not suspend", { executor.returnedJobs > 0 }) else {
+				call.cancel()
+				return
+			}
 			call.cancel()
-			try await client.end()
-			return
-		}
-		call.cancel()
-		let result = await settle(call, "The cancelled pending read")
-		guard result != nil else {
-			try await client.end()
-			return
-		}
-		assertCancelled(result)
+			let result = await settle(call, "The cancelled pending read")
+			guard result != nil else {
+				return
+			}
+			assertCancelled(result)
 
-		let later = try await group.sendText(text: "sent after the cancelled read")
-		let next = try await reader.next()
-		XCTAssertEqual(next?.id, later, "The cancelled read took a later item")
-		try await reader.end()
-		try await client.end()
+			let later = try await group.sendText(text: "sent after the cancelled read")
+			let next = try await reader.next()
+			XCTAssertEqual(next?.id, later, "The cancelled read took a later item")
+			try await reader.end()
+		}
 	}
 
 	/// A cancelled event read ends the reader and returns nil, so no event is
@@ -228,29 +227,28 @@ final class CallerCancellationTests: XCTestCase {
 		guard #available(macOS 15.0, iOS 18.0, *) else {
 			throw XCTSkip("The call executor needs a task executor")
 		}
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: cancellationOptions())
-		let reader = try await client.raw.events(filter: EventFilter(kinds: [.conversationForkDetected]))
-		let executor = CallExecutor()
-		let call = Task(executorPreference: executor) { try await reader.next() }
-		guard await waitUntil("The event read did not suspend", { executor.returnedJobs > 0 }) else {
+		try await withClients { scope in
+			let client = try await scope.create(signer: generateLocalSigner(), options: cancellationOptions())
+			let reader = try await client.raw.events(filter: EventFilter(kinds: [.conversationForkDetected]))
+			let executor = CallExecutor()
+			let call = Task(executorPreference: executor) { try await reader.next() }
+			guard await waitUntil("The event read did not suspend", { executor.returnedJobs > 0 }) else {
+				call.cancel()
+				return
+			}
 			call.cancel()
-			try await client.end()
-			return
+			guard let result = await settle(call, "The cancelled event read") else {
+				return
+			}
+			switch result {
+			case let .success(event):
+				XCTAssertNil(event, "An event was handed off after cancellation")
+			case let .failure(error):
+				XCTFail("A cancelled event read threw \(error)")
+			}
+			let reopened = try await reader.next()
+			XCTAssertNil(reopened, "The ended event reader read again")
 		}
-		call.cancel()
-		guard let result = await settle(call, "The cancelled event read") else {
-			try await client.end()
-			return
-		}
-		switch result {
-		case let .success(event):
-			XCTAssertNil(event, "An event was handed off after cancellation")
-		case let .failure(error):
-			XCTFail("A cancelled event read threw \(error)")
-		}
-		let reopened = try await reader.next()
-		XCTAssertNil(reopened, "The ended event reader read again")
-		try await client.end()
 	}
 
 	/// A create cancelled after its native work finished does not return the
@@ -296,7 +294,9 @@ final class CallerCancellationTests: XCTestCase {
 		guard await waitUntil("The native constructor did not finish", { executor.heldJobs > 0 }) else {
 			call.cancel()
 			executor.release()
-			_ = await call.result
+			if case let .success(client) = await call.result {
+				try await client.end()
+			}
 			return
 		}
 		XCTAssertFalse(openFiles(in: directory).isEmpty, "The finished constructor has no open store")
@@ -305,6 +305,9 @@ final class CallerCancellationTests: XCTestCase {
 		let result = await settle(call, "The cancelled constructor")
 		guard result != nil else {
 			return
+		}
+		if case let .success(client)? = result {
+			try await client.end()
 		}
 		assertCancelled(result)
 		_ = await waitUntil("The cancelled constructor left its store open: \(openFiles(in: directory))") {
