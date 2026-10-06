@@ -22,6 +22,11 @@ spec = importlib.util.spec_from_file_location(
 )
 artifacts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(artifacts)
+runtime_spec = importlib.util.spec_from_file_location(
+    "sdk_native_runtime", Path(__file__).with_name("sdk-native-runtime.py")
+)
+native_runtime = importlib.util.module_from_spec(runtime_spec)
+runtime_spec.loader.exec_module(native_runtime)
 TREES = {
     "node": ("typescript-napi", "swift", "kotlin"),
     "browser": ("typescript-wasm", "typescript-pure"),
@@ -75,6 +80,7 @@ def source_hash(target):
                     "dev/nix-shell",
                     "dev/js/sdk-package",
                     "dev/ci/sdk-products.py",
+                    "dev/ci/sdk-native-runtime.py",
                     f"sdks/{target}/package.json",
                     f"sdks/{target}/tsconfig.json",
                     "package.json",
@@ -261,8 +267,16 @@ def check_package(package, generated, target):
 def check_manifest(manifest, target):
     if manifest["schemaVersion"] != 1 or manifest["family"] != family(target):
         raise ValueError("SDK product family mismatch")
-    for key, expected in run_identity().items():
-        if manifest[key] != expected:
+    current = run_identity()
+    for key, expected in current.items():
+        if key == "runAttempt" and current["origin"] == "github-run":
+            # Failed-job reruns can reuse a successful earlier producer. The
+            # run, checkout, source, context, and bytes must still match.
+            producer = manifest[key]
+            valid = type(producer) is int and 1 <= producer <= expected
+        else:
+            valid = manifest[key] == expected
+        if not valid:
             raise ValueError(f"SDK run identity mismatch: {key}")
     if manifest["sourceHash"] != source_hash(target):
         raise ValueError("SDK product current source mismatch")
@@ -323,6 +337,7 @@ def check_payload(folder, manifest, target):
         },
         "runtime",
     )
+    native_runtime.check(folder / "package", folder, manifest["nativeRuntime"])
 
 
 def copy(source, destination):
@@ -368,6 +383,7 @@ def export_product(target, output, generated=None, package=None):
         )
         if not host:
             raise ValueError("SDK compiler host missing")
+        native = native_runtime.export(folder / "package", folder)
         files = inventory(folder)
         manifest = {
             "schemaVersion": 1,
@@ -388,6 +404,7 @@ def export_product(target, output, generated=None, package=None):
                 "dependencyLocks": locks(),
             },
             "runtimes": runtimes,
+            "nativeRuntime": native,
             "files": files,
             "modes": {name: (folder / name).stat().st_mode & 0o777 for name in files},
             "testInventory": [],
@@ -436,6 +453,11 @@ def restore(target, archive):
         folder.mkdir()
         manifest = read_archive(archive, folder)
         check_payload(folder, manifest, target)
+        native_runtime.restore(
+            folder,
+            manifest["nativeRuntime"],
+            base / ".native-runtime-roots" / family(target),
+        )
         (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         destination = base / family(target)
         # Each selected consumer owns its checkout. Promotion starts only after
@@ -456,6 +478,7 @@ def verify(target):
     manifest = json.loads((folder / "manifest.json").read_text())
     # The manifest is outside its own byte inventory.
     check_payload(folder, manifest, target)
+    native_runtime.verify(manifest["nativeRuntime"])
     expected = {
         name.removeprefix("package/"): checksum
         for name, checksum in manifest["files"].items()

@@ -8,6 +8,8 @@ import platform
 from pathlib import Path
 import shutil
 import subprocess
+import struct
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -21,6 +23,35 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def native_elf(search_path):
+    """An independent ELF load-table fixture; this is not an ABI load proof."""
+    strings = b"\0libfixture.so\0" + search_path.encode() + b"\0"
+    dynamic = ((5, 0x200), (10, len(strings)), (1, 1), (29, 15), (0, 0))
+    data = bytearray(0x200 + len(strings))
+    data[:16] = b"\x7fELF\x02\x01\x01" + b"\0" * 9
+    struct.pack_into(
+        "<HHIQQQIHHHHHH", data, 16, 3, 62, 1, 0, 64, 0, 0, 64, 56, 2, 0, 0, 0
+    )
+    struct.pack_into("<IIQQQQQQ", data, 64, 1, 4, 0, 0, 0, len(data), len(data), 4096)
+    struct.pack_into(
+        "<IIQQQQQQ",
+        data,
+        120,
+        2,
+        4,
+        0x100,
+        0x100,
+        0,
+        len(dynamic) * 16,
+        len(dynamic) * 16,
+        8,
+    )
+    for index, (tag, value) in enumerate(dynamic):
+        struct.pack_into("<qQ", data, 0x100 + index * 16, tag, value)
+    data[0x200:] = strings
+    return data
+
+
 class ProductTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -32,6 +63,7 @@ class ProductTests(unittest.TestCase):
         # stager creates package/runtime receipts and the real CLI transports them.
         names = (
             SCRIPT,
+            "dev/ci/sdk-native-runtime.py",
             "crates/xmtp_sdk/dev/sdk-artifacts.py",
             STAGE,
             "crates/xmtp_sdk/dev/check-generated-assets.mjs",
@@ -92,7 +124,7 @@ class ProductTests(unittest.TestCase):
             text=True,
         )
 
-    def stage(self, target):
+    def stage(self, target, native_path=None):
         generated = self.repo / "target/sdk-generated"
         # Use the common receipt producer's source hashes, then let real
         # stage-package.mjs validate bytes and produce its own final receipt.
@@ -120,7 +152,11 @@ class ProductTests(unittest.TestCase):
             (folder / "package.json").write_text('{"type":"module"}')
             if target == "node":
                 library = folder / "libxmtp_sdk.so"
-                library.write_bytes(b"fixture SDK shared library")
+                library.write_bytes(
+                    native_elf(native_path)
+                    if native_path
+                    else b"fixture SDK shared library"
+                )
             else:
                 library = folder / "xmtp_sdk_bg.wasm"
                 library.write_bytes(b"\0asm\x01\0\0\0")
@@ -373,7 +409,7 @@ class ProductTests(unittest.TestCase):
             consumer, archive, "node", "run identity mismatch", env=env
         )
 
-    def test_same_run_products_pass_and_other_run_attempts_fail(self):
+    def test_same_run_reruns_reuse_earlier_products_and_reject_future_attempts(self):
         archive = self.stage("node")
         sha = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
@@ -390,7 +426,7 @@ class ProductTests(unittest.TestCase):
         )
         self.assertEqual(exported.returncode, 0, exported.stderr)
         consumer = self.consumer()
-        for key, value in (("GITHUB_RUN_ID", "456"), ("GITHUB_RUN_ATTEMPT", "3")):
+        for key, value in (("GITHUB_RUN_ID", "456"), ("GITHUB_RUN_ATTEMPT", "1")):
             self.assert_rejected(
                 consumer,
                 archive,
@@ -398,10 +434,172 @@ class ProductTests(unittest.TestCase):
                 "run identity mismatch",
                 env={**env, key: value},
             )
+        for field, value in (
+            ("runAttempt", 0),
+            ("runAttempt", True),
+            ("checkoutSha", "f" * 40),
+        ):
+            changed = self.mutate(
+                archive, lambda _, manifest: manifest.update({field: value})
+            )
+            self.assert_rejected(
+                consumer, changed, "node", "run identity mismatch", env=env
+            )
+        for attempt in ("2", "3"):
+            environment = {**env, "GITHUB_RUN_ATTEMPT": attempt}
+            good = self.command(
+                consumer,
+                "restore",
+                "--target",
+                "node",
+                "--input",
+                str(archive),
+                env=environment,
+            )
+            self.assertEqual(good.returncode, 0, good.stderr)
+            verified = self.command(
+                consumer, "verify", "--target", "node", env=environment
+            )
+            self.assertEqual(verified.returncode, 0, verified.stderr)
+
+    def test_native_closure_import_follows_complete_preflight(self):
+        store = "/nix/store/" + "a" * 32 + "-fixture-native-runtime"
+        tools = self.base / "store-tools"
+        tools.mkdir()
+        log = self.base / "store.log"
+        imported = self.base / "imported"
+        command = tools / "nix-store"
+        command.write_text(
+            "#!" + sys.executable + "\n"
+            "import json,os,pathlib,sys\n"
+            "args=sys.argv[1:]\n"
+            "with open(os.environ['XMTP_FIXTURE_STORE_LOG'],'a') as f: f.write(json.dumps(args)+'\\n')\n"
+            "if args[:2] == ['--query','--requisites']: print(" + repr(store) + ")\n"
+            "elif args[:2] == ['--query','--hash']:\n"
+            " if os.environ.get('XMTP_FIXTURE_STORE_MISSING'): sys.exit(7)\n"
+            " if os.environ.get('XMTP_FIXTURE_STORE_REQUIRE_IMPORT') and not pathlib.Path(os.environ['XMTP_FIXTURE_STORE_IMPORTED']).exists(): sys.exit(7)\n"
+            " for path in args[2:]: print('sha256:controlled-native-store')\n"
+            "elif args == ['--import']:\n"
+            " assert sys.stdin.buffer.read() == b'controlled-nix-export'\n"
+            " pathlib.Path(os.environ['XMTP_FIXTURE_STORE_IMPORTED']).write_text('imported')\n"
+            "elif args[0] == '--export': sys.stdout.buffer.write(b'controlled-nix-export')\n"
+            "elif args[0] == '--verify-path':\n"
+            " if os.environ.get('XMTP_FIXTURE_STORE_CONTENT_MISSING'): sys.exit(7)\n"
+            "elif args[0] == '--realise':\n"
+            " path=pathlib.Path(args[args.index('--add-root')+1])\n"
+            " if path.is_symlink(): path.unlink()\n"
+            " path.symlink_to(args[-1])\n"
+            "else: sys.exit(9)\n"
+        )
+        command.chmod(0o755)
+        self.env.update(
+            {
+                "PATH": str(tools) + os.pathsep + self.env["PATH"],
+                "XMTP_FIXTURE_STORE_LOG": str(log),
+                "XMTP_FIXTURE_STORE_IMPORTED": str(imported),
+            }
+        )
+        archive = self.stage("node", store + "/lib")
+        with tarfile.open(archive) as tar:
+            manifest = json.load(tar.extractfile("manifest.json"))
+        self.assertEqual(manifest["nativeRuntime"]["roots"], [store])
+        self.assertEqual(
+            manifest["nativeRuntime"]["linkage"]["libxmtp_sdk.so"],
+            {
+                "needed": ["libfixture.so"],
+                "searchPaths": [store + "/lib"],
+                "interpreter": None,
+            },
+        )
+        self.assertIn("native-runtime.nar", manifest["files"])
+        consumer = self.consumer()
+        environment = {**self.env, "XMTP_FIXTURE_STORE_REQUIRE_IMPORT": "1"}
+        log.write_text("")
+        changed = self.mutate(
+            archive,
+            lambda folder, _: (folder / "native-runtime.nar").write_bytes(
+                b"changed closure"
+            ),
+        )
+        self.assert_rejected(
+            consumer, changed, "node", "product bytes mismatch", env=environment
+        )
+        self.assertFalse(imported.exists())
+        self.assertEqual(log.read_text(), "")
+        changed = self.mutate(
+            archive, lambda _, manifest: manifest["nativeRuntime"].update(roots=[])
+        )
+        self.assert_rejected(
+            consumer,
+            changed,
+            "node",
+            "native runtime ELF load inputs mismatch",
+            env=environment,
+        )
+        self.assertFalse(imported.exists())
+        self.assertEqual(log.read_text(), "")
+        self.assert_rejected(
+            consumer,
+            archive,
+            "node",
+            "returned non-zero exit status 7",
+            env={**environment, "XMTP_FIXTURE_STORE_MISSING": "1"},
+        )
+        self.assertFalse(
+            any(
+                args[0] == "--realise"
+                for args in map(json.loads, log.read_text().splitlines())
+            )
+        )
+        log.write_text("")
+        self.assert_rejected(
+            consumer,
+            archive,
+            "node",
+            "returned non-zero exit status 7",
+            env={**environment, "XMTP_FIXTURE_STORE_CONTENT_MISSING": "1"},
+        )
+        self.assertFalse(
+            any(
+                args[0] == "--realise"
+                for args in map(json.loads, log.read_text().splitlines())
+            )
+        )
+        log.write_text("")
+        imported.unlink()
         good = self.command(
-            consumer, "restore", "--target", "node", "--input", str(archive), env=env
+            consumer,
+            "restore",
+            "--target",
+            "node",
+            "--input",
+            str(archive),
+            env=environment,
         )
         self.assertEqual(good.returncode, 0, good.stderr)
+        self.assertTrue(imported.is_file())
+        roots = (
+            consumer / "target/ci-products/.native-runtime-roots" / manifest["family"]
+        )
+        self.assertTrue((roots / Path(store).name).is_symlink())
+        calls = list(map(json.loads, log.read_text().splitlines()))
+        realised = next(
+            index for index, args in enumerate(calls) if args[0] == "--realise"
+        )
+        self.assertTrue(
+            any(args[:2] == ["--query", "--hash"] for args in calls[:realised])
+        )
+        self.assertTrue(any(args[0] == "--verify-path" for args in calls[:realised]))
+        self.assertEqual(
+            [
+                args
+                for args in map(json.loads, log.read_text().splitlines())
+                if args == ["--import"]
+            ],
+            [["--import"]],
+        )
+        verified = self.command(consumer, "verify", "--target", "node", env=environment)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
 
     def test_generated_receipts_reject_wrong_compile_semantics(self):
         archive = self.stage("node")
