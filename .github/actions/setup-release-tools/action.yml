@@ -18,7 +18,8 @@ runs:
         mkdir -p "$BIN_DIR"
         cat > "$BIN_DIR/xmtp-release" << 'WRAPPER'
         #!/usr/bin/env bash
-        cd "$GITHUB_WORKSPACE" && exec pnpm --filter @xmtp/release-tools cli "$@"
+        # Keep pnpm messages out of captured versions and JSON.
+        cd "$GITHUB_WORKSPACE" && exec pnpm --silent --filter @xmtp/release-tools cli "$@"
         WRAPPER
         chmod +x "$BIN_DIR/xmtp-release"
         echo "$BIN_DIR" >> "$GITHUB_PATH"
