@@ -51,6 +51,7 @@ export class WorkerSessions {
     if (
       this.exclusive ||
       (this.current &&
+        !this.current.session?.isTerminated &&
         (this.current.creations !== 0 ||
           !this.current.session?.canRetireForMigration))
     )

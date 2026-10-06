@@ -9,7 +9,13 @@ const server = await createServer({
   configFile: false,
   cacheDir: "target/migration-regression-vite",
   optimizeDeps: { noDiscovery: true },
-  server: { host: "127.0.0.1", port: 0, fs: { strict: false } },
+  server: {
+    hmr: false,
+    watch: null,
+    host: "127.0.0.1",
+    port: 0,
+    fs: { strict: false },
+  },
 });
 await server.listen();
 const browser = await chromium.launch({ headless: true });
@@ -100,6 +106,60 @@ try {
     assert.equal(retry.messageCount, 3n);
     console.log(
       "Legacy owner without Web Locks: SourceBusy and immediate retry passed",
+    );
+  }
+  if (["all", "recovery"].includes(selected)) {
+    const recovered = await page.evaluate(async (source) => {
+      const NativeWorker = globalThis.Worker;
+      const workers = [];
+      globalThis.Worker = class extends NativeWorker {
+        constructor(url, options) {
+          super(url, options);
+          workers.push(this);
+        }
+      };
+      try {
+        const migration = await import("/target/sdk-packages/browser/entry.js");
+        const admin = await migration.Storage.admin();
+        const args = {
+          databasePath: source,
+          archiveKey: new Uint8Array(32).fill(7),
+          outputPath: "recovered-worker.xmtp",
+        };
+        let ownerBusy;
+        try {
+          await migration.prepareMigrationArchive(args);
+        } catch (error) {
+          ownerBusy = error;
+        }
+        if (!(ownerBusy instanceof migration.XmtpError.StorageBusy))
+          throw new Error("migration admitted a live storage owner");
+        if (workers.length !== 1)
+          throw new Error("unexpected initial worker count");
+        workers[0].dispatchEvent(new Event("error"));
+        await navigator.locks.request("xmtp:.opfs-libxmtp-metadata", () => {});
+        const first = await migration.prepareMigrationArchive(args);
+        workers[0].dispatchEvent(new Event("error"));
+        const second = await migration.prepareMigrationArchive(args);
+        const failedAdmin = await admin.fileCount().then(
+          () => false,
+          () => true,
+        );
+        if (!failedAdmin)
+          throw new Error(
+            "the old storage owner became usable after worker failure",
+          );
+        return {
+          workers: workers.length,
+          counts: [first.messageCount, second.messageCount],
+        };
+      } finally {
+        globalThis.Worker = NativeWorker;
+      }
+    }, source);
+    assert.deepEqual(recovered, { workers: 3, counts: [3n, 3n] });
+    console.log(
+      "Failed normal worker: live owner rejection, direct migration retry, fresh workers, and late error passed",
     );
   }
   if (["all", "publication"].includes(selected)) {
