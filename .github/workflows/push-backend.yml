@@ -33,6 +33,8 @@ permissions:
 jobs:
   source:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       sha: ${{ steps.source.outputs.sha }}
     steps:
