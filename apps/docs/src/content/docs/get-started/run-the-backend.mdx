@@ -363,7 +363,7 @@ local configuration.
 
 ## Run the container image
 
-The published image is `ghcr.io/xmtp/backend`. Mount a configuration file and
+Use the recommended image `ghcr.io/xmtp/backend:8.0.0-rc1`. Mount a configuration file and
 pass `--config-file`. The entry point is the backend binary, so the container command
 is only its arguments.
 
@@ -371,7 +371,7 @@ is only its arguments.
 docker run --rm -p 127.0.0.1:5050:5050 \
   -e XMTP_DATABASE_URL=postgres://user:password@host:5432/xmtp_backend \
   -v "$PWD/config.toml:/config.toml:ro" \
-  ghcr.io/xmtp/backend:self-hosted --config-file /config.toml
+  ghcr.io/xmtp/backend:8.0.0-rc1 --config-file /config.toml
 ```
 
 ## Ports and health

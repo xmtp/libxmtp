@@ -21,11 +21,29 @@ These are source baselines, not one shared release number. The examples marked
 mix imports or generated runtime assets from the two versions. React Native is
 not included in this repository's new SDKs.
 
+## Recommended versions
+
+Use **8.0.0-rc1** for every SDK and the backend. Pin the exact release candidate
+version in your app and deployment configuration.
+
+| Component | Package or image                                    | Recommended version               |
+| --------- | --------------------------------------------------- | --------------------------------- |
+| Browser   | `@xmtp/browser-sdk`                                 | `8.0.0-rc1`                       |
+| Node      | `@xmtp/node-sdk`                                    | `8.0.0-rc1`                       |
+| Android   | `org.xmtp:android`                                  | `8.0.0-rc1`                       |
+| iOS       | Swift package product `XmtpSdk` from `xmtp/libxmtp` | `8.0.0-rc1` (tag `ios-8.0.0-rc1`) |
+| Agent     | `@xmtp/agent-sdk`                                   | `8.0.0-rc1`                       |
+| Backend   | `ghcr.io/xmtp/backend`                              | `8.0.0-rc1`                       |
+
+See [Install the XMTP SDK](/get-started/install/) for the exact package commands.
+Run the backend with `ghcr.io/xmtp/backend:8.0.0-rc1`; see
+[Run the backend](/get-started/run-the-backend/#run-the-container-image).
+
 ## Migration order
 
 1. [Deploy the backend](/deploy/overview/) and configure its URL, authentication,
    retention, limits, and optional attachment and push services.
-2. [Build and install the matching SDK](/get-started/install/). An older network
+2. [Install the matching SDK](/get-started/install/). An older network
    SDK cannot use this backend.
 3. Preserve required history with the old SDK. Keep a recoverable copy of each
    database and its encryption key before replacing it.
@@ -1644,7 +1662,7 @@ For the complete current signatures, use the [Node reference](/reference/node-sd
 
 ### Package, imports, and values
 
-Use the Android SDK version `8.0.0`. Keep the Gradle artifact `org.xmtp:android`; replace the old Kotlin imports with `uniffi.xmtp_sdk`. The public client is `SDKClient`. Do not use the generated internal `Client` as the app entry point. The AAR now includes the generated `xmtp_sdk` bindings and `libxmtp_sdk.so`.
+Use the Android SDK version `8.0.0-rc1`. Keep the Gradle artifact `org.xmtp:android`; replace the old Kotlin imports with `uniffi.xmtp_sdk`. The public client is `SDKClient`. Do not use the generated internal `Client` as the app entry point. The AAR now includes the generated `xmtp_sdk` bindings and `libxmtp_sdk.so`.
 
 ```kotlin
 // Before

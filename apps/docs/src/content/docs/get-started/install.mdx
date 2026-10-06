@@ -9,83 +9,60 @@ Install the SDK for your platform. All SDKs use a backend URL. See [Create a cli
 
 ## Install a package
 
-The examples on this site use SDK 8.0.0 from this repository. Build the SDK from
-the same checkout as your backend. SDK 8.0.0 is not published on npm. The
-published Browser 7 and Node 6 packages use an earlier backend API.
+Use **8.0.0-rc1** for Browser, Node, Android, iOS, and Agent clients. Use
+`ghcr.io/xmtp/backend:8.0.0-rc1` for the backend. Pin the exact release candidate
+version. The published Browser 7 and Node 6 packages use an earlier backend API.
 
-Run the following commands from the repository root with Nix installed:
+### Browser, Node, and Agent packages
 
-```sh
-dev/nix-shell 'just install-js'
-```
+Use the package for your platform:
 
-Build and pack the SDK for your app:
+| Platform | Package                       |
+| -------- | ----------------------------- |
+| Browser  | `@xmtp/browser-sdk@8.0.0-rc1` |
+| Node     | `@xmtp/node-sdk@8.0.0-rc1`    |
+| Agent    | `@xmtp/agent-sdk@8.0.0-rc1`   |
 
-### Browser package
-
-```sh
-dev/nix-shell 'just js build-browser-sdk'
-dev/nix-shell 'npm pack ./target/sdk-packages/browser --pack-destination /tmp'
-```
-
-This writes `/tmp/xmtp-browser-sdk-8.0.0.tgz`.
-
-### Node package
-
-```sh
-dev/nix-shell 'just js build-node-sdk'
-dev/nix-shell 'npm pack ./target/sdk-packages/node --pack-destination /tmp'
-```
-
-This writes `/tmp/xmtp-node-sdk-8.0.0.tgz`. Build the archive on the operating
-system and architecture where your Node app will run.
-
-Install the archive from your app directory. These commands use the Browser
-archive. For Node, replace the filename with `xmtp-node-sdk-8.0.0.tgz`. If you
-move the archive, use its new path. Keep the generated source, native or WASM
-bindings, and runtime assets together by installing the complete archive.
+Run one command from your app directory. These commands install the Browser SDK.
+For Node or Agent, replace `@xmtp/browser-sdk` with the package name in the table.
 
 <Tabs syncKey="pkg">
 <TabItem label="npm">
 
 ```sh
-npm install /tmp/xmtp-browser-sdk-8.0.0.tgz
+npm install --save-exact @xmtp/browser-sdk@8.0.0-rc1
 ```
 
 </TabItem>
 <TabItem label="pnpm">
 
 ```sh
-pnpm add /tmp/xmtp-browser-sdk-8.0.0.tgz
+pnpm add --save-exact @xmtp/browser-sdk@8.0.0-rc1
 ```
 
 </TabItem>
 <TabItem label="yarn">
 
 ```sh
-yarn add /tmp/xmtp-browser-sdk-8.0.0.tgz
+yarn add --exact @xmtp/browser-sdk@8.0.0-rc1
 ```
 
 </TabItem>
 <TabItem label="bun">
 
 ```sh
-bun add /tmp/xmtp-browser-sdk-8.0.0.tgz
+bun add --exact @xmtp/browser-sdk@8.0.0-rc1
 ```
 
 </TabItem>
 </Tabs>
 
-Use the package for your platform:
+Install the complete package. Keep the generated source, native or WASM
+bindings, and runtime assets together.
 
-| Platform | Package or dependency           |
-| -------- | ------------------------------- |
-| Browser  | `@xmtp/browser-sdk`             |
-| Node     | `@xmtp/node-sdk`                |
-| Kotlin   | `org.xmtp:android`              |
-| Swift    | Swift package product `XmtpSdk` |
+### Android package
 
-The Browser and Node package commands above are the JavaScript package examples. For Android, add the XMTP Maven artifact to your app module:
+Add the XMTP Maven artifact to your app module:
 
 ```kotlin
 android {
@@ -96,39 +73,29 @@ android {
     }
 }
 dependencies {
-    implementation("org.xmtp:android:<version>")
+    implementation("org.xmtp:android:8.0.0-rc1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 ```
 
-Replace `<version>` with the matching 8.0.0 SDK version you built or released.
 Import `uniffi.xmtp_sdk.*`. Keep the generated sources and JNI libraries from
-the same build. An older network SDK cannot use this backend.
+the same release. An older network SDK cannot use this backend.
 
-For Swift, the package manifest is at the root of
-[libxmtp](https://github.com/xmtp/libxmtp). Add the `XmtpSdk` product to your app.
-When using a source checkout, build its matching native bindings
-before adding the local package in Xcode:
+### Swift package
 
-```sh
-git clone --branch self-hosted https://github.com/xmtp/libxmtp.git
-cd libxmtp
-dev/nix-shell 'just ios build'
-```
-
-These repository commands require the Nix development environment. In a Swift
-package next to that checkout, add these dependency and target entries:
+Add [libxmtp](https://github.com/xmtp/libxmtp) as a Swift package in Xcode. Select
+the `ios-8.0.0-rc1` tag and add the `XmtpSdk` product to your app. For a Swift
+package, add these dependency and target entries:
 
 ```swift
 // In Package.dependencies:
-.package(path: "../libxmtp")
+.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc1")
 
 // In your app target's dependencies:
 .product(name: "XmtpSdk", package: "libxmtp")
 ```
 
-Use a matching published SDK and native binary when they are available.
-A remote branch dependency alone does not build the native bindings.
+The release package supplies the matching native binary. Import `XmtpSdk`.
 
 ## Platform prerequisites
 
