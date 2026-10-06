@@ -125,21 +125,28 @@ fn docstrings(item: &Metadata) -> Vec<(String, Option<&str>)> {
 }
 
 /// Stop on marker text that does not work as a marker. A misspelled
-/// `@xmtp-internal`, or one with punctuation attached (`@xmtp-internal.`),
-/// would otherwise leave a private item public without a word. Only a
-/// package path such as `@xmtp-org/pkg` may use the prefix in prose.
+/// `@xmtp-internal`, one in capitals (`@xmtp-Redact`), or one with
+/// punctuation attached (`@xmtp-internal.`) would otherwise leave a private
+/// item public, or a secret printed, without a word. Only a package path
+/// such as `@xmtp-org/pkg` may use the prefix in prose.
 fn check_doc(owner: &str, doc: &str) -> Result<()> {
     for word in doc.split_whitespace() {
         for (at, _) in word.match_indices(PREFIX) {
             let rest = &word[at + PREFIX.len()..];
-            if !rest.starts_with(|c: char| c.is_ascii_lowercase()) {
+            if !rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
                 continue;
             }
             let name = rest
-                .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
                 .unwrap_or(rest.len());
             if rest[name..].starts_with('/') {
                 continue;
+            }
+            if rest[..name].contains(|c: char| c.is_ascii_uppercase()) {
+                bail!(
+                    "{owner}: `{word}`: metadata markers are lowercase, one of {}",
+                    VOCABULARY.join(", ")
+                );
             }
             match marker(word) {
                 Some((name, value)) if at == 0 && VOCABULARY.contains(&name) => {
@@ -490,8 +497,29 @@ mod tests {
         }
         let error = check_doc("Session", "@xmtp-redacted=1").unwrap_err();
         assert_eq!(error.to_string(), "Session: @xmtp-redacted takes no value");
+        // A marker in capitals is a marker spelled wrong, not prose, so a
+        // field meant to be redacted cannot print its value.
+        for doc in [
+            "@xmtp-Redact",
+            "The token. @xmtp-REDACT",
+            "@xmtp-Redact=secret",
+            "(@xmtp-Internal)",
+            "@xmtp-redaCted",
+        ] {
+            let error = check_doc("Session.token", doc).unwrap_err().to_string();
+            assert!(
+                error.contains("metadata markers are lowercase"),
+                "{doc}: {error}"
+            );
+        }
         // A package path is prose, whatever follows it.
-        for doc in ["(@xmtp-org/pkg).", "@xmtp-org2/pkg-name,", "see:@xmtp-a/b"] {
+        for doc in [
+            "(@xmtp-org/pkg).",
+            "@xmtp-org2/pkg-name,",
+            "see:@xmtp-a/b",
+            "@xmtp-Org/Pkg",
+            "@xmtp-*",
+        ] {
             check_doc("Options.key", doc)?;
         }
 
