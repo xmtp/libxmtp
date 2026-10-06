@@ -468,6 +468,48 @@ async fn disabled_task_runner_has_typed_notification_error() {
     client.end().await?;
 }
 
+// An unconfigured push channel fails with a typed error, the client keeps
+// the failure as its notification state, and disable clears it.
+#[xmtp_common::test(unwrap_try = true)]
+async fn unconfigured_channel_keeps_a_typed_failed_state() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    for channel in [
+        crate::NotificationChannel::Apns {
+            token: "a".repeat(64),
+        },
+        crate::NotificationChannel::Fcm {
+            token: "a".repeat(64),
+        },
+    ] {
+        let result = client
+            .enable_notifications(crate::NotificationConfig {
+                channel,
+                consent_states: None,
+                include_welcomes: None,
+                include_sync_groups: None,
+                include_commits: None,
+            })
+            .await;
+        assert!(
+            matches!(result, Err(XmtpError::ChannelNotConfigured(ref details))
+            if details.code == "ChannelNotConfigured"),
+            "{result:?}"
+        );
+        assert!(matches!(
+            client.notification_state()?,
+            crate::NotificationState::Failed {
+                error: crate::NotificationFailure::ChannelNotConfigured
+            }
+        ));
+        client.disable_notifications().await?;
+        assert!(matches!(
+            client.notification_state()?,
+            crate::NotificationState::Disabled
+        ));
+    }
+    client.end().await?;
+}
+
 /// Poll `work` on a new thread with half the 512 KiB stack of a Swift
 /// cooperative thread, so a call that polls the core build itself overflows.
 #[cfg(not(target_arch = "wasm32"))]
