@@ -3,7 +3,7 @@ import { ConversationStream } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 describe("Conversations", () => {
-  it("should expose topic and debug info for groups and DMs", async () => {
+  it("should expose topic, debug info and HMAC keys for groups and DMs", async () => {
     const { signer: signer1 } = createSigner();
     const { signer: signer2 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
@@ -25,6 +25,17 @@ describe("Conversations", () => {
       for (const cursor of debugInfo.cursor) {
         expect(typeof cursor).toBe("bigint");
       }
+    }
+    // The generated lift must give key bytes as a Uint8Array and the epoch
+    // as a bigint. Rust tests check the key values, not this conversion.
+    const hmacKeys = await client1.conversations.hmacKeys();
+    expect([...hmacKeys.keys()].sort()).toEqual([group.id, dm.id].sort());
+    const values = [...hmacKeys.values()].flat();
+    expect(values.length).toBeGreaterThan(0);
+    for (const value of values) {
+      expect(value.key).toBeInstanceOf(Uint8Array);
+      expect(value.key.length).toBe(42);
+      expect(typeof value.epoch).toBe("bigint");
     }
   });
 
