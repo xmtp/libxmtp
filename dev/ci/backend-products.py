@@ -184,7 +184,7 @@ def export_product(root, native, image, destination, expected=None):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=destination.parent) as temp:
         stage = Path(temp)
-        shutil.copyfile(image, stage / "image.tar")
+        shutil.copy2(image, stage / "image.tar")
         with (stage / "runtime.export").open("wb") as stream:
             run(["nix-store", "--export", *closure], stdout=stream)
         manifest["runtimes"] = {
