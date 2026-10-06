@@ -58,45 +58,78 @@ func eventually(seconds: Double, _ condition: () async throws -> Bool) async ret
 }
 
 /// The result of `operation`, or nil when it does not finish in `seconds`.
-/// At the deadline the helper cancels the operation task and returns without
-/// waiting for it, so an operation that ignores cancellation cannot hang a test.
-/// A task group cannot do this: it waits for all of its child tasks.
 func within<T: Sendable>(
 	seconds: Double, _ operation: @escaping @Sendable () async throws -> T,
 ) async throws -> T? {
-	try await withCheckedThrowingContinuation { continuation in
-		let race = Race(continuation)
-		let work = Task {
-			do {
-				let value = try await operation()
-				race.finish(.success(value))
-			} catch {
-				race.finish(.failure(error))
-			}
+	try await firstResult(of: { try await operation() }, { try await pause(seconds: seconds); return nil })
+}
+
+/// The first result or error of `first` and `second`. Each one runs in its own
+/// unstructured task. When one finishes, the helper cancels the other and returns
+/// without waiting for it, so an operation that ignores cancellation cannot hang a
+/// test, and no task outlives the race for longer than its cancellation takes.
+/// When the caller is cancelled, the helper cancels both and throws
+/// `CancellationError`. A task group cannot do this: it waits for all of its child tasks.
+func firstResult<T: Sendable>(
+	of first: @escaping @Sendable () async throws -> T,
+	_ second: @escaping @Sendable () async throws -> T,
+) async throws -> T {
+	let race = Race<T>()
+	return try await withTaskCancellationHandler {
+		try await withCheckedThrowingContinuation { continuation in
+			race.start(continuation, [first, second])
 		}
-		Task {
-			try? await pause(seconds: seconds)
-			// Finish before the cancel, so the cancelled operation cannot win.
-			race.finish(.success(nil))
-			work.cancel()
-		}
+	} onCancel: {
+		race.finish(.failure(CancellationError()))
 	}
 }
 
-/// Resumes a continuation once, with the first result that arrives.
+/// Resumes a continuation once, with the first result that arrives, and then
+/// cancels every task of the race.
 private final class Race<T: Sendable>: @unchecked Sendable {
 	private let lock = NSLock()
-	private var continuation: CheckedContinuation<T?, Error>?
+	private var continuation: CheckedContinuation<T, Error>?
+	private var tasks: [Task<Void, Never>] = []
+	private var finished = false
 
-	init(_ continuation: CheckedContinuation<T?, Error>) {
+	/// Starts one task for each operation. When the caller was cancelled before
+	/// the start, it resumes at once and starts no task.
+	func start(_ continuation: CheckedContinuation<T, Error>, _ operations: [@Sendable () async throws -> T]) {
+		lock.lock()
+		guard !finished else {
+			lock.unlock()
+			return continuation.resume(throwing: CancellationError())
+		}
 		self.continuation = continuation
+		// The tasks are made under the lock, so `finish` always sees all of them.
+		tasks = operations.map { operation in
+			Task {
+				do {
+					try await self.finish(.success(operation()))
+				} catch {
+					self.finish(.failure(error))
+				}
+			}
+		}
+		lock.unlock()
 	}
 
-	func finish(_ result: Result<T?, Error>) {
+	/// Keeps only the first result. It marks the race finished before it cancels
+	/// the tasks, so a cancelled task cannot win.
+	func finish(_ result: Result<T, Error>) {
 		lock.lock()
+		guard !finished else {
+			return lock.unlock()
+		}
+		finished = true
 		let first = continuation
+		let losers = tasks
 		continuation = nil
+		tasks = []
 		lock.unlock()
+		for task in losers {
+			task.cancel()
+		}
 		first?.resume(with: result)
 	}
 }

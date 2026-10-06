@@ -102,7 +102,10 @@ final class StreamLifecycleTests: XCTestCase {
 	#endif
 
 	/// Opens a live stream, runs `background`, sends a message, and runs
-	/// `foreground`. The message must arrive only after `foreground`.
+	/// `foreground`. The message must arrive only after `foreground`. A message
+	/// sent before `background` measures normal delivery, and the suspended
+	/// stream is watched for three times that long, at least 3 seconds, so a
+	/// slow backend cannot hide a stream that was not suspended.
 	private func checkBackgroundCycle(
 		background: () async -> Void, foreground: () async -> Void,
 	) async throws {
@@ -120,17 +123,28 @@ final class StreamLifecycleTests: XCTestCase {
 			}
 		}
 		defer { consumer.cancel() }
+		let sentAt = Date()
 		let foregroundId = try await group.sendText(text: "foreground")
 		let live = await eventually(seconds: 30) { received.value.contains(foregroundId) }
-		XCTAssertTrue(live, "The stream did not deliver before the background event")
+		guard live else {
+			return XCTFail("The stream did not deliver before the background event")
+		}
+		let window = max(3, 3 * Date().timeIntervalSince(sentAt))
 
 		await background()
-		let backgroundId = try await group.sendText(text: "background")
-		let deliveredInBackground = await eventually(seconds: 3) { received.value.contains(backgroundId) }
-		// Resume before any assertion can stop the test, so later tests in this
-		// process keep live streams.
+		let backgroundId: MessageId
+		let deliveredInBackground: Bool
+		do {
+			backgroundId = try await group.sendText(text: "background")
+			deliveredInBackground = await eventually(seconds: window) { received.value.contains(backgroundId) }
+		} catch {
+			// Resume on every exit, so later tests in this process keep live streams.
+			await foreground()
+			throw error
+		}
+		// Resume before any assertion can stop the test.
 		await foreground()
-		XCTAssertFalse(deliveredInBackground, "A suspended stream received a network message")
+		XCTAssertFalse(deliveredInBackground, "A suspended stream received a network message in \(window) seconds")
 		let resumed = await eventually(seconds: 60) { received.value.contains(backgroundId) }
 		XCTAssertTrue(resumed, "The foreground event did not resume the stream")
 
