@@ -316,3 +316,44 @@ it.each(["break", "throw", "abort"] as const)(
     await client.end();
   },
 );
+
+/** Rejects when `promise` does not settle in time, so a deadlock fails. */
+function within<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out`)), 10_000);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+// A listener callback runs on the Node thread while Rust waits for it. It can
+// stop its own listener and end its client from inside the callback.
+// verifies: EVENT-052
+it("a listener callback can stop its listener and end its client", async () => {
+  const client = await createRegisteredClient(createSigner().signer);
+  const filter = { kinds: ["conversation.joined" as const] };
+  const stopped = Promise.withResolvers<void>();
+  let stopCalls = 0;
+  const id: bigint = await client.startListener(filter, async () => {
+    stopCalls += 1;
+    await client.stopListener(id);
+    stopped.resolve();
+  });
+  await client.conversations.createGroup([]);
+  await within(stopped.promise, "stop inside listener");
+
+  const ended = Promise.withResolvers<void>();
+  await client.startListener(filter, async () => {
+    await client.end();
+    ended.resolve();
+  });
+  // The end inside the callback can close this call first.
+  await client.conversations.createGroup([]).catch(() => undefined);
+  await within(ended.promise, "end inside listener");
+  expect(stopCalls).toBe(1);
+  await expect(client.conversations.createGroup([])).rejects.toBeInstanceOf(
+    XmtpError.ClientClosed,
+  );
+});
