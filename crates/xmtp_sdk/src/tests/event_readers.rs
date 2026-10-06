@@ -458,3 +458,80 @@ async fn event_filter_reports_storage_error_when_resolving_dm() {
     other.end().await?;
     client.end().await?;
 }
+
+// The device-sync path of the first installation. A second installation of
+// the inbox creates its sync group, which welcomes the first. The first
+// installation's worker cycles the HMAC root key into that group and stores
+// the key when it reads its own sync message. The second installation runs
+// no worker, so it does not cycle a second key when the first adds it to
+// the first's sync group.
+// verifies: EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn new_installation_hmac_root_key_emits_one_event() {
+    use xmtp_db::user_preferences::StoredUserPreferences;
+
+    let root = |client: &Client| {
+        StoredUserPreferences::load(client.inner.context.db())
+            .ok()
+            .and_then(|preferences| preferences.hmac_key)
+    };
+    let signer = crate::generate_local_signer().await;
+    let mut settings = options();
+    settings.device_sync = true;
+    let first = Client::create(signer.clone(), settings).await?;
+    let group = first.conversations().create_group(vec![], None).await?;
+    let group_id = group.id().into_checked()?;
+    // Reading the keys stores a root key when the client has none.
+    let before = first.conversations().hmac_keys().await?[&group_id].clone();
+    let initial = root(&first).expect("reading the keys stores a root key");
+    let reader = first
+        .events(event_filter(vec![
+            EventKind::HmacKeysUpdated,
+            EventKind::ArchiveRestored,
+        ]))
+        .await?;
+
+    let second = Client::create(signer, options()).await?;
+    second.inner.device_sync_client().get_sync_group().await?;
+    let stored = xmtp_common::wait_for_some(|| async {
+        first.conversations().sync_all(None).await.ok()?;
+        root(&first).filter(|key| *key != initial)
+    })
+    .await
+    .expect("the first installation did not store a new HMAC root key");
+
+    // The buffer lock waits for the storing write to flush its events, so
+    // every event of that write is read before this marker.
+    first.inner.context.events().with_buffer(|events| {
+        events.emit(
+            Some(xmtp_events::ClientEvent::ArchiveRestored(
+                xmtp_events::ArchiveRestored { complete: true },
+            )),
+            None,
+        );
+        Ok::<_, std::convert::Infallible>(())
+    })?;
+    let mut updates = 0;
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), reader.next()).await?? {
+            Some(ClientEvent::HmacKeysUpdated { .. }) => updates += 1,
+            Some(ClientEvent::ArchiveRestored { .. }) => break,
+            other => panic!("unexpected event {other:?}"),
+        }
+    }
+    assert_eq!(updates, 1, "one stored root key must emit one event");
+
+    let after = first.conversations().hmac_keys().await?[&group_id].clone();
+    assert_eq!(root(&first), Some(stored));
+    assert_eq!(after.len(), before.len());
+    assert!(
+        after
+            .iter()
+            .zip(&before)
+            .all(|(new, old)| new.key != old.key),
+        "the current keys must derive from the new root key"
+    );
+    reader.end().await?;
+    second.end().await?;
+    first.end().await?;
+}
