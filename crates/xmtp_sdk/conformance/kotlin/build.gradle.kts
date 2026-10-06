@@ -22,9 +22,6 @@ tasks.named<JavaExec>("run") {
         "-Djna.library.path=${project.rootDir}/../../../../target/sdk-conformance-artifacts/native",
     )
     environment("RUST_MIN_STACK", "16777216")
-    environment("SDK_SIGN_KEY", System.getenv("SDK_SIGN_KEY"))
-    environment("SDK_NODE_BIN", System.getenv("SDK_NODE_BIN"))
-    environment("SDK_SIGN_SCRIPT", System.getenv("SDK_SIGN_SCRIPT"))
 }
 
 kotlin { compilerOptions { freeCompilerArgs.add("-Xjvm-default=all") } }

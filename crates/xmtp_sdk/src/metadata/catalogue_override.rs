@@ -1,6 +1,6 @@
 //! Replaces the backend's application catalogue for clients built after the
-//! call, so tests can give two clients different catalogues. Test and
-//! conformance builds only.
+//! call, so tests can give two clients different catalogues. Native test
+//! builds only.
 
 use parking_lot::Mutex;
 use xmtp_configuration as config;
@@ -19,14 +19,6 @@ static APPLICATION_COMPONENTS: Mutex<Option<Vec<config::ApplicationComponentDefi
 /// application catalogue, or the fetched catalogue when absent. The
 /// catalogue is process-wide: every client built while it is set uses it,
 /// whoever builds it, so build one client at a time while it is set.
-#[cfg(feature = "conformance")]
-#[xmtp_macro::sdk_export]
-pub async fn sdk_conformance_use_application_components(
-    components: Option<Vec<ApplicationComponentDefinition>>,
-) -> Result<(), XmtpError> {
-    use_application_components(components)
-}
-
 pub(crate) fn use_application_components(
     components: Option<Vec<ApplicationComponentDefinition>>,
 ) -> Result<(), XmtpError> {

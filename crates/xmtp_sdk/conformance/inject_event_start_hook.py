@@ -14,31 +14,7 @@ def replace_once(source: str, old: str, new: str) -> str:
 language, filename = sys.argv[1:]
 path = Path(filename)
 source = path.read_text()
-if language == "kotlin":
-    source = replace_once(
-        source,
-        "internal class ListenerStartGate {\n",
-        "internal object EventStartHookForTest {\n"
-        "    @Volatile var beforeCallback: (suspend () -> Unit)? = null\n"
-        "    @Volatile var afterCallback: (suspend () -> Unit)? = null\n"
-        "}\n\n"
-        "internal class ListenerStartGate {\n",
-    )
-    source = replace_once(
-        source,
-        "                            if (!gate.begin()) return@withContext\n",
-        "                            val callbackFinished = EventStartHookForTest.afterCallback\n"
-        "                            try {\n"
-        "                            EventStartHookForTest.beforeCallback?.invoke()\n"
-        "                            if (!gate.begin()) return@withContext\n",
-    )
-    source = replace_once(
-        source,
-        "                                throw ListenerException.Failed()\n                            }\n",
-        "                                throw ListenerException.Failed()\n                            }\n"
-        "                            } finally { callbackFinished?.invoke() }\n",
-    )
-elif language == "swift":
+if language == "swift":
     source = replace_once(
         source,
         "final class ListenerStartGate: @unchecked Sendable {\n",

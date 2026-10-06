@@ -136,7 +136,9 @@ class MessageReaderTest {
             }
         }
 
-    // PROC-045 requires failed custom content and continued delivery.
+    // verifies: PROC-045
+    // A failed custom decode reaches the collector with its error, and the
+    // same stream delivers the next message.
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
     fun codecCancellationIsContainedAndReaderContinues() =
         assertCodecFailureIsContained(CancellationException("codec cancelled"))

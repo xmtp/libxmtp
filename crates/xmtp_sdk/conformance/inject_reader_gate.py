@@ -14,28 +14,7 @@ def replace_once(source: str, old: str, new: str) -> str:
 language, filename = sys.argv[1:]
 path = Path(filename)
 source = path.read_text()
-if language == "kotlin":
-    source = replace_once(
-        source,
-        "    companion object {\n",
-        "    companion object {\n"
-        "        @Volatile\n"
-        "        internal var readerOpenedForTest: (suspend (MessageReader) -> Unit)? = null\n\n",
-    )
-    source = replace_once(
-        source,
-        "            open = { group.messageReader(options) },",
-        "            open = { group.messageReader(options).also { readerOpenedForTest?.invoke(it) } },",
-    )
-    readers = path.parent / "streams" / "Readers.kt"
-    readers.write_text(
-        replace_once(
-            readers.read_text(),
-            "private fun <T, R> readerFlow(",
-            "internal fun <T, R> readerFlow(",
-        )
-    )
-elif language == "swift":
+if language == "swift":
     source = replace_once(
         source,
         "    let raw: Client\n",
@@ -84,5 +63,3 @@ elif language == "swift":
     readers.write_text(readers_source)
 else:
     raise SystemExit(f"unknown conformance language: {language}")
-if language != "swift":
-    path.write_text(source)

@@ -2,8 +2,6 @@
 // calls still reach the real backend. Only the granted target URL changes.
 import { spawnSync } from "node:child_process";
 
-import { nativeRelay } from "./object-store-native.mjs";
-
 const transfers = new Map();
 const uploadPath = "/xmtp.backend.v1.AttachmentService/CreateUpload";
 
@@ -71,24 +69,7 @@ export function transferRoute(request, response, pathname, body, relay) {
     response.writeHead(404).end("transfer is not armed");
     return true;
   }
-  if (action === "native-backend") {
-    transfer.native ??= nativeRelay((path) => {
-      if (path !== uploadPath) return undefined;
-      transfer.grants++;
-      return (reply) =>
-        redirectGrant(
-          reply,
-          `http://${request.headers.host}/transfer/${id}/put`,
-        );
-    });
-    transfer.native.then(
-      (url) => response.writeHead(200).end(url),
-      (error) => {
-        console.error(error);
-        response.writeHead(502).end();
-      },
-    );
-  } else if (action.startsWith("backend/")) {
+  if (action.startsWith("backend/")) {
     const path = `/${action.slice("backend/".length)}`;
     if (path === uploadPath) transfer.grants++;
     const transform =
