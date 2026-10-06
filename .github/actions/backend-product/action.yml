@@ -1,0 +1,37 @@
+name: Restore backend product
+description: Verify the current run's backend image and native runtime closure.
+inputs:
+  artifact-name:
+    description: Same-run backend artifact name
+    default: ci-backend
+  allow-earlier-attempt:
+    description: Allow a successful producer from an earlier attempt of this run
+    default: 'false'
+outputs:
+  binary-path:
+    description: Absolute path to the verified native backend
+    value: ${{ steps.restore.outputs.binary-path }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: target/ci-products/backend-download
+    - id: restore
+      shell: bash
+      env:
+        ALLOW_EARLIER_ATTEMPT: ${{ inputs.allow-earlier-attempt }}
+      run: |
+        set -euo pipefail
+        args=()
+        if [[ "$ALLOW_EARLIER_ATTEMPT" == true ]]; then
+          args+=(--allow-earlier-attempt)
+        elif [[ "$ALLOW_EARLIER_ATTEMPT" != false ]]; then
+          echo 'allow-earlier-attempt must be true or false' >&2
+          exit 1
+        fi
+        binary="$(python3 dev/ci/backend-products.py restore --input target/ci-products/backend-download/backend.tar --load-image "${args[@]}")"
+        echo "binary-path=$binary" >> "$GITHUB_OUTPUT"
+        echo 'XMTP_CI_BACKEND_PREPARED=1' >> "$GITHUB_ENV"
+        echo "XMTP_CI_BACKEND_MANIFEST=$GITHUB_WORKSPACE/target/ci-products/backend-linux-x64/manifest.json" >> "$GITHUB_ENV"
