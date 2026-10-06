@@ -27,6 +27,7 @@ together.
 | `@xmtp-internal` | Written in a doc comment | Leaves the item out of the public projection |
 | `@xmtp-immutable` | `#[sdk(immutable)]` on a sync `&self` getter | Lets the browser bridge read the getter once, from a snapshot |
 | `@xmtp-kind=name` | `#[sdk(kind = "name")]` on each `EventKind` variant | Uses `name` as the public TypeScript string of the event kind |
+| `@xmtp-redact`, `@xmtp-redact=key` | `#[sdk(redact)]` or `#[sdk(redact = "key")]` on a record or variant field | Hides the value, or that key of a string map, in the generated Kotlin `toString` and the Swift `description` that `runtime/RecordDescriptions.swift` holds |
 
 A marker is a whole word of a docstring: `@xmtp-`, a lowercase name, and an
 optional `=value`. The generator stops on such a word outside the table, so a
@@ -36,7 +37,8 @@ kind outside the grammar of `#[sdk(kind)]` and on a value given to any
 other marker.
 
 `#[sdk_export(native_only)]` and `#[sdk_export(wasm_only)]` write no marker.
-They are the target's `#[cfg]` above the item.
+They are the target's `#[cfg]` above the item. `#[sdk(shown)]` writes none
+either: it marks a field that diagnostic text prints beside a redacted one.
 
 Rules the macro enforces at compile time:
 
@@ -48,13 +50,29 @@ Rules the macro enforces at compile time:
   the object's lifetime; otherwise make the read async.
 - `#[sdk(kind)]` marks every variant of an enum, each with its own kind, or
   none.
+- Redaction fails closed. Once a record or variant has a `#[sdk(redact)]`
+  field, each of its other fields takes `#[sdk(redact)]` or `#[sdk(shown)]`,
+  so a new field never prints a secret by default. The record or enum may
+  not derive `Debug`; it writes an `impl Debug` that redacts the same
+  fields. The macro sees only the derives below it, so a `#[derive(Debug)]`
+  above `sdk_export` would escape this check: keep `sdk_export` first. A
+  `redact = "key"` key holds only ASCII letters, digits, `_`, `.`, and `-`,
+  both options need a named field, and a `uniffi::Error` type cannot redact,
+  because the Kotlin binding renames it to an exception class.
 - On a record or enum, `sdk_export` is the first attribute, above every
   derive: a derive written above it expands first, out of the macro's sight.
   When rustc reports "cannot find attribute `sdk` in this scope", the item
   lacks `#[xmtp_macro::sdk_export]` as its first attribute.
 
+The generator checks the key again: it stops when `redact = "key"` marks
+anything but a map with string keys and values, or when the key holds a
+character outside that set.
+
 Derived without a marker:
 
+- Kotlin prints a byte field of a redacted record as its length
+  (`contentBytes=16`), so a payload never reaches diagnostic text. Swift
+  prints a byte count by default.
 - Each `ClientEvent` variant takes the kind of the `EventKind` variant with
   its name. Generation stops when the two enums' variants differ, and the
   error names the missing ones.
@@ -90,8 +108,8 @@ These stay outside the markers on purpose:
   `CREDENTIAL_GUARD` text and the `DELIVERY_CURSOR_*` lists.
 - Codec sends (`is_codec_send` in `src/public_projection/objects.rs`) and
   host client methods (`HOST_CLIENT_METHODS` in `src/forwarding.rs`).
-- Kotlin record diagnostics (`src/kotlin_records.rs`): it pins the fields of
-  each record whose `toString` hides a secret.
+- Rust `Debug` of a redacted record (`impl Debug` in the façade): the
+  façade writes it, and its own tests cover it.
 - Foreign callback results (`src/callback_results.rs`): the TypeScript
   callback rewrite pins the error and result types of the foreign-trait
   methods, so a new callback updates both lists.
