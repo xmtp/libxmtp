@@ -519,3 +519,37 @@ async fn dm_consent_is_read_and_updated_through_the_dm() {
     alix.end().await?;
     bo.end().await?;
 }
+
+/// The group state reports each membership state: the creator is allowed, an
+/// invitee is pending after the welcome, and an invitee that requests removal
+/// is pending removal.
+#[xmtp_common::test(unwrap_try = true)]
+async fn group_state_reports_membership_state() {
+    use crate::{Conversation, MembershipState};
+
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = alix
+        .conversations()
+        .create_group(vec![bo.inbox_id()], None)
+        .await?;
+    let state = group.state().await?.membership_state;
+    assert!(matches!(state, MembershipState::Allowed), "{state:?}");
+
+    bo.conversations().sync().await?;
+    let Some(Conversation::Group { group: bo_group }) =
+        bo.conversations().get_by_id(group.id()).await?
+    else {
+        panic!("bo must receive the group");
+    };
+    let state = bo_group.state().await?.membership_state;
+    assert!(matches!(state, MembershipState::Pending), "{state:?}");
+
+    bo_group.sync().await?;
+    bo_group.request_removal().await?;
+    let state = bo_group.state().await?.membership_state;
+    assert!(matches!(state, MembershipState::PendingRemove), "{state:?}");
+
+    alix.end().await?;
+    bo.end().await?;
+}
