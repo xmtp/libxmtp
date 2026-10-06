@@ -117,3 +117,35 @@ test("a browser download fails typed on a redirect and on a failure status", asy
     await commands.closeDownloadHost(host.id);
   }
 });
+
+// verifies: ATCH-051
+test("a browser download with a changed tag and a matching digest fails decryption and writes no file", async () => {
+  const root = `attachments-${crypto.randomUUID()}`;
+  const sender = await create(signer(), fileClient(`${root}/sender`));
+  const receiver = await create(signer(), fileClient(`${root}/receiver`));
+  const pending = await sender.attachments.create(source("attachment bytes"));
+  await pending.upload();
+  const host = await commands.startDownloadHost();
+  try {
+    const { path, contentDigest } = await commands.serveTamperedObject(
+      host.id,
+      pending.remoteAttachment.url,
+    );
+    // The digest matches the served bytes, so only the tag check rejects them.
+    const tampered = {
+      ...pending.remoteAttachment,
+      url: `${host.url}${path}`,
+      contentDigest,
+    };
+    await expect(receiver.attachments.download(tampered)).rejects.toMatchObject(
+      { attachmentFailure: { cause: "decryptionFailed" } },
+    );
+    expect(await commands.downloadHostRequests(host.id)).toEqual([path]);
+    expect(
+      await opfsFile(await receiver.attachments.localPath(tampered)),
+    ).toBeUndefined();
+    expect(await receiver.attachments.listLocal()).toEqual([]);
+  } finally {
+    await commands.closeDownloadHost(host.id);
+  }
+});
