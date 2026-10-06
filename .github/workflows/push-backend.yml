@@ -2,6 +2,8 @@ name: Publish backend image
 
 on:
   push:
+    # Prototype commits test local products and do not publish images.
+    branches-ignore: [codex/ci-efficiency-investigation]
   pull_request:
 
 concurrency:

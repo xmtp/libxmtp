@@ -1,0 +1,119 @@
+name: Shared products prototype
+on:
+  push:
+    branches: [codex/ci-efficiency-investigation]
+    paths: [dev/ci/products-trial.trigger]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shared-products-prototype-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sdk:
+    if: github.ref == 'refs/heads/codex/ci-efficiency-investigation'
+    name: Build debug SDK (${{ matrix.target }})
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [node, browser]
+    env:
+      NIX_DEVSHELL: default
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - name: Build exact products
+        run: python3 -B dev/ci/sdk-products.py build --target '${{ matrix.target }}' --output 'target/ci-products/sdk-${{ matrix.target }}.tar'
+      - name: Save product checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-sdk-${{ matrix.target }}
+          path: target/ci-products/sdk-${{ matrix.target }}.tar
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save product metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-metadata-${{ matrix.target }}
+          path: |
+            target/ci-products/sdk-${{ matrix.target }}.manifest.json
+            target/sdk-artifacts/artifacts.json
+          if-no-files-found: warn
+          retention-days: 7
+  backend:
+    if: github.ref == 'refs/heads/codex/ci-efficiency-investigation'
+    name: Build backend products
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    env:
+      NIX_DEVSHELL: rust
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - name: Build backend products once
+        run: dev/nix-shell 'python3 -B dev/ci/backend-products.py build --output target/ci-products/backend.tar'
+      - name: Save backend checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-backend
+          path: target/ci-products/backend.tar
+          if-no-files-found: error
+          retention-days: 7
+  types:
+    needs: sdk
+    uses: ./.github/workflows/check-types.yml
+    with:
+      prepared-products: true
+  node:
+    needs: [sdk, backend]
+    uses: ./.github/workflows/test-node-sdk.yml
+    with:
+      prepared-products: true
+  browser:
+    needs: [sdk, backend]
+    uses: ./.github/workflows/test-browser-sdk.yml
+    with:
+      prepared-products: true
+  agent:
+    needs: [sdk, backend]
+    uses: ./.github/workflows/test-agent-sdk.yml
+    with:
+      prepared-products: true
+  installed-packages:
+    needs: sdk
+    name: Load transported SDK (${{ matrix.target }})
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [node, browser]
+    env:
+      NIX_DEVSHELL: js
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          github-token: ${{ github.token }}
+      - uses: ./.github/actions/setup-js
+      - uses: ./.github/actions/sdk-product
+        with:
+          target: ${{ matrix.target }}
+          artifact-name: ci-sdk-${{ matrix.target }}
+      - name: Execute installed package smoke
+        run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs ${{ matrix.target }}'
