@@ -16,12 +16,15 @@ final class FakeClient: Client, @unchecked Sendable {
 	}
 
 	var listenerStarted: (@Sendable (EventListener) async -> ListenerId)?
+	var endClient: (@Sendable () async throws -> Void)?
 
 	override func clientKey() -> UInt64 {
 		UInt64(UInt(bitPattern: ObjectIdentifier(self).hashValue))
 	}
 
-	override func end() async throws {}
+	override func end() async throws {
+		try await endClient?()
+	}
 
 	override func events(filter _: EventFilter) async throws -> EventReader {
 		guard let eventReader else { fatalError("The test did not set an event reader") }

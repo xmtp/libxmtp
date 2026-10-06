@@ -45,11 +45,13 @@ afterEach(async () => {
     }
   }
 });
-async function createWorkerClient(contentCodec: ContentCodec<string>) {
-  const worker = new Worker(
+async function createWorkerClient(
+  contentCodec: ContentCodec<string>,
+  worker = new Worker(
     new URL("../dist/typescript-wasm/worker-entry.gen.js", import.meta.url),
     { type: "module" },
-  );
+  ),
+) {
   const lifetimeLock = `xmtp-worker:${crypto.randomUUID()}`;
   const endpoint: WireEndpoint = {
     postMessage(message, transfer) {
@@ -295,5 +297,41 @@ it("a common DM stream includes both stitched groups and excludes other conversa
   } finally {
     clearTimeout(timeout);
     await stream.end();
+  }
+});
+
+it("rejects a stream owner after remote shutdown reports a failure", async () => {
+  const client = await createWorkerClient(
+    codec("shutdown"),
+    new Worker(
+      new URL("./fixtures/failed-shutdown-worker.ts", import.meta.url),
+      {
+        type: "module",
+      },
+    ),
+  );
+  const conversations = client.conversations;
+  const session = workerClients.at(-1)!.session;
+  const call = session.call.bind(session);
+  let shutdownCalls = 0;
+  let shutdownReplies = 0;
+  session.call = async (...args) => {
+    if (args[0] === "Client.end") shutdownCalls++;
+    const result = await call(...args);
+    if (args[0] === "Client.end") shutdownReplies++;
+    return result;
+  };
+  try {
+    await expect(client.end()).rejects.toThrow();
+    expect(() => conversations.stream()).toThrow(XmtpError.ClientClosed);
+    expect(() => conversations.streamAllMessages()).toThrow(
+      XmtpError.ClientClosed,
+    );
+    await client.end();
+    expect(shutdownCalls).toBe(2);
+    expect(shutdownReplies).toBe(1);
+  } finally {
+    session.call = call;
+    await client.end();
   }
 });

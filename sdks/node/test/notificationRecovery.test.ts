@@ -1,6 +1,10 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
 import { createRecoveryProxy } from "@test/recoveryProxy";
-import { type ConversationStream, XmtpError, type Client } from "@xmtp/node-sdk";
+import {
+  type ConversationStream,
+  XmtpError,
+  type Client,
+} from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 type NotificationStream = ConversationStream;

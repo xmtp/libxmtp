@@ -1161,7 +1161,7 @@ fn render(
                 } else if object.name == "Client" && op.name == "end" {
                     writeln!(
                         proxy,
-                        "  private closing?: Promise<void>;\n  async end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const key = this.clientKey(); const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ endOwner(this); unregisterClient(this.session, key); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
+                        "  private closing?: Promise<void>;\n  async end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const key = this.clientKey(); const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ endOwner(this); unregisterClient(this.session, key); }}, (error: unknown) => {{ unregisterClient(this.session, key); this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
                     )?;
                 } else if object.name == "StorageAdmin" && op.name == "end" {
                     proxy.push_str("  private closing?: Promise<void>;\n  async end(asyncOpts_?: { signal: AbortSignal }): Promise<void> { if (!this.closing) { const call = this.call(\"StorageAdmin.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => { endOwner(this); }, (error: unknown) => { this.unfence(); this.closing = undefined; throw error; }); } return this.closing; }\n");

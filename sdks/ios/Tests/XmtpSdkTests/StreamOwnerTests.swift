@@ -14,7 +14,42 @@ private struct StreamOwnerCodec: ContentCodec {
 	}
 }
 
+private actor FailedShutdown {
+	private(set) var attempts = 0
+
+	func end() throws {
+		attempts += 1
+		if attempts == 1 {
+			throw ReadFailure.failed
+		}
+	}
+}
+
 final class StreamOwnerTests: XCTestCase {
+	func testReceiverRejectsOwnerAfterFailedShutdownAndEndCanRetry() async throws {
+		let shutdown = FailedShutdown()
+		let raw = FakeClient(noHandle: Client.NoHandle())
+		raw.fakeConversations = FakeConversations(FakeConversationReader(HeldReads()))
+		raw.endClient = { try await shutdown.end() }
+		let client = makeSDKClient(raw)
+		let conversations = client.conversations
+		do {
+			try await client.end()
+			XCTFail("The shutdown failure was lost")
+		} catch ReadFailure.failed {}
+		do {
+			_ = try await conversations.stream()
+			XCTFail("A receiver resolved its owner after failed shutdown")
+		} catch XmtpError.ClientClosed {}
+		do {
+			_ = try await conversations.streamAllMessages()
+			XCTFail("A message stream resolved its owner after failed shutdown")
+		} catch XmtpError.ClientClosed {}
+		try await client.end()
+		let attempts = await shutdown.attempts
+		XCTAssertEqual(attempts, 2, "Registry cleanup prevented a shutdown retry")
+	}
+
 	// verifies: CTYPE-009, PROC-034
 	func testReceiverUsesItsOwnerAndFailsAfterEnd() async throws {
 		try await withClients { scope in
