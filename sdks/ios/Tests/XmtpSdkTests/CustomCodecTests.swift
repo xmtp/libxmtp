@@ -168,21 +168,42 @@ final class CustomCodecTests: XCTestCase {
 		try await client.end()
 	}
 
-	/// The projection keeps malformed received bytes without invented metadata,
-	/// and a parent that cannot decode does not change the reply. The data is
-	/// projected after its client ends.
+	/// A parent whose codec fails does not change the reply: only a failed
+	/// reply body makes the outer message unknown (`runtime/SDKTypes.swift`).
+	/// The projection also keeps malformed received bytes without invented
+	/// metadata, and a parent projected after its client ends keeps its bytes.
 	// verifies: CTYPE-008
 	func testMessageProjectionKeepsReceivedBytes() async throws {
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: liveOptions())
+		let client = try await SDKClient.create(
+			signer: generateLocalSigner(), options: liveOptions(), codecs: [FailingNoteCodec()],
+		)
 		let group = try await client.conversations().createGroup(members: [InboxId]())
 		let textId = try await group.sendText(text: "template")
 		guard let template = try await client.conversations().getMessageById(id: textId) else {
 			return XCTFail("The template message was not stored")
 		}
-		try await client.end()
 
 		let raw = Data([0xFF, 0x80])
+		let encoded = try NoteCodec().encode("parent")
 		var data = template.data
+		data.content = .text("valid reply")
+		data.inReplyTo = ReplyParent(
+			id: template.id, senderInboxId: template.senderInboxId, sentAt: template.sentAt,
+			kind: template.kind, deliveryStatus: template.deliveryStatus, rawBytes: raw,
+			contentType: encoded.type, fallback: nil, encoded: encoded,
+			content: .custom(encoded: encoded, rawBytes: raw),
+		)
+		let failedParent = Message(data: data)
+		guard case .standard(.text("valid reply")) = failedParent.content else {
+			return XCTFail("A parent that failed to decode changed the reply: \(failedParent.content)")
+		}
+		guard case let .custom(_, _, nil, decodeError?)? = failedParent.inReplyToContent else {
+			return XCTFail("The parent did not keep its decode failure")
+		}
+		XCTAssertEqual(decodeError.code, "CodecDecodeFailed")
+		XCTAssertEqual(decodeError.category, .callback)
+		try await client.end()
+
 		data.rawBytes = raw
 		data.contentType = nil
 		data.encoded = nil
@@ -200,14 +221,7 @@ final class CustomCodecTests: XCTestCase {
 		XCTAssertEqual(preserved, raw)
 		XCTAssertEqual(cause.code, "MalformedEnvelope")
 
-		let encoded = try NoteCodec().encode("parent")
 		data.content = .text("valid reply")
-		data.inReplyTo = ReplyParent(
-			id: template.id, senderInboxId: template.senderInboxId, sentAt: template.sentAt,
-			kind: template.kind, deliveryStatus: template.deliveryStatus, rawBytes: raw,
-			contentType: encoded.type, fallback: nil, encoded: encoded,
-			content: .custom(encoded: encoded, rawBytes: raw),
-		)
 		let reply = Message(data: data)
 		guard case .standard(.text("valid reply")) = reply.content else {
 			return XCTFail("A parent without a client changed the reply")
