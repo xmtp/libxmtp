@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
@@ -40,6 +41,9 @@ MEMORY_SCOPE = {
     "kotlin": "Android app PSS, sampled every 10 ms",
 }
 VIEM = "sdks/{}/node_modules/viem/_esm/accounts/index.js"
+# Samples per workload on a remote backend. Setup and each stream sample
+# publish the fixture, and the backend does not delete expired envelopes.
+MAX_REMOTE_SAMPLES = 3
 
 
 class BenchError(Exception):
@@ -74,6 +78,30 @@ def backend_url():
     if not url:
         raise BenchError("XMTP_BACKEND_URL is not set. Run through `just sdk bench`.")
     return url
+
+
+def check_backend(args):
+    """Refuse a remote backend unless the run opts in. Then cap the samples.
+
+    A loopback host is this worktree's backend. Any other host can be shared,
+    and repeated runs grow its message store.
+    """
+    host = urlsplit(backend_url()).hostname
+    if host in android.LOOPBACK:
+        return
+    if not args.allow_remote_backend:
+        raise BenchError(
+            f"XMTP_BACKEND_URL names {host}, which is not a loopback host. A run "
+            "publishes messages that the backend keeps. Use this worktree's "
+            "backend, or pass --allow-remote-backend."
+        )
+    args.samples = min(args.samples, MAX_REMOTE_SAMPLES)
+    print(
+        f"Warning: the run publishes messages to the remote backend {host}, "
+        f"which keeps them. Samples per workload: {args.samples} "
+        f"(at most {MAX_REMOTE_SAMPLES} on a remote backend).",
+        file=sys.stderr,
+    )
 
 
 def free_port():
@@ -434,6 +462,12 @@ def main():
         action="store_true",
         help="keep client databases, also those on the simulator or device",
     )
+    parser.add_argument(
+        "--allow-remote-backend",
+        action="store_true",
+        help="allow a backend that is not on a loopback host "
+        f"(at most {MAX_REMOTE_SAMPLES} samples per workload)",
+    )
     args = parser.parse_args()
     if args.samples < 1:
         parser.error("--samples must be positive")
@@ -443,6 +477,7 @@ def main():
     if args.host == "check":
         check()
     else:
+        check_backend(args)
         run(args.host, args)
 
 

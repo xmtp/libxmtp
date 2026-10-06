@@ -59,6 +59,10 @@ Run commands from the repository root in the Nix shell. Run
   browser, swift and kotlin, set `NIX_DEVSHELL=js`, `ios` or `android` inside
   the command, for example `dev/nix-shell 'NIX_DEVSHELL=js just sdk bench browser'`.
   See `benchmarks/README.md`. CI does not run it.
+  The run accepts only a loopback `XMTP_BACKEND_URL` (`localhost`, `127.0.0.1`,
+  `::1`). Each run publishes messages that the backend keeps. For another host,
+  pass `--allow-remote-backend`; the run then prints a warning and takes at
+  most 3 samples per workload.
 - `dev/nix-shell 'just sdk bench-check'` runs the benchmark unit tests and static runner
   checks. It needs no backend, device or SDK build.
 - `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and

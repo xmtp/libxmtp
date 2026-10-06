@@ -59,8 +59,13 @@ that `NIX_DEVSHELL` names. Set it inside the command, because the `js` and
 
 Options: `--samples N` (default 5), `--output DIR` (a new directory; the
 default is `target/sdk-bench/<host>-<time>`), `--timeout SECONDS` per host
-call (positive; default 900), `--simulator UDID`, `--device SERIAL`, and
-`--keep-state`.
+call (positive; default 900), `--simulator UDID`, `--device SERIAL`,
+`--keep-state`, and `--allow-remote-backend`.
+`XMTP_BACKEND_URL` must name a loopback host (`localhost`, `127.0.0.1` or
+`::1`). Setup and each stream sample publish the fixture, and the backend does
+not delete expired envelopes, so repeated runs grow a shared backend. With
+`--allow-remote-backend`, the run accepts another host, prints a warning, and
+takes at most 3 samples per workload (`MAX_REMOTE_SAMPLES` in `bench.py`).
 `XMTP_SDK_PACKAGES_DIR` selects another staged package directory.
 
 Without `--keep-state`, a run deletes its client databases when it ends, also

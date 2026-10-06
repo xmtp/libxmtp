@@ -1,6 +1,7 @@
 """Check the memory sampler, the sample checks, run integrity and cleanup."""
 
 import argparse
+import io
 import json
 import subprocess
 import sys
@@ -90,6 +91,57 @@ class CommandLine(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     bench.main()
                 run.assert_not_called()
+
+    def main_with(self, url, *options):
+        """Run bench.main with a backend URL. Returns (run mock, stderr, error)."""
+        argv = ["bench.py", "node", "--samples", "10", *options]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.dict("os.environ", {"XMTP_BACKEND_URL": url}),
+            patch.object(bench, "run") as run,
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            try:
+                bench.main()
+            except bench.BenchError as error:
+                return run, stderr.getvalue(), error
+        return run, stderr.getvalue(), None
+
+    def test_loopback_backend_is_unaffected(self):
+        for url in (
+            "http://localhost:5050",
+            "http://127.0.0.1:5050",
+            "http://[::1]:5050",
+        ):
+            with self.subTest(url):
+                run, stderr, error = self.main_with(url)
+                self.assertIsNone(error)
+                self.assertEqual(run.call_args.args[1].samples, 10)
+                self.assertEqual(stderr, "")
+
+    def test_remote_backend_is_rejected_by_default(self):
+        for url in ("https://grpc.example.com:443", "http://10.0.0.5:5050"):
+            with self.subTest(url):
+                run, _, error = self.main_with(url)
+                self.assertIn("--allow-remote-backend", str(error))
+                run.assert_not_called()
+
+    def test_remote_backend_is_accepted_with_the_flag(self):
+        run, stderr, error = self.main_with(
+            "https://grpc.example.com:443", "--allow-remote-backend"
+        )
+        self.assertIsNone(error)
+        run.assert_called_once()
+        self.assertIn("Warning", stderr)
+        self.assertIn("grpc.example.com", stderr)
+
+    def test_remote_backend_caps_the_samples(self):
+        url, flag = "https://grpc.example.com:443", "--allow-remote-backend"
+        run, _, _ = self.main_with(url, flag)
+        self.assertEqual(run.call_args.args[1].samples, bench.MAX_REMOTE_SAMPLES)
+        # A smaller sample count stays as it is.
+        run, _, _ = self.main_with(url, flag, "--samples", "1")
+        self.assertEqual(run.call_args.args[1].samples, 1)
 
 
 class SampleChecks(unittest.TestCase):
