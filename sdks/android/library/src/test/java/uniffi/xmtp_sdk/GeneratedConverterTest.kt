@@ -1,10 +1,13 @@
 package uniffi.xmtp_sdk
 
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.security.MessageDigest
 
 // The Kotlin converters for these types are generated, so Rust tests cannot
-// see them. The deleted instrumented tests were their only Android check.
+// see them. The deleted Android tests were their only Android check.
 // Each value goes through a native buffer and back. Distinct field values make
 // a swapped, dropped or wrongly read field fail.
 class GeneratedConverterTest {
@@ -227,4 +230,90 @@ class GeneratedConverterTest {
             ),
         )
     }
+
+    @Test
+    fun reactionMessagesKeepEachField() {
+        val reactions =
+            listOf(
+                ReactionMessage(
+                    id = "d4".repeat(32),
+                    senderInboxId = inboxId,
+                    sentAt = Timestamp(21),
+                    deliveryStatus = DeliveryStatus.FAILED,
+                    reaction = Reaction("U+1F44D", ReactionAction.ADDED, ReactionSchema.UNICODE),
+                ),
+                ReactionMessage(
+                    id = "e5".repeat(32),
+                    senderInboxId = otherInboxId,
+                    sentAt = Timestamp(22),
+                    deliveryStatus = DeliveryStatus.UNPUBLISHED,
+                    reaction = Reaction("smile", ReactionAction.REMOVED, ReactionSchema.SHORTCODE),
+                ),
+            )
+        assertEquals(reactions, FfiConverterSequenceTypeReactionMessage.roundTrip(reactions))
+
+        // Message.reactions reads this list from the MessageData record.
+        val message =
+            MessageData(
+                id = messageId,
+                clientKey = 23uL,
+                deliveryCursor = "cursor",
+                conversationId = "f6".repeat(16),
+                topic = "topic",
+                senderInboxId = otherInboxId,
+                sentAt = Timestamp(24),
+                insertedAt = Timestamp(25),
+                expiresAt = Timestamp(26),
+                kind = MessageKind.APPLICATION,
+                deliveryStatus = DeliveryStatus.PUBLISHED,
+                rawBytes = byteArrayOf(7, -7),
+                contentType = null,
+                fallback = "fallback",
+                encoded = null,
+                content = MessageContent.Text("text"),
+                replyCount = 27uL,
+                reactions = reactions,
+                inReplyTo = null,
+            )
+        assertEquals(message, FfiConverterTypeMessageData.roundTrip(message))
+    }
+
+    // The record goes through a native buffer and back first. The native calls
+    // then lift keys that Rust made and lower them again, so a wrongly read or
+    // written key field makes the decrypt fail.
+    @Test
+    fun encryptionValuesCrossTheNativeBoundary() =
+        runBlocking {
+            val keys =
+                EncryptionKeys(
+                    secret = ByteArray(32) { 8 },
+                    salt = ByteArray(32) { 9 },
+                    nonce = ByteArray(12) { 10 },
+                    digest = "digest",
+                    length = 28uL,
+                )
+            val sealed = EncryptedEncodedContent(byteArrayOf(11, -11), keys)
+            assertEquals(sealed, FfiConverterTypeEncryptedEncodedContent.roundTrip(sealed))
+
+            val plaintext = byteArrayOf(5, 6, 7, -1)
+            val encrypted = encryptBytes(plaintext)
+            assertEquals(
+                listOf(32, 32, 12),
+                listOf(encrypted.keys.secret.size, encrypted.keys.salt.size, encrypted.keys.nonce.size),
+            )
+            assertEquals(encrypted.ciphertext.size.toULong(), encrypted.keys.length)
+            val digest = MessageDigest.getInstance("SHA-256").digest(encrypted.ciphertext)
+            assertEquals(digest.joinToString("") { "%02x".format(it) }, encrypted.keys.digest)
+            assertArrayEquals(plaintext, decryptBytes(encrypted.ciphertext, encrypted.keys))
+
+            val content =
+                EncodedContent(
+                    type = ContentTypeId("xmtp.org", "text", 1u, 0u),
+                    parameters = mapOf("encoding" to "UTF-8"),
+                    fallback = "fallback",
+                    content = "body".toByteArray(),
+                )
+            val bytes = encodeEncodedContent(content)
+            assertArrayEquals(bytes, decryptEncodedContent(encryptEncodedContent(bytes)))
+        }
 }
