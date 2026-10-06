@@ -14,6 +14,17 @@ fail-fast = false
 [profile.ci.junit]
 path = "junit.xml"
 
+# These two watchdog tests pass in milliseconds, but on Linux CI the wasm-bindgen-test
+# Node process sometimes does not exit after the test reports `ok`. That hang caused 17
+# of 35 failed wasm jobs from 2026-10-02 to 2026-10-06 and never hit another test. Bound
+# the hang and retry. Keep this above the general wasm override: for each setting, the
+# first matching override wins.
+[[profile.ci.overrides]]
+platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
+filter = 'package(xmtp_mls) & test(/^subscriptions::watchdog::tests::(new_uses_a_real_timer|disabled_watchdog_never_trips)$/)'
+slow-timeout = { period = "20s", terminate-after = 2, grace-period = "5s" }
+retries = 2
+
 [[profile.ci.overrides]]
 platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
 slow-timeout = { period = "1m", terminate-after = 2, grace-period = "10s" }

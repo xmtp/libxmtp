@@ -12,7 +12,11 @@ async fn test_writes_carried_out_by_pending_proposals_commit_them() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
     let own = inbox(&alix);
     publish_proposals(&group, own, display_name("Al")).await?;
@@ -38,7 +42,11 @@ async fn test_queued_writes_carried_out_by_pending_proposals_commit_them() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
     let own = inbox(&alix);
     publish_proposals(&group, own, display_name("Al")).await?;
@@ -69,7 +77,11 @@ async fn test_map_updates_of_pending_entries_commit_them() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
     let own = inbox(&alix);
     publish_proposals(&group, own, display_name("Al")).await?;
@@ -96,7 +108,11 @@ async fn test_clears_carried_out_by_pending_removals_commit_them() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
     let own = inbox(&alix);
     group.update_user_data(&[set(names.clone(), "Al")]).await?;
@@ -144,7 +160,11 @@ async fn unchanged_writes_ignore_other_pending_entries(
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
     if committed_name {
         group.update_user_data(&[set(names.clone(), "Al")]).await?;
@@ -193,7 +213,11 @@ async fn test_queued_writes_committed_by_another_member_make_no_commit() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
     let own = inbox(&alix);
     publish_proposals(&group, own, display_name("Al")).await?;
@@ -230,7 +254,11 @@ async fn test_writes_carried_out_by_pending_proposals_are_authorized() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let topic = vec![FieldWrite {
         component_id: ComponentId::new(TOPIC),
         component_type: ComponentType::String,
@@ -266,7 +294,11 @@ async fn test_map_updates_of_pending_entries_are_authorized() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let own = inbox(&alix);
     let nickname_write = vec![FieldWrite {
         component_id: ComponentId::new(NICKNAME),
@@ -301,7 +333,11 @@ async fn test_writes_carried_out_by_pending_proposals_are_authorized_beside_othe
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let update = |id: u16, value: &[u8]| FieldWrite {
         component_id: ComponentId::new(id),
         component_type: ComponentType::String,
@@ -341,7 +377,11 @@ async fn test_user_data_carried_out_by_pending_proposals_is_authorized_beside_ot
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let bo_inbox = inbox(&bo);
     let delta = TlsMapDelta::new().insert(bo_inbox, VLBytes::new(b"gold".to_vec()));
     let give_badge = vec![FieldWrite {
@@ -383,7 +423,11 @@ async fn test_map_updates_of_pending_entries_are_authorized_beside_other_writes(
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop().expect("Bo group welcome");
+    let bo_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo group welcome");
     let own = inbox(&alix);
     let nickname_write = vec![FieldWrite {
         component_id: ComponentId::new(NICKNAME),

@@ -171,7 +171,7 @@ async fn test_idempotency_key_crosses_the_wire() {
         .await?;
 
     // bo receives the message and must derive the same id from the shared key.
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
 

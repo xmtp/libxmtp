@@ -38,7 +38,7 @@ async fn test_permission_updates_preserve_pending_fields() {
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await
             .unwrap();
-        let bo_groups = bo.sync_welcomes().await.unwrap();
+        let bo_groups = bo.wait_for_welcomes().await.unwrap();
         let bo_group = bo_groups.first().unwrap();
         alix_group
             .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
@@ -145,7 +145,7 @@ async fn test_add_members_batched_on_dictionary_group() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -158,7 +158,7 @@ async fn test_add_members_batched_on_dictionary_group() {
     bo_group.sync().await?;
 
     // Caro should receive a welcome
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     assert_eq!(
         caro_groups.len(),
         1,
@@ -201,7 +201,7 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -246,7 +246,7 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
     bo_group.sync().await?;
 
     // Caro should receive a welcome
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     assert_eq!(
         caro_groups.len(),
         1,
@@ -297,7 +297,7 @@ async fn test_sequence_id_bump_triggers_gce_on_dictionary_group() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -362,7 +362,7 @@ async fn test_add_member_after_sequence_id_bump_on_dictionary_group() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -420,7 +420,7 @@ async fn test_add_member_after_sequence_id_bump_on_dictionary_group() {
     bo_group.sync().await?;
 
     // Caro receives welcome and syncs
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     assert_eq!(caro_groups.len(), 1, "Caro should receive a welcome");
     let caro_group = caro_groups.first()?;
     caro_group.sync().await?;
@@ -521,7 +521,7 @@ async fn test_update_group_name_via_app_data_update() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -577,7 +577,7 @@ async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
         let alix_group = alix
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;
-        let bo_group = bo.sync_welcomes().await?.first()?.clone();
+        let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
 
         bo_group.sync().await?;
         let before = match component_id {
@@ -647,7 +647,7 @@ async fn test_receiver_rejects_last_super_admin_removal_from_raw_app_data_intent
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
 
     bo_group.sync().await?;
 
@@ -693,7 +693,7 @@ async fn test_update_group_description_via_app_data_update() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -750,7 +750,7 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -899,7 +899,7 @@ async fn test_admin_list_add_via_app_data_path() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -949,7 +949,7 @@ async fn test_admin_list_remove_via_app_data_path() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -988,7 +988,7 @@ async fn test_super_admin_list_add_via_app_data_path() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -1043,7 +1043,7 @@ async fn test_permission_update_via_app_data_path() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 

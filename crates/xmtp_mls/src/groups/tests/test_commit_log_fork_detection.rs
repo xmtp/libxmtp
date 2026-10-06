@@ -31,7 +31,7 @@ async fn test_real_divergence_detected_through_signed_commit_logs() {
     let a = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    let b = bo.wait_for_welcomes().await?.first()?.to_owned();
     b.update_consent_state(ConsentState::Allowed)?;
 
     // Start with a shared successful commit after Bo's Welcome anchor.

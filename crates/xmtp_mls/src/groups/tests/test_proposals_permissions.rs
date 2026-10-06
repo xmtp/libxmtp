@@ -31,7 +31,7 @@ async fn test_non_admin_proposal_rejected_in_admin_only_group() {
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Bo receives the welcome
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -117,7 +117,7 @@ async fn test_admin_proposal_accepted_in_admin_only_group() {
     // Alix adds Bo (so there's someone to receive the proposal)
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -358,11 +358,11 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     let caro_group = caro_groups.first()?;
     caro_group.sync().await?;
 
@@ -489,11 +489,11 @@ async fn test_remove_proposal_validation_in_admin_group() {
         .add_members(&[bo.inbox_id(), caro.inbox_id()])
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     let caro_group = caro_groups.first()?;
     caro_group.sync().await?;
 
@@ -583,8 +583,8 @@ async fn test_admin_removing_super_admin_publishes_nothing() {
     alix_group
         .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
         .await?;
-    let bo_group = bo.sync_welcomes().await?.first()?.clone();
-    let caro_group = caro.sync_welcomes().await?.first()?.clone();
+    let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
+    let caro_group = caro.wait_for_welcomes().await?.first()?.clone();
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -635,8 +635,8 @@ async fn test_receivers_reject_raw_membership_delete_of_super_admin() {
     alix_group
         .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
         .await?;
-    let bo_group = bo.sync_welcomes().await?.first()?.clone();
-    let caro_group = caro.sync_welcomes().await?.first()?.clone();
+    let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
+    let caro_group = caro.wait_for_welcomes().await?.first()?.clone();
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -692,11 +692,11 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
         .add_members(&[bo.inbox_id(), caro.inbox_id()])
         .await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     let caro_group = caro_groups.first()?;
     caro_group.sync().await?;
 
@@ -793,7 +793,7 @@ async fn test_raw_registry_admin_list_allow_rejected_before_publish() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
     bo_group.sync().await?;
 
     let before_permissions = bo_group.permissions()?;
@@ -891,7 +891,7 @@ async fn test_registry_alone_controls_action_policy_view() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
     bo_group.sync().await?;
 
     let payload = alix_group
@@ -963,7 +963,7 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
     bo_group.sync().await?;
@@ -1068,7 +1068,7 @@ async fn test_migrated_action_permission_updates_use_registry() {
     let alix_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
@@ -1355,7 +1355,7 @@ async fn test_receiver_rejects_invalid_registry_action_state() {
         let group = alix
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;
-        let received = bo.sync_welcomes().await?;
+        let received = bo.wait_for_welcomes().await?;
         let peer = received.first()?;
         peer.sync().await?;
         let before = peer.permissions()?;

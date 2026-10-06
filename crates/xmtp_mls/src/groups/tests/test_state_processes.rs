@@ -289,7 +289,7 @@ async fn independent_processes_apply_ordered_commits_to_one_database() {
     tester!(bo, persistent_db, disable_workers);
     let peer = alix.create_group(None, None)?;
     peer.invite(&bo).await?;
-    let shared = bo.sync_welcomes().await?.pop()?;
+    let shared = bo.wait_for_welcomes().await?.pop()?;
     shared.receive().await?;
     wait_until_idle(&bo).await;
     let initial = snapshot(&shared).await?;
@@ -367,7 +367,7 @@ async fn process_death_before_state_commit_preserves_replay_and_convergence() {
     tester!(bo, persistent_db, disable_workers);
     let peer = alix.create_group(None, None)?;
     peer.invite(&bo).await?;
-    let shared = bo.sync_welcomes().await?.pop()?;
+    let shared = bo.wait_for_welcomes().await?.pop()?;
     shared.receive().await?;
     wait_until_idle(&bo).await;
     let before = snapshot(&shared).await?;

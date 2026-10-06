@@ -213,7 +213,7 @@ async fn test_delete_message_by_sender() {
         .await?;
 
     // Sync bo's group to receive the message
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     assert_eq!(bo_groups.len(), 1);
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
@@ -300,7 +300,7 @@ async fn test_delete_message_by_super_admin() {
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Bola sends a message
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
 
     let text_content = TextCodec::encode("Message from Bola".to_string())?;
@@ -348,7 +348,7 @@ async fn test_delete_message_authorization_failure() {
         .await?;
 
     // Sync bo's group
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
 
@@ -455,7 +455,7 @@ async fn test_out_of_order_deletion() {
     alix_group.publish_messages().await?;
 
     // Bola syncs and should receive both the message and deletion
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
 
@@ -716,7 +716,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
 
@@ -852,7 +852,7 @@ async fn test_enrichment_with_deleted_messages() {
         .await?;
 
     // Sync bo's group
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
 
@@ -968,7 +968,7 @@ async fn test_admin_deletion_flag() {
     let alix_group = alix.create_group(None, None)?;
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
 
     // Bola sends a message
@@ -1026,7 +1026,7 @@ async fn test_reply_to_deleted_message() {
         .await?;
 
     // Bo syncs and replies to the message
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
 
@@ -1114,7 +1114,7 @@ async fn deletion_clears_original_evidence_on_message_and_parent() {
         .send_message(&text_bytes, SendMessageOpts::default())
         .await?;
 
-    let bo_group = &bo.sync_welcomes().await?[0];
+    let bo_group = &bo.wait_for_welcomes().await?[0];
     bo_group.sync().await?;
     let reply_content = ReplyCodec::encode(xmtp_content_types::reply::Reply {
         reference: hex::encode(&original_id),
@@ -1190,7 +1190,7 @@ async fn deletion_clears_an_undecodable_deletable_row_and_parent() {
         .send_message(&text_bytes, SendMessageOpts::default())
         .await?;
 
-    let bo_group = &bo.sync_welcomes().await?[0];
+    let bo_group = &bo.wait_for_welcomes().await?[0];
     bo_group.sync().await?;
     let reply_content = ReplyCodec::encode(xmtp_content_types::reply::Reply {
         reference: hex::encode(&original_id),
@@ -1266,7 +1266,7 @@ async fn test_cannot_delete_message_from_different_group() {
         .await?;
 
     // Bo syncs both groups
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     assert_eq!(bo_groups.len(), 2);
     bo_groups[0].sync().await?;
     bo_groups[1].sync().await?;
@@ -1345,12 +1345,12 @@ async fn test_concurrent_deletions() {
         .await?;
 
     // Bo syncs and gets the group
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
 
     // Caro syncs and gets the group
-    let caro_groups = caro.sync_welcomes().await?;
+    let caro_groups = caro.wait_for_welcomes().await?;
     let caro_group = &caro_groups[0];
     caro_group.sync().await?;
 
@@ -1449,7 +1449,7 @@ async fn test_sender_and_admin_both_delete() {
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Bo syncs and gets the group
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     let bo_group = &bo_groups[0];
     bo_group.sync().await?;
 
@@ -1608,7 +1608,7 @@ async fn test_stream_message_deletions_from_other_client() {
     alix_group.add_members(&[bo.inbox_id()]).await?;
 
     // Bo syncs to join the group
-    let bo_groups = bo.sync_welcomes().await?;
+    let bo_groups = bo.wait_for_welcomes().await?;
     assert_eq!(bo_groups.len(), 1);
     let bo_group = &bo_groups[0];
 

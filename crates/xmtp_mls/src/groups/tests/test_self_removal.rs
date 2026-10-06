@@ -317,7 +317,7 @@ async fn leave_request_emits_left_cause_after_explicit_sync() {
     tester!(bola, disable_workers);
     let amal_group = amal.create_group(None, None)?;
     amal_group.add_members(&[bola.inbox_id()]).await?;
-    let bola_group = bola.sync_welcomes().await?.pop()?;
+    let bola_group = bola.wait_for_welcomes().await?.pop()?;
     let removed = bola
         .context
         .events()

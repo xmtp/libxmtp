@@ -12,7 +12,7 @@ async fn test_denied_writes_fail_when_published() {
     tester!(bo);
     alix.create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     let writes = vec![FieldWrite {
         component_id: ComponentId::new(TOPIC),
         component_type: ComponentType::String,
@@ -143,7 +143,7 @@ async fn test_writes_refused_at_publish_keep_their_field_error() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     let own = inbox(&bo);
 
     let (intent, writes) = queue_write(&bo_group, STATUS, ComponentType::String, b"away")?;
@@ -244,7 +244,7 @@ async fn test_writes_refused_by_another_sync_keep_their_field_error() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     edit_registry(&group, STATUS, retype_status).await?;
     bo_group.sync().await?;
 
@@ -273,7 +273,7 @@ async fn test_queued_writes_keep_their_sync_error() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     edit_registry(&group, STATUS, retype_status).await?;
     bo_group.sync().await?;
 

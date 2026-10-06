@@ -150,7 +150,7 @@ async fn test_fields_describe_the_group_registry() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     let described = |group: &MlsGroup<_>| -> Result<Vec<_>, GroupError> {
         Ok(group
             .metadata_fields()?
@@ -266,7 +266,7 @@ async fn test_stale_snapshot_uses_the_group_type() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
 
     let field = bo_group.metadata_field("mood")??;
     assert_eq!(field.field.component_id.as_u16(), STATUS);
@@ -302,7 +302,7 @@ async fn test_unchanged_write_against_stale_state_lands() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     let rename = |name| ComponentMutation::Replace(string(name));
     let name = MetadataFieldRef::GROUP_NAME;
     group.update_metadata_field(&name, &rename("Team")).await?;
@@ -329,7 +329,7 @@ async fn test_update_metadata_field() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
 
     let renamed = MetadataFieldRef {
         component_id: ComponentId::GROUP_NAME,
@@ -418,7 +418,7 @@ async fn test_update_user_data_is_atomic() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
 
     let epoch = bo_group.epoch().await?;
@@ -489,7 +489,7 @@ async fn test_user_data_selection() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
         .await?;
-    let carol_group = carol.sync_welcomes().await?.pop()?;
+    let carol_group = carol.wait_for_welcomes().await?.pop()?;
     carol_group
         .update_user_data(&[set(nickname(), "C")])
         .await?;
@@ -553,7 +553,7 @@ async fn test_reads_are_committed_and_writes_see_pending_proposals() {
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_group = bo.wait_for_welcomes().await?.pop()?;
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
     let own = inbox(&alix);
     publish_proposals(&group, own, display_name("Al")).await?;
