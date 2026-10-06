@@ -226,6 +226,20 @@ async fn account_address_as_inbox_id_fails_and_stores_no_dm() {
         group_error.is_some(),
         "a group with an account address must fail"
     );
+    // The core creates the group before it adds members, so an empty group can
+    // stay. No stored conversation is a DM or has the address as a member.
+    for conversation in conversations.list(None).await? {
+        let crate::Conversation::Group { group } = conversation else {
+            panic!("a failed create must not store a DM");
+        };
+        assert!(!member_ids(&group).await?.contains(&address));
+    }
+    assert!(
+        conversations
+            .get_dm_by_inbox_id(address.clone())
+            .await?
+            .is_none()
+    );
 
     let group = conversations
         .create_group(vec![bo.inbox_id()], None)
