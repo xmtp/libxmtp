@@ -329,12 +329,16 @@ final class CallerCancellationTests: XCTestCase {
 			}
 			return try await Client.create(signer: signer, options: options)
 		}
+		// Cancellation is cooperative, so the call can still return a client,
+		// also after the test stops waiting. This task ends that client.
+		Task {
+			if case let .success(client) = await call.result {
+				try? await client.end()
+			}
+		}
 		guard await waitUntil("The native constructor did not finish", { executor.heldJobs > 0 }) else {
 			call.cancel()
 			executor.release()
-			if case let .success(client)? = await settle(call, "The cancelled unfinished constructor") {
-				try await client.end()
-			}
 			return
 		}
 		XCTAssertFalse(openFiles(in: directory).isEmpty, "The finished constructor has no open store")
@@ -343,9 +347,6 @@ final class CallerCancellationTests: XCTestCase {
 		let result = await settle(call, "The cancelled constructor")
 		guard result != nil else {
 			return
-		}
-		if case let .success(client)? = result {
-			try await client.end()
 		}
 		assertCancelled(result)
 		_ = await waitUntil("The cancelled constructor left its store open: \(openFiles(in: directory))") {
