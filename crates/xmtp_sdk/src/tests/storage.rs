@@ -351,3 +351,88 @@ async fn storage_key_of_wrong_length_is_invalid_input() {
         }
     }
 }
+
+// Moved from the Kotlin conformance program (RetainedOptions.kt): it was the
+// only check of the pool range rule and of the pool values that options() returns.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn storage_pool_options_round_trip_and_reject_an_inverted_range() {
+    use crate::client::StoragePoolOptions;
+    let pools = [
+        None,
+        Some(StoragePoolOptions::default()),
+        Some(StoragePoolOptions {
+            min: Some(2),
+            max: Some(10),
+        }),
+        Some(StoragePoolOptions {
+            min: None,
+            max: Some(7),
+        }),
+    ];
+    for pool in pools {
+        let mut configured = options();
+        configured.storage.pool = pool.clone();
+        let client = Client::create(crate::generate_local_signer().await, configured).await?;
+        let reported = client.options().storage.pool;
+        assert_eq!(
+            reported.as_ref().map(|pool| (pool.min, pool.max)),
+            pool.as_ref().map(|pool| (pool.min, pool.max)),
+            "options() changed the pool values"
+        );
+        client.end().await?;
+    }
+    let mut inverted = options();
+    inverted.storage.pool = Some(StoragePoolOptions {
+        min: Some(4),
+        max: Some(2),
+    });
+    let error = Client::create(crate::generate_local_signer().await, inverted)
+        .await
+        .err()
+        .expect("a pool minimum above its maximum must fail");
+    let XmtpError::InvalidInput(details) = error else {
+        panic!("expected InvalidInput, got {error:?}");
+    };
+    assert_eq!(details.code, "InvalidInput");
+    assert!(!details.retryable);
+}
+
+// Moved from the Kotlin conformance program (RetainedStorage.kt): a live
+// reconnect keeps the open store and its history; an ended client cannot reconnect.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn storage_reconnect_keeps_history_and_fails_after_end() {
+    let path = std::env::temp_dir().join(format!(
+        "xmtp-sdk-storage-reconnect-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns(),
+    ));
+    let mut configured = options();
+    configured.storage.location = explicit_location(&path);
+    let client = Client::create(crate::generate_local_signer().await, configured).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let id = group
+        .send_text("history before reconnect".into(), None)
+        .await?;
+    let storage = client.storage();
+    storage.reconnect().await?;
+    assert_eq!(
+        storage.path().await?.as_deref(),
+        Some(path.to_string_lossy().as_ref())
+    );
+    assert!(
+        group
+            .messages(None)
+            .await?
+            .iter()
+            .any(|message| message.0.id == id),
+        "a live reconnect lost stored history"
+    );
+    client.end().await?;
+    assert!(matches!(
+        storage.reconnect().await,
+        Err(XmtpError::ClientClosed(_))
+    ));
+    let _ = std::fs::remove_file(&path);
+}
