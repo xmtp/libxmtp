@@ -25,6 +25,13 @@ fn immutable_getter_emits_marker_and_removes_sdk_attribute() {
     assert!(!output.contains("sdk(immutable)"));
     // The doc comment stays; the marker is one more doc line.
     assert!(output.contains("#[doc=r\"TheconversationID.\"]"));
+
+    // UniFFI also hands a method `self: Arc<Self>`.
+    let output = export(
+        quote!(),
+        quote!(impl Group { #[sdk(immutable)] pub fn id(self: Arc<Self>) -> ConversationId { self.id.clone() } }),
+    );
+    assert!(output.contains("@xmtp-immutable"));
 }
 
 #[test]
@@ -81,8 +88,8 @@ fn getters_the_bridge_never_forwards_may_read_live_values() {
 
 #[test]
 fn sync_methods_that_are_not_getters_need_no_marker() {
-    // Arguments, a Result, no return value, or no receiver: none of these is a
-    // snapshot property.
+    // Arguments, a Result, no return value, a receiver that mutates or
+    // consumes, or no receiver: none of these is a snapshot property.
     let output = export(
         quote!(),
         quote! {
@@ -93,6 +100,8 @@ fn sync_methods_that_are_not_getters_need_no_marker() {
                 pub fn state(&self) -> Result<State, Error> { Ok(State) }
                 pub fn reset(&self) {}
                 pub fn touch(&self) -> () {}
+                pub fn bump(&mut self) -> u64 { 0 }
+                pub fn into_id(self) -> u64 { 0 }
             }
         },
     );
@@ -106,6 +115,10 @@ fn immutable_rejects_methods_that_are_not_getters() {
         quote!(impl Client { #[sdk(immutable)] pub fn id(&self) -> Result<u64, Error> { Ok(0) } }),
         quote!(impl Client { #[sdk(immutable)] pub fn id(&self, key: u64) -> u64 { key } }),
         quote!(impl Client { #[sdk(immutable)] pub fn id(&self) {} }),
+        quote!(impl Client { #[sdk(immutable)] pub fn id(&mut self) -> u64 { 0 } }),
+        quote!(impl Client { #[sdk(immutable)] pub fn id(self: &mut Self) -> u64 { 0 } }),
+        quote!(impl Client { #[sdk(immutable)] pub fn id(self) -> u64 { 0 } }),
+        quote!(impl Client { #[sdk(immutable)] pub fn id(mut self) -> u64 { 0 } }),
         quote!(impl Client { #[sdk(immutable)] #[uniffi::constructor] pub fn new() -> Self { Self } }),
     ] {
         let message = error(quote!(), item);

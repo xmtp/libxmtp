@@ -8,8 +8,8 @@ use std::collections::HashSet;
 
 use proc_macro2::Span;
 use syn::{
-    Attribute, Expr, ExprLit, Fields, FnArg, Ident, ItemEnum, Lit, Meta, ReturnType, Signature,
-    Token, Type, punctuated::Punctuated, spanned::Spanned,
+    Attribute, Expr, ExprLit, Fields, FnArg, Ident, ItemEnum, Lit, Meta, Receiver, ReturnType,
+    Signature, Token, Type, punctuated::Punctuated, spanned::Spanned,
 };
 
 use crate::sdk_export::returns_result;
@@ -153,7 +153,8 @@ fn documents(attrs: &[Attribute], marker: &str) -> bool {
 
 /// A synchronous `&self` method without arguments that returns a value. The
 /// SDKs expose it as a readonly property, and the browser bridge reads it
-/// once, from a snapshot taken when the handle is made.
+/// once, from a snapshot taken when the handle is made. `self: Arc<Self>`
+/// reads the same way; a `mut` or by-value receiver is no getter.
 fn is_sync_getter(signature: &Signature) -> bool {
     let returns_value = match &signature.output {
         ReturnType::Default => false,
@@ -164,8 +165,21 @@ fn is_sync_getter(signature: &Signature) -> bool {
     };
     signature.asyncness.is_none()
         && signature.inputs.len() == 1
-        && matches!(signature.inputs.first(), Some(FnArg::Receiver(_)))
+        && matches!(signature.inputs.first(), Some(FnArg::Receiver(receiver)) if reads_only(receiver))
         && returns_value
+}
+
+/// `&self`, `self: &Self`, or `self: Arc<Self>`.
+fn reads_only(receiver: &Receiver) -> bool {
+    match receiver.ty.as_ref() {
+        Type::Reference(reference) => reference.mutability.is_none(),
+        Type::Path(path) => path
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "Arc"),
+        _ => false,
+    }
 }
 
 /// Apply the options of one exported method. `target` is the target of its
