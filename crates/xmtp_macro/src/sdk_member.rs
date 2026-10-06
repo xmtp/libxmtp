@@ -243,7 +243,7 @@ pub(crate) fn derives_uniffi_error(attrs: &[Attribute]) -> bool {
 /// The option that writes each marker. The generator trusts these markers,
 /// so the macro rejects one written in a doc comment, where it would skip
 /// the macro's checks.
-const WRITTEN_BY_OPTIONS: &[(&str, &str)] = &[
+pub(crate) const WRITTEN_BY_OPTIONS: &[(&str, &str)] = &[
     (IMMUTABLE, "#[sdk(immutable)]"),
     (KIND, "#[sdk(kind = \"...\")]"),
     (PURE, "#[sdk_export(pure)]"),

@@ -622,7 +622,6 @@ mod error_records;
 mod event_listeners;
 mod event_readers;
 mod foreign_callbacks;
-mod generator_markers;
 mod group_options;
 mod history_errors;
 mod identity_routes;

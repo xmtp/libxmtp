@@ -38,7 +38,8 @@ kind or a redacted map key outside the grammar of its `#[sdk(...)]` option
 and on a value given to any other marker. Only `@xmtp-worker` and
 `@xmtp-internal` are written by hand. The others written in a doc comment
 would skip the macro's checks: `sdk_export` rejects them in the items it
-exports, and an `xmtp_sdk` test rejects them anywhere in the façade source.
+exports, and an `xmtp_macro` test rejects them anywhere in the façade source,
+along with a `doc` value that is not a string literal.
 
 `#[sdk_export(native_only)]` and `#[sdk_export(wasm_only)]` write no marker.
 They are the target's `#[cfg]` above the item. `#[sdk(shown)]` writes none

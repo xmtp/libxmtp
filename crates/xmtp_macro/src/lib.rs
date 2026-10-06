@@ -11,6 +11,8 @@ mod test_macro;
 mod timeout_macro;
 
 #[cfg(test)]
+mod facade_markers_test;
+#[cfg(test)]
 mod sdk_export_test;
 #[cfg(test)]
 mod sdk_member_test;
