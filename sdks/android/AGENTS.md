@@ -42,6 +42,13 @@ public reader collector and checks unacknowledged replay. Start the normal
 backend before this route. Kotlin generation uses the stock Android cleaner
 mode: JNA below API 34 and `SystemCleaner` on API 34 or later. The Nix emulator launcher
 checks the guest API and synchronizes its clock before it starts the test.
+Both emulator test recipes run their commands inside the launcher's owned scope.
+The launcher stops that emulator and its test process group, then removes its
+temporary Android home on success, failure, or TERM/INT cancellation. It preserves
+the command's exit status and retains diagnostics outside the removed home.
+Integration `adb reverse` targets the scope's selected `ANDROID_SERIAL`.
+The standalone `run-test-emulator` command retains the ready emulator for
+interactive reuse; use `run-test-emulator -- COMMAND ARGS...` for automatic teardown.
 
 `dev/bindings` stages `android-sdk-libs-fast`. `dev/bindings --release` stages
 `android-sdk-libs` with arm64-v8a, armeabi-v7a, x86_64, and x86 JNI libraries.
