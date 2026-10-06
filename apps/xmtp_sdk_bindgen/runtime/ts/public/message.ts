@@ -1,30 +1,18 @@
 import {
+  MessageFields,
   currentProjection,
-  liftContentTypeId,
-  liftDeliveryStatus,
   liftEncodedContent,
   liftErrorDetails,
   liftMessageBody,
   liftMessageContent,
-  liftMessageKind,
-  liftReactionMessage,
-  liftReplyParent,
   publicError,
-  type ContentTypeId,
   type Conversation,
-  type ConversationId,
-  type DeliveryCursor,
-  type DeliveryStatus,
   type EncodedContent,
-  type InboxId,
   type MessageBody,
   type MessageContent,
   type MessageId,
-  type MessageKind,
   type ObjectProjection,
   type Reaction,
-  type ReactionMessage,
-  type ReplyParent,
   type SendOptions,
 } from "../../public-values.gen";
 import {
@@ -35,7 +23,6 @@ import {
 } from "../../xmtp_sdk";
 import type { ErrorDetails as BoundErrorDetails } from "../../xmtp_sdk";
 import type { LiftedCustomBody, LiftedCustomContent } from "../custom-lift";
-import type { Timestamp } from "../ids";
 import { publicClient, type Client } from "./client";
 import type { ContentCodec } from "./codec";
 import { encodeForSend, isCodec as isCodecContent } from "./codec-policy";
@@ -121,67 +108,28 @@ let create!: (bound: BoundMessage) => Message;
  * A received or stored message. Its fields are public values. Its actions use
  * the client that returned it; the message holds that client weakly, so an
  * action after the client ends or is collected fails with `ClientClosed`.
+ * The generated base holds the message's fields.
  */
-export class Message {
-  readonly id: MessageId;
-  readonly conversationId: ConversationId;
-  readonly topic: string;
-  readonly senderInboxId: InboxId;
-  readonly sentAt: Timestamp;
-  readonly insertedAt: Timestamp;
-  readonly expiresAt?: Timestamp;
-  readonly kind: MessageKind;
-  readonly deliveryStatus: DeliveryStatus;
-  readonly rawBytes: Uint8Array;
-  readonly contentType?: ContentTypeId;
-  readonly fallback?: string;
-  readonly encoded?: EncodedContent;
+export class Message extends MessageFields {
   readonly content: MessageContent;
-  readonly replyCount: bigint;
-  readonly reactions: ReactionMessage[];
-  readonly inReplyTo?: ReplyParent;
   /** The decoded body of the message this one replies to. */
   readonly inReplyToContent?: MessageBody;
   /** The decoded body of this reply. */
   readonly replyContent?: MessageBody;
-  /** The committed delivery position, or null when there is none. */
-  readonly deliveryCursor: DeliveryCursor | null;
 
   static {
     create = (bound) => new Message(bound);
   }
 
   private constructor(bound: BoundMessage) {
+    super(bound.data, currentProjection());
     bindings.set(this, bound);
     const projection = currentProjection();
-    const data = bound.data;
-    this.id = data.id;
-    this.conversationId = data.conversationId;
-    this.topic = data.topic;
-    this.senderInboxId = data.senderInboxId;
-    this.sentAt = data.sentAt;
-    this.insertedAt = data.insertedAt;
-    if (data.expiresAt !== undefined) this.expiresAt = data.expiresAt;
-    this.kind = liftMessageKind(data.kind, projection);
-    this.deliveryStatus = liftDeliveryStatus(data.deliveryStatus, projection);
-    this.rawBytes = new Uint8Array(data.rawBytes);
-    if (data.contentType !== undefined)
-      this.contentType = liftContentTypeId(data.contentType, projection);
-    if (data.fallback !== undefined) this.fallback = data.fallback;
-    if (data.encoded !== undefined)
-      this.encoded = liftEncodedContent(data.encoded, projection);
     this.content = liftContent(bound, projection);
-    this.replyCount = data.replyCount;
-    this.reactions = data.reactions.map((reaction) =>
-      liftReactionMessage(reaction, projection),
-    );
-    if (data.inReplyTo !== undefined)
-      this.inReplyTo = liftReplyParent(data.inReplyTo, projection);
     if (bound.inReplyToContent !== undefined)
       this.inReplyToContent = liftBody(bound.inReplyToContent, projection);
     if (bound.replyContent !== undefined)
       this.replyContent = liftBody(bound.replyContent, projection);
-    this.deliveryCursor = data.deliveryCursor ?? null;
   }
 
   async refresh(): Promise<Message | undefined> {

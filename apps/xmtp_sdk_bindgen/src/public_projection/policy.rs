@@ -119,12 +119,15 @@ const DELIVERY_CURSOR_FIELDS: &[(&str, &str)] = &[
 ];
 const DELIVERY_CURSOR_RESULTS: &[(&str, &str)] = &[("Conversations", "beginningDeliveryCursor")];
 
+/// Whether a record field carries a delivery cursor.
+pub(crate) fn is_delivery_cursor(owner: &str, member: &str) -> bool {
+    DELIVERY_CURSOR_FIELDS.contains(&(owner, member))
+}
+
 /// The public type of a field or result: a delivery cursor is a
 /// `DeliveryCursor`, not a plain `string`.
 pub(super) fn cursor_type(owner: &str, member: &str, public: String) -> String {
-    if DELIVERY_CURSOR_FIELDS.contains(&(owner, member))
-        || DELIVERY_CURSOR_RESULTS.contains(&(owner, member))
-    {
+    if is_delivery_cursor(owner, member) || DELIVERY_CURSOR_RESULTS.contains(&(owner, member)) {
         public.replacen("string", "DeliveryCursor", 1)
     } else {
         public

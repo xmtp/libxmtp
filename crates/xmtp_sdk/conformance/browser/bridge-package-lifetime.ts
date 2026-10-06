@@ -1,12 +1,12 @@
 import { expect, it, vi } from "vitest";
 
-import { WorkerSessions } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/worker-sessions";
-import type { HandleWire } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire";
+import { WorkerSessions } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/worker-sessions";
+import type { HandleWire } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
 import {
   WorkerHost,
   PoolLocks,
   callWithPool,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host";
 import { Endpoint, pair, workerLockManager } from "./bridge-support";
 
 function gate() {

@@ -81,7 +81,7 @@ Show a user the installation ID, last activity time, app version, and device dat
 | Task                           | Browser, Node                                | Kotlin, Swift                                                                                                         |
 | ------------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Read inbox state               | `client.inboxState(true)`                    | `client.inboxState(refreshFromNetwork = true)` (Kotlin) or `client.inboxState(refreshFromNetwork: true)` (Swift)      |
-| Read several inbox states      | `Client.inboxStates(ids, backend)`           | `SDKClient.inboxStates(ids, backend)` (Kotlin) or `SDKClient.inboxStates(ids, backend: backend)` (Swift)              |
+| Read several inbox states      | `Client.inboxStates(ids, backend)`           | `SDKClient.inboxStates(ids, backend)` (Kotlin) or `SDKClient.inboxStates(ids: ids, backend: backend)` (Swift)         |
 | Revoke selected installations  | `client.revokeInstallations(signer, ids)`    | `client.revokeInstallations(signer, ids)` (Kotlin) or `client.revokeInstallations(signer: signer, ids: ids)` (Swift)  |
 | Revoke all other installations | `client.revokeAllOtherInstallations(signer)` | `client.revokeAllOtherInstallations(signer)` (Kotlin) or `client.revokeAllOtherInstallations(signer: signer)` (Swift) |
 
@@ -123,7 +123,7 @@ client.revokeAllOtherInstallations(signer)
 
 ```swift
 let state = try await client.inboxState(refreshFromNetwork: true)
-let states = try await SDKClient.inboxStates(inboxIds, backend: backend)
+let states = try await SDKClient.inboxStates(ids: inboxIds, backend: backend)
 try await client.revokeInstallations(signer: signer, ids: installationIds)
 try await client.revokeAllOtherInstallations(signer: signer)
 ```

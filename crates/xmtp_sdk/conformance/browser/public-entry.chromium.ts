@@ -13,6 +13,7 @@ import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { RemoteObject } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import { BridgeError } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
+import { boundMessage } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/message";
 import { waitForLog } from "../ts/logging-wait.js";
 
 function check(condition: boolean, message: string): asserts condition {
@@ -59,29 +60,19 @@ function isPublic(value: unknown, seen = new Set<unknown>()): boolean {
 
 const PROXY_MEMBERS = ["checkLive", "release", "handle", "session"];
 
-// The public Message is a value class: its own properties are these fields.
-const MESSAGE_FIELDS = new Set([
-  "id",
-  "conversationId",
-  "topic",
-  "senderInboxId",
-  "sentAt",
-  "insertedAt",
-  "expiresAt",
-  "kind",
-  "deliveryStatus",
-  "rawBytes",
-  "contentType",
-  "fallback",
-  "encoded",
-  "content",
-  "replyCount",
-  "reactions",
-  "inReplyTo",
-  "inReplyToContent",
-  "replyContent",
-  "deliveryCursor",
-]);
+// The public Message is a value class: its own properties are the fields of
+// its MessageData but the client key, and its decoded content. The generator
+// writes one per MessageData field, so the list comes from the binding data.
+function messageFields(message: sdk.Message): ReadonlySet<string> {
+  const data = Object.keys(boundMessage(message).data);
+  check(data.includes("clientKey"), "message data has no client key");
+  return new Set([
+    ...data.filter((key) => key !== "clientKey"),
+    "content",
+    "inReplyToContent",
+    "replyContent",
+  ]);
+}
 
 // True when a bridge proxy or session is reachable through the properties of
 // `value`, enumerable or not, including symbol keys.
@@ -420,7 +411,7 @@ export async function exercise(): Promise<string[]> {
       ["StorageAdmin", opaqueAdmin],
     ];
     for (const [name, value] of kinds) checkOpaque(name, value);
-    checkOpaque("Message", message, MESSAGE_FIELDS);
+    checkOpaque("Message", message, messageFields(message));
     check(
       message.rawBytes instanceof Uint8Array && message.rawBytes.length > 0,
       "public message bytes missing",

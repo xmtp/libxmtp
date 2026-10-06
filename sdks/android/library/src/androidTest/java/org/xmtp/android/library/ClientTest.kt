@@ -91,8 +91,8 @@ class ClientTest : BaseInstrumentedTest() {
             }
         }
 
-    // Each hand-written backend wrapper in SDKClient's companion object runs here, except
-    // fetchServerConfiguration and inboxIdFor (BackendAuthTest) and
+    // Each Client static that runtime/ClientForwarding.kt generates on SDKClient's companion
+    // object runs here, except fetchServerConfiguration and inboxIdFor (BackendAuthTest) and
     // verifySignedWithPublicKey (testsSignatures).
     @Test fun testStaticBackendCalls() =
         runBlocking {
@@ -113,10 +113,10 @@ class ClientTest : BaseInstrumentedTest() {
             // These wrappers move the backend argument, and the inbox and
             // address are both strings, so only a live read catches a swap.
             val alixInbox = fixtures.alixClient.inboxId()
-            assertTrue(SDKClient.isAddressAuthorized(fixtures.alix.identifier, alixInbox, backend()))
-            assertFalse(SDKClient.isAddressAuthorized(absent.identifier, alixInbox, backend()))
-            assertTrue(SDKClient.isInstallationAuthorized(installation, alixInbox, backend()))
-            assertFalse(SDKClient.isInstallationAuthorized("00".repeat(32), alixInbox, backend()))
+            assertTrue(SDKClient.isAddressAuthorized(alixInbox, fixtures.alix.identifier, backend()))
+            assertFalse(SDKClient.isAddressAuthorized(alixInbox, absent.identifier, backend()))
+            assertTrue(SDKClient.isInstallationAuthorized(alixInbox, installation, backend()))
+            assertFalse(SDKClient.isInstallationAuthorized(alixInbox, "00".repeat(32), backend()))
 
             val group = fixtures.alixClient.conversations().createGroup(emptyList<InboxId>())
             group.sendText("newest")

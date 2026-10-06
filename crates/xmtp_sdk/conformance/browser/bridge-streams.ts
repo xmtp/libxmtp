@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { MessageStream } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/streams/reader.js";
+import { MessageStream } from "../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader.js";
 
 function latch() {
   let resolve!: () => void;

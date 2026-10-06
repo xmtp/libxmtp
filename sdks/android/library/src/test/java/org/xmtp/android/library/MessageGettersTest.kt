@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import uniffi.xmtp_sdk.*
 
-// The Message getters in SDKTypes.kt are hand-written forwarders to MessageData.
+// The Message getters are generated in MessageFields.kt and forward to MessageData.
 // Each field has a distinct value, so a getter that reads the wrong field fails.
 class MessageGettersTest {
     @Test

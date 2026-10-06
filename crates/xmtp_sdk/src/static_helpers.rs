@@ -50,7 +50,7 @@ pub struct MessageMetadataEntry {
     pub created_at: Timestamp,
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 /// Returns one entry per core identity. Keys use `ethereum:<core text>` or
 /// `passkey:<lowercase core hex>`.
 pub async fn can_message_with_backend(
@@ -73,7 +73,7 @@ pub async fn can_message_with_backend(
     ))
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 pub async fn inbox_id_for_with_backend(
     backend: BackendSource,
     identity: PublicIdentity,
@@ -91,7 +91,7 @@ pub async fn inbox_id_for_with_backend(
     InboxId::try_from(inbox)
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 pub async fn inbox_states_with_backend(
     backend: BackendSource,
     ids: Vec<InboxId>,
@@ -121,7 +121,7 @@ pub async fn inbox_states_with_backend(
         .collect()
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 pub async fn key_package_statuses_with_backend(
     backend: BackendSource,
     ids: Vec<InstallationId>,
@@ -166,7 +166,7 @@ pub async fn key_package_statuses_with_backend(
         .collect())
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 pub async fn newest_message_metadata_with_backend(
     backend: BackendSource,
     ids: Vec<ConversationId>,
@@ -198,7 +198,7 @@ pub async fn newest_message_metadata_with_backend(
         .collect()
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 pub async fn is_address_authorized_with_backend(
     backend: BackendSource,
     inbox_id: InboxId,
@@ -217,7 +217,7 @@ pub async fn is_address_authorized_with_backend(
     .map_err(XmtpError::from_client)
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 pub async fn is_installation_authorized_with_backend(
     backend: BackendSource,
     inbox_id: InboxId,
@@ -236,7 +236,7 @@ pub async fn is_installation_authorized_with_backend(
     .map_err(XmtpError::from_client)
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 pub async fn revoke_installations_with_backend(
     backend: BackendSource,
     signer: Arc<dyn Signer>,

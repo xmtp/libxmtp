@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { WorkerSessions } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/worker-sessions";
+import { WorkerSessions } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/worker-sessions";
 import {
   bridgeError,
   encodeError,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
 import { Endpoint } from "./bridge-support";
 
 export function registerWorkerSessionTests(): void {

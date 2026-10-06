@@ -5,16 +5,18 @@
 `crates/xmtp_sdk/AGENTS.md` for the recipes.
 
 A routine façade change (a method, a getter, an event variant or payload
-record, a record field other than one of `MessageData`) needs no edit here.
+record, a Client static, a record field, including one of `MessageData`)
+needs no edit here.
 The façade describes its items with `#[xmtp_macro::sdk_export]`, and the
 generator reads the result from the UniFFI library metadata.
 
 ## Metadata markers
 
-The macro turns its `pure` argument and `#[sdk(...)]` member options into
-`#[doc = "@xmtp-..."]` lines. UniFFI carries docstrings into the library
-metadata, `src/markers.rs` reads them, and the generator strips them from
-generated documentation comments; code and string literals keep their text.
+The macro turns its `pure` and `client_static` arguments and `#[sdk(...)]`
+member options into `#[doc = "@xmtp-..."]` lines. UniFFI carries docstrings
+into the library metadata, `src/markers.rs` reads them, and the generator
+strips them from generated documentation comments; code and string literals
+keep their text.
 `dev/nix-shell 'just sdk lint'` fails if a marker reaches a binding. UniFFI
 includes docstrings in its API checksums, so a new marker changes the
 checksum of its function; the library and its bindings are always generated
@@ -23,6 +25,7 @@ together.
 | Marker | Façade source | What the generator does |
 | --- | --- | --- |
 | `@xmtp-pure` | `#[sdk_export(pure)]` on a sync free function | Puts it in the browser's main-thread pure module, outside the worker bridge |
+| `@xmtp-client-static` | `#[sdk_export(client_static)]` on an async free function | Adds a static that calls the function to the Client of every SDK; see [Client statics](#client-statics) |
 | `@xmtp-worker` | Written in a doc comment | Keeps a call the browser worker makes itself off the bridge |
 | `@xmtp-internal` | Written in a doc comment | Leaves the item out of the public projection |
 | `@xmtp-immutable` | `#[sdk(immutable)]` on a sync `&self` getter | Lets the browser bridge read the getter once, from a snapshot |
@@ -55,6 +58,8 @@ Rules the macro enforces at compile time:
   the object's lifetime; otherwise make the read async.
 - `#[sdk(kind)]` marks every variant of an enum, each with its own kind, or
   none.
+- `client_static` needs an asynchronous free function and excludes `pure`,
+  `native_only`, and `wasm_only`: every SDK has the static.
 - Redaction fails closed. Once a record, or any variant of an enum, has a
   `#[sdk(redact)]` field, every other field of the type takes
   `#[sdk(redact)]` or `#[sdk(shown)]`, so a new field or variant never prints
@@ -97,6 +102,63 @@ Derived without a marker:
   also build a `Client`; any other future that lifts a `Client` stops
   generation, because it may return a `Client` that the caller does not own.
 
+## Client statics
+
+`#[sdk_export(client_static)]` marks an asynchronous free function that every
+SDK also exposes as a static member of its Client. The static's name is the
+function's without a trailing `_with_backend`, in the SDK's casing. It takes
+the function's parameters in Rust order with the `BackendSource` parameter
+moved last, and the function stays exported. So
+`can_message_with_backend(backend, identities)` becomes
+`Client.canMessage(identities, backend)` in TypeScript,
+`SDKClient.canMessage(identities, backend)` in Kotlin, and
+`SDKClient.canMessage(identities:backend:)` in Swift.
+
+- TypeScript: the generated `ClientMembers` base, which the public `Client`
+  extends, gets a static that calls the public function.
+- Kotlin: `runtime/ClientForwarding.kt` gets an extension of
+  `SDKClient.Companion`, with the binding's parameter and result types. A
+  `BackendSource` or a foreign trait passes through its `SDKForeign` wrapper.
+- Swift: `runtime/ClientForwarding.swift` gets a `static func` with every
+  parameter labelled, with the binding's types.
+
+Generation stops on a function that the rule cannot express:
+
+- a synchronous or `@xmtp-internal` one;
+- one with two `BackendSource` parameters or a defaulted `BackendSource`;
+- one with a defaulted parameter that the moved `BackendSource` would
+  follow, because a TypeScript caller could not leave that parameter out;
+- a name that another static, the host constructors `create` and `build`,
+  the class `constructor`, a property of every JavaScript function
+  (`name`, `length`, `prototype`, `caller`, `arguments`), or a Swift
+  declaration keyword (`init`, `deinit`, `subscript`) takes;
+- a binding declaration whose parameters differ from the metadata;
+- a Kotlin parameter that holds a foreign trait or a `BackendSource` that no
+  `SDKForeign` wrapper reaches: a foreign trait without a wrapper, or one in
+  a container, a record, or an enum.
+
+## Message fields
+
+Each SDK's `Message` wraps a `MessageData` record. The generator writes an
+accessor for every field but two that the host reads itself: `client_key`
+names the client that returned the message, and the host decodes `content`
+with that client's codecs. Generation stops when either one is missing.
+
+- TypeScript: `message-fields.gen.ts` holds the getters of the binding
+  message that the Node runtime's and the browser host's `Message` extend.
+  The public `Message` extends the `MessageFields` class of the public
+  projection, which lifts each field to its public value once. A delivery
+  cursor reads as `null` when absent.
+- Kotlin: `runtime/MessageFields.kt` is the base class of `Message`, with
+  value equality and a hash over every `MessageData` field. Byte arrays,
+  including those in enum variants and their records, compare by content;
+  every other value compares as its class does.
+- Swift: `runtime/MessageFields.swift` extends `Message` with an accessor per
+  field, of the type that the binding's `MessageData` struct declares.
+
+The hand-written `Message` classes keep only content and reply decoding and
+the message actions.
+
 ## Hand-maintained areas
 
 These stay outside the markers on purpose:
@@ -104,14 +166,10 @@ These stay outside the markers on purpose:
 - Codecs (`runtime/*/SDKCodecs*`, `runtime/ts/codecs.ts`): each codec needs
   a hand-written runtime class per language, and the name lists sit beside
   those classes.
-- `Message` accessors over `MessageData` (five runtime files, such as
-  `runtime/ts/message.ts` and `runtime/kotlin/SDKTypes.kt`): each language
-  reads the record's fields by hand. A later change generates them.
-- The `*_with_backend` `Client` statics (five hand copies in the Swift,
-  Kotlin, and TypeScript runtimes and the browser bridge templates). A later
-  change generates them.
 - Public projection policy (`src/public_projection/policy.rs`): the
   `CREDENTIAL_GUARD` text and the `DELIVERY_CURSOR_*` lists.
+- The `MessageData` fields that the hand-written `Message` reads itself
+  (`HOST_FIELDS` in `src/message_fields.rs`): `client_key` and `content`.
 - Codec sends (`is_codec_send` in `src/public_projection/objects.rs`) and
   host client methods (`HOST_CLIENT_METHODS` in `src/forwarding.rs`).
 - Rust `Debug` of a redacted record (`redacted_debug` in the façade): the

@@ -1,10 +1,16 @@
 import { expect, it } from "vitest";
 
 import {
+  Message,
+  registerClient,
+} from "../../../../target/sdk-generated/typescript-wasm/host-message.gen.js";
+import { UniffiInternalError } from "../../../../target/sdk-generated/typescript-wasm/node_modules/@ubjs/core/dist/esm/index.js";
+import type { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
+import {
   ValueCodec,
   type Layouts,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/codec.js";
-import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/codec.js";
+import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.js";
 import {
   BRIDGE_ERROR_CODES,
   BridgeError,
@@ -12,13 +18,7 @@ import {
   bridgeError,
   decodeError,
   encodeError,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire.js";
-import {
-  Message,
-  registerClient,
-} from "../../../../target/sdk-generated/typescript-wasm/host-message.gen.js";
-import { UniffiInternalError } from "../../../../target/sdk-generated/typescript-wasm/node_modules/@ubjs/core/dist/esm/index.js";
-import type { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
 import { encodeError as encodeGeneratedError } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
 import {
   Compression,

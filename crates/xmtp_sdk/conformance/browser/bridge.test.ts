@@ -33,7 +33,7 @@ describe("message stream factories", () => {
   for (const kind of ["all", "group", "dm"] as const) {
     it(`cancels a blocked ${kind} opener through its transport signal`, async () => {
       const { MessageStream } =
-        await import("../../../../apps/xmtp_sdk_bindgen/runtime/ts/streams/reader");
+        await import("../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader");
       let opened!: () => void;
       const arrived = new Promise<void>((resolve) => {
         opened = resolve;
@@ -82,7 +82,7 @@ describe("message stream factories", () => {
     });
     it(`forwards ${kind} selection and transport separately`, async () => {
       const { MessageStream } =
-        await import("../../../../apps/xmtp_sdk_bindgen/runtime/ts/streams/reader");
+        await import("../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader");
       const selection = {
         from: "dc1_exact",
         consentStates: [],

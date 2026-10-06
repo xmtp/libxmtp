@@ -9,17 +9,14 @@
     "reportUnusedDisableDirectives": "error"
   },
   // Stock ubrn output (the binding and its `binding.ts` root) stays excluded.
-  // Generated bridge files and the generated package roots are linted.
+  // The copied runtime, the generated bridge files, and the generated package
+  // roots are linted.
   "ignorePatterns": [
     "**/dist/**",
     "**/coverage/**",
-    "target/sdk-generated/typescript-napi/**",
-    "target/sdk-generated/typescript-wasm/runtime/**",
-    "target/sdk-generated/typescript-wasm/xmtp_sdk*.ts",
-    "target/sdk-generated/typescript-wasm/binding.ts",
-    "target/sdk-generated/typescript-pure/runtime/**",
-    "target/sdk-generated/typescript-pure/xmtp_sdk*.ts",
-    "target/sdk-generated/typescript-pure/binding.ts"
+    "target/sdk-generated/*/xmtp_sdk*.ts",
+    "target/sdk-generated/*/binding.ts",
+    "target/sdk-generated/*/snippets/**"
   ],
   "rules": {
     "no-array-constructor": "error",

@@ -47,7 +47,8 @@ private class CodecRegistry(
 
 /**
  * The host client resolves storage and owns the weak message lookup entry.
- * Generated forwarders in `ClientForwarding.kt` expose the other Client methods.
+ * Generated forwarders in `ClientForwarding.kt` expose the other Client methods
+ * and the Client statics.
  * The generated Client stays private to the runtime.
  */
 class SDKClient private constructor(
@@ -111,59 +112,6 @@ class SDKClient private constructor(
                 Client.build(identity, resolved(options, defaultDirectory), inboxId),
                 codecs,
             ).also { ClientRegistry.register(it) }
-
-        suspend fun fetchServerConfiguration(backend: BackendSource): ServerConfiguration =
-            uniffi.xmtp_sdk.fetchServerConfiguration(SDKForeign.backend(backend))
-
-        suspend fun canMessage(
-            identities: List<PublicIdentity>,
-            backend: BackendSource,
-        ): Map<String, Boolean> = canMessageWithBackend(SDKForeign.backend(backend), identities)
-
-        suspend fun inboxIdFor(
-            identity: PublicIdentity,
-            backend: BackendSource,
-        ): InboxId = inboxIdForWithBackend(SDKForeign.backend(backend), identity)
-
-        suspend fun inboxStates(
-            ids: List<InboxId>,
-            backend: BackendSource,
-        ): List<InboxState> = inboxStatesWithBackend(SDKForeign.backend(backend), ids)
-
-        suspend fun keyPackageStatuses(
-            ids: List<InstallationId>,
-            backend: BackendSource,
-        ): Map<String, KeyPackageStatus> = keyPackageStatusesWithBackend(SDKForeign.backend(backend), ids)
-
-        suspend fun newestMessageMetadata(
-            ids: List<ConversationId>,
-            backend: BackendSource,
-        ): Map<String, MessageMetadataEntry> = newestMessageMetadataWithBackend(SDKForeign.backend(backend), ids)
-
-        suspend fun revokeInstallations(
-            signer: Signer,
-            inboxId: InboxId,
-            ids: List<InstallationId>,
-            backend: BackendSource,
-        ) = revokeInstallationsWithBackend(SDKForeign.backend(backend), SDKForeign.signer(signer), inboxId, ids)
-
-        suspend fun isAddressAuthorized(
-            address: String,
-            inboxId: InboxId,
-            backend: BackendSource,
-        ): Boolean = isAddressAuthorizedWithBackend(SDKForeign.backend(backend), inboxId, address)
-
-        suspend fun isInstallationAuthorized(
-            installationId: InstallationId,
-            inboxId: InboxId,
-            backend: BackendSource,
-        ): Boolean = isInstallationAuthorizedWithBackend(SDKForeign.backend(backend), inboxId, installationId)
-
-        suspend fun verifySignedWithPublicKey(
-            text: String,
-            signature: ByteArray,
-            publicKey: ByteArray,
-        ): Boolean = uniffi.xmtp_sdk.verifySignedWithPublicKey(text, signature, publicKey)
     }
 
     suspend fun end() {

@@ -1,11 +1,11 @@
 import { expect, it } from "vitest";
 
+import * as P from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
 import {
   RemoteObject,
   endOwner,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/remote-object";
-import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session";
-import * as P from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object";
+import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import { EventStream as HostEventStream } from "../../../../target/sdk-generated/typescript-wasm/runtime/events/reader";
 import { publicEventStream } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/events";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";

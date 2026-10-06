@@ -73,22 +73,6 @@ sealed class SDKReplyContent {
     ) : SDKReplyContent()
 }
 
-private fun EncodedContent?.deepEquals(other: EncodedContent?): Boolean =
-    if (this == null || other == null) {
-        this == null && other == null
-    } else {
-        type == other.type && parameters == other.parameters && fallback == other.fallback &&
-            content.contentEquals(other.content)
-    }
-
-private fun EncodedContent?.deepHashCode(): Int {
-    if (this == null) return 0
-    var result = type.hashCode()
-    result = 31 * result + parameters.hashCode()
-    result = 31 * result + (fallback?.hashCode() ?: 0)
-    return 31 * result + content.contentHashCode()
-}
-
 data class Timestamp(
     val ns: Long,
 ) {
@@ -138,9 +122,10 @@ private fun decodeReplyBody(
         }
     }
 
+/** A received or stored message. [MessageFields] holds its fields and equality. */
 class Message(
-    val data: MessageData,
-) {
+    data: MessageData,
+) : MessageFields(data) {
     val inReplyToContent: SDKReplyContent? =
         data.inReplyTo?.let { decodeReplyBody(it.content, data.clientKey) }
     val replyContent: SDKReplyContent? =
@@ -164,23 +149,6 @@ class Message(
                 }
             }
         }
-    val deliveryCursor: String? get() = data.deliveryCursor
-    val id get() = data.id
-    val conversationId get() = data.conversationId
-    val topic get() = data.topic
-    val senderInboxId get() = data.senderInboxId
-    val sentAt get() = data.sentAt
-    val kind get() = data.kind
-    val deliveryStatus get() = data.deliveryStatus
-    val rawBytes get() = data.rawBytes
-    val contentType get() = data.contentType
-    val fallback get() = data.fallback
-    val encoded get() = data.encoded
-    val replyCount get() = data.replyCount
-    val reactions get() = data.reactions
-    val inReplyTo get() = data.inReplyTo
-    val insertedAt get() = data.insertedAt
-    val expiresAt get() = data.expiresAt
 
     suspend fun refresh(): Message? = client().raw.conversations().getMessageById(id)
 
@@ -222,116 +190,6 @@ class Message(
     fun client(): SDKClient =
         ClientRegistry.get(data.clientKey)
             ?: throw clientClosedError()
-
-    override fun equals(other: Any?): Boolean =
-        other is Message &&
-            id == other.id && data.clientKey == other.data.clientKey &&
-            data.conversationId == other.data.conversationId && data.topic == other.data.topic &&
-            data.deliveryCursor == other.data.deliveryCursor &&
-            data.senderInboxId == other.data.senderInboxId && data.sentAt == other.data.sentAt &&
-            data.kind == other.data.kind && data.deliveryStatus == other.data.deliveryStatus &&
-            data.contentType == other.data.contentType && data.fallback == other.data.fallback &&
-            data.insertedAt == other.data.insertedAt && data.expiresAt == other.data.expiresAt &&
-            data.replyCount == other.data.replyCount && data.reactions == other.data.reactions &&
-            data.inReplyTo.deepEquals(other.data.inReplyTo) &&
-            data.rawBytes.contentEquals(other.data.rawBytes) &&
-            data.encoded.deepEquals(other.data.encoded) &&
-            when (val value = data.content) {
-                is MessageContent.Text -> {
-                    value == other.data.content
-                }
-
-                is MessageContent.Markdown -> {
-                    value == other.data.content
-                }
-
-                is MessageContent.ReadReceipt -> {
-                    other.data.content is MessageContent.ReadReceipt
-                }
-
-                is MessageContent.Reaction -> {
-                    value == other.data.content
-                }
-
-                is MessageContent.Reply -> {
-                    val otherContent = other.data.content
-                    otherContent is MessageContent.Reply && value.referenceId == otherContent.referenceId &&
-                        value.body.deepEquals(otherContent.body)
-                }
-
-                is MessageContent.Custom -> {
-                    val otherContent = other.data.content
-                    otherContent is MessageContent.Custom &&
-                        value.encoded.deepEquals(otherContent.encoded) &&
-                        value.rawBytes.contentEquals(otherContent.rawBytes)
-                }
-
-                is MessageContent.Unknown -> {
-                    val otherContent = other.data.content
-                    otherContent is MessageContent.Unknown &&
-                        value.encoded.deepEquals(otherContent.encoded) &&
-                        value.rawBytes.contentEquals(otherContent.rawBytes) && value.error == otherContent.error
-                }
-
-                else -> {
-                    value == other.data.content
-                }
-            }
-
-    override fun hashCode(): Int {
-        var result = id.hashCode()
-        result = 31 * result + data.clientKey.hashCode()
-        result = 31 * result + (data.deliveryCursor?.hashCode() ?: 0)
-        result = 31 * result + data.conversationId.hashCode()
-        result = 31 * result + data.senderInboxId.hashCode()
-        result = 31 * result + data.sentAt.hashCode()
-        result = 31 * result + data.kind.hashCode()
-        result = 31 * result + data.deliveryStatus.hashCode()
-        result = 31 * result + data.contentType.hashCode()
-        result = 31 * result + (data.fallback?.hashCode() ?: 0)
-        result = 31 * result + data.insertedAt.hashCode()
-        result = 31 * result + (data.expiresAt?.hashCode() ?: 0)
-        result = 31 * result + data.replyCount.hashCode()
-        result = 31 * result + data.reactions.hashCode()
-        result = 31 * result + data.inReplyTo.deepHashCode()
-        result = 31 * result + data.rawBytes.contentHashCode()
-        result = 31 * result + data.encoded.deepHashCode()
-        result = 31 * result +
-            when (val value = data.content) {
-                is MessageContent.Text -> {
-                    value.hashCode()
-                }
-
-                is MessageContent.Markdown -> {
-                    value.hashCode()
-                }
-
-                is MessageContent.ReadReceipt -> {
-                    0
-                }
-
-                is MessageContent.Reaction -> {
-                    value.hashCode()
-                }
-
-                is MessageContent.Reply -> {
-                    31 * value.referenceId.hashCode() + value.body.deepHashCode()
-                }
-
-                is MessageContent.Custom -> {
-                    31 * value.encoded.deepHashCode() + value.rawBytes.contentHashCode()
-                }
-
-                is MessageContent.Unknown -> {
-                    31 * (31 * value.encoded.deepHashCode() + value.rawBytes.contentHashCode()) + value.error.hashCode()
-                }
-
-                else -> {
-                    value.hashCode()
-                }
-            }
-        return result
-    }
 }
 
 private fun closedContentDetails() = ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed")
@@ -340,60 +198,6 @@ private fun clientClosedError() =
     XmtpException.ClientClosed(
         ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed"),
     )
-
-private fun MessageBody.deepEquals(other: MessageBody): Boolean =
-    when {
-        this is MessageBody.Custom && other is MessageBody.Custom -> {
-            encoded.deepEquals(other.encoded) &&
-                rawBytes.contentEquals(other.rawBytes)
-        }
-
-        this is MessageBody.Unknown && other is MessageBody.Unknown -> {
-            encoded.deepEquals(other.encoded) &&
-                rawBytes.contentEquals(other.rawBytes) &&
-                error == other.error
-        }
-
-        else -> {
-            this == other
-        }
-    }
-
-private fun MessageBody.deepHashCode(): Int =
-    when (this) {
-        is MessageBody.Custom -> 31 * encoded.deepHashCode() + rawBytes.contentHashCode()
-        is MessageBody.Unknown -> 31 * (31 * encoded.deepHashCode() + rawBytes.contentHashCode()) + error.hashCode()
-        else -> hashCode()
-    }
-
-private fun ReplyParent?.deepEquals(other: ReplyParent?): Boolean =
-    when {
-        this == null || other == null -> {
-            this == null && other == null
-        }
-
-        else -> {
-            id == other.id && senderInboxId == other.senderInboxId && sentAt == other.sentAt &&
-                kind == other.kind && deliveryStatus == other.deliveryStatus &&
-                contentType == other.contentType && fallback == other.fallback &&
-                rawBytes.contentEquals(other.rawBytes) && content.deepEquals(other.content) &&
-                encoded.deepEquals(other.encoded)
-        }
-    }
-
-private fun ReplyParent?.deepHashCode(): Int {
-    if (this == null) return 0
-    var result = id.hashCode()
-    result = 31 * result + senderInboxId.hashCode()
-    result = 31 * result + sentAt.hashCode()
-    result = 31 * result + kind.hashCode()
-    result = 31 * result + deliveryStatus.hashCode()
-    result = 31 * result + contentType.hashCode()
-    result = 31 * result + (fallback?.hashCode() ?: 0)
-    result = 31 * result + rawBytes.contentHashCode()
-    result = 31 * result + content.deepHashCode()
-    return 31 * result + encoded.deepHashCode()
-}
 
 object ClientRegistry {
     private val entries = ConcurrentHashMap<ULong, WeakReference<SDKClient>>()

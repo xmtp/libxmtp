@@ -1,3 +1,4 @@
+import { MessageFields } from "../message-fields.gen";
 import {
   ErrorCategory,
   MessageBody_Tags,
@@ -10,8 +11,6 @@ import {
   type MessageBody,
   type MessageData,
   type MessageId,
-  type ConversationId,
-  type InboxId,
   type Reaction,
   type SendOptions,
 } from "../xmtp_sdk";
@@ -38,7 +37,8 @@ function decodeReplyBody(
   return liftCustomBody(body, owner !== undefined, decoded);
 }
 
-export class Message {
+/** A binding message. The generated base reads its fields. */
+export class Message extends MessageFields {
   readonly content:
     | Exclude<
         MessageContent,
@@ -52,7 +52,8 @@ export class Message {
   readonly inReplyToContent?: LiftedReplyBody;
   readonly replyContent?: LiftedReplyBody;
 
-  constructor(readonly data: MessageData) {
+  constructor(data: MessageData) {
+    super(data);
     const parent = data.inReplyTo?.content;
     this.inReplyToContent =
       parent === undefined
@@ -91,74 +92,6 @@ export class Message {
     const owner = ClientRegistry.get(data.clientKey);
     const decoded = owner?.decodeCustom(content.inner.encoded);
     this.content = liftCustomContent(content, owner !== undefined, decoded);
-  }
-
-  get deliveryCursor(): string | null {
-    return this.data.deliveryCursor ?? null;
-  }
-
-  get id(): MessageId {
-    return this.data.id;
-  }
-
-  get conversationId(): ConversationId {
-    return this.data.conversationId;
-  }
-
-  get topic() {
-    return this.data.topic;
-  }
-
-  get senderInboxId(): InboxId {
-    return this.data.senderInboxId;
-  }
-
-  get sentAt() {
-    return this.data.sentAt;
-  }
-
-  get kind() {
-    return this.data.kind;
-  }
-
-  get deliveryStatus() {
-    return this.data.deliveryStatus;
-  }
-
-  get contentType() {
-    return this.data.contentType;
-  }
-
-  get fallback() {
-    return this.data.fallback;
-  }
-
-  get rawBytes() {
-    return this.data.rawBytes;
-  }
-
-  get encoded() {
-    return this.data.encoded;
-  }
-
-  get replyCount() {
-    return this.data.replyCount;
-  }
-
-  get reactions() {
-    return this.data.reactions;
-  }
-
-  get insertedAt() {
-    return this.data.insertedAt;
-  }
-
-  get expiresAt() {
-    return this.data.expiresAt;
-  }
-
-  get inReplyTo() {
-    return this.data.inReplyTo;
   }
 
   async refresh(): Promise<Message | undefined> {

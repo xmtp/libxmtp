@@ -3,15 +3,15 @@ import { expect, it, vi } from "vitest";
 import {
   LogCallbackQueue,
   MainCallbacks,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/callbacks.js";
-import { logSinkSetter } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/log-sink.js";
-import type { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
-import { WorkerSessions } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/worker-sessions.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/callbacks.js";
+import { logSinkSetter } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/log-sink.js";
+import type { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.js";
+import { WorkerSessions } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/worker-sessions.js";
 import type {
   CallbackWire,
   HandleWire,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire.js";
-import { WorkerHost } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
+import { WorkerHost } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.js";
 import { waitForLog } from "../ts/logging-wait.js";
 import { pair } from "./bridge-support.js";
 

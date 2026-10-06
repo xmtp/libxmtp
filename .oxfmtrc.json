@@ -22,7 +22,10 @@
     "dev/release-tools/dist/**",
     "sdks/*/dist/**",
     // Stock ubrn output has any and as casts; see apps/xmtp_sdk_bindgen/GENERATED_LINT.md.
-    "target/sdk-generated/**"
+    // The copied runtime and the generated files are checked.
+    "target/sdk-generated/*/xmtp_sdk*",
+    "target/sdk-generated/*/binding.ts",
+    "target/sdk-generated/*/snippets/**"
   ],
   "printWidth": 80,
   "proseWrap": "preserve",

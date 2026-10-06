@@ -706,6 +706,13 @@ fn markers_the_macro_writes_are_rejected_in_doc_comments() {
             ),
             "write #[sdk_export(pure)] instead of `@xmtp-pure`",
         ),
+        (
+            quote!(
+                /// Reads the backend. @xmtp-client-static
+                pub async fn inbox_states_with_backend() {}
+            ),
+            "write #[sdk_export(client_static)] instead of `@xmtp-client-static`",
+        ),
         // cfg_attr expands before UniFFI reads the docstring.
         (
             quote!(
@@ -795,7 +802,7 @@ fn markers_the_macro_writes_are_rejected_in_doc_comments() {
             pub fn id(&self) -> u64 { 0 }
         }),
     );
-    // `pure` writes its own marker after the check.
+    // `pure` and `client_static` write their own markers after the check.
     assert!(
         export(
             quote!(pure),
@@ -806,5 +813,14 @@ fn markers_the_macro_writes_are_rejected_in_doc_comments() {
             )
         )
         .contains("@xmtp-pure")
+    );
+    assert!(
+        export(
+            quote!(client_static),
+            quote!(
+                pub async fn inbox_states_with_backend() {}
+            )
+        )
+        .contains("@xmtp-client-static")
     );
 }

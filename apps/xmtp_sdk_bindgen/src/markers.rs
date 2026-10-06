@@ -11,6 +11,9 @@ use std::{borrow::Cow, ops::Range};
 use anyhow::{Result, bail};
 use uniffi_meta::{FieldMetadata, Metadata, MetadataGroupMap};
 
+/// An asynchronous free function that every SDK also exposes as a static
+/// member of its Client.
+pub(crate) const CLIENT_STATIC: &str = "@xmtp-client-static";
 /// A synchronous getter whose value never changes for the object's lifetime.
 pub(crate) const IMMUTABLE: &str = "@xmtp-immutable";
 /// The public string of an enum variant: `@xmtp-kind=conversation.joined`.
@@ -30,7 +33,16 @@ pub(crate) const REDACT: &str = "@xmtp-redact";
 pub(crate) const REDACTED: &str = "@xmtp-redacted";
 
 /// Every marker the generator reads.
-const VOCABULARY: &[&str] = &[IMMUTABLE, INTERNAL, KIND, PURE, REDACT, REDACTED, WORKER];
+const VOCABULARY: &[&str] = &[
+    CLIENT_STATIC,
+    IMMUTABLE,
+    INTERNAL,
+    KIND,
+    PURE,
+    REDACT,
+    REDACTED,
+    WORKER,
+];
 
 const PREFIX: &str = "@xmtp-";
 
@@ -447,8 +459,8 @@ mod tests {
             "{error}"
         );
         assert!(error.contains(
-            "@xmtp-immutable, @xmtp-internal, @xmtp-kind, @xmtp-pure, @xmtp-redact, \
-             @xmtp-redacted, @xmtp-worker"
+            "@xmtp-client-static, @xmtp-immutable, @xmtp-internal, @xmtp-kind, @xmtp-pure, \
+             @xmtp-redact, @xmtp-redacted, @xmtp-worker"
         ));
 
         // A marker with punctuation attached is not a marker; it must not
@@ -512,6 +524,13 @@ mod tests {
                 "{doc}: {error}"
             );
         }
+        check_doc("can_message_with_backend", "Reads. @xmtp-client-static")?;
+        let error =
+            check_doc("can_message_with_backend", "@xmtp-client-static=canMessage").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "can_message_with_backend: @xmtp-client-static takes no value"
+        );
         // A package path is prose, whatever follows it.
         for doc in [
             "(@xmtp-org/pkg).",

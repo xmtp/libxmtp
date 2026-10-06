@@ -3,18 +3,18 @@ import { expect } from "vitest";
 import {
   RemoteObject,
   endOwner,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/remote-object.js";
-import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object.js";
+import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.js";
 import {
   type WireEndpoint,
   type WireMessage,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
 import {
   type PoolLocks,
   WorkerHost,
   callWithPool,
   type LockProvider,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.js";
 
 export class Endpoint implements WireEndpoint {
   peer?: Endpoint;

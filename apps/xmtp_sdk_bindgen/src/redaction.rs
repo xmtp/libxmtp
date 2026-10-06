@@ -58,7 +58,7 @@ fn checked(owner: &str, field: &FieldMetadata) -> Result<Option<Redaction>> {
 
 /// The binding name of a field. A tuple variant's fields have no name in the
 /// metadata, and UniFFI names them `v1`, `v2`, … in Kotlin and Swift.
-fn field_name(field: &FieldMetadata, index: usize) -> String {
+pub(crate) fn field_name(field: &FieldMetadata, index: usize) -> String {
     if field.name.is_empty() {
         format!("v{}", index + 1)
     } else {

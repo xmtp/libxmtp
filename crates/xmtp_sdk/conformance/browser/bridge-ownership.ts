@@ -1,12 +1,12 @@
 import { expect, it, vi } from "vitest";
 
-import { RemoteObject } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/remote-object.js";
-import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
+import { RemoteObject } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object.js";
+import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.js";
 import {
   PoolLocks,
   WorkerHost,
   type LockProvider,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.js";
 import {
   host,
   pair,

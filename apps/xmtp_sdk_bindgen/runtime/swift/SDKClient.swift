@@ -26,7 +26,8 @@ private struct CodecRegistry {
 
 /// The host client resolves storage and owns the weak message lookup entry.
 /// Generated forwarders in `ClientForwarding.swift` expose the other Client
-/// methods. The generated Client stays private to the runtime.
+/// methods and the Client statics. The generated Client stays private to the
+/// runtime.
 public final class SDKClient: @unchecked Sendable {
     let raw: Client
     let listenerGates = ListenerGates()
@@ -82,46 +83,6 @@ public final class SDKClient: @unchecked Sendable {
             await AppleStreamLifecycle.enableIfNeeded()
         #endif
         return try await SDKClient(Client.build(identity: identity, options: resolved(options), inboxId: inboxId), codecs: codecs)
-    }
-
-    public static func fetchServerConfiguration(backend: BackendSource) async throws -> ServerConfiguration {
-        try await XmtpSdk.fetchServerConfiguration(backend: backend)
-    }
-
-    public static func canMessage(_ identities: [PublicIdentity], backend: BackendSource) async throws -> [String: Bool] {
-        try await canMessageWithBackend(backend: backend, identities: identities)
-    }
-
-    public static func inboxId(for identity: PublicIdentity, backend: BackendSource) async throws -> InboxId {
-        try await inboxIdForWithBackend(backend: backend, identity: identity)
-    }
-
-    public static func inboxStates(_ ids: [InboxId], backend: BackendSource) async throws -> [InboxState] {
-        try await inboxStatesWithBackend(backend: backend, ids: ids)
-    }
-
-    public static func keyPackageStatuses(_ ids: [InstallationId], backend: BackendSource) async throws -> [String: KeyPackageStatus] {
-        try await keyPackageStatusesWithBackend(backend: backend, ids: ids)
-    }
-
-    public static func newestMessageMetadata(_ ids: [ConversationId], backend: BackendSource) async throws -> [String: MessageMetadataEntry] {
-        try await newestMessageMetadataWithBackend(backend: backend, ids: ids)
-    }
-
-    public static func revokeInstallations(signer: Signer, inboxId: InboxId, ids: [InstallationId], backend: BackendSource) async throws {
-        try await revokeInstallationsWithBackend(backend: backend, signer: signer, inboxId: inboxId, ids: ids)
-    }
-
-    public static func isAddressAuthorized(_ address: String, inboxId: InboxId, backend: BackendSource) async throws -> Bool {
-        try await isAddressAuthorizedWithBackend(backend: backend, inboxId: inboxId, address: address)
-    }
-
-    public static func isInstallationAuthorized(_ installationId: InstallationId, inboxId: InboxId, backend: BackendSource) async throws -> Bool {
-        try await isInstallationAuthorizedWithBackend(backend: backend, inboxId: inboxId, installationId: installationId)
-    }
-
-    public static func verifySignedWithPublicKey(_ text: String, signature: Data, publicKey: Data) async throws -> Bool {
-        try await XmtpSdk.verifySignedWithPublicKey(text: text, signature: signature, publicKey: publicKey)
     }
 
     public func end() async throws {

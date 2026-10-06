@@ -25,6 +25,13 @@ Run commands from the repository root in the Nix shell. Run
   Keep most new files below 500 lines.
 - `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
   Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
+  The TypeScript runtime imports the binding, so the lint and the bridge tests
+  read its copy in each generated tree; `apps/xmtp_sdk_bindgen/GENERATED_LINT.md`
+  has the details. Generation replaces a tree without its `@ubjs` packages:
+  each script that loads or typechecks one links them first with
+  `crates/xmtp_sdk/dev/link-runtime-packages`. For editors,
+  `apps/xmtp_sdk_bindgen/runtime/ts/tsconfig.json` resolves the binding in the
+  generated Node tree.
   It also rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) in
   the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
   in test source sets.
@@ -115,8 +122,15 @@ metadata markers, so a routine export needs no generator edit:
   then takes `#[sdk(redact)]` or `#[sdk(shown)]`. The macro implements `Debug` for the
   type through its `fn redacted_debug(&self, f)`, which redacts the same
   fields, so the type cannot also derive `Debug`.
-- A `MessageData` field, a `*_with_backend` `Client` static, or a new identity
-  route still needs the hand edits that the generator README lists.
+- A backend function that the Client also exposes takes
+  `#[sdk_export(client_static)]`; it must be async and available on every
+  target. Every SDK gets a Client static named without the trailing
+  `_with_backend`, with the `BackendSource` argument last, and the function
+  stays exported.
+- A `MessageData` field gets an accessor on `Message` in every SDK, and a
+  place in Kotlin's `Message` equality, from the generator.
+- A new identity route still needs the hand edits that the generator README
+  lists.
 
 `apps/xmtp_sdk_bindgen/README.md` lists the markers and the areas that stay
 hand-maintained.
