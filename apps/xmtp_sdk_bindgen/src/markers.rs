@@ -196,8 +196,26 @@ fn check_value(owner: &str, name: &str, value: Option<&str>) -> Result<()> {
 
 /// A redacted field relies on the macro's checks: its siblings say whether
 /// they print, and the type's `Debug` hides it too. Only a type that went
-/// through `sdk_export` carries `@xmtp-redacted`.
+/// through `sdk_export` carries `@xmtp-redacted`. An error enum cannot redact:
+/// the Swift `errorDescription` and the Kotlin exception print every value.
+/// UniFFI marks an error enum whatever its derive is called, so this holds
+/// for one the macro did not recognise as an error.
 fn check_redaction(item: &Metadata) -> Result<()> {
+    if let Metadata::Enum(value) = item
+        && value.shape.is_error()
+        && (has(value.docstring.as_deref(), REDACTED)
+            || value
+                .variants
+                .iter()
+                .flat_map(|variant| &variant.fields)
+                .any(|field| redaction(field).is_some()))
+    {
+        bail!(
+            "{}: an error enum cannot redact a field; its Swift errorDescription and Kotlin \
+             exception print every value",
+            value.name
+        );
+    }
     // Each field with the name an error reports.
     let (doc, fields): (_, Vec<(String, &FieldMetadata)>) = match item {
         Metadata::Record(record) => (
@@ -538,6 +556,41 @@ mod tests {
                 )
             );
         }
+    }
+
+    // An error enum's Swift errorDescription and Kotlin exception print every
+    // value, so it cannot redact, whatever spelling of uniffi::Error made it.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn an_error_enum_cannot_redact() {
+        let error_enum = |docstring: Option<&str>, marker: Option<&str>| {
+            let mut item = enumeration(
+                "Failure",
+                vec![variant(
+                    "Denied",
+                    None,
+                    vec![field("token", Type::String, marker)],
+                )],
+            );
+            let Metadata::Enum(value) = &mut item else {
+                unreachable!()
+            };
+            value.shape = uniffi_meta::EnumShape::Error { flat: false };
+            value.docstring = docstring.map(Into::into);
+            item
+        };
+        let message = "Failure: an error enum cannot redact a field; its Swift errorDescription \
+                       and Kotlin exception print every value";
+        for item in [
+            error_enum(Some("@xmtp-redacted"), Some("@xmtp-redact")),
+            error_enum(Some("@xmtp-redacted"), None),
+            error_enum(None, Some("@xmtp-redact")),
+        ] {
+            assert_eq!(
+                validate(&groups(vec![item])).unwrap_err().to_string(),
+                message
+            );
+        }
+        validate(&groups(vec![error_enum(None, None)]))?;
     }
 
     // UniFFI writes each docstring line as ` * line` in a `/** */` block. A
