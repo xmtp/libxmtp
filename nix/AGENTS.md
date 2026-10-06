@@ -22,6 +22,9 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 - Local protobuf generation needs schemas and the real proto build script in both dependency-only and final sources, plus build-platform `protoc` when cross-compiling. After changing source filters, verify that a schema edit changes the dependency derivation and an unrelated Rust source edit does not.
 - Backend builds restore only the shared dependency sources over the dummy workspace. Include migrations, SQL query files, and `apps/backend/.sqlx` metadata. Add each new shared dependency to the restored crate list. Build with `SQLX_OFFLINE=true`; no database is allowed during the build.
 - The Rust shell provides sqlx-cli. Keep its version aligned with the backend SQLx dependency.
+- SDK compiler sources use a dummy workspace and restore the selected local
+  dependency graph. Keep embedded SDK data and bindgen templates in the real
+  compiler source. Provenance wrappers keep the complete source identity.
 
 `backend-ci` packages disposable PostgreSQL, VersityGW, and the native backend.
 It supports one command on an isolated macOS runner. It does not add services

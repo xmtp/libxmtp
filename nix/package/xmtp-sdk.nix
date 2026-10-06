@@ -9,34 +9,9 @@ let
   rustToolchain = xmtp.mkNativeToolchain [ "wasm32-unknown-unknown" ] [ ];
   rust = xmtp.craneLib.overrideToolchain (p: rustToolchain);
   hostTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;
-  root = ./../..;
-  sdkSource = lib.fileset.toSource {
-    inherit root;
-    # Cargo checks every workspace member against Cargo.lock. Keep the full
-    # workspace so the filtered source does not change the lock file.
-    fileset = lib.fileset.unions [
-      xmtp.filesets.workspace
-      (lib.fileset.fileFilter (
-        file:
-        (
-          lib.hasSuffix ".rs" file.name || lib.hasSuffix ".proto" file.name || lib.hasSuffix ".sql" file.name
-        )
-        || file.name == "Cargo.toml"
-      ) (root + /crates))
-      (lib.fileset.fileFilter (
-        file:
-        (
-          lib.hasSuffix ".rs" file.name || lib.hasSuffix ".proto" file.name || lib.hasSuffix ".sql" file.name
-        )
-        || file.name == "Cargo.toml"
-      ) (root + /apps))
-      (root + /flake.lock)
-      (root + /rust-toolchain.toml)
-      (root + /crates/xmtp_sdk)
-      (root + /apps/xmtp_sdk_bindgen)
-      (root + /crates/xmtp_configuration)
-    ];
-  };
+  sources = pkgs.callPackage ../lib/sdk-sources.nix { };
+  sdkSource = sources.sdk rust;
+  mkProvenance = pkgs.callPackage ../lib/sdk-provenance.nix { };
   common = xmtp.base.commonArgs // {
     version = xmtp.mkVersion rust;
     doNotPostBuildInstallCargoBinaries = true;
@@ -50,7 +25,7 @@ let
     # Darwin setup replaces this variable before the Cargo build.
     preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
   };
-  native = rust.buildPackage (
+  nativeBuild = rust.buildPackage (
     common
     // nativeArgs
     // {
@@ -67,6 +42,11 @@ let
       '';
     }
   );
+  native = mkProvenance {
+    compilation = nativeBuild;
+    source = sources.provenanceSource;
+    target = hostTarget;
+  };
   wasmArgs = {
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     inherit (xmtp.shellCommon.wasmEnv)
@@ -102,7 +82,7 @@ let
     common
     // {
       pname = "xmtp-sdk-bindgen";
-      src = sdkSource;
+      src = sources.bindgen rust;
       cargoArtifacts = xmtp.base.mkCargoArtifacts rust false { };
       buildPhaseCargoCommand = "cargo build --release --locked -p xmtp-sdk-bindgen";
       installPhaseCommand = ''
@@ -129,7 +109,7 @@ let
         // nativeArgs
         // {
           pname = "xmtp-sdk-ios-${target}";
-          src = sdkSource;
+          src = sources.sdk iosRust;
           CARGO_BUILD_TARGET = target;
           __noChroot = true;
           cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (
@@ -151,13 +131,13 @@ let
     )
   );
   ubrn = pkgs.callPackage ../lib/packages/ubrn.nix { };
-  nativeLibrary = "${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"}";
+  nativeLibrary = "${nativeBuild}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"}";
   mkRender =
     language: artifact: pure:
     stdenvNoCC.mkDerivation {
       pname = "xmtp-sdk-render-${language}";
       version = xmtp.mkVersion rust;
-      src = sdkSource;
+      src = sources.generationSource (if language == "swift" then "swift" else "all");
       nativeBuildInputs = [
         bindgen
         rustToolchain
@@ -187,7 +167,7 @@ let
     typescript-pure = mkRender "typescript-pure" "${pureWasm}/lib/xmtp_sdk.wasm" true;
   };
   binaries = {
-    native = nativeLibrary;
+    native = "${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"}";
     bindgen = "${bindgen}/bin/xmtp-sdk-bindgen";
     wasm = "${wasm}/lib/xmtp_sdk.wasm";
     pure = "${pureWasm}/lib/xmtp_sdk.wasm";
@@ -197,8 +177,9 @@ let
     stdenvNoCC.mkDerivation {
       pname = "xmtp-sdk-generated${name}";
       version = xmtp.mkVersion rust;
-      src = sdkSource;
+      src = sources.provenanceSource;
       nativeBuildInputs = [ pkgs.python3 ];
+      dontFixup = true;
       buildPhase = ''
         mkdir -p "$out"
         ${lib.concatMapStringsSep "\n" (language: ''
@@ -216,6 +197,19 @@ let
         ''}
       '';
       installPhase = "true";
+      passthru = {
+        provenanceSource = sources.provenanceSource;
+        rendering =
+          if builtins.length languages == 1 then
+            renders.${builtins.head languages}
+          else
+            pkgs.linkFarm "xmtp-sdk-render${name}" (
+              map (language: {
+                name = language;
+                path = renders.${language};
+              }) languages
+            );
+      };
     };
   generatedSwift = mkGenerated "-swift" [ "swift" ] [ "native" "bindgen" ] [ ];
   generatedKotlin = mkGenerated "-kotlin" [ "kotlin" ] [ "native" "bindgen" ] [ ];
@@ -242,6 +236,11 @@ in
     generatedNode
     generatedBrowser
     iosTargets
+    nativeBuild
+    ;
+  generationSource = sources.generationSource;
+  inherit (sources)
+    provenanceSource
     ;
   runtimes = ubrn;
 }

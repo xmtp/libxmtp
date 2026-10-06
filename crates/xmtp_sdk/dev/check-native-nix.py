@@ -23,7 +23,8 @@ let
   };
 in builtins.listToAttrs (map (name: {
   inherit name;
-  value = { main = inputs p.${name}; deps = inputs p.${name}.cargoArtifacts; };
+  value = let compiler = p.${name}.compilation or p.${name};
+    in { main = inputs compiler; deps = inputs compiler.cargoArtifacts; };
 }) names)
 """
 

@@ -24,6 +24,10 @@ let
       cp "$out/swift/xmtp_sdkFFI.modulemap" "$out/swift/include/module.modulemap"
     '';
     installPhase = "true";
+    passthru = {
+      rendering = sdk.generatedSwift.rendering;
+      provenanceSource = sdk.provenanceSource;
+    };
   };
   mkIos = targetList: {
     targets = lib.genAttrs targetList native;
@@ -32,6 +36,7 @@ let
       pname = "xmtp-sdk-apple-libs";
       inherit version;
       dontUnpack = true;
+      passthru = { inherit swiftBindings; };
       installPhase = ''
         mkdir -p "$out/swift"
         ${lib.concatMapStringsSep "\n" (target: ''
