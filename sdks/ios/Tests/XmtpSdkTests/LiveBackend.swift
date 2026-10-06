@@ -96,7 +96,8 @@ func within<T: Sendable>(
 /// The first result or error of `first` and `second`. Each one runs in its own
 /// unstructured task. When one finishes, the helper cancels the other and returns
 /// without waiting for it, so an operation that ignores cancellation cannot hang a
-/// test, and no task outlives the race for longer than its cancellation takes.
+/// test. Cancellation is cooperative, so such an operation can outlive the race and
+/// keep its resources. Callers must not rely on this cancellation for cleanup.
 /// When the caller is cancelled, the helper cancels both and throws
 /// `CancellationError`. A task group cannot do this: it waits for all of its child tasks.
 func firstResult<T: Sendable>(
