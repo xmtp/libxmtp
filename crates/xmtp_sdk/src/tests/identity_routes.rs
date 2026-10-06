@@ -191,6 +191,54 @@ async fn dm_with_unregistered_account_fails_and_stores_no_conversation() {
     alix.end().await?;
 }
 
+// An account address passed where an inbox ID is expected fails a DM, a group
+// create and a member add. The DM fails before it stores a conversation, and
+// the add leaves the membership unchanged.
+#[xmtp_common::test(unwrap_try = true)]
+async fn account_address_as_inbox_id_fails_and_stores_no_dm() {
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let address = InboxId::unchecked(format!("0x{}", "a".repeat(40)));
+    let conversations = alix.conversations();
+
+    let dm_error = conversations
+        .create_dm(address.clone(), None)
+        .await
+        .err()
+        .expect("a DM with an account address must fail");
+    assert!(
+        dm_error.to_string().contains("invalid inbox id"),
+        "the DM must fail on the inbox ID check, got {dm_error:?}"
+    );
+    assert!(conversations.list(None).await?.is_empty());
+    assert!(
+        conversations
+            .get_dm_by_inbox_id(address.clone())
+            .await?
+            .is_none()
+    );
+
+    let group_error = conversations
+        .create_group(vec![address.clone()], None)
+        .await
+        .err();
+    assert!(
+        group_error.is_some(),
+        "a group with an account address must fail"
+    );
+
+    let group = conversations
+        .create_group(vec![bo.inbox_id()], None)
+        .await?;
+    let add_error = group.add_members(vec![address]).await.err();
+    assert!(add_error.is_some(), "adding an account address must fail");
+    assert_eq!(
+        member_ids(&group).await?,
+        sorted(vec![alix.inbox_id(), bo.inbox_id()])
+    );
+    alix.end().await?;
+}
+
 // verifies: PROC-036
 #[xmtp_common::test(unwrap_try = true)]
 async fn inbox_member_add_error_logs_omit_installation_ids() {
