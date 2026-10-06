@@ -12,22 +12,50 @@ func liveOptions(
 	ClientOptions(backend: .options(options: BackendOptions(url: url)), storage: storage, deviceSync: false)
 }
 
-/// Creates `count` clients on the live backend and runs `body` with them. It
-/// ends every created client on every exit: after `body` returns or throws,
-/// and when a later client create fails. The first error wins.
-func withLiveClients<T>(_ count: Int, _ body: ([SDKClient]) async throws -> T) async throws -> T {
-	var clients: [SDKClient] = []
+/// The clients that a `withClients` body creates. The helper ends all of them.
+final class ClientScope: @unchecked Sendable {
+	private let created = Shared<[SDKClient]>([])
+
+	/// The clients, in the order the body created them.
+	var clients: [SDKClient] {
+		created.value
+	}
+
+	/// Keeps `client` for the helper to end, and returns it.
+	@discardableResult
+	func own(_ client: SDKClient) -> SDKClient {
+		created.update { $0.append(client) }
+		return client
+	}
+
+	func create(
+		signer: Signer, options: ClientOptions = liveOptions(), codecs: [any ContentCodec] = [],
+	) async throws -> SDKClient {
+		try await own(SDKClient.create(signer: signer, options: options, codecs: codecs))
+	}
+
+	func build(
+		identity: PublicIdentity, options: ClientOptions, inboxId: InboxId? = nil, codecs: [any ContentCodec] = [],
+	) async throws -> SDKClient {
+		try await own(SDKClient.build(identity: identity, options: options, inboxId: inboxId, codecs: codecs))
+	}
+}
+
+/// Runs `body` and then ends every client that it created through the scope,
+/// in reverse order. It does this on every exit: when `body` returns, throws,
+/// or stops at a failed create. A client that `body` ended already ends again
+/// without an error, because `end()` on a closed client returns at once. The
+/// first error wins: the error of `body`, then the first failed `end()`.
+func withClients<T>(_ body: (ClientScope) async throws -> T) async throws -> T {
+	let scope = ClientScope()
 	let result: Result<T, Error>
 	do {
-		for _ in 0 ..< count {
-			try await clients.append(SDKClient.create(signer: generateLocalSigner(), options: liveOptions()))
-		}
-		result = try await .success(body(clients))
+		result = try await .success(body(scope))
 	} catch {
 		result = .failure(error)
 	}
 	var endFailure: Error?
-	for client in clients {
+	for client in scope.clients.reversed() {
 		do {
 			try await client.end()
 		} catch {
@@ -39,6 +67,18 @@ func withLiveClients<T>(_ count: Int, _ body: ([SDKClient]) async throws -> T) a
 		throw endFailure
 	}
 	return value
+}
+
+/// Creates `count` clients on the live backend and runs `body` with them.
+/// `withClients` ends every created client on every exit.
+func withLiveClients<T>(_ count: Int, _ body: ([SDKClient]) async throws -> T) async throws -> T {
+	try await withClients { scope in
+		var clients: [SDKClient] = []
+		for _ in 0 ..< count {
+			try await clients.append(scope.create(signer: generateLocalSigner()))
+		}
+		return try await body(clients)
+	}
 }
 
 /// A failed check that is not an XCTest assertion, for example in a callback.

@@ -62,11 +62,12 @@ final class AuthenticationCallbackTests: XCTestCase {
 		let source = CountingCredentialSource(fail: false)
 		var options = liveOptions()
 		options.backend = .options(options: BackendOptions(url: liveBackendURL, credentials: source))
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
-		XCTAssertGreaterThan(source.calls.value, 0, "Client creation did not ask the credential source")
-		let reachable = try await client.canMessage(identities: [client.identity()])
-		XCTAssertEqual(reachable.values.first, true)
-		try await client.end()
+		try await withClients { scope in
+			let client = try await scope.create(signer: generateLocalSigner(), options: options)
+			XCTAssertGreaterThan(source.calls.value, 0, "Client creation did not ask the credential source")
+			let reachable = try await client.canMessage(identities: [client.identity()])
+			XCTAssertEqual(reachable.values.first, true)
+		}
 	}
 
 	func testCredentialSourceFailureIsTypedAndHidesItsText() async throws {
@@ -74,9 +75,10 @@ final class AuthenticationCallbackTests: XCTestCase {
 		var options = liveOptions()
 		options.backend = .options(options: BackendOptions(url: liveBackendURL, credentials: source))
 		do {
-			let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
-			try await client.end()
-			XCTFail("A failed credential source allowed client creation")
+			try await withClients { scope in
+				_ = try await scope.create(signer: generateLocalSigner(), options: options)
+				XCTFail("A failed credential source allowed client creation")
+			}
 		} catch let XmtpError.CredentialCallbackFailed(details) {
 			XCTAssertEqual(details.category, .callback)
 			assertHidden(XmtpError.CredentialCallbackFailed(details), details)
@@ -87,9 +89,10 @@ final class AuthenticationCallbackTests: XCTestCase {
 	func testThrowingSignerFailureIsTypedAndHidesItsText() async throws {
 		let signer = await FailingSigner(generateLocalSigner())
 		do {
-			let client = try await SDKClient.create(signer: signer, options: liveOptions())
-			try await client.end()
-			XCTFail("A failed signature registered the client")
+			try await withClients { scope in
+				_ = try await scope.create(signer: signer)
+				XCTFail("A failed signature registered the client")
+			}
 		} catch let XmtpError.Signer(details) {
 			XCTAssertEqual(details.category, .callback)
 			assertHidden(XmtpError.Signer(details), details)

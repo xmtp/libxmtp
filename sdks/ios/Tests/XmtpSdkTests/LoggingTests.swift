@@ -39,10 +39,11 @@ final class LoggingTests: XCTestCase {
 		let sink = RecordingSink()
 		try await setLogSink(sink: sink)
 
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: liveOptions())
-		_ = try await client.conversations().createGroup(members: [InboxId]())
-		let delivered = await eventually(seconds: 30) { !sink.records.value.isEmpty }
-		try await client.end()
+		let delivered = try await withClients { scope in
+			let client = try await scope.create(signer: generateLocalSigner())
+			_ = try await client.conversations().createGroup(members: [InboxId]())
+			return await eventually(seconds: 30) { !sink.records.value.isEmpty }
+		}
 
 		XCTAssertTrue(delivered, "No SDK log reached the Swift sink after \(sink.calls.value) calls")
 		XCTAssertGreaterThan(sink.calls.value, 1, "The sink was not called again after it threw")
