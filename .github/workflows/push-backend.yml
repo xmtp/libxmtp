@@ -44,12 +44,11 @@ jobs:
       - name: Pin the build source
         id: source
         env:
-          RELEASE_BUILD: ${{ inputs.release-build }}
           WORKFLOW_SHA: ${{ github.sha }}
         run: |
           sha=$(git rev-parse HEAD)
-          if [ "$RELEASE_BUILD" = "true" ] && [ "$sha" != "$WORKFLOW_SHA" ]; then
-            echo "::error::Backend releases require the workflow revision and source ref to use the same commit"
+          if [ "$sha" != "$WORKFLOW_SHA" ]; then
+            echo "::error::Backend builds require the workflow revision and source ref to use the same commit"
             exit 1
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
