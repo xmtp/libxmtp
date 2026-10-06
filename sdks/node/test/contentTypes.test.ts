@@ -42,7 +42,7 @@ describe("Content types", () => {
     },
   );
 
-  it("lifts every sendable standard kind into the read message", async () => {
+  it("lifts every sendable standard kind and a deletion into the read message", async () => {
     const client = await createRegisteredClient(createSigner().signer);
     try {
       const group = await client.conversations.createGroup([]);
@@ -68,6 +68,18 @@ describe("Content types", () => {
           value: valueOf(sdk.decodeStandard(sdk.encodeStandard(content))),
         });
       }
+
+      // A delete is not a sendable kind: the hand-written Message.delete()
+      // wrapper sends it, and the read lifts the deletedMessage variant.
+      const deletedId = await group.sendText("delete this message");
+      const deleted = await client.conversations.getMessageById(deletedId);
+      expect(typeof (await deleted!.delete())).toBe("string");
+      expect(
+        (await client.conversations.getMessageById(deletedId))?.content,
+      ).toEqual({
+        kind: "deletedMessage",
+        value: { deletedBy: { kind: "sender" } },
+      });
     } finally {
       await client.end();
     }

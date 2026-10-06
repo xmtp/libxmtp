@@ -61,18 +61,25 @@ describe("Client", () => {
     }
   });
 
-  it("builds a client without a signer and permits static identity reads", async () => {
+  it("builds a client without a signer and runs the static identity calls", async () => {
     const { signer, identifier, address } = createSigner();
     const backend = { url: process.env.XMTP_BACKEND_URL! };
     const options = clientOptions({ backend });
     const registered = await createRegisteredClient(signer, options);
     const { inboxId, installationId } = registered;
+    const signature = await registered.signWithInstallationKey("gm");
+    const installationKey = registered.installationIdBytes;
     await registered.end();
+    expect(
+      await Client.verifySignedWithPublicKey("gm", signature, installationKey),
+    ).toBe(true);
     const built = await buildClient(identifier, options);
     expect(built.inboxId).toBe(inboxId);
     expect(built.identity).toEqual(identifier);
-    // The static wrappers move the backend argument; both other arguments are
-    // strings, so only a live read catches a swap.
+    await built.end();
+    // The static wrappers in runtime/ts/client.ts move the backend argument to
+    // the front. Only a live call catches an argument swap.
+    expect(await Client.inboxIdFor(identifier, backend)).toBe(inboxId);
     expect(await Client.isAddressAuthorized(inboxId, address, backend)).toBe(
       true,
     );
@@ -89,6 +96,23 @@ describe("Client", () => {
     expect(
       await Client.isInstallationAuthorized(inboxId, "00".repeat(32), backend),
     ).toBe(false);
+
+    const other = await createRegisteredClient(signer, { backend });
+    try {
+      await Client.revokeInstallations(
+        signer,
+        inboxId,
+        [installationId],
+        backend,
+      );
+      const [state] = await Client.inboxStates([inboxId], backend);
+      expect(state.inboxId).toBe(inboxId);
+      expect(state.installations.map((i) => i.id)).toEqual([
+        other.installationId,
+      ]);
+    } finally {
+      await other.end();
+    }
   });
 
   it("uses the selected storage pool and encryption key", async () => {

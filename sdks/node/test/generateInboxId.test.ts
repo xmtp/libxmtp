@@ -87,6 +87,13 @@ function invalidArgument(operation: () => unknown): void {
   });
 }
 
+// The nonce checks below throw in generated TypeScript. Only a malformed
+// identity reaches the native call and the synchronous Rust error lift.
+test("synchronous inbox calculation lifts a Rust input error for a malformed identity", () =>
+  invalidArgument(() =>
+    generateInboxId({ kind: "ethereum", identifier: "invalid-address" }),
+  ));
+
 test.each([-1n, 18_446_744_073_709_551_616n])(
   "synchronous inbox calculation rejects nonce %s before unsigned conversion",
   (nonce) => invalidArgument(() => generateInboxId(ethereum, nonce)),
