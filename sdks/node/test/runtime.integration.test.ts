@@ -97,6 +97,11 @@ it("lifts every returned value to plain public data", async () => {
   expect(alix.options.workers?.defaultIntervalNs).toBe(interval);
   const bo = await createRegisteredClient(createSigner().signer);
   const group = await alix.conversations.createGroup([bo.identity]);
+  // The generated member guard rejects a list that mixes inbox IDs and
+  // identities before it calls Rust.
+  await expect(
+    group.addMembers([bo.inboxId, bo.identity] as never),
+  ).rejects.toBeInstanceOf(XmtpError.InvalidArgument);
   const id = await group.sendText("plain");
   const message = (await group.messages()).find((item) => item.id === id)!;
   // The hand-written Message actions route by the message's own IDs.

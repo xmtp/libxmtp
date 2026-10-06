@@ -23,6 +23,7 @@ const idle = (): ReaderLike<never> => ({
   end: async () => {},
 });
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const done = { done: true, value: undefined };
 
 /** A reader scope that one open reader at a time may hold. */
 function scope() {
@@ -353,6 +354,32 @@ describe("host reader stream", () => {
     await ending;
     expect(reasons).toEqual([{ kind: "closed" }]);
     expect((await stream.next()).done).toBe(true);
+  });
+
+  it("return during a pending open aborts the opener and settles", async () => {
+    // A native open settles only when its creation signal aborts. Without
+    // that abort, return waits on the opener forever.
+    const opening = Promise.withResolvers<void>();
+    const reasons: StreamCloseReason[] = [];
+    const stream = new MessageStream(
+      (signal) =>
+        new Promise<never>((_, reject) => {
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+          opening.resolve();
+        }),
+      owner,
+      { onClose: (reason) => reasons.push(reason) },
+    );
+    const read = stream.next();
+    await opening.promise;
+    const deadline = new Promise<"hung">((resolve) =>
+      setTimeout(() => resolve("hung"), 1_000),
+    );
+    expect(await Promise.race([stream.return(), deadline])).toEqual(done);
+    expect(await read).toEqual(done);
+    expect(reasons).toEqual([{ kind: "closed" }]);
   });
 });
 

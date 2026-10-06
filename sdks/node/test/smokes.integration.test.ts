@@ -1,9 +1,16 @@
 // Node smokes for Rust behavior that reaches the app only through generated
 // Node values: catch-up, metadata fields and attachments. Rust tests own the
 // rules (client_build.rs, metadata_fields/*, attachment_flows.rs).
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
 
 import {
   clientOptions,
@@ -13,9 +20,12 @@ import {
 import {
   Client,
   Group,
+  Timestamp,
   XmtpError,
   metadataFieldRef,
+  type ClientEvent,
   type FieldValue,
+  type PendingAttachment,
 } from "@xmtp/node-sdk";
 import { expect, it } from "vitest";
 
@@ -87,6 +97,41 @@ it("well-known catalogue fields read and write between two Node clients", async 
   expect(await peer.userData([displayName], [alix.inboxId])).toEqual(
     new Map([[alix.inboxId, [{ field: displayName, value: text("Alix") }]]]),
   );
+  // A map delta lowers its tuple variant (value0, value1) and inbox ID key;
+  // the map value lifts back with that key.
+  await peer.updateMetadataField(displayName, {
+    kind: "mapDelta",
+    value: [
+      {
+        kind: "insert",
+        value0: { kind: "inboxId", value: bo.inboxId },
+        value1: text("Bo"),
+      },
+    ],
+  });
+  await group.sync();
+  expect(
+    await group.mapValue(displayName, { kind: "inboxId", value: bo.inboxId }),
+  ).toEqual(text("Bo"));
+  // A batch read lifts each value in request order.
+  const values = await group.metadataValues([displayName, groupName]);
+  expect(values.map((value) => value.field.componentId)).toEqual([
+    displayName.componentId,
+    groupName.componentId,
+  ]);
+  const entry = (inboxId: string, name: string) => ({
+    key: { kind: "inboxId", value: inboxId },
+    value: text(name),
+  });
+  expect(values[0]!.value).toEqual({
+    kind: "map",
+    value: expect.arrayContaining([
+      entry(alix.inboxId, "Alix"),
+      entry(bo.inboxId, "Bo"),
+    ]),
+  });
+  expect(values[0]!.value?.value).toHaveLength(2);
+  expect(values[1]!.value).toEqual({ kind: "scalar", value: text("Team") });
   await expect(
     peer.updateMetadataField(
       { componentId: 0xc0ff, name: undefined },
@@ -144,18 +189,66 @@ it("a peer downloads an uploaded attachment to a file and deletes it", async () 
       mimeType: "text/plain",
     });
     const pending = await sender.attachments.create(source("attachment bytes"));
-    const other = await sender.attachments.create(source("other bytes"));
+    // A path source with no filename lowers as the path variant; Rust names
+    // the file from the path.
+    const otherPath = join(root, "other.bin");
+    await writeFile(otherPath, "other bytes");
+    const other = await sender.attachments.create({
+      kind: "path",
+      path: otherPath,
+      filename: undefined,
+      mimeType: "text/plain",
+    });
+    expect(other.remoteAttachment.filename).toBe("other.bin");
+    const digests = (list: PendingAttachment[]) =>
+      list.map((item) => item.remoteAttachment.contentDigest).sort();
+    expect(digests(await sender.attachments.listPending())).toEqual(
+      digests([pending, other]),
+    );
+    const resumed = await sender.attachments.pending(pending.remoteAttachment);
+    expect(await resumed.status()).toEqual({ kind: "waiting" });
     const dm = await sender.conversations.createDm(receiver.inboxId);
     const sent = await dm.sendRemoteAttachment(pending.remoteAttachment);
     await pending.upload();
     await other.upload();
     expect(await pending.status()).toEqual({ kind: "complete" });
+    expect(await resumed.status()).toEqual({ kind: "complete" });
+    expect(await sender.attachments.listPending()).toEqual([]);
+    // An upload whose staged data is gone fails, and its status carries the
+    // same failure record.
+    const broken = await sender.attachments.create(source("broken bytes"));
+    const storagePath = await sender.storage.path();
+    if (storagePath === undefined) throw new Error("no storage path");
+    await unlink(
+      join(
+        dirname(storagePath),
+        "attachments",
+        ".staged",
+        broken.remoteAttachment.contentDigest,
+      ),
+    );
+    const uploadFailure = await broken.upload().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(uploadFailure).toBeInstanceOf(XmtpError.Attachment);
+    expect(await broken.status()).toEqual({
+      kind: "failed",
+      value: (uploadFailure as { attachmentFailure: unknown })
+        .attachmentFailure,
+    });
+    expect(await broken.status()).toMatchObject({
+      value: { cause: "stagedUnusable" },
+    });
 
     await receiver.conversations.syncAll(undefined);
     const message = await receiver.conversations.getMessageById(sent);
     if (message?.content.kind !== "remoteAttachment")
       throw new Error("the record did not arrive");
     const attachments = receiver.attachments;
+    const events = await receiver.events({
+      kinds: ["attachment.download_completed", "attachment.deleted"],
+    });
     const path = await attachments.localPath(message.content.value);
     const downloaded = await attachments.download(message.content.value);
     expect(downloaded).toEqual({
@@ -178,10 +271,45 @@ it("a peer downloads an uploaded attachment to a file and deletes it", async () 
       details: { code: "Attachment" },
       attachmentFailure: { cause: "digestMismatch", retryable: false },
     });
-    expect(await attachments.listLocal()).toHaveLength(1);
+    // A local file lifts with a path relative to the attachment directory
+    // and a Timestamp.
+    const local = await attachments.listLocal();
+    expect(local).toHaveLength(1);
+    expect(isAbsolute(local[0]!.path)).toBe(false);
+    expect(path.endsWith(sep + local[0]!.path)).toBe(true);
+    expect(local[0]!.createdAt).toBeInstanceOf(Timestamp);
     await attachments.deleteLocal(message.content.value);
     expect(await attachments.listLocal()).toEqual([]);
     await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
+    // The download and delete events carry the attachment's reference.
+    const reference = {
+      attachment_key: expect.any(String),
+      url: message.content.value.url,
+      content_digest: message.content.value.contentDigest,
+    };
+    const nextEvent = async () => {
+      let timer!: NodeJS.Timeout;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("no event")), 10_000);
+      });
+      try {
+        return (await Promise.race([events.next(), timeout]))
+          .value as ClientEvent;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    const completed = await nextEvent();
+    const deleted = await nextEvent();
+    expect(completed).toEqual({
+      kind: "attachment.download_completed",
+      attachment_download_completed: reference,
+    });
+    expect(deleted).toEqual({
+      kind: "attachment.deleted",
+      attachment_deleted: reference,
+    });
+    await events.return();
     await receiver.end();
     await sender.end();
   } finally {

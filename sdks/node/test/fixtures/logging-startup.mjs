@@ -132,7 +132,14 @@ try {
     0,
     "repeat init replaced the first logging exporter",
   );
+  // A cleared sink gets no later record. Records already handed to the JS
+  // thread may still land, so settle before the count is taken.
   await setLogSink(undefined);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const recordsAtClear = records;
+  await assert.rejects(localSignerFromPrivateKey(new Uint8Array(31)));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(records, recordsAtClear, "a cleared log sink was called");
   console.log(
     JSON.stringify({
       result: "PASS",
