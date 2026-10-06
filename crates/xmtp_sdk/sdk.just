@@ -103,8 +103,13 @@ check-native-nix:
 check-source-isolation-nix:
     cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-source-isolation-nix.py
 
+# Check the real generation and mobile consumer build closures.
+check-generated-nix:
+    cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-generated-nix.py
+
 check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-native-nix-gate.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-generated-records.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py
@@ -126,41 +131,9 @@ mobile-build target:
 mobile-stage target:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py stage "{{ target }}"
 
-# Compare complete installed release packages with the approved paired gates.
-cutover-bench target config output:
-    {{ _env }} && cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/runner.py {{ quote(target) }} {{ quote(config) }} {{ quote(output) }}
-
-cutover-bench-check:
-    cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
-    cd "{{ root }}" && node crates/xmtp_sdk/benchmarks/seed_selection_controls.mjs
-    cd "{{ root }}" && node crates/xmtp_sdk/benchmarks/entry_controls.mjs
-    cd "{{ root }}" && node --experimental-vm-modules crates/xmtp_sdk/benchmarks/browser_window_controls.mjs
-    cd "{{ root }}" && node --experimental-vm-modules crates/xmtp_sdk/benchmarks/workload_window_controls.mjs
-
-# Compile the exact Swift delay helper with its accepted and rejected bounds.
-cutover-bench-swift-delay-check output:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/swift_delay_controls.py {{ quote(output) }}
-
-# Use the ios Nix shell. The product is an installed public Swift package.
-cutover-bench-ios-prepare config output:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/hosts/ios/prepare.py prepare "{{ config }}" "{{ output }}"
-
-cutover-bench-ios-controls config output:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/ios_controls.py "{{ config }}" "{{ output }}"
-
-cutover-bench-ios-build output udid derived:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/hosts/ios/prepare.py build "{{ output }}" "{{ udid }}" "{{ derived }}"
-
-cutover-bench-baselines output:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/baselines.py "{{ output }}"
-
 # Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
 check-android-toolchain:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
-
-# Run live-content regressions in Node, Chromium, and compiled mobile helpers.
-cutover-bench-stream-check output browser_tools:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/stream_controls.py "{{ output }}" --browser-tools "{{ browser_tools }}"
 
 # Check selected-host counter injection with generated bindings and no Rust build.
 check-conformance-targets generated="target/sdk-generated":

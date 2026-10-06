@@ -14,21 +14,20 @@ let
   swiftBindings = stdenv.mkDerivation {
     pname = "xmtp-sdk-swift";
     inherit version;
-    src = sdk.generationSource "swift";
-    nativeBuildInputs = [
-      sdk.bindgen
-      (xmtp.mkNativeToolchain [ ] [ ])
-    ];
+    dontUnpack = true;
     buildPhase = ''
-      xmtp-sdk-bindgen generate --lib ${sdk.nativeBuild}/lib/libxmtp_sdk.dylib \
-        --language swift --no-format --out "$out/swift" \
-        --config apps/xmtp_sdk_bindgen/uniffi-global.toml
+      mkdir -p "$out/swift"
+      cp -R ${sdk.generatedSwift}/swift/. "$out/swift/"
+      chmod -R u+w "$out/swift"
       mkdir -p "$out/swift/include"
       cp "$out/swift/xmtp_sdkFFI.h" "$out/swift/include/"
       cp "$out/swift/xmtp_sdkFFI.modulemap" "$out/swift/include/module.modulemap"
     '';
     installPhase = "true";
-    passthru.provenanceSource = sdk.provenanceSource;
+    passthru = {
+      rendering = sdk.generatedSwift.rendering;
+      provenanceSource = sdk.provenanceSource;
+    };
   };
   mkIos = targetList: {
     targets = lib.genAttrs targetList native;

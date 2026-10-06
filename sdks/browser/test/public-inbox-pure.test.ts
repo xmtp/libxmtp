@@ -20,18 +20,10 @@ const ethereum: PublicIdentity = {
 };
 const passkey: PublicIdentity = { kind: "passkey", identifier: "abcdef" };
 
-// These fixed vectors also occur in the Rust pure identity test.
+// The Rust pure identity test checks every fixed vector. These cases keep
+// the JavaScript bigint conversion: a nonce above 2^53, the largest u64, and
+// the default nonce for the second identity kind.
 const vectors = [
-  [
-    ethereum,
-    0n,
-    "139a684d70154ab320b846179e5219b6e2d192048577779b230763a85a28365d",
-  ],
-  [
-    ethereum,
-    1n,
-    "f020cf771dabaf2610250b5f00076215a8f1da8649ba46cf5ba2d00df6ce5279",
-  ],
   [
     ethereum,
     9_007_199_254_740_993n,
@@ -46,21 +38,6 @@ const vectors = [
     passkey,
     0n,
     "e26bbe40a904acb658e0dd48f4031811b662ce4e6238eef5c46f5bb92550713a",
-  ],
-  [
-    passkey,
-    1n,
-    "ac9f830ae6cf2299ba293dd4cec3be0d87a88e6a8fbfe5015de6fffd11d79b6e",
-  ],
-  [
-    passkey,
-    9_007_199_254_740_993n,
-    "ef91da01728a1d16593d300a7a699d6a7831c43e00916a6b199f8244f207637d",
-  ],
-  [
-    passkey,
-    18_446_744_073_709_551_615n,
-    "469fa9bb87114e117a27305350728cb2a4f85fdae9b5ccaef3b702f879dd9ae4",
   ],
 ] as const;
 
@@ -105,13 +82,11 @@ test.each(vectors)(
   },
 );
 
-test.each([vectors[0], vectors[4]])(
-  "pure inbox calculation defaults %o to nonce zero",
-  (identity, _nonce, expected) => {
-    expect(generateInboxId(identity)).toBe(expected);
-    expect(generateInboxId(identity, undefined)).toBe(expected);
-  },
-);
+test("pure inbox calculation defaults to nonce zero", () => {
+  const [identity, , expected] = vectors[2];
+  expect(generateInboxId(identity)).toBe(expected);
+  expect(generateInboxId(identity, undefined)).toBe(expected);
+});
 
 function invalidArgument(operation: () => unknown): void {
   let thrown: unknown;
@@ -128,13 +103,10 @@ function invalidArgument(operation: () => unknown): void {
   });
 }
 
-test.each([
-  { kind: "ethereum", identifier: "invalid-address" },
-  { kind: "passkey", identifier: "not hex" },
-] satisfies PublicIdentity[])(
-  "pure inbox calculation rejects malformed %o with a typed input error",
-  (identity) => invalidArgument(() => generateInboxId(identity)),
-);
+test("pure inbox calculation rejects a malformed identity with a typed input error", () =>
+  invalidArgument(() =>
+    generateInboxId({ kind: "ethereum", identifier: "invalid-address" }),
+  ));
 
 test.each([-1n, 18_446_744_073_709_551_616n])(
   "pure inbox calculation rejects nonce %s before unsigned conversion",

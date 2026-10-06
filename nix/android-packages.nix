@@ -51,7 +51,7 @@
       sdkDylibs = lib.mapAttrs (
         _: p: p.callPackage ./package/xmtp-sdk-native.nix { android = true; }
       ) crossPkgs;
-      generatedKotlin = "${self.packages.${system}.xmtp-sdk-generated}/kotlin";
+      generatedKotlin = "${self.packages.${system}.xmtp-sdk-generated-kotlin}/kotlin";
       sdkSources =
         map
           (name: {

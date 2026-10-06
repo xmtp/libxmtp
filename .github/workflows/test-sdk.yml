@@ -192,9 +192,9 @@ jobs:
       - name: Generate TypeScript bindings
         shell: bash
         run: |
-          # The Rust cache restores target/, so clear the staging output first.
-          # Otherwise `cp -R` below copies into the cached @ubjs folders.
-          rm -rf target/sdk-generated/typescript-napi
+          # This job generates only Node. Remove all cached language roots
+          # before recording the native-only product.
+          rm -rf target/sdk-generated
           mkdir -p target/sdk-generated/typescript-napi
           # This job only loads the package and installs no JavaScript
           # toolchain, so it has no formatter. Formatting only changes layout.

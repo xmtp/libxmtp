@@ -8,7 +8,7 @@ Run commands from the repository root in the Nix shell. Run
   each TypeScript tree, `index.ts` is the package root: the public layer that
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
-  the worker, the benchmark, and transport tests import it.
+  the worker and transport tests import it.
 - `dev/nix-shell 'just sdk check-package-scripts'` runs the normal packaging controls.
   Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
   which the main packaging suite loads as inherited test methods.
@@ -21,6 +21,10 @@ Run commands from the repository root in the Nix shell. Run
   snapshots and checks real Nix derivation changes. Run it after SDK source
   filter changes. It checks unrelated source reuse, required input changes,
   and complete provenance identities. It does not compile a product.
+- `dev/nix-shell 'just sdk check-generated-nix'` checks the real generated SDK and
+  Android fast/full build closures. Native generated products exclude SDK
+  WASM builds. Android uses selected Kotlin. Apple uses selected Swift.
+  This command does not compile a product.
 - `dev/nix-shell 'just sdk check-file-sizes'` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
@@ -28,9 +32,9 @@ Run commands from the repository root in the Nix shell. Run
   Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
   It checks shared public value types on Node and browser, including negative
   consumers for readonly records, transport fields, credentials, and bytes. It also
-  rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and
-  benchmark exports in the default bindings and in
-  `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks in test source sets.
+  rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) in
+  the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
+  in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
 - `dev/nix-shell 'just sdk conformance <swift|kotlin|node>'` runs scenarios against this
   worktree's backend. `dev/nix-shell 'just sdk conformance browser'` runs scenarios 1-11
@@ -54,27 +58,6 @@ Run commands from the repository root in the Nix shell. Run
   replace only the upload URL in a real backend response. Native clients use
   the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
   preserve gRPC status trailers.
-- `dev/nix-shell 'just sdk cutover-bench <swift|kotlin|node|browser> <config> <output>'` runs
-  the installed release benchmark. See `benchmarks/README.md` for the package
-  closure, adapters, metadata, and required checks. It records 20 or more
-  pairs. The release gate stays pending until package and callback review.
-- `dev/nix-shell 'just sdk cutover-bench-ios-prepare <config> <output>'` prepares a Release
-  UIKit app for the installed old or new public Swift product. Then run
-  `NIX_DEVSHELL=ios dev/nix-shell 'just sdk cutover-bench-ios-build <output> <simulator-udid> <derived-data>'`.
-  Use separate side directories. Xcode uses its normal job count.
-  `dev/nix-shell 'just sdk cutover-bench-ios-controls <host-config> <output>'` checks real app
-  memory, signer HTTP, identity rejection, timing scope, and timeout cleanup.
-  See `benchmarks/README.md` for the HTTP signer and app launch configuration.
-- `dev/nix-shell 'just sdk cutover-bench-check'` checks the statistical gates and receipt rules.
-  It also checks new and old Node/browser package admission and deterministic
-  browser long-task interval boundaries and awaited stream cleanup outside timing.
-- `dev/nix-shell 'just sdk cutover-bench-swift-delay-check <output>'` compiles
-  the exact Swift delay helper and checks zero, ordinary, maximum and overflow inputs.
-- `dev/nix-shell 'just sdk cutover-bench-stream-check <output> <browser-node_modules>'` checks
-  live stream content in Node, Chromium, and compiled Swift/Kotlin helpers.
-  It requires missing or changed live content to fail with correct history.
-- `dev/nix-shell 'just sdk cutover-bench-baselines <output>'` resolves published baseline
-  versions and records source and artifact hashes.
 - `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and
   real reader pre-poll, pending and READY handoff. It counts native cancel/free
   calls in generated conformance copies and requires the prior item to replay.

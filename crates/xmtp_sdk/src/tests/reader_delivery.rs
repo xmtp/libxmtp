@@ -364,3 +364,106 @@ async fn stream_ack_only_on_next_request() {
     remaining.end().await?;
     client.end().await?;
 }
+
+/// A running DM-only reader receives a duplicate DM that a new installation of
+/// the peer's inbox creates. The receiver never syncs: the reader alone must
+/// admit the new group, deliver each message once, and keep history order.
+// verifies: DMS-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_reader_receives_duplicate_dm_from_new_peer_installation_without_sync() {
+    use crate::{ConversationKind, MessageKind, MessageReaderOptions};
+
+    const DELIVERY_TIMEOUT: Duration = Duration::from_secs(30);
+
+    let receiver = Client::create(crate::generate_local_signer().await, options()).await?;
+    let owner = crate::generate_local_signer().await;
+    let first = Client::create(owner.clone(), options()).await?;
+    let first_dm = first
+        .conversations()
+        .create_dm(receiver.inbox_id(), None)
+        .await?;
+    let reader = receiver
+        .conversations()
+        .message_reader(Some(MessageReaderOptions {
+            conversation_kind: Some(ConversationKind::Dm),
+            ..Default::default()
+        }))
+        .await?;
+    let mut ids = Vec::new();
+    let mut read_until = async |target: &crate::MessageId| {
+        xmtp_common::time::timeout(DELIVERY_TIMEOUT, async {
+            loop {
+                let message = reader.next().await?.expect("reader ended early");
+                ids.push(message.0.id.clone());
+                if &message.0.id == target {
+                    break Ok::<_, crate::XmtpError>(());
+                }
+            }
+        })
+        .await?
+    };
+
+    let first_id = first_dm
+        .send_text("first installation".into(), None)
+        .await?;
+    read_until(&first_id).await?;
+
+    let second = Client::create(owner, options()).await?;
+    assert_eq!(second.inbox_id(), first.inbox_id());
+    assert_ne!(second.installation_id(), first.installation_id());
+    let second_dm = second
+        .conversations()
+        .create_dm(receiver.inbox_id(), None)
+        .await?;
+    assert_ne!(
+        second_dm.id(),
+        first_dm.id(),
+        "the second DM must be a duplicate group"
+    );
+    let second_id = second_dm.send_text("new installation".into(), None).await?;
+    read_until(&second_id).await?;
+
+    assert_eq!(ids.iter().filter(|id| **id == first_id).count(), 1);
+    assert_eq!(ids.iter().filter(|id| **id == second_id).count(), 1);
+    let received = receiver
+        .conversations()
+        .get_message_by_id(second_id.clone())
+        .await?
+        .expect("stored message");
+    assert!(
+        matches!(received.0.content, MessageContent::Text(ref text) if text == "new installation")
+    );
+
+    let history = receiver
+        .conversations()
+        .message_history_snapshot(100, None)
+        .await?;
+    let history_ids: Vec<_> = history
+        .messages
+        .iter()
+        .map(|message| message.0.id.clone())
+        .collect();
+    assert_eq!(ids, history_ids, "reader order must match history order");
+    let application: Vec<_> = history
+        .messages
+        .iter()
+        .filter(|message| matches!(message.0.kind, MessageKind::Application))
+        .map(|message| message.0.id.clone())
+        .collect();
+    assert_eq!(application, vec![first_id, second_id]);
+    let membership: std::collections::HashSet<_> = history
+        .messages
+        .iter()
+        .filter(|message| matches!(message.0.kind, MessageKind::MembershipChange))
+        .map(|message| message.0.conversation_id.clone())
+        .collect();
+    assert_eq!(
+        membership,
+        std::collections::HashSet::from([first_dm.id(), second_dm.id()])
+    );
+
+    reader.end().await?;
+    receiver.end().await?;
+    first.end().await?;
+    second.end().await?;
+}

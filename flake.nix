@@ -81,6 +81,10 @@
             xmtp-sdk-wasm = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).wasm;
             xmtp-sdk-bindgen = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).bindgen;
             xmtp-sdk-generated = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generated;
+            xmtp-sdk-generated-swift = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generatedSwift;
+            xmtp-sdk-generated-kotlin = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generatedKotlin;
+            xmtp-sdk-generated-node = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generatedNode;
+            xmtp-sdk-generated-browser = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generatedBrowser;
             ubrn = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).cli;
             ubjs-core = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).core;
             ubjs-node = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).node;
