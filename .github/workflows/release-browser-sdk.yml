@@ -114,6 +114,8 @@ jobs:
         with:
           name: browser_sdk_build
           path: target/sdk-packages/browser
+          # The package receipt includes hidden generated files such as .gitkeep.
+          include-hidden-files: true
           retention-days: 1
 
   publish:
