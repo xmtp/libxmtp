@@ -138,9 +138,12 @@ never returns has no thread-release guarantee.
   removal. Public-root consumers require no `.raw`, deep import, alias, CommonJS
   fallback, or legacy codec adapter.
 - All target package, conformance, guide compiler/runtime, current DB compatibility,
-  callback/lifetime and benchmark checks pass at the matched integrated candidate.
-  Required core fixes are merged. A confirmed regression above 20% needs repair
-  or a separate owner exception naming its workload and cost.
+  and callback/lifetime checks pass at the matched integrated candidate.
+  Required core fixes are merged.
+- The paired old-vs-new benchmark gate (the 20% regression rule) is retired
+  with the cutover. The old SDKs are not in the repository, so no paired run
+  is possible. A single-side suite records absolute numbers for trend tracking.
+  It has no pass or fail line.
 - Close a waiver only with proof for its entire row on every applicable host at
   the same candidate. Mixed core/SDK rows need both parts. Add the new `verifies:`
   links and remove the fully proved waiver in the same owning PR. Keep valid

@@ -14,7 +14,6 @@ workspace = true
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [features]
-bench = []
 conformance = ["xmtp_mls/conformance", "xmtp_events/conformance"]
 bridge-panic-test = []
 pure-only = []
