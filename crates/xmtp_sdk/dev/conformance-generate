@@ -20,3 +20,7 @@ if [[ -d "$generated/kotlin" ]]; then
   python3 crates/xmtp_sdk/conformance/inject_callback_counts.py kotlin \
     "$generated/kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt"
 fi
+if [[ -d "$generated/typescript-napi" ]]; then
+  python3 crates/xmtp_sdk/conformance/inject_callback_counts.py typescript \
+    "$generated/typescript-napi/xmtp_sdk.ts"
+fi

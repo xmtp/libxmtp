@@ -28,7 +28,12 @@ import {
   type ContentCodec,
   type StreamCloseReason,
 } from "@xmtp/node-sdk";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+
+// The public options adapter, driven with a fake reader of binding states.
+import { hostOptions } from "../dist/runtime/public/streams.js";
+import { MessageStream as HostMessageStream } from "../dist/runtime/streams/reader.js";
+import { ConnectionState as BoundState } from "../dist/xmtp_sdk.js";
 
 const PUBLIC_OBJECTS = [
   Client,
@@ -194,6 +199,38 @@ it("a stream keeps hostile codec failures typed and delivers the next item", asy
   expect(states[0]?.[0]).toBeUndefined();
   expect(["connecting", "connected"]).toContain(states[0]?.[1]);
   await client.end();
+});
+
+// verifies: PROC-044
+it("public stream options lift the previous and current connection states", async () => {
+  const states: [ConnectionState | undefined, ConnectionState][] = [];
+  const changes: ((state: BoundState) => void)[] = [];
+  const stream = new HostMessageStream(
+    async () => ({
+      next: () => new Promise<undefined>(() => {}),
+      end: async () => {},
+      connectionState: async () => BoundState.Connected,
+      connectionStateChanged: () =>
+        new Promise<BoundState>((resolve) => changes.push(resolve)),
+    }),
+    {},
+    hostOptions({
+      onConnectionStateChange: (previous, current) =>
+        states.push([previous, current]),
+    }),
+  );
+  await stream.ready();
+  for (const next of [BoundState.Reconnecting, BoundState.Connected]) {
+    await vi.waitFor(() => expect(changes).toHaveLength(1));
+    changes.shift()!(next);
+  }
+  await vi.waitFor(() => expect(states).toHaveLength(3));
+  expect(states).toEqual([
+    [undefined, "connected"],
+    ["connected", "reconnecting"],
+    ["reconnecting", "connected"],
+  ]);
+  await stream.end();
 });
 
 // verifies: PROC-052, PROC-031, PROC-041

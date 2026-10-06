@@ -2,6 +2,8 @@
 // apps/xmtp_sdk_bindgen/runtime/ts, driven with fake readers and a fake
 // binding. Rust tests cover the readers and listeners themselves
 // (crates/xmtp_sdk/src/tests/reader_*.rs, event_*.rs).
+import { getEventListeners } from "node:events";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { Client } from "../../../apps/xmtp_sdk_bindgen/runtime/ts/client";
@@ -193,6 +195,27 @@ describe("host reader stream", () => {
     },
   );
 
+  it("an ended stream leaves no abort listener on its signal", async () => {
+    const controller = new AbortController();
+    let returns = 0;
+    const stream = new MessageStream(async () => idle(), owner, {
+      signal: controller.signal,
+    });
+    await stream.ready();
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(1);
+    const original = stream.return.bind(stream);
+    stream.return = () => {
+      returns++;
+      return original();
+    };
+    await stream.end();
+    // An app signal can outlive many streams; an ended stream must not stay
+    // attached to it.
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+    controller.abort();
+    expect(returns).toBe(0);
+  });
+
   // verifies: PROC-044
   it("reports the state at subscription, then each change in order", async () => {
     for (const Stream of [MessageStream, ConversationStream]) {
@@ -380,6 +403,36 @@ describe("host event stream and listeners", () => {
     await dispatch[1]!.onEvent({});
     expect(callback).not.toHaveBeenCalled();
   });
+});
+
+it("a custom codec key keeps authority and type apart when either has a slash", () => {
+  const type = (authorityId: string, typeId: string) => ({
+    authorityId,
+    typeId,
+    versionMajor: 1,
+    versionMinor: 0,
+  });
+  const codec = {
+    type: type("example.org", "a/b"),
+    encode: () => {
+      throw new Error("not used");
+    },
+    decode: () => "slash codec",
+  };
+  const client = new (Client as unknown as new (
+    raw: unknown,
+    codecs: unknown[],
+  ) => Client)({ clientKey: () => 2n }, [codec]);
+  const encoded = (contentType: ReturnType<typeof type>) => ({
+    type: contentType,
+    content: new Uint8Array([1]).buffer,
+  });
+  expect(client.decodeCustom(encoded(type("example.org", "a/b")))).toEqual({
+    value: "slash codec",
+  });
+  expect(
+    client.decodeCustom(encoded(type("example.org/a", "b"))),
+  ).toBeUndefined();
 });
 
 it("Timestamp dates round nanoseconds down to the millisecond", () => {

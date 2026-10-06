@@ -178,6 +178,7 @@ jobs:
               - '.oxlintrc.json'
               - 'apps/cli/**'
               - 'apps/backend/**'
+              - 'apps/xmtp_sdk_bindgen/**'
               - 'sdks/node/**'
               - 'sdks/js.just'
               - 'dev/js/**'
