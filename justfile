@@ -86,6 +86,7 @@ lint-rust:
 
 # Config linting: TOML, Nix, and shell scripts.
 lint-config: lint-treefmt
+    python3.11 sdks/ios/script/test_publish_cocoapods.py
     python3.11 dev/tests/test_android_release.py
     python3.11 dev/tests/test_android_clock.py
     python3.11 dev/tests/test_android_emulator_start.py
