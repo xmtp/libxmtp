@@ -1,3 +1,5 @@
+// A plain generated worker host, without fixture hooks. Proofs that need
+// their own session to the shipped worker build start this file.
 import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,

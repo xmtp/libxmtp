@@ -5,7 +5,6 @@ export default defineConfig({
   cacheDir: "target/sdk-browser-vitest",
   define: {
     __XMTP_BACKEND_URL__: JSON.stringify(process.env.XMTP_BACKEND_URL),
-    __XMTP_S3_BASE_URL__: JSON.stringify(process.env.XMTP_S3_BASE_URL),
     __SDK_FIXTURE_URL__: JSON.stringify(process.env.SDK_FIXTURE_URL),
   },
   resolve: {

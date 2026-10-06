@@ -212,3 +212,36 @@ test("a peer worker projects standard content, content type, and fallback", asyn
     }
   }
 });
+
+test("a codec key keeps authority and type apart when either contains a slash", async () => {
+  const registered = {
+    authorityId: "example.org",
+    typeId: "a/b",
+    versionMajor: 1,
+    versionMinor: 0,
+  };
+  const client = await create(signer(), {
+    codecs: [
+      {
+        type: registered,
+        encode: (value: string): EncodedContent => ({
+          type: registered,
+          content: new TextEncoder().encode(value),
+          parameters: new Map(),
+        }),
+        decode: () => "wrong codec",
+      },
+    ],
+  });
+  const group = await client.conversations.createGroup([]);
+  const id = await group.send({
+    type: { ...registered, authorityId: "example.org/a", typeId: "b" },
+    content: new Uint8Array([1]),
+    parameters: new Map(),
+  });
+  const message = await client.conversations.getMessageById(id);
+  expect(message?.content).toMatchObject({
+    kind: "unknown",
+    error: { code: "CodecNotFound" },
+  });
+});

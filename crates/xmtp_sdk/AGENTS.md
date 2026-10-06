@@ -32,17 +32,18 @@ Run commands from the repository root in the Nix shell. Run
   in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
 - `dev/nix-shell 'just sdk conformance <swift|kotlin|node>'` runs scenarios against this
-  worktree's backend. `dev/nix-shell 'just sdk conformance browser'` runs scenarios 1-11
-  plus a real WASM trap from a test-only panic fixture in Vitest Playwright
-  Chromium, then checks real OPFS and worker behavior. Its recipe builds the
+  worktree's backend. `dev/nix-shell 'just sdk conformance browser'` runs Chromium
+  proofs in Vitest Playwright: a real WASM trap from a test-only panic fixture,
+  storage layouts, attachment and event lifetime, and decode-once. It then
+  checks real OPFS and worker behavior. The public browser scenarios are in
+  `sdks/browser/test`. Its recipe builds the
   pure codec and panic fixtures in the Rust shell before the JS shell.
   Kotlin JVM conformance uses small Android platform stand-ins for the storage
   helper and cleaner. It selects the JNA cleaner branch. Installed Android tests
   use the platform classes.
   Scenario 7 checks readers and streams. Scenario 8 checks events and listeners.
-  The browser run also checks storage layouts and attachments, with failure
-  records in the conformance-featured panic fixture. Worker death uses the
-  generated public package and its shared worker manager.
+  The browser attachment worker-death proof uses the generated public package
+  and its shared worker manager.
   The Swift run has no scenarios. It checks the missing bundle identifier in a
   bare executable, the reader and listener proofs that need the injected
   runtime seams, and the negative consumers. The other Swift checks are in

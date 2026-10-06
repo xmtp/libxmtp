@@ -6,10 +6,15 @@ import {
   Timestamp,
   WalletSendCallsCodec,
   initPureWasm,
+  sdkVersion,
 } from "@xmtp/browser-sdk/pure";
 import { beforeAll, expect, test } from "vitest";
 
 beforeAll(() => initPureWasm());
+
+test("the pure entry reports the Rust workspace version", () => {
+  expect(sdkVersion()).toBe(import.meta.env.XMTP_SDK_VERSION);
+});
 
 test("attachment codecs preserve optional filename and transfer fields", () => {
   const attachment = {

@@ -47,20 +47,11 @@ try {
     await checkWorkerFailure();
     const { checkPureCodecs } = await import("./pure-codecs.chromium.ts");
     const count = await checkPureCodecs();
-    const { checkDeletedMessages } =
-      await import("./message.deleted.chromium.ts");
-    await checkDeletedMessages(url);
-    const { checkMessageStream } = await import("./stream.chromium.ts");
-    await checkMessageStream(url);
     await checkLateReaderOpen(url);
     await checkClientEndDuringReaderOpen(url);
     const { checkCustomMessageLift } =
       await import("./message.custom.chromium.ts");
     checkCustomMessageLift();
-    const { checkStandardMessageLift, checkStandardMessages } =
-      await import("./message.standard.chromium.ts");
-    checkStandardMessageLift();
-    await checkStandardMessages(url);
     return count;
   }, { url: backendURL, readerOpeningOnly });
   if (readerOpeningOnly) {
@@ -69,7 +60,7 @@ try {
   } else {
     assert.equal(result, 15);
     console.log(
-      "Chromium worker failure, 15 pure codecs, deleted messages, message stream, late reader opening, client end during opening, custom lift, and standard messages passed",
+      "Chromium worker failure, 15 pure codecs, late reader opening, client end during opening, and custom and deleted message lift passed",
     );
   }
 } finally {
