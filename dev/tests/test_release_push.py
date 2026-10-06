@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Check release push credentials with a local Git HTTP remote."""
+"""Check isolated release tag transfer with a local Git HTTP remote."""
 
 import base64
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import re
@@ -12,27 +11,27 @@ import tempfile
 from textwrap import dedent
 import threading
 import unittest
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-ACTION = ROOT / ".github/actions/setup-release-push/action.yml"
+WORKFLOW = ROOT / ".github/workflows/push-release-tag.yml"
+
+
+def script(name):
+    text = WORKFLOW.read_text().split("      - name: " + name + "\n", 1)[1]
+    text = text.split("      - ", 1)[0]
+    return dedent(text.split("        run: |\n", 1)[1])
 
 
 class ReleasePushTest(unittest.TestCase):
-    def test_release_token_replaces_checkout_credentials(self):
-        action = ACTION.read_text()
-        script = dedent(action.split("      run: |\n", 1)[1])
+    def test_bundle_push_retains_commit_without_persisting_token(self):
         requests = []
-
-        class Handler(SimpleHTTPRequestHandler):
-            def do_GET(self):
-                requests.append(self.headers.get_all("Authorization", []))
-                super().do_GET()
-
-            def log_message(self, *_args):
-                pass
-
         with tempfile.TemporaryDirectory(prefix="release-push-") as directory:
             root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            temporary = root / "runner"
+            (temporary / "release-tag").mkdir(parents=True)
             env = {
                 key: value
                 for key, value in os.environ.items()
@@ -40,10 +39,10 @@ class ReleasePushTest(unittest.TestCase):
             }
             env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
 
-            def git(*args):
+            def git(*args, cwd=source):
                 return subprocess.run(
                     ["git", *args],
-                    cwd=root,
+                    cwd=cwd,
                     env=env,
                     check=True,
                     capture_output=True,
@@ -53,26 +52,86 @@ class ReleasePushTest(unittest.TestCase):
             git("init", "--initial-branch=main")
             git("config", "user.name", "Test")
             git("config", "user.email", "test@example.com")
-            git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "test")
-            git("clone", "--bare", ".", "remote.git")
-            git("--git-dir=remote.git", "update-server-info")
-            server = ThreadingHTTPServer(
-                ("127.0.0.1", 0), partial(Handler, directory=str(root))
+            git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "source")
+            (source / "Package.swift").write_text("generated release metadata")
+            git("add", "Package.swift")
+            git("-c", "commit.gpgSign=false", "commit", "-m", "release")
+            expected = git("rev-parse", "HEAD").strip()
+            git("-c", "tag.gpgSign=false", "tag", "ios-1.2.3")
+            hook = source / ".git/hooks/pre-push"
+            hook.write_text("#!/bin/sh\nexit 99\n")
+            hook.chmod(0o755)
+            git(
+                "bundle",
+                "create",
+                str(temporary / "release-tag/release.bundle"),
+                "refs/tags/ios-1.2.3",
             )
+            remote = root / "fixture/repo.git"
+            git("init", "--bare", str(remote))
+            git("--git-dir=" + str(remote), "config", "http.receivepack", "true")
+            backend = Path(git("--exec-path").strip()) / "git-http-backend"
+
+            class Handler(BaseHTTPRequestHandler):
+                def handle_git(self):
+                    requests.append(self.headers.get_all("Authorization", []))
+                    url = urlsplit(self.path)
+                    body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                    result = subprocess.run(
+                        [str(backend)],
+                        input=body,
+                        capture_output=True,
+                        check=True,
+                        env=dict(
+                            env,
+                            GIT_PROJECT_ROOT=str(root),
+                            GIT_HTTP_EXPORT_ALL="1",
+                            REQUEST_METHOD=self.command,
+                            PATH_INFO=url.path,
+                            QUERY_STRING=url.query,
+                            CONTENT_TYPE=self.headers.get("Content-Type", ""),
+                            CONTENT_LENGTH=str(len(body)),
+                        ),
+                    )
+                    headers, response = result.stdout.split(b"\r\n\r\n", 1)
+                    self.send_response(200)
+                    for line in headers.decode().splitlines():
+                        key, value = line.split(":", 1)
+                        self.send_header(key, value.strip())
+                    self.end_headers()
+                    self.wfile.write(response)
+
+                do_GET = handle_git
+                do_POST = handle_git
+
+                def log_message(self, *_args):
+                    pass
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
             worker = threading.Thread(target=server.serve_forever, daemon=True)
             worker.start()
             try:
-                url = f"http://127.0.0.1:{server.server_port}"
-                key = f"http.{url}/.extraheader"
-                # Checkout v6 can put its credential in an included file.
-                auth_file = root / ".git/checkout-auth"
-                git("config", "--file", str(auth_file), key, "AUTHORIZATION: basic old")
-                git("config", "include.path", str(auth_file))
                 token = "fixture-release-token"
-                result = subprocess.run(
-                    ["bash", "-euc", script],
+                step_env = dict(
+                    env,
+                    RUNNER_TEMP=str(temporary),
+                    SDK="ios",
+                    VERSION="1.2.3",
+                    GITHUB_SERVER_URL=f"http://127.0.0.1:{server.server_port}",
+                    GITHUB_REPOSITORY="fixture/repo",
+                    RELEASE_TOKEN=token,
+                )
+                subprocess.run(
+                    ["bash", "-euc", script("Import release tag")],
                     cwd=root,
-                    env=dict(env, RELEASE_TOKEN=token, GITHUB_SERVER_URL=url),
+                    env=step_env,
+                    check=True,
+                    capture_output=True,
+                )
+                result = subprocess.run(
+                    ["bash", "-euc", script("Push release tag")],
+                    cwd=root,
+                    env=step_env,
                     check=True,
                     capture_output=True,
                     text=True,
@@ -81,43 +140,77 @@ class ReleasePushTest(unittest.TestCase):
                 self.assertEqual(
                     result.stdout.strip(), f"::add-mask::AUTHORIZATION: basic {encoded}"
                 )
-                self.assertIn("refs/heads/main", git("ls-remote", f"{url}/remote.git"))
+                self.assertEqual(
+                    expected,
+                    git("--git-dir=" + str(remote), "rev-parse", "ios-1.2.3").strip(),
+                )
                 self.assertTrue(requests)
                 self.assertTrue(
                     all(headers == [f"basic {encoded}"] for headers in requests),
                     requests,
                 )
+                config = (temporary / "release-push.git/config").read_text()
+                self.assertNotIn(token, config)
+                self.assertNotIn(encoded, config)
+                self.assertNotIn("extraheader", config)
+                self.assertNotIn("credential", config)
             finally:
                 server.shutdown()
                 worker.join()
                 server.server_close()
 
-    def test_mobile_jobs_request_push_scopes_before_publication(self):
-        action = ACTION.read_text()
-        self.assertRegex(
-            action, r"uses: actions/create-github-app-token@[0-9a-f]{40}(?:\s|$)"
+            # A different expected tag must fail before the token is minted.
+            other = root / "other-runner"
+            (other / "release-tag").mkdir(parents=True)
+            (other / "release-tag/release.bundle").write_bytes(
+                (temporary / "release-tag/release.bundle").read_bytes()
+            )
+            result = subprocess.run(
+                ["bash", "-euc", script("Import release tag")],
+                cwd=root,
+                env=dict(step_env, RUNNER_TEMP=str(other), VERSION="1.2.4"),
+                capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_app_token_is_confined_to_separate_push_job(self):
+        text = WORKFLOW.read_text()
+        self.assertIn("permissions: {}", text)
+        self.assertNotIn("checkout@", text)
+        self.assertNotIn("xmtp-release", text)
+        self.assertNotIn("uses: ./", text)
+        self.assertLess(
+            text.index("- name: Import release tag"),
+            text.index("- name: Create release push token"),
         )
-        self.assertIn("permission-contents: write", action)
-        self.assertIn("permission-workflows: write", action)
-        # No owner input keeps the token scoped to the current repository.
-        self.assertNotRegex(action, re.compile(r"^\s+owner:", re.MULTILINE))
-        for sdk, publication in [
-            ("android", "Publish"),
-            ("ios", "Update Package.swift and podspec"),
-        ]:
+        self.assertRegex(
+            text, r"uses: actions/create-github-app-token@[0-9a-f]{40}(?:\s|$)"
+        )
+        self.assertIn("permission-contents: write", text)
+        self.assertIn("permission-workflows: write", text)
+        self.assertNotRegex(text, re.compile(r"^\s+owner:", re.MULTILINE))
+        preflight = (ROOT / ".github/workflows/check-release-push.yml").read_text()
+        self.assertNotIn("checkout@", preflight)
+        self.assertNotIn("run:", preflight)
+        self.assertIn("permission-contents: write", preflight)
+        self.assertIn("permission-workflows: write", preflight)
+        for sdk in ["android", "ios"]:
             with self.subTest(sdk=sdk):
-                text = (ROOT / f".github/workflows/release-{sdk}.yml").read_text()
-                setup = text.split("      - name: Set up release push\n", 1)[1]
-                setup = setup.split("      - ", 1)[0]
-                self.assertIn("uses: ./.github/actions/setup-release-push", setup)
-                self.assertIn("app-id: ${{ secrets.GH_APP_ID }}", setup)
-                self.assertIn("private-key: ${{ secrets.GH_APP_PK }}", setup)
-                self.assertNotIn("if:", setup)
-                self.assertNotIn("continue-on-error", setup)
-                self.assertLess(
-                    text.index("- name: Set up release push"),
-                    text.index(f"- name: {publication}\n"),
+                mobile = (ROOT / f".github/workflows/release-{sdk}.yml").read_text()
+                self.assertNotIn("GH_APP_PK", mobile)
+                self.assertIn("--no-push", mobile)
+                self.assertIn("fetch-depth: 0", mobile)
+                self.assertIn(f"name: release-tag-{sdk}", mobile)
+                self.assertIn("uses: ./.github/workflows/push-release-tag.yml", mobile)
+                self.assertIn(
+                    "uses: ./.github/workflows/check-release-push.yml", mobile
                 )
+                self.assertRegex(
+                    mobile, r"needs: \[[^\n]*check-push-permissions[^\n]*\]"
+                )
+        ios = (ROOT / ".github/workflows/release-ios.yml").read_text()
+        self.assertIn("needs: [prepare-release, push-tag]", ios)
+        self.assertIn("name: ios-release-bundle", ios)
 
 
 if __name__ == "__main__":

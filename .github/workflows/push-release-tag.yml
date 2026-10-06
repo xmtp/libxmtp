@@ -1,0 +1,65 @@
+name: Push release tag
+
+on:
+  workflow_call:
+    inputs:
+      sdk:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release tag
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-tag-${{ inputs.sdk }}
+          path: ${{ runner.temp }}/release-tag
+      - name: Import release tag
+        env:
+          SDK: ${{ inputs.sdk }}
+          VERSION: ${{ inputs.version }}
+          GIT_CONFIG_NOSYSTEM: "1"
+          GIT_CONFIG_GLOBAL: /dev/null
+        run: |
+          set -euo pipefail
+          case "$SDK" in ios|android) ;; *) exit 1 ;; esac
+          TAG_REF="refs/tags/${SDK}-${VERSION}"
+          git check-ref-format "$TAG_REF"
+          git init --bare "$RUNNER_TEMP/release-push.git"
+          git --git-dir="$RUNNER_TEMP/release-push.git" fetch --no-tags \
+            "$RUNNER_TEMP/release-tag/release.bundle" "$TAG_REF:$TAG_REF"
+          git --git-dir="$RUNNER_TEMP/release-push.git" rev-parse "$TAG_REF^{commit}"
+      - name: Create release push token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PK }}
+          permission-contents: write
+          permission-workflows: write
+      - name: Push release tag
+        env:
+          SDK: ${{ inputs.sdk }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_TOKEN: ${{ steps.token.outputs.token }}
+          GIT_CONFIG_NOSYSTEM: "1"
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          set -euo pipefail
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$AUTH_HEADER"
+          TAG_REF="refs/tags/${SDK}-${VERSION}"
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL}/.extraheader" \
+            GIT_CONFIG_VALUE_0="$AUTH_HEADER" \
+            git --git-dir="$RUNNER_TEMP/release-push.git" \
+              -c core.hooksPath=/dev/null -c credential.helper= \
+              push "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$TAG_REF:$TAG_REF"

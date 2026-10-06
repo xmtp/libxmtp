@@ -35,6 +35,12 @@ export function builder(yargs: Argv<GlobalArgs>) {
       default: false,
       describe: "Also push the current branch (HEAD) along with the tag",
     })
+    .option("push", {
+      type: "boolean",
+      default: true,
+      describe:
+        "Push the tag after creation; use --no-push to create it locally",
+    })
     .option("ignoreIfExists", {
       type: "boolean",
       default: false,
@@ -49,12 +55,15 @@ export function handler(
       sdk: string;
       version: string;
       pushBranch: boolean;
+      push: boolean;
       ignoreIfExists: boolean;
     }
   >,
 ) {
   const tag = buildTag(argv.sdk, argv.version);
   createTag(argv.repoRoot, tag, argv.ignoreIfExists);
-  pushTag(argv.repoRoot, tag, argv.pushBranch, argv.ignoreIfExists);
+  if (argv.push) {
+    pushTag(argv.repoRoot, tag, argv.pushBranch, argv.ignoreIfExists);
+  }
   console.log(tag);
 }
