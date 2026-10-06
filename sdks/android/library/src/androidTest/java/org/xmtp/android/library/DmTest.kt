@@ -23,11 +23,11 @@ class DmTest : BaseInstrumentedTest() {
     private suspend fun find(
         client: SDKClient,
         peer: InboxId,
-    ): Dm = checkNotNull(client.conversations().getDmByInboxId(peer))
+    ): Dm = checkNotNull(client.conversations.getDmByInboxId(peer))
 
     @Test fun testCanSendMessageToDm() =
         runBlocking {
-            val dm = bo.conversations().createDm(alix.inboxId())
+            val dm = bo.conversations.createDm(alix.inboxId())
             dm.sendText("howdy")
             val id = dm.sendText("gm")
             dm.sync()
@@ -38,7 +38,7 @@ class DmTest : BaseInstrumentedTest() {
                 dm.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first().deliveryStatus,
             )
             assertEquals(3, dm.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).size)
-            alix.conversations().sync()
+            alix.conversations.sync()
             val peer = find(alix, bo.inboxId())
             peer.sync()
             assertEquals(3, peer.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).size)
@@ -47,15 +47,15 @@ class DmTest : BaseInstrumentedTest() {
 
     @Test fun testCanStreamDmMessages() =
         runBlocking {
-            val dm = bo.conversations().createDm(alix.inboxId())
-            alix.conversations().sync()
-            val peer = checkNotNull(alix.conversations().getDmByIdentity(fixtures.bo))
+            val dm = bo.conversations.createDm(alix.inboxId())
+            alix.conversations.sync()
+            val peer = checkNotNull(alix.conversations.getDmByIdentity(fixtures.bo))
             dm.sync()
             val retained = dm.messageHistorySnapshot(10u).messages
             assertEquals(1, retained.size)
             assertEquals(MessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
             val messages = StreamTestMessages()
-            val job = launch(Dispatchers.IO) { bo.messages(dm).collect { messages.add(it) } }
+            val job = launch(Dispatchers.IO) { dm.streamMessages().collect { messages.add(it) } }
             try {
                 messages.awaitHistory(retained)
                 val first = peer.sendText("hi")

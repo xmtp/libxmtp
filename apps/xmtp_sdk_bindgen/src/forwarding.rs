@@ -19,6 +19,9 @@ fn common_methods_from_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) 
         let Metadata::Method(method) = metadata else {
             continue;
         };
+        if crate::markers::has(method.docstring.as_deref(), crate::markers::INTERNAL) {
+            continue;
+        }
         match method.self_name.as_str() {
             "Group" => {
                 group.insert(method.name.as_str(), method);
@@ -240,7 +243,10 @@ fn generate_client(
         .values()
         .flat_map(|group| &group.items)
         .collect::<Vec<_>>();
-    let selected = client_methods(items.iter().copied());
+    let selected = client_methods(items.iter().copied())
+        .into_iter()
+        .filter(|name| name != "conversations")
+        .collect::<Vec<_>>();
     let statics = client_statics::client_statics(&items)?;
     let (found, statics, header, footer, filename) = match language {
         Language::Swift => (
@@ -474,6 +480,25 @@ pub(crate) fn generate(
         ),
     )?;
     Ok(())
+}
+
+/// Host-only streams use the same common-receiver boundary as Rust methods.
+/// Their declarations stay in StreamMethods to preserve native API locations.
+pub(crate) fn stream_methods(
+    streams: &[crate::streams::Stream],
+    language: Language,
+) -> Result<String> {
+    let mut code = String::new();
+    for stream in crate::streams::common(streams, "Group", "Dm")? {
+        let (name, options) = (stream.host_name(), &stream.options);
+        let doc = crate::streams::documentation(stream, language);
+        match language {
+            Language::Swift => code.push_str(&format!("\npublic extension Conversation {{\n{doc}    func {name}(options: {options} = .init()) async throws -> {result} {{\n        switch self {{\n        case let .group(group): return try await group.{name}(options: options)\n        case let .dm(dm): return try await dm.{name}(options: options)\n        }}\n    }}\n}}\n", result = stream.swift_result())),
+            Language::Kotlin => code.push_str(&format!("\n{doc}fun Conversation.{name}(options: {options} = {options}()): Flow<{result}> =\n    when (this) {{\n        is Conversation.Group -> group.{name}(options)\n        is Conversation.Dm -> dm.{name}(options)\n    }}\n", result = stream.kotlin_result())),
+            _ => bail!("common stream forwarding needs a native target"),
+        }
+    }
+    Ok(code)
 }
 
 #[cfg(test)]

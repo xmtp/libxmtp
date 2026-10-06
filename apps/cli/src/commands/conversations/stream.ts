@@ -1,5 +1,4 @@
 import { Flags } from "@oclif/core";
-import { ConversationStream as SdkConversationStream } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import { isDm, isGroup } from "@/utils/conversation";
@@ -62,8 +61,10 @@ The stream will continue until:
     const maxCount = flags.count;
     const timeoutMs = flags.timeout ? flags.timeout * 1000 : undefined;
 
-    const stream = SdkConversationStream.open(client, {
-      kind: flags.type ? conversationTypeMap[flags.type] : undefined,
+    const stream = client.conversations.stream({
+      conversationKind: flags.type
+        ? conversationTypeMap[flags.type]
+        : undefined,
     });
 
     await stream.ready();

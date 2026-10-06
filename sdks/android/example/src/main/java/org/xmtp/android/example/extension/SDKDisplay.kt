@@ -22,8 +22,4 @@ fun Message.displayBody(): String =
         }
     }
 
-fun SDKClient.messageStream(conversation: Conversation): Flow<Message> =
-    when (conversation) {
-        is Conversation.Group -> messages(conversation.group)
-        is Conversation.Dm -> messages(conversation.dm)
-    }
+fun SDKClient.messageStream(conversation: Conversation): Flow<Message> = conversation.streamMessages()

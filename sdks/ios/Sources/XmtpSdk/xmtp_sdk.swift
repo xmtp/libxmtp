@@ -2637,6 +2637,10 @@ public protocol ConversationsProtocol: AnyObject, Sendable {
 
     func replyToMessage(id: MessageId, content: EncodedContent, options: SendOptions?) async throws  -> MessageId
 
+    /**
+     * Host stream ownership.
+     */
+
     func sync() async throws
 
     func syncAll(consentStates: [ConsentState]?) async throws  -> GroupSyncSummary
@@ -3062,6 +3066,18 @@ open func replyToMessage(id: MessageId, content: EncodedContent, options: SendOp
             liftFunc: FfiConverterTypeMessageId_lift,
             errorHandler: FfiConverterTypeXmtpError_lift
         )
+}
+
+    /**
+     * Host stream ownership.
+     */
+internal func sdkStreamOwnerKey() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_conversations_sdk_stream_owner_key(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
 }
 
 open func sync()async throws   {
@@ -3628,6 +3644,10 @@ public protocol DmProtocol: AnyObject, Sendable {
 
     func publishMessages() async throws
 
+    /**
+     * Host stream ownership.
+     */
+
     func send(encoded: EncodedContent, options: SendOptions?) async throws  -> MessageId
 
     func sendActions(actions: Actions, options: SendOptions?) async throws  -> MessageId
@@ -4171,6 +4191,18 @@ open func publishMessages()async throws   {
             liftFunc: { $0 },
             errorHandler: FfiConverterTypeXmtpError_lift
         )
+}
+
+    /**
+     * Host stream ownership.
+     */
+internal func sdkStreamOwnerKey() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_dm_sdk_stream_owner_key(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
 }
 
 open func send(encoded: EncodedContent, options: SendOptions? = nil)async throws  -> MessageId  {
@@ -5094,6 +5126,10 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     func requestRemoval() async throws
 
+    /**
+     * Host stream ownership.
+     */
+
     func send(encoded: EncodedContent, options: SendOptions?) async throws  -> MessageId
 
     func sendActions(actions: Actions, options: SendOptions?) async throws  -> MessageId
@@ -5876,6 +5912,18 @@ open func requestRemoval()async throws   {
             liftFunc: { $0 },
             errorHandler: FfiConverterTypeXmtpError_lift
         )
+}
+
+    /**
+     * Host stream ownership.
+     */
+internal func sdkStreamOwnerKey() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_group_sdk_stream_owner_key(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
 }
 
 open func send(encoded: EncodedContent, options: SendOptions? = nil)async throws  -> MessageId  {
@@ -28464,7 +28512,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_beginning_delivery_cursor() != 8739) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_conversation_reader() != 23386) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_conversation_reader() != 30366) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_create_dm() != 578) {
@@ -28515,13 +28563,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_message_history_snapshot() != 20729) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_message_reader() != 42952) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_message_reader() != 20097) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_react_to_message() != 16620) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_reply_to_message() != 46806) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_conversations_sdk_stream_owner_key() != 58522) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_sync() != 50362) {
@@ -28581,7 +28632,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_message_history_snapshot() != 11434) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_message_reader() != 14429) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_message_reader() != 16038) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_messages() != 55325) {
@@ -28609,6 +28660,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_publish_messages() != 413) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_dm_sdk_stream_owner_key() != 55660) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_send() != 49931) {
@@ -28752,7 +28806,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_message_history_snapshot() != 50554) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_message_reader() != 34239) {
+    if (uniffi_xmtp_sdk_checksum_method_group_message_reader() != 32244) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_messages() != 9628) {
@@ -28795,6 +28849,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_request_removal() != 18897) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_group_sdk_stream_owner_key() != 37776) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_send() != 33159) {

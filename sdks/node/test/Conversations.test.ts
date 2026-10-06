@@ -1,5 +1,4 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import { ConversationStream } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 describe("Conversations", () => {
@@ -97,7 +96,7 @@ describe("Conversations", () => {
     async (kind) => {
       const client = await createRegisteredClient(createSigner().signer);
       const peer = await createRegisteredClient(createSigner().signer);
-      const stream = ConversationStream.open(client, { kind });
+      const stream = client.conversations.stream({ conversationKind: kind });
       await stream.ready();
       const seen: string[] = [];
       const consumed = stream.onValue((conversation) => {

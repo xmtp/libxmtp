@@ -99,7 +99,7 @@ function closed(): B.XmtpError {
   });
 }
 
-function owner(session: MainSession, key: bigint): Owner | undefined {
+export function owner(session: MainSession, key: bigint): Owner | undefined {
   const entry = owners.get(session)?.get(key);
   if (entry && !entry.client.deref()) {
     owners.get(session)?.delete(key);

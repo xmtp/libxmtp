@@ -50,4 +50,4 @@ Call `publishMessages()` to process the pending send intents and wait for public
 
 `prepareMessage` also queues a send intent. The public SDK does not expose a `noSend` parameter to hold publication. Validate a [remote attachment](/content-types/attachments/) upload before you send its content.
 
-Use `client.conversations.deleteMessageLocally(id)` on Browser and Node, or `client.conversations().deleteMessageLocally` on Kotlin and Swift to remove local content. You can also call `deleteLocally()` on a loaded message. A local deletion does not cancel a send that is already queued.
+Use `client.conversations.deleteMessageLocally(id)` on Browser and Node, or `client.conversations.deleteMessageLocally` on Kotlin and Swift to remove local content. You can also call `deleteLocally()` on a loaded message. A local deletion does not cancel a send that is already queued.

@@ -34,7 +34,7 @@ struct ConversationListView: View {
 			.task { await loadConversations() }
 			.task {
 				do {
-					for try await _ in try await client.conversationStream() {
+					for try await _ in try await client.conversations.stream() {
 						await loadConversations()
 					}
 				} catch { self.error = error.localizedDescription }
@@ -47,8 +47,8 @@ struct ConversationListView: View {
 
 	private func loadConversations() async {
 		do {
-			try await client.conversations().sync()
-			conversations = try await client.conversations().list()
+			try await client.conversations.sync()
+			conversations = try await client.conversations.list()
 			for case let .group(group) in conversations {
 				names[group.id()] = try await group.state().name
 			}

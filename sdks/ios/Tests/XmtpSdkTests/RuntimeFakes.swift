@@ -11,14 +11,20 @@ enum ReadFailure: Error {
 /// A Client fake. Each test sets the values that its runtime path reads.
 final class FakeClient: Client, @unchecked Sendable {
 	var eventReader: EventReader?
-	var fakeConversations: Conversations?
+	var fakeConversations: Conversations? {
+		didSet { (fakeConversations as? FakeConversations)?.ownerKey = clientKey() }
+	}
+
 	var listenerStarted: (@Sendable (EventListener) async -> ListenerId)?
+	var endClient: (@Sendable () async throws -> Void)?
 
 	override func clientKey() -> UInt64 {
 		UInt64(UInt(bitPattern: ObjectIdentifier(self).hashValue))
 	}
 
-	override func end() async throws {}
+	override func end() async throws {
+		try await endClient?()
+	}
 
 	override func events(filter _: EventFilter) async throws -> EventReader {
 		guard let eventReader else { fatalError("The test did not set an event reader") }
@@ -166,6 +172,12 @@ final class FakeConversationReader: ConversationReader, @unchecked Sendable {
 }
 
 final class FakeConversations: Conversations, @unchecked Sendable {
+	var readerOpened: (@Sendable (ConversationReaderOptions?) async -> Void)?
+	var ownerKey: UInt64 = 0
+	override func sdkStreamOwnerKey() -> UInt64 {
+		ownerKey
+	}
+
 	private let reader: ConversationReader
 
 	init(_ reader: ConversationReader) {
@@ -177,7 +189,8 @@ final class FakeConversations: Conversations, @unchecked Sendable {
 		fatalError("A fake has no Rust handle")
 	}
 
-	override func conversationReader(options _: ConversationReaderOptions?) async throws -> ConversationReader {
-		reader
+	override func conversationReader(options: ConversationReaderOptions?) async throws -> ConversationReader {
+		await readerOpened?(options)
+		return reader
 	}
 }

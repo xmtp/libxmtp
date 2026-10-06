@@ -9,5 +9,5 @@ internal fun testSDKClient(
 ): SDKClient {
     val constructor = SDKClient::class.java.getDeclaredConstructor(Client::class.java, List::class.java)
     constructor.isAccessible = true
-    return constructor.newInstance(raw, codecs)
+    return constructor.newInstance(raw, codecs).also(ClientRegistry::register)
 }

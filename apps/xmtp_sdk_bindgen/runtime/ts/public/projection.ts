@@ -1,7 +1,9 @@
 import { ObjectProjection, installProjection } from "../../public-values.gen";
 import type { Message as RuntimeMessage } from "../message";
-import { boundMessageOf } from "./host";
+import { publicClient } from "./client";
+import { boundMessageOf, streamOwner } from "./host";
 import { boundMessage, liftBoundMessage, type Message } from "./message";
+import { installStreamOwner } from "./streams";
 
 /** Converts host messages; the generated base converts every object. */
 class HostProjection extends ObjectProjection {
@@ -15,3 +17,8 @@ class HostProjection extends ObjectProjection {
 }
 
 installProjection(new HostProjection());
+
+installStreamOwner((source, ownerKey) => {
+  const owner = streamOwner(source, ownerKey);
+  return owner === undefined ? undefined : publicClient(owner);
+});

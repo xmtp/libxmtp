@@ -16,7 +16,7 @@ final class ClientEndTests: XCTestCase {
 	/// The Rust test proves native idle entry. This test checks the public result.
 	func testClientEndSettlesConcurrentMessageRead() async throws {
 		let client = try await SDKClient.create(signer: generateLocalSigner(), options: clientEndOptions())
-		let group = try await client.conversations().createGroup(members: [InboxId]())
+		let group = try await client.conversations.createGroup(members: [InboxId]())
 		let reader = try await group.messageReader(options: nil)
 		let settled = expectation(description: "The public message read settles")
 		let pending = Task {
@@ -46,7 +46,7 @@ final class ClientEndTests: XCTestCase {
 			location: .directory(directory: root.path), encryptionKey: key,
 		))
 		let client = try await SDKClient.create(signer: generateLocalSigner(), options: options)
-		let group = try await client.conversations().createGroup(members: [InboxId]())
+		let group = try await client.conversations.createGroup(members: [InboxId]())
 		let messageId = try await group.sendText(text: "unacknowledged before client end")
 		let reader = try await group.messageReader(options: nil)
 		let delivered = try await reader.next()
@@ -56,7 +56,7 @@ final class ClientEndTests: XCTestCase {
 		try await client.end()
 
 		let reopened = try await SDKClient.build(identity: identity, options: options)
-		let restored = try await reopened.conversations().getById(id: groupId)
+		let restored = try await reopened.conversations.getById(id: groupId)
 		guard case let .group(reopenedGroup)? = restored else {
 			try await reopened.end()
 			return XCTFail("Stored group was not restored")

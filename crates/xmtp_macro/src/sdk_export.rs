@@ -148,7 +148,7 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
             for impl_item in &mut item_impl.items {
                 if let ImplItem::Fn(function) = impl_item {
                     has_async |= function.sig.asyncness.is_some();
-                    sdk_member::method(&mut function.attrs, &function.sig, options.target)?;
+                    sdk_member::method(&mut function.attrs, &function.sig, options.target, true)?;
                     instrument(&mut function.attrs, &function.sig.output);
                 }
             }
@@ -164,7 +164,7 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
             for trait_item in &mut item_trait.items {
                 if let TraitItem::Fn(function) = trait_item {
                     has_async |= function.sig.asyncness.is_some();
-                    sdk_member::method(&mut function.attrs, &function.sig, options.target)?;
+                    sdk_member::method(&mut function.attrs, &function.sig, options.target, false)?;
                     if function.default.is_some() {
                         instrument(&mut function.attrs, &function.sig.output);
                     }

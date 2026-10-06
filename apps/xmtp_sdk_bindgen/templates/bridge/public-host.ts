@@ -38,3 +38,18 @@ export function checkStorage(storage: object): void {
       message: "browser storage does not support encryptionKey",
     });
 }
+
+import { owner } from "../../host-message.gen.js";
+import type { Client } from "../../public-client.gen.js";
+import { wrapClient } from "../../public-client.gen.js";
+import { RemoteObject, sessionOf } from "../bridge/main/remote-object.js";
+
+export function streamOwner(
+  source: object,
+  ownerKey: () => bigint,
+): Client | undefined {
+  if (!(source instanceof RemoteObject))
+    throw new TypeError("not an XMTP receiver");
+  const client = owner(sessionOf(source), ownerKey())?.client.deref();
+  return client === undefined ? undefined : wrapClient(client);
+}

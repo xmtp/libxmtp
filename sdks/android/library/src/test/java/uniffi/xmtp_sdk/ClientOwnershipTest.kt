@@ -25,7 +25,7 @@ class ClientOwnershipTest {
     private suspend fun releasedMessage(): Pair<Message, WeakReference<SDKClient>> {
         // This client is not ended: the test checks that the registry does not keep it alive.
         val host = SDKClient.create(generateLocalSigner(), liveOptions())
-        val group = host.conversations().createGroup(emptyList())
+        val group = host.conversations.createGroup(emptyList())
         val id = group.sendText("weak owner")
         return group.messages().first { it.id == id } to WeakReference(host)
     }
@@ -36,7 +36,7 @@ class ClientOwnershipTest {
             withTimeout(60_000) {
                 withClients {
                     val host = create()
-                    val group = host.conversations().createGroup(emptyList())
+                    val group = host.conversations.createGroup(emptyList())
                     val id = group.sendText("owned message")
                     val sent = group.messages().first { it.id == id }
                     assertSame(host, sent.client())

@@ -70,7 +70,7 @@ check `message.content.kind` before you read its `value`.
 Configuration `uint64` fields are `bigint`. The four frame-rate and burst
 fields remain `number`.
 
-Use `ConversationStream.open(client)` or `MessageStream.open(client)` and
+Use `client.conversations.stream()` or `client.conversations.streamAllMessages()` and
 await `ready()`. Use `onValue()` for callbacks or `for await` for iteration.
 A failed stream closes once and reports `onClose({ kind: "failed", error })`.
 Later `next()` calls reject with the same terminal error.

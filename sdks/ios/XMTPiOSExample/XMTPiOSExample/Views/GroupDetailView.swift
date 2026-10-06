@@ -26,7 +26,7 @@ struct GroupDetailView: View {
 				}
 				.task {
 					do {
-						for try await _ in try await client.messages(in: group) {
+						for try await _ in try await group.streamMessages() {
 							await loadMessages()
 						}
 					} catch {

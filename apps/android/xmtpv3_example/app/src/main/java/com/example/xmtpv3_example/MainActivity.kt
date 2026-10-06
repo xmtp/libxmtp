@@ -30,7 +30,7 @@ class MainActivity : AppCompatActivity() {
                                 ),
                             )
                         try {
-                            val group = client.conversations().createGroup(emptyList<InboxId>())
+                            val group = client.conversations.createGroup(emptyList<InboxId>())
                             group.sendText("Android SDK 8.0.0")
                             "Inbox: ${client.inboxId()}\nGroup: ${group.id()}\nMessages: ${group.messages().size}"
                         } finally {

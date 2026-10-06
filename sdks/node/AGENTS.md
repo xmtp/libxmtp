@@ -59,7 +59,7 @@ stream stays ended. A replacement resumes saved progress and gets its own
 network budget. Do not add automatic reader replacement in the SDK wrapper.
 
 The generated reader has no automatic host replacement. Use
-`ConversationStream.open` or `MessageStream.open` for an explicit replacement.
+`client.conversations.stream()` or `client.conversations.streamAllMessages()` for an explicit replacement.
 Call `ready()` before the test causes a fault. The `onClose` callback carries
 one `closed` or `failed` result. Notification streams open without a separate
 pre-sync. Call `sync()` if the app needs a current state before it listens.

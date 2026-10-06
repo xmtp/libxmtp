@@ -17,7 +17,7 @@ final class EventIteratorOwnershipTests: XCTestCase {
 		))
 		let first = stream.makeAsyncIterator()
 		var second: SDKEventStream.Iterator? = stream.makeAsyncIterator()
-		let group = try await client.conversations().createGroup(members: [InboxId]())
+		let group = try await client.conversations.createGroup(members: [InboxId]())
 		var rejected = false
 		do {
 			_ = try await second?.next()
@@ -32,7 +32,7 @@ final class EventIteratorOwnershipTests: XCTestCase {
 			try await client.end()
 			return
 		}
-		let another = try await client.conversations().createGroup(members: [InboxId]())
+		let another = try await client.conversations.createGroup(members: [InboxId]())
 		let firstValue = try await first.next()
 		let secondValue = try await first.next()
 		guard case let .conversationJoined(conversationJoined: firstJoined)? = firstValue,

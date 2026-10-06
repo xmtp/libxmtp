@@ -25,23 +25,25 @@ if language == "swift":
     )
     path.write_text(source)
     readers = path.parent / "streams" / "Readers.swift"
-    readers_source = replace_once(
-        readers.read_text(),
+    message, marker, conversation = readers.read_text().partition(
+        "func makeSDKConversationStream("
+    )
+    if not marker:
+        raise SystemExit("reader gate seam changed: conversation adapter missing")
+    message = replace_once(
+        message,
         "        let reader = try await open()\n",
         "        let reader = try await open()\n"
         "        await SDKClient.readerOpenedForTest?(reader)\n",
     )
-    readers_source = replace_once(
-        readers_source,
-        "        let reader = try await owner.raw.conversations().conversationReader(\n"
-        "            options: ConversationReaderOptions(kind: kind, consentStates: consentStates)\n"
-        "        )\n",
+    conversation = replace_once(
+        conversation,
+        "        let reader = try await open()\n",
         "        await SDKClient.conversationReaderOpeningForTest?()\n"
-        "        let reader = try await owner.raw.conversations().conversationReader(\n"
-        "            options: ConversationReaderOptions(kind: kind, consentStates: consentStates)\n"
-        "        )\n"
+        "        let reader = try await open()\n"
         "        await SDKClient.conversationReaderOpenedForTest?(reader)\n",
     )
+    readers_source = message + marker + conversation
     readers_source = replace_once(
         readers_source,
         "private final class StreamHandle<Value>: @unchecked Sendable {",

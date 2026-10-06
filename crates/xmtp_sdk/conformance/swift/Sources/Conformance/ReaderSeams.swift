@@ -10,7 +10,7 @@ import Foundation
 /// on the same group opens at once. A slow end makes a detached teardown lose
 /// this race every time.
 func checkReaderReleasedBeforeIterationEnds(owner: SDKClient) async throws {
-    let scope = try await owner.conversations().createGroup(members: [InboxId](), options: nil)
+    let scope = try await owner.conversations.createGroup(members: [InboxId](), options: nil)
     func slowEndStream(
         next: @escaping @Sendable () async throws -> Message?
     ) -> SDKMessageStream {
@@ -72,7 +72,7 @@ func checkConversationReaderOpensBeforeDelivery(owner: SDKClient) async throws {
         SDKClient.conversationReaderOpeningForTest = nil
         SDKClient.conversationReaderOpenedForTest = nil
     }
-    let conversationStream = try await owner.conversationStream()
+    let conversationStream = try await owner.conversations.stream()
     let conversationIterator = conversationStream.makeAsyncIterator()
     let conversationPending = Task { try await conversationIterator.next() }
     let conversationDeadline = Task {
@@ -91,7 +91,7 @@ func checkConversationReaderOpensBeforeDelivery(owner: SDKClient) async throws {
         conversationPending.cancel()
         throw ConformanceFailure("conversation reader was not open before group creation")
     }
-    _ = try await owner.conversations().createGroup(members: [InboxId](), options: nil)
+    _ = try await owner.conversations.createGroup(members: [InboxId](), options: nil)
     do {
         guard try await conversationPending.value != nil else {
             throw ConformanceFailure("conversation stream missed a stored group")
@@ -209,7 +209,7 @@ func checkDelayedListenerStop(owner: SDKClient) async throws {
     let delayedId = try await owner.startListener(eventFilter) { _ in
         await lateCalls.mark()
     }
-    _ = try await owner.conversations().createGroup(members: [InboxId](), options: nil)
+    _ = try await owner.conversations.createGroup(members: [InboxId](), options: nil)
     try await startPause.waitUntilEntered()
     await owner.stopListener(delayedId)
     await startPause.release()

@@ -3,6 +3,12 @@ macro_rules! common_conversation {
     ($name:ident, $state:ty, $map:expr) => {
         #[xmtp_macro::sdk_export]
         impl $name {
+            /// Host stream ownership.
+            #[sdk(immutable, host_internal)]
+            pub fn sdk_stream_owner_key(&self) -> u64 {
+                self.client_key
+            }
+
             #[sdk(immutable)]
             pub fn id(&self) -> ConversationId {
                 self.inner.group_id.into()
@@ -510,6 +516,11 @@ macro_rules! common_conversation {
             }
 
             #[uniffi::method(default(options = None))]
+            #[sdk(stream(
+                name = "stream_messages",
+                options = "ConversationMessageStreamOptions",
+                owner = "sdk_stream_owner_key"
+            ))]
             pub async fn message_reader(
                 &self,
                 options: Option<crate::ConversationMessageReaderOptions>,

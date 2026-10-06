@@ -1,8 +1,6 @@
 import {
   Client,
-  ConversationStream,
   type Group,
-  MessageStream,
   Storage,
   Timestamp,
   XmtpError,
@@ -188,11 +186,10 @@ export async function receiveMessages(
   handle: (message: Message) => Promise<void>,
   signal: AbortSignal,
 ) {
-  const stream = MessageStream.open(
-    client,
-    { consentStates: ["allowed", "unknown"] },
-    { signal },
-  );
+  const stream = client.conversations.streamAllMessages({
+    consentStates: ["allowed", "unknown"],
+    signal,
+  });
   try {
     for await (const message of stream) {
       await handle(message);
@@ -217,11 +214,11 @@ export async function receiveHistoryAndLive(
   );
   for (const message of snapshot.messages) await handle(message);
   await saveCursor(snapshot.cursor);
-  const stream = MessageStream.open(
-    client,
-    { ...selection, from: snapshot.cursor },
-    { signal },
-  );
+  const stream = client.conversations.streamAllMessages({
+    ...selection,
+    from: snapshot.cursor,
+    signal,
+  });
   try {
     for await (const message of stream) {
       await handle(message);
@@ -241,7 +238,10 @@ export async function receiveConversations(
   handle: (conversation: Conversation) => Promise<void>,
   signal: AbortSignal,
 ) {
-  const stream = ConversationStream.open(client, { kind: "group" }, { signal });
+  const stream = client.conversations.stream({
+    conversationKind: "group",
+    signal,
+  });
   try {
     for await (const conversation of stream) await handle(conversation);
   } finally {

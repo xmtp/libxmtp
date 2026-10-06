@@ -23,9 +23,9 @@ class DeleteMessageCodecTest : BaseInstrumentedTest() {
     @Test fun testCanUseDeleteMessageCodec() =
         runBlocking {
             val fixtures = createFixtures()
-            val dm = fixtures.alixClient.conversations().createDm(fixtures.boClient.inboxId())
-            fixtures.boClient.conversations().syncAll(null)
-            val received = (checkNotNull(fixtures.boClient.conversations().getById(dm.id())) as Conversation.Dm).dm
+            val dm = fixtures.alixClient.conversations.createDm(fixtures.boClient.inboxId())
+            fixtures.boClient.conversations.syncAll(null)
+            val received = (checkNotNull(fixtures.boClient.conversations.getById(dm.id())) as Conversation.Dm).dm
             val parentId = dm.sendText("Delete this message")
             received.sync()
             val payload = DeleteMessageContent(parentId)

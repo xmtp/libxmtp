@@ -91,14 +91,14 @@ class AndroidContractWalletTest {
                         mapOf("ethereum:${scw.identity().identifier.lowercase()}" to true, unknownKey to false),
                         eoaClient.canMessage(listOf(scw.identity(), unknown)),
                     )
-                    val group = reopened.conversations().createGroup(listOf(peer.inboxId(), eoaClient.inboxId()))
+                    val group = reopened.conversations.createGroup(listOf(peer.inboxId(), eoaClient.inboxId()))
                     assertEquals(
                         listOf(inbox, peer.inboxId(), eoaClient.inboxId()).sorted(),
                         group.members().map { it.inboxId }.sorted(),
                     )
                     group.sendText("SCW public callback")
-                    peer.conversations().syncAll(null)
-                    val peerGroup = (checkNotNull(peer.conversations().getById(group.id())) as Conversation.Group).group
+                    peer.conversations.syncAll(null)
+                    val peerGroup = (checkNotNull(peer.conversations.getById(group.id())) as Conversation.Group).group
                     assertTrue(
                         peerGroup.messages().any {
                             (it.content as? SDKMessageContent.Standard)?.value ==
@@ -107,7 +107,7 @@ class AndroidContractWalletTest {
                     )
                     val receipt =
                         async {
-                            reopened.messages(group).first {
+                            group.streamMessages().first {
                                 (it.content as? SDKMessageContent.Standard)?.value ==
                                     MessageContent.Text("SCW stream")
                             }
@@ -118,14 +118,16 @@ class AndroidContractWalletTest {
                     val nextGroupId = CompletableDeferred<String>()
                     val nextGroup =
                         async {
-                            reopened
-                                .conversationStream(onConnectionStateChange = { previous, _ ->
-                                    if (previous == null) ready.complete(Unit)
-                                })
-                                .first { it.id() == nextGroupId.await() }
+                            reopened.conversations
+                                .stream(
+                                    options =
+                                        ConversationStreamOptions(onConnectionStateChange = { previous, _ ->
+                                            if (previous == null) ready.complete(Unit)
+                                        }),
+                                ).first { it.id() == nextGroupId.await() }
                         }
                     ready.await()
-                    val streamed = peer.conversations().createGroup(listOf(inbox))
+                    val streamed = peer.conversations.createGroup(listOf(inbox))
                     nextGroupId.complete(streamed.id())
                     assertEquals(streamed.id(), nextGroup.await().id())
                     reopened.preferences().setConsentStates(

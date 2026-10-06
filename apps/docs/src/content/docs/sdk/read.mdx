@@ -58,7 +58,7 @@ Read the message's `content` value and handle its content kind. For a reply, als
 
 By default, messages are sorted by `sentAt`. A message can arrive after a newer message. Use `insertedAt` to paginate the local history by insertion time on all four SDKs.
 
-A timestamp-only cursor can skip messages that have the same timestamp at a page boundary. For recent history followed by live delivery, use a [message history snapshot and delivery cursor](/sdk/stream/). A snapshot is a bounded recent tail. To replay all retained delivery history, start an independent reader at `client.conversations.beginningDeliveryCursor()` in JavaScript, or `client.conversations().beginningDeliveryCursor()` on mobile.
+A timestamp-only cursor can skip messages that have the same timestamp at a page boundary. For recent history followed by live delivery, use a [message history snapshot and delivery cursor](/sdk/stream/). A snapshot is a bounded recent tail. To replay all retained delivery history, start an independent reader at `client.conversations.beginningDeliveryCursor()` in each SDK.
 
 Here is how to paginate messages with the cursor that each SDK exposes:
 
@@ -135,7 +135,7 @@ We recommend listing allowed conversations only. This ensures that spammy conver
 </TabItem><TabItem label="Kotlin">
 
 ```kotlin
-val conversations = client.conversations().list(
+val conversations = client.conversations.list(
     ListConversationsOptions(consentStates = listOf(ConsentState.ALLOWED))
 )
 ```
@@ -143,7 +143,7 @@ val conversations = client.conversations().list(
 </TabItem><TabItem label="Swift">
 
 ```swift
-let conversations = try await client.conversations().list(
+let conversations = try await client.conversations.list(
   options: ListConversationsOptions(consentStates: [.allowed])
 )
 ```

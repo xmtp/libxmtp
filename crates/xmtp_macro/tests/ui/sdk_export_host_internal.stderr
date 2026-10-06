@@ -1,0 +1,17 @@
+error: #[sdk(host_internal)] applies to object methods
+ --> tests/ui/sdk_export_host_internal.rs:6:11
+  |
+6 |     #[sdk(host_internal)]
+  |           ^^^^^^^^^^^^^
+
+error: sdk option is repeated
+  --> tests/ui/sdk_export_host_internal.rs:12:26
+   |
+12 |     #[sdk(host_internal, host_internal)]
+   |                          ^^^^^^^^^^^^^
+
+error: write #[sdk(host_internal)] instead of `@xmtp-host-internal` in a doc comment
+  --> tests/ui/sdk_export_host_internal.rs:18:5
+   |
+18 |     #[doc = "@xmtp-host-internal"]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

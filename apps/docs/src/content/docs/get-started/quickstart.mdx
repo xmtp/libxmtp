@@ -113,9 +113,9 @@ suspend fun withDemoClients(
 
 // Run in a coroutine in your Android Activity.
 withDemoClients(applicationContext, "https://xmtp.example.com") { client, recipient ->
-    val group = client.conversations().createGroup(listOf(recipient.inboxId()))
+    val group = client.conversations.createGroup(listOf(recipient.inboxId()))
     group.sendText("Hello everyone")
-    client.messages().collect { message -> println("New message: $message") }
+    client.conversations.streamAllMessages().collect { message -> println("New message: $message") }
 }
 ```
 
@@ -175,7 +175,7 @@ recipient client from the preceding step.
 <TabItem label="Kotlin">
 
 ```kotlin
-val group = client.conversations().createGroup(listOf(recipient.inboxId()))
+val group = client.conversations.createGroup(listOf(recipient.inboxId()))
 group.sendText("Hello everyone")
 ```
 
@@ -183,7 +183,7 @@ group.sendText("Hello everyone")
 <TabItem label="Swift">
 
 ```swift
-let group = try await client.conversations().createGroup(members: [recipient.inboxId()])
+let group = try await client.conversations.createGroup(members: [recipient.inboxId()])
 try await group.sendText(text: "Hello everyone", options: nil)
 ```
 
@@ -197,8 +197,7 @@ message before publication completes.
 
 ## 4. Stream messages
 
-Use `MessageStream.open` in Browser and Node, or `client.messages()` in Kotlin
-and Swift, to receive messages. Use `syncAll` to fetch welcomes and messages in
+Use `client.conversations.streamAllMessages()` in each SDK to receive messages. Use `syncAll` to fetch welcomes and messages in
 the selected conversations. The JavaScript examples select allowed
 conversations; allow an incoming conversation before you expect its messages
 in that stream. See [Consent](/sdk/consent/).
@@ -221,8 +220,8 @@ in that stream. See [Consent](/sdk/consent/).
 <TabItem label="Kotlin">
 
 ```kotlin
-client.conversations().syncAll(null)
-client.messages().collect { message ->
+client.conversations.syncAll(null)
+client.conversations.streamAllMessages().collect { message ->
     println("New message: $message")
 }
 ```
@@ -231,7 +230,7 @@ client.messages().collect { message ->
 <TabItem label="Swift">
 
 ```swift
-for try await message in try await client.messages() {
+for try await message in try await client.conversations.streamAllMessages() {
   print("New message: \(message)")
 }
 ```

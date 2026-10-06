@@ -12,6 +12,7 @@ mod message_fields;
 mod native_visibility;
 mod public_projection;
 mod redaction;
+mod streams;
 mod swift_async;
 mod swift_events;
 mod swift_records;
@@ -122,6 +123,12 @@ fn generate(
         }
     })?;
     markers::validate(&metadata)?;
+    let streams = streams::resolve(
+        &metadata
+            .values()
+            .flat_map(|group| &group.items)
+            .collect::<Vec<_>>(),
+    )?;
     if pure_only {
         if !matches!(language, Language::TypescriptWasm) {
             bail!("pure-only generation requires typescript-wasm");
@@ -165,7 +172,7 @@ fn generate(
                 let binding = out.join("uniffi/xmtp_sdk/xmtp_sdk.kt");
                 let callbacks = kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?;
                 let callbacks = logging_admission::kotlin(&callbacks)?;
-                let callbacks = native_visibility::kotlin(&callbacks)?;
+                let callbacks = native_visibility::kotlin(&callbacks, &metadata)?;
                 fs::write(&binding, kotlin_records::rewrite(&callbacks, &metadata)?)?;
             } else {
                 let binding = out.join("xmtp_sdk.swift");
@@ -173,6 +180,7 @@ fn generate(
                     &binding,
                     format::swift_trailing_whitespace(&native_visibility::swift(
                         &logging_admission::swift(&fs::read_to_string(&binding)?)?,
+                        &metadata,
                     )?),
                 )?;
             }
@@ -257,12 +265,12 @@ fn generate(
                 source.push_str("\nlet pureLoading: Promise<void> | undefined;\nexport function initPureWasm(wasm: URL = new URL('./xmtp_sdk.wasm', import.meta.url)): Promise<void> { pureLoading ??= uniffiInitAsync(wasm); return pureLoading; }\nexport { TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime/codecs';\n");
                 source.push_str("export { Timestamp } from './runtime';\n");
             } else if is_wasm {
-                source.push_str("\nexport { Client, Storage } from './public-client.gen';\nexport type { StorageAdmin } from './storage-admin.gen';\nexport { Message } from './host-message.gen';\nexport { Timestamp, MessageStream, ConversationStream, EventStream } from './runtime';\n");
+                source.push_str("\nexport { Client, Storage } from './public-client.gen';\nexport type { StorageAdmin } from './storage-admin.gen';\nexport { Message } from './host-message.gen';\nexport { Timestamp, EventStream } from './runtime';\n");
                 source.push_str(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );
             } else {
-                source.push_str("\nexport { Client, Message, Timestamp, MessageStream, ConversationStream, EventStream, setLogSink, TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime';\n");
+                source.push_str("\nexport { Client, Message, Timestamp, EventStream, setLogSink, TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime';\n");
                 source.push_str(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );
@@ -385,13 +393,14 @@ fn generate(
             fs::remove_file(public.join("codecs.ts"))?;
             public_projection::Target::Browser
         };
-        public_projection::generate(&metadata, out, target)?;
+        public_projection::generate(&metadata, &streams, out, target)?;
     }
     if pure_only {
-        public_projection::generate(&metadata, out, public_projection::Target::Pure)?;
+        public_projection::generate(&metadata, &streams, out, public_projection::Target::Pure)?;
     }
     if matches!(language, Language::Swift | Language::Kotlin) {
         forwarding::generate(&metadata, language, out)?;
+        streams::generate_native(&streams, language, out)?;
     }
     if matches!(language, Language::Swift) {
         // Forwarding adds documentation after the initial binding rewrite.

@@ -41,8 +41,8 @@ class AndroidNotificationsTest {
             try {
                 val peer = SDKClient.create(context, generateLocalSigner(), options())
                 try {
-                    val group = client.conversations().createGroup(listOf(peer.inboxId()))
-                    val dm = client.conversations().createDm(peer.inboxId())
+                    val group = client.conversations.createGroup(listOf(peer.inboxId()))
+                    val dm = client.conversations.createDm(peer.inboxId())
                     val conversations = listOf(Conversation.Group(group), Conversation.Dm(dm))
 
                     suspend fun enabled(conversation: Conversation) =
@@ -113,7 +113,7 @@ class AndroidNotificationsTest {
                 )
             var client = SDKClient.create(context, signer, options)
             try {
-                val group = client.conversations().createGroup(emptyList<InboxId>())
+                val group = client.conversations.createGroup(emptyList<InboxId>())
                 val groupId = group.id()
                 val path = client.storage().path()
                 val installation = client.installationId()
@@ -133,7 +133,7 @@ class AndroidNotificationsTest {
                 assertEquals(path, client.storage().path())
                 assertEquals(installation, client.installationId())
                 assertEquals(NotificationState.Enabled, client.notificationState())
-                val restored = (checkNotNull(client.conversations().getById(groupId)) as Conversation.Group).group
+                val restored = (checkNotNull(client.conversations.getById(groupId)) as Conversation.Group).group
                 assertTrue(restored.state().common.notificationsEnabled)
                 restored.setNotifications(NotificationOverride.DEFAULT)
                 assertFalse(restored.state().common.notificationsEnabled)

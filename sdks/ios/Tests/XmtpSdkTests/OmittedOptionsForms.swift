@@ -40,6 +40,32 @@ enum OmittedOptionsForms {
 		_ = try await group.sendIntent(intent: intent)
 	}
 
+	static func streams(
+		_ client: SDKClient,
+		_ group: Group,
+		_ dm: Dm,
+		_ conversation: Conversation,
+		_ cursor: String,
+	) async throws {
+		let _: SDKConversationStream = try await client.conversations.stream()
+		let _: SDKConversationStream = try await client.conversations.stream(options: .init(
+			conversationKind: .dm,
+			consentStates: [],
+		))
+		let _: SDKMessageStream = try await client.conversations.streamAllMessages()
+		let _: SDKMessageStream = try await client.conversations.streamAllMessages(options: .init(
+			conversationKind: .group,
+			consentStates: [.allowed],
+			from: cursor,
+		))
+		let _: SDKMessageStream = try await group.streamMessages()
+		let _: SDKMessageStream = try await dm.streamMessages()
+		let _: SDKMessageStream = try await conversation.streamMessages(options: .init(from: cursor))
+		_ = try await client.conversations.list()
+		_ = try await client.conversations.createGroup(members: [InboxId]())
+		_ = try await client.conversations.conversationReader(options: nil)
+	}
+
 	/// A `Conversation` narrows to exactly a group or a DM.
 	static func narrow(_ conversation: Conversation) -> ConversationId {
 		switch conversation {

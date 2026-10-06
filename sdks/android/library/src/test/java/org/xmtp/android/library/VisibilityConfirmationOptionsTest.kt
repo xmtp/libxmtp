@@ -10,6 +10,8 @@ class VisibilityConfirmationOptionsTest {
     private class RecordingClient : Client(NoHandle) {
         val calls = mutableListOf<ULong?>()
 
+        override fun clientKey(): ULong = 900uL
+
         override suspend fun catchUpToLive(timeoutMs: ULong?): CatchUpSummary {
             calls.add(timeoutMs)
             return CatchUpSummary(0uL, 0uL, 0uL, true)

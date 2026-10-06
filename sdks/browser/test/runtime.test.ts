@@ -4,7 +4,6 @@
 import {
   Backend,
   Client,
-  MessageStream,
   Storage,
   XmtpError,
   type ClientOptions,
@@ -103,7 +102,7 @@ test("a stream replays an unacknowledged message, cancels an idle read, and repo
 
   const reasons: StreamCloseReason["kind"][] = [];
   const states: string[] = [];
-  const stream = MessageStream.openGroup(client, group, undefined, {
+  const stream = group.streamMessages({
     onClose: (reason) => reasons.push(reason.kind),
     onConnectionStateChange: (_previous, current) => states.push(current),
   });
@@ -114,7 +113,7 @@ test("a stream replays an unacknowledged message, cancels an idle read, and repo
   await stream.return();
   expect(reasons).toStrictEqual(["closed"]);
 
-  const replay = MessageStream.openGroup(client, group);
+  const replay = group.streamMessages();
   expect((await replay.next()).value?.id).toBe(firstId);
   const pending = replay.next();
   const nextId = await group.sendText("next");
@@ -156,7 +155,7 @@ test("hostile codec failures stay typed and the stream delivers the next item", 
   };
   const client = await create(signer(), { codecs: [codec] });
   const group = await client.conversations.createGroup([]);
-  const stream = MessageStream.openGroup(client, group);
+  const stream = group.streamMessages();
   try {
     for (const [value, message] of [
       ["error", "bad custom payload"],

@@ -27,10 +27,6 @@ public extension SDKClient {
         try await raw.changeRecoveryIdentifier(signer: signer, identity: identity)
     }
 
-    func conversations() -> Conversations {
-        raw.conversations()
-    }
-
     func decodeContent(encoded: EncodedContent) async throws -> MessageContent {
         try await raw.decodeContent(encoded: encoded)
     }

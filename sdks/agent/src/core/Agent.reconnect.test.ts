@@ -1,6 +1,10 @@
 import { setTimeout } from "node:timers/promises";
 
-import { flushTelemetry, initLogging, MessageStream } from "@xmtp/node-sdk";
+import {
+  flushTelemetry,
+  initLogging,
+  type MessageStream,
+} from "@xmtp/node-sdk";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { Agent } from "@/core/Agent";
@@ -153,7 +157,7 @@ describe("Agent reconnect", () => {
     );
     agent.on("text", ({ message }) => receivedIds.push(message.id));
     try {
-      replyStream = MessageStream.open(sender);
+      replyStream = sender.conversations.streamAllMessages();
       await replyStream.ready();
       void replyStream.onValue((message) => {
         replies.push(message.id);

@@ -619,12 +619,12 @@ New durable delivery:
 
 | Old stream call                                             | Self-hosted call                                                                                                                                        |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `conversation.stream()`                                     | `MessageStream.openGroup(client, group)` or `MessageStream.openDm(client, dm)`.                                                                         |
-| `conversations.streamAllMessages()`                         | `MessageStream.open(client, selection?, options?)`.                                                                                                     |
-| `streamAllGroupMessages()`                                  | `MessageStream.open(client, { conversationKind: "group" })`.                                                                                            |
-| `streamAllDmMessages()`                                     | `MessageStream.open(client, { conversationKind: "dm" })`.                                                                                               |
-| `conversations.stream()`                                    | `ConversationStream.open(client, selection?, options?)`.                                                                                                |
-| `streamGroups()`, `streamDms()`                             | `ConversationStream.open(client, { kind: "group" })` or `{ kind: "dm" }`.                                                                               |
+| `conversation.stream()`                                     | `group.streamMessages()` or `dm.streamMessages()`.                                                                                                      |
+| `conversations.streamAllMessages()`                         | `conversations.streamAllMessages(options?)`.                                                                                                            |
+| `streamAllGroupMessages()`                                  | `conversations.streamAllMessages({ conversationKind: "group" })`.                                                                                       |
+| `streamAllDmMessages()`                                     | `conversations.streamAllMessages({ conversationKind: "dm" })`.                                                                                          |
+| `conversations.stream()`                                    | `conversations.stream(options?)`.                                                                                                                       |
+| `streamGroups()`, `streamDms()`                             | `conversations.stream({ conversationKind: "group" })` or `{ conversationKind: "dm" }`.                                                                  |
 | `streamMessageDeletions()`, `streamDeletedMessages()`       | `client.events({ kinds: ["message.deleted"] })`. Read the typed event payload.                                                                          |
 | `preferences.streamConsent()`                               | `client.events({ kinds: ["consent.changed"] })`.                                                                                                        |
 | `preferences.streamPreferences()`                           | Client events for the required changes, such as `hmac_keys.updated`. There is no `UserPreferenceUpdate[]` stream.                                       |
@@ -1396,11 +1396,11 @@ waits for local reader readiness; it does not prove that the backend is online.
 
 | Previous call                                                                                 | Current call                                                                                                                                                        |
 | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `await conversation.stream(options?)`                                                         | `MessageStream.openGroup(client, group, selection?, options?)` or `MessageStream.openDm(client, dm, selection?, options?)`.                                         |
-| `await conversations.streamAllMessages(options?)`                                             | `MessageStream.open(client, selection?, options?)`. Selection uses `conversationKind`, `consentStates`, and optional `from`.                                        |
-| `streamAllGroupMessages` / `streamAllDmMessages`                                              | `MessageStream.open(client, { conversationKind: "group" })` / `{ conversationKind: "dm" }`.                                                                         |
-| `await conversations.stream(options?)`                                                        | `ConversationStream.open(client, selection?, options?)`. Selection uses `kind` and `consentStates`.                                                                 |
-| `streamGroups` / `streamDms`                                                                  | `ConversationStream.open(client, { kind: "group" })` / `{ kind: "dm" }`.                                                                                            |
+| `await conversation.stream(options?)`                                                         | `group.streamMessages(options?)` or `dm.streamMessages(options?)`.                                                                                                  |
+| `await conversations.streamAllMessages(options?)`                                             | `client.conversations.streamAllMessages(options?)`. Options use `conversationKind`, `consentStates`, and optional `from`.                                           |
+| `streamAllGroupMessages` / `streamAllDmMessages`                                              | `client.conversations.streamAllMessages( { conversationKind: "group" })` / `{ conversationKind: "dm" }`.                                                            |
+| `await conversations.stream(options?)`                                                        | `client.conversations.stream(options?)`. Options use `conversationKind` and `consentStates`.                                                                        |
+| `streamGroups` / `streamDms`                                                                  | `client.conversations.stream({ conversationKind: "group" })` / `{ conversationKind: "dm" }`.                                                                        |
 | `StreamOptions` with `onValue`, `onEnd`, `onError`, retry controls, and `disableSync`         | Current options are `signal`, `onClose`, and `onConnectionStateChange`. Register a callback with `await stream.onValue(callback)`.                                  |
 | `onEnd` / `onError`                                                                           | `onClose({ kind: "closed" })` / `onClose({ kind: "failed", error })`, or handle iterator rejection.                                                                 |
 | `retryAttempts`, `retryDelay`, `retryOnFail`, `onFail`, `onRetry`, `onRestart`, `disableSync` | Removed from the current public stream options. Core handles network recovery. After a terminal failure, repair the cause and explicitly open a replacement stream. |
@@ -1675,7 +1675,7 @@ Keep Android core library desugaring enabled. The SDK requires API 23 or later a
 | `GroupMembershipState`                                                     | `MembershipState`; the allowed/rejected/pending/restored/pending-remove values remain                                                    |
 | `Conversation.Type`, `Conversations.ConversationFilterType`                | `ConversationKind`; omit the kind to select both groups and DMs                                                                          |
 
-Many old client and conversation properties are now methods. For example, use `client.inboxId()`, `client.installationId()`, `client.identity()`, `client.conversations()`, `client.preferences()`, `group.id()`, and `group.createdAt()`. Message fields remain properties, such as `message.id` and `message.sentAt`.
+Many old client and conversation properties are now methods. For example, use `client.inboxId()`, `client.installationId()`, `client.identity()`, `client.preferences()`, `group.id()`, and `group.createdAt()`. `client.conversations` remains a property. Message fields remain properties, such as `message.id` and `message.sentAt`.
 
 ### Client creation, storage, and signing
 
@@ -1901,12 +1901,12 @@ After:
 import uniffi.xmtp_sdk.*
 
 suspend fun conversations(client: SDKClient, peer: InboxId): Group {
-    val group = client.conversations().createGroup(
+    val group = client.conversations.createGroup(
         listOf(peer), CreateGroupOptions(name = "Support"),
     )
-    val dm: Dm = client.conversations().createDm(peer)
+    val dm: Dm = client.conversations.createDm(peer)
     check(dm.id().isNotEmpty())
-    val groups = client.conversations().listGroups(
+    val groups = client.conversations.listGroups(
         ListConversationsOptions(limit = 20u, orderBy = ConversationOrder.LAST_ACTIVITY)
     )
     check(groups.any { it.id() == group.id() })
@@ -2193,7 +2193,7 @@ suspend fun custom(signer: Signer, options: ClientOptions, peer: InboxId) {
     val codec = NoteCodec()
     val client = SDKClient.create(signer, options, codecs = listOf(codec))
     try {
-        client.conversations().createDm(peer).send(codec, "A note")
+        client.conversations.createDm(peer).send(codec, "A note")
     } finally {
         withContext(NonCancellable) { client.end() }
     }
@@ -2230,21 +2230,21 @@ For remote attachments, the SDK now offers a complete upload and local cache flo
 
 ### Streams, replay, and events
 
-| Old stream                                                                                              | New stream                                                                                                           |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `group.streamMessages(onClose)` / `dm.streamMessages(onClose)` / `conversation.streamMessages(onClose)` | `client.messages(group, options, onClose, onConnectionStateChange)` or the DM form; match `Conversation` when needed |
-| `conversations.streamAllMessages(type, consentStates, onClose)`                                         | `client.messages(MessageReaderOptions(conversationKind, consentStates, from), onClose, onConnectionStateChange)`     |
-| `conversations.stream(type, onClose)`                                                                   | `client.conversationStream(kind, consentStates, onClose, onConnectionStateChange)`                                   |
-| `conversations.streamMessageDeletions(onClose)`                                                         | Client events selected with `EventKind.MESSAGE_DELETED`; the event has IDs, not a decoded message                    |
-| `preferences.streamConsent(onClose)`                                                                    | Client events selected with `EventKind.CONSENT_CHANGED`; use the new consent event payload                           |
-| `preferences.streamPreferenceUpdates(onClose)`                                                          | Client events selected with `EventKind.HMAC_KEYS_UPDATED`                                                            |
-| `Client.manageStreamLifecycle`                                                                          | `AndroidStreamLifecycle.enabled`; set it before the first Android client is created                                  |
+| Old stream                                                                                              | New stream                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `group.streamMessages(onClose)` / `dm.streamMessages(onClose)` / `conversation.streamMessages(onClose)` | `conversation.streamMessages(ConversationMessageStreamOptions(from, onClose, onConnectionStateChange))`                                 |
+| `conversations.streamAllMessages(type, consentStates, onClose)`                                         | `client.conversations.streamAllMessages(MessageStreamOptions(conversationKind, consentStates, from, onClose, onConnectionStateChange))` |
+| `conversations.stream(type, onClose)`                                                                   | `client.conversations.stream(ConversationStreamOptions(conversationKind, consentStates, onClose, onConnectionStateChange))`             |
+| `conversations.streamMessageDeletions(onClose)`                                                         | Client events selected with `EventKind.MESSAGE_DELETED`; the event has IDs, not a decoded message                                       |
+| `preferences.streamConsent(onClose)`                                                                    | Client events selected with `EventKind.CONSENT_CHANGED`; use the new consent event payload                                              |
+| `preferences.streamPreferenceUpdates(onClose)`                                                          | Client events selected with `EventKind.HMAC_KEYS_UPDATED`                                                                               |
+| `Client.manageStreamLifecycle`                                                                          | `AndroidStreamLifecycle.enabled`; set it before the first Android client is created                                                     |
 
 The message flows return `Flow<Message>`. Conversation flows return `Flow<Conversation>`. The close callback receives `SDKStreamCloseReason.Closed` or `.Failed(error)`. The connection callback receives the previous nullable `ConnectionState` and the current state.
 
 A default message reader owns persisted delivery progress. Only one can be active in a client database, including across separate group and DM scopes. A second reader fails with `ConsumerOwned`. With direct sequential `collect`, the next read acknowledges the previous message after the collector returns. A buffer can move that boundary before downstream work finishes. Do not use buffered collection as a durable acknowledgement for each consumer.
 
-Use `MessageReaderOptions(from = cursor)` or `ConversationMessageReaderOptions(from = cursor)` for independent replay and live reading. The cursor is exclusive. These readers do not advance default progress. `messageHistorySnapshot(limit: UInt, options)` returns messages and a cursor from one history boundary. `beginningDeliveryCursor()` returns a replay boundary before stored delivery rows. Lower-level `messageReader(...)` / `conversationReader(...)` expose `next()`, `end()`, and connection state methods.
+Use `MessageStreamOptions(from = cursor)` or `ConversationMessageStreamOptions(from = cursor)` for independent replay and live reading. The cursor is exclusive. These readers do not advance default progress. `messageHistorySnapshot(limit: UInt, options)` returns messages and a cursor from one history boundary. `beginningDeliveryCursor()` returns a replay boundary before stored delivery rows. Lower-level `messageReader(...)` / `conversationReader(...)` expose `next()`, `end()`, and connection state methods.
 
 Before:
 
@@ -2266,7 +2266,7 @@ import kotlinx.coroutines.flow.collect
 import uniffi.xmtp_sdk.*
 
 suspend fun stream(client: SDKClient, group: Group) {
-    client.messages(group, onClose = { reason -> println(reason) }).collect { message ->
+    group.streamMessages(ConversationMessageStreamOptions(onClose = { reason -> println(reason) })).collect { message ->
         val text = ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text)?.v1
         println(text ?: message.fallback.orEmpty())
     }
@@ -2589,28 +2589,28 @@ For a smart contract wallet, return `.scw(chainId:blockNumber:)` from `kind()`. 
 
 ### Read client identity and use lookup helpers
 
-| Old call or property                                                | New call                                                     | Result change                                                                                                                                        |
-| ------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `client.inboxID`                                                    | `client.inboxId()`                                           | `InboxId`.                                                                                                                                           |
-| `client.installationID`                                             | `client.installationId()`                                    | `InstallationId`. Use `installationIdBytes()` only when bytes are needed.                                                                            |
-| `client.publicIdentity`                                             | `client.identity()`                                          | `PublicIdentity`.                                                                                                                                    |
-| `client.libXMTPVersion`                                             | `client.libxmtpVersion()`                                    | `String`. `sdkVersion()` is also a package function.                                                                                                 |
-| `client.environment`                                                | `client.serverConfiguration()` / `client.options()`          | There is no environment enum result. Read the selected deployment and its configuration.                                                             |
-| `client.isInMemory`                                                 | `client.isInMemory()`                                        | `Bool`.                                                                                                                                              |
-| `client.dbPath`                                                     | `client.storagePath()`                                       | `String?`; an in-memory client has no file path.                                                                                                     |
-| `client.conversations`, `.preferences`, `.debugInformation`         | `client.conversations()`, `.preferences()`, `.diagnostics()` | Accessor methods return service objects.                                                                                                             |
-| `Client.connectToApiBackend(api:)`                                  | `Backend.connect(options:)`                                  | Async throwing connection returns `Backend`. Pass `.connected(backend:)` as a `BackendSource`.                                                       |
-| `Client.getOrCreateInboxId(api:publicIdentity:)`                    | `SDKClient.inboxIdFor(identity:backend:)`                    | Async throwing `InboxId`. Use `generateInboxId(identity:nonce:)` for a pure derivation. Do not reproduce the old network-error fallback in app code. |
-| `client.inboxIdFromIdentity(identity:)`                             | `client.inboxIdFor(identity:)`                               | Async throwing `InboxId?`.                                                                                                                           |
-| `Client.canMessage(accountIdentities:api:)`                         | `SDKClient.canMessage(identities:backend:)`                  | Async throwing `[String: Bool]`; keys include identity kind.                                                                                         |
-| `client.canMessage(identities:)`                                    | `client.canMessage(identities:)`                             | Same method shape; map keys now use `ethereum:<core text>` or `passkey:<lowercase core hex>`.                                                        |
-| `client.canMessage(identity:)`                                      | `client.canMessage(identities: [identity])`                  | The single-identity `Bool` overload is absent. Read the typed-key map.                                                                               |
-| `Client.inboxStatesForInboxIds(inboxIds:api:)`                      | `SDKClient.inboxStates(ids:backend:)`                        | `[InboxState]`.                                                                                                                                      |
-| `client.inboxStatesForInboxIds(refreshFromNetwork:inboxIds:)`       | `client.inboxStates(ids:refreshFromNetwork:)`                | `[InboxState]`; labels and order change.                                                                                                             |
-| `client.inboxState(refreshFromNetwork:)`                            | Same method                                                  | `InboxState`; installation timestamps are now `Timestamp?`.                                                                                          |
-| `Client.keyPackageStatusesForInstallationIds(installationIds:api:)` | `SDKClient.keyPackageStatuses(ids:backend:)`                 | `[String: KeyPackageStatus]`; no `FfiKeyPackageStatus`.                                                                                              |
-| `Client.getNewestMessageMetadata(groupIds:api:)`                    | `SDKClient.newestMessageMetadata(ids:backend:)`              | `[String: MessageMetadataEntry]`; `cursor: FfiCursor` becomes `sequenceId: UInt64`; `createdNs: Int64` becomes `createdAt: Timestamp`.               |
-| `client.catchUpToLive(timeoutMs:)`                                  | Same name                                                    | The new wrapper requires the `timeoutMs` argument, including `nil`. `CatchUpSummary` adds `failed: UInt64`. Check `completed`.                       |
+| Old call or property                                                | New call                                                   | Result change                                                                                                                                        |
+| ------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.inboxID`                                                    | `client.inboxId()`                                         | `InboxId`.                                                                                                                                           |
+| `client.installationID`                                             | `client.installationId()`                                  | `InstallationId`. Use `installationIdBytes()` only when bytes are needed.                                                                            |
+| `client.publicIdentity`                                             | `client.identity()`                                        | `PublicIdentity`.                                                                                                                                    |
+| `client.libXMTPVersion`                                             | `client.libxmtpVersion()`                                  | `String`. `sdkVersion()` is also a package function.                                                                                                 |
+| `client.environment`                                                | `client.serverConfiguration()` / `client.options()`        | There is no environment enum result. Read the selected deployment and its configuration.                                                             |
+| `client.isInMemory`                                                 | `client.isInMemory()`                                      | `Bool`.                                                                                                                                              |
+| `client.dbPath`                                                     | `client.storagePath()`                                     | `String?`; an in-memory client has no file path.                                                                                                     |
+| `client.conversations`, `.preferences`, `.debugInformation`         | `client.conversations`, `.preferences()`, `.diagnostics()` | Accessor methods return service objects.                                                                                                             |
+| `Client.connectToApiBackend(api:)`                                  | `Backend.connect(options:)`                                | Async throwing connection returns `Backend`. Pass `.connected(backend:)` as a `BackendSource`.                                                       |
+| `Client.getOrCreateInboxId(api:publicIdentity:)`                    | `SDKClient.inboxIdFor(identity:backend:)`                  | Async throwing `InboxId`. Use `generateInboxId(identity:nonce:)` for a pure derivation. Do not reproduce the old network-error fallback in app code. |
+| `client.inboxIdFromIdentity(identity:)`                             | `client.inboxIdFor(identity:)`                             | Async throwing `InboxId?`.                                                                                                                           |
+| `Client.canMessage(accountIdentities:api:)`                         | `SDKClient.canMessage(identities:backend:)`                | Async throwing `[String: Bool]`; keys include identity kind.                                                                                         |
+| `client.canMessage(identities:)`                                    | `client.canMessage(identities:)`                           | Same method shape; map keys now use `ethereum:<core text>` or `passkey:<lowercase core hex>`.                                                        |
+| `client.canMessage(identity:)`                                      | `client.canMessage(identities: [identity])`                | The single-identity `Bool` overload is absent. Read the typed-key map.                                                                               |
+| `Client.inboxStatesForInboxIds(inboxIds:api:)`                      | `SDKClient.inboxStates(ids:backend:)`                      | `[InboxState]`.                                                                                                                                      |
+| `client.inboxStatesForInboxIds(refreshFromNetwork:inboxIds:)`       | `client.inboxStates(ids:refreshFromNetwork:)`              | `[InboxState]`; labels and order change.                                                                                                             |
+| `client.inboxState(refreshFromNetwork:)`                            | Same method                                                | `InboxState`; installation timestamps are now `Timestamp?`.                                                                                          |
+| `Client.keyPackageStatusesForInstallationIds(installationIds:api:)` | `SDKClient.keyPackageStatuses(ids:backend:)`               | `[String: KeyPackageStatus]`; no `FfiKeyPackageStatus`.                                                                                              |
+| `Client.getNewestMessageMetadata(groupIds:api:)`                    | `SDKClient.newestMessageMetadata(ids:backend:)`            | `[String: MessageMetadataEntry]`; `cursor: FfiCursor` becomes `sequenceId: UInt64`; `createdNs: Int64` becomes `createdAt: Timestamp`.               |
+| `client.catchUpToLive(timeoutMs:)`                                  | Same name                                                  | The new wrapper requires the `timeoutMs` argument, including `nil`. `CatchUpSummary` adds `failed: UInt64`. Check `completed`.                       |
 
 `InboxState` retains `inboxId`, `identities`, `installations`, `recoveryIdentity`, and `creationSignatureKind`. `Installation.createdAt` changes from `Date?` to `Timestamp?`. `KeyPackageStatus` has `lifetime: KeyPackageLifetime?` and `validationError: String?`. The lifetime has `notBefore` and `notAfter` as `UInt64` values.
 
@@ -2689,8 +2689,8 @@ func createChat(client: Client, peer: InboxId) async throws -> (Dm, Group) {
 
 ```swift title="After"
 func createChat(client: SDKClient, peer: InboxId) async throws -> (Dm, Group) {
-    let dm = try await client.conversations().createDm(peer: peer)
-    let group = try await client.conversations().createGroup(
+    let dm = try await client.conversations.createDm(peer: peer)
+    let group = try await client.conversations.createGroup(
         members: [peer],
         options: CreateGroupOptions(
             permissions: .adminOnly, name: "Project", description: "Project discussion"
@@ -2734,7 +2734,7 @@ func recentGroups(client: Client, afterNs: Int64) throws -> [Group] {
 
 ```swift title="After"
 func recentGroups(client: SDKClient, afterNs: Int64) async throws -> [Group] {
-    try await client.conversations().listGroups(
+    try await client.conversations.listGroups(
         options: ListConversationsOptions(
             consentStates: [.allowed], createdAfter: Timestamp(ns: afterNs),
             limit: 20, orderBy: .lastActivity
@@ -3155,17 +3155,17 @@ The old nested remote attachment types are absent. Use the attachment service or
 
 ### Streams and replay
 
-Swift streams move to `SDKClient`. A stream yields `Message` or `Conversation`. Stream creation is async throwing. The close callback now receives `SDKStreamCloseReason` (`.closed` or `.failed(Error)`) and is `@Sendable`. The connection-state callback is also `@Sendable`.
+Swift streams use the conversation collection or a loaded conversation. A stream yields `Message` or `Conversation`. Stream creation is async throwing. The close callback now receives `SDKStreamCloseReason` (`.closed` or `.failed(Error)`) and is `@Sendable`. The connection-state callback is also `@Sendable`.
 
-| Old stream                                                            | New stream                                                                       | Parameter change                                                        |
-| --------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `group.streamMessages(onClose:)` / `dm.streamMessages(onClose:)`      | `client.messages(in: groupOrDm, options:onClose:onConnectionStateChange:)`       | Optional `ConversationMessageReaderOptions(from:)`.                     |
-| `conversation.streamMessages(onClose:)`                               | Match `.group` / `.dm`, then call `client.messages(in:)`                         | There is no enum overload on `SDKClient.messages(in:)`.                 |
-| `client.conversations.streamAllMessages(type:consentStates:onClose:)` | `client.messages(options:onClose:onConnectionStateChange:)`                      | Use `MessageReaderOptions(conversationKind:consentStates:from:)`.       |
-| `client.conversations.stream(type:onClose:)`                          | `client.conversationStream(kind:consentStates:onClose:onConnectionStateChange:)` | `.all` becomes `nil`; `.groups` becomes `.group`; `.dms` becomes `.dm`. |
-| `group.endStream()` / `dm.endStream()`                                | Cancel the consumer task or release its iterator                                 | Stream lifetime belongs to the iterator.                                |
-| `streamMessageDeletions(...)`                                         | `client.events(EventFilter(...))`                                                | Read typed deletion events.                                             |
-| `preferences.streamConsent(...)` / `streamPreferenceUpdates(...)`     | `client.events(EventFilter(...))`                                                | Read typed consent and preference events.                               |
+| Old stream                                                            | New stream                                         | Parameter change                                                                                  |
+| --------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `group.streamMessages(onClose:)` / `dm.streamMessages(onClose:)`      | `conversation.streamMessages(options:)`            | Use `ConversationMessageStreamOptions(from:onClose:onConnectionStateChange:)`.                    |
+| `conversation.streamMessages(onClose:)`                               | `conversation.streamMessages(options:)`            | The enum forwards to its group or DM.                                                             |
+| `client.conversations.streamAllMessages(type:consentStates:onClose:)` | `client.conversations.streamAllMessages(options:)` | Use `MessageStreamOptions(conversationKind:consentStates:from:onClose:onConnectionStateChange:)`. |
+| `client.conversations.stream(type:onClose:)`                          | `client.conversations.stream(options:)`            | `.all` becomes `nil`; `.groups` becomes `.group`; `.dms` becomes `.dm`.                           |
+| `group.endStream()` / `dm.endStream()`                                | Cancel the consumer task or release its iterator   | Stream lifetime belongs to the iterator.                                                          |
+| `streamMessageDeletions(...)`                                         | `client.events(EventFilter(...))`                  | Read typed deletion events.                                                                       |
+| `preferences.streamConsent(...)` / `streamPreferenceUpdates(...)`     | `client.events(EventFilter(...))`                  | Read typed consent and preference events.                                                         |
 
 ```swift title="Before"
 func consume(dm: Dm) async throws {
@@ -3177,7 +3177,7 @@ func consume(dm: Dm) async throws {
 
 ```swift title="After"
 func consume(client: SDKClient, dm: Dm) async throws {
-    let stream = try await client.messages(in: dm)
+    let stream = try await dm.streamMessages()
     for try await message in stream {
         print(message.id)
     }
@@ -3194,8 +3194,8 @@ func consumeAll(client: Client) async throws {
 
 ```swift title="After"
 func consumeAll(client: SDKClient) async throws {
-    let stream = try await client.messages(
-        options: MessageReaderOptions(conversationKind: .dm, consentStates: [.allowed])
+    let stream = try await client.conversations.streamAllMessages(
+        options: MessageStreamOptions(conversationKind: .dm, consentStates: [.allowed])
     )
     for try await message in stream {
         print(message.id)
@@ -3211,8 +3211,8 @@ For history followed by live delivery, use the atomic history snapshot and its c
 func historyThenLive(client: SDKClient, dm: Dm) async throws {
     let snapshot = try await dm.messageHistorySnapshot(limit: 100)
     for message in snapshot.messages { print(message.id) }
-    let stream = try await client.messages(
-        in: dm, options: ConversationMessageReaderOptions(from: snapshot.cursor)
+    let stream = try await dm.streamMessages(
+        options: ConversationMessageStreamOptions(from: snapshot.cursor)
     )
     for try await message in stream { print(message.id) }
 }

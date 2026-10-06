@@ -140,7 +140,7 @@ export function publicApi(sdk, pure, target, backend, accounts) {
         contentTypes: [type("text"), type("reply"), type("attachment")],
       }),
     stream: async (client, group) => {
-      const stream = sdk.MessageStream.openGroup(client, group);
+      const stream = group.streamMessages();
       await stream.ready();
       return stream;
     },

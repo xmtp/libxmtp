@@ -106,6 +106,12 @@ pub(crate) async fn list_local(
 
 #[xmtp_macro::sdk_export]
 impl Conversations {
+    /// Host stream ownership.
+    #[sdk(immutable, host_internal)]
+    pub fn sdk_stream_owner_key(&self) -> u64 {
+        self.client_key
+    }
+
     /// Capture history with kind and consent selection. A replay `from` cursor
     /// is invalid because this call captures a new atomic replay boundary.
     #[uniffi::method(default(options = None))]
@@ -145,6 +151,11 @@ impl Conversations {
     }
 
     #[uniffi::method(default(options = None))]
+    #[sdk(stream(
+        name = "stream_all_messages",
+        options = "MessageStreamOptions",
+        owner = "sdk_stream_owner_key"
+    ))]
     pub async fn message_reader(
         &self,
         options: Option<crate::MessageReaderOptions>,
@@ -191,6 +202,11 @@ impl Conversations {
         .await
     }
 
+    #[sdk(stream(
+        name = "stream",
+        options = "ConversationStreamOptions",
+        owner = "sdk_stream_owner_key"
+    ))]
     pub async fn conversation_reader(
         &self,
         options: Option<crate::ConversationReaderOptions>,

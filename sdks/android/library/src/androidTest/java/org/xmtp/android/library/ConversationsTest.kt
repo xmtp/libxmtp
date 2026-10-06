@@ -32,28 +32,28 @@ class ConversationsTest : BaseInstrumentedTest() {
 
     @Test fun testsCanListConversations() =
         runBlocking {
-            bo.conversations().createDm(caro.inboxId())
-            bo.conversations().createGroup(listOf(caro.inboxId()))
-            assertEquals(2, bo.conversations().list().size)
-            assertEquals(1, bo.conversations().listDms(null).size)
-            assertEquals(1, bo.conversations().listGroups(null).size)
-            caro.conversations().sync()
-            assertEquals(2, caro.conversations().list().size)
-            assertEquals(1, caro.conversations().listGroups(null).size)
+            bo.conversations.createDm(caro.inboxId())
+            bo.conversations.createGroup(listOf(caro.inboxId()))
+            assertEquals(2, bo.conversations.list().size)
+            assertEquals(1, bo.conversations.listDms(null).size)
+            assertEquals(1, bo.conversations.listGroups(null).size)
+            caro.conversations.sync()
+            assertEquals(2, caro.conversations.list().size)
+            assertEquals(1, caro.conversations.listGroups(null).size)
         }
 
     @Test fun testCanStreamAllMessages() =
         runBlocking {
-            val group = caro.conversations().createGroup(listOf(bo.inboxId()))
-            val dm = bo.conversations().createDm(caro.inboxId())
-            bo.conversations().syncAll(null)
+            val group = caro.conversations.createGroup(listOf(bo.inboxId()))
+            val dm = bo.conversations.createDm(caro.inboxId())
+            bo.conversations.syncAll(null)
             val messages = StreamTestMessages()
-            val job = launch(Dispatchers.IO) { bo.messages().collect { messages.add(it) } }
+            val job = launch(Dispatchers.IO) { bo.conversations.streamAllMessages().collect { messages.add(it) } }
             try {
-                messages.awaitHistory(bo.conversations().messageHistorySnapshot(10u).messages)
+                messages.awaitHistory(bo.conversations.messageHistorySnapshot(10u).messages)
                 val expected = listOf(group.sendText("hi") to "hi", dm.sendText("hi") to "hi")
                 messages.awaitApplicationsAcrossConversations(expected) {
-                    bo.conversations().messageHistorySnapshot(10u).messages
+                    bo.conversations.messageHistorySnapshot(10u).messages
                 }
             } finally {
                 withContext(NonCancellable) { job.cancelAndJoin() }
@@ -65,11 +65,11 @@ class ConversationsTest : BaseInstrumentedTest() {
             val received = mutableListOf<Conversation>()
             val job =
                 launch(Dispatchers.IO) {
-                    bo.conversationStream().collect { synchronized(received) { received.add(it) } }
+                    bo.conversations.stream().collect { synchronized(received) { received.add(it) } }
                 }
             try {
-                val group = caro.conversations().createGroup(listOf(bo.inboxId()))
-                val dm = bo.conversations().createDm(caro.inboxId())
+                val group = caro.conversations.createGroup(listOf(bo.inboxId()))
+                val dm = bo.conversations.createDm(caro.inboxId())
                 withTimeout(10_000) { while (synchronized(received) { received.size } < 2) delay(10) }
                 val snapshot = synchronized(received) { received.toList() }
                 assertEquals(2, snapshot.size)
@@ -96,14 +96,14 @@ class ConversationsTest : BaseInstrumentedTest() {
                 )
             try {
                 val dm =
-                    bo.conversations().createDm(
+                    bo.conversations.createDm(
                         alix.inboxId(),
                         CreateDmOptions(DisappearingSettings(Timestamp(1_000_000_000), 1_000_000_000)),
                     )
                 val id = dm.sendText("This message will disappear")
                 withTimeout(10_000) { while (!synchronized(deleted) { id in deleted }) delay(10) }
                 assertTrue(synchronized(deleted) { id in deleted })
-                assertNull(bo.conversations().getMessageById(id))
+                assertNull(bo.conversations.getMessageById(id))
             } finally {
                 withContext(NonCancellable) { bo.stopListener(listener) }
             }

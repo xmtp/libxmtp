@@ -1,5 +1,4 @@
 import {
-  MessageStream,
   type ConnectionState,
   type Message,
   type StreamCloseReason,
@@ -31,7 +30,7 @@ test("a stream stays open through a dropped connection and delivers after it rec
     const states: ConnectionState[] = [];
     const reasons: StreamCloseReason[] = [];
     const received: string[] = [];
-    const stream = MessageStream.open(receiver, undefined, {
+    const stream = receiver.conversations.streamAllMessages({
       onConnectionStateChange: (_previous, current) => states.push(current),
       onClose: (reason) => reasons.push(reason),
     });

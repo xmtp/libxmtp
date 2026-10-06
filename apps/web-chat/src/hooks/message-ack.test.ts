@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { MessageStream, type Message } from "@xmtp/browser-sdk";
+import type { MessageStream, Message } from "@xmtp/browser-sdk";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { inboxStore } from "@/stores/inbox/store";
@@ -10,6 +10,7 @@ const { client } = vi.hoisted(() => ({
   client: {
     conversations: {
       getMessageById: vi.fn(),
+      streamAllMessages: vi.fn(),
     },
   },
 }));
@@ -40,7 +41,7 @@ const deferred = <T>() => {
 
 const callback = async () => {
   let deliver: ((value: Message) => void | Promise<void>) | undefined;
-  vi.spyOn(MessageStream, "open").mockReturnValue({
+  client.conversations.streamAllMessages.mockReturnValue({
     ready: async () => {},
     onValue: async (handler: (value: Message) => void | Promise<void>) => {
       deliver = handler;

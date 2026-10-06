@@ -203,16 +203,22 @@ class AndroidContextStartupTest {
         receiver: SDKClient,
     ) = kotlinx.coroutines.coroutineScope {
         dispatch(Lifecycle.Event.ON_START)
-        val group = sender.conversations().createGroup(listOf(receiver.inboxId()))
-        receiver.conversations().sync()
-        val joined = (checkNotNull(receiver.conversations().getById(group.id())) as Conversation.Group).group
+        val group = sender.conversations.createGroup(listOf(receiver.inboxId()))
+        receiver.conversations.sync()
+        val joined = (checkNotNull(receiver.conversations.getById(group.id())) as Conversation.Group).group
         val received = Collections.synchronizedList(mutableListOf<MessageId>())
         val states = Collections.synchronizedList(mutableListOf<ConnectionState>())
         val stream =
             launch(Dispatchers.Default) {
-                receiver
-                    .messages(joined, onConnectionStateChange = { _, current -> states.add(current) })
-                    .collect { received.add(it.id) }
+                joined
+                    .streamMessages(
+                        ConversationMessageStreamOptions(onConnectionStateChange = {
+                            _,
+                            current,
+                            ->
+                            states.add(current)
+                        }),
+                    ).collect { received.add(it.id) }
             }
         try {
             val sentAt = System.nanoTime()

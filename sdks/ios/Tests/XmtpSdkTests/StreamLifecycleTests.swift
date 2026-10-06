@@ -121,14 +121,14 @@ final class StreamLifecycleTests: XCTestCase {
 		receiver: SDKClient, sender: SDKClient,
 		background: () async -> Void, foreground: () async -> Void,
 	) async throws {
-		let group = try await sender.conversations().createGroup(members: [receiver.inboxId()])
-		try await receiver.conversations().sync()
-		guard case let .group(joined)? = try await receiver.conversations().getById(id: group.id()) else {
+		let group = try await sender.conversations.createGroup(members: [receiver.inboxId()])
+		try await receiver.conversations.sync()
+		guard case let .group(joined)? = try await receiver.conversations.getById(id: group.id()) else {
 			return XCTFail("The receiver did not join the group")
 		}
 		let received = Shared<[MessageId]>([])
 		let consumer = Task {
-			for try await message in try await receiver.messages(in: joined) {
+			for try await message in try await joined.streamMessages() {
 				received.update { $0.append(message.id) }
 			}
 		}

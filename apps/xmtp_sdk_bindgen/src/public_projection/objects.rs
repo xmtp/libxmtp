@@ -337,6 +337,7 @@ pub(super) fn object(
     items: &[&Metadata],
     name: &str,
     target: Target,
+    streams: &[crate::streams::Stream],
 ) -> Result<()> {
     let key = name.to_lower_camel_case();
     writeln!(
@@ -387,6 +388,9 @@ pub(super) fn object(
             render_body(code, &call, &callee, constructor.is_async)?;
             code.push_str("}\n");
         }
+    }
+    for stream in streams.iter().filter(|stream| stream.receiver == name) {
+        code.push_str(&crate::streams::typescript_member(stream));
     }
     for method in methods(items, name) {
         if is_identity_route(name, &camel(&method.name)) {
@@ -517,7 +521,11 @@ pub(super) fn projection(code: &mut String, items: &[&Metadata], target: Target)
 
 /// The package root and the names it exports. Internal conversion
 /// functions, the projection, and the generated Client members stay out.
-pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
+pub(super) fn public_api(
+    items: &[&Metadata],
+    target: Target,
+    streams: &[crate::streams::Stream],
+) -> String {
     if target == Target::Pure {
         return pure_api(items);
     }
@@ -587,9 +595,10 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
         Target::Pure => unreachable!("the pure module has its own entry"),
     };
     format!(
-        "// The package root, generated from the public projection. Do not edit this\n// output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ ConversationStream, MessageStream, type StreamCloseReason, type StreamOptions }} from \"./runtime/public/streams.js\";\nexport {{ EventStream }} from \"./runtime/public/events.js\";\n{target_exports}export {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
+        "// The package root, generated from the public projection. Do not edit this\n// output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\n{stream_exports}export {{ EventStream }} from \"./runtime/public/events.js\";\n{target_exports}export {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
         join(values),
-        join(types)
+        join(types),
+        stream_exports = crate::streams::typescript_exports(streams),
     )
 }
 
@@ -681,7 +690,7 @@ mod pure_inbox_tests {
         let mut worker = String::new();
         function(&mut worker, &metadata, Target::Browser)?;
         assert!(worker.is_empty());
-        let root = public_api(&[], Target::Browser);
+        let root = public_api(&[], Target::Browser, &[]);
         assert!(root.contains("export { generateInboxId } from \"../typescript-pure/index.js\""));
         metadata.inputs[1].ty = Type::Int64;
         assert!(function(&mut String::new(), &metadata, Target::Pure).is_err());

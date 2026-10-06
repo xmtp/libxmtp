@@ -34,13 +34,13 @@ class DeleteMessageTest : BaseInstrumentedTest() {
     fun testReceiverSeesDeletedMessageContentType() {
         val alixGroup =
             runBlocking {
-                alixClient.conversations().createGroup(listOf(boClient.inboxId()))
+                alixClient.conversations.createGroup(listOf(boClient.inboxId()))
             }
 
-        runBlocking { boClient.conversations().sync() }
+        runBlocking { boClient.conversations.sync() }
         val boGroup =
             runBlocking {
-                boClient.conversations().listGroups(null).first { it.id() == alixGroup.id() }
+                boClient.conversations.listGroups(null).first { it.id() == alixGroup.id() }
             }
 
         val originalText = "Test message for deletion verification"

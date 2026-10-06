@@ -19,7 +19,7 @@ val client = SDKClient.create(context, signer, ClientOptions(
     storage = StorageOptions(location = StorageLocation.Default),
 ))
 try {
-    val group = client.conversations().createGroup(emptyList<InboxId>())
+    val group = client.conversations.createGroup(emptyList<InboxId>())
     group.sendText("Hello")
     val messages = group.messages()
 } finally {
@@ -71,7 +71,7 @@ record through its own attachment store. The SDK checks transfer limits and
 content digests. Local emulator fixtures need `allowPrivateNetwork = true` and
 `adb reverse` for the backend's advertised loopback attachment port.
 
-Use `client.messages(group)` or `client.messages(dm)` for a Flow. The next native
+Use `group.streamMessages()` or `dm.streamMessages()` for a Flow. The next native
 read acknowledges the previous message after `emit` returns. With direct
 sequential collection, the collector callback finishes before
 that acknowledgement starts. A buffer or another asynchronous operator can let

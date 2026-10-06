@@ -28,7 +28,7 @@ class MessageReaderTest {
             val received = mutableListOf<String>()
             val job =
                 launch {
-                    client.messages().collect {
+                    client.conversations.streamAllMessages().collect {
                         received.add(it.id)
                         if (received.size == 1) {
                             entered.complete(Unit)
@@ -55,7 +55,7 @@ class MessageReaderTest {
                     awaitCancellation()
                 }
             val client = testSDKClient(RecordingReaderClient { reader })
-            val job = launch { client.messages().collect { fail("Waiting read cannot emit") } }
+            val job = launch { client.conversations.streamAllMessages().collect { fail("Waiting read cannot emit") } }
             started.await()
             job.cancelAndJoin()
             assertEquals(1, reader.nextCalls)
@@ -72,7 +72,7 @@ class MessageReaderTest {
                 }
             val client = testSDKClient(RecordingReaderClient { reader })
             var delivered = 0
-            val job = launch { client.messages().collect { delivered++ } }
+            val job = launch { client.conversations.streamAllMessages().collect { delivered++ } }
             job.join()
             assertEquals(0, delivered)
             assertEquals(1, reader.nextCalls)
@@ -91,7 +91,7 @@ class MessageReaderTest {
             assertSame(
                 failure,
                 runCatching {
-                    client.messages().collect { fail("Ownership failure cannot emit") }
+                    client.conversations.streamAllMessages().collect { fail("Ownership failure cannot emit") }
                 }.exceptionOrNull(),
             )
             assertEquals(1, reader.nextCalls)
@@ -106,7 +106,10 @@ class MessageReaderTest {
             val reader = RecordingMessageReader { if (reads++ == 0) deliveryTestMessage() else throw failure }
             val client = testSDKClient(RecordingReaderClient { reader })
             var delivered = 0
-            assertSame(failure, runCatching { client.messages().collect { delivered++ } }.exceptionOrNull())
+            assertSame(
+                failure,
+                runCatching { client.conversations.streamAllMessages().collect { delivered++ } }.exceptionOrNull(),
+            )
             assertEquals(1, delivered)
             assertEquals(2, reader.nextCalls)
             assertEquals(1, reader.endCalls)
@@ -123,7 +126,7 @@ class MessageReaderTest {
                 val reader = RecordingMessageReader { rows.removeFirstOrNull() }
                 val client = testSDKClient(RecordingReaderClient { reader })
                 val delivered = mutableListOf<Message>()
-                client.messages().collect { delivered.add(it) }
+                client.conversations.streamAllMessages().collect { delivered.add(it) }
                 assertEquals(listOf(unknown.id, later.id), delivered.map { it.id })
                 val content = delivered.first().content as SDKMessageContent.Unknown
                 assertArrayEquals(raw, content.rawBytes)
@@ -191,7 +194,7 @@ class MessageReaderTest {
             ClientRegistry.register(client)
             try {
                 val received = mutableListOf<Message>()
-                client.messages().collect { received.add(it) }
+                client.conversations.streamAllMessages().collect { received.add(it) }
                 assertEquals(2, received.size)
                 val failed = received.first().content as SDKMessageContent.Custom
                 assertNull(failed.value)
@@ -217,7 +220,7 @@ class MessageReaderTest {
             raw.closed = true
             assertTrue(
                 runCatching {
-                    client.messages().collect { fail("Closed owner cannot emit") }
+                    client.conversations.streamAllMessages().collect { fail("Closed owner cannot emit") }
                 }.exceptionOrNull() is XmtpException.ClientClosed,
             )
             assertEquals(0, reader.nextCalls)
@@ -241,8 +244,8 @@ class MessageReaderTest {
                         }
                     },
                 )
-            val first = launch { client.messages().collect {} }
-            val second = launch { client.messages().collect {} }
+            val first = launch { client.conversations.streamAllMessages().collect {} }
+            val second = launch { client.conversations.streamAllMessages().collect {} }
             opened.await()
             first.cancelAndJoin()
             second.cancelAndJoin()

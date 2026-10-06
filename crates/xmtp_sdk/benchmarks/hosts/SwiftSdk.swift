@@ -48,7 +48,7 @@ func benchInbox(_ client: BenchClient) -> String {
 }
 
 func benchSync(_ client: BenchClient) async throws {
-    try await client.conversations().sync()
+    try await client.conversations.sync()
 }
 
 func benchGroupID(_ group: BenchGroup) -> String {
@@ -56,12 +56,12 @@ func benchGroupID(_ group: BenchGroup) -> String {
 }
 
 func benchGroup(_ client: BenchClient, _ id: String) async throws -> BenchGroup {
-    guard case let .group(group)? = try await client.conversations().getById(id: id) else { throw BenchFailure(message: "Seeded group is absent") }
+    guard case let .group(group)? = try await client.conversations.getById(id: id) else { throw BenchFailure(message: "Seeded group is absent") }
     return group
 }
 
 func benchNewGroup(_ client: BenchClient, _ members: [String]) async throws -> BenchGroup {
-    try await client.conversations().createGroup(members: members, options: nil)
+    try await client.conversations.createGroup(members: members, options: nil)
 }
 
 func benchPrepare(_ group: BenchGroup, _ row: FixtureMessage, _ ids: [String], _ inbox: String) async throws -> String {
@@ -90,8 +90,8 @@ func benchGroupSync(_ group: BenchGroup) async throws {
 }
 
 /// `onEnd` runs once, after the SDK ended the stream's reader.
-func benchStream(_ client: BenchClient, _ group: BenchGroup, onEnd: @escaping @Sendable () -> Void) async throws -> BenchStream {
-    try await client.messages(in: group, onClose: { _ in onEnd() })
+func benchStream(_: BenchClient, _ group: BenchGroup, onEnd: @escaping @Sendable () -> Void) async throws -> BenchStream {
+    try await group.streamMessages(options: .init(onClose: { _ in onEnd() }))
 }
 
 func benchRows(_ group: BenchGroup, _ count: Int) async throws -> [Message] {

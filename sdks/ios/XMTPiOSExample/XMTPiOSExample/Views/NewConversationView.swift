@@ -34,9 +34,9 @@ struct NewConversationView: View {
 			defer { isCreating = false }
 			do {
 				let conversation: Conversation = if isGroup {
-					try await .group(group: client.conversations().createGroup(members: members, options: nil))
+					try await .group(group: client.conversations.createGroup(members: members, options: nil))
 				} else {
-					try await .dm(dm: client.conversations().createDm(
+					try await .dm(dm: client.conversations.createDm(
 						peer: PublicIdentity(identifier: address, kind: .ethereum), options: nil,
 					))
 				}

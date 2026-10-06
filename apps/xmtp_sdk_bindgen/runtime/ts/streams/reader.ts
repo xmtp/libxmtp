@@ -1,14 +1,4 @@
 import { ConnectionState } from "../../xmtp_sdk";
-import type {
-  ClientLike,
-  Conversation,
-  ConversationReaderOptions,
-  MessageReaderOptions,
-  ConversationMessageReaderOptions,
-} from "../../xmtp_sdk";
-import type { Client } from "../client";
-import type { Message } from "../message";
-
 const done = { done: true, value: undefined } as const;
 
 function reportCallbackError(error: unknown): void {
@@ -33,13 +23,6 @@ export type ReaderLike<T> = {
   end(): Promise<void>;
   connectionState?(): Promise<ConnectionState>;
   connectionStateChanged?(previous: ConnectionState): Promise<ConnectionState>;
-};
-
-type MessageReaderSource<T, Selection> = {
-  messageReader(
-    selection?: Selection,
-    transport?: { signal: AbortSignal },
-  ): Promise<ReaderLike<T>>;
 };
 
 /** Each next request acknowledges the value returned by the prior request. */
@@ -293,89 +276,5 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
 
   async end(): Promise<void> {
     await this.#close({ kind: "closed" });
-  }
-}
-
-export class MessageStream<T = Message> extends ReaderStream<T> {
-  static open<T>(
-    owner: { conversations(): MessageReaderSource<T, MessageReaderOptions> },
-    selection?: MessageReaderOptions,
-    options?: StreamOptions,
-  ): MessageStream<T> {
-    return new MessageStream(
-      (signal) => owner.conversations().messageReader(selection, { signal }),
-      owner,
-      options,
-    );
-  }
-
-  static openGroup<T>(
-    owner: object,
-    group: MessageReaderSource<T, ConversationMessageReaderOptions>,
-    selection?: ConversationMessageReaderOptions,
-    options?: StreamOptions,
-  ): MessageStream<T> {
-    return new MessageStream(
-      (signal) => group.messageReader(selection, { signal }),
-      owner,
-      options,
-    );
-  }
-
-  static openDm<T>(
-    owner: object,
-    dm: MessageReaderSource<T, ConversationMessageReaderOptions>,
-    selection?: ConversationMessageReaderOptions,
-    options?: StreamOptions,
-  ): MessageStream<T> {
-    return new MessageStream(
-      (signal) => dm.messageReader(selection, { signal }),
-      owner,
-      options,
-    );
-  }
-
-  constructor(
-    open: (signal: AbortSignal) => Promise<ReaderLike<T>>,
-    owner: object,
-    options?: StreamOptions,
-  ) {
-    super(open, owner, options);
-  }
-}
-
-export class ConversationStream extends ReaderStream<Conversation> {
-  static open(
-    owner: Client,
-    selection?: ConversationReaderOptions,
-    options?: StreamOptions,
-  ): ConversationStream {
-    return new ConversationStream(
-      (signal) =>
-        owner.conversations().conversationReader(selection, { signal }),
-      owner,
-      options,
-    );
-  }
-
-  static openBrowser(
-    owner: ClientLike,
-    selection?: ConversationReaderOptions,
-    options?: StreamOptions,
-  ): ConversationStream {
-    return new ConversationStream(
-      (signal) =>
-        owner.conversations().conversationReader(selection, { signal }),
-      owner,
-      options,
-    );
-  }
-
-  constructor(
-    open: (signal: AbortSignal) => Promise<ReaderLike<Conversation>>,
-    owner: object,
-    options?: StreamOptions,
-  ) {
-    super(open, owner, options);
   }
 }

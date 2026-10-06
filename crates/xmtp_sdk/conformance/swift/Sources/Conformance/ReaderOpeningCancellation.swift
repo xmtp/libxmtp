@@ -77,7 +77,7 @@ actor ReaderLateReadyGate {
 
 // A late open can ignore cancellation. Close must wait for its reader to end.
 // verifies: PROC-041
-func checkLateReaderOpeningCleanup(owner: SDKClient, group: Group) async throws {
+func checkLateReaderOpeningCleanup(owner _: SDKClient, group: Group) async throws {
     let (opened, openedSignal) = AsyncStream<MessageReader>.makeStream()
     let release = ReaderLateReadyGate()
     let previousOpenHook = SDKClient.readerOpenedForTest
@@ -88,14 +88,11 @@ func checkLateReaderOpeningCleanup(owner: SDKClient, group: Group) async throws 
     }
     let lateCloseCount = TestCounter()
     let cancelledOpening = Task {
-        let openingStream = try await owner.messages(
-            in: group,
-            onClose: { reason in
-                if case .closed = reason {
-                    lateCloseCount.increment()
-                }
+        let openingStream = try await group.streamMessages(options: .init(onClose: { reason in
+            if case .closed = reason {
+                lateCloseCount.increment()
             }
-        )
+        }))
         let openingIterator = openingStream.makeAsyncIterator()
         return try await openingIterator.next()
     }

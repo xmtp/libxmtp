@@ -194,7 +194,7 @@ class Message(
 
 private fun closedContentDetails() = ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed")
 
-private fun clientClosedError() =
+internal fun clientClosedError() =
     XmtpException.ClientClosed(
         ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed"),
     )

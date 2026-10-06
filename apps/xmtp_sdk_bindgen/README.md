@@ -28,6 +28,8 @@ together.
 | `@xmtp-client-static` | `#[sdk_export(client_static)]` on an async free function | Adds a static that calls the function to the Client of every SDK; see [Client statics](#client-statics) |
 | `@xmtp-worker` | Written in a doc comment | Keeps a call the browser worker makes itself off the bridge |
 | `@xmtp-internal` | Written in a doc comment | Leaves the item out of the public projection |
+| `@xmtp-stream=name:options:owner` | `#[sdk(stream(name = "...", options = "...", owner = "..."))]` on an async reader method | Generates host stream methods from the checked receiver, reader, owner getter, and typed options adapter |
+| `@xmtp-host-internal` | `#[sdk(host_internal)]` on an object method | Keeps the binding method private to the host runtime and removes its native interface entry; also writes `@xmtp-internal` |
 | `@xmtp-immutable` | `#[sdk(immutable)]` on a sync `&self` getter | Lets the browser bridge read the getter once, from a snapshot |
 | `@xmtp-kind=name` | `#[sdk(kind = "name")]` on each `EventKind` variant | Uses `name` as the public TypeScript string of the event kind |
 | `@xmtp-redact`, `@xmtp-redact=key` | `#[sdk(redact)]` or `#[sdk(redact = "key")]` on a record or variant field | Hides the value, or that key of a string map, in the generated Kotlin `toString` and the Swift `description` that `runtime/RecordDescriptions.swift` holds |
@@ -37,12 +39,21 @@ A marker is a whole word of a docstring: `@xmtp-`, a lowercase name, and an
 optional `=value`. The generator stops on such a word outside the table, so a
 misspelling such as `@xmtp-interal` cannot leave a private item public. A
 value reaches generated string literals, so the generator also stops on a
-kind or a redacted map key outside the grammar of its `#[sdk(...)]` option
-and on a value given to any other marker. Only `@xmtp-worker` and
+kind, stream declaration, or redacted map key outside the grammar of its
+`#[sdk(...)]` option and on a value given to any other marker. Only `@xmtp-worker` and
 `@xmtp-internal` are written by hand. The others written in a doc comment
 would skip the macro's checks: `sdk_export` rejects them in the items it
 exports, and an `xmtp_macro` test rejects them anywhere in the façade source,
 along with a `doc` value that is not a string literal.
+
+A stream declaration names its public method, one of the three host option
+records, and its receiver's immutable, host-internal `u64` owner getter.
+The reader must be async and fallible, take one optional reader-options
+record, and return `MessageReader` or `ConversationReader` with `XmtpError`.
+The optional input does not need a UniFFI default annotation. The generator
+checks name collisions and common Group/Dm signatures. Runtime helpers keep
+typed option mapping, owner lookup, and lifecycle behavior. Native methods
+stay in `StreamMethods.swift` and `StreamMethods.kt`.
 
 `#[sdk_export(native_only)]` and `#[sdk_export(wasm_only)]` write no marker.
 They are the target's `#[cfg]` above the item. `#[sdk(shown)]` writes none
@@ -177,8 +188,12 @@ These stay outside the markers on purpose:
 - Foreign callback results (`src/callback_results.rs`): the TypeScript
   callback rewrite pins the error and result types of the foreign-trait
   methods, so a new callback updates both lists.
-- Streams and readers (`runtime/*/streams`): host iterator, cancellation, and
-  acknowledgement behaviour is per language, not metadata.
+- Streams and readers (`runtime/*/streams`): typed option mapping, host iterator,
+  cancellation, and acknowledgement behavior stays in runtime code. The stream
+  marker generates only thin methods and common Conversation forwarding.
+  Stream, owner, reader, and reader-argument names must have an ASCII
+  lower-camel spelling that no target quotes or renames. Target keywords and
+  names that collide after normalization fail validation.
 - Events host behaviour (`runtime/*/events`): listener and iterator lifetimes
   belong to the host runtime.
 - Logging (`runtime/ts/logging.ts`, `templates/bridge/logging.ts`,

@@ -95,7 +95,7 @@ class TypedErrorTest {
                 withClients {
                     val alix = create()
                     val other = create()
-                    val group = alix.conversations().createGroup(emptyList())
+                    val group = alix.conversations.createGroup(emptyList())
                     val invalid =
                         runCatching {
                             group.messageReader(
@@ -103,7 +103,7 @@ class TypedErrorTest {
                             )
                         }.exceptionOrNull()
                     expect<XmtpException.InvalidCursor>("InvalidCursor", ErrorCategory.STREAM, invalid)
-                    val foreign = other.conversations().beginningDeliveryCursor()
+                    val foreign = other.conversations.beginningDeliveryCursor()
                     val wrongClient =
                         runCatching {
                             group.messageReader(

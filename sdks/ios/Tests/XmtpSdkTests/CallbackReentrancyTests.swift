@@ -91,7 +91,7 @@ final class CallbackReentrancyTests: XCTestCase {
 			}
 			state.listenerId = id
 			do {
-				_ = try await client.conversations().createGroup(members: [InboxId]())
+				_ = try await client.conversations.createGroup(members: [InboxId]())
 			} catch {
 				// Client.end inside the callback can close this call.
 			}

@@ -6,18 +6,21 @@ import {
   lowerConversationReaderOptions,
   lowerMessageReaderOptions,
   publicError,
-  unwrapConversations,
-  unwrapDm,
-  unwrapGroup,
   type ConnectionState,
   type Conversation,
-  type ConversationMessageReaderOptions,
-  type ConversationReaderOptions,
-  type Dm,
-  type Group,
-  type MessageReaderOptions,
+  XmtpError,
+  type ConversationKind,
+  type ConsentState,
+  type DeliveryCursor,
 } from "../../public-values.gen";
-import type { ConnectionState as BoundState } from "../../xmtp_sdk";
+import type {
+  ConnectionState as BoundState,
+  ConversationReaderOptions as BoundConversationReaderOptions,
+  MessageReaderOptions as BoundMessageReaderOptions,
+  ConversationMessageReaderOptions as BoundConversationMessageReaderOptions,
+  ConversationReaderLike,
+  MessageReaderLike,
+} from "../../xmtp_sdk";
 import {
   ReaderStream,
   type ReaderLike,
@@ -96,14 +99,55 @@ export function hostOptions(options: StreamOptions = {}): HostStreamOptions {
   };
 }
 
+export type ConversationStreamOptions = StreamOptions & {
+  readonly conversationKind?: ConversationKind;
+  readonly consentStates?: readonly ConsentState[];
+};
+export type MessageStreamOptions = ConversationStreamOptions & {
+  readonly from?: DeliveryCursor;
+};
+export type ConversationMessageStreamOptions = StreamOptions & {
+  readonly from?: DeliveryCursor;
+};
+
+let resolveOwner: (
+  source: object,
+  ownerKey: () => bigint,
+) => Client | undefined;
+
+/** Install the host lookup with the public projection. */
+export function installStreamOwner(resolve: typeof resolveOwner): void {
+  resolveOwner = resolve;
+}
+
+function receiverOwner(source: object, ownerKey: () => bigint): Client {
+  const owner = resolveOwner(source, ownerKey);
+  if (owner === undefined)
+    throw new XmtpError.ClientClosed({
+      code: "ClientClosed",
+      category: "lifecycle",
+      retryable: false,
+      message: "client is closed",
+    });
+  return owner;
+}
+
+type StreamFactory<T, S> = (
+  open: (signal: AbortSignal) => Promise<ReaderLike<T>>,
+  client: Client,
+  options?: StreamOptions,
+) => S;
+let messageStream: StreamFactory<Message, MessageStream>;
+let conversationStream: StreamFactory<Conversation, ConversationStream>;
+
 /**
  * Messages in delivery order. The stream holds its client while it is open.
  *
- * Without `selection.from`, one default message reader owns delivery progress
+ * Without `options.from`, one default message reader owns delivery progress
  * for the client database. Another default reader fails with `ConsumerOwned`,
  * even if it selects a different group, DM, or filter.
  *
- * An explicit `selection.from` cursor starts an independent replay/live reader.
+ * An explicit `options.from` cursor starts an independent replay/live reader.
  * Such readers can run in parallel and do not change default delivery progress.
  * Their progress is not a separate durable consumer checkpoint. Save the last
  * processed message's `deliveryCursor` if the app must resume this replay.
@@ -115,86 +159,14 @@ export function hostOptions(options: StreamOptions = {}): HostStreamOptions {
  * its commit has been admitted.
  */
 export class MessageStream extends ReaderStream<Message> {
-  /** All conversations, with fixed filters for the stream's lifetime. */
-  static open(
-    client: Client,
-    selection?: MessageReaderOptions,
-    options?: StreamOptions,
-  ): MessageStream {
-    const projection = currentProjection();
-    const conversations = unwrapConversations(client.conversations);
-    return new MessageStream(
-      async (signal) =>
-        publicReader(
-          await rethrow(() =>
-            conversations.messageReader(
-              selection === undefined
-                ? undefined
-                : lowerMessageReaderOptions(selection, projection),
-              { signal },
-            ),
-          ),
-          (value) => projection.liftMessage(value),
-        ),
-      client,
-      options,
-    );
+  static {
+    messageStream = (open, client, options) =>
+      new MessageStream(open, client, options);
   }
-
-  /** One group. */
-  static openGroup(
-    client: Client,
-    group: Group,
-    selection?: ConversationMessageReaderOptions,
-    options?: StreamOptions,
-  ): MessageStream {
-    return MessageStream.conversation(
-      client,
-      unwrapGroup(group),
-      selection,
-      options,
-    );
-  }
-
-  /** One DM, including its stitched groups. */
-  static openDm(
-    client: Client,
-    dm: Dm,
-    selection?: ConversationMessageReaderOptions,
-    options?: StreamOptions,
-  ): MessageStream {
-    return MessageStream.conversation(client, unwrapDm(dm), selection, options);
-  }
-
-  private static conversation(
-    client: Client,
-    source: Pick<ReturnType<typeof unwrapGroup>, "messageReader">,
-    selection: ConversationMessageReaderOptions | undefined,
-    options: StreamOptions | undefined,
-  ): MessageStream {
-    const projection = currentProjection();
-    return new MessageStream(
-      async (signal) =>
-        publicReader(
-          await rethrow(() =>
-            source.messageReader(
-              selection === undefined
-                ? undefined
-                : lowerConversationMessageReaderOptions(selection, projection),
-              { signal },
-            ),
-          ),
-          (value) => projection.liftMessage(value),
-        ),
-      client,
-      options,
-    );
-  }
-
   private constructor(
     open: (signal: AbortSignal) => Promise<ReaderLike<Message>>,
     client: Client,
-    options: StreamOptions | undefined,
+    options?: StreamOptions,
   ) {
     super(open, client, hostOptions(options));
   }
@@ -202,36 +174,99 @@ export class MessageStream extends ReaderStream<Message> {
 
 /** Conversations as the client joins or creates them. */
 export class ConversationStream extends ReaderStream<Conversation> {
-  static open(
-    client: Client,
-    selection?: ConversationReaderOptions,
-    options?: StreamOptions,
-  ): ConversationStream {
-    const projection = currentProjection();
-    const conversations = unwrapConversations(client.conversations);
-    return new ConversationStream(
-      async (signal) =>
-        publicReader(
-          await rethrow(() =>
-            conversations.conversationReader(
-              selection === undefined
-                ? undefined
-                : lowerConversationReaderOptions(selection, projection),
-              { signal },
-            ),
-          ),
-          (value) => liftConversation(value, projection),
-        ),
-      client,
-      options,
-    );
+  static {
+    conversationStream = (open, client, options) =>
+      new ConversationStream(open, client, options);
   }
-
   private constructor(
     open: (signal: AbortSignal) => Promise<ReaderLike<Conversation>>,
     client: Client,
-    options: StreamOptions | undefined,
+    options?: StreamOptions,
   ) {
     super(open, client, hostOptions(options));
   }
+}
+
+type ReaderOpener<O, R> = (
+  selection: O,
+  asyncOptions: { signal: AbortSignal },
+) => Promise<R>;
+
+export function openConversationStreamOptions(
+  source: object,
+  ownerKey: () => bigint,
+  open: ReaderOpener<BoundConversationReaderOptions, ConversationReaderLike>,
+  options: ConversationStreamOptions = {},
+): ConversationStream {
+  const client = receiverOwner(source, ownerKey);
+  const projection = currentProjection();
+  const selection = lowerConversationReaderOptions(
+    {
+      kind: options.conversationKind,
+      consentStates:
+        options.consentStates === undefined
+          ? undefined
+          : [...options.consentStates],
+    },
+    projection,
+  );
+  return conversationStream(
+    async (signal) =>
+      publicReader(await rethrow(() => open(selection, { signal })), (value) =>
+        liftConversation(value, projection),
+      ),
+    client,
+    options,
+  );
+}
+
+export function openMessageStreamOptions(
+  source: object,
+  ownerKey: () => bigint,
+  open: ReaderOpener<BoundMessageReaderOptions, MessageReaderLike>,
+  options: MessageStreamOptions = {},
+): MessageStream {
+  const client = receiverOwner(source, ownerKey);
+  const projection = currentProjection();
+  const selection = lowerMessageReaderOptions(
+    {
+      conversationKind: options.conversationKind,
+      consentStates:
+        options.consentStates === undefined
+          ? undefined
+          : [...options.consentStates],
+      from: options.from,
+    },
+    projection,
+  );
+  return messageStream(
+    async (signal) =>
+      publicReader(await rethrow(() => open(selection, { signal })), (value) =>
+        projection.liftMessage(value),
+      ),
+    client,
+    options,
+  );
+}
+
+export function openConversationMessageStreamOptions(
+  source: object,
+  ownerKey: () => bigint,
+  open: ReaderOpener<BoundConversationMessageReaderOptions, MessageReaderLike>,
+  options: ConversationMessageStreamOptions = {},
+): MessageStream {
+  const client = receiverOwner(source, ownerKey);
+  const projection = currentProjection();
+  const selection = lowerConversationMessageReaderOptions(
+    { from: options.from },
+    projection,
+  );
+  return messageStream(
+    async (signal) =>
+      publicReader(await rethrow(() => open(selection, { signal })), (value) =>
+        projection.liftMessage(value),
+      ),
+    client,
+    options,
+  );
 }

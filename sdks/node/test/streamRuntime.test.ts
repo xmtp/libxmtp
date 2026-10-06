@@ -10,8 +10,7 @@ import { Client } from "../dist/runtime/client.js";
 import { EventStream } from "../dist/runtime/events/reader.js";
 import { Timestamp } from "../dist/runtime/ids.js";
 import {
-  ConversationStream,
-  MessageStream,
+  ReaderStream,
   type ReaderLike,
   type StreamCloseReason,
 } from "../dist/runtime/streams/reader.js";
@@ -60,19 +59,17 @@ describe("host reader stream", () => {
   it.each(["end", "fail"] as const)(
     "closes once after %s and only after its reader released the scope",
     async (mode) => {
-      for (const Stream of [MessageStream, ConversationStream]) {
-        const reasons: StreamCloseReason[] = [];
-        const stream = new Stream(async () => idle(), owner, {
-          onClose: (reason) => reasons.push(reason),
-        });
-        await stream.end();
-        await stream.end();
-        expect(reasons.map((reason) => reason.kind)).toEqual(["closed"]);
-      }
+      const reasons: StreamCloseReason[] = [];
+      const closedStream = new ReaderStream(async () => idle(), owner, {
+        onClose: (reason) => reasons.push(reason),
+      });
+      await closedStream.end();
+      await closedStream.end();
+      expect(reasons.map((reason) => reason.kind)).toEqual(["closed"]);
       const open = scope();
       const failure = new Error("read failed");
-      let replacement: MessageStream<number> | undefined;
-      const stream = new MessageStream(
+      let replacement: ReaderStream<number> | undefined;
+      const stream = new ReaderStream(
         async () => ({
           ...(await open()),
           next: async () => {
@@ -81,7 +78,7 @@ describe("host reader stream", () => {
           },
         }),
         owner,
-        { onClose: () => (replacement = new MessageStream(open, owner)) },
+        { onClose: () => (replacement = new ReaderStream(open, owner)) },
       );
       await stream.ready();
       if (mode === "end") await stream.end();
@@ -98,7 +95,7 @@ describe("host reader stream", () => {
       let release!: () => void;
       const endStarted = Promise.withResolvers<void>();
       const failure = new Error("read failed");
-      const stream = new MessageStream(
+      const stream = new ReaderStream(
         async () => ({
           next: async () => {
             throw failure;
@@ -135,7 +132,7 @@ describe("host reader stream", () => {
     await noUnhandledRejection(async () => {
       for (const failRead of [false, true]) {
         let ended = false;
-        const stream = new MessageStream(
+        const stream = new ReaderStream(
           async () => ({
             next: async () => {
               if (failRead) throw new Error("read failed");
@@ -154,7 +151,7 @@ describe("host reader stream", () => {
       }
       const failure = new Error("open failed");
       const closes: StreamCloseReason[] = [];
-      const failedOpen = new MessageStream(
+      const failedOpen = new ReaderStream(
         async () => {
           throw failure;
         },
@@ -174,7 +171,7 @@ describe("host reader stream", () => {
       if (beforeOpen) controller.abort();
       let opened = false;
       let ended = false;
-      const stream = new MessageStream(
+      const stream = new ReaderStream(
         async () => {
           opened = true;
           return {
@@ -199,7 +196,7 @@ describe("host reader stream", () => {
   it("an ended stream leaves no abort listener on its signal", async () => {
     const controller = new AbortController();
     let returns = 0;
-    const stream = new MessageStream(async () => idle(), owner, {
+    const stream = new ReaderStream(async () => idle(), owner, {
       signal: controller.signal,
     });
     await stream.ready();
@@ -219,45 +216,43 @@ describe("host reader stream", () => {
 
   // verifies: PROC-044
   it("reports the state at subscription, then each change in order", async () => {
-    for (const Stream of [MessageStream, ConversationStream]) {
-      const states: [ConnectionState | undefined, ConnectionState][] = [];
-      const changes: ((state: ConnectionState) => void)[] = [];
-      const stream = new Stream(
-        async () => ({
-          ...idle(),
-          connectionState: async () => ConnectionState.Connected,
-          connectionStateChanged: () =>
-            new Promise<ConnectionState>((resolve) => changes.push(resolve)),
-        }),
-        owner,
-        {
-          onConnectionStateChange: (previous, current) =>
-            states.push([previous, current]),
-        },
-      );
-      await stream.ready();
-      for (const next of [
-        ConnectionState.Reconnecting,
-        ConnectionState.Connected,
-      ]) {
-        await vi.waitFor(() => expect(changes).toHaveLength(1));
-        changes.shift()!(next);
-      }
-      await vi.waitFor(() => expect(states).toHaveLength(3));
-      expect(states).toEqual([
-        [undefined, ConnectionState.Connected],
-        [ConnectionState.Connected, ConnectionState.Reconnecting],
-        [ConnectionState.Reconnecting, ConnectionState.Connected],
-      ]);
-      await stream.end();
+    const states: [ConnectionState | undefined, ConnectionState][] = [];
+    const changes: ((state: ConnectionState) => void)[] = [];
+    const stream = new ReaderStream(
+      async () => ({
+        ...idle(),
+        connectionState: async () => ConnectionState.Connected,
+        connectionStateChanged: () =>
+          new Promise<ConnectionState>((resolve) => changes.push(resolve)),
+      }),
+      owner,
+      {
+        onConnectionStateChange: (previous, current) =>
+          states.push([previous, current]),
+      },
+    );
+    await stream.ready();
+    for (const next of [
+      ConnectionState.Reconnecting,
+      ConnectionState.Connected,
+    ]) {
+      await vi.waitFor(() => expect(changes).toHaveLength(1));
+      changes.shift()!(next);
     }
+    await vi.waitFor(() => expect(states).toHaveLength(3));
+    expect(states).toEqual([
+      [undefined, ConnectionState.Connected],
+      [ConnectionState.Connected, ConnectionState.Reconnecting],
+      [ConnectionState.Reconnecting, ConnectionState.Connected],
+    ]);
+    await stream.end();
     // A closed state ends the monitor, and a throwing app callback stays
     // contained in it.
     let polls = 0;
     let calls = 0;
     await noUnhandledRejection(async () => {
       for (const state of [ConnectionState.Closed, ConnectionState.Connected]) {
-        const stream = new MessageStream(
+        const stream = new ReaderStream(
           async () => ({
             ...idle(),
             connectionState: async () => state,
@@ -287,7 +282,7 @@ describe("host reader stream", () => {
   it("a failed onValue callback closes the stream as failed and reads no further item", async () => {
     let reads = 0;
     const reasons: StreamCloseReason[] = [];
-    const stream = new MessageStream(
+    const stream = new ReaderStream(
       async () => ({ next: async () => ++reads, end: async () => {} }),
       owner,
       { onClose: (reason) => reasons.push(reason) },
@@ -305,7 +300,7 @@ describe("host reader stream", () => {
 
   it("an iterator read does not prefetch the next item", async () => {
     let reads = 0;
-    const stream = new MessageStream(
+    const stream = new ReaderStream(
       async () => ({ next: async () => ++reads, end: async () => {} }),
       owner,
     );
@@ -316,7 +311,7 @@ describe("host reader stream", () => {
   });
 
   it("return settles a pending read, and a reader end failure keeps the read error", async () => {
-    const pending = new MessageStream(
+    const pending = new ReaderStream(
       async () => ({
         next: () => new Promise<never>(() => {}),
         end: async () => {},
@@ -328,7 +323,7 @@ describe("host reader stream", () => {
     await pending.return();
     expect(await read).toEqual({ done: true, value: undefined });
     const failure = new Error("read failed");
-    const failing = new MessageStream(
+    const failing = new ReaderStream(
       async () => ({
         next: async () => {
           throw failure;
@@ -345,7 +340,7 @@ describe("host reader stream", () => {
   it("an opener that settles after end leaves the stream closed, not failed", async () => {
     const opener = Promise.withResolvers<ReaderLike<never>>();
     const reasons: StreamCloseReason[] = [];
-    const stream = new MessageStream(() => opener.promise, owner, {
+    const stream = new ReaderStream(() => opener.promise, owner, {
       onClose: (reason) => reasons.push(reason),
     });
     await tick();
@@ -361,7 +356,7 @@ describe("host reader stream", () => {
     // that abort, return waits on the opener forever.
     const opening = Promise.withResolvers<void>();
     const reasons: StreamCloseReason[] = [];
-    const stream = new MessageStream(
+    const stream = new ReaderStream(
       (signal) =>
         new Promise<never>((_, reject) => {
           signal.addEventListener("abort", () =>

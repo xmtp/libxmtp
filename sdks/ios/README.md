@@ -34,9 +34,9 @@ func connect(signer: any Signer, databaseKey: Data) async throws {
             storage: StorageOptions(location: .default, encryptionKey: databaseKey)
         )
     )
-    let group = try await client.conversations().createGroup(members: [String](), options: nil)
+    let group = try await client.conversations.createGroup(members: [String](), options: nil)
     _ = try await group.sendText(text: "Hello", options: nil)
-    for try await message in try await client.messages(in: group) {
+    for try await message in try await group.streamMessages() {
         if case .standard(.text(let text)) = message.content { print(text) }
     }
     try await client.end()

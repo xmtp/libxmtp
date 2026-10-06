@@ -41,7 +41,7 @@ final class LoggingTests: XCTestCase {
 
 		let delivered = try await withClients { scope in
 			let client = try await scope.create(signer: generateLocalSigner())
-			_ = try await client.conversations().createGroup(members: [InboxId]())
+			_ = try await client.conversations.createGroup(members: [InboxId]())
 			return await eventually(seconds: 30) { !sink.records.value.isEmpty }
 		}
 

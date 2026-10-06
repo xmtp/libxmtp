@@ -1,8 +1,6 @@
 import { Args, Flags } from "@oclif/core";
-import { MessageStream } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
-import { isGroup } from "@/utils/conversation";
 
 export default class ConversationStream extends BaseCommand {
   static description = `Stream messages in a conversation.
@@ -79,9 +77,7 @@ This is useful for:
     const maxCount = flags.count;
     const timeoutMs = flags.timeout ? flags.timeout * 1000 : undefined;
 
-    const stream = isGroup(conversation)
-      ? MessageStream.openGroup(client, conversation)
-      : MessageStream.openDm(client, conversation);
+    const stream = conversation.streamMessages();
     await stream.ready();
 
     // Set up timeout if specified

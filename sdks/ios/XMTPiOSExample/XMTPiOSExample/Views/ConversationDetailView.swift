@@ -26,8 +26,8 @@ struct ConversationDetailView: View {
 				.task {
 					do {
 						let stream: SDKMessageStream = switch conversation {
-						case let .group(group): try await client.messages(in: group)
-						case let .dm(dm): try await client.messages(in: dm)
+						case let .group(group): try await group.streamMessages()
+						case let .dm(dm): try await dm.streamMessages()
 						}
 						for try await message in stream {
 							await MainActor.run {

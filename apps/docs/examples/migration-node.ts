@@ -2,8 +2,6 @@ import {
   AttachmentCodec,
   Backend,
   Client,
-  ConversationStream,
-  MessageStream,
   TextCodec,
   Timestamp,
   XmtpError,
@@ -338,15 +336,12 @@ export async function stream(
   process: (message: Message) => Promise<void>,
 ) {
   // #region stream
-  const messages = MessageStream.open(
-    client,
-    { consentStates: ["allowed"] },
-    {
-      onClose: (reason) => {
-        if (reason.kind === "failed") console.error(reason.error);
-      },
+  const messages = client.conversations.streamAllMessages({
+    consentStates: ["allowed"],
+    onClose: (reason) => {
+      if (reason.kind === "failed") console.error(reason.error);
     },
-  );
+  });
   await messages.ready();
   try {
     for await (const message of messages) await process(message);
@@ -357,12 +352,11 @@ export async function stream(
 }
 
 export async function callbackStream(
-  client: Client,
   group: Group,
   process: (message: Message) => Promise<void>,
 ) {
   // #region callback-stream
-  const messages = MessageStream.openGroup(client, group);
+  const messages = group.streamMessages();
   await messages.onValue(async (message) => {
     await process(message);
   });
@@ -370,14 +364,13 @@ export async function callbackStream(
 }
 
 export async function historyAndLive(
-  client: Client,
   group: Group,
   process: (message: Message) => Promise<void>,
 ) {
   // #region history-live
   const history = await group.messageHistorySnapshot(100);
   for (const message of history.messages) await process(message);
-  const live = MessageStream.openGroup(client, group, { from: history.cursor });
+  const live = group.streamMessages({ from: history.cursor });
   for await (const message of live) await process(message);
   // #endregion history-live
 }
@@ -387,7 +380,7 @@ export async function conversationStream(
   process: (conversation: Conversation) => Promise<void>,
 ) {
   // #region conversation-stream
-  const stream = ConversationStream.open(client, { kind: "group" });
+  const stream = client.conversations.stream({ conversationKind: "group" });
   for await (const conversation of stream) await process(conversation);
   // #endregion conversation-stream
 }
