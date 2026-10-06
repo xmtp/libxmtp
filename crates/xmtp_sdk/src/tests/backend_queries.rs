@@ -298,7 +298,11 @@ async fn facade_key_package_statuses_keep_missing_entries() {
     assert_eq!(backend_entries.len(), 2);
     let registered = &backend_entries[own.checked()?];
     let lifetime = registered.lifetime.as_ref().expect("registered package");
-    assert!(lifetime.not_after > lifetime.not_before);
+    // openmls `Lifetime::default()`: 12 weeks, plus a 1 hour margin before now.
+    assert_eq!(
+        lifetime.not_after - lifetime.not_before,
+        3600 * 24 * 28 * 3 + 3600
+    );
     assert!(registered.validation_error.is_none());
     let absent = &backend_entries[missing.checked()?];
     assert!(absent.lifetime.is_none());
