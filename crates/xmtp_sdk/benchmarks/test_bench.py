@@ -70,9 +70,17 @@ class SampleChecks(unittest.TestCase):
         rows[0], rows[1] = rows[1], rows[0]
         with self.assertRaises(bench.BenchError):
             bench.check_measurement(dict(good), "page", fixture, "node")
-        short = {"duration_ms": 1, "peak_memory_bytes": 1, "streamed_events": 1}
-        with self.assertRaises(bench.BenchError):
-            bench.check_measurement(short, "stream", fixture, "node")
+        count = bench.stream_events(fixture)
+        stream = {"duration_ms": 1, "peak_memory_bytes": 1, "streamed_events": count}
+        bench.check_measurement(dict(stream), "stream", fixture, "node")
+        wrong = {
+            "wrong count": {"streamed_events": 1},
+            "no completion count": {"streamed_events": None},
+            "content, not a count": {"observed_messages": fixture["messages"]},
+        }
+        for name, change in wrong.items():
+            with self.subTest(name), self.assertRaises(bench.BenchError):
+                bench.check_measurement({**stream, **change}, "stream", fixture, "node")
 
 
 class RunIntegrity(unittest.TestCase):
@@ -98,12 +106,12 @@ class RunIntegrity(unittest.TestCase):
                     return {"ready": True}
                 if change and request["workload"] == "stream":
                     files[change].write_text("changed")
-                return {
-                    "duration_ms": 1,
-                    "peak_memory_bytes": 1,
-                    "observed_messages": fixture["messages"],
-                    "streamed_events": bench.stream_events(fixture),
-                }
+                result = {"duration_ms": 1, "peak_memory_bytes": 1}
+                if request["workload"] == "page":
+                    result["observed_messages"] = fixture["messages"]
+                if request["workload"] == "stream":
+                    result["streamed_events"] = bench.stream_events(fixture)
+                return result
 
             args = argparse.Namespace(
                 output=str(temp / "out"), samples=1, keep_state=False
@@ -134,7 +142,11 @@ class IosCleanup(unittest.TestCase):
             (temp / "state/fixture.json").write_text("{}")
             calls = []
 
-            def simctl(argv, **kwargs):
+            def simctl(argv, timeout, **kwargs):
+                # A real terminate can take a moment. A call without a
+                # cleanup budget is killed, as subprocess.run does.
+                if argv[2] == "terminate" and timeout < 0.5:
+                    raise subprocess.TimeoutExpired(argv, timeout)
                 calls.append(argv[2])
                 stdout = (
                     f"{temp / 'container'}\n" if argv[2] == "get_app_container" else ""

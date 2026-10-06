@@ -204,6 +204,9 @@ def check_measurement(response, workload, fixture, host):
         observed = response.pop("observed_messages", None)
         if digest(observed) != digest(fixture["messages"]):
             raise BenchError("page: observed messages differ from the fixture")
+    elif "observed_messages" in response:
+        # Only a page result carries content; stream results are counts.
+        raise BenchError(f"{workload}: only page may return observed messages")
     if workload == "stream" and response.get("streamed_events") != stream_events(
         fixture
     ):
