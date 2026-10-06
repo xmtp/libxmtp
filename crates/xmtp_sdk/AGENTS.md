@@ -56,9 +56,8 @@ Run commands from the repository root in the Nix shell. Run
   separate from native S3 on port 9067. The run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a
   small PUT response, count upload grants and object requests, and refuse
   selected relayed backend URLs. It uses `protoc` from the Rust shell to
-  replace only the upload URL in a real backend response. Native clients use
-  the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
-  preserve gRPC status trailers. The Node tests in `sdks/node/test` do not use
+  replace only the upload URL in a real backend response. Browser clients use
+  its gRPC-web relay, which preserves gRPC status trailers. The Node tests in `sdks/node/test` do not use
   this fixture. The attachment end test starts its own held-upload relay
   (`sdks/node/test/heldUpload.ts`) on ephemeral loopback ports. It needs no
   `SDK_FIXTURE_URL` and no `protoc`.
