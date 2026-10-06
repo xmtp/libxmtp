@@ -2,8 +2,6 @@ packages:
   - sdks/node
   - sdks/browser
   - sdks/agent
-  - sdks/migration/node
-  - sdks/migration/browser
   - apps/cli
   - apps/web-chat
   - apps/docs

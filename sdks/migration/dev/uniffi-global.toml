@@ -1,2 +1,0 @@
-[crate-roots]
-xmtp_legacy_migration = "../../../crates/xmtp_legacy_migration"

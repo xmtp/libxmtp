@@ -83,5 +83,4 @@ in
     ;
   sdk = rust: xmtp.filesets.mkClosureSource rust sdkClosure;
   bindgen = rust: xmtp.filesets.mkClosureSource rust bindgenClosure;
-  legacyMigration = rust: xmtp.filesets.mkClosureSource rust { roots = [ (root + /crates/xmtp_legacy_migration) ]; };
 }

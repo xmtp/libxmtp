@@ -481,7 +481,9 @@ pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target)
     let callee = |args: &str| match target {
         Target::Node | Target::Pure => format!("B.{name}({args})"),
         Target::Browser => {
-            if name == "initLogging" {
+            if name == "prepareMigrationArchive" {
+                format!("migrateInWorker((session) => P.{name}(session, {args}))")
+            } else if name == "initLogging" {
                 format!(
                     "initLoggingInWorker({args}, (session, options) => P.{name}(session, options))"
                 )

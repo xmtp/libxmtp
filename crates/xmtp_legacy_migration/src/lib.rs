@@ -11,13 +11,8 @@ mod wasm;
 
 use xmtp_common::{ErrorCode, RetryableError};
 
-#[cfg(target_arch = "wasm32")]
-extern crate uniffi_runtime_wasm as _;
-
-uniffi::setup_scaffolding!();
-
 /// Owned input. Keys are never included in debug output.
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone)]
 pub struct PrepareMigrationArchiveArgs {
     pub database_path: String,
     pub database_key: Option<Vec<u8>>,
@@ -26,7 +21,7 @@ pub struct PrepareMigrationArchiveArgs {
 }
 
 /// Counts records written to the completed archive, before import deduplication.
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MigrationReport {
     pub archive_path: String,
     pub group_count: u64,
@@ -35,8 +30,7 @@ pub struct MigrationReport {
 }
 
 /// Stable failure categories. Inner causes remain available to Rust callers.
-#[derive(Debug, thiserror::Error, ErrorCode, uniffi::Error)]
-#[uniffi(flat_error)]
+#[derive(Debug, thiserror::Error, ErrorCode)]
 pub enum MigrationError {
     /// The path, key, or source cannot be used. Not retryable without correction.
     #[error("invalid migration input: {0}")]
@@ -124,7 +118,6 @@ impl RetryableError for MigrationError {
 /// The destination is replaced only after all records and the archive footer are
 /// complete. Dropping the future cancels work before publication.
 #[cfg(not(target_arch = "wasm32"))]
-#[uniffi::export(async_runtime = "tokio")]
 // implements: MIG-003
 pub async fn prepare_migration_archive(
     args: PrepareMigrationArchiveArgs,
@@ -134,9 +127,14 @@ pub async fn prepare_migration_archive(
 
 /// Prepares an archive from closed browser storage in the package-owned worker.
 #[cfg(target_arch = "wasm32")]
-#[uniffi::export]
 pub async fn prepare_migration_archive(
     args: PrepareMigrationArchiveArgs,
 ) -> Result<MigrationReport, MigrationError> {
     wasm::prepare(args).await
+}
+
+/// Read only the object named by a completed browser publication record.
+#[cfg(target_arch = "wasm32")]
+pub async fn read_migration_archive(archive_path: String) -> Result<Vec<u8>, MigrationError> {
+    wasm::read(&archive_path).await
 }

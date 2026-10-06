@@ -120,7 +120,7 @@ pub(crate) fn export(
         start_ns: None,
         end_ns: None,
     }))?;
-    let malformed = diesel::sql_query("SELECT count(*) AS count FROM groups WHERE conversation_type NOT IN (3,4) AND membership_state != 4 AND (length(id) != 16 OR conversation_type NOT IN (1,2) OR membership_state NOT IN (1,2,3,5))").get_result::<Count>(conn)?;
+    let malformed = diesel::sql_query("SELECT count(*) AS count FROM groups WHERE conversation_type NOT IN (3,4) AND membership_state != 4 AND (typeof(id) != 'blob' OR length(id) != 16 OR conversation_type NOT IN (1,2) OR membership_state NOT IN (1,2,3,5))").get_result::<Count>(conn)?;
     if malformed.count != 0 {
         return Err(invalid("invalid required group identity or enum"));
     }

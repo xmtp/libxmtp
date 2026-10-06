@@ -238,3 +238,11 @@ Android staging dependency inputs:
   `library/gradle.lockfile`, and `gradle/verification-metadata.xml`.
   The staging fixture inputs do not cover this graph. An explicit
   `--sdk-root` selects the root whose inputs and output are used.
+
+Migration proofs use the normal SDK packages. Run
+`dev/nix-shell 'just sdk conformance-migration node|browser|swift|kotlin'` after
+`generate` and the applicable `stage` or `mobile-stage`. The browser proof uses
+`XMTP_BACKEND_URL` (default `http://127.0.0.1:5050`) and checks import, worker ownership, failed output, page
+termination, and source preservation. Its small fixture worker uses raw legacy
+bytes. It is not part of a public package. Kotlin uses the existing host Android
+stand-ins; mobile runtime checks still use the normal installed SDK tests.

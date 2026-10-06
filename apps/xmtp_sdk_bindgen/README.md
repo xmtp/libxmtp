@@ -219,3 +219,9 @@ the staged SDK. The tests stay out of `runtime/` because generation copies
 that directory. The
 browser platform proofs that need Chromium, OPFS, or a fixture build are in
 `sdks/browser/test/platform` (`dev/nix-shell 'just sdk test-browser'`).
+
+Migration uses one storage lifetime rule in the generator. The browser projection
+runs `prepareMigrationArchive` through `WorkerSessions.runExclusive`. It rejects
+active clients and storage calls, starts a fresh worker, and waits for worker
+termination before it returns. The dispatch assigns the normal storage pool to
+this call. `readMigrationArchive` uses the normal worker and byte codec.

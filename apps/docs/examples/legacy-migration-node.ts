@@ -1,5 +1,5 @@
 // #region imports
-import { prepareMigrationArchive } from "@xmtp/migration";
+import { prepareMigrationArchive } from "@xmtp/node-sdk";
 import type { Client } from "@xmtp/node-sdk";
 // #endregion imports
 

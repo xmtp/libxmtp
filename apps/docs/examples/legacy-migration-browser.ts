@@ -2,7 +2,7 @@
 import {
   prepareMigrationArchive,
   readMigrationArchive,
-} from "@xmtp/browser-migration";
+} from "@xmtp/browser-sdk";
 import type { Client } from "@xmtp/browser-sdk";
 // #endregion imports
 

@@ -30,7 +30,7 @@ archive owner inbox check. The app selects the destination inbox.
 | Converter | The process that reads legacy storage and prepares an archive. |
 | Source | The closed legacy database and its sidecars. |
 | Working copy | Temporary storage that holds the source data during conversion. |
-| Publication | The atomic replacement of the output path with a completed archive. |
+| Publication | The atomic change that makes a completed archive available through the output path. |
 | Supported range | The source SDK versions listed by the converter package release. |
 
 ## 1. Source access
@@ -73,10 +73,16 @@ destination can already contain history. The output is complete at publication.
 A cancellation after publication does not undo the completed operation. A retry
 starts a new conversion from the source.
 
+Native publication replaces the final file. Browser publication commits an
+IndexedDB record that names a completed private OPFS object. A per-output lock
+coordinates readers, publication, and removal of unused objects. A page or worker
+termination is a crash. On the next access, recovery removes private objects
+that have no published record before it returns the completed archive.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | MIG-003 | Owned input and result | When an app requests archive preparation, the converter MUST accept the owned values in `PrepareMigrationArchiveArgs` and return `MigrationReport`, or a typed input, busy, schema, migration, record, or output error. It MUST reject a database key whose length is not 32 bytes. | An app needs stable error categories and record counts. |
-| MIG-004 | Complete atomic output | When preparation fails or is cancelled before publication, the converter MUST preserve any completed output and remove its incomplete output. On success, it MUST publish only a complete archive under ARCH-001. | A partial file cannot replace an existing archive. |
+| MIG-004 | Complete atomic output | When preparation fails or is cancelled before publication, the converter MUST preserve any completed output and remove its incomplete output. On success, it MUST publish only a complete archive under ARCH-001. If page or worker termination interrupts preparation, unpublished objects MUST remain unavailable through the output path and MUST be removed on the next storage access. | A partial file cannot replace an existing archive. |
 
 ## 3. Legacy record conversion
 

@@ -1,6 +1,6 @@
 # Legacy archive conversion
 
-`prepare_migration_archive` converts closed legacy XMTP storage to the existing encrypted archive format. It is a standalone UniFFI library. It does not create a current SDK client or use the network.
+`prepare_migration_archive` converts closed legacy XMTP storage to the existing encrypted archive format. It is an internal Rust crate. The normal SDK exposes it through UniFFI. It does not create a current SDK client or use the network.
 
 The public arguments are `database_path`, optional `database_key`, `archive_key`, and `output_path`. Keys contain 32 bytes. The report contains the completed archive path and `u64` group, message, and consent counts. `MigrationError` has stable `InvalidInput`, `SourceBusy`, `UnsupportedSchema`, `Migration`, `RecordRead`, and `Output` variants.
 
@@ -12,6 +12,6 @@ Groups, DMs, application messages, and consent use the normal archive records. E
 
 The isolated metadata decoder reads only the pinned OpenMLS group context. It keeps independently decoded optional fields and omits malformed fields. Required record failures stop the export. Installation keys, MLS secrets, and attachment files are never archive elements.
 
-See [fixture provenance](fixtures/README.md) for source pins and schema coverage, and [standalone packages](../../sdks/migration/README.md) for build commands. The migration guide is at `apps/docs/src/pages/get-started/data-migration.md`.
+See [fixture provenance](fixtures/README.md) for source pins and schema coverage, and [normal SDK commands](../xmtp_sdk/AGENTS.md) for build commands. The migration guide is at `apps/docs/src/pages/get-started/data-migration.md`.
 
 Inbox ownership validation and conversation re-creation are outside this converter. The archive wire format is unchanged.

@@ -14,13 +14,13 @@ head:
       content: noindex
 ---
 
-Use `prepareMigrationArchive(args)` to convert a closed legacy database to a standard XMTP archive. Then import that archive with the current SDK. The standalone converter needs no SDK client or network connection.
+Use `prepareMigrationArchive(args)` to convert a closed legacy database to a standard XMTP archive. Then import that archive with the current SDK. The migration function is part of the normal SDK and needs no client or network connection.
 
 The converter copies the source before it applies legacy migrations. The source database and its sidecars stay unchanged. You do not need to install intervening SDK releases.
 
 ## Supported legacy data
 
-The converter accepts known migration prefixes from the last legacy SDK majors: Node 6, Browser 7, Agent 2, iOS 4, and Android 4. The Agent SDK uses Node storage. Fixtures cover the Node 6.1.0, Browser 7.1.0, iOS 4.10.0 and 4.11.0, and Android 4.10.0 and 4.11.0 schema endpoints. Unknown migration histories fail with `UnsupportedSchema`.
+The converter accepts known migration prefixes from the last legacy SDK majors: Node 6, Browser 7, Agent 2, iOS 4, and Android 4. The Agent SDK uses Node storage. Fixtures cover the Node 6.1.0, Browser 7.1.0, iOS 4.10.0 and 4.11.0, and Android 4.10.0 and 4.11.0 schema endpoints. Unknown migration histories fail with `XmtpError.MigrationUnsupportedSchema`.
 
 The archive contains groups, DMs, application messages, and consent. Message IDs, content bytes, and nanosecond timestamps stay unchanged. Virtual sync conversations, one-shot conversations, and groups already marked as restored are excluded.
 
@@ -40,7 +40,7 @@ Create a separate random 32-byte archive key. Save it in the app's key storage b
 
 ### Node and Agent
 
-Use the standalone `@xmtp/migration` package. Keys are `Uint8Array` values. Buffer views are accepted without including bytes outside the view. Report counts are `bigint` values.
+Use the normal `@xmtp/node-sdk` or `@xmtp/agent-sdk` package. Keys are `Uint8Array` values. Buffer views are accepted without including bytes outside the view. Report counts are `bigint` values.
 
 ```ts source="legacy-migration-node.ts" region="imports"
 
@@ -56,7 +56,7 @@ The Agent SDK uses the same Node converter and archive import workflow.
 
 ### Browser
 
-Use `@xmtp/browser-migration` on a secure origin with OPFS and Web Locks support. Close the legacy client and the current SDK before conversion. The migration worker owns the SDK storage pool until conversion ends. The promise settles after worker termination and storage release.
+Use `@xmtp/browser-sdk` on a secure origin with OPFS and Web Locks support. Close the legacy client and the current SDK before conversion. The migration worker owns the SDK storage pool until conversion ends. The promise settles after worker termination and storage release.
 
 Use the exact legacy database name, including its leading slash if present. `outputPath` is a logical archive name in the separate `xmtp-migration-archives` OPFS directory. Browser legacy storage is unencrypted; omit `databaseKey`.
 
@@ -72,10 +72,10 @@ Open the destination client after conversion completes. `readMigrationArchive` r
 
 ### Swift
 
-Add the standalone `XmtpMigration` Swift package and import its generated module. The app supplies `String` paths and `Data` keys. Report counts are `UInt64` values.
+Use the normal `XmtpSdk` Swift package. The app supplies `String` paths and `Data` keys. Report counts are `UInt64` values.
 
 ```swift
-import XmtpMigration
+import XmtpSdk
 
 let archive = try await prepareMigrationArchive(
     args: PrepareMigrationArchiveArgs(
@@ -91,11 +91,11 @@ Pass `archive.archivePath` and the archive key to the current Swift SDK archive 
 
 ### Kotlin
 
-Add the standalone `org.xmtp:migration` Android library. The app supplies `String` paths and `ByteArray` keys. Call the function from a coroutine. Report counts are `ULong` values.
+Use the normal XMTP Android SDK. The app supplies `String` paths and `ByteArray` keys. Call the function from a coroutine. Report counts are `ULong` values.
 
 ```kotlin
-import uniffi.xmtp_migration.PrepareMigrationArchiveArgs
-import uniffi.xmtp_migration.prepareMigrationArchive
+import uniffi.xmtp_sdk.PrepareMigrationArchiveArgs
+import uniffi.xmtp_sdk.prepareMigrationArchive
 
 val archive = prepareMigrationArchive(
     PrepareMigrationArchiveArgs(
@@ -113,7 +113,7 @@ Pass `archive.archivePath` and the archive key to the current Kotlin SDK archive
 
 The converter uses the pinned legacy MLS decoder for conversation metadata. If an optional field cannot be decoded, the field is absent. Other decoded fields remain. The converter does not invent creator IDs, attributes, or admin lists. Required record failures still stop conversion.
 
-`MigrationError` has six stable variants: `InvalidInput`, `SourceBusy`, `UnsupportedSchema`, `Migration`, `RecordRead`, and `Output`. Use the typed variant to handle a failure. Do not match error message text.
+`XmtpError` reports `InvalidInput`, `StorageBusy`, `MigrationUnsupportedSchema`, `MigrationFailed`, `MigrationRecordRead`, or `MigrationOutput`. Only `StorageBusy` is retryable without an input change. Use the typed variant to handle a failure. Do not match error message text.
 
 A failed conversion does not replace an existing completed archive. On native targets, cancellation before publication also preserves the old output. A successful report names the completed file and gives the emitted group, message, and consent counts. It contains no keys.
 
