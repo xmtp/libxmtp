@@ -4,9 +4,31 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 
+prepared="${XMTP_SDK_PREPARED_PRODUCTS:-0}"
+generated=target/sdk-generated
+if [[ "$prepared" == 1 ]]; then
+  generated="${XMTP_SDK_GENERATED_DIR:?Prepared checks need the verified generated union}"
+  # Some runtime checks import the union through fixed repository paths.
+  # Do not lint a different tree while those checks read the union.
+  if [[ "$(realpath -m "$generated")" != "$root/target/sdk-generated" ]]; then
+    echo 'Prepared checks require the verified target/sdk-generated union' >&2
+    exit 1
+  fi
+  runtime_root="${XMTP_SDK_RUNTIME_DIR:?Prepared checks need the verified pinned runtimes}"
+  for package in core node wasm; do
+    if [[ ! -f "$runtime_root/$package/package.json" &&
+          ! -f "$runtime_root/lib/node_modules/@ubjs/$package/package.json" ]]; then
+      echo "Prepared pinned runtime is missing: $package" >&2
+      exit 1
+    fi
+  done
+elif [[ "$prepared" != 0 ]]; then
+  echo 'XMTP_SDK_PREPARED_PRODUCTS must be 0 or 1' >&2
+  exit 1
+fi
+
 crates/xmtp_sdk/dev/check-file-sizes
 
-generated=target/sdk-generated
 # The checks below read every target root. A missing root makes rg exit 2,
 # and a check that tests `if rg ...` then passes without reading a file.
 for language in swift kotlin typescript-napi typescript-wasm typescript-pure; do
@@ -16,7 +38,9 @@ for language in swift kotlin typescript-napi typescript-wasm typescript-pure; do
   fi
 done
 crates/xmtp_sdk/dev/check-fork-pin
-dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings
+if [[ "$prepared" != 1 ]]; then
+  dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings
+fi
 crates/xmtp_sdk/dev/check-public-names "$generated"
 crates/xmtp_sdk/dev/check-test-hooks --self-test
 crates/xmtp_sdk/dev/check-test-hooks "$generated"
@@ -71,6 +95,9 @@ node crates/xmtp_sdk/dev/check-bridge-casts.mjs
 # The pure module's public entry: lint and strict types.
 node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-pure/"*.gen.ts "$generated/typescript-pure/index.ts"
 sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions "$generated/typescript-pure/index.ts"
-node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --allowImportingTsExtensions \
-  crates/xmtp_sdk/conformance/browser/suite.worker.ts crates/xmtp_sdk/conformance/browser/attachment-lifetime.chromium.ts \
-  crates/xmtp_sdk/conformance/browser/storage.layout.chromium.ts
+if [[ "$prepared" != 1 ]]; then
+  # Retiring conformance fixtures remain available to the local fallback.
+  node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --allowImportingTsExtensions \
+    crates/xmtp_sdk/conformance/browser/suite.worker.ts crates/xmtp_sdk/conformance/browser/attachment-lifetime.chromium.ts \
+    crates/xmtp_sdk/conformance/browser/storage.layout.chromium.ts
+fi

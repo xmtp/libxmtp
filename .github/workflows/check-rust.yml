@@ -18,6 +18,9 @@ jobs:
       - uses: taiki-e/install-action@just
       - name: Run native all-feature Clippy
         run: dev/nix-shell 'dev/agent-run cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings'
+      - name: Run SDK generator Clippy
+        # The generator is not a default workspace member.
+        run: dev/nix-shell 'dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings'
   wasm:
     name: Check (WASM Clippy)
     runs-on: blacksmith-16vcpu-ubuntu-2404

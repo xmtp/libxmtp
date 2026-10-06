@@ -1,0 +1,111 @@
+name: Check SDK products
+on:
+  workflow_call:
+    inputs:
+      prepared-products:
+        type: boolean
+        default: false
+      run-unit:
+        type: boolean
+        default: false
+jobs:
+  generated:
+    name: Check (generated SDK products)
+    runs-on: ${{ inputs.prepared-products && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+        env:
+          NIX_DEVSHELL: js
+      - name: Restore Node product and native generated roots
+        if: inputs.prepared-products
+        uses: ./.github/actions/sdk-product
+        with:
+          target: node
+          artifact-name: ci-sdk-node
+      - name: Restore Browser product and WASM generated roots
+        if: inputs.prepared-products
+        uses: ./.github/actions/sdk-product
+        with:
+          target: browser
+          artifact-name: ci-sdk-browser
+      - name: Check native Nix inputs
+        env:
+          NIX_DEVSHELL: rust
+        run: dev/nix-shell 'just sdk check-native-nix'
+      - name: Check package scripts
+        env:
+          NIX_DEVSHELL: rust
+        # Fixture tests exercise ordinary local generation in private trees.
+        run: |
+          unset XMTP_SDK_PREPARED_PRODUCTS XMTP_SDK_GENERATED_DIR XMTP_SDK_RUNTIME_DIR XMTP_SDK_PACKAGES_DIR
+          dev/nix-shell 'just sdk check-package-scripts'
+      - name: Generate local SDK products
+        if: ${{ !inputs.prepared-products }}
+        run: dev/nix-shell 'just sdk generate'
+      - name: Check local clean SDK generation
+        if: ${{ !inputs.prepared-products }}
+        run: dev/nix-shell 'just sdk check-clean-generate'
+      - name: Check generated SDK bindings and runtime
+        env:
+          NIX_DEVSHELL: ${{ inputs.prepared-products && 'js' || 'default' }}
+        run: dev/nix-shell 'just sdk lint'
+      - name: Installed Node ESM package smoke
+        if: inputs.prepared-products
+        env:
+          NIX_DEVSHELL: js
+        run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs node'
+      - name: Installed Browser pure and worker package smoke
+        if: inputs.prepared-products
+        env:
+          NIX_DEVSHELL: js
+        run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs browser'
+      - name: Local installed Node ESM package smoke
+        if: ${{ !inputs.prepared-products }}
+        run: dev/nix-shell 'just sdk package-smoke node'
+      - name: Local installed Browser pure and worker package smoke
+        if: ${{ !inputs.prepared-products }}
+        env:
+          NIX_DEVSHELL: js
+        run: dev/nix-shell 'just sdk package-smoke browser'
+  unit:
+    name: Test (SDK crate debug)
+    if: inputs.run-unit
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 90
+    env:
+      NIX_DEVSHELL: rust
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          sccache: "true"
+          docker-builder: "true"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - name: Restore backend product
+        if: inputs.prepared-products
+        uses: ./.github/actions/backend-product
+        with:
+          artifact-name: ci-backend
+      - name: Start prepared backend
+        if: inputs.prepared-products
+        run: dev/nix-shell 'just backend up-prepared'
+      - name: Start local backend
+        if: ${{ !inputs.prepared-products }}
+        run: dev/nix-shell 'just backend up'
+      - name: Run SDK crate tests with the existing debug test profile
+        run: dev/nix-shell 'just test crate xmtp_sdk'
+      - name: Dump Docker logs on failure
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2
