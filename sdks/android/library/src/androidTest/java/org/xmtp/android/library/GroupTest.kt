@@ -107,9 +107,12 @@ class GroupTest : BaseInstrumentedTest() {
             try {
                 val first = bo.conversations().createGroup(listOf(alix.inboxId()))
                 val second = caro.conversations().createGroup(listOf(alix.inboxId()))
-                val expected = listOf(first.id() to first.topic(), second.id() to second.topic())
+                val expected = setOf(first.id() to first.topic(), second.id() to second.topic())
+                // Welcomes from two senders can arrive in either order; the stream
+                // orders rows by the time the Welcome was processed. Two received
+                // rows that equal two distinct expected rows means each arrived once.
                 val actual = List(2) { withTimeout(3000) { received.receive() } }
-                assertEquals(expected, actual)
+                assertEquals(expected, actual.toSet())
                 assertTrue("Unexpected conversation", received.tryReceive().isFailure)
             } finally {
                 withContext(NonCancellable) {
