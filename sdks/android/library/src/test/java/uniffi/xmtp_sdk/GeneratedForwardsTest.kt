@@ -37,8 +37,13 @@ class GeneratedForwardsTest {
                     Conversation.Group(group).publishMessage(preparedId)
                     assertNotNull(checkNotNull(alix.conversations().getMessageById(preparedId)).deliveryCursor)
 
+                    // Each peer creates its own DM, so after a sync each one is the
+                    // other's single duplicate.
                     val dm = alix.conversations().createDm(bo.inboxId())
-                    assertEquals(emptyList<String>(), dm.duplicateDms().map { it.id() })
+                    val other = bo.conversations().createDm(alix.inboxId())
+                    assertTrue(dm.id() != other.id())
+                    alix.conversations().syncAll(null)
+                    assertEquals(listOf(other.id()), dm.duplicateDms().map { it.id() })
 
                     val key = ByteArray(32) { 7 }
                     val archive = alix.archives().exportToBytes(key, null)
