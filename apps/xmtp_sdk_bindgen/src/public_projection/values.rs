@@ -7,7 +7,7 @@ use super::{
     camel, convert,
     events::{EVENT_ENUM, Events},
     policy::cursor_type,
-    public_type,
+    public_type, string_literal,
 };
 
 pub(super) fn record(code: &mut String, record: &RecordMetadata, events: &Events) -> Result<()> {
@@ -140,12 +140,12 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata, events: &Even
     let flat = !value.shape.is_error() && value.variants.iter().all(|v| v.fields.is_empty());
     writeln!(code, "export type {name} =")?;
     for variant in &value.variants {
-        let kind = events.variant_kind(name, variant)?;
+        let kind = string_literal(&events.variant_kind(name, variant)?);
         if flat {
-            writeln!(code, "| '{kind}'")?;
+            writeln!(code, "| {kind}")?;
             continue;
         }
-        writeln!(code, "| {{ readonly kind: '{kind}';")?;
+        writeln!(code, "| {{ readonly kind: {kind};")?;
         for (i, field) in variant.fields.iter().enumerate() {
             let field_name = if field.name.is_empty() {
                 if variant.fields.len() == 1 {
@@ -200,10 +200,10 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata, events: &Even
             writeln!(code, "switch ({discriminant}) {{")?;
         }
         for variant in &value.variants {
-            let kind = events.variant_kind(name, variant)?;
+            let kind = string_literal(&events.variant_kind(name, variant)?);
             let raw_variant = format!("B.{name}.{}", variant.name);
             let case = if lower {
-                format!("'{kind}'")
+                kind.clone()
             } else if flat {
                 raw_variant.clone()
             } else {
@@ -218,11 +218,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata, events: &Even
                 writeln!(
                     code,
                     "{prefix} return {};",
-                    if lower {
-                        raw_variant
-                    } else {
-                        format!("'{kind}'")
-                    }
+                    if lower { raw_variant } else { kind }
                 )?;
                 continue;
             }
@@ -271,7 +267,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata, events: &Even
                 };
                 format!("{raw_variant}.new({args})")
             } else {
-                format!("{{kind: '{kind}', {fields}}}")
+                format!("{{kind: {kind}, {fields}}}")
             };
             writeln!(code, "{prefix} return {result};")?;
         }
@@ -288,6 +284,65 @@ mod tests {
     use uniffi_meta::{FieldMetadata, Metadata};
 
     use super::*;
+
+    // Event kinds come from metadata, so a quote, backslash, or line break in
+    // one cannot end the TypeScript literal.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn string_literals_escape_what_would_end_them() {
+        assert_eq!(string_literal("hmac_keys.updated"), "'hmac_keys.updated'");
+        assert_eq!(
+            string_literal("x';globalThis.alert(1);//"),
+            r"'x\';globalThis.alert(1);//'"
+        );
+        assert_eq!(
+            string_literal("a\\b\nc\rd\u{2028}e\u{2029}"),
+            r"'a\\b\nc\rd\u2028e\u2029'"
+        );
+    }
+
+    // Every place a kind lands in generated TypeScript takes the encoded
+    // literal: the type, the lowering switch, and the lifted value, for an
+    // enum without fields and one with them.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn enum_kinds_reach_typescript_as_encoded_literals() {
+        use crate::test_metadata::{enumeration, field, variant};
+
+        let items = [
+            enumeration(
+                "Flat",
+                vec![
+                    variant("Quoted", Some("@xmtp-kind=a'b"), vec![]),
+                    variant("Plain", Some("@xmtp-kind=c"), vec![]),
+                ],
+            ),
+            enumeration(
+                "Payload",
+                vec![
+                    variant(
+                        "Quoted",
+                        Some("@xmtp-kind=a'b"),
+                        vec![field("x", Type::String, None)],
+                    ),
+                    variant(
+                        "Plain",
+                        Some("@xmtp-kind=c"),
+                        vec![field("y", Type::String, None)],
+                    ),
+                ],
+            ),
+        ];
+        let items = items.iter().collect::<Vec<_>>();
+        let events = Events::new(&items)?;
+        for item in &items {
+            let Metadata::Enum(value) = item else {
+                unreachable!()
+            };
+            let mut code = String::new();
+            super::enumeration(&mut code, value, &events)?;
+            assert!(!code.contains("'a'b'"), "{code}");
+            assert_eq!(code.matches(r"'a\'b'").count(), 3, "{code}");
+        }
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn event_filter_omission_has_a_public_false_default() -> anyhow::Result<()> {

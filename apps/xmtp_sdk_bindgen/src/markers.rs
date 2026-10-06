@@ -116,7 +116,9 @@ fn check_doc(owner: &str, doc: &str) -> Result<()> {
                 continue;
             }
             match marker(word) {
-                Some((name, _)) if at == 0 && VOCABULARY.contains(&name) => {}
+                Some((name, value)) if at == 0 && VOCABULARY.contains(&name) => {
+                    check_value(owner, name, value)?;
+                }
                 Some((name, _)) if at == 0 => bail!(
                     "{owner}: unknown metadata marker {name}; the generator reads {}",
                     VOCABULARY.join(", ")
@@ -130,6 +132,28 @@ fn check_doc(owner: &str, doc: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// A marker value reaches generated string literals, and a doc comment can
+/// spell out a marker without the macro's checks, so the generator checks
+/// the value again. A kind is what `#[sdk(kind = "...")]` admits: lowercase
+/// letters, digits, `_`, and `.`. The other markers take no value.
+fn check_value(owner: &str, name: &str, value: Option<&str>) -> Result<()> {
+    match (name, value) {
+        (KIND, Some(kind))
+            if kind
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.') =>
+        {
+            Ok(())
+        }
+        (KIND, _) => bail!(
+            "{owner}: {KIND} needs a kind of lowercase letters, digits, `_`, and `.`, such as \
+             {KIND}=conversation.joined"
+        ),
+        (_, Some(_)) => bail!("{owner}: {name} takes no value"),
+        (_, None) => Ok(()),
+    }
 }
 
 /// Check the markers of every docstring in the metadata.
@@ -335,6 +359,25 @@ mod tests {
                 "{doc}: {error}"
             );
         }
+        // A marker value reaches generated string literals, so a kind keeps
+        // the macro's grammar and the other markers take no value.
+        for doc in [
+            "@xmtp-kind=x';globalThis.alert(1);//",
+            "@xmtp-kind=Conversation.Joined",
+            "@xmtp-kind",
+        ] {
+            let error = check_doc("EventKind.Lagged", doc).unwrap_err().to_string();
+            assert!(
+                error.starts_with("EventKind.Lagged: @xmtp-kind needs a kind of lowercase"),
+                "{doc}: {error}"
+            );
+        }
+        let error = check_doc("Client.id", "@xmtp-immutable=yes").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Client.id: @xmtp-immutable takes no value"
+        );
+        check_doc("EventKind.HmacKeysUpdated", "@xmtp-kind=hmac_keys.updated2")?;
         // A package path is prose, whatever follows it.
         for doc in ["(@xmtp-org/pkg).", "@xmtp-org2/pkg-name,", "see:@xmtp-a/b"] {
             check_doc("Options.key", doc)?;

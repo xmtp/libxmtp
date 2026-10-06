@@ -237,6 +237,28 @@ fn camel(name: &str) -> String {
     name.to_lower_camel_case()
 }
 
+/// A TypeScript string literal in single quotes. Event kinds come from
+/// metadata, so a quote, backslash, or line break in one cannot end it.
+fn string_literal(value: &str) -> String {
+    let mut literal = String::with_capacity(value.len() + 2);
+    literal.push('\'');
+    for c in value.chars() {
+        match c {
+            '\'' | '\\' => {
+                literal.push('\\');
+                literal.push(c);
+            }
+            '\n' => literal.push_str("\\n"),
+            '\r' => literal.push_str("\\r"),
+            '\u{2028}' => literal.push_str("\\u2028"),
+            '\u{2029}' => literal.push_str("\\u2029"),
+            c => literal.push(c),
+        }
+    }
+    literal.push('\'');
+    literal
+}
+
 /// The binding's spelling of a method, function, or parameter name. The
 /// TypeScript backend adds `_` to a reserved word, for example `delete_`.
 fn identifier(name: &str) -> String {

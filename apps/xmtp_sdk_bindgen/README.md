@@ -30,7 +30,10 @@ together.
 
 A marker is a whole word of a docstring: `@xmtp-`, a lowercase name, and an
 optional `=value`. The generator stops on such a word outside the table, so a
-misspelling such as `@xmtp-interal` cannot leave a private item public.
+misspelling such as `@xmtp-interal` cannot leave a private item public. A
+value reaches generated string literals, so the generator also stops on a
+kind outside the grammar of `#[sdk(kind)]` and on a value given to any
+other marker.
 
 `#[sdk_export(native_only)]` and `#[sdk_export(wasm_only)]` write no marker.
 They are the target's `#[cfg]` above the item.
