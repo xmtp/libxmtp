@@ -82,6 +82,11 @@ and port block, so run `just backend status` for the checkout you are in. See th
   scoped test teardown, platform selection, and clock synchronization with local
   process fixtures.
 
+## Android release workflow
+
+`just lint-config` includes the safe release wiring regression in
+`dev/tests/test_android_release.py`; it uses a stub Gradle command and never publishes.
+
 ## Test environment
 
 Test recipes set `RUST_MIN_STACK=8 MiB` by default. Start `just backend up db

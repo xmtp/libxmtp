@@ -44,6 +44,7 @@ jobs:
         with:
           nix-disk: "false"
           gradle-disk: "true"
+          docker-builder: "true"
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
@@ -88,7 +89,18 @@ jobs:
       - name: Build JVM test library
         run: env -u LD_LIBRARY_PATH nix build .#xmtp-sdk-libs --out-link sdks/android/.build/test-host
 
-      - name: Build and publish
+      - uses: taiki-e/install-action@844d13d3ed6991e61a4ebc2c067073e3ed4f5ee1 # just
+      - name: Start backend
+        env:
+          NIX_DEVSHELL: android
+        run: dev/nix-shell 'just backend up'
+
+      - name: Build and test
+        env:
+          JAVA_TOOL_OPTIONS: "-Djna.library.path=${{ github.workspace }}/sdks/android/.build/test-host/lib"
+        run: NIX_DEVSHELL=android dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && cd sdks/android && ./gradlew :library:build'
+
+      - name: Publish
         env:
           JAVA_TOOL_OPTIONS: "-Djna.library.path=${{ github.workspace }}/sdks/android/.build/test-host/lib"
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
@@ -96,7 +108,7 @@ jobs:
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
           SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
           MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
-        run: NIX_DEVSHELL=android dev/nix-shell 'cd sdks/android && ./gradlew :library:build publishToSonatype closeAndReleaseSonatypeStagingRepository'
+        run: NIX_DEVSHELL=android dev/nix-shell 'cd sdks/android && ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository'
 
       - name: Tag release
         env:
