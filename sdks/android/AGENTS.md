@@ -71,12 +71,19 @@ backend attachment URL. Tests set `allowPrivateNetwork = true` for this fixture.
 
 ## Tests and lifecycle
 
-`library/src/test` has JVM helper tests. `library/src/androidTest` has installed
-Android tests. Kotlin conformance under `crates/xmtp_sdk/conformance/kotlin`
-checks the generated runtime. Host JVM checks do not prove an Android AAR loads.
+`library/src/test` has JVM tests. Most use recording fakes of the generated
+classes (`Group(NoHandle)`). The live JVM tests read `XMTP_BACKEND_URL`, and
+the stream recovery test reads `XMTP_TOXIPROXY_API` and
+`XMTP_BACKEND_TOXIC_URL`; `just android test` loads them from the worktree
+environment. Live tests create clients through `withClients`, which ends each
+client on every exit. `library/src/androidTest` has installed Android tests.
+Host JVM checks do not prove an Android AAR loads.
 
 Instrumentation has no foreground Activity. Its fixtures disable
 `AndroidStreamLifecycle.enabled`, resume native streams, and restore the flag.
+`AndroidContextStartupTest` registers the process observer and then sends real
+`ON_STOP` and `ON_START` events to `ProcessLifecycleOwner`. It leaves the process
+started, so later tests keep live streams.
 Android client Context overloads resolve default storage under `filesDir/xmtp_db`
 and enable process lifecycle control by default. Explicit storage stays explicit.
 End clients in `withContext(NonCancellable)`.

@@ -62,6 +62,22 @@ class StandardCodecWrapperTest {
         checkRejectsOtherVariant(codec)
     }
 
+    // A nested envelope keeps its parameters and fallback, and the bytes equal
+    // Rust's encodeStandard (moved from the Kotlin conformance CodecRecordValues.kt).
+    @Test
+    fun replyCodecKeepsTheNestedEnvelope() {
+        val codec = ReplyCodec()
+        val nested =
+            TextCodec().encode("nested bytes").copy(parameters = mapOf("key" to "value"), fallback = "nested fallback")
+        for (inbox in listOf<InboxId?>(null, inboxId)) {
+            val wire = encodeStandard(StandardContent.Reply(messageId, inbox, nested))
+            assertEquals(wire, codec.encode(ReplyContent(messageId, inbox, nested)))
+            val decoded = codec.decode(wire)
+            assertEquals(nested, decoded.content)
+            assertEquals(inbox, decoded.referenceInboxId)
+        }
+    }
+
     @Test
     fun attachmentCodecKeepsEachField() {
         val codec = AttachmentCodec()
