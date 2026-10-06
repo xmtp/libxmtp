@@ -5,7 +5,11 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { createRegisteredClient, createSigner } from "@test/helpers";
+import {
+  createRegisteredClient,
+  createSigner,
+  endAfterTest,
+} from "@test/helpers";
 import {
   Archives,
   Backend,
@@ -91,11 +95,13 @@ function expectPlain(value: unknown, path: string, seen = new Set()): void {
 it("lifts every returned value to plain public data", async () => {
   // A 64-bit option keeps its exact value.
   const interval = 2n ** 53n + 1n;
-  const alix = await createRegisteredClient(createSigner().signer, {
-    workers: { defaultIntervalNs: interval },
-  });
+  const alix = endAfterTest(
+    await createRegisteredClient(createSigner().signer, {
+      workers: { defaultIntervalNs: interval },
+    }),
+  );
   expect(alix.options.workers?.defaultIntervalNs).toBe(interval);
-  const bo = await createRegisteredClient(createSigner().signer);
+  const bo = endAfterTest(await createRegisteredClient(createSigner().signer));
   const group = await alix.conversations.createGroup([bo.identity]);
   // The generated member guard rejects a list that mixes inbox IDs and
   // identities before it calls Rust.
@@ -184,9 +190,11 @@ it("a stream keeps hostile codec failures typed and delivers the next item", asy
       return value;
     },
   };
-  const client = await createRegisteredClient(createSigner().signer, {
-    codecs: [codec],
-  });
+  const client = endAfterTest(
+    await createRegisteredClient(createSigner().signer, {
+      codecs: [codec],
+    }),
+  );
   const group = await client.conversations.createGroup([]);
   const states: [ConnectionState | undefined, ConnectionState][] = [];
   const stream = MessageStream.openGroup(client, group, undefined, {
@@ -225,19 +233,21 @@ it("a stream keeps hostile codec failures typed and delivers the next item", asy
 it("public stream options lift the previous and current connection states", async () => {
   const states: [ConnectionState | undefined, ConnectionState][] = [];
   const changes: ((state: BoundState) => void)[] = [];
-  const stream = new HostMessageStream(
-    async () => ({
-      next: () => new Promise<undefined>(() => {}),
-      end: async () => {},
-      connectionState: async () => BoundState.Connected,
-      connectionStateChanged: () =>
-        new Promise<BoundState>((resolve) => changes.push(resolve)),
-    }),
-    {},
-    hostOptions({
-      onConnectionStateChange: (previous, current) =>
-        states.push([previous, current]),
-    }),
+  const stream = endAfterTest(
+    new HostMessageStream(
+      async () => ({
+        next: () => new Promise<undefined>(() => {}),
+        end: async () => {},
+        connectionState: async () => BoundState.Connected,
+        connectionStateChanged: () =>
+          new Promise<BoundState>((resolve) => changes.push(resolve)),
+      }),
+      {},
+      hostOptions({
+        onConnectionStateChange: (previous, current) =>
+          states.push([previous, current]),
+      }),
+    ),
   );
   await stream.ready();
   for (const next of [BoundState.Reconnecting, BoundState.Connected]) {
@@ -254,7 +264,9 @@ it("public stream options lift the previous and current connection states", asyn
 });
 
 it("a public stream read after client end fails with the public ClientClosed", async () => {
-  const client = await createRegisteredClient(createSigner().signer);
+  const client = endAfterTest(
+    await createRegisteredClient(createSigner().signer),
+  );
   const group = await client.conversations.createGroup([]);
   const reasons: StreamCloseReason[] = [];
   const stream = MessageStream.openGroup(client, group, undefined, {
@@ -277,7 +289,9 @@ it("a public stream read after client end fails with the public ClientClosed", a
 it.each(["break", "throw", "abort"] as const)(
   "an iterator %s closes the stream once and leaves the held item unacknowledged",
   async (mode) => {
-    const client = await createRegisteredClient(createSigner().signer);
+    const client = endAfterTest(
+      await createRegisteredClient(createSigner().signer),
+    );
     const group = await client.conversations.createGroup([]);
     const id = await group.sendText("held");
     const controller = new AbortController();
@@ -332,7 +346,9 @@ function within<T>(promise: Promise<T>, label: string): Promise<T> {
 // stop its own listener and end its client from inside the callback.
 // verifies: EVENT-052
 it("a listener callback can stop its listener and end its client", async () => {
-  const client = await createRegisteredClient(createSigner().signer);
+  const client = endAfterTest(
+    await createRegisteredClient(createSigner().signer),
+  );
   const filter = { kinds: ["conversation.joined" as const] };
   const stopped = Promise.withResolvers<void>();
   let stopCalls = 0;

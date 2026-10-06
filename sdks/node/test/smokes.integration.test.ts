@@ -16,6 +16,7 @@ import {
   clientOptions,
   createRegisteredClient,
   createSigner,
+  endAfterTest,
 } from "@test/helpers";
 import {
   Client,
@@ -33,8 +34,10 @@ import { expect, it, vi } from "vitest";
 const text = (value: string): FieldValue => ({ kind: "string", value });
 
 it("catchUpToLive joins owed conversations once and reports bigint counts", async () => {
-  const alix = await createRegisteredClient(createSigner().signer);
-  const bo = await createRegisteredClient(createSigner().signer);
+  const alix = endAfterTest(
+    await createRegisteredClient(createSigner().signer),
+  );
+  const bo = endAfterTest(await createRegisteredClient(createSigner().signer));
   const group = await bo.conversations.createGroup([alix.inboxId]);
   const sent = [await group.sendText("owed 1"), await group.sendText("owed 2")];
   const first = await alix.catchUpToLive(undefined);
@@ -59,8 +62,10 @@ it("catchUpToLive joins owed conversations once and reports bigint counts", asyn
 
 // verifies: META-069
 it("well-known catalogue fields read and write between two Node clients", async () => {
-  const alix = await createRegisteredClient(createSigner().signer);
-  const bo = await createRegisteredClient(createSigner().signer);
+  const alix = endAfterTest(
+    await createRegisteredClient(createSigner().signer),
+  );
+  const bo = endAfterTest(await createRegisteredClient(createSigner().signer));
   const group = await alix.conversations.createGroup([bo.inboxId]);
   const groupName = metadataFieldRef("groupName");
   const displayName = metadataFieldRef("userDisplayName");
@@ -208,12 +213,11 @@ it("a peer downloads an uploaded attachment to a file and deletes it", async () 
       storage: { location: { directory: join(root, name) }, label: "phone" },
       attachments: settings,
     });
+  let sender: Client | undefined;
+  let receiver: Client | undefined;
   try {
-    const sender = await Client.create(createSigner().signer, files("sender"));
-    const receiver = await Client.create(
-      createSigner().signer,
-      files("receiver"),
-    );
+    sender = await Client.create(createSigner().signer, files("sender"));
+    receiver = await Client.create(createSigner().signer, files("receiver"));
     expect(sender.options.attachments).toEqual(settings);
     expect(sender.options.storage.label).toBe("phone");
     // The label is the first directory below the storage root.
@@ -371,6 +375,9 @@ it("a peer downloads an uploaded attachment to a file and deletes it", async () 
     await receiver.end();
     await sender.end();
   } finally {
+    // After a failed step, end both clients before their files go. Ending an
+    // ended client does nothing.
+    await Promise.allSettled([receiver?.end(), sender?.end()]);
     await rm(root, { recursive: true, force: true });
   }
 });

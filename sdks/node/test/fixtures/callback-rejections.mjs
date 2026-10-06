@@ -354,6 +354,8 @@ await check("log/end client inside sink", async () => {
     );
   } finally {
     await bounded(setLogSink(), "log end sink clear");
+    // Ending an ended client does nothing.
+    await bounded(client.end(), "log end client cleanup");
   }
 });
 async function rawLogContinuation(reason) {
