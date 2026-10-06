@@ -214,7 +214,8 @@ class MessageDeliveryFlowTest {
             assertSame(error, (closes.single() as SDKStreamCloseReason.Failed).error)
         }
 
-    // PROC-041 keeps collector failures separate from native reader failures.
+    // verifies: PROC-041
+    // A collector failure closes once with Closed, separate from native reader failures.
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun collectorExceptionsPropagateWithClosedOnce() =
         runBlocking {

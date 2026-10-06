@@ -190,6 +190,8 @@ class MessageStreamTest {
             }
         }
 
+    // verifies: PROC-041
+    // An early collector exit closes once with Closed.
     @Test(timeout = STREAM_TEST_TIMEOUT_MS)
     fun earlyExitClosesAfterOneReadWithoutAnotherRequest() =
         runBlocking {
