@@ -22,6 +22,12 @@ HELPER = Path(
 CLOCK_HELPER = Path(
     os.environ.get("ANDROID_CLOCK_HELPER", ROOT / "nix/lib/android-sync-clock.sh")
 )
+# The fixture emulator "crashes" with SIGUSR1. Its default action ends the
+# process without a core dump, so macOS writes no crash report and shows no
+# crash dialog for each test run. A real SIGSEGV did both. The supervisor names
+# any signal the same way. The FIXTURE text below uses the same signal.
+CRASH_SIGNAL = signal.SIGUSR1
+CRASH_DETAIL = f"signal {CRASH_SIGNAL.value} ({CRASH_SIGNAL.name})"
 FIXTURE = r"""
 import os
 from pathlib import Path
@@ -68,7 +74,7 @@ if role == "emulator":
         if marker:
             while not (home / marker).exists():
                 time.sleep(0.01)
-        os.kill(os.getpid(), signal.SIGSEGV)
+        os.kill(os.getpid(), signal.SIGUSR1)
     while True:
         time.sleep(0.05)
 
@@ -298,7 +304,7 @@ class EmulatorStartupTests(unittest.TestCase):
 
     def test_scoped_startup_crash_removes_home_without_running_tests(self):
         self.scope_command()
-        self.assert_failed("segfault", "signal 11 (SIGSEGV)", "ADB connection")
+        self.assert_failed("segfault", CRASH_DETAIL, "ADB connection")
         self.assertFalse((self.home / "test.started").exists())
         self.assert_scope_cleaned()
 
@@ -306,10 +312,10 @@ class EmulatorStartupTests(unittest.TestCase):
         self.scope_command()
         self.assertEqual(self.run_start("crash-test"), 1, self.output)
         self.assertIn(
-            "Emulator exited during test command: signal 11 (SIGSEGV)", self.output
+            f"Emulator exited during test command: {CRASH_DETAIL}", self.output
         )
         self.assertEqual(self.record["phase"], "test command")
-        self.assertEqual(self.record["emulator_exit_status"], -signal.SIGSEGV)
+        self.assertEqual(self.record["emulator_exit_status"], -CRASH_SIGNAL)
         self.assert_scope_cleaned()
 
     def test_scoped_tests_can_outlast_startup_deadline(self):
@@ -379,26 +385,22 @@ class EmulatorStartupTests(unittest.TestCase):
             (self.logs / "crashdb/pending/.fixture.dmp").read_text(), "fixture minidump"
         )
 
-    def test_sigsegv_before_adb_is_reported(self):
-        self.assert_failed("segfault", "signal 11 (SIGSEGV)", "ADB connection")
-        self.assertEqual(self.record["emulator_exit_status"], -signal.SIGSEGV)
+    def test_crash_signal_before_adb_is_reported(self):
+        self.assert_failed("segfault", CRASH_DETAIL, "ADB connection")
+        self.assertEqual(self.record["emulator_exit_status"], -CRASH_SIGNAL)
 
     def test_crash_while_adb_is_blocked_stops_adb_and_descendant(self):
-        self.assert_failed("crash-adb", "signal 11 (SIGSEGV)", "ADB connection")
+        self.assert_failed("crash-adb", CRASH_DETAIL, "ADB connection")
 
     def test_crash_while_boot_property_is_blocked(self):
-        self.assert_failed("crash-boot", "signal 11 (SIGSEGV)", "boot completion")
+        self.assert_failed("crash-boot", CRASH_DETAIL, "boot completion")
 
     def test_crash_during_clock_sync(self):
-        self.assert_failed(
-            "crash-clock", "signal 11 (SIGSEGV)", "clock synchronization"
-        )
+        self.assert_failed("crash-clock", CRASH_DETAIL, "clock synchronization")
 
     def test_crash_during_real_clock_helper_kills_timeout_and_adb(self):
         self.command[7] = str(CLOCK_HELPER)
-        self.assert_failed(
-            "crash-clock-real", "signal 11 (SIGSEGV)", "clock synchronization"
-        )
+        self.assert_failed("crash-clock-real", CRASH_DETAIL, "clock synchronization")
         self.assertTrue((self.home / "child.started").exists())
 
     def test_offline_device_has_a_deadline(self):
