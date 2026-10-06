@@ -74,6 +74,45 @@ class MessageStreamTest {
         }
     }
 
+    /** A conversation reader that records each host call. */
+    private class RecordingConversationReader(
+        private val read: suspend () -> Conversation?,
+    ) : ConversationReader(NoHandle) {
+        var nextCalls = 0
+        var endCalls = 0
+
+        override suspend fun next(): Conversation? {
+            nextCalls++
+            return read()
+        }
+
+        override suspend fun end() {
+            endCalls++
+        }
+
+        override suspend fun connectionState() = ConnectionState.CONNECTED
+
+        override suspend fun connectionStateChanged(previous: ConnectionState): ConnectionState = awaitCancellation()
+    }
+
+    /** A native client whose conversations open [open] and record the options. */
+    private class ConversationReaderClient(
+        private val open: suspend () -> ConversationReader,
+    ) : Client(NoHandle) {
+        val options = mutableListOf<ConversationReaderOptions?>()
+        private val conversations =
+            object : Conversations(NoHandle) {
+                override suspend fun conversationReader(options: ConversationReaderOptions?): ConversationReader {
+                    this@ConversationReaderClient.options += options
+                    return open()
+                }
+            }
+
+        override fun clientKey(): ULong = 1uL
+
+        override fun conversations(): Conversations = conversations
+    }
+
     private fun ownerClient() =
         testSDKClient(RecordingReaderClient { error("only the conversation forms open readers") })
 
@@ -91,6 +130,64 @@ class MessageStreamTest {
             client.messages(dm, options).collect()
             client.messages(dm).collect()
             assertEquals(listOf(options, null), dm.options)
+        }
+
+    // conversationStream has its own hand-written wiring in SDKClient.kt and
+    // streams/Readers.kt (conversationFlow): the options, the reader end and onClose.
+    @Test(timeout = STREAM_TEST_TIMEOUT_MS)
+    fun conversationStreamEndsItsReaderAndReportsTheCloseOnce() =
+        runBlocking {
+            val rows = mutableListOf<Conversation>(Conversation.Group(Group(NoHandle)), Conversation.Dm(Dm(NoHandle)))
+            val reader = RecordingConversationReader { rows.removeFirstOrNull() }
+            val raw = ConversationReaderClient { reader }
+            val client = testSDKClient(raw)
+            val closes = mutableListOf<SDKStreamCloseReason>()
+            val received =
+                client
+                    .conversationStream(
+                        kind = ConversationKind.GROUP,
+                        consentStates = listOf(ConsentState.ALLOWED),
+                        onClose = { closes.add(it) },
+                    ).take(1)
+                    .toList()
+            assertTrue(received.single() is Conversation.Group)
+            assertEquals(
+                listOf(ConversationReaderOptions(ConversationKind.GROUP, listOf(ConsentState.ALLOWED))),
+                raw.options,
+            )
+            assertEquals(1, reader.nextCalls)
+            assertEquals("The conversation reader was not ended", 1, reader.endCalls)
+            assertEquals(listOf<SDKStreamCloseReason>(SDKStreamCloseReason.Closed), closes)
+        }
+
+    @Test(timeout = STREAM_TEST_TIMEOUT_MS)
+    fun throwingConversationOnCloseDoesNotEscapeTheCollection() =
+        runBlocking {
+            for (failure in listOf<Throwable?>(null, IllegalStateException("conversation read failed"))) {
+                val reader =
+                    RecordingConversationReader {
+                        failure?.let { throw it }
+                        null
+                    }
+                val client = testSDKClient(ConversationReaderClient { reader })
+                val closes = mutableListOf<SDKStreamCloseReason>()
+                val received =
+                    runCatching {
+                        client
+                            .conversationStream(onClose = {
+                                closes.add(it)
+                                throw IllegalStateException("close callback failed")
+                            })
+                            .collect()
+                    }.exceptionOrNull()
+                assertSame("The close callback error escaped the collection", failure, received)
+                assertEquals(1, reader.endCalls)
+                if (failure == null) {
+                    assertEquals(listOf<SDKStreamCloseReason>(SDKStreamCloseReason.Closed), closes)
+                } else {
+                    assertSame(failure, (closes.single() as SDKStreamCloseReason.Failed).error)
+                }
+            }
         }
 
     @Test(timeout = STREAM_TEST_TIMEOUT_MS)

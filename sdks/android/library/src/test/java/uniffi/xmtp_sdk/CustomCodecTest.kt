@@ -93,7 +93,7 @@ class CustomCodecTest {
         }
     }
 
-    // verifies: CTYPE-008, CTYPE-009, CTYPE-029, PROC-045
+    // verifies: CTYPE-008, CTYPE-009, CTYPE-029
     @Test
     fun decodeFailureKeepsBytesAndDetails() {
         val encoded = NoteCodec(noteType).encode("bad value")

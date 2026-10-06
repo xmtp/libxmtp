@@ -60,6 +60,8 @@ class AndroidContextStartupTest {
         assertEquals(configuration.storage.label, storage.label)
         assertNull("public options must redact the encryption key", storage.encryptionKey)
         assertEquals(configuration.storage.pool, storage.pool)
+        // verifies: STORE-003
+        // The Default location from a real Context opens under filesDir/xmtp_db.
         val root = File(context.filesDir, "xmtp_db").canonicalPath
         val path = File(checkNotNull(client.storage().path())).canonicalPath
         assertTrue("database must stay under the app storage root", path.startsWith(root + File.separator))

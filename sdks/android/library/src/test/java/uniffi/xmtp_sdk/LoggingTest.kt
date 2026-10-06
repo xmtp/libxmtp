@@ -1,10 +1,12 @@
 package uniffi.xmtp_sdk
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 // The generated Kotlin LogSink callback is patched to ask Rust for admission
@@ -42,6 +44,50 @@ class LoggingTest {
                 } finally {
                     setLogSink(null)
                     initLogging(LoggingOptions(level = LogLevel.WARN))
+                }
+            }
+        }
+
+    // verifies: LOG-008
+    // A Kotlin sink can end a live client and clear itself from inside its
+    // callback. Rust drives only a bare SinkQueue with no client
+    // (logging/sink/tests.rs::callback_can_emit_and_clear_itself). The record
+    // comes from a call that holds no client: LOG-008 has a gap waiver for an
+    // emitting call that holds the client it ends. A deadlock in end() also
+    // blocks the cleanup end in withClients, so the JUnit timeout reports it.
+    @Test(timeout = 90_000L)
+    fun sinkCanEndAClientAndClearItself() =
+        runBlocking {
+            withTimeout(60_000) {
+                withClients {
+                    val client = create(options = liveOptions().copy(registration = RegistrationOptions(auto = false)))
+                    val armed = AtomicBoolean(false)
+                    val ended = CompletableDeferred<Unit>()
+                    initLogging(LoggingOptions(level = LogLevel.ERROR))
+                    try {
+                        setLogSink(
+                            object : LogSink {
+                                override suspend fun log(record: LogRecord) {
+                                    if (!armed.compareAndSet(true, false)) return
+                                    try {
+                                        client.end()
+                                        setLogSink(null)
+                                        ended.complete(Unit)
+                                    } catch (error: Throwable) {
+                                        ended.completeExceptionally(error)
+                                    }
+                                }
+                            },
+                        )
+                        armed.set(true)
+                        assertTrue(runCatching { localSignerFromPrivateKey(ByteArray(31)) }.isFailure)
+                        withTimeout(30_000) { ended.await() }
+                        val failure = runCatching { client.isRegistered() }.exceptionOrNull()
+                        assertTrue("The sink left the client open: $failure", failure is XmtpException.ClientClosed)
+                    } finally {
+                        setLogSink(null)
+                        initLogging(LoggingOptions(level = LogLevel.WARN))
+                    }
                 }
             }
         }

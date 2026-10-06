@@ -401,12 +401,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
 
 [[waiver]]
-id = "STORE-003"
-kind = "untested"
-owner = "protocol"
-reason = "The Android helper and current Android Client use the xmtp_db directory under Context.filesDir. JVM conformance checks the helper and database file with a stand-in Context, but no Android instrumented test asserts the path from a real Context."
-
-[[waiver]]
 id = "STORE-004"
 kind = "gap"
 owner = "protocol"
