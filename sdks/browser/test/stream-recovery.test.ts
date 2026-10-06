@@ -44,9 +44,14 @@ test("a stream stays open through a dropped connection and delivers after it rec
     await group.sendText("before the drop");
     await expect.poll(() => received, RECOVERY).toContain("before the drop");
 
+    // Only states after the drop count; the first state can be "connecting".
+    const dropped = states.length;
     await commands.dropRecoveryProxy(proxy.id);
     await expect
-      .poll(() => states.some((state) => state !== "connected"), RECOVERY)
+      .poll(
+        () => states.slice(dropped).some((state) => state !== "connected"),
+        RECOVERY,
+      )
       .toBe(true);
     await commands.restoreRecoveryProxy(proxy.id);
     await group.sendText("after the drop");

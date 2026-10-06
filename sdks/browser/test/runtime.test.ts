@@ -78,6 +78,20 @@ test("a signer callback calls the worker while Rust waits, and an ended client r
     closed(await rejection(action));
 });
 
+// The worker holds the SignatureRequest; its sign call takes the
+// main-thread signer as an argument and calls back into it.
+test("a signature request signs with a main-thread signer through the worker", async () => {
+  const owner = signer();
+  const client = await create(owner, { registration: { auto: false } });
+  expect(await client.isRegistered()).toBe(false);
+  const request = await client.unsafeCreateInboxSignatureRequest();
+  if (!request) throw new Error("An unregistered client has no request");
+  expect((await request.signatureText()).length).toBeGreaterThan(0);
+  await request.sign(owner);
+  await client.unsafeApplySignatureRequest(request);
+  expect(await client.isRegistered()).toBe(true);
+});
+
 test("a stream replays an unacknowledged message, cancels an idle read, and reports its close", async () => {
   const client = await create();
   const group = await client.conversations.createGroup([]);
