@@ -141,3 +141,53 @@ async fn custom_permission_set_is_converted_and_invalid_set_is_rejected() {
     ));
     alix.end().await?;
 }
+
+// Each member reports the permission level of its role, and the level follows
+// admin and super admin changes.
+#[xmtp_common::test(unwrap_try = true)]
+async fn member_permission_levels_follow_role_changes() {
+    use crate::PermissionLevel;
+
+    async fn level_of(
+        group: &crate::Group,
+        inbox_id: &InboxId,
+    ) -> Result<PermissionLevel, XmtpError> {
+        Ok(group
+            .members()
+            .await?
+            .into_iter()
+            .find(|member| member.inbox_id == *inbox_id)
+            .expect("member")
+            .permission_level)
+    }
+
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = alix
+        .conversations()
+        .create_group(vec![bo.inbox_id()], None)
+        .await?;
+    assert!(matches!(
+        level_of(&group, &alix.inbox_id()).await?,
+        PermissionLevel::SuperAdmin
+    ));
+    assert!(matches!(
+        level_of(&group, &bo.inbox_id()).await?,
+        PermissionLevel::Member
+    ));
+
+    group.add_admin(bo.inbox_id()).await?;
+    assert!(matches!(
+        level_of(&group, &bo.inbox_id()).await?,
+        PermissionLevel::Admin
+    ));
+
+    group.add_super_admin(bo.inbox_id()).await?;
+    assert!(matches!(
+        level_of(&group, &bo.inbox_id()).await?,
+        PermissionLevel::SuperAdmin
+    ));
+
+    alix.end().await?;
+    bo.end().await?;
+}

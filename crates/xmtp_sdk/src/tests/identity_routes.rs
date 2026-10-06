@@ -16,7 +16,8 @@ fn sorted(mut ids: Vec<InboxId>) -> Vec<InboxId> {
     ids
 }
 
-// Every account-identity route performs the same membership change as its inbox form.
+// Every account-identity route performs the same membership change as its inbox form,
+// and the group peer list leaves out the caller's own inbox.
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_routes_change_membership_by_account() {
     let alix = Client::create(crate::generate_local_signer().await, options()).await?;
@@ -42,6 +43,11 @@ async fn identity_routes_change_membership_by_account() {
     assert_eq!(
         member_ids(&group).await?,
         sorted(vec![alix.inbox_id(), bo.inbox_id(), caro.inbox_id()])
+    );
+    // The peer list is the member list without the caller's own inbox.
+    assert_eq!(
+        sorted(group.peer_inbox_ids().await?),
+        sorted(vec![bo.inbox_id(), caro.inbox_id()])
     );
 
     group
