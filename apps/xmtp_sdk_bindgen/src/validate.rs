@@ -139,11 +139,7 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                 )?;
             }
             Metadata::Func(function) => {
-                if function
-                    .docstring
-                    .as_deref()
-                    .is_some_and(|doc| doc.contains("@xmtp-pure"))
-                {
+                if crate::markers::has(function.docstring.as_deref(), crate::markers::PURE) {
                     if function.is_async {
                         bail!("{}: pure export must be synchronous", function.name);
                     }

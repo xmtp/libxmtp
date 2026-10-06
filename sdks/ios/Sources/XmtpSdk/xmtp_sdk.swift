@@ -27585,9 +27585,6 @@ public func resumeStreams()async throws   {
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
-/**
- *
- */
 public func sdkVersion() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
@@ -27614,8 +27611,6 @@ public func suspendStreams()async throws   {
         )
 }
 /**
- * @xmtp-worker
- * @xmtp-internal
  * Close a lifted Client that a cancelled constructor does not return.
  */
 internal func sdkDiscardUnreturnedClient(client: Client)async throws   {
@@ -27665,7 +27660,6 @@ public func verifySignedWithPublicKey(text: String, signature: Data, publicKey: 
 }
 /**
  * The catalogue push value. Unknown custom content types default to push.
- *
  */
 public func catalogueContentTypeShouldPush(contentType: ContentTypeId) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
@@ -27677,7 +27671,6 @@ public func catalogueContentTypeShouldPush(contentType: ContentTypeId) -> Bool  
 }
 /**
  * Read a content envelope and apply the shared decompression limits.
- *
  */
 public func decodeEncodedContent(bytes: Data)throws  -> EncodedContent  {
     return try  FfiConverterTypeEncodedContent_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
@@ -27687,9 +27680,6 @@ public func decodeEncodedContent(bytes: Data)throws  -> EncodedContent  {
     )
 })
 }
-/**
- *
- */
 public func decodeStandard(encoded: EncodedContent)throws  -> StandardContent  {
     return try  FfiConverterTypeStandardContent_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
         uniffiCallStatus in
@@ -27700,7 +27690,6 @@ public func decodeStandard(encoded: EncodedContent)throws  -> StandardContent  {
 }
 /**
  * Serialize a content envelope with the shared wire format.
- *
  */
 public func encodeEncodedContent(content: EncodedContent)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
@@ -27710,9 +27699,6 @@ public func encodeEncodedContent(content: EncodedContent)throws  -> Data  {
     )
 })
 }
-/**
- *
- */
 public func encodeStandard(value: StandardContent)throws  -> EncodedContent  {
     return try  FfiConverterTypeEncodedContent_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
         uniffiCallStatus in
@@ -27721,9 +27707,6 @@ public func encodeStandard(value: StandardContent)throws  -> EncodedContent  {
     )
 })
 }
-/**
- *
- */
 public func encodeText(text: String)throws  -> EncodedContent  {
     return try  FfiConverterTypeEncodedContent_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
         uniffiCallStatus in
@@ -27736,7 +27719,6 @@ public func encodeText(text: String)throws  -> EncodedContent  {
  * True when `content_type` is an XMTP catalogue content type. A catalogue
  * type keeps its catalogue push default; a host content codec's push hook
  * applies only to other types.
- *
  */
 public func isCatalogueContentType(contentType: ContentTypeId) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
@@ -27748,7 +27730,6 @@ public func isCatalogueContentType(contentType: ContentTypeId) -> Bool  {
 }
 /**
  * Project an app-hosted encrypted attachment with the shared content URL rule.
- *
  */
 public func remoteAttachmentFromEncrypted(url: String, encryptedEncodedContent: EncryptedEncodedContent, filename: String?)throws  -> RemoteAttachment  {
     return try  FfiConverterTypeRemoteAttachment_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
@@ -27760,9 +27741,6 @@ public func remoteAttachmentFromEncrypted(url: String, encryptedEncodedContent: 
     )
 })
 }
-/**
- *
- */
 public func standardContentType(kind: StandardContentKind) -> ContentTypeId  {
     return try!  FfiConverterTypeContentTypeId_lift(try! rustCall() {
         uniffiCallStatus in
@@ -27910,7 +27888,7 @@ public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeXmt
 }
 }
 /**
- * Private host admission receipt. @xmtp-worker @xmtp-internal
+ * Private host admission receipt.
  */
 private func sdkLogSinkHandoff() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
@@ -27939,7 +27917,6 @@ public func setLogSink(sink: LogSink?)async throws   {
 }
 /**
  * The ref of a well-known field, named with its protocol name.
- *
  */
 public func metadataFieldRef(field: WellKnownMetadataField) -> MetadataFieldRef  {
     return try!  FfiConverterTypeMetadataFieldRef_lift(try! rustCall() {
@@ -27952,7 +27929,6 @@ public func metadataFieldRef(field: WellKnownMetadataField) -> MetadataFieldRef 
 /**
  * Calculate an inbox ID from a public identity and a nonce.
  * An omitted nonce is 0, as in client creation. This operation does not use a backend or storage.
- *
  */
 public func generateInboxId(identity: PublicIdentity, nonce: UInt64? = nil)throws  -> InboxId  {
     return try  FfiConverterTypeInboxId_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
@@ -28308,7 +28284,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_attachments_local_path() != 36762) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_attachments_offered() != 31479) {
+    if (uniffi_xmtp_sdk_checksum_method_attachments_offered() != 53879) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_attachments_pending() != 44764) {
@@ -28317,7 +28293,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_pendingattachment_local_path() != 48942) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_pendingattachment_remote_attachment() != 26346) {
+    if (uniffi_xmtp_sdk_checksum_method_pendingattachment_remote_attachment() != 46431) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_pendingattachment_status() != 13085) {
@@ -28326,19 +28302,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_pendingattachment_upload() != 20792) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_archives() != 1270) {
+    if (uniffi_xmtp_sdk_checksum_method_client_archives() != 27667) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_attachments() != 15146) {
+    if (uniffi_xmtp_sdk_checksum_method_client_attachments() != 8812) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_client_key() != 10040) {
+    if (uniffi_xmtp_sdk_checksum_method_client_client_key() != 51176) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_conversations() != 64497) {
+    if (uniffi_xmtp_sdk_checksum_method_client_conversations() != 27626) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_diagnostics() != 32697) {
+    if (uniffi_xmtp_sdk_checksum_method_client_diagnostics() != 52372) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_end() != 52809) {
@@ -28347,13 +28323,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_events() != 52909) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id() != 19174) {
+    if (uniffi_xmtp_sdk_checksum_method_client_inbox_id() != 34007) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_installation_id() != 15548) {
+    if (uniffi_xmtp_sdk_checksum_method_client_installation_id() != 51826) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_preferences() != 40267) {
+    if (uniffi_xmtp_sdk_checksum_method_client_preferences() != 62470) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_start_listener() != 4986) {
@@ -28362,10 +28338,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_stop_listener() != 62186) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_storage() != 60777) {
+    if (uniffi_xmtp_sdk_checksum_method_client_storage() != 57765) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_app_version() != 14168) {
+    if (uniffi_xmtp_sdk_checksum_method_client_app_version() != 4853) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_can_message() != 18398) {
@@ -28380,7 +28356,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_decode_content() != 41922) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_identity() != 59663) {
+    if (uniffi_xmtp_sdk_checksum_method_client_identity() != 61052) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_inbox_id_for() != 4254) {
@@ -28392,10 +28368,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_inbox_states() != 54058) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_installation_id_bytes() != 7273) {
+    if (uniffi_xmtp_sdk_checksum_method_client_installation_id_bytes() != 30611) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_is_in_memory() != 6735) {
+    if (uniffi_xmtp_sdk_checksum_method_client_is_in_memory() != 13269) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_is_registered() != 30852) {
@@ -28407,10 +28383,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_latest_inbox_updates_count() != 25918) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_libxmtp_version() != 28412) {
+    if (uniffi_xmtp_sdk_checksum_method_client_libxmtp_version() != 198) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_options() != 28313) {
+    if (uniffi_xmtp_sdk_checksum_method_client_options() != 56478) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_own_inbox_updates_count() != 48759) {
@@ -28431,7 +28407,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_revoke_installations() != 34309) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_server_configuration() != 35134) {
+    if (uniffi_xmtp_sdk_checksum_method_client_server_configuration() != 18232) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_set_credential() != 33071) {
@@ -28440,7 +28416,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_client_sign_with_installation_key() != 29717) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_client_storage_path() != 9647) {
+    if (uniffi_xmtp_sdk_checksum_method_client_storage_path() != 44594) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_client_sync_all_device_sync_groups() != 45436) {
@@ -28554,16 +28530,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_sync_all() != 64156) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_added_by_inbox_id() != 34120) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_added_by_inbox_id() != 11722) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_count_messages() != 6728) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_created_at() != 10144) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_created_at() != 34300) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_creator_inbox_id() != 39651) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_creator_inbox_id() != 23895) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_debug_info() != 4154) {
@@ -28578,13 +28554,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_hmac_keys() != 28287) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_id() != 16349) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_id() != 486) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_is_creator() != 28060) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_is_creator() != 43633) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_kind() != 61596) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_kind() != 33322) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_last_activity_at() != 34227) {
@@ -28683,7 +28659,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_sync() != 63575) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_topic() != 3745) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_topic() != 1884) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_update_consent_state() != 40202) {
@@ -28713,16 +28689,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_add_super_admin() != 2507) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_added_by_inbox_id() != 63674) {
+    if (uniffi_xmtp_sdk_checksum_method_group_added_by_inbox_id() != 38210) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_count_messages() != 10853) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_created_at() != 59448) {
+    if (uniffi_xmtp_sdk_checksum_method_group_created_at() != 4283) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_creator_inbox_id() != 45566) {
+    if (uniffi_xmtp_sdk_checksum_method_group_creator_inbox_id() != 3646) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_debug_info() != 48115) {
@@ -28734,19 +28710,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_hmac_keys() != 58094) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_id() != 27802) {
+    if (uniffi_xmtp_sdk_checksum_method_group_id() != 44958) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_is_admin() != 34964) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_is_creator() != 36433) {
+    if (uniffi_xmtp_sdk_checksum_method_group_is_creator() != 42107) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_is_super_admin() != 37924) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_kind() != 22404) {
+    if (uniffi_xmtp_sdk_checksum_method_group_kind() != 61889) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_last_activity_at() != 50736) {
@@ -28869,7 +28845,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_sync() != 9611) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_topic() != 6609) {
+    if (uniffi_xmtp_sdk_checksum_method_group_topic() != 22438) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_update_app_data() != 8639) {

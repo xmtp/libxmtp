@@ -6,11 +6,14 @@ mod forwarding;
 mod kotlin_callbacks;
 mod kotlin_records;
 mod logging_admission;
+mod markers;
 mod native_visibility;
 mod public_projection;
 mod swift_async;
 mod swift_events;
 mod swift_records;
+#[cfg(test)]
+mod test_metadata;
 mod validate;
 
 use std::{collections::BTreeSet, fs, path::Path};
@@ -115,6 +118,7 @@ fn generate(
             Ok(None)
         }
     })?;
+    markers::validate(&metadata)?;
     if pure_only {
         if !matches!(language, Language::TypescriptWasm) {
             bail!("pure-only generation requires typescript-wasm");
@@ -141,6 +145,10 @@ fn generate(
                 crate_filter: Some("xmtp_sdk".into()),
                 metadata_no_deps: true,
             })?;
+            strip_doc_markers(&out.join(match language {
+                Language::Swift => "xmtp_sdk.swift",
+                _ => "uniffi/xmtp_sdk/xmtp_sdk.kt",
+            }))?;
             if matches!(language, Language::Swift) {
                 let binding = out.join("xmtp_sdk.swift");
                 fs::write(
@@ -226,6 +234,7 @@ fn generate(
             let manifest = manifest_dir.join("Cargo.toml");
             args.run(Some(&manifest))?;
             let binding = out.join("xmtp_sdk.ts");
+            strip_doc_markers(&binding)?;
             if !pure_only {
                 fs::write(
                     &binding,
@@ -277,14 +286,6 @@ fn generate(
             }
         }
     }
-
-    // The metadata marker validates pure exports. It is not public API text.
-    let binding = match language {
-        Language::Swift => out.join("xmtp_sdk.swift"),
-        Language::Kotlin => out.join("uniffi/xmtp_sdk/xmtp_sdk.kt"),
-        Language::TypescriptNapi | Language::TypescriptWasm => out.join("xmtp_sdk.ts"),
-    };
-    strip_pure_doc_marker(&binding)?;
 
     let runtime_name = match language {
         Language::Swift => "swift",
@@ -392,10 +393,7 @@ fn validate_pure_items(items: &[&Metadata]) -> Result<()> {
         match item {
             Metadata::Func(function)
                 if !function.is_async
-                    && function
-                        .docstring
-                        .as_deref()
-                        .is_some_and(|doc| doc.contains("@xmtp-pure")) =>
+                    && markers::has(function.docstring.as_deref(), markers::PURE) =>
             {
                 pure_count += 1;
             }
@@ -427,9 +425,12 @@ fn validate_pure_items(items: &[&Metadata]) -> Result<()> {
     Ok(())
 }
 
-fn strip_pure_doc_marker(path: &Utf8Path) -> Result<()> {
+/// Metadata markers describe items to this generator; they are not public API
+/// text. They go before any rewrite reads the stock binding, so a declaration
+/// that UniFFI writes after a comment keeps the spacing it had before it.
+fn strip_doc_markers(path: &Utf8Path) -> Result<()> {
     let source = fs::read_to_string(path)?;
-    fs::write(path, source.replace("@xmtp-pure", ""))?;
+    fs::write(path, markers::strip(&source))?;
     Ok(())
 }
 
@@ -532,16 +533,21 @@ mod tests {
         );
     }
 
-    #[test]
-    fn pure_marker_does_not_reach_generated_docs() -> Result<()> {
+    #[xmtp_common::test(unwrap_try = true)]
+    fn markers_do_not_reach_generated_docs() {
         let dir = tempfile::tempdir()?;
         let path = Utf8Path::from_path(dir.path())
             .context("test directory is not UTF-8")?
             .join("binding.swift");
-        fs::write(&path, "/// @xmtp-pure\npublic func encodeText() {}\n")?;
-        strip_pure_doc_marker(&path)?;
-        assert!(!fs::read_to_string(path)?.contains("@xmtp-pure"));
-        Ok(())
+        fs::write(
+            &path,
+            "/**\n * @xmtp-pure\n */\npublic func encodeText() {}\n/**\n * The ID.\n * @xmtp-immutable\n */\nfunc id() {}\n",
+        )?;
+        strip_doc_markers(&path)?;
+        assert_eq!(
+            fs::read_to_string(path)?,
+            "public func encodeText() {}\n/**\n * The ID.\n */\nfunc id() {}\n"
+        );
     }
 
     #[test]

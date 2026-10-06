@@ -10,7 +10,7 @@ use heck::ToLowerCamelCase;
 use sha2::{Digest, Sha256};
 use ubrn_bindgen::wasm_metadata;
 use uniffi_bindgen::{BindgenLoader, BindgenPaths, GlobalConfig};
-use uniffi_meta::{Metadata, MetadataGroupMap, ObjectImpl, TraitKind, Type};
+use uniffi_meta::{Metadata, MetadataGroupMap, MethodMetadata, ObjectImpl, TraitKind, Type};
 
 #[derive(Clone)]
 struct Operation {
@@ -79,45 +79,20 @@ fn contract_hash(groups: &MetadataGroupMap) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-// The proxy reads these from a snapshot taken once, when the handle is made.
-// UniFFI metadata cannot show that a value never changes, so each entry is
-// reviewed by hand. Any other synchronous method stops generation.
-const IMMUTABLE_PROPERTIES: &[&str] = &[
-    "Attachments.offered",
-    "Client.app_version",
-    "Client.archives",
-    "Client.attachments",
-    "Client.client_key",
-    "Client.conversations",
-    "Client.diagnostics",
-    "Client.identity",
-    "Client.inbox_id",
-    "Client.installation_id",
-    "Client.installation_id_bytes",
-    "Client.is_in_memory",
-    "Client.libxmtp_version",
-    "Client.options",
-    "Client.preferences",
-    "Client.server_configuration",
-    "Client.storage",
-    "Client.storage_path",
-    "Dm.added_by_inbox_id",
-    "Dm.created_at",
-    "Dm.creator_inbox_id",
-    "Dm.id",
-    "Dm.is_creator",
-    "Dm.kind",
-    "Dm.peer_inbox_id",
-    "Dm.topic",
-    "Group.added_by_inbox_id",
-    "Group.created_at",
-    "Group.creator_inbox_id",
-    "Group.id",
-    "Group.is_creator",
-    "Group.kind",
-    "Group.topic",
-    "PendingAttachment.remote_attachment",
-];
+/// A method the SDKs expose as a readonly property: no arguments, no error,
+/// and a value.
+fn getter_shaped(method: &MethodMetadata) -> bool {
+    method.inputs.is_empty() && method.throws.is_none() && method.return_type.is_some()
+}
+
+/// The proxy reads a marked getter from a snapshot taken once, when the
+/// handle is made. `#[sdk(immutable)]` in the façade writes the marker, and
+/// the macro rejects an unmarked synchronous getter that reaches the browser,
+/// so any other synchronous method here is a live read that must be async.
+fn immutable_getter(method: &MethodMetadata) -> bool {
+    getter_shaped(method)
+        && crate::markers::has(method.docstring.as_deref(), crate::markers::IMMUTABLE)
+}
 
 fn validate_bridge(items: &[Metadata]) -> Result<()> {
     for item in items {
@@ -125,18 +100,21 @@ fn validate_bridge(items: &[Metadata]) -> Result<()> {
             continue;
         }
         match item {
-            Metadata::Method(method) if !method.is_async => {
-                let key = format!("{}.{}", method.self_name, method.name);
-                let immutable = method.inputs.is_empty()
-                    && method.throws.is_none()
-                    && method.return_type.is_some()
-                    && IMMUTABLE_PROPERTIES.contains(&key.as_str());
-                if !immutable {
+            Metadata::Method(method) if !method.is_async && !immutable_getter(method) => {
+                if getter_shaped(method) {
                     bail!(
-                        "{key}: synchronous worker method is not a reviewed immutable property; \
-                         make a live read async, or add a value that never changes to IMMUTABLE_PROPERTIES"
+                        "{}.{}: synchronous getter is not marked immutable; mark a value that \
+                         never changes with #[sdk(immutable)], or make a live read async",
+                        method.self_name,
+                        method.name
                     );
                 }
+                bail!(
+                    "{}.{}: synchronous worker method takes arguments, returns a Result, or \
+                     returns nothing; make it async",
+                    method.self_name,
+                    method.name
+                );
             }
             Metadata::TraitMethod(method) if !method.is_async => {
                 bail!(
@@ -271,13 +249,13 @@ pub(crate) fn worker_only(item: &Metadata) -> bool {
         Metadata::Method(method) => method.docstring.as_deref(),
         _ => None,
     };
-    doc.is_some_and(|doc| doc.contains("@xmtp-worker"))
+    crate::markers::has(doc, crate::markers::WORKER)
 }
 
 /// Pure functions and worker-only calls do not cross the bridge.
 fn outside_bridge(item: &Metadata) -> bool {
     worker_only(item)
-        || matches!(item, Metadata::Func(function) if function.docstring.as_deref().is_some_and(|doc| doc.contains("@xmtp-pure")))
+        || matches!(item, Metadata::Func(function) if crate::markers::has(function.docstring.as_deref(), crate::markers::PURE))
 }
 
 fn item_types(item: &Metadata) -> Vec<&Type> {
@@ -1690,82 +1668,85 @@ mod tests {
         );
     }
 
-    #[xmtp_common::test(unwrap_try = true)]
-    fn rejects_unreviewed_sync_getter() {
-        let item = Metadata::Method(MethodMetadata {
-            module_path: "test".into(),
-            self_name: "MessageReader".into(),
-            name: "connection_state".into(),
-            orig_name: None,
-            is_async: false,
-            inputs: vec![],
-            return_type: Some(Type::UInt64),
-            throws: None,
-            takes_self_by_arc: true,
-            checksum: None,
-            docstring: None,
-        });
-        assert!(
-            validate_bridge(&[item])
-                .unwrap_err()
-                .to_string()
-                .contains("MessageReader.connection_state")
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn derives_immutable_getter_from_metadata() {
-        let item = Metadata::Method(MethodMetadata {
+    fn sync_method(
+        name: &str,
+        inputs: Vec<uniffi_meta::FnParamMetadata>,
+        return_type: Option<Type>,
+        throws: Option<Type>,
+        docstring: Option<&str>,
+    ) -> Metadata {
+        Metadata::Method(MethodMetadata {
             module_path: "test".into(),
             self_name: "Group".into(),
-            name: "created_at".into(),
+            name: name.into(),
             orig_name: None,
             is_async: false,
-            inputs: vec![],
-            return_type: Some(Type::UInt64),
-            throws: None,
+            inputs,
+            return_type,
+            throws,
             takes_self_by_arc: true,
             checksum: None,
-            docstring: None,
-        });
+            docstring: docstring.map(Into::into),
+        })
+    }
+
+    // An unmarked getter may be a value that never changes, so the error
+    // names the marker. Any other synchronous method must become async; the
+    // marker would not admit it.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn sync_method_errors_name_the_fix_for_their_shape() {
+        let error = |item: Metadata| validate_bridge(&[item]).unwrap_err().to_string();
+        let getter = error(sync_method(
+            "connection_state",
+            vec![],
+            Some(Type::UInt64),
+            None,
+            None,
+        ));
+        assert!(
+            getter
+                .starts_with("Group.connection_state: synchronous getter is not marked immutable"),
+            "{getter}"
+        );
+        assert!(getter.contains("#[sdk(immutable)]"));
+        let argument = uniffi_meta::FnParamMetadata::simple("value", Type::UInt64);
+        for (name, inputs, output, throws) in [
+            ("lookup", vec![argument], Some(Type::UInt64), None),
+            ("state", vec![], Some(Type::UInt64), Some(Type::String)),
+            ("reset", vec![], None, None),
+        ] {
+            // Marked or not, a method that is not a getter cannot be a snapshot.
+            for docstring in [None, Some("@xmtp-immutable")] {
+                let message = error(sync_method(
+                    name,
+                    inputs.clone(),
+                    output.clone(),
+                    throws.clone(),
+                    docstring,
+                ));
+                assert!(
+                    message.starts_with(&format!("Group.{name}: synchronous worker method")),
+                    "{message}"
+                );
+                assert!(message.ends_with("make it async"), "{message}");
+                assert!(!message.contains("immutable"), "{message}");
+            }
+        }
+    }
+
+    // The marker, not a name table, admits a synchronous getter, so a new
+    // getter on any object needs no generator change.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn derives_immutable_getter_from_metadata_marker() {
+        let item = sync_method(
+            "new_getter",
+            vec![],
+            Some(Type::UInt64),
+            None,
+            Some("The value.\n@xmtp-immutable"),
+        );
         assert!(validate_bridge(std::slice::from_ref(&item)).is_ok());
         assert!(operations(&[item])[0].immutable);
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn rejects_immutable_getter_with_inputs() {
-        let item = Metadata::Method(MethodMetadata {
-            module_path: "test".into(),
-            self_name: "Group".into(),
-            name: "id".into(),
-            orig_name: None,
-            is_async: false,
-            inputs: vec![uniffi_meta::FnParamMetadata::simple("value", Type::UInt64)],
-            return_type: Some(Type::UInt64),
-            throws: None,
-            takes_self_by_arc: true,
-            checksum: None,
-            docstring: None,
-        });
-        assert!(validate_bridge(&[item]).is_err());
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn rejects_immutable_getter_that_throws() {
-        let item = Metadata::Method(MethodMetadata {
-            module_path: "test".into(),
-            self_name: "Group".into(),
-            name: "id".into(),
-            orig_name: None,
-            is_async: false,
-            inputs: vec![],
-            return_type: Some(Type::UInt64),
-            throws: Some(Type::String),
-            takes_self_by_arc: true,
-            checksum: None,
-            docstring: None,
-        });
-        assert!(validate_bridge(&[item]).is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]
