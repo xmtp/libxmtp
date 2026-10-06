@@ -68,9 +68,13 @@ internal class RecordingReaderClient(
 ) : Client(NoHandle) {
     val key = readerTestKeys.getAndIncrement().toULong()
     var closed = false
+    val readerOptions = mutableListOf<MessageReaderOptions?>()
     private val conversations =
         object : Conversations(NoHandle) {
-            override suspend fun messageReader(options: MessageReaderOptions?): MessageReader = open()
+            override suspend fun messageReader(options: MessageReaderOptions?): MessageReader {
+                readerOptions.add(options)
+                return open()
+            }
         }
 
     override fun clientKey(): ULong {
@@ -91,6 +95,34 @@ internal fun streamFailure(code: String = "Storage"): XmtpException =
     )
 
 class MessageDeliveryFlowTest {
+    // The hand-written SDKClient.messages(options) wrapper must hand the
+    // caller's filter and cursor to the native reader unchanged.
+    @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
+    fun messagesPassesTheReaderOptionsToTheNativeReader() =
+        runBlocking {
+            val options =
+                MessageReaderOptions(
+                    conversationKind = ConversationKind.GROUP,
+                    consentStates = listOf(ConsentState.ALLOWED),
+                    from = "cursor-from",
+                )
+            val raw = RecordingReaderClient { RecordingMessageReader { null } }
+            val client = testSDKClient(raw)
+            client.messages(options).collect()
+            assertEquals(
+                listOf<MessageReaderOptions?>(
+                    MessageReaderOptions(
+                        conversationKind = ConversationKind.GROUP,
+                        consentStates = listOf(ConsentState.ALLOWED),
+                        from = "cursor-from",
+                    ),
+                ),
+                raw.readerOptions,
+            )
+            client.messages().collect()
+            assertNull(raw.readerOptions.last())
+        }
+
     // Host sequencing only. Native final commit admission has separate core proof.
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun acknowledgesOnlyAfterTheDirectCollectorReturnsAndClosesOnce() =
