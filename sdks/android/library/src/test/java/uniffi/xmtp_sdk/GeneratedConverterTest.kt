@@ -8,7 +8,7 @@ import org.junit.Test
 // Each value goes through a native buffer and back. Distinct field values make
 // a swapped, dropped or wrongly read field fail.
 class GeneratedConverterTest {
-    private fun <T> FfiConverterRustBuffer<T>.roundTrip(value: T): T = lift(lower(value))
+    private fun <T, R> FfiConverter<T, R>.roundTrip(value: T): T = lift(lower(value))
 
     private fun <T> FfiConverterRustBuffer<T>.checkEach(values: List<T>) {
         for (value in values) assertEquals(value, roundTrip(value))
@@ -94,6 +94,89 @@ class GeneratedConverterTest {
         assertEquals(api, FfiConverterTypeApiStats.roundTrip(api))
         val identity = IdentityStats(getInboxIds = 6uL, verifySmartContractWalletSignatures = 7uL)
         assertEquals(identity, FfiConverterTypeIdentityStats.roundTrip(identity))
+    }
+
+    @Test
+    fun conversationResultsKeepEachField() {
+        val firstKey = HmacKey(ByteArray(32) { (it + 4).toByte() }, 41)
+        val secondKey = HmacKey(ByteArray(32) { (it + 5).toByte() }, 42)
+        val keys = listOf(firstKey, secondKey)
+        assertEquals(keys, FfiConverterSequenceTypeHmacKey.roundTrip(keys))
+        val keysByGroup = mapOf("group-a" to keys, "group-b" to listOf(HmacKey(byteArrayOf(6, -1), 43)))
+        assertEquals(keysByGroup, FfiConverterMapStringSequenceTypeHmacKey.roundTrip(keysByGroup))
+
+        val summary = GroupSyncSummary(eligible = 12uL, synced = 13uL)
+        assertEquals(summary, FfiConverterTypeGroupSyncSummary.roundTrip(summary))
+
+        val statuses =
+            mapOf(
+                "installation-a" to KeyPackageStatus(KeyPackageLifetime(notBefore = 14uL, notAfter = 15uL), null),
+                "installation-b" to KeyPackageStatus(null, "expired"),
+            )
+        assertEquals(statuses, FfiConverterMapStringTypeKeyPackageStatus.roundTrip(statuses))
+
+        val readTimes = mapOf(inboxId to Timestamp(16), otherInboxId to Timestamp(17))
+        assertEquals(readTimes, FfiConverterMapStringTypeTimestamp.roundTrip(readTimes))
+        assertEquals(Timestamp(18), FfiConverterTypeTimestamp.roundTrip(Timestamp(18)))
+    }
+
+    @Test
+    fun conversationStateKeepsEachField() {
+        val disappearing = DisappearingSettings(from = Timestamp(19), retentionNs = 20)
+        val createGroup =
+            CreateGroupOptions(
+                permissions = GroupPermissionMode.AdminOnly,
+                name = "name",
+                imageUrl = "https://example.test/image",
+                description = "description",
+                disappearing = disappearing,
+                appData = "app data",
+            )
+        assertEquals(createGroup, FfiConverterTypeCreateGroupOptions.roundTrip(createGroup))
+        assertEquals(CreateGroupOptions(), FfiConverterTypeCreateGroupOptions.roundTrip(CreateGroupOptions()))
+        FfiConverterTypeCreateDmOptions.checkEach(listOf(CreateDmOptions(disappearing), CreateDmOptions(null)))
+
+        val common =
+            ConversationState(
+                isActive = true,
+                consentState = ConsentState.DENIED,
+                pausedForVersion = "1.2.3",
+                isDisappearingEnabled = true,
+                disappearingSettings = disappearing,
+                notificationsEnabled = false,
+                commitLogForkStatus = CommitLogForkStatus.FORKED,
+            )
+        // Each pair of Boolean fields differs in one of the two values, so a swap fails.
+        val cleared = common.copy(pausedForVersion = null, isDisappearingEnabled = false, disappearingSettings = null)
+        FfiConverterTypeConversationState.checkEach(listOf(common, cleared))
+
+        val group =
+            GroupState(
+                common = common,
+                name = "name",
+                imageUrl = "https://example.test/image",
+                description = "description",
+                appData = "app data",
+                membershipState = MembershipState.PENDING_REMOVE,
+                admins = listOf(inboxId),
+                superAdmins = listOf(otherInboxId),
+                permissions =
+                    GroupPermissions(
+                        GroupPolicyType.CUSTOM,
+                        PermissionPolicySet(
+                            addMember = PermissionPolicy.ALLOW,
+                            removeMember = PermissionPolicy.DENY,
+                            addAdmin = PermissionPolicy.ADMIN,
+                            removeAdmin = PermissionPolicy.SUPER_ADMIN,
+                            updateName = PermissionPolicy.DOES_NOT_EXIST,
+                            updateDescription = PermissionPolicy.OTHER,
+                            updateImage = PermissionPolicy.DENY,
+                            updateDisappearing = PermissionPolicy.ADMIN,
+                            updateAppData = PermissionPolicy.ALLOW,
+                        ),
+                    ),
+            )
+        FfiConverterTypeGroupState.checkEach(listOf(group, group.copy(common = cleared)))
     }
 
     @Test
