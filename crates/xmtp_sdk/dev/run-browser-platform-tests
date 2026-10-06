@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Run the browser platform proofs in sdks/browser/test/platform against the
+# staged SDK: real WASM worker proofs in Node, Chromium proofs in Playwright,
+# and the Vitest Playwright suite with the loopback object store.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+  exec env NIX_DEVSHELL=js dev/nix-shell 'bash crates/xmtp_sdk/dev/run-browser-platform-tests'
+fi
+dev/worktree-env
+. dev/docker/load-env
+platform=sdks/browser/test/platform
+
+bash crates/xmtp_sdk/dev/check-wasm-init
+NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture'
+NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-pure-codec-fixture'
+# `just sdk test-bridge` runs bridge.real.mts and bridge.values.real.mts
+# through the generated conformance.gen.test.ts.
+NODE_OPTIONS="--preserve-symlinks --expose-gc" \
+  sdks/node/node_modules/.bin/tsx "$platform/bridge.panic.real.mts"
+NODE_OPTIONS="--preserve-symlinks --expose-gc" \
+  sdks/node/node_modules/.bin/tsx "$platform/release.gc.mts"
+NODE_OPTIONS="--preserve-symlinks --expose-gc" \
+  sdks/node/node_modules/.bin/tsx "$platform/bridge.gc.real.mts"
+NODE_OPTIONS=--preserve-symlinks \
+  sdks/node/node_modules/.bin/tsx "$platform/bridge.log.real.mts"
+for proof in bridge storage package logging; do
+  NODE_OPTIONS= sdks/node/node_modules/.bin/tsx "$platform/$proof.chromium.mts"
+done
+export VITE_XMTP_BACKEND_URL="${XMTP_BACKEND_URL:?load the worktree backend URL}"
+ln -sfn "$root/sdks/browser/node_modules/vitest" "$root/node_modules/vitest"
+mkdir -p "$root/node_modules/@vitest"
+ln -sfn "$root/sdks/browser/node_modules/@vitest/browser" "$root/node_modules/@vitest/browser"
+ln -sfn "$root/sdks/browser/node_modules/@vitest/browser-playwright" "$root/node_modules/@vitest/browser-playwright"
+# The loopback object store serves download fixtures and relays the backend.
+SDK_RELAY_TARGET="$XMTP_BACKEND_URL" NODE_OPTIONS=--preserve-symlinks \
+  bash crates/xmtp_sdk/dev/with-object-store \
+  sdks/browser/node_modules/.bin/vitest run \
+  --config "$platform/vitest.browser.config.mts"

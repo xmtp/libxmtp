@@ -16,7 +16,7 @@ check-clean-generate:
 lint:
     bash "{{ root }}/crates/xmtp_sdk/dev/lint-generated"
 
-# Check every tracked or unignored SDK source file, including conformance files.
+# Check every tracked or unignored SDK source file.
 check-file-sizes:
     cd "{{ root }}" && crates/xmtp_sdk/dev/check-file-sizes
 
@@ -24,37 +24,24 @@ check-file-sizes:
 wasm-init:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-wasm-init"
 
-[private]
-_browser-pure-fixture target:
-    if [ "{{ target }}" = browser ]; then \
-      cd "{{ root }}" && NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-pure-codec-fixture'; \
-    fi
+# Bridge runtime unit tests in apps/xmtp_sdk_bindgen/runtime-tests/ts. Extra
+# arguments go to Vitest. Run `just sdk generate` first.
+test-bridge *args:
+    bash "{{ root }}/crates/xmtp_sdk/dev/run-bridge-tests" {{ args }}
 
-[private]
-_browser-panic-fixture target:
-    if [ "{{ target }}" = browser ]; then \
-      cd "{{ root }}" && NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture'; \
-    fi
+# Browser platform proofs in sdks/browser/test/platform: real WASM workers,
+# Chromium storage, package, logging and bridge proofs, and the Vitest
+# Playwright suite. Builds the panic and pure codec fixtures in the Rust shell.
+test-browser:
+    bash "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests"
 
-conformance target: (_browser-pure-fixture target) (_browser-panic-fixture target)
-    {{ _env }} && case "{{ target }}" in \
-      swift|kotlin|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
-      *) echo "Expected swift, kotlin, or browser" >&2; exit 2 ;; \
-    esac
+# Run only the real-worker OPFS proof against the staged SDK.
+test-browser-storage: wasm-init
+    {{ _env }} && cd "{{ root }}" && NODE_OPTIONS= sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/storage.chromium.mts
 
-conformance-bridge:
-    bash "{{ root }}/crates/xmtp_sdk/dev/run-bridge-conformance"
-
-# Run the focused real-worker OPFS proof against the staged SDK.
-conformance-storage: wasm-init
-    {{ _env }} && cd "{{ root }}" && NODE_OPTIONS= sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/storage.chromium.mts
-
-# Real package worker ownership and final cleanup in Chromium.
-conformance-package: wasm-init
-    {{ _env }} && cd "{{ root }}" && NODE_OPTIONS= sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/package.chromium.mts
-
-conformance-bridge-unit *args: wasm-init
-    cd "{{ root }}" && NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run --config crates/xmtp_sdk/conformance/browser/vitest.config.mts --browser.enabled=false {{ args }}
+# Run only the package worker ownership and final cleanup proof in Chromium.
+test-browser-package: wasm-init
+    {{ _env }} && cd "{{ root }}" && NODE_OPTIONS= sdks/node/node_modules/.bin/tsx sdks/browser/test/platform/package.chromium.mts
 
 # Run `just sdk generate` first: the root check reads the generated roots.
 # Build once. Later render calls reuse the recorded artifact hashes.

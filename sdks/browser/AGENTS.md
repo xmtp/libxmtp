@@ -20,3 +20,11 @@ run in the Node process. It answers attachment downloads with a redirect,
 failure statuses, and an object with a changed tag. `test/worker-failure.test.ts`
 wraps the `Worker` constructor to stop the package worker; it does not start a
 worker of its own.
+
+`test/platform` holds the browser platform proofs that need a fixture build,
+a held worker, or real OPFS: Chromium, real WASM worker, storage, package,
+logging, attachment lifetime, decode-once, stream opening, pure codec, and
+panic proofs, with the loopback object store in `test/platform/object-store`.
+`pnpm test` does not run them, and the package lint and typecheck skip them.
+Run them with `dev/nix-shell 'just sdk test-browser'`; `just sdk lint`
+type-checks the shared helpers. See `crates/xmtp_sdk/AGENTS.md`.

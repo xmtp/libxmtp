@@ -2,10 +2,6 @@ name: Test SDK façade
 on:
   workflow_dispatch:
   workflow_call:
-    inputs:
-      run_swift:
-        type: boolean
-        default: false
 jobs:
   node-platforms:
     if: github.event_name == 'workflow_dispatch'
@@ -59,18 +55,16 @@ jobs:
         env:
           NIX_DEVSHELL: js
         run: dev/nix-shell 'just sdk package-smoke browser'
-      - name: Bridge conformance
+      - name: Bridge runtime unit tests
         env:
           NIX_DEVSHELL: js
-        run: dev/nix-shell 'just sdk conformance-bridge'
+        run: dev/nix-shell 'just sdk test-bridge'
       - name: Test SDK crate
         run: dev/nix-shell 'just test crate xmtp_sdk'
-      - name: Kotlin JVM conformance
-        run: dev/nix-shell 'just sdk conformance kotlin'
-      - name: Chromium worker conformance
+      - name: Browser platform proofs
         env:
           NIX_DEVSHELL: js
-        run: dev/nix-shell 'just sdk conformance browser'
+        run: dev/nix-shell 'just sdk test-browser'
       - name: Dump Docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2
@@ -113,35 +107,6 @@ jobs:
           path: |
             target/sdk-packages/android/xmtp-sdk.aar
             target/sdk-packages/android/sdk-contract.json
-
-  swift:
-    name: Swift conformance
-    if: inputs.run_swift && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          sccache: "true"
-          github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "26"
-      - uses: taiki-e/install-action@just
-      - uses: ./.github/actions/setup-js
-      - name: Check native Apple toolchain
-        run: dev/nix-shell 'bash dev/check-apple-toolchain'
-      - run: dev/nix-shell 'just sdk generate swift'
-      - run: dev/nix-shell 'just backend ci just sdk conformance swift'
-      - name: Retain native service logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: swift-backend-ci-logs
-          path: ${{ runner.temp }}/backend-ci-logs
-          retention-days: 7
 
   windows-load:
     name: Windows SDK load (win32-x64)

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Compile each negative consumer in library/src/test/negative with the unit
+# test sources. Each compile must fail with the expected diagnostics. Run
+# `just android build` first.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$root"
+work="$(mktemp -d)"
+log="$work/compile.log"
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/src"
+
+compile_negative() {
+  rm -f "$work/src/"*.kt
+  cp "library/src/test/negative/$1" "$work/src/ConsumerNegative.kt"
+  if ./gradlew -p . :library:compileDebugUnitTestKotlin -PxmtpNegativeConsumer="$work/src" \
+    --dependency-verification=strict --no-daemon >"$log" 2>&1; then
+    echo "Kotlin negative consumer $1 compiled" >&2
+    exit 1
+  fi
+}
+
+compile_negative ConsumerNegative.kt
+grep -q "ConversationId" "$log"
+grep -q "EncodedContent" "$log"
+grep -q "Group" "$log"
+grep -q "MessageId" "$log"
+compile_negative CodecTypeNegative.kt
+# The encode, Group and Dm send and prepareMessage, Conversation send, and
+# reply calls each reject an Int value with a type mismatch: seven distinct
+# source lines. The compiler reports a send against the envelope overload, and
+# the reply as no applicable candidate.
+test "$(grep -E "^e: .*ConsumerNegative.kt:[0-9]+:[0-9]+ (Argument type mismatch: actual type is 'kotlin.Int'|None of the following candidates is applicable)" "$log" | grep -o "ConsumerNegative.kt:[0-9]*:" | sort -u | wc -l | tr -d ' ')" -eq 7
+grep -q "Argument type mismatch: actual type is 'kotlin.Int', but 'kotlin.String' was expected." "$log"
+grep -q "Unresolved reference 'SDKContentCodec'" "$log"
+echo "Kotlin ID, content, and Group/Dm consumer checks passed"

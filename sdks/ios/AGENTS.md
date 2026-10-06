@@ -10,6 +10,7 @@ Run these commands from the repository root.
 dev/nix-shell 'just ios build'          # Generate Swift and build the native XCFramework.
 dev/nix-shell 'just ios check'          # Build the Swift package.
 dev/nix-shell 'just ios check-examples' # Build both example apps for the simulator.
+dev/nix-shell 'just ios check-consumer' # Bare-executable consumer and negative consumers.
 dev/nix-shell 'just ios lint'
 dev/nix-shell 'just ios format'
 dev/nix-shell 'just ios test'           # Test the installed macOS package.
@@ -25,6 +26,14 @@ same Ruby runtime as CocoaPods. It checks source selection, invalid receipts,
 and simulator exclusions. It does not install or download a pod.
 
 The recipe test checks the real Just commands without compiling the SDK.
+
+`check-consumer` stages a consumer package of the root package under
+`target/sdk-ios-consumer`. It runs `Tests/Consumer/main.swift` as a bare
+executable: without a bundle identifier, default storage fails with
+`StorageLocationRequired`. Then it compiles each file in
+`Tests/Consumer/Negative` and checks that the compile fails with the expected
+diagnostics. The negative consumers check typed IDs, typed codec values, and
+`Sendable` codec values. They are not part of the test target.
 
 `RuntimeFakes.swift` in `Tests/XmtpSdkTests` replaces the generated Rust-backed
 objects with fakes, so a test can run the Swift runtime without a backend. The

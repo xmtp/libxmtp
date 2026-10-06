@@ -27,6 +27,7 @@ dev/nix-shell 'just android test'
 dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifecycleTest'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
+dev/nix-shell 'just android check-consumers'
 dev/nix-shell 'just android docs'
 ```
 
@@ -80,6 +81,12 @@ exit; do not run them at the same time as other Toxiproxy tests in the
 worktree. Live tests create clients through `withClients`, which ends each
 client on every exit. `library/src/androidTest` has installed Android tests.
 Host JVM checks do not prove an Android AAR loads.
+
+`library/src/test/negative` holds negative consumers. They are not compiled
+with the tests. `check-consumers` adds one at a time to the unit test sources
+(the `xmtpNegativeConsumer` Gradle property) and checks that the compile fails
+with the expected diagnostics: typed IDs, typed content, Group and Dm types,
+and typed codec values.
 
 Instrumentation has no foreground Activity. Its fixtures disable
 `AndroidStreamLifecycle.enabled`, resume native streams, and restore the flag.

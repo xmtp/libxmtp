@@ -36,8 +36,6 @@ mod diagnostics;
 mod error;
 #[cfg(not(feature = "pure-only"))]
 mod events;
-#[cfg(all(feature = "conformance", not(feature = "pure-only")))]
-pub use client::SdkConformanceListenerCounts;
 #[cfg(not(feature = "pure-only"))]
 mod foreign;
 #[cfg(not(feature = "pure-only"))]

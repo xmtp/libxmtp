@@ -4,10 +4,10 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 
-fixture=target/sdk-pure-conformance/typescript-pure
-raw=target/sdk-pure-conformance/build/wasm32-unknown-unknown/release/xmtp_sdk.wasm
+fixture=target/sdk-pure-codec-fixture/typescript-pure
+raw=target/sdk-pure-codec-fixture/build/wasm32-unknown-unknown/release/xmtp_sdk.wasm
 dev/agent-run cargo build --locked --release -p xmtp_sdk \
-  --target wasm32-unknown-unknown --target-dir target/sdk-pure-conformance/build \
+  --target wasm32-unknown-unknown --target-dir target/sdk-pure-codec-fixture/build \
   --features pure-only,conformance
 mkdir -p "$fixture"
 target/sdk-artifacts/bindgen/xmtp-sdk-bindgen generate \

@@ -11,8 +11,11 @@
   // Stock ubrn output (the binding and its `binding.ts` root) stays excluded.
   // The copied runtime, the generated bridge files, and the generated package
   // roots are linted.
+  // The browser platform proofs import fixture builds under target/ that the
+  // lint job does not build. `just sdk lint` type-checks the shared ones.
   "ignorePatterns": [
     "**/dist/**",
+    "sdks/browser/test/platform/**",
     "**/coverage/**",
     "target/sdk-generated/*/xmtp_sdk*.ts",
     "target/sdk-generated/*/binding.ts",

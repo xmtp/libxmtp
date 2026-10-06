@@ -198,10 +198,6 @@ pub struct Client {
 }
 
 mod creation;
-#[cfg(feature = "conformance")]
-mod event_conformance;
-#[cfg(feature = "conformance")]
-pub use event_conformance::SdkConformanceListenerCounts;
 mod location;
 
 /// Open the database at `path` if its file exists, with the inbox ID of its

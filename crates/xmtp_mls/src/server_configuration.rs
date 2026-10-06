@@ -187,7 +187,7 @@ impl ServerConfigurationHandle {
     }
 
     /// Replace the test catalogue and keep resolved admission and preflight state.
-    #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+    #[cfg(any(test, feature = "test-utils"))]
     pub(crate) fn with_application_components(
         mut self,
         components: Vec<xmtp_configuration::ApplicationComponentDefinition>,

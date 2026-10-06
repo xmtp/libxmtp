@@ -36,6 +36,11 @@ format:
 test:
     {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q
 
+# Run the consumer in Tests/Consumer as a bare executable, then check that the
+# negative consumers in Tests/Consumer/Negative do not compile.
+check-consumer:
+    ./dev/bindings && ./script/check-consumer.sh
+
 # Build iOS native bindings (xcframework)
 build:
     ./dev/bindings

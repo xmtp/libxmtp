@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Run the bridge runtime unit tests in apps/xmtp_sdk_bindgen/runtime-tests/ts
+# and the generated conformance.gen.test.ts against the staged SDK. The
+# generated test also runs the real WASM worker proofs bridge.real.mts and
+# bridge.values.real.mts against this worktree's backend. Extra arguments go
+# to Vitest.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+dev/worktree-env
+. dev/docker/load-env
+bash crates/xmtp_sdk/dev/check-wasm-init
+NODE_OPTIONS=--preserve-symlinks \
+  sdks/browser/node_modules/.bin/vitest run \
+  --config apps/xmtp_sdk_bindgen/runtime-tests/ts/vitest.config.mts \
+  --browser.enabled=false "$@"

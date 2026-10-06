@@ -21,7 +21,7 @@ Run commands from the repository root in the Nix shell. Run
   WASM builds. Android uses selected Kotlin. Apple uses selected Swift.
   This command does not compile a product.
 - `dev/nix-shell 'just sdk check-file-sizes'` checks the 1,000-line limit for every SDK source
-  file, including conformance files. Generated and ignored build files are excluded.
+  file. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
 - `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
   Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
@@ -36,38 +36,42 @@ Run commands from the repository root in the Nix shell. Run
   the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
   in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
-- `dev/nix-shell 'just sdk conformance <swift|kotlin>'` runs the host checks that
-  need the conformance build. Both runs are described below. The Node host
-  checks are in `sdks/node/test` (`dev/nix-shell 'just js test-node-sdk-ci'`).
-  `dev/nix-shell 'just sdk conformance browser'` runs Chromium
-  proofs in Vitest Playwright: a real WASM trap from a test-only panic fixture,
-  storage layouts, attachment and event lifetime, and decode-once. It then
-  checks real OPFS and worker behavior. The public browser scenarios are in
-  `sdks/browser/test`. Its recipe builds the
-  pure codec and panic fixtures in the Rust shell before the JS shell.
-  Kotlin JVM conformance uses small Android platform stand-ins for the storage
-  helper and cleaner. It selects the JNA cleaner branch. Installed Android tests
-  use the platform classes. The Kotlin run has no checks of its own:
-  it compiles the conformance build of the package and the negative consumers
-  in `conformance/kotlin/negative`. The Kotlin scenarios are JVM tests in
-  `sdks/android/library/src/test`.
-  The browser attachment worker-death proof uses the generated public package
-  and its shared worker manager.
-  The Swift run has no scenarios. It checks the missing bundle identifier in a
-  bare executable, the reader and listener proofs that need the injected
-  runtime seams, and the negative consumers. The other Swift checks are in
-  `sdks/ios/Tests`. Swift CI uses `dev/nix-shell 'just sdk generate swift'`, then
-  `dev/nix-shell 'just backend ci just sdk conformance swift'`.
-  The browser run starts `conformance/ts/object-store.mjs` for its
-  download fixtures. The default ephemeral fixture port keeps `SDK_FIXTURE_URL`
-  separate from native S3 on port 9067. The run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a
-  small PUT response, count upload grants and object requests, and refuse
-  selected relayed backend URLs. It uses `protoc` from the Rust shell to
-  replace only the upload URL in a real backend response. Browser clients use
-  its gRPC-web relay, which preserves gRPC status trailers. The Node tests in `sdks/node/test` do not use
-  this fixture. The attachment end test starts its own held-upload relay
-  (`sdks/node/test/heldUpload.ts`) on ephemeral loopback ports. It needs no
-  `SDK_FIXTURE_URL` and no `protoc`.
+- `dev/nix-shell 'just sdk test-bridge [vitest arguments]'` runs the bridge
+  runtime unit tests in `apps/xmtp_sdk_bindgen/runtime-tests/ts` and the
+  generated `conformance.gen.test.ts` against the staged SDK. The generated test
+  also runs the real WASM worker proofs `bridge.real.mts` and
+  `bridge.values.real.mts` against this worktree's backend.
+- `dev/nix-shell 'just sdk test-browser'` runs the browser platform proofs in
+  `sdks/browser/test/platform`. It runs the real WASM worker proofs in Node
+  (panic, garbage collection, and the log queue), the Chromium proofs (pure
+  codecs, worker failure, late reader opening, storage and OPFS, package
+  workers, and logging), and then the Vitest Playwright suite (a real WASM
+  trap, storage layouts, attachment and event lifetime, and decode-once). The
+  recipe builds the pure codec and panic fixtures in the Rust shell. These
+  fixtures enable the test-only `conformance` cargo feature, whose exports
+  (`sdk_conformance_*`) the default bindings omit. The public browser scenarios
+  are in `sdks/browser/test`.
+  The run starts `sdks/browser/test/platform/object-store/object-store.mjs`
+  (`dev/with-object-store`) for its download fixtures. The default ephemeral
+  fixture port keeps `SDK_FIXTURE_URL` separate from native S3 on port 9067.
+  The run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a small
+  PUT response, count upload grants and object requests, and refuse selected
+  relayed backend URLs. It uses `protoc` from the Rust shell to replace only
+  the upload URL in a real backend response. Browser clients use its gRPC-web
+  relay, which preserves gRPC status trailers. The Node tests in
+  `sdks/node/test` do not use this fixture. The attachment end test starts its
+  own held-upload relay (`sdks/node/test/heldUpload.ts`) on ephemeral loopback
+  ports. It needs no `SDK_FIXTURE_URL` and no `protoc`.
+- `dev/nix-shell 'just sdk test-browser-storage'` runs only the real-worker OPFS
+  proof, and `dev/nix-shell 'just sdk test-browser-package'` runs only the
+  package worker proof (creation reservations, shared client/admin workers,
+  final worker termination, and collection). Run
+  `dev/nix-shell 'just sdk generate'` first after SDK or runtime changes.
+- The Swift reader and listener proofs are XCTest cases in `sdks/ios/Tests`.
+  `dev/nix-shell 'just ios check-consumer'` runs the missing bundle identifier
+  check in a bare executable and the Swift negative consumers.
+  `dev/nix-shell 'just android check-consumers'` runs the Kotlin negative
+  consumers.
 - `dev/nix-shell 'just sdk bench <node|browser|swift|kotlin> [--samples N]'` measures
   the staged package on one host against this worktree's backend and writes
   `results.json` (p50 and p95, no pass or fail). Stage the package first. For
@@ -80,17 +84,6 @@ Run commands from the repository root in the Nix shell. Run
   most 3 samples per workload.
 - `dev/nix-shell 'just sdk bench-check'` runs the benchmark unit tests and static runner
   checks. It needs no backend, device or SDK build.
-- `dev/nix-shell 'just sdk conformance-bridge'` runs bridge Vitest, real WASM worker proofs,
-  and Chromium proofs for pure codecs, worker failure, and browser storage.
-  It also checks the public log setter, the real Rust queue, and final managed
-  worker retirement with held app callbacks.
-- `dev/nix-shell 'just sdk conformance-storage'` runs the real-worker OPFS proof against the
-  staged SDK. Run `dev/nix-shell 'just sdk generate'` first after SDK or runtime changes.
-- `dev/nix-shell 'just sdk conformance-package'` checks package creation reservations, shared
-  client/admin workers, final worker termination, and collection in Chromium.
-  Run `dev/nix-shell 'just sdk generate'` first after SDK or runtime changes.
-- `dev/nix-shell 'just sdk conformance-bridge-unit <vitest arguments>'` runs focused bridge
-  unit tests against the staged SDK.
 - `dev/nix-shell 'just test crate xmtp_sdk'` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
@@ -144,12 +137,12 @@ hand-maintained.
   and regenerates each selected target and does not change other targets.
   It first checks the artifact bytes against `artifacts.json`. For `node` and
   `browser` it also rejects artifacts from older Rust or generator source. Swift
-  and Kotlin output is checked later by mobile preflight and Swift conformance
-  staging. Run `build` first after a Rust or generator change.
+  and Kotlin output is checked later by mobile preflight. Run `build` first
+  after a Rust or generator change.
   Package staging requires exact generated asset sets and hashes. Unlisted
   generated files fail before runtime or compiler work.
   `dev/nix-shell 'just sdk generate [targets]'` runs both steps. Use `--profile release` on the
-  build recipe for release proofs. Conformance shares the bindgen artifact.
+  build recipe for release proofs.
 - `dev/nix-shell 'just sdk check-package-scripts'` checks reuse, toolchain inputs, and cleanup
   with a small fixture. `dev/nix-shell 'just sdk check-clean-generate'` adds one real Swift
   render. It uses existing artifacts and does not rebuild Rust.
@@ -166,7 +159,7 @@ hand-maintained.
   from the SDK directory. The helper stages a public manifest and copies the
   complete product into the SDK's `dist` directory for workspace imports.
   Release jobs pack `target/sdk-packages/<target>` directly. Private staging
-  remains the default for conformance.
+  remains the default for tests.
 - Use `NIX_DEVSHELL=ios dev/nix-shell 'just sdk mobile-build ios'` for the iOS
   device and simulator libraries. Then use the same shell for
   `dev/nix-shell 'just sdk mobile-stage ios'` to assemble `XmtpSdkFFI.xcframework` and SwiftPM

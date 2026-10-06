@@ -42,8 +42,8 @@ private actor Registration {
 	}
 }
 
-/// Client close stops each listener callback, also for a registration that is
-/// pending at close or that starts after close.
+/// Client close and `stopListener` stop each listener callback, also for a
+/// registration that is pending at close or that starts after close.
 final class ListenerGateTests: XCTestCase {
 	private let filter = EventFilter(kinds: [.conversationForkDetected])
 	private let event = ClientEvent.conversationForkDetected(conversationForkDetected: GroupRef(groupId: Data([1])))
@@ -85,6 +85,27 @@ final class ListenerGateTests: XCTestCase {
 
 		let callbacks = await registration.callbackCount()
 		XCTAssertEqual(callbacks, 0, "A listener started after client close ran its callback")
+	}
+
+	/// A native call that has not passed the start gate when `stopListener`
+	/// returns does not run the callback. The gate is the first step of the
+	/// native callback, so a call made after stop takes the same path as a call
+	/// that was held at its start.
+	// verifies: EVENT-053
+	func testCallbackHeldAtItsStartDoesNotRunAfterStop() async throws {
+		let registration = Registration()
+		let client = makeClient(registration, hold: false)
+		let id = try await client.startListener(filter) { _ in await registration.callback() }
+		let listener = await registration.registeredListener()
+		try await listener.onEvent(event: event)
+		let beforeStop = await registration.callbackCount()
+
+		await client.stopListener(id)
+		try await listener.onEvent(event: event)
+		let afterStop = await registration.callbackCount()
+
+		XCTAssertEqual(beforeStop, 1, "The running listener did not run the callback")
+		XCTAssertEqual(afterStop, 1, "A callback started after stopListener returned")
 	}
 
 	func testClosedRegistryStopsRegisteredGate() {

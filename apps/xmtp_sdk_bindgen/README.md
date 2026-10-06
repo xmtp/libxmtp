@@ -207,3 +207,13 @@ These stay outside the markers on purpose:
   `src/swift_async.rs`, `src/swift_events.rs`, `src/native_visibility.rs`,
   `src/swift_records.rs`): they pin stock UniFFI template text and change
   with the UniFFI version, not with façade edits.
+
+## Runtime tests
+
+`runtime-tests/ts` holds the unit tests of the TypeScript bridge runtime
+(`bridge.test.ts` and its `bridge-*.ts` parts), the codec send policy, and the
+generated public projection. `dev/nix-shell 'just sdk test-bridge'` runs them
+with the generated `conformance.gen.test.ts` against the staged SDK. The
+tests stay out of `runtime/` because generation copies that directory. The
+browser platform proofs that need Chromium, OPFS, or a fixture build are in
+`sdks/browser/test/platform` (`dev/nix-shell 'just sdk test-browser'`).
