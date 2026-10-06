@@ -33,7 +33,8 @@ if mode == 'all' || mode == 'architecture'
     check(spec.attributes_hash['vendored_frameworks'] == 'XmtpSdkFFI.xcframework', 'release archive root path')
     check(spec.attributes_hash['source_files'] == 'Sources/XmtpSdk/**/*.swift', 'release Swift source path')
     %w[pod_target_xcconfig user_target_xcconfig].each do |key|
-      check(spec.attributes_hash[key] == { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'x86_64' }, "#{key} matches producer simulator architectures")
+      check(spec.attributes_hash[key]['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] == 'x86_64', "#{key} matches producer simulator architectures")
+      check(spec.attributes_hash[key]['EXCLUDED_ARCHS[sdk=macosx*]'] == 'x86_64', "#{key} matches producer macOS architectures")
     end
     check(spec.deployment_target(:ios) == '14.0', 'iOS floor retained')
     check(spec.deployment_target(:osx) == '11.0', 'macOS floor retained')

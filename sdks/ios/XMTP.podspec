@@ -39,7 +39,11 @@ Pod::Spec.new do |spec|
     spec.vendored_frameworks = 'Artifacts/XmtpSdkFFI.xcframework'
   end
   spec.source_files = 'Sources/XmtpSdk/**/*.swift'
-  # The native producer supplies an arm64 simulator slice.
-  spec.pod_target_xcconfig = { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'x86_64' }
-  spec.user_target_xcconfig = { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'x86_64' }
+  # The native producer supplies arm64 simulator and macOS slices.
+  architectures = {
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'x86_64',
+    'EXCLUDED_ARCHS[sdk=macosx*]' => 'x86_64'
+  }
+  spec.pod_target_xcconfig = architectures
+  spec.user_target_xcconfig = architectures
 end
