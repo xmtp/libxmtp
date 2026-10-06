@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 
-import { ReaderStream } from "../../../apps/xmtp_sdk_bindgen/runtime/ts/streams/reader";
+// The reader is shared runtime: the Node and browser trees hold the same copy.
+import { ReaderStream } from "../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader";
 
 function heldReader() {
   let release!: () => void;

@@ -1,13 +1,13 @@
 import { expect, it, vi } from "vitest";
 import { waitForLog } from "../ts/logging-wait.js";
 
-import { MainCallbacks } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/callbacks.js";
-import { WorkerCallbacks } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/callback-stub.js";
+import { MainCallbacks } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/callbacks.js";
+import { WorkerCallbacks } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/callback-stub.js";
 import { pair } from "./bridge-support.js";
-import { logSinkSetter } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/log-sink.js";
-import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
-import type { CallbackTarget } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/callbacks.js";
-import type { CallbackWire } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire.js";
+import { logSinkSetter } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/log-sink.js";
+import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.js";
+import type { CallbackTarget } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/callbacks.js";
+import type { CallbackWire } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
 
 async function install(callbacks: MainCallbacks, sink: CallbackTarget) {
   let wire!: CallbackWire;

@@ -1,19 +1,19 @@
 import { expect, it, vi } from "vitest";
 
-import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
+import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.js";
 import {
   bridgeError,
   encodeError,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
 import {
   WorkerCallbacks,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/callback-stub.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/callback-stub.js";
 import {
   PoolLocks,
   WorkerHost,
   poolName,
   type LockProvider,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.js";
 import { pair, host, withoutUnhandledRejections } from "./bridge-support";
 export function registerCallbacksTests(): void {
   it("keeps an app callback error named AbortError as an app failure", async () => {

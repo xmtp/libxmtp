@@ -1,11 +1,11 @@
 import { expect, it, vi } from "vitest";
 
-import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
+import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.js";
 import {
   PoolLocks,
   WorkerHost,
   callWithPool,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.js";
 import {
   pair,
   workerLockManager,

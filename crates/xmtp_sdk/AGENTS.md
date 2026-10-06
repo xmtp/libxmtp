@@ -25,6 +25,13 @@ Run commands from the repository root in the Nix shell. Run
   Keep most new files below 500 lines.
 - `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
   Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
+  The TypeScript runtime imports the binding, so the lint and the bridge tests
+  read its copy in each generated tree; `apps/xmtp_sdk_bindgen/GENERATED_LINT.md`
+  has the details. Generation replaces a tree without its `@ubjs` packages:
+  each script that loads or typechecks one links them first with
+  `crates/xmtp_sdk/dev/link-runtime-packages`. For editors,
+  `apps/xmtp_sdk_bindgen/runtime/ts/tsconfig.json` resolves the binding in the
+  generated Node tree.
   It also rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) in
   the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
   in test source sets.

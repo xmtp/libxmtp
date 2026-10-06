@@ -1,8 +1,8 @@
-import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session";
+import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
   WireMessage,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
 
 export async function checkWorkerFailure(): Promise<void> {
   const worker = new Worker(new URL("./bridge.failure.worker.ts", import.meta.url), {

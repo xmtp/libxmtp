@@ -1,12 +1,12 @@
 import { expect, it } from "vitest";
 
-import { RemoteObject } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/remote-object.js";
-import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
+import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
+import { RemoteObject } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object.js";
+import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.js";
 import {
   PoolLocks,
   WorkerHost,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
-import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.js";
 import { registerEventEndingTests } from "./bridge-event-ending";
 import { heldPoolLocks, host, pair } from "./bridge-support";
 

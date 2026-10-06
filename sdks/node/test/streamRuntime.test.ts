@@ -1,21 +1,21 @@
 // The hand-written host stream, event stream, listener gate and Timestamp in
-// apps/xmtp_sdk_bindgen/runtime/ts, driven with fake readers and a fake
-// binding. Rust tests cover the readers and listeners themselves
-// (crates/xmtp_sdk/src/tests/reader_*.rs, event_*.rs).
+// apps/xmtp_sdk_bindgen/runtime/ts, through their copy in the built package,
+// driven with fake readers and a fake binding. Rust tests cover the readers
+// and listeners themselves (crates/xmtp_sdk/src/tests/reader_*.rs, event_*.rs).
 import { getEventListeners } from "node:events";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { Client } from "../../../apps/xmtp_sdk_bindgen/runtime/ts/client";
-import { EventStream } from "../../../apps/xmtp_sdk_bindgen/runtime/ts/events/reader";
-import { Timestamp } from "../../../apps/xmtp_sdk_bindgen/runtime/ts/ids";
+import { Client } from "../dist/runtime/client.js";
+import { EventStream } from "../dist/runtime/events/reader.js";
+import { Timestamp } from "../dist/runtime/ids.js";
 import {
   ConversationStream,
   MessageStream,
   type ReaderLike,
   type StreamCloseReason,
-} from "../../../apps/xmtp_sdk_bindgen/runtime/ts/streams/reader";
-import { ConnectionState } from "../../../apps/xmtp_sdk_bindgen/runtime/xmtp_sdk";
+} from "../dist/runtime/streams/reader.js";
+import { ConnectionState } from "../dist/xmtp_sdk.js";
 
 const owner = {};
 const idle = (): ReaderLike<never> => ({
@@ -452,6 +452,7 @@ it("a custom codec key keeps authority and type apart when either has a slash", 
   ) => Client)({ clientKey: () => 2n }, [codec]);
   const encoded = (contentType: ReturnType<typeof type>) => ({
     type: contentType,
+    parameters: new Map<string, string>(),
     content: new Uint8Array([1]).buffer,
   });
   expect(client.decodeCustom(encoded(type("example.org", "a/b")))).toEqual({

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Link the pinned @ubjs runtime packages into generated TypeScript trees.
+# Generation replaces a tree with a new one, so every job that loads or
+# typechecks a generated binding links them first.
+# usage: link-runtime-packages <tree>...
+#   typescript-napi gets @ubjs/core and @ubjs/node;
+#   typescript-wasm and typescript-pure get @ubjs/core and @ubjs/wasm.
+set -euo pipefail
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: $0 <generated TypeScript tree>..." >&2
+  exit 2
+fi
+# The flake outputs resolve from the repository root; a tree may be given
+# relative to the caller's directory.
+trees=()
+for tree in "$@"; do trees+=("$(realpath -m "$tree")"); done
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+
+packages() {
+  case "$(basename "$1")" in
+    typescript-napi) echo core node ;;
+    typescript-wasm | typescript-pure) echo core wasm ;;
+    *)
+      echo "$1: not a generated TypeScript tree" >&2
+      return 2
+      ;;
+  esac
+}
+
+wanted=()
+for tree in "${trees[@]}"; do
+  if [ ! -d "$tree" ]; then
+    echo "missing $tree: run \`just sdk generate\` first" >&2
+    exit 1
+  fi
+  names="$(packages "$tree")"
+  for name in $names; do wanted+=(".#ubjs-$name"); done
+done
+mapfile -t wanted < <(printf '%s\n' "${wanted[@]}" | sort -u)
+nix build --no-link "${wanted[@]}"
+
+for tree in "${trees[@]}"; do
+  package_dir="$tree/node_modules/@ubjs"
+  mkdir -p "$package_dir"
+  for name in $(packages "$tree"); do
+    ln -sfn "$(nix path-info ".#ubjs-$name")/lib/node_modules/@ubjs/$name" "$package_dir/$name"
+  done
+done

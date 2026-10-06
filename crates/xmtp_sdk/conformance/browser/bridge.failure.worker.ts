@@ -1,8 +1,8 @@
-import { WorkerHost } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host";
+import { WorkerHost } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host";
 import type {
   WireEndpoint,
   WireMessage,
-} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire";
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
 
 const endpoint: WireEndpoint = {
   postMessage(message, transfer) {
