@@ -84,6 +84,23 @@ lint-rust:
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
 
+# Source checks do not compile Rust or generate SDK products.
+lint-rust-source:
+    cargo fmt --check
+    cargo hakari generate --diff
+    cargo hakari manage-deps --dry-run
+
+lint-js-source:
+    pnpm lint:source
+
+# CI restores and validates both complete SDK products before this recipe.
+# Build only the handwritten JS packages whose declarations checks consume.
+check-js-prepared:
+    pnpm --filter @xmtp/agent-sdk exec tsdown
+    pnpm --filter @xmtp/cli exec tsdown
+    pnpm typecheck:prepared
+    pnpm lint:prepared
+
 # Config linting: TOML, Nix, and shell scripts.
 lint-config: lint-treefmt
     python3.11 dev/tests/test_android_release.py

@@ -52,6 +52,8 @@
     "generate:accounts": "tsx scripts/accounts.ts",
     "generate:groups": "tsx scripts/groups.ts",
     "lint": "oxlint .",
+    "lint:prepared": "oxlint .",
+    "typecheck:prepared": "tsc && tsc -p type-tests/tsconfig.json",
     "test": "vitest run",
     "test:cov": "vitest run --coverage",
     "typecheck": "tsc && tsc -p type-tests/tsconfig.json"

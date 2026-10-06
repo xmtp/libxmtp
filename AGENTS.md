@@ -36,6 +36,9 @@ just test                    # test default members
 just test crate <name>       # test one crate
 just test workspace -p <name> <args> # focused nextest options and filters
 just lint                    # Rust, config, Markdown, and proto
+just lint-js-source          # source Oxlint without generated SDK products
+just lint-rust-source        # Rust format and manifest checks, without Clippy
+just check-js-prepared       # full JS checks after both SDK products are restored
 just backend up              # shared services
 just backend status          # worktree ports and URLs
 just outline <paths...>      # declarations and line ranges

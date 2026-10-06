@@ -19,6 +19,15 @@ dev:
 build: sdk-products
     cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run build
 
+# CI restores current complete SDK products before these commands.
+# Build Agent declarations once. Run the real site build and its fresh stamp.
+build-prepared:
+    pnpm --filter @xmtp/agent-sdk exec tsdown
+    XMTP_SDK_PREPARED_PRODUCTS=1 pnpm --filter @xmtp/docs run build:prepared
+
+check-examples-prepared:
+    pnpm --filter @xmtp/docs run check:examples:prepared
+
 check-examples: sdk-products
     cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run check:examples
 
@@ -27,7 +36,7 @@ check-agent-docs:
 
 lint:
     # Docs lint is not type-aware and does not need SDK build output.
-    pnpm run lint
+    pnpm --filter @xmtp/docs run lint:prepared
 
 format-check:
     pnpm --filter @xmtp/docs run format:check
