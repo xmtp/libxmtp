@@ -65,10 +65,11 @@
   },
   "overrides": [
     {
-      // These Node build tools read JSON metadata and have no TS project.
+      // These standalone Node tools load runtime data and have no TS project.
       // Keep correctness and promise checks.
       "files": [
-        "crates/xmtp_sdk/dev/{stage-package,package-smoke,package-smoke-browser}.mjs"
+        "crates/xmtp_sdk/dev/{stage-package,package-smoke,package-smoke-browser}.mjs",
+        ".agents/skills/smoke-check/scripts/{ping-bot,bleep-bot,run-bot}.mjs"
       ],
       "rules": {
         "typescript/no-unsafe-argument": "off",
