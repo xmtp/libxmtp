@@ -294,7 +294,7 @@ final class CallerCancellationTests: XCTestCase {
 		guard await waitUntil("The native constructor did not finish", { executor.heldJobs > 0 }) else {
 			call.cancel()
 			executor.release()
-			if case let .success(client) = await call.result {
+			if case let .success(client)? = await settle(call, "The cancelled unfinished constructor") {
 				try await client.end()
 			}
 			return

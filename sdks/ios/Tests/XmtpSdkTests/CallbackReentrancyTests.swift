@@ -65,43 +65,44 @@ private final class CallbackState: @unchecked Sendable {
 final class CallbackReentrancyTests: XCTestCase {
 	// verifies: EVENT-052
 	func testHeldCallbackStopsItsListenerAndEndsTheClient() async throws {
-		let client = try await SDKClient.create(signer: generateLocalSigner(), options: reentrancyOptions())
-		let state = CallbackState()
-		let gate = CallbackGate()
-		let stopped = expectation(description: "stopListener inside the held callback returns")
-		let ended = expectation(description: "Client.end inside the held callback returns")
-		let returned = expectation(description: "The held callback returns")
-		let id = try await client.startListener(EventFilter(kinds: [.conversationJoined])) { _ in
-			guard state.enter() else { return }
-			defer { returned.fulfill() }
-			if let id = state.listenerId {
-				await client.stopListener(id)
-			} else {
-				XCTFail("The callback ran before startListener returned its ID")
+		try await withClients { scope in
+			let client = try await scope.create(signer: generateLocalSigner(), options: reentrancyOptions())
+			let state = CallbackState()
+			let gate = CallbackGate()
+			let stopped = expectation(description: "stopListener inside the held callback returns")
+			let ended = expectation(description: "Client.end inside the held callback returns")
+			let returned = expectation(description: "The held callback returns")
+			let id = try await client.startListener(EventFilter(kinds: [.conversationJoined])) { _ in
+				guard state.enter() else { return }
+				defer { returned.fulfill() }
+				if let id = state.listenerId {
+					await client.stopListener(id)
+				} else {
+					XCTFail("The callback ran before startListener returned its ID")
+				}
+				stopped.fulfill()
+				do {
+					try await client.end()
+				} catch {
+					state.error = error
+				}
+				ended.fulfill()
+				await gate.wait()
 			}
-			stopped.fulfill()
+			state.listenerId = id
 			do {
-				try await client.end()
+				_ = try await client.conversations().createGroup(members: [InboxId]())
 			} catch {
-				state.error = error
+				// Client.end inside the callback can close this call.
 			}
-			ended.fulfill()
-			await gate.wait()
-		}
-		state.listenerId = id
-		do {
-			_ = try await client.conversations().createGroup(members: [InboxId]())
-		} catch {
-			// Client.end inside the callback can close this call.
-		}
 
-		// The gate is still closed, so each call returned while the callback ran.
-		let calls = await XCTWaiter.fulfillment(of: [stopped, ended], timeout: 10, enforceOrder: true)
-		XCTAssertEqual(calls, .completed, "A call inside the callback waited for the callback to return")
-		await gate.release()
-		let callback = await XCTWaiter.fulfillment(of: [returned], timeout: 10)
-		XCTAssertEqual(callback, .completed, "The released callback did not return")
-		XCTAssertNil(state.error, "Client.end inside the callback failed")
-		try? await client.end()
+			// The gate is still closed, so each call returned while the callback ran.
+			let calls = await XCTWaiter.fulfillment(of: [stopped, ended], timeout: 10, enforceOrder: true)
+			XCTAssertEqual(calls, .completed, "A call inside the callback waited for the callback to return")
+			await gate.release()
+			let callback = await XCTWaiter.fulfillment(of: [returned], timeout: 10)
+			XCTAssertEqual(callback, .completed, "The released callback did not return")
+			XCTAssertNil(state.error, "Client.end inside the callback failed")
+		}
 	}
 }
