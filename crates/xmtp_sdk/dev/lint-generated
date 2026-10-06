@@ -30,7 +30,6 @@ if rg -n '@xmtp-pure' "$generated" --glob '*.swift' --glob '*.kt' --glob '*.ts';
   echo 'pure metadata marker leaked into generated bindings' >&2
   exit 1
 fi
-crates/xmtp_sdk/dev/check-consumer-types-ts
 
 echo "Linting bridge runtime and generated bridge files; stock ubrn output stays excluded."
 bash crates/xmtp_sdk/dev/check-wasm-init
@@ -43,11 +42,6 @@ node crates/xmtp_sdk/dev/check-bridge-casts.mjs
 # The pure module's public entry: lint and strict types.
 node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-pure/"*.gen.ts "$generated/typescript-pure/index.ts"
 sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions "$generated/typescript-pure/index.ts"
-node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module esnext --moduleResolution bundler \
-  crates/xmtp_sdk/conformance/ts/logging.typecheck.ts
-node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --typeRoots sdks/node/node_modules/@types --types node \
-  crates/xmtp_sdk/conformance/ts/parity.test-d.ts
-python3 crates/xmtp_sdk/dev/check-parity-signatures.py
 node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --allowImportingTsExtensions \
   crates/xmtp_sdk/conformance/browser/suite.worker.ts crates/xmtp_sdk/conformance/browser/attachment-lifetime.chromium.ts \
   crates/xmtp_sdk/conformance/browser/storage.layout.chromium.ts

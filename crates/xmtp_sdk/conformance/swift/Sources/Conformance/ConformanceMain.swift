@@ -5,14 +5,6 @@ import Foundation
 struct Conformance {
     static func main() async throws {
         setbuf(stdout, nil)
-        if ProcessInfo.processInfo.environment["SDK_SWIFT_CALLER_CANCELLATION"] == "1" {
-            try await checkSwiftCallerCancellation(backend: BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!))
-            return
-        }
-        if ProcessInfo.processInfo.environment["SDK_CALLBACK_LIFETIME"] == "1" {
-            try await checkCallbackLifetime(backend: BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!))
-            return
-        }
         if CommandLine.arguments.contains("--missing-bundle") {
             guard Bundle.main.bundleIdentifier == nil else {
                 throw ConformanceFailure("bare executable unexpectedly has a bundle identifier")

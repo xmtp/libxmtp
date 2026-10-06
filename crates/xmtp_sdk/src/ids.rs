@@ -83,18 +83,6 @@ impl InstallationId {
     }
 }
 
-#[cfg(all(
-    test,
-    feature = "conformance",
-    not(feature = "pure-only"),
-    not(target_arch = "wasm32")
-))]
-impl ConversationId {
-    pub(crate) fn unchecked(value: String) -> Self {
-        Self(value)
-    }
-}
-
 #[cfg_attr(feature = "pure-only", allow(dead_code))]
 impl InstallationId {
     /// Returns the decoded bytes, or `InvalidArgument` if the ID is malformed.

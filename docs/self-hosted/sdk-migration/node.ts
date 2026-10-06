@@ -5,7 +5,7 @@ import {
   type ClientOptions,
   type ErrorDetails,
   type PublicIdentity,
-} from "xmtp-sdk";
+} from "@xmtp/node-sdk";
 
 // End the old SDK client before calling this function.
 export async function exerciseMigration(

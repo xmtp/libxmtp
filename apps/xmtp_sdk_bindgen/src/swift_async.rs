@@ -232,6 +232,16 @@ mod tests {
         assert!(output.contains("let allowsCancellation = errorHandler != nil"));
         assert!(output.contains("if allowsCancellation { future.cancel() }"));
         assert!(output.contains("try await Task.detached { try await discard(lifted) }.value"));
+        // The Swift cancellation tests cancel a call after its task first
+        // suspends. That is past the cancellation check only while no `await`
+        // comes before it.
+        let operation = output
+            .find("withTaskCancellationHandler(operation: {")
+            .expect("cancellation handler");
+        let check = output
+            .find("try Task.checkCancellation()")
+            .expect("cancellation check");
+        assert!(operation < check && !output[operation..check].contains("await"));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

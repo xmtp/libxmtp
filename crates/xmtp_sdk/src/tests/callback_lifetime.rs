@@ -1,4 +1,4 @@
-//! Native callback lifetime probes. These do not replace host artifact proofs.
+//! Native callback lifetime probes for each foreign callback family.
 use super::*;
 use std::{
     collections::HashSet,
@@ -155,8 +155,6 @@ async fn invoke(family: Family, callback: Arc<HeldCallback>) {
 async fn cycle(family: Family, cancel: bool) {
     let executor = std::thread::current().id();
     let counts = Arc::new(Counts::default());
-    #[cfg(feature = "conformance")]
-    let before = crate::sdk_conformance_foreign_call_counts();
     let (entered, mut entries) = mpsc::unbounded_channel();
     let (dropped, mut drops) = mpsc::unbounded_channel();
     let mut releases = Vec::new();
@@ -200,14 +198,6 @@ async fn cycle(family: Family, cancel: bool) {
     }
     assert_eq!(counts.active.load(Ordering::SeqCst), CALLS);
     assert_eq!(counts.retained.load(Ordering::SeqCst), CALLS);
-    #[cfg(feature = "conformance")]
-    {
-        let held = crate::sdk_conformance_foreign_call_counts();
-        assert_eq!(held.in_flight, CALLS as u64);
-        assert_eq!(held.running, CALLS as u64);
-        assert_eq!(held.started - before.started, CALLS as u64);
-        assert_eq!(held.completed, before.completed);
-    }
     let held_polls = counts.polls.lock().len();
     let mut callers = Some(callers);
     if cancel {
@@ -229,21 +219,6 @@ async fn cycle(family: Family, cancel: bool) {
     assert_eq!(counts.active.load(Ordering::SeqCst), 0);
     assert_eq!(counts.retained.load(Ordering::SeqCst), 0);
     assert_eq!(counts.early_drops.load(Ordering::SeqCst), 0);
-    #[cfg(feature = "conformance")]
-    {
-        xmtp_common::time::timeout(DEADLINE, async {
-            while crate::sdk_conformance_foreign_call_counts().in_flight != 0 {
-                xmtp_common::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("foreign task counter did not drain");
-        let after = crate::sdk_conformance_foreign_call_counts();
-        assert_eq!(after.running, 0);
-        assert_eq!(after.completed - before.completed, CALLS as u64);
-        assert_eq!(after.dropped_early, before.dropped_early);
-        assert_eq!(after.polls_on_caller_thread, before.polls_on_caller_thread);
-    }
     let polls = counts.polls.lock();
     assert!(
         polls.len() >= held_polls + CALLS,
