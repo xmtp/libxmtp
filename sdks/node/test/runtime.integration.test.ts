@@ -233,6 +233,26 @@ it("public stream options lift the previous and current connection states", asyn
   await stream.end();
 });
 
+it("a public stream read after client end fails with the public ClientClosed", async () => {
+  const client = await createRegisteredClient(createSigner().signer);
+  const group = await client.conversations.createGroup([]);
+  const reasons: StreamCloseReason[] = [];
+  const stream = MessageStream.openGroup(client, group, undefined, {
+    onClose: (reason) => reasons.push(reason),
+  });
+  await stream.ready();
+  await client.end();
+  const error: unknown = await stream.next().catch((failure) => failure);
+  // The public reader lifts the binding error; no binding shape leaks.
+  expect(error).toBeInstanceOf(XmtpError.ClientClosed);
+  expect(error).toMatchObject({
+    details: { code: "ClientClosed", category: "lifecycle" },
+  });
+  expect("tag" in Object(error) || "inner" in Object(error)).toBe(false);
+  await vi.waitFor(() => expect(reasons).toHaveLength(1));
+  expect(reasons).toEqual([{ kind: "failed", error }]);
+});
+
 // verifies: PROC-052, PROC-031, PROC-041
 it.each(["break", "throw", "abort"] as const)(
   "an iterator %s closes the stream once and leaves the held item unacknowledged",
