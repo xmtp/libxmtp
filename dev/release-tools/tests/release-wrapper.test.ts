@@ -165,7 +165,7 @@ describe("release action CLI wrapper", () => {
     expect(result.status).not.toBe(0);
   });
 
-  it("rejects a backend release whose checkout differs from the workflow source", () => {
+  it("rejects a backend checkout that differs from the workflow source", () => {
     const workflow = fs.readFileSync(
       path.join(repoRoot, ".github/workflows/push-backend.yml"),
       "utf8",
@@ -183,7 +183,6 @@ describe("release action CLI wrapper", () => {
         cwd: repoRoot,
         env: {
           ...process.env,
-          RELEASE_BUILD: "true",
           WORKFLOW_SHA: "0".repeat(40),
           GITHUB_OUTPUT: output,
         },
@@ -192,6 +191,89 @@ describe("release action CLI wrapper", () => {
     );
     expect(result.status).not.toBe(0);
     expect(fs.readFileSync(output, "utf8")).toBe("");
+  });
+
+  it.each([true, false])(
+    "validates the release ref without checking out its code (matching source: %s)",
+    (matches) => {
+      const fixture = path.join(tmpDir, `source-validation-${matches}`);
+      const seed = path.join(fixture, "seed");
+      const remote = path.join(fixture, "remote.git");
+      const checkout = path.join(fixture, "checkout");
+      fs.mkdirSync(fixture, { recursive: true });
+      const git = (cwd: string, args: string[]) =>
+        execFileSync("git", args, {
+          cwd,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }).trim();
+      git(fixture, ["init", "--initial-branch=trusted", seed]);
+      git(seed, ["config", "user.name", "Test"]);
+      git(seed, ["config", "user.email", "test@example.com"]);
+      git(seed, ["commit", "--allow-empty", "-m", "trusted"]);
+      const workflowSha = git(seed, ["rev-parse", "HEAD"]);
+      git(seed, ["checkout", "-b", "requested"]);
+      git(seed, ["commit", "--allow-empty", "-m", "requested"]);
+      git(fixture, ["clone", "--bare", seed, remote]);
+      git(fixture, [
+        "clone",
+        "--branch",
+        "trusted",
+        `file://${remote}`,
+        checkout,
+      ]);
+      const workflow = fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/release-backend.yml"),
+        "utf8",
+      );
+      const script = workflow.match(
+        /- name: Pin the release source[\s\S]*?        run: \|\n([\s\S]*?)\n      - uses:/,
+      )?.[1];
+      if (!script)
+        throw new Error("Release source validation script not found");
+      const output = path.join(fixture, "output");
+      fs.writeFileSync(output, "");
+      const result = spawnSync(
+        "bash",
+        ["-c", script.replace(/^          /gm, "")],
+        {
+          cwd: checkout,
+          env: {
+            ...process.env,
+            REF: matches ? "refs/heads/trusted" : "requested",
+            WORKFLOW_SHA: workflowSha,
+            GITHUB_OUTPUT: output,
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(result.status, result.stderr).toBe(matches ? 0 : 1);
+      expect(fs.readFileSync(output, "utf8")).toBe(
+        matches ? `sha=${workflowSha}\n` : "",
+      );
+      expect(git(checkout, ["rev-parse", "HEAD"])).toBe(workflowSha);
+    },
+  );
+
+  it("runs backend setup tools only after validation with a read-only token and trusted checkout", () => {
+    const workflow = fs.readFileSync(
+      path.join(repoRoot, ".github/workflows/release-backend.yml"),
+      "utf8",
+    );
+    const setup = workflow.match(/\n  setup:\n([\s\S]*?)\n  build:/)?.[1];
+    if (!setup) throw new Error("Backend setup job not found");
+    const permissions = setup.match(
+      /    permissions:\n([\s\S]*?)    outputs:/,
+    )?.[1];
+    expect(permissions?.trim()).toBe("contents: read");
+    expect(
+      setup.match(
+        /uses: actions\/checkout@[^\n]+\n        with:\n          ref: ([^\n]+)/,
+      )?.[1],
+    ).toBe("${{ github.sha }}");
+    expect(setup.indexOf("- name: Pin the release source")).toBeLessThan(
+      setup.indexOf("- uses: ./.github/actions/setup-release-tools"),
+    );
   });
 
   it("keeps command errors and a failed exit status", () => {
