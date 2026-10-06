@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import { create } from "./helpers";
 
+// verifies: PROC-016
 test("cold catch-up reads an owed group and message once without a separate sync", async () => {
   const sender = await create();
   const peer = await create();

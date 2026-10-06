@@ -39,7 +39,7 @@ async function within<T>(promise: Promise<T>, label: string): Promise<T> {
 // stay unchanged. One connection owns one opening and its cleanup.
 function heldOpeningConnection() {
   const worker = new Worker(
-    new URL("./message.deleted.worker.ts", import.meta.url),
+    new URL("./generated.worker.ts", import.meta.url),
     { type: "module" },
   );
   const opening = latch();
