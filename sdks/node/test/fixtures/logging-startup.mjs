@@ -82,13 +82,20 @@ try {
     resourceAttributes: new Map([["proof.attribute", attribute]]),
   });
   let records = 0;
+  let firstRecord;
   await setLogSink({
-    async log() {
+    async log(record) {
       records += 1;
+      firstRecord ??= record;
     },
   });
   await assert.rejects(localSignerFromPrivateKey(new Uint8Array(31)));
   await waitFor(() => records > 0);
+  // The public sink gets the public record: a string level, not the binding
+  // number.
+  assert.equal(firstRecord.level, "error");
+  assert.ok(firstRecord.fields instanceof Map);
+  assert.equal(typeof firstRecord.droppedRecords, "bigint");
   await flushTelemetry();
   if (mode === "otel") {
     await waitFor(() =>

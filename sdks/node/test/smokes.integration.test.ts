@@ -1,9 +1,9 @@
 // Node smokes for Rust behavior that reaches the app only through generated
 // Node values: catch-up, metadata fields and attachments. Rust tests own the
 // rules (client_build.rs, metadata_fields/*, attachment_flows.rs).
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 import {
   clientOptions,
@@ -104,12 +104,20 @@ it("well-known catalogue fields read and write between two Node clients", async 
 
 // verifies: ATCH-043, ATCH-047, ATCH-062
 it("a peer downloads an uploaded attachment to a file and deletes it", async () => {
-  const root = await mkdtemp(join(tmpdir(), "xmtp-node-attachments-"));
-  // The local object store is on a loopback address.
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "xmtp-node-attachments-")),
+  );
+  // The local object store is on a loopback address. 64-bit limits above
+  // 2^53 must keep every bit through the option lowering and lift.
+  const settings = {
+    maxDownloadBytes: 2n ** 53n + 1n,
+    maxPendingAgeSeconds: 2n ** 53n + 3n,
+    allowPrivateNetwork: true,
+  };
   const files = (name: string) =>
     clientOptions({
-      storage: { location: { directory: join(root, name) } },
-      attachments: { allowPrivateNetwork: true },
+      storage: { location: { directory: join(root, name) }, label: "phone" },
+      attachments: settings,
     });
   try {
     const sender = await Client.create(createSigner().signer, files("sender"));
@@ -117,6 +125,17 @@ it("a peer downloads an uploaded attachment to a file and deletes it", async () 
       createSigner().signer,
       files("receiver"),
     );
+    expect(sender.options.attachments).toEqual(settings);
+    expect(sender.options.storage.label).toBe("phone");
+    // The label is the first directory below the storage root.
+    expect(await sender.storage.path()).toContain(
+      join(root, "sender", "phone") + sep,
+    );
+    expect(sender.serverConfiguration.attachments).toEqual({
+      baseUrl: expect.any(String),
+      maxUploadBytes: expect.any(BigInt),
+      retentionSeconds: expect.any(BigInt),
+    });
     expect(sender.attachments.offered).toBe(true);
     const source = (text: string) => ({
       kind: "bytes" as const,
