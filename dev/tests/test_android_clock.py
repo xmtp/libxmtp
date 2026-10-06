@@ -21,8 +21,21 @@ import sys
 path = Path(os.environ["CLOCK_STATE"])
 state = json.loads(path.read_text())
 args = sys.argv[3:]
-if args in (["root"], ["wait-for-device"]):
-    pass
+if args == ["root"]:
+    state["roots"] += 1
+    if state["mode"] == "root-closed" and state["roots"] == 1:
+        path.write_text(json.dumps(state))
+        print("adb: unable to connect for root: closed", file=sys.stderr)
+        sys.exit(1)
+elif args == ["wait-for-device"]:
+    state["waits"] += 1
+    if state["mode"] == "wait-closed" and state["waits"] == 1:
+        path.write_text(json.dumps(state))
+        sys.exit(1)
+elif args == ["shell", "id", "-u"]:
+    print("2000" if state["mode"] == "unrooted" or (
+        state["mode"] == "root-closed" and state["roots"] == 1
+    ) else "0\r")
 elif args == ["shell", "service", "check", "settings"]:
     state["checks"] += 1
     state["ready"] = state["mode"] not in ("missing", "api23") and state["checks"] > state["delay"]
@@ -68,6 +81,8 @@ class AndroidClockTest(unittest.TestCase):
                         mode=mode,
                         delay=delay,
                         ready=mode != "missing" and delay == 0,
+                        roots=0,
+                        waits=0,
                         checks=0,
                         writes=0,
                         sets=0,
@@ -89,6 +104,24 @@ class AndroidClockTest(unittest.TestCase):
                 timeout=15,
             )
             return result, json.loads(state.read_text())
+
+    def test_closed_root_transport_reconnects_and_verifies_root(self):
+        result, state = self.run_clock("root-closed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((state["roots"], state["waits"]), (2, 2))
+        self.assertEqual(state["sets"], 1)
+
+    def test_wait_transport_failure_retries(self):
+        result, state = self.run_clock("wait-closed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["waits"], 2)
+
+    def test_nonroot_shell_fails_before_clock_changes(self):
+        result, state = self.run_clock("unrooted")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("root shell did not become ready", result.stderr)
+        self.assertEqual(state["roots"], 10)
+        self.assertEqual((state["writes"], state["sets"]), (0, 0))
 
     def test_api23_content_provider_without_settings_binder_service(self):
         result, state = self.run_clock("api23")

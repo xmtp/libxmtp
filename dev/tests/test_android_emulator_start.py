@@ -44,6 +44,7 @@ role = Path(sys.argv[0]).name
 child_script = Path(sys.argv[0]).with_name("child")
 args = sys.argv[1:]
 if role == "emulator" and args in (["-version"], ["-accel-check"]):
+    (home / "emulator-library-path").write_text(os.environ.get("LD_LIBRARY_PATH", "absent"))
     print("emulator diagnostic " + args[0])
     sys.exit(0)
 if role == "adb" and args[:1] == ["devices"]:
@@ -70,6 +71,7 @@ if role == "emulator":
         "crash-boot": "boot.started",
         "crash-clock": "clock.started",
         "crash-clock-real": "clock.started",
+        "crash-clock-retry": "clock.started",
         "crash-test": "test.started",
     }.get(mode)
     if mode == "segfault" or marker:
@@ -102,6 +104,12 @@ elif role == "clock":
     if mode in ("crash-clock", "hung-clock"):
         time.sleep(60)
     print("clock synchronized")
+elif args[2:] == ["root"] and mode == "crash-clock-retry":
+    (home / "clock.started").touch()
+    print("adb: unable to connect for root: closed", file=sys.stderr)
+    sys.exit(1)
+elif args[2:] == ["wait-for-device"]:
+    time.sleep(60)
 elif args[2:] == ["root"] and mode == "crash-clock-real":
     subprocess.Popen([sys.executable, str(child_script)])
     while not (home / "child.started").exists():
@@ -413,6 +421,39 @@ class EmulatorStartupTests(unittest.TestCase):
         self.command[7] = str(CLOCK_HELPER)
         self.assert_failed("crash-clock-real", CRASH_DETAIL, "clock synchronization")
         self.assertTrue((self.home / "child.started").exists())
+
+    def test_crash_during_root_reconnect_stops_clock_helper(self):
+        self.command[7] = str(CLOCK_HELPER)
+        self.assert_failed("crash-clock-retry", CRASH_DETAIL, "clock synchronization")
+
+    def test_host_core_diagnostic_isolates_library_path(self):
+        # This case adds a fifth diagnostic executable. Allow its first macOS
+        # launch without changing the short budget used by hang regressions.
+        helper = Path(self.command[1])
+        helper.write_text(
+            helper.read_text().replace(
+                "DIAGNOSTIC_TIMEOUT = 1", "DIAGNOSTIC_TIMEOUT = 3"
+            )
+        )
+        core = self.home / "coredumpctl"
+        core.write_text(
+            f"#!{sys.executable}\n"
+            "import os\n"
+            "print('library-path=' + os.environ.get('LD_LIBRARY_PATH', 'absent'))\n"
+            "print('fixture-home=' + os.environ['FIXTURE_HOME'])\n"
+        )
+        core.chmod(0o755)
+        self.env["PATH"] = str(self.home) + os.pathsep + os.environ["PATH"]
+        self.env["LD_LIBRARY_PATH"] = "/fixture/emulator-libraries"
+        self.assert_failed("exit", "exit status 7", "ADB connection")
+        output = (self.logs / "core.txt").read_text()
+        self.assertIn("exit status: 0", output)
+        self.assertIn("library-path=absent", output)
+        self.assertIn(f"fixture-home={self.home}", output)
+        self.assertEqual(
+            (self.home / "emulator-library-path").read_text(),
+            "/fixture/emulator-libraries",
+        )
 
     def test_offline_device_has_a_deadline(self):
         self.assert_failed("offline", "startup deadline exceeded", "ADB connection")
