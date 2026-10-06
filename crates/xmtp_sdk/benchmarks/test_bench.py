@@ -1,4 +1,4 @@
-"""Check the memory sampler, the sample checks, run integrity and iOS cleanup."""
+"""Check the memory sampler, the sample checks, run integrity and host cleanup."""
 
 import argparse
 import json
@@ -14,7 +14,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 import bench  # noqa: E402 - requires the path setup above
-import ios_host  # noqa: E402 - bench adds hosts/ to the path
+import android_host  # noqa: E402 - bench adds hosts/ to the path
+import ios_host  # noqa: E402
 import processes  # noqa: E402
 
 
@@ -55,6 +56,18 @@ class SamplerControls(unittest.TestCase):
         code, _, _, _, peak = processes.execute(child("sys.exit(7)"), "go")
         self.assertEqual(code, 7)
         self.assertGreater(peak, 0)
+
+    def test_descendant_holding_the_pipes_times_out(self):
+        # The child exits at once. Its descendant keeps stdout open for 5 s.
+        descendant = [sys.executable, "-c", "import time; time.sleep(5)"]
+        start = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            processes.execute(
+                child(f"import subprocess; subprocess.Popen({descendant!r})"),
+                "go",
+                timeout=1,
+            )
+        self.assertLess(time.monotonic() - start, 4)
 
 
 class SampleChecks(unittest.TestCase):
@@ -165,6 +178,72 @@ class IosCleanup(unittest.TestCase):
                 with self.assertRaises(TimeoutError):
                     ios_host.invoke(config, request, temp / "call")
         self.assertEqual(calls[-2:], ["launch", "terminate"])
+
+
+class AndroidHost(unittest.TestCase):
+    FORCE_STOP = ["shell", "am", "force-stop", android_host.PACKAGE]
+
+    def invoke(self, instrument):
+        """Run one request against a fake adb. Records the adb commands."""
+        self.calls = calls = []
+
+        def adb(argv, **kwargs):
+            command = argv[3:]
+            calls.append(command)
+            if command[:3] == ["shell", "am", "instrument"]:
+                return instrument(argv, kwargs["timeout"])
+            if command == self.FORCE_STOP:
+                # Cleanup failures must not hide the result of the request.
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            (temp / "state").mkdir()
+            (temp / "state/fixture.json").write_text("{}")
+            config = {"serial": "device", "timeout_seconds": 0.2, "host": {}}
+            request = {"state_directory": str(temp / "state")}
+            with patch.object(android_host.subprocess, "run", side_effect=adb):
+                android_host.invoke(config, request, temp / "call")
+
+    def test_instrumentation_timeout_force_stops_the_app(self):
+        def hang(argv, timeout):
+            raise subprocess.TimeoutExpired(argv, timeout)
+
+        with self.assertRaises(subprocess.TimeoutExpired) as raised:
+            self.invoke(hang)
+        self.assertIn("instrument", raised.exception.cmd)
+        self.assertEqual(self.calls[-1], self.FORCE_STOP)
+
+    def test_every_instrumentation_force_stops_the_app(self):
+        def complete(argv, timeout):
+            stdout = "benchmark=complete\nINSTRUMENTATION_CODE: 0\n"
+            return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+        self.invoke(complete)
+        names = [command[:3] for command in self.calls]
+        stop = names.index(self.FORCE_STOP[:3])
+        self.assertEqual(names[stop - 1], ["shell", "am", "instrument"])
+
+    def test_backend_without_a_port_uses_the_scheme_default(self):
+        cases = {
+            "http://localhost:5050": [5050],
+            "http://127.0.0.1": [80],
+            "https://[::1]": [443],
+            "https://grpc.example.com": [],
+        }
+        for url, ports in cases.items():
+            with self.subTest(url):
+                self.assertEqual(android_host.backend_ports(url), ports)
+        with self.assertRaises(ValueError):
+            android_host.backend_ports("grpc://localhost")
+
+    def test_reverse_rejects_a_missing_port(self):
+        with patch.object(android_host.subprocess, "run") as run:
+            with self.assertRaises(ValueError):
+                with android_host.reverse({"serial": "device"}, [5050, None]):
+                    pass
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

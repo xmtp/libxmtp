@@ -100,11 +100,13 @@ def execute(argv, input_text=None, timeout=None):
         _, status, usage = os.wait4(child.pid, 0)
         child.returncode = os.waitstatus_to_exitcode(status)
     finally:
-        if timer:
-            timer.cancel()
         stopped.set()
+        # A descendant can keep the output pipes open after the child exits.
+        # The timer stays active until the readers finish, so it can kill it.
         for thread in threads:
             thread.join()
+        if timer:
+            timer.cancel()
     duration = (time.perf_counter() - start) * 1000
     if timed_out.is_set():
         raise TimeoutError(f"Host exceeded {timeout} s: {argv}")

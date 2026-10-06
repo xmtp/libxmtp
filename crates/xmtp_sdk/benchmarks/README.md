@@ -82,10 +82,16 @@ no backend, device or SDK build.
   `hosts/SwiftSdk.swift` are the Release iOS Simulator app and its launcher.
   The launcher stops the app after each call, also after a timeout.
 - `hosts/android_host.py` and `hosts/android/` are the release APK and its
-  instrumentation launcher.
-- `test_bench.py` checks the memory sampler (also with zero RSS readings), the
-  percentile helper, the sample checks, the run integrity check and the iOS
-  timeout cleanup.
+  instrumentation launcher. The launcher force-stops the app after each call,
+  also after a timeout. The APK builds with strict dependency verification
+  against the checked-in `gradle.lockfile`, `buildscript-gradle.lockfile` and
+  `gradle/verification-metadata.xml`. For an approved dependency change,
+  build once with `--write-locks --write-verification-metadata sha256`, as in
+  `sdks/android/CONTRIBUTING.md`, and review the new versions and checksums.
+- `test_bench.py` checks the memory sampler (also with zero RSS readings and
+  a descendant that keeps the output pipes open), the percentile helper, the
+  sample checks, the run integrity check, the iOS and Android timeout cleanup
+  and the Android backend port.
   `test_workload.mjs` checks the Node and browser stream workload: the
   teardown runs once, outside the timer, and also after a read failure, a
   duplicate event or a publish failure. The Swift and Kotlin stream workloads

@@ -5,12 +5,22 @@ import hashlib
 import json
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HOSTS = Path(__file__).resolve().parent
 ROOT = HOSTS.parents[3]
 PACKAGE = "org.xmtp.benchmark"
 REMOTE = f"/sdcard/Android/data/{PACKAGE}/files/benchmark-input"
 SOURCES = ["Benchmark.kt", "Sdk.kt"]
+# Dependency locks and checksums. The build runs with strict verification.
+DEPENDENCY_INPUTS = [
+    "gradle.lockfile",
+    "buildscript-gradle.lockfile",
+    "gradle/verification-metadata.xml",
+]
+CLEANUP_SECONDS = 15
+LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 def adb(config, *args, timeout=120):
@@ -33,8 +43,15 @@ def only_device():
     return devices[0]
 
 
+def check_dependency_inputs():
+    for name in DEPENDENCY_INPUTS:
+        if not (HOSTS / "android" / name).is_file():
+            raise ValueError(f"Android dependency input missing: {name}")
+
+
 def build_apk(aar, output):
     """Assemble the release APK against the staged AAR. Returns the APK path."""
+    check_dependency_inputs()
     output.mkdir(parents=True)
     argv = [
         str(ROOT / "sdks/android/gradlew"),
@@ -43,6 +60,7 @@ def build_apk(aar, output):
         "assembleRelease",
         f"-PsdkAar={aar}",
         f"-PbenchmarkBuildDirectory={output}",
+        "--dependency-verification=strict",
         "--no-daemon",
     ]
     with (output / "build.log").open("w") as log:
@@ -55,9 +73,28 @@ def build_apk(aar, output):
     return apks[0]
 
 
+def backend_ports(url):
+    """Return the host ports that the app reaches through a loopback backend URL.
+
+    A remote backend needs no reverse. A loopback URL without a port uses the
+    default port of its scheme.
+    """
+    parts = urlsplit(url)
+    if parts.hostname not in LOOPBACK:
+        return []
+    port = parts.port or DEFAULT_PORTS.get(parts.scheme)
+    if port is None:
+        raise ValueError(
+            f"Backend URL has no port and no default for its scheme: {url}"
+        )
+    return [port]
+
+
 @contextlib.contextmanager
 def reverse(config, ports):
     """Let the app reach the host's signer and backend at 127.0.0.1."""
+    if not all(isinstance(port, int) and 0 < port < 65536 for port in ports):
+        raise ValueError(f"adb reverse needs explicit TCP ports: {ports}")
     for port in ports:
         adb(config, "reverse", f"tcp:{port}", f"tcp:{port}")
     try:
@@ -71,6 +108,21 @@ def reverse(config, ports):
 
 def install(config):
     adb(config, "install", "-r", config["apk"], timeout=config["timeout_seconds"])
+
+
+def force_stop(config):
+    """Stop the app on the device. A timeout kills only the local adb client,
+    so an instrumentation can still run there and disturb the next request.
+    Best effort: a failure here must not hide the result of the request.
+    """
+    try:
+        subprocess.run(
+            ["adb", "-s", config["serial"], "shell", "am", "force-stop", PACKAGE],
+            capture_output=True,
+            timeout=CLEANUP_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def invoke(config, request, log):
@@ -91,15 +143,18 @@ def invoke(config, request, log):
     ]:
         adb(config, "push", str(source), f"{REMOTE}/{name}")
     adb(config, "shell", "rm", "-f", f"{REMOTE}/response.json")
-    run = adb(
-        config,
-        "shell",
-        "am",
-        "instrument",
-        "-w",
-        f"{PACKAGE}/{PACKAGE}.Benchmark",
-        timeout=config["timeout_seconds"],
-    )
+    try:
+        run = adb(
+            config,
+            "shell",
+            "am",
+            "instrument",
+            "-w",
+            f"{PACKAGE}/{PACKAGE}.Benchmark",
+            timeout=config["timeout_seconds"],
+        )
+    finally:
+        force_stop(config)
     output = log.with_suffix(".instrumentation.log")
     output.write_text(run.stdout + run.stderr)
     if (

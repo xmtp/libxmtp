@@ -19,7 +19,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
@@ -181,11 +180,12 @@ def open_host(host, args, out, stack):
         return lambda request, log: ios.invoke(config, request, log), package
     package = staged("android/xmtp-sdk.aar", "just sdk mobile-stage android")
     serial = args.device or android.only_device()
+    backend = backend_url()
+    backend_ports = android.backend_ports(backend)
     apk = android.build_apk(package, out / "android-build")
     port = stack.enter_context(signer_server(out / "signer.log"))
-    backend = backend_url()
     config = {"serial": serial, "apk": str(apk), "timeout_seconds": args.timeout}
-    stack.enter_context(android.reverse(config, [port, urlsplit(backend).port]))
+    stack.enter_context(android.reverse(config, [port, *backend_ports]))
     config["host"] = {"backend_url": backend, "signer_url": f"http://127.0.0.1:{port}"}
     android.install(config)
     return lambda request, log: android.invoke(config, request, log), package
@@ -360,6 +360,7 @@ def check():
         raise BenchError("build.gradle does not compile every Kotlin runner")
     if f'"{android.PACKAGE}.Benchmark"' not in manifest:
         raise BenchError("AndroidManifest.xml does not name the instrumentation")
+    android.check_dependency_inputs()
     pbxproj = ios.project(Path("/placeholder/XmtpSdk"))
     if any(f'path = "{name}"' not in pbxproj for name in ios.SOURCES):
         raise BenchError("The Xcode project does not compile every Swift runner")
