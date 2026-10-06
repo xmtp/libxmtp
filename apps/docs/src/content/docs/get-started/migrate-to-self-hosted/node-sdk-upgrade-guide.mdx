@@ -1,0 +1,753 @@
+---
+title: Node SDK Upgrade Guide
+description: Update Node SDK calls, options, and results for a self-hosted backend.
+---
+
+Start with [Migrate to a self-hosted backend](/get-started/migrate-to-self-hosted/)
+for the backend, database, history, and push steps. This guide lists changes
+from [`main` at `cc878025da`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247)
+to [`self-hosted` at `73636909dd`](https://github.com/xmtp/libxmtp/tree/73636909ddabfae64e370375ef8227c58f2abc5a).
+A call can keep its name and still have different parameters, results, or
+behavior. The **Before** examples use the old SDK. The **After** examples use
+the new SDK.
+
+## Node package and value types
+
+Keep the package name `@xmtp/node-sdk`. SDK 8 requires ESM and Node 22.12 or later.
+Use `import` instead of `require`. Build the current package before checking your
+app. The old `@xmtp/node-bindings` package is not the public SDK 8 API.
+
+The **previous** examples below use
+[`main` at `cc878025d`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247/sdks/js/node-sdk/src).
+They were checked against that source. The **current** examples use the local
+SDK 8 declarations and are checked as complete TypeScript programs.
+
+| Previous value                                                                                                  | Current value                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Identifier` with `identifierKind: IdentifierKind.Ethereum`                                                     | `PublicIdentity` with `kind: "ethereum"`. Use `"passkey"` for a passkey. The `identifier` field remains a string.                                                                                        |
+| Numeric enum imports such as `ConsentState.Allowed`, `DeliveryStatus.Published`, and `SortDirection.Descending` | String values such as `"allowed"`, `"published"`, and `"descending"`. Import the type when you need a type annotation.                                                                                   |
+| `ConversationType`, `GroupMessageKind`, `SortDirection`, `ListConversationsOrderBy`                             | Types `ConversationKind`, `MessageKind`, `MessageOrder`, `ConversationOrder`. Values use lower camel case, such as `"dm"`, `"membershipChange"`, and `"lastActivity"`.                                   |
+| Nanosecond fields ending in `Ns`, with a separate `Date` getter                                                 | `Timestamp`. Use `.ns` for a `bigint`, `.date` for a `Date`, and `new Timestamp(ns)` for an input. This applies to message, conversation, identity, archive, and action times.                           |
+| Mutable records and binding classes                                                                             | Read-only public records. IDs remain strings. Byte buffers are `Uint8Array`. Maps are `Map`, not plain JavaScript objects.                                                                               |
+| Generic `Client<T>`, `Group<T>`, `Dm<T>`, `Conversation<T>`, and `DecodedMessage<T>`                            | Classes `Client`, `Group`, `Dm`, and `Message`. `Conversation` is the type `Group \| Dm`. Narrow a conversation with `instanceof Group` or `instanceof Dm`. Narrow received content with `content.kind`. |
+| Direct `new Client(...)`, `client.init(...)`, or direct conversation/message constructors                       | Use `Client.create`, `Client.build`, and SDK lookup or creation methods. Public SDK objects have private constructors.                                                                                   |
+
+## Signers and client setup
+
+A signer has three asynchronous methods: `identity()`, `kind()`, and
+`sign(request)`. Replace `type`, `getIdentifier`, and `signMessage`.
+
+Previous EOA signer:
+
+```text title="Before (main cc878025da)"
+import { IdentifierKind, type Signer } from "@xmtp/node-sdk";
+
+export function createSigner(
+  address: string,
+  signText: (text: string) => Promise<Uint8Array>,
+): Signer {
+  return {
+    type: "EOA",
+    getIdentifier: () => ({
+      identifier: address,
+      identifierKind: IdentifierKind.Ethereum,
+    }),
+    signMessage: signText,
+  };
+}
+```
+
+Current EOA signer:
+
+```ts source="migration-node.ts" region="signer"
+
+```
+
+For a smart contract wallet, replace `getChainId` and `getBlockNumber` with
+fields in the result of `kind()`. Return the signature bytes, address, chain ID,
+and optional block number from `sign()`. Chain IDs and block numbers are
+unsigned 64-bit `bigint` values.
+
+```ts source="migration-node.ts" region="scw-signer"
+
+```
+
+Passkey signers are also supported. Their identity uses `kind: "passkey"`;
+`kind()` returns `{ kind: "passkey" }`; `sign()` returns a `"passkey"` signature
+with `signature`, `publicKey`, `authenticatorData`, and `clientDataJson` byte
+buffers. `generateLocalSigner()` and `localSignerFromPrivateKey(bytes)` are new
+helpers for local Ethereum signers.
+
+Previous client setup:
+
+```text title="Before (main cc878025da)"
+import { Client, type Signer } from "@xmtp/node-sdk";
+
+export async function createClient(signer: Signer, key: Uint8Array) {
+  return Client.create(signer, {
+    env: "dev",
+    appVersion: "chat/7.0.0",
+    dbPath: "./chat.db3",
+    dbEncryptionKey: key,
+    minDbPoolSize: 5,
+    maxDbPoolSize: 25,
+    disableDeviceSync: false,
+  });
+}
+```
+
+Current client setup:
+
+```ts source="migration-node.ts" region="create"
+
+```
+
+| Previous option or helper                                                                                                 | Current option or helper                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `env`, `apiUrl`, `gatewayHost`, optional network selection                                                                | Pass `backend: { url }` or a `Backend`. There is no network selected from an environment name. `backendUrl` is not a Node SDK 8 client option.                                                                            |
+| Top-level `appVersion`                                                                                                    | `backend.appVersion` in connection options.                                                                                                                                                                               |
+| `createBackend(options)`, `BackendBuilder`, `envToString`, `ApiUrls`, `XmtpEnv`                                           | `await Backend.connect({ url, appVersion?, credentials? })`. A connected `Backend` can be shared by clients and standalone queries. Environment helpers are removed.                                                      |
+| Old `Backend.env`, `v3Host`, `gatewayHost`, `appVersion` getters and builder `setApiUrl`, `setGatewayHost`, `setReadonly` | Removed from the public `Backend`. Keep connection options in your app and use `Backend.connect(options)`.                                                                                                                |
+| `dbPath` omitted                                                                                                          | `storage: { location: "default" }`. SDK 8 has no implicit `dev` network label.                                                                                                                                            |
+| `dbPath: null`                                                                                                            | `storage: { location: "inMemory" }`.                                                                                                                                                                                      |
+| `dbPath: "./chat.db3"`                                                                                                    | `storage.location: { dbPath: "./chat.db3", attachmentsDir: "./chat-attachments" }`. Both paths are required.                                                                                                              |
+| `dbPath(inboxId)` callback                                                                                                | Choose a directory with `storage.location: { directory }`, or compute explicit paths in your app before creation. No path callback is accepted.                                                                           |
+| `dbEncryptionKey` bytes or hex string                                                                                     | `storage.encryptionKey: Uint8Array`. Convert a hex key to bytes in the app. Keep the same 32-byte key when you reopen a database.                                                                                         |
+| `minDbPoolSize`, `maxDbPoolSize`, `useSingleConnection`                                                                   | `storage.pool: { min, max }` and `storage.singleConnection`.                                                                                                                                                              |
+| Environment used in database filename                                                                                     | `storage.label`. Keep the label and storage location stable.                                                                                                                                                              |
+| `disableDeviceSync`                                                                                                       | `deviceSync: false`. Device sync defaults to `true`.                                                                                                                                                                      |
+| `disableAutoRegister`                                                                                                     | `registration: { auto: false }`. Automatic registration defaults to `true`. `register()` remains available.                                                                                                               |
+| Top-level `nonce`                                                                                                         | `registration.nonce`. It is an unsigned 64-bit `bigint`. New identity generation defaults to nonce `0`, rather than the old `1`. Keep an explicit nonce where the app requires it.                                        |
+| `historySyncUrl`, `HistorySyncUrls`                                                                                       | Removed. No history server is selected by the client.                                                                                                                                                                     |
+| `waitForRegistrationVisible` and `VisibilityConfirmationOptions`                                                          | Removed from the public client options. Registration waits for the self-hosted backend's readable state.                                                                                                                  |
+| `WorkerConfigOptions`, `WorkerIntervalOverride`, `WorkerJitterOverride`                                                   | `WorkerOptions` and `WorkerInterval`, used by `ClientOptions.workers`.                                                                                                                                                    |
+| `workerConfig.defaultIntervalNs`                                                                                          | `workers.defaultIntervalNs`.                                                                                                                                                                                              |
+| `workerConfig.workerIntervalsNs`, `workerJittersNs`, `disabledWorkers`                                                    | `workers.intervals: [{ kind, intervalNs?, jitterNs?, enabled? }]`. Use `enabled: false` to disable that worker. Worker kinds use strings. New kinds include `configurationRefresh`, `hmacEpoch`, and `attachmentCleanup`. |
+| `unstableChangeCallbacks.appData`, `AppDataChange`                                                                        | Observe `"conversation.metadata_changed"` through `client.events()` or `startListener()`. Events report committed changes; they do not await an app merge before message processing continues.                            |
+| Top-level logging and OTLP options                                                                                        | Configure logging with `await initLogging(...)`; see the diagnostics section below.                                                                                                                                       |
+
+`Client.create(signer, options)` and `Client.build(identity, options, inboxId?)`
+require an options object. `build` reopens a client without storing a signer.
+Its optional third argument selects the inbox explicitly. SDK 8 can use the
+inbox stored in explicit storage. `allowOffline: true` permits startup from
+stored state when the backend is unavailable. It does not supply the data needed
+for a first registration.
+
+```ts source="migration-node.ts" region="build"
+
+```
+
+The previous database is not an input to this migration. Create a new database
+for the deployment. See [the database migration rules](/get-started/migrate-to-self-hosted/#the-local-database-must-be-recreated)
+before choosing paths.
+
+Configure backend credentials separately from the identity signer:
+
+```ts source="migration-node.ts" region="auth"
+
+```
+
+`backend.credentials` accepts a `Credential` or a source with asynchronous
+`credential()`. A credential has `value`, signed 64-bit `expiresAtSeconds` in Unix
+seconds, and optional header `name`. Use `client.setCredential(credential)` to
+replace a supplied credential. `handlers.preAuthenticate` accepts a callback
+with asynchronous `run()` for work that must precede authentication. `forkRecovery`
+selects a policy (`"none"`, `"allowlistedGroups"`, or `"all"`), group IDs, whether
+to disable responses, and an optional worker interval. `attachments` can set
+`maxDownloadBytes`, `maxPendingAgeSeconds`, and `allowPrivateNetwork`. `Client.fetchServerConfiguration(backend)`
+fetches configuration without a client. `client.serverConfiguration` is a
+property; `await client.refreshServerConfiguration()` returns refreshed
+configuration. Deployment limits and retention counts use `bigint`.
+
+## Identity methods and result records
+
+Previous standalone calls could omit a backend or pass an environment string.
+Current calls require a `BackendSource`: `{ url, appVersion?, credentials? }` or
+a connected `Backend`.
+
+```ts source="migration-node.ts" region="standalone"
+
+```
+
+| Previous call                                                                                                | Current call and result                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.accountIdentifier`                                                                                   | `client.identity: PublicIdentity`. `client.signer` and `client.env` are removed. Keep the signer in your app.                                                                                                                         |
+| `client.isRegistered`                                                                                        | `await client.isRegistered(): boolean`.                                                                                                                                                                                               |
+| `client.preferences.inboxState()` / `fetchInboxState()`                                                      | `await client.inboxState(false)` / `client.inboxState(true)`. The refresh flag is required.                                                                                                                                           |
+| `client.preferences.getInboxStates(ids)` / `fetchInboxStates(ids)`                                           | `await client.inboxStates(ids, false)` / `client.inboxStates(ids, true)`.                                                                                                                                                             |
+| `Client.fetchInboxStates(ids, backendOrEnv?, gatewayHost?)`                                                  | `Client.inboxStates(ids, backend): Promise<InboxState[]>`.                                                                                                                                                                            |
+| `client.fetchInboxIdByIdentifier(identifier)`                                                                | `client.inboxIdFor(identity): Promise<string \| undefined>`.                                                                                                                                                                          |
+| `getInboxIdForIdentifier(backend, identifier)`                                                               | `Client.inboxIdFor(identity, backend): Promise<string>`. This static method calculates a nonce-0 inbox ID when no network association exists. Use `canMessage` to test registration.                                                  |
+| `client.canMessage(identifiers)` / `Client.canMessage(identifiers, backendOrEnv?)`                           | Same method names, with `PublicIdentity[]` and a required backend for the static method. Both return `Map<string, boolean>`. Keys are `ethereum:<normalized address>` or `passkey:<lowercase key hex>`, rather than an address alone. |
+| `client.fetchLatestInboxUpdatesCount(ids)`                                                                   | `client.latestInboxUpdatesCount(ids, refreshFromNetwork): Promise<Map<string, bigint>>`.                                                                                                                                              |
+| `client.fetchOwnInboxUpdatesCount()`                                                                         | `client.ownInboxUpdatesCount(refreshFromNetwork): Promise<bigint>`.                                                                                                                                                                   |
+| `Client.fetchLatestInboxUpdatesCount(ids, backendOrEnv?, gatewayHost?)`                                      | Free function `latestInboxUpdatesCount(ids, backend): Promise<Map<string, bigint>>`. There is no static method with the old name.                                                                                                     |
+| No old equivalent                                                                                            | `Client.newestMessageMetadata(ids, backend): Promise<Map<string, MessageMetadataEntry>>`. Each entry has `sequenceId: bigint` and `createdAt: Timestamp`.                                                                             |
+| `client.fetchKeyPackageStatuses(ids)`                                                                        | `client.keyPackageStatuses(ids): Promise<Map<string, KeyPackageStatus>>`. The old binding result was a plain object. `Client.keyPackageStatuses(ids, backend)` is new.                                                                |
+| `client.removeAccount(identity)`                                                                             | `client.removeAccount(recoverySigner, identity)`.                                                                                                                                                                                     |
+| `client.revokeInstallations(byteIds)`                                                                        | `client.revokeInstallations(signer, stringIds)`. Installation IDs are hex strings.                                                                                                                                                    |
+| `client.revokeAllOtherInstallations()`                                                                       | `client.revokeAllOtherInstallations(signer)`.                                                                                                                                                                                         |
+| `Client.revokeInstallations(signer, inboxId, byteIds, backendOrEnv?, gatewayHost?)`                          | `Client.revokeInstallations(signer, inboxId, stringIds, backend)`.                                                                                                                                                                    |
+| `client.changeRecoveryIdentifier(identity)`                                                                  | `client.changeRecoveryIdentifier(signer, identity)`.                                                                                                                                                                                  |
+| `Client.isAddressAuthorized(inboxId, address, backendOrEnv?, gatewayHost?)`                                  | `Client.isAddressAuthorized(inboxId, address, backend): Promise<boolean>`.                                                                                                                                                            |
+| `Client.isInstallationAuthorized(inboxId, byteId, backendOrEnv?, gatewayHost?)`                              | `Client.isInstallationAuthorized(inboxId, stringId, backend): Promise<boolean>`.                                                                                                                                                      |
+| Synchronous `signWithInstallationKey`, `verifySignedWithInstallationKey`, `Client.verifySignedWithPublicKey` | Await each method. Signature and public-key inputs remain `Uint8Array`; verification returns `Promise<boolean>`.                                                                                                                      |
+| `generateInboxId(identifier, nonce?)`                                                                        | `generateInboxId(identity, nonce?)` remains synchronous. It now takes `PublicIdentity`, and an omitted nonce is `0`.                                                                                                                  |
+| `client.close()`                                                                                             | `await client.end()`. End the client before removing storage. `client.storage.path()` and `client.storage.reconnect()` are new. `await client.storage.delete_()` ends the client and removes its database file.                       |
+
+`libxmtpVersion`, `appVersion`, `options`, `inboxId`, `installationId`,
+`installationIdBytes`, `conversations`, and `preferences` remain properties.
+`libxmtpVersion` now always returns a string from a created client; `appVersion`
+can be absent when connection options do not set it. The `options` result is
+always present, has the new option shape, and omits backend credential
+sources, static credentials, and the storage encryption key. `isInMemory` and
+`storagePath` are new properties.
+
+```ts source="migration-node.ts" region="identity-changes"
+
+```
+
+| Previous result                                     | Current result                                                                                                                                        |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `InboxState.identifiers`, `recoveryIdentifier`      | `identities: PublicIdentity[]`, `recoveryIdentity: PublicIdentity`. `creationSignatureKind` is new and can be absent.                                 |
+| `Installation.bytes`, `clientTimestampNs`, `id`     | `id: string`, optional `createdAt: Timestamp`. There is no `bytes` field; use the ID text.                                                            |
+| `Lifetime`                                          | `KeyPackageLifetime`. `notBefore` and `notAfter` remain Unix-second `bigint` values. `KeyPackageStatus.lifetime` and `validationError` can be absent. |
+| `GroupSyncSummary.numEligible`, `numSynced` numbers | `eligible`, `synced` as `bigint`. This applies to `syncAll` and `syncAllDeviceSyncGroups`.                                                            |
+
+The low-level signature API also changed:
+
+| Previous call or type                                                       | Current call or type                                                                                                                                   |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SignatureRequestHandle`                                                    | `SignatureRequest`, returned by the SDK.                                                                                                               |
+| `unsafe_createInboxSignatureRequest()`                                      | `unsafeCreateInboxSignatureRequest()`. The result can be absent when no signature is needed.                                                           |
+| `unsafe_addAccountSignatureRequest(identifier, allowInboxReassign = false)` | `unsafeAddAccountSignatureRequest(identity, allowInboxReassign)`. Supply the boolean explicitly. `false` checks for an association with another inbox. |
+| `unsafe_removeAccountSignatureRequest(identifier)`                          | `unsafeRemoveAccountSignatureRequest(identity)`.                                                                                                       |
+| `unsafe_revokeInstallationsSignatureRequest(byteIds)`                       | `unsafeRevokeInstallationsSignatureRequest(stringIds)`.                                                                                                |
+| `unsafe_revokeAllOtherInstallationsSignatureRequest()`                      | `unsafeRevokeAllOtherInstallationsSignatureRequest()`. Its result can be absent.                                                                       |
+| `unsafe_changeRecoveryIdentifierSignatureRequest(identifier)`               | `unsafeChangeRecoveryIdentifierSignatureRequest(identity)`.                                                                                            |
+| `client.unsafe_addSignature(request, signer?)`                              | `await request.sign(signer)`, or `await request.addSignature(signature)`. The signature is a discriminated `Signature` record.                         |
+| `request.addEcdsaSignature`, `addScwSignature`                              | `request.addSignature({ kind: "ecdsa", value: bytes })`, or a `"scw"` signature with `bytes`, `address`, `chainId`, and optional `blockNumber`.        |
+| `unsafe_applySignatureRequest(request)`                                     | `unsafeApplySignatureRequest(request)`.                                                                                                                |
+| `unsafe_addAccount(newSigner, allowInboxReassign = false)`                  | `unsafeAddAccount(newSigner, allowInboxReassign)`. Supply the boolean explicitly.                                                                      |
+
+`request.signatureText()` remains asynchronous. For manual registration, create
+with `registration: { auto: false }`, sign the returned request, then apply it:
+
+```ts source="migration-node.ts" region="signature-request"
+
+```
+
+## Conversations, groups, and state
+
+Creation methods accept inbox IDs or identities through one public method.
+Do not mix strings and identities in one member list.
+
+Previous creation:
+
+```text title="Before (main cc878025da)"
+import { Client, IdentifierKind } from "@xmtp/node-sdk";
+
+export async function createConversations(client: Client, address: string) {
+  const peer = { identifier: address, identifierKind: IdentifierKind.Ethereum };
+  const dm = await client.conversations.createDmWithIdentifier(peer);
+  const group = await client.conversations.createGroupWithIdentifiers([peer], {
+    groupName: "Project",
+    groupDescription: "Project chat",
+  });
+  const draft = client.conversations.createGroupOptimistic({
+    groupName: "Draft",
+  });
+  await draft.addMembersByIdentifiers([peer]);
+  return { dm, group, draft };
+}
+```
+
+Current creation:
+
+```ts source="migration-node.ts" region="conversations"
+
+```
+
+| Previous method                                                                    | Current method                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createGroup(ids, options?)`, `createGroupWithIdentifiers(identities, options?)`   | `createGroup(stringIds \| identities, options?): Promise<Group>`. There is no `createGroupWithIdentifiers` alias.                                                                                                                                                                                                             |
+| `createDm(id, options?)`, `createDmWithIdentifier(identity, options?)`             | `createDm(id \| identity, options?): Promise<Dm>`.                                                                                                                                                                                                                                                                            |
+| Synchronous `createGroupOptimistic(options?)`                                      | Await `createGroupOptimistic(options?): Promise<Group>`.                                                                                                                                                                                                                                                                      |
+| `getConversationById(id)`                                                          | `getById(id): Promise<Conversation \| undefined>`.                                                                                                                                                                                                                                                                            |
+| Synchronous `getDmByInboxId(id)`                                                   | Await `getDmByInboxId(id): Promise<Dm \| undefined>`.                                                                                                                                                                                                                                                                         |
+| `fetchDmByIdentifier(identity)`                                                    | `getDmByIdentity(identity): Promise<Dm \| undefined>`.                                                                                                                                                                                                                                                                        |
+| Synchronous `getMessageById(id)`                                                   | Await `getMessageById(id): Promise<Message \| undefined>`.                                                                                                                                                                                                                                                                    |
+| Synchronous `listGroups(options?)` / `listDms(options?)`                           | Await `listGroups(options \| undefined)` / `listDms(options \| undefined)`. The argument is required; pass `undefined` for defaults. `list`, `listGroups`, and `listDms` return public conversation objects. The raw `ConversationListItem` type is removed.                                                                  |
+| `group.addMembersByIdentifiers(identities)` / `addMembers(ids)`                    | `group.addMembers(stringIds \| identities): Promise<MembershipResult>`. The old `addedMembers` object becomes `added: string[]`; `removedMembers` becomes `removed: string[]`; `failedInstallations` becomes `failedInstallationIds: string[]`. Added-member sequence IDs are no longer returned. Check failed installations. |
+| `group.removeMembersByIdentifiers(identities)` / `removeMembers(ids)`              | `group.removeMembers(stringIds \| identities): Promise<void>`.                                                                                                                                                                                                                                                                |
+| `dm.peerInboxId`                                                                   | `await dm.peerInboxId(): string \| null`. `duplicateDms()` still returns `Promise<Dm[]>`.                                                                                                                                                                                                                                     |
+| `conversation.metadata()`                                                          | Read `conversation.kind`, `creatorInboxId`, `addedByInboxId`, and `isCreator`. Unknown creator or adder IDs are `null`. `addedByInboxId` was previously a string.                                                                                                                                                             |
+| `conversation.createdAt` / `createdAtNs`                                           | `conversation.createdAt: Timestamp`.                                                                                                                                                                                                                                                                                          |
+| `conversation.isActive`, `pausedForVersion()`, `consentState()`                    | For a group, read `(await group.state()).common`. For a DM, read `await dm.state()`. Fields are `isActive`, `pausedForVersion`, and `consentState`.                                                                                                                                                                           |
+| `group.name`, `imageUrl`, `description`, `appData`, `permissions()`                | Read `await group.state()`. These fields are on `GroupState`; common state is in `.common`.                                                                                                                                                                                                                                   |
+| `group.isPendingRemoval()`                                                         | `(await group.state()).membershipState === "pendingRemove"`.                                                                                                                                                                                                                                                                  |
+| Synchronous `listAdmins`, `listSuperAdmins`, `isAdmin`, `isSuperAdmin`             | Await these methods. The snapshot also has `admins` and `superAdmins` arrays.                                                                                                                                                                                                                                                 |
+| `members(): Promise<GroupMember[]>`                                                | `members(): Promise<Member[]>`. `accountIdentifiers` becomes `identities`. `installationIds` is removed; use `client.inboxStates` for installation records. `inboxId`, `permissionLevel`, and `consentState` remain.                                                                                                          |
+| Synchronous `updateConsentState(state)` and `hmacKeys()`                           | Await both. Collection `hmacKeys()` returns `Map<string, HmacKey[]>`, rather than a plain object.                                                                                                                                                                                                                             |
+| `lastReadTimes()` result with bigint values                                        | `Map<string, Timestamp>`.                                                                                                                                                                                                                                                                                                     |
+| `Cursor` type and `debugInfo().cursor` with `{ originatorId, sequenceId }` records | `bigint[]`. `epoch` stays `bigint`; the other debug fields remain.                                                                                                                                                                                                                                                            |
+| Legacy string topics                                                               | `conversation.topic` is `[group_message_v1/<hex-id>]`. Collection `.topic` is removed. Wire topics use a kind byte followed by the identifier; push payloads encode those bytes as base64. See [Topics](/protocol/topics/).                                                                                                   |
+| `processStreamedMessage(envelopeBytes)`                                            | Removed. A push contains a hint; use `conversations.sync()`, `conversation.sync()`, then local message queries.                                                                                                                                                                                                               |
+
+`sync`, `publishMessages`, `updateName`, `updateImageUrl`, `updateDescription`,
+`addAdmin`, `removeAdmin`, `addSuperAdmin`, `removeSuperAdmin`, and `requestRemoval`
+keep their call forms. `syncAll` now requires a consent array or `undefined`:
+`await client.conversations.syncAll(undefined)`. `updateAppData` requires its
+second argument: `await group.updateAppData(value, undefined)` for an unguarded
+write. Use string consent and policy values. New methods include `peerInboxIds()`,
+`membershipCapabilities()`, and `lastActivityAt(contentTypes)`; pass `undefined`
+to the last method for the default content types.
+
+```ts source="migration-node.ts" region="state"
+
+```
+
+Creation and list options also changed:
+
+| Previous field                                                                                                                                       | Current field                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `groupName`, `groupImageUrlSquare`, `groupDescription`                                                                                               | `name`, `imageUrl`, `description`. `appData` remains.                                                                                                                                                                                                                                                  |
+| `messageDisappearingSettings: { fromNs, inNs }` in group or DM options                                                                               | `disappearing: { from: Timestamp, retentionNs: bigint }`.                                                                                                                                                                                                                                              |
+| `permissions: GroupPermissionsOptions.Default` / `.AdminOnly`                                                                                        | `permissions: { kind: "allMembers" }` / `{ kind: "adminOnly" }`.                                                                                                                                                                                                                                       |
+| `permissions: .CustomPolicy` and separate `customPermissionPolicySet`                                                                                | `permissions: { kind: "custom", policySet }`.                                                                                                                                                                                                                                                          |
+| `PermissionPolicySet.addMemberPolicy`, `removeMemberPolicy`, `addAdminPolicy`, `removeAdminPolicy`                                                   | `addMember`, `removeMember`, `addAdmin`, `removeAdmin`.                                                                                                                                                                                                                                                |
+| `updateGroupNamePolicy`, `updateGroupDescriptionPolicy`, `updateGroupImageUrlSquarePolicy`, `updateMessageDisappearingPolicy`, `updateAppDataPolicy` | `updateName`, `updateDescription`, `updateImage`, `updateDisappearing`, `updateAppData`. Values use `"allow"`, `"deny"`, `"admin"`, or `"superAdmin"`.                                                                                                                                                 |
+| `GroupPermissions.policyType` numeric enum                                                                                                           | `"allMembers"`, `"adminOnly"`, or `"custom"`. `policySet` uses the new fields.                                                                                                                                                                                                                         |
+| `updatePermission(PermissionUpdateType, PermissionPolicy, MetadataField?)`                                                                           | `updatePermission(kind: PermissionUpdateKind, policy: PermissionPolicy, metadataField: MetadataFieldKind \| undefined)`. Supply `undefined` when no field applies. Use `"updateMetadata"`, for example, and a field such as `"name"`, `"description"`, `"imageUrl"`, `"disappearing"`, or `"appData"`. |
+| List `conversationType`                                                                                                                              | `kind: "group" \| "dm"`.                                                                                                                                                                                                                                                                               |
+| List `createdAfterNs`, `createdBeforeNs`                                                                                                             | `createdAfter`, `createdBefore` with `Timestamp`. New bounds `lastActivityAfter` and `lastActivityBefore` also take `Timestamp`.                                                                                                                                                                       |
+| `orderBy: ListConversationsOrderBy.CreatedAt` / `.LastActivity`                                                                                      | `orderBy: "createdAt"` / `"lastActivity"`.                                                                                                                                                                                                                                                             |
+| `consentStates`, `limit`                                                                                                                             | Same field names. Consent values use strings. `limit` is an unsigned 32-bit number.                                                                                                                                                                                                                    |
+
+```ts source="migration-node.ts" region="list"
+
+```
+
+Replace the disappearing-message getters and separate update/removal methods:
+
+| Previous call                                                      | Current call                                                                                   |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `messageDisappearingSettings()` / `isMessageDisappearingEnabled()` | State fields `disappearingSettings` / `isDisappearingEnabled`, in group `.common` or DM state. |
+| `updateMessageDisappearingSettings(fromNs, inNs)`                  | `updateDisappearingSettings({ from: new Timestamp(fromNs), retentionNs: inNs })`.              |
+| `removeMessageDisappearingSettings()`                              | `updateDisappearingSettings(undefined)`. The argument is required.                             |
+
+```ts source="migration-node.ts" region="disappearing"
+
+```
+
+SDK 8 also exposes typed metadata fields. On a group or DM, use
+`metadataFields()`, `metadataField(name)`, `metadataValue(field)`,
+`metadataValues(fields)`, `mapValue(field, key)`, `userData(fields, inboxIds)`,
+`updateUserData(values)`, and `updateMetadataField(field, operation)`.
+`metadataFieldRef` supplies well-known field IDs. This supports app fields and
+per-inbox values without putting them all in the old opaque `appData` string.
+Both `userData` arguments are required; pass `undefined` for all fields or inboxes.
+
+```ts source="migration-node.ts" region="metadata"
+
+```
+
+## Sending, codecs, and message results
+
+Most standard send helpers retain their names. `sendText`, `sendMarkdown`,
+`sendReadReceipt`, `sendAttachment`, `sendRemoteAttachment`,
+`sendMultiRemoteAttachment`, `sendTransactionReference`, `sendWalletSendCalls`,
+`sendActions`, and `sendIntent` still return a message ID. All use `SendOptions`.
+
+| Previous call or value                                                                                                                                                                                     | Current call or value                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `send(encoded, SendMessageOpts?)`                                                                                                                                                                          | `send(encoded, SendOptions?)`, or `send(codec, value, SendOptions?)`.                                                                                                                                 |
+| `SendOpts` and `SendMessageOpts`                                                                                                                                                                           | One `SendOptions` type: `shouldPush?`, `optimistic?`, `idempotencyKey?`, and new `compression?: "deflate" \| "gzip"`.                                                                                 |
+| `send(encoded)` defaults to `shouldPush: false` in the old Node wrapper                                                                                                                                    | SDK 8 uses the standard content type's push default. Set `{ shouldPush: false }` explicitly when this is required. A custom codec's `shouldPush(value)` can supply its default.                       |
+| `sendReaction({ reference, referenceInboxId, action, content, schema }, options?)`                                                                                                                         | `sendReaction(reference, referenceInboxId \| undefined, { action, content, schema }, options?)`. Reaction values use strings such as `"added"` and `"unicode"`.                                       |
+| `sendReply({ reference, referenceInboxId?, content }, options?)`                                                                                                                                           | `sendReply(reference, referenceInboxId \| undefined, encoded, options?)`. There is no public type named `Reply`; use `ReplyContent` when you need the standard codec payload record.                  |
+| `encodeReaction(reaction)` / `contentTypeReaction()`                                                                                                                                                       | `encodeStandard({ kind: "reaction", reference, referenceInboxId?, reaction })` / `standardContentType("reaction")`, or `ReactionV2Codec`.                                                             |
+| `encodeMarkdown`, `encodeReadReceipt`, `encodeAttachment`, `encodeRemoteAttachment`, `encodeMultiRemoteAttachment`, `encodeTransactionReference`, `encodeWalletSendCalls`, `encodeActions`, `encodeIntent` | Use `encodeStandard` with the corresponding `kind`, or a standard codec from `@xmtp/node-sdk`. `encodeText` remains.                                                                                  |
+| `contentTypeText()`, `contentTypeReply()`, and the other `contentType*()` functions                                                                                                                        | `standardContentType("text")`, `standardContentType("reply")`, and the corresponding standard kind.                                                                                                   |
+| `EncodedContent.type` can be absent; `parameters` is a plain object; envelope has `compression`                                                                                                            | `type` is required; `parameters` is a `Map<string, string>` and can be omitted when empty. The envelope is uncompressed. Put compression in `SendOptions`.                                            |
+| Codecs from `@xmtp/content-type-primitives`, with `contentType` and `decode(encoded, client)`                                                                                                              | SDK `ContentCodec<T>` with `type`, `encode(value)`, and `decode(encoded)`. Optional `fallback(value)` and `shouldPush(value)` keep the codec's value type.                                            |
+| `NetworkOptions`, `DeviceSyncOptions`, `ContentOptions`, `OtherOptions`, `BuiltInContentTypes`, `ExtractCodecContentTypes`, `DistributiveOmit`, `EOASigner`, `SCWSigner`                                   | Removed. Use the current `ClientOptions`, `Signer`, and `MessageContent` types.                                                                                                                       |
+| Client generics infer registered content types                                                                                                                                                             | Register codecs in `ClientOptions.codecs` for receive decoding. Send with `send(codec, typedValue)` for compile-time value checks. Received custom values remain `unknown` until the app checks them. |
+
+Previous reaction and reply:
+
+```text title="Before (main cc878025da)"
+import {
+  Group,
+  ReactionAction,
+  ReactionSchema,
+  encodeText,
+} from "@xmtp/node-sdk";
+
+export async function reply(
+  group: Group,
+  messageId: string,
+  senderInboxId: string,
+) {
+  await group.sendReaction({
+    reference: messageId,
+    referenceInboxId: senderInboxId,
+    content: "👍",
+    action: ReactionAction.Added,
+    schema: ReactionSchema.Unicode,
+  });
+  await group.sendReply({ reference: messageId, content: encodeText("Reply") });
+}
+```
+
+Current sends and message actions:
+
+```ts source="migration-node.ts" region="send"
+
+```
+
+`prepareMessage(encodedOrCodec, ...)` stores an unpublished message, queues optimistic publication, and returns its ID. Background processing can publish it before an explicit publish call. Use `publishMessage(id)` or `publishMessages()` to drive pending publication. Keep private drafts outside the SDK until the app is ready to send. `optimistic` and `idempotencyKey` remain supported.
+
+`await client.decodeContent(encoded)` is also available to decode an envelope
+into the public content union.
+
+A custom codec uses public records and needs no client parameter:
+
+```ts source="migration-node.ts" region="codec"
+
+```
+
+Register the codec on a client to decode received values:
+
+```ts source="migration-node.ts" region="register-codec"
+
+```
+
+Send typed values, then check received custom content:
+
+```ts source="migration-node.ts" region="custom-content"
+
+```
+
+Standard codecs are `TextCodec`, `MarkdownCodec`, `ReadReceiptCodec`,
+`ReactionV2Codec`, `ReplyCodec`, `DeleteMessageCodec`, `AttachmentCodec`,
+`RemoteAttachmentCodec`, `MultiRemoteAttachmentCodec`, `TransactionReferenceCodec`,
+`WalletSendCallsCodec`, `ActionsCodec`, `IntentCodec`, `GroupUpdatedCodec`, and
+`LeaveRequestCodec`. Text and markdown codecs take strings. Read receipts take
+`void`. Reaction, reply, and delete-message codecs take only their matching
+`StandardContent` variant. The other codecs take their payload record.
+Do not install old codec packages to decode built-in content.
+
+| Previous query or decoded field                                                                                                                                                                                                                              | Current query or decoded field                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `messages(options?): Promise<DecodedMessage[]>`, `lastMessage()`                                                                                                                                                                                             | `Promise<Message[]>`, `Promise<Message \| undefined>`.                                                                                                                                                              |
+| `countMessages(options?)` number                                                                                                                                                                                                                             | `countMessages(options: ListMessagesOptions \| undefined): Promise<bigint>`. Pass `undefined` for defaults.                                                                                                         |
+| Query `sentBeforeNs`, `sentAfterNs`, `insertedBeforeNs`, `insertedAfterNs`                                                                                                                                                                                   | `sentBefore`, `sentAfter`, `insertedBefore`, `insertedAfter`, each a `Timestamp`.                                                                                                                                   |
+| Query enum `ContentType[]`                                                                                                                                                                                                                                   | `ContentTypeId[]`, for example `[standardContentType("text")]`. This also applies to exclusions. Unknown/custom types cannot be used as these message filters.                                                      |
+| Query `kind`, `deliveryStatus`, `direction`, `sortBy`                                                                                                                                                                                                        | Same names, with string values. `excludeSenderInboxIds` remains. `limit` is an unsigned 32-bit number.                                                                                                              |
+| `message.content` is a decoded value or `undefined`                                                                                                                                                                                                          | `MessageContent` with a `kind`. Text and markdown use `.value`; payload records use `.value`; reactions have `.reference`, `.referenceInboxId`, and `.reaction`; replies have `.referenceId` and `.body`.           |
+| `message.sentAt: Date`, `sentAtNs`, `expiresAt`, `expiresAtNs`                                                                                                                                                                                               | `sentAt: Timestamp`, optional `expiresAt: Timestamp`. `insertedAt: Timestamp` is also available.                                                                                                                    |
+| `message.numReplies` number                                                                                                                                                                                                                                  | `replyCount: bigint`.                                                                                                                                                                                               |
+| `message.reactions: DecodedMessage<Reaction>[]`                                                                                                                                                                                                              | `ReactionMessage[]`, with `id`, `senderInboxId`, `sentAt`, `deliveryStatus`, and `reaction`.                                                                                                                        |
+| `EnrichedReply.content`, `contentType`, nested `inReplyTo`                                                                                                                                                                                                   | Reply `content.body: MessageBody`; `message.inReplyTo: ReplyParent`, `inReplyToContent`, and `replyContent` give the retained parent and bodies. Use `await message.parent()` for a current `Message`.              |
+| Undefined content after an unknown codec or decode error                                                                                                                                                                                                     | `"custom"` content retains `encoded`, `rawBytes`, optional decoded `value`, and optional `error`. Malformed or undecodable standard content is `"unknown"` with `rawBytes`, optional `encoded`, and `ErrorDetails`. |
+| Always present decoded `contentType`                                                                                                                                                                                                                         | Optional `contentType`, `fallback`, and `encoded`, plus always present `rawBytes`.                                                                                                                                  |
+| `isText`, `isMarkdown`, `isReply`, `isTextReply`, `isReaction`, `isAttachment`, `isRemoteAttachment`, `isMultiRemoteAttachment`, `isTransactionReference`, `isWalletSendCalls`, `isActions`, `isIntent`, `isReadReceipt`, `isGroupUpdated`, `isLeaveRequest` | Removed. Check `message.content.kind`, and for a text reply check `message.content.body.kind === "text"`.                                                                                                           |
+
+Previous query and content read:
+
+```text title="Before (main cc878025da)"
+import { Group, SortDirection, isText } from "@xmtp/node-sdk";
+
+export async function read(group: Group) {
+  const messages = await group.messages({
+    limit: 20,
+    sentAfterNs: 0n,
+    direction: SortDirection.Descending,
+  });
+  for (const message of messages) {
+    if (isText(message)) console.log(message.content);
+    console.log(message.sentAt, message.sentAtNs, message.numReplies);
+  }
+}
+```
+
+Current query and content read:
+
+```ts source="migration-node.ts" region="read"
+
+```
+
+New message actions are `refresh()`, `delete()`, `deleteLocally()`, `react(...)`,
+`reply(...)`, `parent()`, `conversation()`, and `client()`. Collection methods
+`deleteMessage`, `deleteMessageLocally`, `reactToMessage`, and `replyToMessage`
+also take message IDs. `delete` publishes a deletion and returns the deletion
+message ID. `deleteLocally` only removes the local message. A message's actions
+need its originating client to remain open.
+
+Some retained content records have new fields:
+
+| Previous payload                                             | Current payload                                                                                                                               |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Intent.metadata` object with JSON values                    | `metadataJson?: string`. Serialize with `JSON.stringify` and parse after validation.                                                          |
+| `Actions.expiresAtNs`, `Action.expiresAtNs`                  | Optional `expiresAt: Timestamp`. `ActionStyle` uses `"primary"`, `"secondary"`, or `"danger"`.                                                |
+| `WalletCall.metadata: Record<string, string>`                | `WalletCallMetadata` with `description`, `transactionType`, and `extra: Map<string, string>`. `WalletSendCalls.capabilities` is also a `Map`. |
+| Group-update inbox arrays with `{ inboxId }` objects         | The added, removed, left, admin, and super-admin arrays contain inbox ID strings.                                                             |
+| Deleted-message `deletedBy` enum and separate `adminInboxId` | One discriminated `deletedBy` value: `{ kind: "sender" }` or `{ kind: "admin", inboxId }`.                                                    |
+
+The old `ReadReceipt` record is replaced by the `"readReceipt"` content kind,
+and the old group-update `Inbox` record is replaced by inbox ID strings.
+
+`Attachment`, `RemoteAttachment`, `MultiRemoteAttachment`,
+`TransactionReference`, `TransactionMetadata`, and `LeaveRequest` retain their
+payload field names. Optional fields use `undefined`; record fields are read-only.
+
+## Streams and live events
+
+Replace the old asynchronous stream factories with `MessageStream` and
+`ConversationStream`. `open` returns a stream immediately. `await stream.ready()`
+waits for local reader readiness; it does not prove that the backend is online.
+
+| Previous call                                                                                 | Current call                                                                                                                                                        |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `await conversation.stream(options?)`                                                         | `group.streamMessages(options?)` or `dm.streamMessages(options?)`.                                                                                                  |
+| `await conversations.streamAllMessages(options?)`                                             | `client.conversations.streamAllMessages(options?)`. Options use `conversationKind`, `consentStates`, and optional `from`.                                           |
+| `streamAllGroupMessages` / `streamAllDmMessages`                                              | `client.conversations.streamAllMessages( { conversationKind: "group" })` / `{ conversationKind: "dm" }`.                                                            |
+| `await conversations.stream(options?)`                                                        | `client.conversations.stream(options?)`. Options use `conversationKind` and `consentStates`.                                                                        |
+| `streamGroups` / `streamDms`                                                                  | `client.conversations.stream({ conversationKind: "group" })` / `{ conversationKind: "dm" }`.                                                                        |
+| `StreamOptions` with `onValue`, `onEnd`, `onError`, retry controls, and `disableSync`         | Current options are `signal`, `onClose`, and `onConnectionStateChange`. Register a callback with `await stream.onValue(callback)`.                                  |
+| `onEnd` / `onError`                                                                           | `onClose({ kind: "closed" })` / `onClose({ kind: "failed", error })`, or handle iterator rejection.                                                                 |
+| `retryAttempts`, `retryDelay`, `retryOnFail`, `onFail`, `onRetry`, `onRestart`, `disableSync` | Removed from the current public stream options. Core handles network recovery. After a terminal failure, repair the cause and explicitly open a replacement stream. |
+| Generic `StreamOptions<T, V>`, `StreamCallback`, `StreamFunction`, `StreamValueMutator`       | A non-generic `StreamOptions` and callbacks registered on each typed stream. The other helper types are removed.                                                    |
+| `AsyncStreamProxy`, `flush()`, `done()`                                                       | Removed. Streams expose `next`, `return`, `end`, `ready`, and `onValue`. Await `end()` to close a stream.                                                           |
+| `preferences.streamConsent(options?)`                                                         | `client.events({ kinds: ["consent.changed"] })` or `startListener` with that filter. The result is a typed event, rather than an array of old consent records.      |
+| `preferences.streamPreferences(options?)`                                                     | Use specific events such as `"hmac_keys.updated"`. There is no general `UserPreferenceUpdate[]` stream or record.                                                   |
+| `conversations.streamMessageDeletions` / `streamDeletedMessages`                              | `client.events({ kinds: ["message.deleted"] })`. These are deletion events; they do not supply a full old `DecodedMessage`.                                         |
+
+Previous message consumer:
+
+```text title="Before (main cc878025da)"
+import { Client, type DecodedMessage } from "@xmtp/node-sdk";
+
+export async function consume(
+  client: Client,
+  process: (message: DecodedMessage) => Promise<void>,
+) {
+  const stream = await client.conversations.streamAllMessages({
+    retryAttempts: 10,
+  });
+  for await (const message of stream) await process(message);
+}
+```
+
+Current message consumer:
+
+```ts source="migration-node.ts" region="stream"
+
+```
+
+A next-item request acknowledges the previous message. Await all processing
+before the next request. `return()`, `end()`, and cancellation do not acknowledge
+the last item. Callback mode awaits the callback before it requests the next
+message. Do not also iterate a callback stream.
+
+```ts source="migration-node.ts" region="callback-stream"
+
+```
+
+Only one default message reader owns delivery progress for a database. This
+includes readers that select different conversations. A second default reader
+fails with `ConsumerOwned`. Use `selection.from` for independent replay.
+`message.deliveryCursor` is a string or `null`; it is local to one database.
+`conversations.beginningDeliveryCursor()` selects the first retained message.
+Save a replay message's cursor only after processing succeeds.
+
+For history followed by live delivery, use one snapshot boundary:
+
+```ts source="migration-node.ts" region="history-live"
+
+```
+
+The collection also has `messageHistorySnapshot(limit, selection?)`. The snapshot
+has `messages` and `cursor`. Replay does not change default delivery progress.
+Current reader scope and filters stay fixed for the lifetime of the reader. There
+are no `groupIds`, `deliveredCursor`, `updateScope`, `updateFilter`,
+`catchUpSnapshot`, or `catchUpChanged` members on Node SDK 8's public stream.
+Use `client.catchUpToLive(timeoutMs)` with a millisecond `bigint` or `undefined`
+for a `CatchUpSummary` with `messages`,
+`conversations`, and `failed` as `bigint`, and `completed` as a boolean.
+
+```ts source="migration-node.ts" region="conversation-stream"
+
+```
+
+A live event subscription reports changes caused by sync, streams, workers, or
+app calls. It does not fetch messages. Keep a message stream or explicit sync
+where the app needs network updates. Event filters use exact event kind strings;
+`group_ids` takes binary group IDs and `content_types` takes event content type
+records. `references_own_messages` defaults to `false`.
+
+```ts source="migration-node.ts" region="events"
+
+```
+
+`await client.startListener(filter, callback)` returns a `bigint` listener ID.
+`await client.stopListener(id)` ends it. Events use `.kind` and retain the
+protocol's snake_case payload field names. Handle `"lagged"` by reading current
+state again; events are not durable message delivery.
+
+## Consent, archives, attachments, and notifications
+
+Replace the old consent entity enum and separate entity text with one value:
+
+| Previous consent API                                  | Current consent API                                                                                        |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `Consent { entityType, entity, state }`               | `ConsentRecord { entity: { kind: "inbox", inboxId } \| { kind: "conversation", conversationId }, state }`. |
+| `getConsentState(ConsentEntityType.InboxId, inboxId)` | `consentState({ kind: "inbox", inboxId })`.                                                                |
+| Address consent entity                                | Removed. Resolve the identity to an inbox and set inbox consent.                                           |
+| `setConsentStates(records)`, `preferences.sync()`     | Keep the method names; use the new record shape and string states.                                         |
+
+```ts source="migration-node.ts" region="consent"
+
+```
+
+Local archive operations moved from `Client` to `client.archives`:
+
+| Previous archive API                                                                                        | Current archive API                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `client.createArchive(path, key, options?)`                                                                 | `client.archives.exportToFile(path, key, options): Promise<ArchiveMetadata>`. The third argument is required; pass `undefined` for defaults.                                                                 |
+| `client.importArchive(path, key)`                                                                           | `client.archives.importFromFile(path, key): Promise<void>`.                                                                                                                                                  |
+| `client.archiveMetadata(path, key)`                                                                         | `client.archives.metadataFromFile(path, key): Promise<ArchiveMetadata>`.                                                                                                                                     |
+| Only file archive helpers                                                                                   | Byte helpers `exportToBytes(key, options)`, `importFromBytes(data, key)`, `metadataFromBytes(data, key)` are also available on Node. The export options argument is required; pass `undefined` for defaults. |
+| `ArchiveOptions.startNs`, `endNs`                                                                           | `start`, `end`, each an optional `Timestamp`.                                                                                                                                                                |
+| `BackupElementSelectionOption` values                                                                       | `ArchiveElement` strings `"messages"` and `"consent"`. Omitted `elements` selects both; `[]` selects neither. `excludeDisappearingMessages` remains.                                                         |
+| `ArchiveMetadata.exportedAtNs`, `startNs`, `endNs`                                                          | `exportedAt`, `start`, `end` use `Timestamp`. `backupVersion` and `elements` remain.                                                                                                                         |
+| `sendSyncRequest`, `sendSyncArchive`, `processSyncArchive`, `listAvailableArchives`, `AvailableArchiveInfo` | Removed. No automatic archive transfer through a history server replaces them.                                                                                                                               |
+
+Previous file archive:
+
+```text title="Before (main cc878025da)"
+import { Client, BackupElementSelectionOption } from "@xmtp/node-sdk";
+
+export async function backup(client: Client, key: Uint8Array) {
+  await client.createArchive("./archive.xmtp", key, {
+    startNs: 0n,
+    elements: [
+      BackupElementSelectionOption.Messages,
+      BackupElementSelectionOption.Consent,
+    ],
+    excludeDisappearingMessages: true,
+  });
+  await client.importArchive("./archive.xmtp", key);
+}
+```
+
+Current file archive:
+
+```ts source="migration-node.ts" region="archives"
+
+```
+
+Archive keys still require exactly 32 bytes. These APIs do not establish that a
+pre-transition archive can restore active conversations on another backend.
+Follow [the history migration limits](/get-started/migrate-to-self-hosted/#keeping-history).
+
+App-hosted attachment encryption also changed:
+
+| Previous helper or result                                                                       | Current helper or result                                                                                                                                                                                                                   |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `encryptAttachment(attachment): EncryptedAttachment`                                            | Encode the attachment with `AttachmentCodec`, serialize with `encodeEncodedContent`, then await `encryptEncodedContent(bytes)`.                                                                                                            |
+| `EncryptedAttachment.payload`, flat `secret`, `salt`, `nonce`, `contentDigest`, `contentLength` | `EncryptedEncodedContent { ciphertext, keys }`. `EncryptionKeys` has `secret`, `salt`, `nonce`, `digest`, and `length: bigint`.                                                                                                            |
+| Construct the remote record manually                                                            | `remoteAttachmentFromEncrypted(url, encrypted, filename)`. Supply `undefined` when there is no filename. This checks the URL and derives the ciphertext digest and length. Upload `encrypted.ciphertext` before sending the remote record. |
+| `decryptAttachment(bytes, remote): Attachment`                                                  | Await `decryptEncodedContent({ ciphertext: bytes, keys })`, parse with `decodeEncodedContent`, then decode with `AttachmentCodec`. `encryptBytes`, `decryptBytes`, `encryptFile`, and `decryptFile` are also available.                    |
+
+```ts source="migration-node.ts" region="attachment-crypto"
+
+```
+
+When the deployment offers attachment storage, use `client.attachments` to stage,
+upload, download, and keep local files. `offered` is a property. `create(source)`
+accepts a `"path"` or `"bytes"` source and returns `PendingAttachment`.
+Upload it before sending its `remoteAttachment` property. `status()` reports
+waiting, uploading, complete, or failed. A failed upload or download needs an
+explicit retry by the app. Other helpers are `pending(remote)`, `listPending()`,
+`localPath(remote)`, `listLocal()`, and `deleteLocal(remote)`.
+
+```ts source="migration-node.ts" region="attachment"
+
+```
+
+Node SDK 8 has new notification APIs. The previous Node SDK did not register
+push channels through `Client`. Retire the old push service integration and
+register with the self-hosted backend:
+
+```ts source="migration-node.ts" region="notifications"
+
+```
+
+`NotificationChannel` selects `{ kind: "apns", token }`,
+`{ kind: "fcm", token }`, or `{ kind: "http", url, signingKey }`.
+`NotificationConfig` also accepts `consentStates`, `includeWelcomes`,
+`includeSyncGroups`, and `includeCommits`. `enableNotifications` returns a
+`NotificationState`; `notificationState()` reads it synchronously.
+`setNotifications("enabled" | "disabled" | "default")` sets a conversation
+override. Read effective `notificationsEnabled` from group `.common` or DM state.
+Call `enableNotifications` again when the provider token changes.
+
+Push payloads carry a base64 binary `topic` and decimal-string `sequence_id`.
+They contain no encrypted message bytes. Fetch from the backend, process welcomes,
+sync the conversation, then read local messages. See
+[Push notifications](/sdk/push-notifications/).
+
+## Diagnostics, logging, errors, and removals
+
+| Previous API                                                                                                                                                                                    | Current API                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.debugInformation.apiStatistics()`                                                                                                                                                       | `await client.diagnostics.apiStatistics()`.                                                                                                                 |
+| `apiIdentityStatistics()`                                                                                                                                                                       | `await client.diagnostics.identityStatistics()`.                                                                                                            |
+| `apiAggregateStatistics()`                                                                                                                                                                      | `await client.diagnostics.aggregateStatistics()`.                                                                                                           |
+| `clearAllStatistics()`                                                                                                                                                                          | `await client.diagnostics.clearStatistics()`.                                                                                                               |
+| API counters for key packages, group messages, and welcomes                                                                                                                                     | `publish`, `query`, `queryNewest`, `subscribe`, `subscribeStatic`, all `bigint`.                                                                            |
+| `IdentityStats.publishIdentityUpdate`, `getIdentityUpdatesV2`                                                                                                                                   | Removed. `getInboxIds` remains. `verifySmartContractWalletSignature` becomes `verifySmartContractWalletSignatures`.                                         |
+| `structuredLogging`, `loggingLevel`, `otelEndpoint`, `resourceAttributes` in client options                                                                                                     | `await initLogging({ structured, level, otel: { endpoint, serviceName, sampleRatio? }, resourceAttributes })`. `resourceAttributes` is a `Map`.             |
+| `stdoutLoggingLevel`                                                                                                                                                                            | Removed. No separate client stdout level option exists.                                                                                                     |
+| Binding `LogOptions`, enum `LogLevel` values                                                                                                                                                    | `LoggingOptions`, string levels `"off"`, `"error"`, `"warn"`, `"info"`, `"debug"`, `"trace"`. `setLogSink({ async log(record) { ... } })` adds an app sink. |
+| Synchronous `flushTelemetry()`                                                                                                                                                                  | `await flushTelemetry()`.                                                                                                                                   |
+| `InboxReassignError`, `AccountAlreadyAssociatedError`, `MissingContentTypeError`, `SignerUnavailableError`, `ClientNotInitializedError`, `StreamFailedError`, `StreamInvalidRetryAttemptsError` | Removed. Catch `XmtpError` and its subclasses; inspect `details.code`, `category`, `retryable`, and optional structured failure data.                       |
+| `validHex`, `isHexString`, `HexString`                                                                                                                                                          | Removed from the SDK. Validate and convert app input in app code.                                                                                           |
+
+```ts source="migration-node.ts" region="diagnostics"
+
+```
+
+```ts source="migration-node.ts" region="logging"
+
+```
+
+```ts source="migration-node.ts" region="errors"
+
+```
+
+New configuration, storage, and delivery failures are subclasses such as
+`XmtpError.ConfigurationUnavailable`, `ConfigurationInvalid`, `BackendMismatch`,
+`ClientVersionTooOld`, `AuthRequired`, `ChainNotAccepted`, `ClientClosed`,
+`ConsumerOwned`, and `InvalidCursor`. Stream failure details are in
+`error.details.streamFailure`, not a `getStreamFailureDetails` helper.
+A `PublishedButUnconfirmed` failure means the publish was accepted but local
+confirmation did not complete. Sync and inspect the result before you decide to
+send again.
+
+New native helpers `await suspendStreams()` and `await resumeStreams()` act on
+shared process streams and preserve their durable progress. `sdkVersion()`
+returns the library version without a client. For local file logs,
+`enterDebugWriter(directory, rotation, maxFiles, level, processType)` and
+`exitDebugWriter()` are synchronous; rotation uses `"minutely"`, `"hourly"`,
+`"daily"`, or `"never"`, and process type uses `"main"` or `"extension"`.
+
+End the client after its consumers stop:
+
+```ts source="migration-node.ts" region="close"
+
+```
+
+For the complete current signatures, use the [Node reference](/reference/node-sdk/readme/).

@@ -1,0 +1,783 @@
+---
+title: Kotlin SDK Upgrade Guide
+description: Update Kotlin SDK calls, options, and results for a self-hosted backend.
+---
+
+Start with [Migrate to a self-hosted backend](/get-started/migrate-to-self-hosted/)
+for the backend, database, history, and push steps. This guide lists changes
+from [`main` at `cc878025da`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247)
+to [`self-hosted` at `73636909dd`](https://github.com/xmtp/libxmtp/tree/73636909ddabfae64e370375ef8227c58f2abc5a).
+A call can keep its name and still have different parameters, results, or
+behavior. The **Before** examples use the old SDK. The **After** examples use
+the new SDK.
+
+## Package, imports, and values
+
+Use the Android SDK version `8.0.0`. Keep the Gradle artifact `org.xmtp:android`; replace the old Kotlin imports with `uniffi.xmtp_sdk`. The public client is `SDKClient`. Do not use the generated internal `Client` as the app entry point. The AAR now includes the generated `xmtp_sdk` bindings and `libxmtp_sdk.so`.
+
+```kotlin
+// Before
+import org.xmtp.android.library.Client
+import org.xmtp.android.library.ClientOptions
+import org.xmtp.android.library.libxmtp.PublicIdentity
+import org.xmtp.android.library.libxmtp.IdentityKind
+import org.xmtp.android.library.codecs.TextCodec
+```
+
+```kotlin
+// After
+import uniffi.xmtp_sdk.*
+```
+
+Keep Android core library desugaring enabled. The SDK requires API 23 or later and uses `java.time.Instant`. Use `com.android.tools:desugar_jdk_libs:2.1.5` for desugaring.
+
+| Old type or value                                                          | New type or value                                                                                         |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `Client`                                                                   | `SDKClient`                                                                                               |
+| `org.xmtp.android.library.*`, `.libxmtp.*`, `.codecs.*`, `uniffi.xmtpv3.*` | `uniffi.xmtp_sdk.*`; use public SDK types instead of old `Ffi*` types                                     |
+| `PublicIdentity(IdentityKind.ETHEREUM, address)`                           | `PublicIdentity(identifier = address, kind = PublicIdentityKind.ETHEREUM)`; the constructor order changes |
+| `Date` and separate `*Ns: Long` properties                                 | `Timestamp(ns: Long)`; use `.ns` for nanoseconds or `.date` for `Instant`                                 |
+| `DecodedMessage`, `DecodedMessageV2`                                       | `Message`; queries include reactions and reply metadata in this type                                      |
+| Protobuf `Content.ContentTypeId`, `Content.EncodedContent`, `ByteString`   | SDK `ContentTypeId`, SDK `EncodedContent`, and `ByteArray`                                                |
+| `XMTPException(message, cause)` and `FfiException`                         | Typed `XmtpException` variants; retain the `ErrorDetails` code, category, and retry flag                  |
+| `GroupMembershipState`                                                     | `MembershipState`; the allowed/rejected/pending/restored/pending-remove values remain                     |
+| `Conversation.Type`, `Conversations.ConversationFilterType`                | `ConversationKind`; omit the kind to select both groups and DMs                                           |
+
+Many old client and conversation properties are now methods. For example, use `client.inboxId()`, `client.installationId()`, `client.identity()`, `client.preferences()`, `group.id()`, and `group.createdAt()`. `client.conversations` remains a property. Message fields remain properties, such as `message.id` and `message.sentAt`.
+
+## Client creation, storage, and signing
+
+`ClientOptions.Api` and `XMTPEnvironment` are removed. Set the backend URL in `BackendOptions`. Wrap it in `BackendSource.Options`. You can also connect once with `Backend.connect(options)` and pass `BackendSource.Connected(backend)`.
+
+| Old option                                                                                   | New option                                                                                                                                                                                 |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `api.env`, `api.gatewayHost`, `api.isSecure`                                                 | `backend = BackendSource.Options(BackendOptions(url = ...))`; the URL selects the deployment and scheme                                                                                    |
+| `api.appVersion`                                                                             | `BackendOptions.appVersion`                                                                                                                                                                |
+| `appContext`                                                                                 | A separate `Context` argument to Android `SDKClient.create` or `SDKClient.build`                                                                                                           |
+| `dbDirectory`                                                                                | `storage.location = StorageLocation.Directory(directory)`                                                                                                                                  |
+| Default Android database directory                                                           | `StorageLocation.Default` with the Android `Context` overload; it resolves under `filesDir/xmtp_db`                                                                                        |
+| `dbEncryptionKey`                                                                            | `StorageOptions.encryptionKey`; it is optional and must be 32 bytes when supplied                                                                                                          |
+| `dbPoolOptions.minPoolSize`, `.maxPoolSize`                                                  | `StorageOptions.pool = StoragePoolOptions(min = ..., max = ...)`; keep `UInt?` values                                                                                                      |
+| `deviceSyncEnabled`                                                                          | `deviceSync`                                                                                                                                                                               |
+| `forkRecoveryOptions`                                                                        | `forkRecovery`; `enableRecoveryRequests` becomes `policy`, `groupsToRequestRecovery` becomes `groups`, and nullable `disableRecoveryResponses` becomes `disableResponses: Boolean = false` |
+| `preAuthenticateToInboxCallback`                                                             | `handlers = ClientHandlers(preAuthenticate = ...)`; implement the suspend `PreAuthenticate.run()` callback                                                                                 |
+| `waitForRegistrationVisible` and `VisibilityConfirmationOptions`                             | Removed; no quorum or visibility timeout option                                                                                                                                            |
+| `unstableChangeCallbacks`                                                                    | Client events with an `EventFilter`                                                                                                                                                        |
+| `createInMemory(account, options)`                                                           | `SDKClient.create(signer, options.copy(storage = StorageOptions(location = StorageLocation.InMemory)))`                                                                                    |
+| `build(publicIdentity, options, inboxId)` implies offline startup when `inboxId` is supplied | `SDKClient.build(identity, options, inboxId)`; use `ClientOptions.allowOffline = true` explicitly when needed                                                                              |
+
+New options include `StorageLocation.Explicit(dbPath, attachmentsDir)`, `storage.label`, `storage.singleConnection`, `RegistrationOptions(auto, nonce)`, `workers`, and `attachments`. Keep the same encryption key when reopening a stored database. Choose a new storage location for the new deployment; changing the URL is not a database conversion.
+
+The signer contract also changes. `SigningKey.publicIdentity`, `.type`, `.chainId`, and `.blockNumber` become suspend `Signer.identity()` and `Signer.kind()`. `sign(message: String): SignedData` becomes `sign(request: SigningRequest): Signature`. Return `Signature.Ecdsa(bytes)` for an EOA. For an SCW, return `SignerKind.Scw(chainId, blockNumber)` and `Signature.Scw(bytes, address, chainId, blockNumber)`. A passkey returns `SignerKind.Passkey` and `Signature.Passkey(signature, publicKey, authenticatorData, clientDataJson)`.
+
+Before, using the app's wallet signature callback:
+
+```kotlin
+import org.xmtp.android.library.*
+import org.xmtp.android.library.libxmtp.*
+
+fun oldWalletSigner(
+    address: String,
+    signBytes: suspend (String) -> ByteArray,
+): SigningKey = object : SigningKey {
+    override val publicIdentity = PublicIdentity(IdentityKind.ETHEREUM, address)
+    override val type = SignerType.EOA
+    override var chainId: Long? = null
+    override var blockNumber: Long? = null
+    override suspend fun sign(message: String) = SignedData(signBytes(message))
+}
+```
+
+After, using the same app callback:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+fun walletSigner(
+    address: String,
+    signBytes: suspend (String) -> ByteArray,
+): Signer = object : Signer {
+    override suspend fun identity() = PublicIdentity(address, PublicIdentityKind.ETHEREUM)
+    override suspend fun kind(): SignerKind = SignerKind.Eoa
+    override suspend fun sign(request: SigningRequest): Signature =
+        Signature.Ecdsa(signBytes(request.text))
+}
+```
+
+Before:
+
+```kotlin
+import android.content.Context
+import org.xmtp.android.library.*
+
+suspend fun oldOpen(context: Context, wallet: SigningKey, dbKey: ByteArray): Client =
+    Client.create(
+        account = wallet,
+        options = ClientOptions(
+            api = ClientOptions.Api(env = XMTPEnvironment.DEV),
+            appContext = context,
+            dbEncryptionKey = dbKey,
+        ),
+    )
+```
+
+After:
+
+```kotlin
+import android.content.Context
+import uniffi.xmtp_sdk.*
+
+suspend fun open(context: Context, wallet: Signer, dbKey: ByteArray): SDKClient =
+    SDKClient.create(
+        context = context,
+        signer = wallet,
+        options = ClientOptions(
+            backend = BackendSource.Options(BackendOptions(url = "https://xmtp.example.com")),
+            storage = StorageOptions(
+                location = StorageLocation.Default,
+                encryptionKey = dbKey,
+            ),
+        ),
+    )
+```
+
+To reopen without signing, use `SDKClient.build(context, identity, options, inboxId)`. Without a `Context`, choose `Directory`, `Explicit`, or `InMemory`, or pass `defaultDirectory`. `Default` without a directory fails with `StorageLocationRequired`. For tests, `generateLocalSigner()` and `localSignerFromPrivateKey(key: ByteArray)` replace app use of the old `messages.PrivateKey` helper.
+
+The client now has an explicit lifetime. End it in `withContext(NonCancellable) { client.end() }`. Keep a strong reference to the client while using its messages. Message action helpers use that client reference.
+
+## Identity and account methods
+
+| Old call                                                                         | New call and return shape                                                                                                                                                                            |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.publicIdentity`, `.libXMTPVersion`, `.isInMemory`, `.dbPath`             | `identity(): PublicIdentity`, `libxmtpVersion(): String`, `isInMemory(): Boolean`, `storagePath(): String?`; in-memory storage has no path                                                           |
+| `client.environment`                                                             | Removed; read deployment configuration with `serverConfiguration()` or the saved backend options                                                                                                     |
+| `Client.connectToApiBackend(api)`                                                | `Backend.connect(options): Backend`; no old API client cache interface                                                                                                                               |
+| `Client.getOrCreateInboxId(api, identity)`                                       | `SDKClient.inboxIdFor(identity, backend): InboxId`; instance `inboxIdFor(identity): InboxId?` only looks up an existing association                                                                  |
+| `client.inboxIdFromIdentity(identity)`                                           | `client.inboxIdFor(identity): InboxId?`                                                                                                                                                              |
+| Instance `inboxStatesForInboxIds(refreshFromNetwork, inboxIds)`                  | `inboxStates(ids, refreshFromNetwork): List<InboxState>`; parameter order changes                                                                                                                    |
+| Static `Client.inboxStatesForInboxIds(inboxIds, api)`                            | `SDKClient.inboxStates(ids, backend): List<InboxState>`                                                                                                                                              |
+| `client.inboxState(refreshFromNetwork)`                                          | Same method name and boolean; `InboxState.recoveryPublicIdentity` becomes `recoveryIdentity`; installation `.installationId` becomes `.id`; installation `.createdAt` becomes `Timestamp?`           |
+| Instance or static `canMessage(identities, api)`                                 | Instance `canMessage(identities)` or static `SDKClient.canMessage(identities, backend)`; both return `Map<String, Boolean>` keyed by `ethereum:<normalized identifier>` or `passkey:<lowercase hex>` |
+| `Client.getNewestMessageMetadata(groupIds, api)`                                 | `SDKClient.newestMessageMetadata(ids, backend): Map<String, MessageMetadataEntry>`; records have `sequenceId: ULong` and `createdAt: Timestamp`                                                      |
+| `Client.keyPackageStatusesForInstallationIds(installationIds, api)`              | `SDKClient.keyPackageStatuses(ids, backend): Map<String, KeyPackageStatus>`; the instance also has `keyPackageStatuses(ids)`                                                                         |
+| `client.addAccount(newAccount, allowReassignInboxId = false)`                    | `unsafeAddAccount(signer, allowInboxReassign)`; supply the boolean explicitly                                                                                                                        |
+| `client.removeAccount(recoverAccount, publicIdentityToRemove)`                   | `removeAccount(recoverySigner, identity): Unit`                                                                                                                                                      |
+| Instance `revokeInstallations(signingKey, installationIds)`                      | `revokeInstallations(signer, ids: List<InstallationId>): Unit`                                                                                                                                       |
+| Static `revokeInstallations(api, signingKey, inboxId, installationIds)`          | `SDKClient.revokeInstallations(signer, inboxId, ids, backend): Unit`; parameter order changes                                                                                                        |
+| `revokeAllOtherInstallations(signingKey)`                                        | `revokeAllOtherInstallations(signer): Unit`                                                                                                                                                          |
+| Synchronous `signWithInstallationKey(message)`                                   | Suspend `signWithInstallationKey(text): ByteArray`                                                                                                                                                   |
+| Synchronous `verifySignature(message, signature)`                                | Suspend `verifySignedWithInstallationKey(text, signature): Boolean`; malformed input can throw                                                                                                       |
+| Instance `verifySignatureWithInstallationId(message, signature, installationId)` | Static `SDKClient.verifySignedWithPublicKey(text, signature, publicKey: ByteArray): Boolean`; convert the hex installation ID to bytes                                                               |
+| `catchUpToLive(timeoutMs: Long?)`                                                | `catchUpToLive(timeoutMs: ULong?): CatchUpSummary`; counters become `ULong`, the result adds `failed: ULong`, and `completed` remains a boolean; do not pass a negative timeout                      |
+| `syncAllDeviceSyncGroups()`                                                      | Retained with `GroupSyncSummary`; `numEligible` and `numSynced` become `eligible` and `synced`                                                                                                       |
+
+New identity methods include `register()`, `isRegistered()`, `installationIdBytes()`, `options()`, `appVersion()`, `changeRecoveryIdentifier(signer, identity)`, `latestInboxUpdatesCount(ids, refreshFromNetwork)`, `ownInboxUpdatesCount(refreshFromNetwork)`, `serverConfiguration()`, `refreshServerConfiguration()`, and `setCredential(credential)`. Static helpers also include `isAddressAuthorized(inboxId, address, backend)` and `isInstallationAuthorized(inboxId, installationId, backend)`, both returning `Boolean`. A configuration refresh returns the fetched value; it does not replace the running client's held configuration. `fetchServerConfiguration(backend)` can discover configuration before client creation. Supply a fixed `Credential` or a suspend `CredentialSource.credential()` in `BackendOptions` when the deployment requires authentication.
+
+Before:
+
+```kotlin
+import org.xmtp.android.library.*
+import org.xmtp.android.library.libxmtp.*
+
+suspend fun oldIdentity(client: Client, wallet: SigningKey, address: String): Boolean {
+    val identity = PublicIdentity(IdentityKind.ETHEREUM, address)
+    client.addAccount(wallet, allowReassignInboxId = false)
+    val states = client.inboxStatesForInboxIds(false, listOf(client.inboxId))
+    check(states.isNotEmpty())
+    return client.canMessage(listOf(identity))[identity.identifier] == true
+}
+```
+
+After:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun identity(client: SDKClient, wallet: Signer, address: String): Boolean {
+    val identity = PublicIdentity(address, PublicIdentityKind.ETHEREUM)
+    client.unsafeAddAccount(wallet, allowInboxReassign = false)
+    val states = client.inboxStates(listOf(client.inboxId()), false)
+    check(states.isNotEmpty())
+    return client.canMessage(listOf(identity))["ethereum:${address.lowercase()}"] == true
+}
+```
+
+For independent signature flows, replace the old `ffi*` methods as follows. Use `RegistrationOptions(auto = false)` when client creation must not register automatically.
+
+| Old method                                                                                         | New method                                                                                              |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `Client.ffiCreateClient(identity, clientOptions)`                                                  | Create with a signer and `registration.auto = false`, or use `SDKClient.build` for an existing identity |
+| `ffiSignatureRequest(): SignatureRequest?`                                                         | Suspend `unsafeCreateInboxSignatureRequest(): SignatureRequest?`                                        |
+| `ffiAddIdentity(identity, allowReassignInboxId)`                                                   | `unsafeAddAccountSignatureRequest(identity, allowInboxReassign)`                                        |
+| `ffiRevokeIdentity(identity)`                                                                      | `unsafeRemoveAccountSignatureRequest(identity)`                                                         |
+| `ffiRevokeInstallations(ids: List<ByteArray>)`                                                     | `unsafeRevokeInstallationsSignatureRequest(ids: List<InstallationId>)`                                  |
+| `ffiRevokeAllOtherInstallations()`                                                                 | `unsafeRevokeAllOtherInstallationsSignatureRequest(): SignatureRequest?`                                |
+| Instance `ffiApplySignatureRequest(request)` and `ffiRegisterIdentity(request, visibilityOptions)` | `unsafeApplySignatureRequest(request)`; registration visibility options are removed                     |
+| Static `ffiRevokeInstallations` and `ffiApplySignatureRequest`                                     | Removed; use the static signed revocation helper or the client signature request methods                |
+| `request.addEcdsaSignature(bytes)`, `.addScwSignature(bytes, address, chainId, blockNumber)`       | `request.addSignature(Signature.Ecdsa(bytes))` or `request.addSignature(Signature.Scw(...))`            |
+
+## Create, find, and list Kotlin conversations
+
+Group creation uses an options record. DM creation returns `Dm` directly. Both inbox ID and account identity forms are supported. For an empty member list, write `emptyList<InboxId>()` or `emptyList<PublicIdentity>()` so Kotlin can select the overload.
+
+| Old call                                                                                                                    | New call and return shape                                                                                             |
+| --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `newGroup(inboxIds, permissions, groupName, groupImageUrlSquare, groupDescription, disappearingMessageSettings, appData)`   | `createGroup(members: List<InboxId>, options: CreateGroupOptions?): Group`                                            |
+| `newGroupWithIdentities(identities, ...)`                                                                                   | `createGroup(members: List<PublicIdentity>, options): Group`                                                          |
+| `newGroupCustomPermissions(inboxIds, permissionPolicySet, ...)`, `newGroupCustomPermissionsWithIdentities(identities, ...)` | The same `createGroup` overloads with `CreateGroupOptions(permissions = GroupPermissionMode.Custom(policySet))`       |
+| `newGroupOptimistic(...)`                                                                                                   | `createGroupOptimistic(options): Group`                                                                               |
+| `newConversation(peerInboxId, disappearingMessageSettings): Conversation` and `findOrCreateDm(peerInboxId, ...)`            | `createDm(peer: InboxId, options: CreateDmOptions?): Dm`                                                              |
+| `newConversationWithIdentity(peerPublicIdentity, ...)` and `findOrCreateDmWithIdentity(...)`                                | `createDm(peer: PublicIdentity, options): Dm`                                                                         |
+| `findConversation(id)`                                                                                                      | `getById(id): Conversation?`                                                                                          |
+| `findGroup(id)`                                                                                                             | `getById(id)` then match `Conversation.Group`; do not assume every ID is a group                                      |
+| `findDmByInboxId(id)`, `findDmByIdentity(identity)`                                                                         | `getDmByInboxId(peer): Dm?`, `getDmByIdentity(identity): Dm?`                                                         |
+| `findMessage(id)`, `findEnrichedMessage(id)`                                                                                | `getMessageById(id): Message?`                                                                                        |
+| `findConversationByTopic(topic)`                                                                                            | Removed; store the conversation ID and call `getById`                                                                 |
+| `fromWelcome(envelopeBytes)`                                                                                                | Removed; use SDK synchronization or a conversation reader                                                             |
+| `syncAllConversations(consentStates)`                                                                                       | `syncAll(consentStates): GroupSyncSummary`                                                                            |
+| `list(...)`, `listGroups(...)`, `listDms(...)`                                                                              | Same names, with one `ListConversationsOptions?` argument; return `List<Conversation>`, `List<Group>`, and `List<Dm>` |
+| `deleteMessageLocally(messageId)`                                                                                           | Retained as `deleteMessageLocally(id)`                                                                                |
+| `getHmacKeys(): Keystore.GetConversationHmacKeysResponse`                                                                   | `hmacKeys(): Map<String, List<HmacKey>>`                                                                              |
+| `allPushTopics()`                                                                                                           | Removed; enable client notifications                                                                                  |
+
+`CreateGroupOptions` fields are `permissions`, `name`, `imageUrl`, `description`, `disappearing`, and `appData`. The old group permission constants become `GroupPermissionMode.AllMembers` and `.AdminOnly`. `CreateDmOptions` has `disappearing`. Replace `DisappearingMessageSettings(disappearStartingAtNs, retentionDurationInNs)` with `DisappearingSettings(from = Timestamp(...), retentionNs = ...)`.
+
+For `ListConversationsOptions`, change `createdAfterNs` / `createdBeforeNs` to `createdAfter` / `createdBefore` with `Timestamp` values. Change the last activity bounds in the same way. `limit: Int?` becomes `UInt?`. Use `orderBy = ConversationOrder.CREATED_AT` or `.LAST_ACTIVITY`, `kind`, `consentStates`, and `includeDuplicateDms`. Omit `kind` for the old `ALL` behavior.
+
+Before:
+
+```kotlin
+import org.xmtp.android.library.*
+
+suspend fun oldConversations(client: Client, peer: InboxId): Group {
+    val group = client.conversations.newGroup(listOf(peer), groupName = "Support")
+    val dm: Conversation = client.conversations.newConversation(peer)
+    check(dm.id.isNotEmpty())
+    val groups = client.conversations.listGroups(limit = 20)
+    check(groups.any { it.id == group.id })
+    return group
+}
+```
+
+After:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun conversations(client: SDKClient, peer: InboxId): Group {
+    val group = client.conversations.createGroup(
+        listOf(peer), CreateGroupOptions(name = "Support"),
+    )
+    val dm: Dm = client.conversations.createDm(peer)
+    check(dm.id().isNotEmpty())
+    val groups = client.conversations.listGroups(
+        ListConversationsOptions(limit = 20u, orderBy = ConversationOrder.LAST_ACTIVITY)
+    )
+    check(groups.any { it.id() == group.id() })
+    return group
+}
+```
+
+`Conversation` is still a tagged group or DM value. Match `Conversation.Group` and `.Dm` to use a group-only or DM-only operation. Shared generated forwarding methods support common conversation operations.
+
+Conversation lists now default to creation time instead of last activity.
+Set `orderBy = ConversationOrder.LAST_ACTIVITY` to retain the old sort key.
+Message lists now default to ascending order instead of descending order.
+Set `direction = MessageOrder.DESCENDING` to retain newest-first message order.
+
+Nullable does not mean that an argument can be omitted. Pass a value or `null`
+for `catchUpToLive(timeoutMs)`, `syncAll(consentStates)`, `countMessages(options)`,
+`lastActivityAt(contentTypes)`, `updateAppData(value, expected)`,
+`updatePermission(kind, policy, metadataField)`, and the options argument of
+`archives().exportToFile` and `exportToBytes`. A group or DM uses
+`messageHistorySnapshot(limit: UInt)`. The collection uses
+`messageHistorySnapshot(limit: UInt, options: MessageReaderOptions? = null)`.
+
+## Conversation state, members, and permissions
+
+Read one state record instead of separate getters. A `Group.state()` returns `GroupState`. Its `.common` field holds shared state. A `Dm.state()` returns `ConversationState`. Match a `Conversation` as group or DM before reading its state; the two state return types differ.
+
+| Old group or DM access                                                                                                               | New access                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.id`, `.topic`, `.createdAt`, `.createdAtNs`                                                                                        | `id()`, `topic()`, `createdAt(): Timestamp`; use `.ns` or `.date`                                                                                                                                    |
+| `.lastActivityNs`                                                                                                                    | Suspend `lastActivityAt(contentTypes: List<ContentTypeId>?): Timestamp`                                                                                                                              |
+| Group `.name`, `.name()`, `.imageUrl`, `.imageUrl()`, `.description`, `.description()`, `.appData`, `.appData()`                     | `group.state().name`, `.imageUrl`, `.description`, `.appData`                                                                                                                                        |
+| `isActive()`, `consentState()`, `pausedForVersion()`, `commitLogForkStatus()`                                                        | Shared state `.isActive`, `.consentState`, `.pausedForVersion`, `.commitLogForkStatus`                                                                                                               |
+| `.disappearingMessageSettings`, `disappearingMessageSettings()`, `.isDisappearingMessagesEnabled`, `isDisappearingMessagesEnabled()` | Shared state `.disappearingSettings`, `.isDisappearingEnabled`                                                                                                                                       |
+| Group `membershipState()`, `permissions()`, `permissionPolicySet()`                                                                  | Group state `.membershipState`, `.permissions`, `.permissions.policySet`                                                                                                                             |
+| DM `.peerInboxId`                                                                                                                    | Suspend `peerInboxId(): InboxId?`                                                                                                                                                                    |
+| `addedByInboxId(): InboxId`, `creatorInboxId(): InboxId`                                                                             | `addedByInboxId(): InboxId?`, `creatorInboxId(): InboxId?`; both are now synchronous and nullable                                                                                                    |
+| Suspend `isCreator()`                                                                                                                | Synchronous `isCreator(): Boolean`                                                                                                                                                                   |
+| `clearDisappearingMessageSettings()`                                                                                                 | `updateDisappearingSettings(null)`                                                                                                                                                                   |
+| `updateDisappearingMessageSettings(settings)`                                                                                        | `updateDisappearingSettings(settings: DisappearingSettings?)`                                                                                                                                        |
+| `addMembers(inboxIds)`, `addMembersByIdentity(identities)`                                                                           | `addMembers(members)` overloads; `GroupMembershipResult.addedMembers` becomes `MembershipResult.added`, `.removedMembers` becomes `.removed`, and `.failedInstallationIds` remains a list of hex IDs |
+| `removeMembers(inboxIds)`, `removeMembersByIdentity(identities)`                                                                     | `removeMembers(members)` overloads; return `Unit`                                                                                                                                                    |
+| `members()`                                                                                                                          | Retained; use new `Member` / `PermissionLevel` / `ConsentState` types                                                                                                                                |
+| `updateName(name)`, `updateImageUrl(imageUrl)`, `updateDescription(description)`                                                     | Retained names; parameter name is `value`                                                                                                                                                            |
+| `updateAppData(appData, expectedAppData)`                                                                                            | `updateAppData(value, expected)`; pass the required nullable `expected` argument (`null` for no comparison)                                                                                          |
+| `updateAddMemberPermission`, `updateRemoveMemberPermission`, `updateAddAdminPermission`, `updateRemoveAdminPermission`               | `updatePermission(kind, policy, metadataField)`; pass `null` when no metadata field applies with the corresponding `PermissionUpdateKind`                                                            |
+| `updateNamePermission`, `updateDescriptionPermission`, `updateImageUrlPermission`                                                    | `updatePermission(PermissionUpdateKind.UPDATE_METADATA, policy, MetadataFieldKind.NAME / DESCRIPTION / IMAGE_URL)`                                                                                   |
+| `leaveGroup()`                                                                                                                       | `requestRemoval(): Unit`                                                                                                                                                                             |
+| `membershipCapabilities()`                                                                                                           | Retained with the new SDK capability records                                                                                                                                                         |
+| `proposalsEnabled()`, `unstable.enableProposals(force, minVersion)`                                                                  | Removed; no proposal migration switch                                                                                                                                                                |
+| `getDebugInformation()`                                                                                                              | `debugInfo(): ConversationDebugInfo`; `epoch` is `ULong`, `cursor` is `List<ULong>`, and `.isCommitLogForked: Boolean?` replaces the debug record's `.commitLogForkStatus`                           |
+| `getLastReadTimes(): Map<InboxId, Long>`                                                                                             | `lastReadTimes(): Map<String, Timestamp>`                                                                                                                                                            |
+| Per-conversation `getHmacKeys()`                                                                                                     | `hmacKeys(): List<HmacKey>`; each item has `key: ByteArray` and `epoch: Long`                                                                                                                        |
+| `getPushTopics()`                                                                                                                    | Removed; use client notification registration and per-conversation `setNotifications(value: NotificationOverride)`                                                                                   |
+
+Before:
+
+```kotlin
+import org.xmtp.android.library.Group
+import org.xmtp.android.library.InboxId
+import org.xmtp.android.library.libxmtp.PermissionOption
+
+suspend fun oldGroupState(group: Group, peer: InboxId): String {
+    val added = group.addMembers(listOf(peer))
+    check(added.addedMembers.contains(peer))
+    group.updateNamePermission(PermissionOption.Admin)
+    return group.name()
+}
+```
+
+After:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun groupState(group: Group, peer: InboxId): String {
+    val added = group.addMembers(listOf(peer))
+    check(added.added.contains(peer))
+    group.updatePermission(
+        PermissionUpdateKind.UPDATE_METADATA,
+        PermissionPolicy.ADMIN,
+        MetadataFieldKind.NAME,
+    )
+    return group.state().name
+}
+```
+
+In `PermissionPolicySet`, rename `addMemberPolicy`, `removeMemberPolicy`, `addAdminPolicy`, and `removeAdminPolicy` to `addMember`, `removeMember`, `addAdmin`, and `removeAdmin`. Rename `updateGroupNamePolicy`, `updateGroupDescriptionPolicy`, `updateGroupImagePolicy`, `updateMessageDisappearingPolicy`, and `updateAppDataPolicy` to `updateName`, `updateDescription`, `updateImage`, `updateDisappearing`, and `updateAppData`. Use `PermissionPolicy` in place of `PermissionOption`.
+
+New metadata methods are `metadataFields(): List<MetadataFieldDescriptor>`, `metadataField(name: String): MetadataFieldDescriptor?`, `metadataValue(field: MetadataFieldRef): MetadataValue?`, `metadataValues(fields: List<MetadataFieldRef>): List<MetadataFieldValue>`, `mapValue(field, key: FieldKey): FieldValue?`, `userData(fields, inboxIds): Map<InboxId, List<UserFieldValue>>`, `updateUserData(values: List<UserFieldUpdate>): Unit`, and `updateMetadataField(field, operation: ComponentMutation): Unit`. The two `userData` selectors are nullable lists. Use the published component definitions and typed metadata records. These methods do not replace `appData` with an untyped map. `Dm.duplicateDms()` exposes the stitched duplicate conversations.
+
+## Send and query messages
+
+Both `Group` and `Dm` provide the methods below. A send returns a hex `MessageId` string. Use `sendText` for text. Use `send(encoded, options)` for a complete envelope or `send(codec, value, options)` for a typed custom value. Standard content does not need registration.
+
+| Old call                                                               | New call and return shape                                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `send(text: String)`                                                   | `sendText(text, options: SendOptions? = null): MessageId`                                         |
+| `send(content, SendOptions(contentType = ...))`                        | `send(codec: ContentCodec<T>, value: T, options): MessageId` or a standard send method            |
+| `send(encodedContent, MessageVisibilityOptions)`                       | `send(encoded: EncodedContent, options: SendOptions?): MessageId`                                 |
+| `prepareMessage(content, options, noSend)`                             | `prepareMessage(codec, value, options)`; for text use `prepareMessage(encodeText(text), options)` |
+| `prepareMessage(encodedContent, MessageVisibilityOptions, noSend)`     | `prepareMessage(encoded, options): MessageId`; this sets optimistic sending                       |
+| `deleteMessage(messageId)`                                             | Retained as `deleteMessage(id): MessageId`                                                        |
+| `lastMessage()`                                                        | `lastMessage(): Message?`                                                                         |
+| `messages(...)`, `messagesWithReactions(...)`, `enrichedMessages(...)` | `messages(options: ListMessagesOptions?): List<Message>`; one enriched result type                |
+| `countMessages(...)`                                                   | `countMessages(options: ListMessagesOptions?): ULong`; the old result was `Long`                  |
+| `processMessage(messageBytes)`                                         | Removed; SDK readers and synchronization process received messages                                |
+| `encodeContent(content, options)`, `encode(codec, content)`            | Removed; use a codec's `encode(value)` or an `encode*` helper                                     |
+
+`SendOptions` has `shouldPush: Boolean?`, `optimistic: Boolean`, `idempotencyKey: String?`, and `compression: Compression?`. `MessageVisibilityOptions` is removed. The old `contentType` is selected by the codec or encoder. The old `ephemeral` field and `prepareMessage.noSend` argument are removed. There is no separate `noSend` option in the new API. `prepareMessage` queues optimistic publication; background processing can publish it without an explicit publish call. Keep private drafts outside the SDK until the app is ready to send. Use `Compression.DEFLATE` or `.GZIP` instead of `EncodedContentCompression`.
+
+The standard methods are `sendMarkdown`, `sendReadReceipt`, `sendReaction(reference, referenceInboxId, reaction, options)`, `sendReply(reference, referenceInboxId, content, options)`, `sendAttachment`, `sendRemoteAttachment`, `sendMultiRemoteAttachment`, `sendTransactionReference`, `sendWalletSendCalls`, `sendActions`, and `sendIntent`.
+
+For queries, use this option mapping:
+
+| Old query parameter                                | `ListMessagesOptions` field                                                 |
+| -------------------------------------------------- | --------------------------------------------------------------------------- |
+| `limit: Int?`                                      | `limit: UInt?`                                                              |
+| `beforeNs`, `afterNs`                              | `sentBefore`, `sentAfter`, both `Timestamp?`                                |
+| `insertedBeforeNs`, `insertedAfterNs`              | `insertedBefore`, `insertedAfter`, both `Timestamp?`                        |
+| `direction = SortDirection.ASCENDING / DESCENDING` | `direction = MessageOrder.ASCENDING / DESCENDING`                           |
+| `sortBy = SortBy.SENT_TIME / INSERTED_TIME`        | `sortBy = MessageSortBy.SENT_AT / INSERTED_AT`                              |
+| `MessageDeliveryStatus.ALL`                        | Omit `deliveryStatus`; there is no `ALL` enum value                         |
+| Other `MessageDeliveryStatus` values               | `DeliveryStatus.PUBLISHED / UNPUBLISHED / FAILED`                           |
+| `excludeContentTypes: List<FfiContentType>?`       | `excludeContentTypes: List<ContentTypeId>?`; use actual content type IDs    |
+| No old equivalent                                  | `kind` and `contentTypes` select a message kind or include content type IDs |
+
+Before:
+
+```kotlin
+import org.xmtp.android.library.Group
+import org.xmtp.android.library.libxmtp.DecodedMessage
+
+suspend fun oldMessages(group: Group): List<String> {
+    group.send("Hello")
+    val pending = group.prepareMessage("Draft")
+    group.publishMessage(pending)
+    return group.enrichedMessages(limit = 20).map { it.content<String>() ?: it.fallbackText.orEmpty() }
+}
+```
+
+After:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun messages(group: Group): List<String> {
+    group.sendText("Hello")
+    val pending = group.prepareMessage(encodeText("Draft"), null)
+    group.publishMessage(pending)
+    return group.messages(
+        ListMessagesOptions(limit = 20u, direction = MessageOrder.DESCENDING)
+    ).map { message ->
+        val standard = (message.content as? SDKMessageContent.Standard)?.value
+        (standard as? MessageContent.Text)?.v1 ?: message.fallback.orEmpty()
+    }
+}
+```
+
+`Message.content<T>()` and `.body` are removed. Match `message.content` as `SDKMessageContent.Standard`, `.Custom`, or `.Unknown`. For standard content, match its `.value` as `MessageContent.Text`, `.Reaction`, `.Reply`, `.Attachment`, and the other variants. A standard text value is `.v1`. A custom value is `.value: Any?`; check `.error`. Unknown content includes the original bytes and `ErrorDetails`. A decode failure is retained in the result; it is not removed from the message list.
+
+| Old message field or method                                             | New field or method                                                                              |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `.encodedContent`                                                       | `.encoded: EncodedContent?`; `.rawBytes` holds the original received serialization               |
+| `.sentAt: Date`, `.sentAtNs`                                            | `.sentAt: Timestamp`                                                                             |
+| `.insertedAtNs`, `.expiresAtNs`, `.expiresAt: Date?`                    | `.insertedAt: Timestamp`, `.expiresAt: Timestamp?`                                               |
+| `.fallback: String`                                                     | `.fallback: String?`                                                                             |
+| `.kind: FfiConversationMessageKind`                                     | `.kind: MessageKind`                                                                             |
+| `.deliveryStatus: MessageDeliveryStatus`                                | `.deliveryStatus: DeliveryStatus`                                                                |
+| Reaction child messages / V2 reaction wrappers                          | `.reactions: List<ReactionMessage>`; the nested `.reaction` has content, action, and schema      |
+| No old equivalent                                                       | `.replyCount: ULong`, `.inReplyTo: ReplyParent?`                                                 |
+| V2 `.hasReactions`, `.reactionCount`, `.fallbackText`, `.contentTypeId` | Use `.reactions.isNotEmpty()`, `.reactions.size`, `.fallback`, and nullable `.contentType`       |
+| No old equivalent                                                       | `.deliveryCursor: String?`, `.contentType: ContentTypeId?`, `.replyContent`, `.inReplyToContent` |
+
+New message helpers are `refresh(): Message?`, `delete(): MessageId`, `deleteLocally(): Unit`, `react(reaction, options): MessageId`, `reply(text, options): MessageId`, `reply(encoded, options): MessageId`, `reply(codec, value, options): MessageId`, `parent(): Message?`, `conversation(): Conversation?`, and `client(): SDKClient`.
+
+Before, a reaction required a registered codec and a reference inside the value:
+
+```kotlin
+import org.xmtp.android.library.*
+import org.xmtp.android.library.codecs.*
+
+suspend fun oldReaction(group: Group, messageId: String) {
+    Client.register(ReactionV2Codec())
+    group.send(
+        Reaction(messageId, ReactionAction.Added, "👍", ReactionSchema.Unicode),
+        SendOptions(contentType = ContentTypeReactionV2),
+    )
+}
+```
+
+After, the reference is a separate send argument. The message helper can supply it:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun reaction(message: Message) {
+    message.react(Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE))
+    message.reply("Thanks")
+}
+```
+
+The native action and intent records also change. `Intent.metadata` becomes
+`metadataJson`. `Action.expiresAtNs` and `Actions.expiresAtNs` become `expiresAt`
+with a nullable `Timestamp`. `TransactionReference` no longer supplies default
+values for `namespace` and `metadata`; pass both arguments explicitly, using
+`null` in Kotlin or `nil` in Swift when absent. `RemoteAttachment` also requires explicit nullable `contentLength` and `filename` arguments; their old constructor defaults are gone.
+
+Message query content filters accept only supported catalogue kinds. Matching
+uses authority, type name, and major version; minor version is ignored. A custom
+content ID fails with `InvalidArgument`.
+
+## Codecs, records, and attachments
+
+`Client.register` and the public `CodecRegistry` are removed. The SDK handles the standard catalogue. Pass custom codecs to each `SDKClient.create(..., codecs = listOf(codec))` or `.build(...)`. The registration key uses authority, type ID, and major version. Minor version does not select a separate codec.
+
+`ContentCodec<T>` now requires `T : Any`. Rename `.contentType` to immutable `.type`. Keep `encode`, `decode`, `fallback`, and `shouldPush`; `fallback` and `shouldPush` now have defaults. Return an SDK `EncodedContent(type, parameters, fallback, content: ByteArray)` instead of a protobuf builder. A typed send checks the codec value type. A failed encode, fallback, or push callback fails with `CodecEncodeFailed` before publish.
+
+The standard wrappers include `TextCodec`, `MarkdownCodec`, `AttachmentCodec`, `RemoteAttachmentCodec`, `MultiRemoteAttachmentCodec`, `ReactionV2Codec`, `ReadReceiptCodec`, `ReplyCodec`, `TransactionReferenceCodec`, `WalletSendCallsCodec`, `ActionsCodec`, `IntentCodec`, `GroupUpdatedCodec`, `DeleteMessageCodec`, and `LeaveRequestCodec`. They are optional tools for encode/decode work; they do not need registration. The old JSON `ReactionCodec` is removed. Use `ReactionV2Codec` with `ReactionV2Content(reference, referenceInboxId, reaction)` or `sendReaction` with the new reaction payload.
+
+| Old content record or helper                                                                                                                                                                                                                  | New shape                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ContentTypeIdBuilder`, `ContentType*` protobuf constants, `.id` and `.description` convenience keys                                                                                                                                          | Construct `ContentTypeId(authorityId, typeId, versionMajor: UInt, versionMinor: UInt)` or use `standardContentType(StandardContentKind...)` / a codec's `.type` |
+| Protobuf envelope `.parametersMap`, `.content: ByteString`, `.toByteArray()`, `.parseFrom(bytes)`                                                                                                                                             | SDK `.parameters`, `.content: ByteArray`, `encodeEncodedContent(encoded)`, `decodeEncodedContent(bytes)`                                                        |
+| `EncodedContent.decoded<T>()`                                                                                                                                                                                                                 | Use a codec's `decode(encoded)` for a known type; use `client.decodeContent(encoded)` for SDK content                                                           |
+| `.compress(...)`, `.decompressContent()`                                                                                                                                                                                                      | Supply `SendOptions.compression`; envelope decoding applies the shared decompression limits                                                                     |
+| `Attachment(filename: String, mimeType, data: ByteString)`                                                                                                                                                                                    | `Attachment(filename: String?, mimeType, content: ByteArray)`                                                                                                   |
+| `ReadReceipt` singleton                                                                                                                                                                                                                       | Use `Unit` with `ReadReceiptCodec`, or call `sendReadReceipt()`                                                                                                 |
+| `Reaction(reference, action, content, schema, referenceInboxId)`                                                                                                                                                                              | `Reaction(content, action, schema)`; reference fields move to `sendReaction` / `ReactionV2Content`                                                              |
+| `ReactionAction` / `ReactionSchema` sealed singleton objects                                                                                                                                                                                  | Uppercase SDK enum values, including `UNKNOWN`                                                                                                                  |
+| Generic `Reply(reference, content, contentType)`                                                                                                                                                                                              | `ReplyContent(reference, referenceInboxId, content: EncodedContent)` for `ReplyCodec`; send or message reply helpers accept the nested envelope                 |
+| `RemoteAttachment(url: URL, ..., secret/salt/nonce: ByteString, contentLength: Int?, filename: String?)`                                                                                                                                      | URL `String`, key bytes `ByteArray`, `contentLength: UInt?`, `filename: String?`                                                                                |
+| `MultiRemoteAttachment.remoteAttachments: List<RemoteAttachmentInfo>`                                                                                                                                                                         | `.attachments: List<RemoteAttachment>`; no separate `RemoteAttachmentInfo` type                                                                                 |
+| Protobuf `GroupUpdated` and nested inbox wrappers                                                                                                                                                                                             | SDK `GroupUpdated` with string inbox ID lists and `MetadataFieldChange(fieldName, oldValue, newValue)` records                                                  |
+| `LeaveRequest.create(authenticatedNote)`                                                                                                                                                                                                      | Construct `LeaveRequest(authenticatedNote)`; note bytes remain nullable                                                                                         |
+| `DeleteMessageRequest(messageId)` codec payload                                                                                                                                                                                               | `DeleteMessageContent(messageId)`; `DeletedMessage` and `DeletedBy` move to the new package                                                                     |
+| `TransactionReference.Metadata`                                                                                                                                                                                                               | Top-level `TransactionMetadata`; the transaction record fields remain namespace, network ID, reference, and optional metadata                                   |
+| `WalletSendCalls = FfiWalletSendCalls`                                                                                                                                                                                                        | Public `WalletSendCalls`, `WalletCall`, and `WalletCallMetadata` records; fields remain version, chain ID, from, calls, and optional capabilities map           |
+| `EncryptedEncodedContent(contentDigest, secret, salt, nonce, payload, contentLength)`                                                                                                                                                         | `EncryptedEncodedContent(ciphertext: ByteArray, keys: EncryptionKeys)`; keys contain secret, salt, nonce, digest, and length                                    |
+| `RemoteAttachment.encodeEncrypted`, `.encodeEncryptedBytes`, `.decryptEncoded`, `.from`, and `MultiRemoteAttachmentCodec.encryptBytesForLocalAttachment`, `.buildRemoteAttachmentInfo`, `.buildEncryptAttachmentResult`, `.decryptAttachment` | `encryptBytes`, `decryptBytes`, `encryptEncodedContent`, `decryptEncodedContent`, `encryptFile`, and `decryptFile`; use SDK records                             |
+| `RemoteAttachment.load<T>()` and its `fetcher` property, `Fetcher`, `HTTPFetcher`                                                                                                                                                             | Removed; use `client.attachments().download(remote)` for SDK-managed download and cache                                                                         |
+| `Crypto`, `KeyUtil`, `messages.PrivateKey`                                                                                                                                                                                                    | Removed; use SDK encryption helpers and a wallet signer or local signer helpers                                                                                 |
+
+Before, a custom codec used the global registry and a protobuf envelope:
+
+```kotlin
+import com.google.protobuf.ByteString
+import org.xmtp.android.library.*
+import org.xmtp.android.library.codecs.*
+
+class OldNoteCodec : ContentCodec<String> {
+    override val contentType = ContentTypeIdBuilder.builderFromAuthorityId("example.com", "note", 1, 0)
+    override fun encode(content: String): EncodedContent = EncodedContent.newBuilder()
+        .setType(contentType).setContent(ByteString.copyFromUtf8(content)).build()
+    override fun decode(content: EncodedContent): String = content.content.toStringUtf8()
+    override fun fallback(content: String): String = content
+    override fun shouldPush(content: String): Boolean = true
+}
+
+suspend fun oldCustom(group: Group) {
+    val codec = OldNoteCodec()
+    Client.register(codec)
+    group.send("A note", SendOptions(contentType = codec.contentType))
+}
+```
+
+After, pass the codec to the client factory for receive decoding. Pass it to the send method for typed encoding:
+
+```kotlin
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import uniffi.xmtp_sdk.*
+
+class NoteCodec : ContentCodec<String> {
+    override val type = ContentTypeId("example.com", "note", 1u, 0u)
+    override fun encode(value: String) = EncodedContent(type = type, content = value.encodeToByteArray())
+    override fun decode(encoded: EncodedContent): String = encoded.content.decodeToString()
+    override fun fallback(value: String): String = value
+}
+
+suspend fun custom(signer: Signer, options: ClientOptions, peer: InboxId) {
+    val codec = NoteCodec()
+    val client = SDKClient.create(signer, options, codecs = listOf(codec))
+    try {
+        client.conversations.createDm(peer).send(codec, "A note")
+    } finally {
+        withContext(NonCancellable) { client.end() }
+    }
+}
+```
+
+Before, an inline attachment used protobuf bytes and explicit codec registration:
+
+```kotlin
+import com.google.protobuf.ByteString
+import org.xmtp.android.library.*
+import org.xmtp.android.library.codecs.*
+
+suspend fun oldAttachment(group: Group, bytes: ByteArray) {
+    Client.register(AttachmentCodec())
+    group.send(
+        Attachment("note.txt", "text/plain", ByteString.copyFrom(bytes)),
+        SendOptions(contentType = ContentTypeAttachment),
+    )
+}
+```
+
+After:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun attachment(group: Group, bytes: ByteArray) {
+    group.sendAttachment(Attachment("note.txt", "text/plain", bytes))
+}
+```
+
+For remote attachments, the SDK now offers a complete upload and local cache flow. `attachments().offered()` reports whether the deployment has an attachment service. `create(source: AttachmentSource)` returns `PendingAttachment`; `upload()` uploads it; `remoteAttachment()` supplies the send value. `download(remote)` returns `DownloadedAttachment`. Other methods are `pending(remote)`, `listPending()`, `localPath(remote)`, `listLocal()`, and `deleteLocal(remote)`. A failed transfer is not retried automatically; call the operation again. Use `AttachmentOptions` for download limits, pending age, and private network access.
+
+## Streams, replay, and events
+
+| Old stream                                                                                              | New stream                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `group.streamMessages(onClose)` / `dm.streamMessages(onClose)` / `conversation.streamMessages(onClose)` | `conversation.streamMessages(ConversationMessageStreamOptions(from, onClose, onConnectionStateChange))`                                 |
+| `conversations.streamAllMessages(type, consentStates, onClose)`                                         | `client.conversations.streamAllMessages(MessageStreamOptions(conversationKind, consentStates, from, onClose, onConnectionStateChange))` |
+| `conversations.stream(type, onClose)`                                                                   | `client.conversations.stream(ConversationStreamOptions(conversationKind, consentStates, onClose, onConnectionStateChange))`             |
+| `conversations.streamMessageDeletions(onClose)`                                                         | Client events selected with `EventKind.MESSAGE_DELETED`; the event has IDs, not a decoded message                                       |
+| `preferences.streamConsent(onClose)`                                                                    | Client events selected with `EventKind.CONSENT_CHANGED`; use the new consent event payload                                              |
+| `preferences.streamPreferenceUpdates(onClose)`                                                          | Client events selected with `EventKind.HMAC_KEYS_UPDATED`                                                                               |
+| `Client.manageStreamLifecycle`                                                                          | `AndroidStreamLifecycle.enabled`; set it before the first Android client is created                                                     |
+
+The message flows return `Flow<Message>`. Conversation flows return `Flow<Conversation>`. The close callback receives `SDKStreamCloseReason.Closed` or `.Failed(error)`. The connection callback receives the previous nullable `ConnectionState` and the current state.
+
+A default message reader owns persisted delivery progress. Only one can be active in a client database, including across separate group and DM scopes. A second reader fails with `ConsumerOwned`. With direct sequential `collect`, the next read acknowledges the previous message after the collector returns. A buffer can move that boundary before downstream work finishes. Do not use buffered collection as a durable acknowledgement for each consumer.
+
+Use `MessageStreamOptions(from = cursor)` or `ConversationMessageStreamOptions(from = cursor)` for independent replay and live reading. The cursor is exclusive. These readers do not advance default progress. `messageHistorySnapshot(limit: UInt, options)` returns messages and a cursor from one history boundary. `beginningDeliveryCursor()` returns a replay boundary before stored delivery rows. Lower-level `messageReader(...)` / `conversationReader(...)` expose `next()`, `end()`, and connection state methods.
+
+Before:
+
+```kotlin
+import kotlinx.coroutines.flow.collect
+import org.xmtp.android.library.Group
+
+suspend fun oldStream(group: Group) {
+    group.streamMessages(onClose = { println("Stream closed") }).collect { message ->
+        println(message.body)
+    }
+}
+```
+
+After:
+
+```kotlin
+import kotlinx.coroutines.flow.collect
+import uniffi.xmtp_sdk.*
+
+suspend fun stream(client: SDKClient, group: Group) {
+    group.streamMessages(ConversationMessageStreamOptions(onClose = { reason -> println(reason) })).collect { message ->
+        val text = ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text)?.v1
+        println(text ?: message.fallback.orEmpty())
+    }
+}
+```
+
+Replace app-specific unstable change callbacks with `client.events(filter): Flow<ClientEvent>` or `client.startListener(filter, onEvent): ListenerId`. Call `client.stopListener(id)` to stop a listener. Events are live notifications. They are not message delivery checkpoints. `EventFilter.groupIds` uses `List<ByteArray>?`; convert stored hex IDs when selecting groups. Use `referencesOwnMessages` and `contentTypes` only for the event kinds that support those filters.
+
+## Consent and notifications
+
+| Old consent method or record                                                                          | New method or record                                                                      |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `client.preferences`                                                                                  | `client.preferences(): Preferences`                                                       |
+| `sync()`, `syncConsent()`                                                                             | `sync(): Unit`                                                                            |
+| `setConsentState(entries)`                                                                            | `setConsentStates(records: List<ConsentRecord>): Unit`                                    |
+| `ConsentRecord(value, entryType, consentType)` and `.conversationId(...)` / `.inboxId(...)` factories | `ConsentRecord(entity = ConsentEntity.Conversation(id) / ConsentEntity.Inbox(id), state)` |
+| `conversationState(groupId)`, `inboxIdState(inboxId)`                                                 | `consentState(entity): ConsentState`                                                      |
+| `group.updateConsentState(state)`, `dm.updateConsentState(state)`                                     | Uses the new `ConsentState` type.                                                         |
+
+Before:
+
+```kotlin
+import org.xmtp.android.library.*
+
+suspend fun oldConsent(client: Client, group: Group) {
+    client.preferences.setConsentState(
+        listOf(ConsentRecord.conversationId(group.id, ConsentState.ALLOWED)),
+    )
+    check(client.preferences.conversationState(group.id) == ConsentState.ALLOWED)
+}
+```
+
+After:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun consent(client: SDKClient, group: Group) {
+    val entity = ConsentEntity.Conversation(group.id())
+    client.preferences().setConsentStates(listOf(ConsentRecord(entity, ConsentState.ALLOWED)))
+    check(client.preferences().consentState(entity) == ConsentState.ALLOWED)
+}
+```
+
+`XMTPPush`, `PushPreferences`, `NotificationsGrpc`, and push `Service` protobuf types are removed. There is no replacement for `XMTPPush.subscribe`, `subscribeWithMetadata`, or `unsubscribe`, or for the old push UUID. Register a delivery channel on the SDK client. The SDK uses its installation and manages the subscriptions.
+
+Before:
+
+```kotlin
+import android.content.Context
+import org.xmtp.android.library.Client
+import org.xmtp.android.library.push.XMTPPush
+
+suspend fun oldPush(context: Context, client: Client, token: String, pushServer: String) {
+    val push = XMTPPush(context, pushServer)
+    push.register(token)
+    push.subscribe(client.conversations.allPushTopics())
+}
+```
+
+After:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun push(client: SDKClient, group: Group, token: String) {
+    client.enableNotifications(NotificationConfig(channel = NotificationChannel.Fcm(token)))
+    group.setNotifications(NotificationOverride.ENABLED)
+    println(client.notificationState())
+}
+```
+
+`enableNotifications(config)` is a suspend method that returns `NotificationState`. `disableNotifications()` is a suspend method that returns `Unit`. `notificationState()` returns `NotificationState.Disabled`, `.Enabled`, or `.Failed(error)`. `NotificationConfig` also accepts consent states and flags for welcomes, sync groups, and commits. The channels are `Fcm(token)`, `Apns(token)`, and `Http(url, signingKey: ByteArray)`. Use `group.setNotifications(NotificationOverride.DISABLED)` or the DM form to mute one conversation. Use `NotificationOverride.DEFAULT` to restore its default policy; use `client.disableNotifications()` to disable the client registration.
+
+## Archives, storage, diagnostics, and removed helpers
+
+| Old method                                                                                                                                                             | New method and return shape                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.createArchive(path, encryptionKey, opts)`                                                                                                                      | `client.archives().exportToFile(path, keyBytes, options): ArchiveMetadata`; export now returns metadata                                                                                              |
+| `client.importArchive(path, encryptionKey)`                                                                                                                            | `client.archives().importFromFile(path, keyBytes): Unit`                                                                                                                                             |
+| `client.archiveMetadata(path, encryptionKey)`                                                                                                                          | `client.archives().metadataFromFile(path, keyBytes): ArchiveMetadata`                                                                                                                                |
+| Archive `startNs`, `endNs`, `archiveElements`                                                                                                                          | `start: Timestamp?`, `end: Timestamp?`, `elements: List<ArchiveElement>?`; omitted elements select messages and consent                                                                              |
+| Metadata `archiveVersion`, `exportedAtNs`, `startNs`, `endNs`                                                                                                          | `backupVersion: UShort`, `exportedAt: Timestamp`, `start: Timestamp?`, `end: Timestamp?`                                                                                                             |
+| `sendSyncRequest(opts, serverUrl)`, `sendSyncArchive(opts, serverUrl, pin)`, `processSyncArchive(archivePin)`, `listAvailableArchives(daysCutoff)`, `AvailableArchive` | Removed; use archive export/import for explicit backup; automatic device sync remains controlled by `deviceSync`                                                                                     |
+| `deleteLocalDatabase()`                                                                                                                                                | `storage().delete(): Unit`; it ends an active persistent client before deleting the file; in-memory deletion now fails because there is no file                                                      |
+| `dropLocalDatabaseConnection()`                                                                                                                                        | Removed; use explicit client `end()` and reopen with `build`                                                                                                                                         |
+| `reconnectLocalDatabase()`                                                                                                                                             | `storage().reconnect(): Unit`                                                                                                                                                                        |
+| `dbPath` / `IN_MEMORY_DB_PATH`                                                                                                                                         | `storage().path(): String?` or `storagePath()`; in-memory has `null`                                                                                                                                 |
+| `debugInformation.apiStatistics`, `.identityStatistics`, `.aggregateStatistics`, `.clearAllStatistics()`                                                               | `diagnostics().apiStatistics()`, `.identityStatistics()`, `.aggregateStatistics()`, `.clearStatistics()`; suspend methods and new per-operation counters; `aggregateStatistics()` remains a `String` |
+| `Client.activatePersistentLibXMTPLogWriter(context, FfiLogLevel, FfiLogRotation, maxFiles: Int, processType)`                                                          | `SDKClient.activatePersistentLibXMTPLogWriter(context, LogLevel, LogRotation, maxFiles: UInt, LogProcessType)`                                                                                       |
+| `Client.deactivatePersistentLibXMTPLogWriter`, `.getXMTPLogFilePaths`, `.clearXMTPLogs`                                                                                | Same names on `SDKClient` with Android `Context` helpers                                                                                                                                             |
+| `Client.setLibXMTPNativeLogLevel(FfiLogLevel)`                                                                                                                         | `initLogging(LoggingOptions(level = ...))`; call it again to change the level                                                                                                                        |
+| `Topic.userWelcome`, `Topic.groupMessage`, old wire envelope processing and `toFfi` adapters                                                                           | Removed; use SDK conversation IDs, topics from `topic()`, readers, and public records                                                                                                                |
+
+The archive key remains exactly 32 bytes. Byte-based methods are also available: `exportToBytes(keyBytes, options): ByteArray`, `importFromBytes(data, keyBytes): Unit`, and `metadataFromBytes(data, keyBytes): ArchiveMetadata`.
+
+Before:
+
+```kotlin
+import org.xmtp.android.library.Client
+import org.xmtp.android.library.libxmtp.ArchiveOptions
+
+suspend fun oldArchive(client: Client, path: String, key: ByteArray): UShort {
+    client.createArchive(path, key, ArchiveOptions())
+    val metadata = client.archiveMetadata(path, key)
+    client.importArchive(path, key)
+    return metadata.archiveVersion
+}
+```
+
+After:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun archive(client: SDKClient, path: String, key: ByteArray): UShort {
+    val metadata = client.archives().exportToFile(path, key, ArchiveOptions())
+    client.archives().importFromFile(path, key)
+    return metadata.backupVersion
+}
+```
+
+Before, the app released and reconnected the same database connection:
+
+```kotlin
+import org.xmtp.android.library.Client
+
+suspend fun oldCloseDatabase(client: Client) {
+    client.dropLocalDatabaseConnection()
+    client.reconnectLocalDatabase()
+}
+```
+
+After, the app ends the client and builds a new client from its saved identity, original options, and codecs. Keep those options in the app: `client.options()` removes encryption keys and backend credentials, so it is not a complete reopen configuration:
+
+```kotlin
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import uniffi.xmtp_sdk.*
+
+suspend fun reopen(
+    client: SDKClient,
+    savedOptions: ClientOptions,
+    savedCodecs: List<ContentCodec<*>>,
+): SDKClient {
+    val identity = client.identity()
+    val inbox = client.inboxId()
+    withContext(NonCancellable) { client.end() }
+    return SDKClient.build(identity, savedOptions, inbox, codecs = savedCodecs)
+}
+```
+
+New logging methods include `initLogging(LoggingOptions)`, `setLogSink(sink: LogSink?)`, and `flushTelemetry()`. Clear the sink with `setLogSink(null)`. Initialize logging before enabling the persistent writer. `ApiStats` has `publish`, `query`, `queryNewest`, `subscribe`, and `subscribeStatic`, all `ULong`. `IdentityStats` has `getInboxIds` and `verifySmartContractWalletSignatures`, both `ULong`. Replace the old RPC-specific statistics fields with these counters.
