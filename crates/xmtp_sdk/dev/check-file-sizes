@@ -6,12 +6,14 @@ import subprocess
 import sys
 
 root = Path(__file__).resolve().parents[3]
+# Gradle writes this file and reads it from one fixed path. It is not source.
+GENERATED = {b"crates/xmtp_sdk/benchmarks/hosts/android/gradle/verification-metadata.xml"}
 paths = subprocess.check_output(
     ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "crates/xmtp_sdk"],
     cwd=root,
 ).split(b"\0")
 failures = []
-for name in sorted(set(paths) - {b""}):
+for name in sorted(set(paths) - {b""} - GENERATED):
     path = root / name.decode()
     if not path.is_file():
         continue

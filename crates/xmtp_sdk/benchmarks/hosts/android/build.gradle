@@ -1,0 +1,49 @@
+buildscript {
+    configurations.classpath.resolutionStrategy.activateDependencyLocking()
+}
+plugins {
+    id 'com.android.application' version '8.9.1'
+    id 'org.jetbrains.kotlin.android' version '2.0.0'
+}
+def sdkAar = file(providers.gradleProperty('sdkAar').get())
+layout.buildDirectory = file(providers.gradleProperty('benchmarkBuildDirectory').get())
+android {
+    namespace 'org.xmtp.benchmark'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'org.xmtp.benchmark'
+        minSdk 26
+        targetSdk 35
+    }
+    sourceSets.main {
+        java.srcDirs = []
+        manifest.srcFile 'src/main/AndroidManifest.xml'
+    }
+    buildTypes.release {
+        debuggable false
+        minifyEnabled false
+        signingConfig signingConfigs.debug
+    }
+    compileOptions {
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+    packaging.resources.excludes += ['META-INF/AL2.0', 'META-INF/LGPL2.1']
+}
+// Locks and gradle/verification-metadata.xml freeze the measured dependency graph.
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode = LockMode.STRICT
+}
+kotlin.sourceSets.getByName('main').kotlin.setSrcDirs(['.'])
+kotlin.sourceSets.getByName('main').kotlin.include('Benchmark.kt', 'Sdk.kt')
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+    // The staged SDK AAR and the runtime dependencies of sdks/android/library.
+    implementation files(sdkAar)
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0'
+    implementation 'androidx.lifecycle:lifecycle-process:2.7.0'
+    implementation 'net.java.dev.jna:jna:5.18.1@aar'
+}
