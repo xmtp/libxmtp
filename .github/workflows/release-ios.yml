@@ -212,10 +212,3 @@ jobs:
               $PRERELEASE_FLAG \
               "XMTP-${VERSION}.zip"
           fi
-      - name: Publish to CocoaPods
-        if: inputs.release-type != 'nightly'
-        env:
-          COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
-          VERSION: ${{ needs.build-and-package.outputs.version }}
-        working-directory: sdks/ios
-        run: bash script/publish-cocoapods.sh
