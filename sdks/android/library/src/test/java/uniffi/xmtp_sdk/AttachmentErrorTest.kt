@@ -125,12 +125,20 @@ class AttachmentErrorTest {
 
                         // The creating client holds the plaintext, so another client downloads.
                         val downloader = create(options = options(root.resolve("downloader")))
+                        val downloadEvents =
+                            downloader.events(EventFilter(kinds = listOf(EventKind.ATTACHMENT_DOWNLOAD_FAILED)))
                         UnavailableServer().use { unavailable ->
                             val error = thrown { downloader.attachments().download(remote.copy(url = unavailable.url)) }
                             assertEquals(failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 503u), error.v2)
                             assertEquals(ErrorCategory.NETWORK, error.v1.category)
                             assertTrue(error.v1.retryable)
                             assertEquals("The SDK retried the download", 1, unavailable.requests())
+                            val downloadFailed = withTimeout(10_000) { downloadEvents.take(1).toList() }.single()
+                            val downloadRef =
+                                (downloadFailed as ClientEvent.AttachmentDownloadFailed).attachmentDownloadFailed
+                            assertEquals(unavailable.url, downloadRef.url)
+                            assertEquals(remote.contentDigest, downloadRef.contentDigest)
+                            assertEquals("http_status", downloadRef.cause)
                         }
                     }
                 }

@@ -10,8 +10,8 @@ import org.junit.Test
 
 // Generated calls whose only Android check was the Kotlin conformance program:
 // archive bytes, decodeContent, prepare and publish, the Conversation
-// lastMessage forward and duplicate DMs. Each value crosses the native boundary
-// once. Rust owns the behavior: xmtp_sdk/src/tests/archives.rs::consent_archive_storage_and_diagnostics,
+// lastMessage forward, duplicate DMs and the debug record's epoch. Each value
+// crosses the native boundary once. Rust owns the behavior: xmtp_sdk/src/tests/archives.rs::consent_archive_storage_and_diagnostics,
 // client_setup.rs::standard_content_decodes_text,
 // reader_cursor.rs::delivery_cursor_absent_until_publication,
 // reader_restored.rs::foreign_restored_dm_has_no_local_peer.
@@ -24,6 +24,10 @@ class GeneratedForwardsTest {
                     val alix = create()
                     val bo = create()
                     val group = alix.conversations().createGroup(listOf(bo.inboxId()))
+                    // One commit moves the generated debug record's epoch by one.
+                    val epoch = group.debugInfo().epoch
+                    group.addAdmin(bo.inboxId())
+                    assertEquals(epoch + 1uL, group.debugInfo().epoch)
                     val sentId = group.sendText("latest")
                     assertEquals(sentId, Conversation.Group(group).lastMessage()?.id)
                     assertEquals(MessageContent.Text("decoded"), alix.decodeContent(encodeText("decoded")))

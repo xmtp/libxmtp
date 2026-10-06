@@ -3,6 +3,7 @@ package uniffi.xmtp_sdk
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.security.MessageDigest
 
@@ -276,6 +277,76 @@ class GeneratedConverterTest {
                 inReplyTo = null,
             )
         assertEquals(message, FfiConverterTypeMessageData.roundTrip(message))
+    }
+
+    // Live tests reach only a few causes and never a credential kind. The
+    // records go through the three generated forms a host reads: the thrown
+    // error, the pending status and the bare record. Rust owns which cause,
+    // category and retry value a failure gets:
+    // xmtp_sdk/src/tests/attachment_flows.rs::attachment_error_category_and_retry_follow_the_cause.
+    @Test
+    fun attachmentFailuresKeepEachCauseAndCredentialKind() {
+        val kinds = CredentialFailureKind.entries
+        val failures =
+            AttachmentFailureCause.entries.mapIndexed { index, cause ->
+                AttachmentFailure(
+                    cause = cause,
+                    credentialKind = kinds[index % kinds.size],
+                    retryable = index % 2 == 0,
+                    missingScope = index % 3 != 1,
+                    httpStatus = (400 + index).toUShort(),
+                )
+            } +
+                kinds.map { kind ->
+                    AttachmentFailure(AttachmentFailureCause.CREDENTIAL, kind, true, true, null)
+                } +
+                AttachmentFailure(AttachmentFailureCause.NETWORK, null, false, false, null)
+        FfiConverterTypeAttachmentFailure.checkEach(failures)
+        for (failure in failures) {
+            assertEquals(
+                PendingAttachmentStatus.Failed(failure),
+                FfiConverterTypePendingAttachmentStatus.roundTrip(PendingAttachmentStatus.Failed(failure)),
+            )
+            val details = ErrorDetails("Attachment", ErrorCategory.CALLBACK, failure.retryable, "failed")
+            val thrown = FfiConverterTypeXmtpError.roundTrip(XmtpException.Attachment(details, failure))
+            assertTrue("Expected an attachment error, got $thrown", thrown is XmtpException.Attachment)
+            assertEquals(details, (thrown as XmtpException.Attachment).v1)
+            assertEquals(failure, thrown.v2)
+        }
+    }
+
+    // Live log tests read only the record target. The deleted check read the
+    // fields and the drop count of records that a conformance-only call made.
+    @Test
+    fun logRecordsKeepEachField() {
+        val record =
+            LogRecord(
+                level = LogLevel.TRACE,
+                target = "xmtp_sdk::test",
+                message = "message",
+                fields = mapOf("sequence" to "0", "inbox" to "b2"),
+                timestamp = Timestamp(28),
+                droppedRecords = ULong.MAX_VALUE - 2uL,
+            )
+        assertEquals(record, FfiConverterTypeLogRecord.roundTrip(record))
+    }
+
+    // Live tests read only the epoch of a real group.
+    @Test
+    fun debugInfoKeepsEachField() {
+        val info =
+            ConversationDebugInfo(
+                epoch = ULong.MAX_VALUE - 1uL,
+                maybeForked = true,
+                forkDetails = "fork",
+                isCommitLogForked = false,
+                localCommitLog = "local",
+                remoteCommitLog = "remote",
+                cursor = listOf(ULong.MAX_VALUE, 0uL, 3uL),
+            )
+        assertEquals(info, FfiConverterTypeConversationDebugInfo.roundTrip(info))
+        val unknown = info.copy(maybeForked = false, isCommitLogForked = null, cursor = emptyList())
+        assertEquals(unknown, FfiConverterTypeConversationDebugInfo.roundTrip(unknown))
     }
 
     // The record goes through a native buffer and back first. The native calls

@@ -193,6 +193,7 @@ class MetadataFieldTest {
             ComponentMutation.MapDelta(
                 listOf(
                     MapMutation.Insert(key, FieldValue.Bytes(byteArrayOf(0, -128, -1))),
+                    MapMutation.Update(FieldKey.Bytes(byteArrayOf(5)), FieldValue.Bytes(byteArrayOf(6, -6))),
                     MapMutation.Delete(key),
                 ),
             )
@@ -202,12 +203,19 @@ class MetadataFieldTest {
         val insert = restored.v1[0] as MapMutation.Insert
         assertArrayEquals(byteArrayOf(0, -1), (insert.v1 as FieldKey.Bytes).v1)
         assertArrayEquals(byteArrayOf(0, -128, -1), (insert.v2 as FieldValue.Bytes).v1)
-        assertArrayEquals(byteArrayOf(0, -1), ((restored.v1[1] as MapMutation.Delete).v1 as FieldKey.Bytes).v1)
-        val set = ComponentMutation.SetDelta(listOf(SetMutation.Insert(key)))
+        val update = restored.v1[1] as MapMutation.Update
+        assertArrayEquals(byteArrayOf(5), (update.v1 as FieldKey.Bytes).v1)
+        assertArrayEquals(byteArrayOf(6, -6), (update.v2 as FieldValue.Bytes).v1)
+        assertArrayEquals(byteArrayOf(0, -1), ((restored.v1[2] as MapMutation.Delete).v1 as FieldKey.Bytes).v1)
+        val set =
+            ComponentMutation.SetDelta(
+                listOf(SetMutation.Insert(key), SetMutation.Delete(FieldKey.Bytes(byteArrayOf(9)))),
+            )
         val restoredSet =
             FfiConverterTypeComponentMutation.lift(
                 FfiConverterTypeComponentMutation.lower(set),
             ) as ComponentMutation.SetDelta
-        assertArrayEquals(byteArrayOf(0, -1), ((restoredSet.v1.single() as SetMutation.Insert).v1 as FieldKey.Bytes).v1)
+        assertArrayEquals(byteArrayOf(0, -1), ((restoredSet.v1[0] as SetMutation.Insert).v1 as FieldKey.Bytes).v1)
+        assertArrayEquals(byteArrayOf(9), ((restoredSet.v1[1] as SetMutation.Delete).v1 as FieldKey.Bytes).v1)
     }
 }

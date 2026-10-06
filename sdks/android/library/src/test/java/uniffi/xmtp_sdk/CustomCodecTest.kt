@@ -81,6 +81,11 @@ class CustomCodecTest {
             assertEquals("CodecNotFound", unknown.error.code)
             assertEquals(ErrorCategory.INPUT, unknown.error.category)
             assertEquals(encoded, unknown.encoded)
+            // A reply body with no codec projects to Unknown with its bytes.
+            val body = reply(key, MessageBody.Custom(encoded, byteArrayOf(1))).replyContent as SDKReplyContent.Unknown
+            assertEquals("CodecNotFound", body.error.code)
+            assertEquals(encoded, body.encoded)
+            assertArrayEquals(byteArrayOf(1), body.rawBytes)
         }
         // The codec key keeps the authority and type ID apart.
         withClient(listOf(NoteCodec(ContentTypeId("example.org", "a/b", 1u, 0u)))) { key ->

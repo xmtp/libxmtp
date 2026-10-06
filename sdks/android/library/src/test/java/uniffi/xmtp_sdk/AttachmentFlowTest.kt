@@ -14,7 +14,7 @@ import java.nio.file.Path
 
 // The generated attachment records that a real transfer lifts back to Kotlin:
 // 64-bit options, the offered configuration, the pending and local lists, the
-// downloaded record, and the download and delete event payloads. Rust owns the
+// downloaded record, and the upload, download and delete event payloads. Rust owns the
 // transfer rules:
 // xmtp_sdk/src/tests/attachment_flows.rs::attachment_uploads_after_its_record_is_sent_and_downloads_on_another_client.
 class AttachmentFlowTest {
@@ -53,8 +53,27 @@ class AttachmentFlowTest {
                         assertEquals(listOf(remote), attachments.listPending().map { it.remoteAttachment() })
                         assertEquals(pending.localPath(), attachments.localPath(remote))
                         assertEquals(content, File(pending.localPath()).readText())
+                        // The event reader is registered before events() returns.
+                        val uploadEvents =
+                            sender.events(
+                                EventFilter(
+                                    kinds =
+                                        listOf(
+                                            EventKind.ATTACHMENT_UPLOAD_STARTED,
+                                            EventKind.ATTACHMENT_UPLOAD_COMPLETED,
+                                        ),
+                                ),
+                            )
                         pending.upload()
                         assertEquals(PendingAttachmentStatus.Complete, pending.status())
+                        val (uploadStarted, uploadCompleted) = withTimeout(10_000) { uploadEvents.take(2).toList() }
+                        val uploadRef = (uploadStarted as ClientEvent.AttachmentUploadStarted).attachmentUploadStarted
+                        assertEquals(remote.url, uploadRef.url)
+                        assertEquals(remote.contentDigest, uploadRef.contentDigest)
+                        assertEquals(
+                            uploadRef,
+                            (uploadCompleted as ClientEvent.AttachmentUploadCompleted).attachmentUploadCompleted,
+                        )
                         assertEquals(
                             emptyList<RemoteAttachment>(),
                             attachments.listPending().map { it.remoteAttachment() },
