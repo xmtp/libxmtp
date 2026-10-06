@@ -6,6 +6,7 @@ import type * as Sdk from "@xmtp/node-sdk";
 import type {
   BackendOptions,
   Client,
+  ClientOptions,
   ContentCodec,
   ContentTypeId,
   Conversation,
@@ -141,16 +142,38 @@ declare const reactions: ReactionV2Codec;
 declare const replies: ReplyCodec;
 declare const deletions: DeleteMessageCodec;
 
+// Optional send hooks keep the codec's value type.
+const noted: ContentCodec<Point> = {
+  ...pointCodec,
+  fallback: (point) => `point ${point.x},${point.y}`,
+  shouldPush: (point) => point.x !== 0,
+};
+
+// Typed codecs of different value types register in one list.
+export const mixedCodecs: ClientOptions["codecs"] = [
+  pointCodec,
+  textCodec,
+  noted,
+];
+
 // verifies: CTYPE-017
 export async function rejectWrongCodecValues(
   group: Group,
   dm: Dm,
   message: Message,
   reaction: Extract<StandardContent, { kind: "reaction" }>,
+  encoded: EncodedContent,
 ): Promise<void> {
   await group.send(reactions, reaction);
+  await dm.send(reactions, reaction);
   await group.send(pointCodec, { x: 1, y: 2 });
+  await group.send(pointCodec, { x: 1, y: 2 }, { shouldPush: false });
+  await group.prepareMessage(textCodec, "prepared");
   await message.reply(pointCodec, { x: 1, y: 2 });
+  await message.reply(noted, { x: 1, y: 2 });
+  // The envelope form keeps working next to the codec form.
+  await group.send(encoded);
+  await group.send(encoded, { shouldPush: true });
 
   // @ts-expect-error A reaction codec does not take text content.
   await group.send(reactions, { kind: "text", value: "x" });
