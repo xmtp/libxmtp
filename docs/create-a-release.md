@@ -1,127 +1,189 @@
-# Creating a Release
+# Creating an SDK Release
 
-## TL;DR
+SDK releases use **Actions > Release** (`release.yml`). The release branch
+workflow prepares versions and notes. The Release workflow builds and publishes
+packages. Do not edit manifest versions by hand.
 
-- **Never manually edit manifest version fields** (`Cargo.toml`, `package.json`, `XMTP.podspec`). The release tooling handles versioning.
-- **Always review release notes** before publishing a final release. AI drafts them automatically, but a human must verify before shipping.
-- In `main` the version you see in manifests will always be the previously released version. In release branches, it will always be the upcoming version.
-- All releases (dev, rc, final) are published through a single workflow: **Actions > Release** (`release.yml`).
+## Prepare SDK 8.0 from self-hosted
 
----
+The iOS, Android, Node, Browser, and Agent manifests already contain `8.0.0`.
+Use `keep` for these SDKs. A `major` bump would produce `9.0.0`.
+The Rust workspace version is separate. Leave `libxmtp-version` empty to keep
+it. The branch label `8.0.0` does not set any manifest version.
 
-## Dev Releases
+1. Merge the release preparation PR into `self-hosted`.
+2. Select the `self-hosted` workflow revision in **Actions > Create Release Branch**.
+3. Set these inputs:
 
-Dev releases can be created from **any branch**. They append `-dev.<commit_hash>` to the manifest version automatically.
+   | Input | Value |
+   | --- | --- |
+   | `base-ref` | The approved `self-hosted` commit SHA |
+   | `version` | `8.0.0` |
+   | `pr-base` | `self-hosted` |
+   | `ios-bump` | `keep` |
+   | `android-bump` | `keep` |
+   | `node-sdk-bump` | `keep` |
+   | `browser-sdk-bump` | `keep` |
+   | `agent-sdk-bump` | `keep` |
+   | `cli-bump` | `none` |
+   | `libxmtp-version` | Empty |
 
-1. Go to **Actions > Release** (`release.yml`)
-2. Fill in the inputs:
+4. Run the workflow. It creates `release/8.0.0` and a PR into `self-hosted`.
+5. Review the prepared notes and the PR checks before publishing an RC.
 
-   | Input | Description |
-   | ------- | ------------- |
-   | `release-type` | `dev` |
-   | `ref` | Branch to release from (defaults to the branch you trigger from) |
-   | `ios` | Check to release iOS SDK |
-   | `android` | Check to release Android SDK |
-   | `node` | Check to release Node bindings |
+The command form is:
 
-3. Click **Run workflow**
+```sh
+gh workflow run create-release-branch.yml \
+  --ref self-hosted \
+  -f base-ref=self-hosted \
+  -f version=8.0.0 \
+  -f pr-base=self-hosted \
+  -f ios-bump=keep \
+  -f android-bump=keep \
+  -f node-sdk-bump=keep \
+  -f browser-sdk-bump=keep \
+  -f agent-sdk-bump=keep \
+  -f cli-bump=none
+```
 
-A Slack notification is sent to `#notify-dev-releases` when complete.
+Replace `base-ref=self-hosted` with the approved commit SHA to fix the source
+commit. `--ref` selects the workflow revision. `base-ref` selects the source
+for the new branch. Use the workflow from `self-hosted` so it includes the
+release preparation changes.
 
-Dev releases are always drafts, and any pushed changes in the dev release (for example, updating manifests to match the release version) happen in a detached HEAD.
+## Create another release branch
 
----
+Each SDK choice has this meaning:
 
-## Final Releases
+| Choice | Result |
+| --- | --- |
+| `none` | Exclude the SDK from branch preparation |
+| `keep` | Include the SDK and keep its current version |
+| `patch`, `minor`, `major` | Include the SDK and apply that version bump |
 
-Final releases go through three phases: **create branch → publish RC → publish final**.
+Select at least one SDK. The tool requires a clean working tree.
+The branch name is `release/<version>`. Each selected SDK keeps its own version
+track. Set `libxmtp-version` only when the release must also change the Rust
+workspace version.
 
-### 1. Create a release branch
+Branch preparation writes `docs/release-notes/release-<version>.json`. This
+record contains the source commit, Rust version, and selected SDK versions.
+It gives the release PR a file change when all notes and versions are already
+prepared.
 
-1. Go to **Actions > Create Release Branch** (`create-release-branch.yml`)
-2. Fill in the inputs:
+The PR target defaults to `self-hosted`. Use an explicit `pr-base` for a
+maintenance release that targets another branch. Use the same target when
+publishing the final release.
 
-   | Input | Description |
-   | ------- | ------------- |
-   | `base-ref` | Starting point — commit or branch (default: `main`) |
-   | `version` | Release version number, e.g. `1.8.0` |
-   | `ios-bump` | Version bump for iOS SDK: `none`, `patch`, `minor`, or `major` |
-   | `android-bump` | Version bump for Android SDK: `none`, `patch`, `minor`, or `major` |
-   | `node-sdk-bump` | Version bump for Node SDK: `none`, `patch`, `minor`, or `major` |
-   | `browser-sdk-bump` | Version bump for Browser SDK: `none`, `patch`, `minor`, or `major` |
-   | `node` | Include Node bindings in release |
+## Review release notes
 
-3. Click **Run workflow**
+Notes are at `docs/release-notes/<sdk>/<version>.md`. Branch preparation keeps
+existing notes. For a missing file, it creates a scaffold using the highest
+stable SDK tag below the target version. Dev, nightly, RC, and artifact tags
+are excluded. If no stable SDK tag exists, a kept version uses a repository
+root commit as the comparison baseline. Review that baseline before accepting
+an AI draft.
 
-This creates a `release/<version>` branch and opens a PR to `main`.
+The notes workflow compares each file with its `previous_release_tag`. This
+field can contain a commit SHA when there is no prior SDK tag. The prepared
+Agent 8.0 notes name the shared legacy Node release as their comparison
+baseline because this repository has no previous stable Agent tag.
 
-### 2. Review and edit release notes
+The first draft of an empty scaffold is committed to the release branch.
+For notes that have content, the workflow proposes changes in a PR from
+`ai-release-notes/<version>`. Notes-only pushes do not start another draft.
+Review the breaking changes, migration steps, and package requirements.
+A human must review notes before a final release.
 
-Release notes are generated automatically by AI on every push to a `release/**` branch.
+## Validate and publish an RC
 
-- Notes live at `docs/release-notes/<sdk>/<version>.md`
-- **First push**: Claude drafts the notes and commits them directly to the release branch
-- **Subsequent pushes**: Claude suggests edits via a PR from `ai-release-notes/<version>` into the release branch
+Use the release branch for both the workflow revision and the source input.
+Use a positive integer for `rc-number`.
 
-To manually edit notes, push changes directly to the release branch. The AI will review your edits on the next push and suggest improvements via PR (which you can accept or ignore).
+```sh
+gh workflow run release.yml \
+  --ref release/8.0.0 \
+  -f ref=release/8.0.0 \
+  -f release-type=rc \
+  -f rc-number=1 \
+  -f ios=true \
+  -f android=true \
+  -f node-sdk=true \
+  -f browser-sdk=true \
+  -f agent-sdk=true \
+  -f cli=false \
+  -f dry-run=true \
+  -f no-merge=true
+```
 
-### 3. (Optional) Publish a Release Candidate
+`dry-run=true` builds and previews the selected npm packages. It skips npm
+publication and git tags. It skips iOS and Android jobs entirely. It does not
+prove registry authorization or mobile publication. Check mobile builds and
+installed packages separately. The workflow can send a completion notification
+even for a dry run.
 
-1. Go to **Actions > Release** (`release.yml`)
-2. Fill in the inputs:
+Before publication:
 
-   | Input | Description |
-   | ------- | ------------- |
-   | `release-type` | `rc` |
-   | `ref` | The `release/<version>` branch |
-   | `rc-number` | RC number (e.g. `1`, `2`) |
-   | `ios` | Check to release iOS SDK |
-   | `android` | Check to release Android SDK |
-   | `node` | Check to release Node bindings |
+- Check CI on the source commit. The RC workflow does not require passing CI.
+- Check the npm tarballs, native binaries, browser worker, and WASM assets.
+- Check iOS SwiftPM and CocoaPods installation and Android Maven installation.
+- Check messaging, storage reopen, and migration against the intended backend.
+- Resolve the recorded CocoaPods publish failure before accepting the iOS RC.
 
-3. Click **Run workflow**
+Run the same command with `dry-run=false` to publish. Each SDK at `8.0.0`
+produces `8.0.0-rc1`. npm uses the `prerelease` tag. It does not replace
+`latest`. Publish Node and Agent together so Agent pins the Node version from
+that run. If Node is omitted, Agent uses npm `latest`, which must be version
+8 or later.
 
-RC versions are published as `<version>-rc<number>` (e.g. `4.9.0-rc1`).
+Keep the release branch fixed during a run. After a failure, check which
+packages were published. Retry only unfinished SDKs at the same source commit.
+Do not overwrite a published package. If the source changes, increment the RC
+number. If Node succeeded and Agent failed, run **Release Agent SDK** from the
+same release branch with `release-type=rc`, the same `rc-number`, and
+`node-sdk-version` set to the published Node RC version. Put fixes on
+`self-hosted`, then bring them into the release branch.
 
-### 4. Publish the final release
+## Publish the final release
 
-Once the RC is validated:
+After RC validation, run **Release** with:
 
-1. Go to **Actions > Release** (`release.yml`)
-2. Fill in the inputs:
+| Input | Value |
+| --- | --- |
+| Workflow revision and `ref` | The release branch |
+| `release-type` | `final` |
+| SDK switches | The validated SDKs |
+| `pr-base` | The release PR target, normally `self-hosted` |
+| `dry-run` | `false` |
+| `no-merge` | `true` to leave the PR open; `false` to merge it after publication |
 
-   | Input | Description |
-   | ------- | ------------- |
-   | `release-type` | `final` |
-   | `ref` | The `release/<version>` branch |
-   | `ios` | Check to release iOS SDK |
-   | `android` | Check to release Android SDK |
-   | `node` | Check to release Node bindings |
-   | `no-merge` | Check to skip auto-merging the release PR to main |
+The workflow uses a squash merge and keeps the release branch. A final
+release with `no-merge=true` leaves the release PR open. Use this setting for
+maintenance releases that must not merge automatically.
 
-3. Click **Run workflow**
+## Dev and nightly releases
 
-On success, the release PR is automatically merged to `main` and the branch is deleted (unless `no-merge` is checked).
+Dev releases can use any branch. Select `release-type=dev`, the source `ref`,
+and the SDK switches. Select the source branch as the workflow revision too.
+Dev versions from a branch such as `self-hosted` use `<version>-dev.<sha7>`.
+Dev versions from `main` use `<version>-pre.<timestamp>.dev.<sha7>`.
+Dev releases publish real packages; they are not a dry run.
 
-Use the `--no-merge` flag if you are creating a patch to a previous major/minor release.
+The scheduled nightly workflow still releases from `main`. Creating an 8.0
+release branch does not change the nightly source. Nightlies use the CI gate
+and pending-version calculation. RC and final releases use the SDK manifests.
 
----
+## SDK tags and package destinations
 
-## Branches and Tags
+| SDK | RC tag example | Package destination |
+| --- | --- | --- |
+| iOS | `ios-8.0.0-rc1` | SwiftPM, CocoaPods `XMTP`, and GitHub release assets |
+| Android | `android-8.0.0-rc1` | Maven Central `org.xmtp:android` |
+| Node | `node-sdk-8.0.0-rc1` | npm `@xmtp/node-sdk` |
+| Browser | `browser-sdk-8.0.0-rc1` | npm `@xmtp/browser-sdk` |
+| Agent | `agent-sdk-8.0.0-rc1` | npm `@xmtp/agent-sdk` |
+| CLI | `cli-<version>-rc1` | npm `@xmtp/cli`; separate version track |
 
-### Branch patterns
-
-| Pattern | Allowed release types |
-| --------- | ---------------------- |
-| `release/<major>.<minor>.<patch>` | RC, Final |
-| `*` (any other branch) | Dev only |
-
-### Tag formats
-
-| SDK | Tag format | Example |
-| ----- | ----------- | --------- |
-| iOS (final) | `ios-<version>` | `ios-4.9.0` |
-| iOS (artifact) | `libxmtp-ios-<sha7>` | `libxmtp-ios-b8bed44` |
-| Android | `android-<version>` | `android-5.1.0` |
-| Node | `node-sdk-<version>` | `node-sdk-8.0.0` |
-| Browser | `browser-sdk-<version>` | `browser-sdk-8.0.0` |
+An iOS binary artifact also has a `libxmtp-ios-<sha7>` tag.
+RC versions do not change the release branch's base SDK versions.

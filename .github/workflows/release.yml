@@ -50,12 +50,17 @@ on:
         type: boolean
         default: false
       no-merge:
-        description: "Skip merging the release PR to main (only applies to final releases)"
+        description: "Skip merging the release PR (only applies to final releases)"
         required: false
         type: boolean
         default: false
+      pr-base:
+        description: "Release PR target branch (only applies to final releases)"
+        required: false
+        type: string
+        default: "self-hosted"
       dry-run:
-        description: "Compute + print the full release plan but skip ALL publishes/tags"
+        description: "Build and preview npm packages; skip mobile jobs, publishing, and tags"
         required: false
         type: boolean
         default: false
@@ -322,16 +327,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.ref }}
+          PR_BASE: ${{ inputs.pr-base }}
         run: |
           BRANCH="${RELEASE_BRANCH#refs/heads/}"
-          PR_NUMBER=$(gh pr list --head "$BRANCH" --base main --json number --jq '.[0].number')
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --base "$PR_BASE" --json number --jq '.[0].number')
           if [ -z "$PR_NUMBER" ]; then
-            echo "No PR found for branch $BRANCH targeting main"
+            echo "No PR found for branch $BRANCH targeting $PR_BASE"
             exit 1
           fi
-          # main's ruleset allows squash merges only — --merge always fails
-          # ("base branch policy prohibits the merge", 1.11.0 postmortem).
-          # Keep the branch: release/v* branches are long-lived maintenance lines.
+          # Use squash and keep the release branch for later maintenance.
           gh pr merge "$PR_NUMBER" --squash
 
   # Nightly blocking + non-nightly compatibility rely on the `if` pattern shared

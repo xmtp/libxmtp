@@ -64,25 +64,31 @@ pnpm --filter @xmtp/release-tools cli update-spm-checksum --sdk ios \
 
 ### `create-release-branch`
 
-Orchestrate a full release branch — bumps versions, scaffolds release notes, and commits everything.
+Create a release branch, prepare selected SDK versions and notes, and commit the result. Use `keep` when an SDK already has the target version. Existing notes are kept. The Rust workspace version changes only with `--libxmtp-version`.
 
-| Flag            | Type                                    | Required | Description                                     |
-| --------------- | --------------------------------------- | -------- | ----------------------------------------------- |
-| `--version`     | string                                  | yes      | Release version (used in branch name)           |
-| `--ios`         | `major` \| `minor` \| `patch` \| `none` | no       | iOS SDK version bump type (default: `none`)     |
-| `--android`     | `major` \| `minor` \| `patch` \| `none` | no       | Android SDK version bump type (default: `none`) |
-| `--node-sdk`    | `major` \| `minor` \| `patch` \| `none` | no       | Node SDK version bump type (default: `none`)    |
-| `--browser-sdk` | `major` \| `minor` \| `patch` \| `none` | no       | Browser SDK version bump type (default: `none`) |
-| `--base`        | string                                  | no       | Base ref to branch from (default: `HEAD`)       |
+The branch records the source commit and selected versions in `docs/release-notes/release-<version>.json`.
+
+| Flag                | Type                                              | Required | Description                                          |
+| ------------------- | ------------------------------------------------- | -------- | ---------------------------------------------------- |
+| `--version`         | string                                            | yes      | Release version (used in branch name)                |
+| `--ios`             | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | iOS SDK version bump type (default: `none`)          |
+| `--android`         | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | Android SDK version bump type (default: `none`)      |
+| `--node-sdk`        | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | Node SDK version bump type (default: `none`)         |
+| `--browser-sdk`     | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | Browser SDK version bump type (default: `none`)      |
+| `--agent-sdk`       | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | Agent SDK selection (default: `none`)                |
+| `--cli`             | `major` \| `minor` \| `patch` \| `keep` \| `none` | no       | CLI selection (default: `none`)                      |
+| `--libxmtp-version` | string                                            | no       | Explicit Rust workspace version (default: unchanged) |
+| `--base`            | string                                            | no       | Base ref to branch from (default: `HEAD`)            |
 
 ```bash
 pnpm --filter @xmtp/release-tools cli create-release-branch \
-  --version "1.0.0" \
+  --version "8.0.0" \
   --base self-hosted \
-  --ios minor \
-  --android patch \
-  --node-sdk minor \
-  --browser-sdk minor \
+  --ios keep \
+  --android keep \
+  --node-sdk keep \
+  --browser-sdk keep \
+  --agent-sdk keep
 ```
 
 ## Supported SDKs

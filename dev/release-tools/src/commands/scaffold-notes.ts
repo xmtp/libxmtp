@@ -8,7 +8,7 @@ import { getSdkConfig } from "@/lib/sdk-config";
 export function scaffoldNotes(
   sdk: string,
   repoRoot: string,
-  previousVersion: string,
+  previousVersion: string | null,
   sinceTag: string | null,
 ): string {
   const config = getSdkConfig(sdk);
@@ -20,7 +20,9 @@ export function scaffoldNotes(
   const outputPath = path.join(notesDir, `${version}.md`);
 
   const frontmatter: Record<string, string> = { sdk };
-  frontmatter.previous_release_version = previousVersion;
+  if (previousVersion !== null) {
+    frontmatter.previous_release_version = previousVersion;
+  }
   if (sinceTag !== null) {
     frontmatter.previous_release_tag = sinceTag;
   }
