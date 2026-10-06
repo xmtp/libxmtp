@@ -132,13 +132,44 @@ private final class RecordingGroup: Group, @unchecked Sendable {
 	}
 }
 
+/// A Conversations with no Rust object. It records each reply it receives.
+private final class RecordingConversations: Conversations, @unchecked Sendable {
+	let replies = Shared<[(MessageId, EncodedContent, SendOptions?)]>([])
+
+	init() {
+		super.init(noHandle: Conversations.NoHandle())
+	}
+
+	required init(unsafeFromHandle handle: UInt64) {
+		super.init(unsafeFromHandle: handle)
+	}
+
+	override func replyToMessage(id: MessageId, content: EncodedContent,
+	                             options: SendOptions? = nil) async throws -> MessageId
+	{
+		replies.update { $0.append((id, content, options)) }
+		return "recorded reply"
+	}
+}
+
+/// A stored text message of `client`, as a parent for typed replies.
+private func parentMessage(of client: FakeClient) -> Message {
+	Message(data: MessageData(
+		id: "parent", clientKey: client.clientKey(), conversationId: "conversation", topic: "topic",
+		senderInboxId: "sender", sentAt: Timestamp(ns: 1), insertedAt: Timestamp(ns: 1), expiresAt: nil,
+		kind: .application, deliveryStatus: .published, rawBytes: Data(), contentType: nil, fallback: nil,
+		encoded: nil, content: .text("parent"), replyCount: 0, reactions: [], inReplyTo: nil,
+	))
+}
+
 private func isCodecEncodeFailed(_ error: Error) -> Bool {
 	guard case let XmtpError.CodecEncodeFailed(details) = error else { return false }
 	return details.code == "CodecEncodeFailed" && details.category == .callback && !details.retryable
 }
 
 /// The typed codec send policy (`runtime/SDKCodecPolicy.swift`). These tests
-/// need no backend: the recording group captures what reaches the send.
+/// need no backend: the recording group and conversations capture what
+/// reaches the send.
 final class CodecPolicyTests: XCTestCase {
 	/// A typed send fills the fallback from the codec. An envelope fallback is
 	/// kept and its hook is not called.
@@ -218,5 +249,53 @@ final class CodecPolicyTests: XCTestCase {
 			return XCTFail("A codec's own CancellationError was not CodecEncodeFailed: \(own)")
 		}
 		XCTAssertEqual(group.sent.value.count, 1, "A cancelled or failed send reached the send")
+	}
+
+	/// A typed reply (`Message.reply(_:value:options:)`) fills the nested
+	/// fallback and keeps the reply type's push default: the codec's push hook
+	/// is not called. Explicit options pass through unchanged. A failed codec
+	/// step is `CodecEncodeFailed`, and a task cancelled during a codec step
+	/// stops, before the reply is sent.
+	// verifies: CTYPE-003, CTYPE-007
+	func testTypedReplyKeepsTheReplyPushDefault() async throws {
+		let raw = FakeClient(noHandle: Client.NoHandle())
+		let conversations = RecordingConversations()
+		raw.fakeConversations = conversations
+		let client = makeSDKClient(raw)
+		let parent = parentMessage(of: raw)
+
+		_ = try await parent.reply(NoteCodec(failPush: true), value: "typed reply")
+		_ = try await parent.reply(NoteCodec(push: false), value: "quiet codec")
+		let explicit = SendOptions(shouldPush: true, optimistic: true)
+		_ = try await parent.reply(NoteCodec(failPush: true), value: "explicit", options: explicit)
+		let replies = conversations.replies.value
+		XCTAssertEqual(replies.map(\.0), ["parent", "parent", "parent"])
+		XCTAssertEqual(replies.map(\.1.fallback), ["a note: typed reply", "a note: quiet codec", "a note: explicit"])
+		XCTAssertEqual(replies.map(\.1.content), ["typed reply", "quiet codec", "explicit"].map { Data($0.utf8) })
+		XCTAssertEqual(replies.map(\.2), [nil, nil, explicit], "A typed reply took its push value from the codec")
+
+		// A reply never calls the push hook, so a failing hook is not in this list.
+		let failing: [NoteCodec] = [
+			NoteCodec(failEncode: true),
+			NoteCodec(failFallback: true),
+			NoteCodec(envelopeType: TextCodec().type),
+			NoteCodec(envelopeType: emptyAuthority, type: emptyAuthority),
+		]
+		for codec in failing {
+			do {
+				_ = try await parent.reply(codec, value: "x")
+				XCTFail("\(codec) did not fail")
+			} catch {
+				XCTAssertTrue(isCodecEncodeFailed(error), "\(codec): \(error)")
+			}
+		}
+		let cancelled = await Task {
+			try await parent.reply(ProbeCodec(cancelInEncode: true), value: "cancelled")
+		}.result
+		guard case let .failure(cancelledError) = cancelled, cancelledError is CancellationError else {
+			return XCTFail("A cancelled typed reply did not stop: \(cancelled)")
+		}
+		XCTAssertEqual(conversations.replies.value.count, 3, "A failed or cancelled reply reached the send")
+		withExtendedLifetime(client) {}
 	}
 }

@@ -2,9 +2,96 @@ import Foundation
 import XCTest
 import XmtpSdk
 
+/// The reader that a stream form opened, with the options it passed.
+private enum OpenedReader: Equatable {
+	case group(ConversationMessageReaderOptions?)
+	case dm(ConversationMessageReaderOptions?)
+	case all(MessageReaderOptions?)
+}
+
+/// A message reader with no Rust object and no messages.
+private final class EmptyMessageReader: MessageReader, @unchecked Sendable {
+	init() {
+		super.init(noHandle: MessageReader.NoHandle())
+	}
+
+	required init(unsafeFromHandle _: UInt64) {
+		fatalError("A fake has no Rust handle")
+	}
+
+	override func next() async throws -> Message? {
+		nil
+	}
+
+	override func end() async throws {}
+
+	override func connectionState() async -> ConnectionState {
+		.connected
+	}
+
+	override func connectionStateChanged(previous _: ConnectionState) async throws -> ConnectionState {
+		.closed
+	}
+}
+
+private final class OpeningGroup: Group, @unchecked Sendable {
+	let opened: Shared<[OpenedReader]>
+
+	init(_ opened: Shared<[OpenedReader]>) {
+		self.opened = opened
+		super.init(noHandle: Group.NoHandle())
+	}
+
+	required init(unsafeFromHandle _: UInt64) {
+		fatalError("A fake has no Rust handle")
+	}
+
+	override func messageReader(options: ConversationMessageReaderOptions? = nil) async throws -> MessageReader {
+		opened.update { $0.append(.group(options)) }
+		return EmptyMessageReader()
+	}
+}
+
+private final class OpeningDm: Dm, @unchecked Sendable {
+	let opened: Shared<[OpenedReader]>
+
+	init(_ opened: Shared<[OpenedReader]>) {
+		self.opened = opened
+		super.init(noHandle: Dm.NoHandle())
+	}
+
+	required init(unsafeFromHandle _: UInt64) {
+		fatalError("A fake has no Rust handle")
+	}
+
+	override func messageReader(options: ConversationMessageReaderOptions? = nil) async throws -> MessageReader {
+		opened.update { $0.append(.dm(options)) }
+		return EmptyMessageReader()
+	}
+}
+
+private final class OpeningConversations: Conversations, @unchecked Sendable {
+	let opened: Shared<[OpenedReader]>
+
+	init(_ opened: Shared<[OpenedReader]>) {
+		self.opened = opened
+		super.init(noHandle: Conversations.NoHandle())
+	}
+
+	required init(unsafeFromHandle _: UInt64) {
+		fatalError("A fake has no Rust handle")
+	}
+
+	override func messageReader(options: MessageReaderOptions? = nil) async throws -> MessageReader {
+		opened.update { $0.append(.all(options)) }
+		return EmptyMessageReader()
+	}
+}
+
 /// The Swift stream adapter (`runtime/streams/Readers.swift`). Rust tests prove
 /// the reader cursor and ACK rules; these tests prove that the Swift iterator
-/// asks for them at the correct time.
+/// asks for them at the correct time, and that each stream form opens its
+/// reader with the caller's options.
 final class MessageStreamTests: XCTestCase {
 	/// A new iterator request acknowledges the previous message. A loop break
 	/// and a dropped iterator acknowledge nothing, and a cancelled idle read
@@ -49,6 +136,39 @@ final class MessageStreamTests: XCTestCase {
 			return XCTFail("A cancelled idle read reported \(reason)")
 		}
 		_ = try? await idle.value
+		try await client.end()
+	}
+
+	/// Each stream form (`SDKClient.messages`) opens the reader of its own
+	/// conversation, or of all conversations, with the caller's options.
+	func testStreamFormsOpenTheirReaderWithTheCallerOptions() async throws {
+		let opened = Shared<[OpenedReader]>([])
+		let raw = FakeClient(noHandle: Client.NoHandle())
+		raw.fakeConversations = OpeningConversations(opened)
+		let client = makeSDKClient(raw)
+		let group = OpeningGroup(opened)
+		let dm = OpeningDm(opened)
+		let groupOptions = ConversationMessageReaderOptions(from: "group cursor")
+		let dmOptions = ConversationMessageReaderOptions(from: "dm cursor")
+		let allOptions = MessageReaderOptions(conversationKind: .group, consentStates: [.allowed], from: "all cursor")
+		let streams = try await [
+			client.messages(in: group, options: groupOptions),
+			client.messages(in: dm, options: dmOptions),
+			client.messages(options: allOptions),
+			client.messages(in: group),
+			client.messages(in: dm),
+			client.messages(),
+		]
+		for stream in streams {
+			let iterator = stream.makeAsyncIterator()
+			guard let first = try await within(seconds: 10, { try await iterator.next() }) else {
+				return XCTFail("The stream did not end in 10 seconds")
+			}
+			XCTAssertNil(first, "An empty reader delivered a message")
+		}
+		XCTAssertEqual(opened.value, [
+			.group(groupOptions), .dm(dmOptions), .all(allOptions), .group(nil), .dm(nil), .all(nil),
+		])
 		try await client.end()
 	}
 
