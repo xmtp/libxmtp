@@ -1,8 +1,9 @@
 // The browser download path: WASM fetch from the backend's object store,
 // digest check, decryption, and the plaintext file in OPFS. The Rust download
-// tests do not build for wasm32, so this is the only real browser download.
+// tests do not build for wasm32, so these are the only real browser downloads.
 import type { AttachmentSource, ClientOptions } from "@xmtp/browser-sdk";
 import { expect, test } from "vitest";
+import { commands } from "vitest/browser";
 
 import { create, signer } from "./helpers";
 
@@ -85,4 +86,34 @@ test("a peer downloads an uploaded attachment into OPFS and deletes it", async (
   await attachments.deleteLocal(received);
   expect(await opfsFile(path)).toBeUndefined();
   expect(await attachments.listLocal()).toEqual([]);
+});
+
+// verifies: ATCH-055
+// verifies: ATCH-057
+// verifies: ATCH-079
+test("a browser download fails typed on a redirect and on a failure status", async () => {
+  const root = `attachments-${crypto.randomUUID()}`;
+  const sender = await create(signer(), fileClient(`${root}/sender`));
+  const receiver = await create(signer(), fileClient(`${root}/receiver`));
+  const record = (await sender.attachments.create(source("bytes")))
+    .remoteAttachment;
+  const host = await commands.startDownloadHost();
+  try {
+    const download = (path: string) =>
+      receiver.attachments.download({ ...record, url: `${host.url}${path}` });
+    // Manual redirect handling: the browser gives the worker an opaque
+    // redirect and does not request the target.
+    await expect(download("/redirect")).rejects.toMatchObject({
+      attachmentFailure: { cause: "tooManyRedirects", httpStatus: undefined },
+    });
+    expect(await commands.downloadHostRequests(host.id)).toEqual(["/redirect"]);
+    await expect(download("/unavailable")).rejects.toMatchObject({
+      attachmentFailure: { cause: "httpStatus", httpStatus: 503 },
+    });
+    await expect(download("/gone")).rejects.toMatchObject({
+      attachmentFailure: { cause: "notFound" },
+    });
+  } finally {
+    await commands.closeDownloadHost(host.id);
+  }
 });

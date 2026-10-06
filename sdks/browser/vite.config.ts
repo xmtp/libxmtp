@@ -5,6 +5,7 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vite";
 import { defineConfig as defineVitestConfig } from "vitest/config";
 
+import { downloadHostCommands } from "./test/download-host";
 import { recoveryProxyCommands } from "./test/recovery-proxy";
 
 // Keep package asset URLs inside the workspace during browser tests.
@@ -46,7 +47,7 @@ const vitestConfig = defineVitestConfig({
       headless: true,
       screenshotFailures: false,
       // Node-side helpers that browser tests call through `vitest/browser`.
-      commands: recoveryProxyCommands,
+      commands: { ...recoveryProxyCommands, ...downloadHostCommands },
       instances: [
         {
           browser: "chromium",
