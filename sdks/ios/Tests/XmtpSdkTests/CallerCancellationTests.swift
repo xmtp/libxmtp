@@ -106,7 +106,7 @@ final class CallerCancellationTests: XCTestCase {
 		XCTAssertEqual(delivered?.id, first)
 
 		let call = Task { try await reader.next() }
-		try await Task.sleep(for: .milliseconds(200))
+		try await Task.sleep(nanoseconds: 200_000_000)
 		call.cancel()
 		let result = await settle(call, "The cancelled pending read")
 		guard result != nil else {
@@ -130,7 +130,7 @@ final class CallerCancellationTests: XCTestCase {
 		let client = try await SDKClient.create(signer: generateLocalSigner(), options: cancellationOptions())
 		let reader = try await client.raw.events(filter: EventFilter(kinds: [.conversationForkDetected]))
 		let call = Task { try await reader.next() }
-		try await Task.sleep(for: .milliseconds(200))
+		try await Task.sleep(nanoseconds: 200_000_000)
 		call.cancel()
 		guard let result = await settle(call, "The cancelled event read") else {
 			try await client.end()
