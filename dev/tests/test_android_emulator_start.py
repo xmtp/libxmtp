@@ -460,17 +460,25 @@ class StopProcessTests(unittest.TestCase):
         spec.loader.exec_module(supervisor)
         # Darwin rejects a signal to the group while its leader exits, and
         # waitpid can still report the leader as running in that window.
+        # The poll does not sleep, because the window is short. The deadline
+        # stops a hang if a later Darwin stops rejecting the signal.
         for _ in range(50):
             process = subprocess.Popen(
                 [sys.executable, "-c", "pass"], start_new_session=True
             )
-            while True:
+            deadline = time.monotonic() + 5
+            rejected = False
+            while not rejected and time.monotonic() < deadline:
                 try:
                     os.killpg(process.pid, 0)
                 except PermissionError:
+                    rejected = True
+                except ProcessLookupError:
                     break
-            if process.poll() is None:
+            if rejected and process.poll() is None:
                 break
+            process.kill()
+            process.wait()
         else:
             self.fail("The leader exit window was never observed")
         supervisor.stop_process(process)
