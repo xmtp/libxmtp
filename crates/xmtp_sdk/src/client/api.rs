@@ -1,5 +1,10 @@
 #[xmtp_macro::sdk_export]
 impl Client {
+    // Swift gives every async `Client` constructor cancellation cleanup: when
+    // the caller is cancelled, the future discards the ready `Client` it never
+    // returned. `apps/xmtp_sdk_bindgen/src/swift_async.rs` also names the two
+    // conformance probe calls that build a `Client`; any other async call that
+    // returns a `Client` stops generation, because the caller may not own it.
     #[uniffi::constructor]
     pub async fn create(
         signer: Arc<dyn Signer>,
