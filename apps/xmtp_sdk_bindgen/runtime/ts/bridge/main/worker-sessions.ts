@@ -14,6 +14,7 @@ interface Generation {
 /** Owns the current worker generation and shares its opening handshake. */
 export class WorkerSessions {
   private current?: Generation;
+  private exclusive = false;
   private retiring?: MainSession;
   private readonly logQueue = new LogCallbackQueue();
 
@@ -25,11 +26,13 @@ export class WorkerSessions {
   ) {}
 
   get(): Promise<MainSession> {
+    if (this.exclusive) return Promise.reject(bridgeError("storageBusy"));
     return this.generation().opening;
   }
 
   /** Reserve before the handshake or any caller work can await. */
   async create<T>(create: (session: MainSession) => Promise<T>): Promise<T> {
+    if (this.exclusive) throw bridgeError("storageBusy");
     const generation = this.generation();
     generation.managed = true;
     generation.creations++;
@@ -38,6 +41,43 @@ export class WorkerSessions {
     } finally {
       generation.creations--;
       this.retireIfIdle(generation);
+    }
+  }
+
+  /** Run storage migration alone in a fresh worker and await its release. */
+  async runExclusive<T>(
+    call: (session: MainSession) => Promise<T>,
+  ): Promise<T> {
+    if (
+      this.exclusive ||
+      (this.current &&
+        (this.current.creations !== 0 ||
+          !this.current.session?.canRetireForMigration))
+    )
+      throw bridgeError("storageBusy");
+    this.exclusive = true;
+    if (this.current?.session) {
+      this.retiring = this.current.session;
+      this.current = undefined;
+      this.retiring.terminate();
+    }
+    const generation = this.generation();
+    generation.managed = true;
+    generation.creations++;
+    try {
+      return await call(await generation.opening);
+    } finally {
+      generation.creations--;
+      if (this.current === generation) this.current = undefined;
+      try {
+        if (generation.session) {
+          this.retiring = generation.session;
+          generation.session.terminate();
+          await generation.session.whenTerminated();
+        }
+      } finally {
+        this.exclusive = false;
+      }
     }
   }
 

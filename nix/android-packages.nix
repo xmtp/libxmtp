@@ -51,19 +51,6 @@
       sdkDylibs = lib.mapAttrs (
         _: p: p.callPackage ./package/xmtp-sdk-native.nix { android = true; }
       ) crossPkgs;
-      migrationDylibs = lib.mapAttrs (
-        _: p:
-        p.callPackage ./package/xmtp-sdk-native.nix {
-          android = true;
-          crateName = "xmtp_legacy_migration";
-        }
-      ) crossPkgs;
-      migrationLibraries =
-        targets:
-        lib.mapAttrsToList (config: dylib: {
-          name = "jniLibs/${configToAbi.${config}}/libxmtp_legacy_migration.so";
-          path = "${dylib}/lib/libxmtp_legacy_migration.so";
-        }) targets;
       generatedKotlin = "${self.packages.${system}.xmtp-sdk-generated-kotlin}/kotlin";
       sdkSources =
         map
@@ -102,12 +89,6 @@
     in
     {
       packages = {
-        xmtp-migration-android-libs = pkgs.linkFarm "xmtp-migration-android" (
-          migrationLibraries migrationDylibs
-        );
-        xmtp-migration-android-libs-fast = pkgs.linkFarm "xmtp-migration-android-fast" (migrationLibraries {
-          ${fastTarget.config} = migrationDylibs.${fastTarget.config};
-        });
         inherit
           android-sdk-libs
           android-sdk-libs-fast
@@ -116,10 +97,6 @@
       // lib.mapAttrs' (config: crossPkgs: {
         name = "xmtp-sdk-android-${configToAbi.${config}}";
         value = sdkDylibs.${config};
-      }) crossPkgs
-      // lib.mapAttrs' (config: _: {
-        name = "xmtp-migration-android-${configToAbi.${config}}";
-        value = migrationDylibs.${config};
       }) crossPkgs;
     };
 }

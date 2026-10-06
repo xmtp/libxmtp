@@ -1,5 +1,4 @@
 mod chaos 'apps/chaos/chaos.just'
-mod migration "sdks/migration/migration.just"
 mod backend 'apps/backend/backend.just'
 mod android 'sdks/android/android.just'
 mod ios 'sdks/ios/ios.just'

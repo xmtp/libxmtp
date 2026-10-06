@@ -44,9 +44,7 @@
     "prettier": "catalog:",
     "prettier-plugin-astro": "^0.14.1",
     "typescript": "6.0.3",
-    "viem": "catalog:",
-    "@xmtp/migration": "workspace:*",
-    "@xmtp/browser-migration": "workspace:*"
+    "viem": "catalog:"
   },
   "engines": {
     "node": ">=26"

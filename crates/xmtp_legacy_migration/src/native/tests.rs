@@ -214,6 +214,7 @@ async fn required_records_and_schema_fail_without_replacing_output() {
     for sql in [
         "UPDATE groups SET id=x'' WHERE id=x'44444444444444444444444444444444'",
         "DELETE FROM groups WHERE id=x'44444444444444444444444444444444'",
+        "UPDATE groups SET id='DDDDDDDDDDDDDDDD' WHERE id=x'44444444444444444444444444444444'; UPDATE group_messages SET group_id='DDDDDDDDDDDDDDDD' WHERE group_id=x'44444444444444444444444444444444'",
         "UPDATE consent_records SET entity_type=99",
         "INSERT INTO __diesel_schema_migrations(version) VALUES('99999999999999')",
         "DROP TABLE __diesel_schema_migrations",

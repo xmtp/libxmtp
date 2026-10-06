@@ -175,15 +175,9 @@ importers:
       '@xmtp/agent-sdk':
         specifier: workspace:*
         version: link:../../sdks/agent
-      '@xmtp/browser-migration':
-        specifier: workspace:*
-        version: link:../../sdks/migration/browser
       '@xmtp/browser-sdk':
         specifier: workspace:*
         version: link:../../sdks/browser
-      '@xmtp/migration':
-        specifier: workspace:*
-        version: link:../../sdks/migration/node
       '@xmtp/node-sdk':
         specifier: workspace:*
         version: link:../../sdks/node
@@ -436,10 +430,6 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
-
-  sdks/migration/browser: {}
-
-  sdks/migration/node: {}
 
   sdks/node:
     devDependencies:

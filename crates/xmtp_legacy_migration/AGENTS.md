@@ -6,8 +6,8 @@ The embedded migrations come from the revision in `README.md`.
 ## Commands
 
 ```bash
-just check crate xmtp_legacy_migration
-just test crate xmtp_legacy_migration
+dev/nix-shell 'just check crate xmtp_legacy_migration'
+dev/nix-shell 'just test crate xmtp_legacy_migration'
 ```
 
 Keep fixtures and their provenance together. Do not regenerate a fixture with

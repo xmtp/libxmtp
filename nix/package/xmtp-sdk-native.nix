@@ -8,13 +8,12 @@
   cargo-zigbuild,
   glibcVersion ? null,
   android ? false,
-  crateName ? "xmtp_sdk",
 }:
 let
   target = stdenv.hostPlatform.rust.rustcTarget;
   rust = xmtp.craneLib.overrideToolchain (p: xmtp.mkToolchain p [ target ] [ ]);
   sources = import ../lib/sdk-sources.nix { inherit lib xmtp; };
-  source = if crateName == "xmtp_sdk" then sources.sdk rust else sources.legacyMigration rust;
+  source = sources.sdk rust;
   mkProvenance = import ../lib/sdk-provenance.nix { inherit stdenvNoCC python3; };
   isGnu = stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isMusl && glibcVersion != null;
   buildTarget = target + lib.optionalString isGnu ".${glibcVersion}";
@@ -33,12 +32,12 @@ let
     lib.optionalString isGnu "CARGO_ZIGBUILD_CACHE_DIR=$TMPDIR/cargo-zigbuild ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-global "
     + "cargo ${
       if isGnu then "zigbuild" else "build"
-    } --release --locked -p ${crateName} --lib --target ${buildTarget}";
+    } --release --locked -p xmtp_sdk --lib --target ${buildTarget}";
   compilation = rust.buildPackage (
     xmtp.base.commonArgs
     // special
     // {
-      pname = "${lib.replaceStrings [ "_" ] [ "-" ] crateName}-native-${target}";
+      pname = "xmtp-sdk-native-${target}";
       nativeBuildInputs =
         xmtp.base.commonArgs.nativeBuildInputs ++ lib.optionals isGnu [ cargo-zigbuild ];
       version = xmtp.mkVersion rust;
@@ -57,8 +56,8 @@ let
       doNotPostBuildInstallCargoBinaries = true;
       installPhaseCommand = ''
         mkdir -p $out/lib
-        cp target/${target}/release/lib${crateName}.a $out/lib/
-        cp target/${target}/release/lib${crateName}.${
+        cp target/${target}/release/libxmtp_sdk.a $out/lib/
+        cp target/${target}/release/libxmtp_sdk.${
           if stdenv.hostPlatform.isDarwin then "dylib" else "so"
         } $out/lib/
       '';

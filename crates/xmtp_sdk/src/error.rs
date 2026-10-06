@@ -44,6 +44,14 @@ pub enum XmtpError {
     IdentityNotFound(ErrorDetails),
     #[error("storage pool busy: {0:?}")]
     StorageBusy(ErrorDetails),
+    #[error("unsupported legacy schema: {0:?}")]
+    MigrationUnsupportedSchema(ErrorDetails),
+    #[error("legacy database migration failed: {0:?}")]
+    MigrationFailed(ErrorDetails),
+    #[error("legacy record read failed: {0:?}")]
+    MigrationRecordRead(ErrorDetails),
+    #[error("migration output failed: {0:?}")]
+    MigrationOutput(ErrorDetails),
     #[error("signer failed: {0:?}")]
     Signer(ErrorDetails),
     #[error("credential failed: {0:?}")]

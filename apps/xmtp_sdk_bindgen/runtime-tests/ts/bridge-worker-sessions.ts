@@ -27,6 +27,99 @@ export function registerWorkerSessionTests(): void {
       return { endpoints, sessions, terminated: () => terminated };
     }
 
+    it("rejects migration while a client creation is reserved", async () => {
+      const { endpoints, sessions } = setup();
+      const creation = sessions.create(async () => 3);
+      await expect(sessions.runExclusive(async () => 4)).rejects.toMatchObject({
+        code: "StorageBusy",
+      });
+      expect(endpoints).toHaveLength(1);
+      endpoints[0].emitRaw({ t: "ready", epoch: 1 });
+      expect(await creation).toBe(3);
+      sessions.terminate();
+    });
+
+    it("keeps migration exclusive until actual termination completes", async () => {
+      const { endpoints, sessions } = setup();
+      let release!: () => void;
+      let started!: () => void;
+      const stopping = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const stopped = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let completed = false;
+      const migration = sessions
+        .runExclusive(async () => 42)
+        .then((value) => {
+          completed = true;
+          return value;
+        });
+      endpoints[0].terminate = () => {
+        started();
+        return stopping;
+      };
+      endpoints[0].emitRaw({ t: "ready", epoch: 1 });
+      await stopped;
+      expect(completed).toBe(false);
+      await expect(sessions.get()).rejects.toMatchObject({
+        code: "StorageBusy",
+      });
+      await expect(sessions.create(async () => 7)).rejects.toMatchObject({
+        code: "StorageBusy",
+      });
+      await expect(sessions.runExclusive(async () => 8)).rejects.toMatchObject({
+        code: "StorageBusy",
+      });
+      expect(endpoints).toHaveLength(1);
+      release();
+      expect(await migration).toBe(42);
+      const retry = sessions.runExclusive(async () => 9);
+      endpoints[1].emitRaw({ t: "ready", epoch: 2 });
+      expect(await retry).toBe(9);
+    });
+
+    it("releases migration admission after a failed call", async () => {
+      const { endpoints, sessions, terminated } = setup();
+      const failure = sessions.runExclusive(async () => {
+        throw new Error("migration failed");
+      });
+      const rejected = expect(failure).rejects.toThrow("migration failed");
+      endpoints[0].emitRaw({ t: "ready", epoch: 1 });
+      await rejected;
+      expect(terminated()).toBe(1);
+      const retry = sessions.create(async () => 9);
+      endpoints[1].emitRaw({ t: "ready", epoch: 2 });
+      expect(await retry).toBe(9);
+      sessions.terminate();
+    });
+
+    it("accepts migration after a completed scalar call before the idle message", async () => {
+      const { endpoints, sessions, terminated } = setup();
+      const scalar = sessions.create((session) =>
+        session.call("readMigrationArchive", []),
+      );
+      endpoints[0].emitRaw({ t: "ready", epoch: 1 });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const sent = endpoints[0].sent.findLast(
+        (message) => message.t === "call",
+      );
+      if (sent?.t !== "call") throw new Error("call was not sent");
+      endpoints[0].emitRaw({
+        t: "return",
+        id: sent.id,
+        value: new Uint8Array([1]),
+      });
+      expect(await scalar).toEqual(new Uint8Array([1]));
+      const migration = sessions.runExclusive(async () => 42);
+      void migration.catch(() => {});
+      expect(endpoints).toHaveLength(2);
+      endpoints[1].emitRaw({ t: "ready", epoch: 2 });
+      expect(await migration).toBe(42);
+      expect(terminated()).toBe(2);
+    });
+
     it("shares concurrent first openings", async () => {
       const { endpoints, sessions } = setup();
       const first = sessions.get();

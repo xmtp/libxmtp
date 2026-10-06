@@ -45,7 +45,6 @@
         ./nix/fmt.nix
         ./nix/node-packages.nix
         ./nix/android-packages.nix
-        ./nix/migration-packages.nix
         ./nix/apps.nix
       ];
       perSystem =

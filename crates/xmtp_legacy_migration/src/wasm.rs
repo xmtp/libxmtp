@@ -6,40 +6,24 @@ use crate::{
 use diesel::{Connection, SqliteConnection};
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = r#"
-export async function writeMigrationOutput(path, bytes) {
-    const root = await navigator.storage.getDirectory();
-    const directory = await root.getDirectoryHandle('xmtp-migration-archives', { create: true });
-    const name = encodeURIComponent(path);
-    let existed = true;
-    let file;
-    try { file = await directory.getFileHandle(name); }
-    catch (error) {
-        if (!(error instanceof DOMException) || error.name !== 'NotFoundError') throw error;
-        existed = false;
-        file = await directory.getFileHandle(name, { create: true });
-    }
-    let stream;
-    try {
-        stream = await file.createWritable();
-        await stream.write(bytes);
-        await stream.close();
-    } catch (error) {
-        if (stream) { try { await stream.abort(); } catch {} }
-        if (!existed) { try { await directory.removeEntry(name); } catch {} }
-        throw error;
-    }
-}
-"#)]
+#[wasm_bindgen(module = "/browser-storage.js")]
 extern "C" {
+    #[wasm_bindgen(catch, js_name = readMigrationOutput)]
+    async fn read_output(path: &str) -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = writeMigrationOutput)]
     async fn write_output(path: &str, bytes: &[u8]) -> Result<JsValue, JsValue>;
 }
 
 fn storage(error: xmtp_db::StorageError) -> MigrationError {
-    use xmtp_db::{StorageError, database::PlatformStorageError};
+    use xmtp_db::{
+        StorageError,
+        database::{OpfsSAHError, PlatformStorageError},
+    };
     match error {
-        StorageError::Platform(PlatformStorageError::DatabaseInUse) => MigrationError::SourceBusy,
+        StorageError::Platform(
+            PlatformStorageError::DatabaseInUse
+            | PlatformStorageError::SAH(OpfsSAHError::CreateSyncAccessHandle(_)),
+        ) => MigrationError::SourceBusy,
         other => MigrationError::InvalidInput(InputError::Storage(other)),
     }
 }
@@ -86,4 +70,11 @@ pub(crate) async fn prepare(
         .await
         .map_err(|value| MigrationError::Output(OutputError::Browser { value }))?;
     Ok(report)
+}
+
+pub(crate) async fn read(path: &str) -> Result<Vec<u8>, MigrationError> {
+    let bytes = read_output(path)
+        .await
+        .map_err(|value| MigrationError::Output(OutputError::Browser { value }))?;
+    Ok(js_sys::Uint8Array::new(&bytes).to_vec())
 }
