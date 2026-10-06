@@ -130,7 +130,11 @@ fn same_file(source: &fs::File, target: &Path) -> Result<bool, MigrationError> {
 /// POSIX locks owned by this process are not visible. Closing the legacy SDK is
 /// still required, including clients in this process and idle connections.
 #[cfg(unix)]
-fn check_locks(file: &fs::File, start: i64, len: i64) -> Result<(), MigrationError> {
+fn check_locks(
+    file: &fs::File,
+    start: libc::off_t,
+    len: libc::off_t,
+) -> Result<(), MigrationError> {
     use std::os::fd::AsRawFd;
     // SAFETY: zero is valid for all flock integer fields; set the query fields.
     let mut lock: libc::flock = unsafe { std::mem::zeroed() };

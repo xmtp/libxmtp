@@ -120,6 +120,48 @@ export function registerWorkerSessionTests(): void {
       expect(terminated()).toBe(2);
     });
 
+    it("replaces a failed generation after actual termination and ignores late events", async () => {
+      const { endpoints, sessions } = setup();
+      const opening = sessions.get();
+      endpoints[0].emitRaw({ t: "ready", epoch: 1 });
+      const failed = await opening;
+      let release!: () => void;
+      const stopped = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      endpoints[0].terminate = () => stopped;
+      endpoints[0].emitRaw({
+        t: "fatal",
+        error: encodeError(new Error("worker failed")),
+      });
+      expect(failed.isTerminated).toBe(true);
+      let called = false;
+      const migration = sessions.runExclusive(async (session) => {
+        called = true;
+        expect(session).not.toBe(failed);
+        endpoints[0].emitRaw({ t: "ready", epoch: 99 });
+        endpoints[0].emitRaw({
+          t: "fatal",
+          error: encodeError(new Error("late failure")),
+        });
+        expect(session.isTerminated).toBe(false);
+        return { groupCount: 2n, messageCount: 3n, consentCount: 1n };
+      });
+      void migration.catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(endpoints).toHaveLength(1);
+      expect(called).toBe(false);
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(endpoints).toHaveLength(2);
+      endpoints[1].emitRaw({ t: "ready", epoch: 2 });
+      expect(await migration).toEqual({
+        groupCount: 2n,
+        messageCount: 3n,
+        consentCount: 1n,
+      });
+    });
+
     it("shares concurrent first openings", async () => {
       const { endpoints, sessions } = setup();
       const first = sessions.get();
