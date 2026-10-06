@@ -1,6 +1,6 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
 import { createRecoveryProxy } from "@test/recoveryProxy";
-import { ConversationStream, XmtpError, type Client } from "@xmtp/node-sdk";
+import { type ConversationStream, XmtpError, type Client } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 type NotificationStream = ConversationStream;
@@ -32,31 +32,23 @@ describe("public notification recovery", () => {
         const onError = vi.fn((_error: unknown) => {
           if (stopping) return;
           opening = (async () => {
-            const replacement = ConversationStream.open(
-              receiver,
-              {},
-              {
-                onClose: (reason) => {
-                  if (reason.kind === "failed")
-                    replacementErrors.push(reason.error as Error);
-                },
+            const replacement = receiver.conversations.stream({
+              onClose: (reason) => {
+                if (reason.kind === "failed")
+                  replacementErrors.push(reason.error as Error);
               },
-            );
+            });
             streams.push(replacement);
             await replacement.ready();
             return replacement;
           })();
           void opening.catch(() => undefined);
         });
-        const old = ConversationStream.open(
-          receiver,
-          {},
-          {
-            onClose: (reason) => {
-              if (reason.kind === "failed") onError(reason.error);
-            },
+        const old = receiver.conversations.stream({
+          onClose: (reason) => {
+            if (reason.kind === "failed") onError(reason.error);
           },
-        );
+        });
         await old.ready();
         streams.push(old);
         const initial = await sender.conversations.createGroup([

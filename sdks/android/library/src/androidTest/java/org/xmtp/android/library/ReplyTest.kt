@@ -9,10 +9,10 @@ class ReplyTest : BaseInstrumentedTest() {
     @Test fun testMessagesV2WithReplyIncludesReferencedMessage() =
         runBlocking {
             val fixtures = createFixtures()
-            val group = fixtures.alixClient.conversations().createGroup(listOf(fixtures.boClient.inboxId()))
-            fixtures.boClient.conversations().syncAll(null)
+            val group = fixtures.alixClient.conversations.createGroup(listOf(fixtures.boClient.inboxId()))
+            fixtures.boClient.conversations.syncAll(null)
             val receiver =
-                (checkNotNull(fixtures.boClient.conversations().getById(group.id())) as Conversation.Group).group
+                (checkNotNull(fixtures.boClient.conversations.getById(group.id())) as Conversation.Group).group
             val parent = group.sendText("Original message")
             receiver.sync()
             val id = receiver.sendReply(parent, null, TextCodec().encode("Text reply"))

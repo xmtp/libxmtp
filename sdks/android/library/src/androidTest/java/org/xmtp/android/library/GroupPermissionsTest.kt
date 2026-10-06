@@ -25,12 +25,12 @@ class GroupPermissionsTest : BaseInstrumentedTest() {
 
     private suspend fun createGroup(mode: GroupPermissionMode = GroupPermissionMode.AdminOnly): Pair<Group, Group> {
         val group =
-            boClient.conversations().createGroup(
+            boClient.conversations.createGroup(
                 listOf(alixClient.inboxId(), caroClient.inboxId()),
                 CreateGroupOptions(permissions = mode),
             )
-        alixClient.conversations().sync()
-        return group to alixClient.conversations().listGroups(null).single()
+        alixClient.conversations.sync()
+        return group to alixClient.conversations.listGroups(null).single()
     }
 
     private suspend fun sync(

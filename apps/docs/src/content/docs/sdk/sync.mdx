@@ -13,7 +13,7 @@ Syncing pulls new envelopes into the local database. Conversation lists, message
 | `conversations.syncAll(consentStates)` | Welcomes, selected conversations, and device-sync groups |
 | `preferences.sync()`                   | Welcomes and conversations, including device-sync groups |
 
-All four SDKs use `conversations.syncAll`. Kotlin and Swift access the collection through `client.conversations()`.
+All four SDKs use `conversations.syncAll`. Kotlin and Swift access the collection through `client.conversations`.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -32,14 +32,14 @@ All four SDKs use `conversations.syncAll`. Kotlin and Swift access the collectio
 
 ```kotlin
 val consentStates = listOf(ConsentState.ALLOWED)
-val summary = client.conversations().syncAll(consentStates)
+val summary = client.conversations.syncAll(consentStates)
 ```
 
 </TabItem><TabItem label="Swift">
 
 ```swift
 let consentStates: [ConsentState] = [.allowed]
-let summary = try await client.conversations().syncAll(consentStates: consentStates)
+let summary = try await client.conversations.syncAll(consentStates: consentStates)
 ```
 
 </TabItem>

@@ -95,7 +95,7 @@ class AndroidPackageTest {
                         val inbox = client.inboxId()
                         val path = checkNotNull(client.storage().path())
                         val group =
-                            client.conversations().createGroup(
+                            client.conversations.createGroup(
                                 emptyList<InboxId>(),
                                 CreateGroupOptions(name = "Android metadata"),
                             )
@@ -133,7 +133,7 @@ class AndroidPackageTest {
                         "Offline reopen: backend=${proxy.url}; label=${configuration.storage.label}; " +
                             "path=${offline.storage().path()}; inbox=${offline.inboxId()}",
                     )
-                    val restored = checkNotNull(offline.conversations().getById(id)) as Conversation.Group
+                    val restored = checkNotNull(offline.conversations.getById(id)) as Conversation.Group
                     assertEquals("Android metadata", restored.group.state().name)
                     assertTrue(
                         restored.group.messages().any {
@@ -183,7 +183,7 @@ class AndroidPackageTest {
             val first = SDKClient.create(context, signer, firstOptions)
             val (groupId, firstPath) =
                 try {
-                    val group = first.conversations().createGroup(emptyList<InboxId>())
+                    val group = first.conversations.createGroup(emptyList<InboxId>())
                     group.sendText("first profile")
                     group.id() to first.storage().path()
                 } finally {
@@ -192,14 +192,14 @@ class AndroidPackageTest {
             val second = SDKClient.create(context, signer, secondOptions)
             try {
                 assertNotEquals(firstPath, second.storage().path())
-                assertNull(second.conversations().getById(groupId))
+                assertNull(second.conversations.getById(groupId))
             } finally {
                 withContext(NonCancellable) { second.storage().delete() }
             }
             val reopened = SDKClient.build(context, signer.identity(), firstOptions)
             try {
                 assertEquals(firstPath, reopened.storage().path())
-                val group = (checkNotNull(reopened.conversations().getById(groupId)) as Conversation.Group).group
+                val group = (checkNotNull(reopened.conversations.getById(groupId)) as Conversation.Group).group
                 assertTrue(
                     group.messages().any {
                         (it.content as? SDKMessageContent.Standard)?.value == MessageContent.Text("first profile")
@@ -222,11 +222,11 @@ class AndroidPackageTest {
                             AttachmentSource.Bytes(content, "android.txt", "text/plain"),
                         )
                     val remote = pending.remoteAttachment()
-                    val dm = sender.conversations().createDm(receiver.inboxId())
+                    val dm = sender.conversations.createDm(receiver.inboxId())
                     val id = dm.sendRemoteAttachment(remote)
                     pending.upload()
-                    receiver.conversations().syncAll(null)
-                    val message = checkNotNull(receiver.conversations().getMessageById(id))
+                    receiver.conversations.syncAll(null)
+                    val message = checkNotNull(receiver.conversations.getMessageById(id))
                     val received =
                         ((message.content as SDKMessageContent.Standard).value as MessageContent.RemoteAttachment)
                             .v1
@@ -241,13 +241,13 @@ class AndroidPackageTest {
         runBlocking {
             withTimeout(60_000) {
                 clients { sender, receiver ->
-                    val group = sender.conversations().createGroup(listOf(receiver.inboxId()))
-                    receiver.conversations().syncAll(null)
-                    val received = checkNotNull(receiver.conversations().getById(group.id())) as Conversation.Group
+                    val group = sender.conversations.createGroup(listOf(receiver.inboxId()))
+                    receiver.conversations.syncAll(null)
+                    val received = checkNotNull(receiver.conversations.getById(group.id())) as Conversation.Group
                     val delivered = CompletableDeferred<Message>()
                     val collector =
                         launch {
-                            receiver.messages(received.group).collect { message ->
+                            received.group.streamMessages().collect { message ->
                                 if ((message.content as? SDKMessageContent.Standard)?.value ==
                                     MessageContent.Text("held")
                                 ) {
@@ -259,7 +259,7 @@ class AndroidPackageTest {
                     val id = group.sendText("held")
                     val first = delivered.await()
                     collector.cancelAndJoin()
-                    val replay = receiver.messages(received.group).first { it.id == id }
+                    val replay = received.group.streamMessages().first { it.id == id }
                     assertEquals(first.id, replay.id)
                     assertEquals(first.deliveryCursor, replay.deliveryCursor)
                 }
@@ -270,28 +270,28 @@ class AndroidPackageTest {
         runBlocking {
             withTimeout(60_000) {
                 clients { sender, receiver ->
-                    val group = sender.conversations().createGroup(listOf(receiver.inboxId()))
+                    val group = sender.conversations.createGroup(listOf(receiver.inboxId()))
                     group.sendText("older history")
                     val recent = group.sendText("recent history")
-                    val dm = sender.conversations().createDm(receiver.inboxId())
+                    val dm = sender.conversations.createDm(receiver.inboxId())
                     val direct = dm.sendText("direct history")
-                    receiver.conversations().syncAll(null)
+                    receiver.conversations.syncAll(null)
                     val storedGroup =
                         (
                             checkNotNull(
-                                receiver.conversations().getById(group.id()),
+                                receiver.conversations.getById(group.id()),
                             ) as Conversation.Group
                         ).group
-                    val storedDm = (checkNotNull(receiver.conversations().getById(dm.id())) as Conversation.Dm).dm
+                    val storedDm = (checkNotNull(receiver.conversations.getById(dm.id())) as Conversation.Dm).dm
                     val snapshot = storedGroup.messageHistorySnapshot(1u)
                     assertEquals(listOf(recent), snapshot.messages.map { it.id })
                     assertTrue(snapshot.cursor.isNotEmpty())
                     assertTrue(snapshot.messages.all { it.deliveryCursor != null })
                     assertEquals(listOf(direct), storedDm.messageHistorySnapshot(1u).messages.map { it.id })
-                    val collection = receiver.conversations().messageHistorySnapshot(20u)
+                    val collection = receiver.conversations.messageHistorySnapshot(20u)
                     assertTrue(collection.messages.map { it.id }.containsAll(listOf(recent, direct)))
                     val groups =
-                        receiver.conversations().messageHistorySnapshot(
+                        receiver.conversations.messageHistorySnapshot(
                             20u,
                             MessageReaderOptions(conversationKind = ConversationKind.GROUP),
                         )
@@ -299,7 +299,7 @@ class AndroidPackageTest {
                     assertTrue(groups.messages.all { it.conversationId == group.id() })
                     assertTrue(storedGroup.messageHistorySnapshot(0u).messages.isEmpty())
                     try {
-                        receiver.conversations().messageHistorySnapshot(
+                        receiver.conversations.messageHistorySnapshot(
                             1u,
                             MessageReaderOptions(from = collection.cursor),
                         )
@@ -309,10 +309,9 @@ class AndroidPackageTest {
                     }
                     val next =
                         async {
-                            receiver
-                                .messages(
-                                    storedGroup,
-                                    ConversationMessageReaderOptions(from = snapshot.cursor),
+                            storedGroup
+                                .streamMessages(
+                                    options = ConversationMessageStreamOptions(from = snapshot.cursor),
                                 ).first()
                         }
                     val after = group.sendText("after snapshot")
@@ -325,14 +324,14 @@ class AndroidPackageTest {
         runBlocking {
             withTimeout(60_000) {
                 clients { sender, receiver ->
-                    val group = sender.conversations().createGroup(listOf(receiver.inboxId()))
+                    val group = sender.conversations.createGroup(listOf(receiver.inboxId()))
                     val id = group.sendText("missed while away")
-                    assertTrue(receiver.conversations().listGroups(null).isEmpty())
+                    assertTrue(receiver.conversations.listGroups(null).isEmpty())
                     val summary = receiver.catchUpToLive(30_000uL)
                     assertTrue(summary.completed)
                     assertEquals(0uL, summary.failed)
                     assertEquals(1uL, summary.conversations)
-                    val restored = checkNotNull(receiver.conversations().getMessageById(id))
+                    val restored = checkNotNull(receiver.conversations.getMessageById(id))
                     assertEquals(
                         MessageContent.Text("missed while away"),
                         (restored.content as SDKMessageContent.Standard).value,
@@ -412,12 +411,12 @@ class AndroidPackageTest {
                 try {
                     val peer = SDKClient.create(context, generateLocalSigner(), options("leaving-${UUID.randomUUID()}"))
                     try {
-                        val group = sender.conversations().createGroup(listOf(peer.inboxId()))
-                        peer.conversations().syncAll(null)
+                        val group = sender.conversations.createGroup(listOf(peer.inboxId()))
+                        peer.conversations.syncAll(null)
                         val peerGroup =
                             (
                                 checkNotNull(
-                                    peer.conversations().getById(group.id()),
+                                    peer.conversations.getById(group.id()),
                                 ) as Conversation.Group
                             ).group
                         peerGroup.requestRemoval()
@@ -443,7 +442,7 @@ class AndroidPackageTest {
                         val id = group.id()
                         sender.end()
                         sender = SDKClient.build(context, signer.identity(), configuration)
-                        val restored = (checkNotNull(sender.conversations().getById(id)) as Conversation.Group).group
+                        val restored = (checkNotNull(sender.conversations.getById(id)) as Conversation.Group).group
                         val left =
                             restored
                                 .messages()

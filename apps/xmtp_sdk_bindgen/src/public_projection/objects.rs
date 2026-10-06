@@ -388,6 +388,11 @@ pub(super) fn object(
             code.push_str("}\n");
         }
     }
+    match name {
+        "Conversations" => code.push_str("stream(options?: ConversationStreamOptions): ConversationStream { return openConversationStream(this, options); }\nstreamAllMessages(options?: MessageStreamOptions): MessageStream { return openAllMessages(this, options); }\n"),
+        "Group" | "Dm" => writeln!(code, "streamMessages(options?: ConversationMessageStreamOptions): MessageStream {{ return open{name}Messages(this, options); }}")?,
+        _ => {}
+    }
     for method in methods(items, name) {
         if is_identity_route(name, &camel(&method.name)) {
             continue;
@@ -587,7 +592,7 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
         Target::Pure => unreachable!("the pure module has its own entry"),
     };
     format!(
-        "// The package root, generated from the public projection. Do not edit this\n// output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ ConversationStream, MessageStream, type StreamCloseReason, type StreamOptions }} from \"./runtime/public/streams.js\";\nexport {{ EventStream }} from \"./runtime/public/events.js\";\n{target_exports}export {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
+        "// The package root, generated from the public projection. Do not edit this\n// output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ ConversationStream, MessageStream, type StreamCloseReason, type StreamOptions, type ConversationStreamOptions, type MessageStreamOptions, type ConversationMessageStreamOptions }} from \"./runtime/public/streams.js\";\nexport {{ EventStream }} from \"./runtime/public/events.js\";\n{target_exports}export {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
         join(values),
         join(types)
     )

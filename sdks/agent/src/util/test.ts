@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   Client,
-  ConversationStream,
   type AnyContentCodec,
   type ContentCodec,
   type ContentTypeId,
@@ -77,7 +76,7 @@ export const createConversationAndWait = async <Created extends { id: string }>(
     reportError = resolve;
   });
   // Subscribe before creation so the new Welcome is observed.
-  const stream = ConversationStream.open(recipient, undefined, {
+  const stream = recipient.conversations.stream({
     onClose: (reason) => {
       if (reason.kind === "failed")
         reportError({

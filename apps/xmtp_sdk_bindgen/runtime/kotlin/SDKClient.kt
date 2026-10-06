@@ -1,7 +1,5 @@
 package uniffi.xmtp_sdk
 
-import kotlinx.coroutines.flow.Flow
-
 /**
  * The receive registry. A star-projected codec decodes to `Any`, the one place
  * where the value type is erased (Decision 3).
@@ -123,99 +121,5 @@ class SDKClient private constructor(
         }
     }
 
-    /**
-     * The next native read acknowledges the previous message after `emit` returns.
-     * With direct sequential collection, the collector callback finishes before
-     * that acknowledgement starts. A buffer or another asynchronous
-     * operator can let `emit` return before downstream processing ends.
-     * Cancellation after acknowledgement does not restore the message to default
-     * progress. This Flow does not provide durable acknowledgements for each
-     * downstream consumer.
-     *
-     * Only one default message reader can own progress in a client database.
-     * Different group or DM scopes do not create separate default owners.
-     * A second active default message reader fails with [XmtpException.ConsumerOwned].
-     * Use an explicit `from` cursor for independent replay/live reading. It does
-     * not advance default progress or create a durable consumer checkpoint.
-     */
-    fun messages(
-        group: Group,
-        options: ConversationMessageReaderOptions? = null,
-        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
-        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
-    ): Flow<Message> =
-        messageFlow(
-            this,
-            open = { group.messageReader(options) },
-            onClose = onClose,
-            onConnectionStateChange = onConnectionStateChange,
-        )
-
-    /**
-     * The next native read acknowledges the previous message after `emit` returns.
-     * With direct sequential collection, the collector callback finishes before
-     * that acknowledgement starts. A buffer or another asynchronous
-     * operator can let `emit` return before downstream processing ends.
-     * Cancellation after acknowledgement does not restore the message to default
-     * progress. This Flow does not provide durable acknowledgements for each
-     * downstream consumer.
-     *
-     * Only one default message reader can own progress in a client database.
-     * Different group or DM scopes do not create separate default owners.
-     * A second active default message reader fails with [XmtpException.ConsumerOwned].
-     * Use an explicit `from` cursor for independent replay/live reading. It does
-     * not advance default progress or create a durable consumer checkpoint.
-     */
-    fun messages(
-        dm: Dm,
-        options: ConversationMessageReaderOptions? = null,
-        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
-        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
-    ): Flow<Message> =
-        messageFlow(
-            this,
-            open = { dm.messageReader(options) },
-            onClose = onClose,
-            onConnectionStateChange = onConnectionStateChange,
-        )
-
-    /**
-     * The next native read acknowledges the previous message after `emit` returns.
-     * With direct sequential collection, the collector callback finishes before
-     * that acknowledgement starts. A buffer or another asynchronous
-     * operator can let `emit` return before downstream processing ends.
-     * Cancellation after acknowledgement does not restore the message to default
-     * progress. This Flow does not provide durable acknowledgements for each
-     * downstream consumer.
-     *
-     * Only one default message reader can own progress in a client database.
-     * Different group or DM scopes do not create separate default owners.
-     * A second active default message reader fails with [XmtpException.ConsumerOwned].
-     * Use an explicit `from` cursor for independent replay/live reading. It does
-     * not advance default progress or create a durable consumer checkpoint.
-     */
-    fun messages(
-        options: MessageReaderOptions? = null,
-        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
-        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
-    ): Flow<Message> =
-        messageFlow(
-            this,
-            open = { raw.conversations().messageReader(options) },
-            onClose = onClose,
-            onConnectionStateChange = onConnectionStateChange,
-        )
-
-    fun conversationStream(
-        kind: ConversationKind? = null,
-        consentStates: List<ConsentState>? = null,
-        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
-        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
-    ): Flow<Conversation> =
-        conversationFlow(
-            this,
-            open = { raw.conversations().conversationReader(ConversationReaderOptions(kind, consentStates)) },
-            onClose = onClose,
-            onConnectionStateChange = onConnectionStateChange,
-        )
+    val conversations: Conversations get() = raw.conversations()
 }

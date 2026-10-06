@@ -72,20 +72,20 @@ final class CustomCodecTests: XCTestCase {
 			let slash = try await scope.build(
 				identity: identity, options: options, inboxId: inboxId, codecs: [SlashCodec()],
 			)
-			let group = try await withCodec.conversations().createGroup(members: [InboxId]())
+			let group = try await withCodec.conversations.createGroup(members: [InboxId]())
 			let noteId = try await group.send(NoteCodec(), value: "codec value")
-			guard let parent = try await withCodec.conversations().getMessageById(id: noteId) else {
+			guard let parent = try await withCodec.conversations.getMessageById(id: noteId) else {
 				return XCTFail("The note was not stored")
 			}
 			let replyId = try await parent.reply(NoteCodec(), value: "reply value")
 			let collidingId = try await group.send(encoded: EncodedContent(type: collidingType, content: Data([1])))
 
-			let decoded = try await withCodec.conversations().getMessageById(id: noteId)
+			let decoded = try await withCodec.conversations.getMessageById(id: noteId)
 			guard case let .custom(_, _, value, nil)? = decoded?.content else {
 				return XCTFail("The registered codec did not decode: \(String(describing: decoded?.content))")
 			}
 			XCTAssertEqual(value as? String, "codec value")
-			let reply = try await withCodec.conversations().getMessageById(id: replyId)
+			let reply = try await withCodec.conversations.getMessageById(id: replyId)
 			guard case let .custom(nested, _, replyValue, nil)? = reply?.replyContent else {
 				return XCTFail("The reply body did not decode with the client codec")
 			}
@@ -93,20 +93,20 @@ final class CustomCodecTests: XCTestCase {
 			XCTAssertEqual(nested.fallback, "a note: reply value", "A typed reply lost the nested fallback")
 
 			for client in [withoutCodec, slash] {
-				let other = try await client.conversations().getMessageById(id: noteId)
+				let other = try await client.conversations.getMessageById(id: noteId)
 				guard case let .unknown(encoded, _, error)? = other?.content else {
 					return XCTFail("Another client's codec decoded the note: \(String(describing: other?.content))")
 				}
 				XCTAssertEqual(encoded?.fallback, "a note: codec value")
 				XCTAssertEqual(error.code, "CodecNotFound")
-				let otherReply = try await client.conversations().getMessageById(id: replyId)
+				let otherReply = try await client.conversations.getMessageById(id: replyId)
 				guard case let .unknown(nestedEncoded, _, nestedError)? = otherReply?.replyContent else {
 					return XCTFail("A reply body without a codec was not unknown")
 				}
 				XCTAssertEqual(nestedEncoded?.content, Data("reply value".utf8))
 				XCTAssertEqual(nestedError.code, "CodecNotFound")
 			}
-			let colliding = try await slash.conversations().getMessageById(id: collidingId)
+			let colliding = try await slash.conversations.getMessageById(id: collidingId)
 			guard case let .unknown(_, _, collisionError)? = colliding?.content else {
 				return XCTFail("A codec with another type decoded the message: \(String(describing: colliding?.content))")
 			}
@@ -123,14 +123,14 @@ final class CustomCodecTests: XCTestCase {
 			let client = try await scope.create(
 				signer: generateLocalSigner(), options: liveOptions(), codecs: [FailingNoteCodec()],
 			)
-			let group = try await client.conversations().createGroup(members: [InboxId]())
+			let group = try await client.conversations.createGroup(members: [InboxId]())
 			let badId = try await group.send(NoteCodec(), value: "unreadable")
 			let nextId = try await group.sendText(text: "after the failure")
-			guard let bad = try await client.conversations().getMessageById(id: badId) else {
+			guard let bad = try await client.conversations.getMessageById(id: badId) else {
 				return XCTFail("The failed message was not stored")
 			}
 			let replyId = try await bad.reply(NoteCodec(), value: "nested")
-			guard let reply = try await client.conversations().getMessageById(id: replyId),
+			guard let reply = try await client.conversations.getMessageById(id: replyId),
 			      case let .unknown(outer, outerRaw, outerError) = reply.content
 			else { return XCTFail("A failed nested codec did not make the reply unknown") }
 			XCTAssertEqual(outerRaw, reply.rawBytes)
@@ -139,7 +139,7 @@ final class CustomCodecTests: XCTestCase {
 			XCTAssertNotNil(reply.fallback)
 			XCTAssertEqual(outerError.code, "CodecDecodeFailed")
 
-			let stored = try await client.conversations().getMessageById(id: badId)
+			let stored = try await client.conversations.getMessageById(id: badId)
 			guard let stored, case let .custom(encoded, raw, nil, error?) = stored.content else {
 				return XCTFail("A failed decode lost its typed details")
 			}
@@ -151,7 +151,7 @@ final class CustomCodecTests: XCTestCase {
 			XCTAssertFalse(error.retryable)
 			XCTAssertTrue(error.message.contains("note decode failed"), error.message)
 
-			let iterator = try await client.messages(in: group).makeAsyncIterator()
+			let iterator = try await group.streamMessages().makeAsyncIterator()
 			let first = try await within(seconds: 30) { try await iterator.next() }
 			guard case let .custom(_, _, nil, streamError?)? = first??.content else {
 				return XCTFail("The stream did not deliver the failed message")
@@ -178,9 +178,9 @@ final class CustomCodecTests: XCTestCase {
 			let client = try await scope.create(
 				signer: generateLocalSigner(), options: liveOptions(), codecs: [FailingNoteCodec()],
 			)
-			let group = try await client.conversations().createGroup(members: [InboxId]())
+			let group = try await client.conversations.createGroup(members: [InboxId]())
 			let textId = try await group.sendText(text: "template")
-			guard let template = try await client.conversations().getMessageById(id: textId) else {
+			guard let template = try await client.conversations.getMessageById(id: textId) else {
 				return XCTFail("The template message was not stored")
 			}
 

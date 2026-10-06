@@ -1,5 +1,5 @@
 // #region client
-import { Client, MessageStream, generateLocalSigner } from "@xmtp/node-sdk";
+import { Client, generateLocalSigner } from "@xmtp/node-sdk";
 
 // Use a new signer and an in-memory database for this local test.
 const signer = await generateLocalSigner();
@@ -21,7 +21,9 @@ await group.sendText("Hello everyone");
 // #endregion send
 
 // #region stream
-const stream = MessageStream.open(client, { consentStates: ["allowed"] });
+const stream = client.conversations.streamAllMessages({
+  consentStates: ["allowed"],
+});
 const receive = (async () => {
   for await (const message of stream) console.log("New message:", message);
 })();

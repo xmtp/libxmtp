@@ -1,9 +1,5 @@
 import { Flags } from "@oclif/core";
-import {
-  MessageStream,
-  type ConsentState,
-  type ConversationKind,
-} from "@xmtp/node-sdk";
+import { type ConsentState, type ConversationKind } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import { consentStateMap, conversationTypeMap } from "@/utils/enums";
@@ -101,7 +97,7 @@ Output includes message ID, conversation ID, sender, content, and timestamps.`;
       );
     }
 
-    const stream = MessageStream.open(client, streamOptions);
+    const stream = client.conversations.streamAllMessages({ ...streamOptions });
     await stream.ready();
 
     // Set up timeout if specified

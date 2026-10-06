@@ -68,6 +68,7 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
         code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker, initLoggingInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\nimport { BridgeError } from './runtime/bridge/wire.js';\n");
     }
     if target != Target::Pure {
+        code.push_str("import { openConversationStream, openAllMessages, openGroupMessages, openDmMessages, type ConversationStream, type MessageStream, type ConversationStreamOptions, type MessageStreamOptions, type ConversationMessageStreamOptions } from './runtime/public/streams.js';\n");
         code.push_str("import type { ContentCodec } from './runtime/public/codec.js';\nimport { contentForSend } from './runtime/public/codec-policy.js';\n");
     }
     if target == Target::Pure {

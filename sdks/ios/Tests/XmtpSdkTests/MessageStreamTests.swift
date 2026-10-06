@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-import XmtpSdk
+@testable import XmtpSdk
 
 /// The reader that a stream form opened, with the options it passed.
 private enum OpenedReader: Equatable {
@@ -36,8 +36,13 @@ private final class EmptyMessageReader: MessageReader, @unchecked Sendable {
 
 private final class OpeningGroup: Group, @unchecked Sendable {
 	let opened: Shared<[OpenedReader]>
+	let ownerKey: UInt64
+	override func sdkStreamOwnerKey() -> UInt64 {
+		ownerKey
+	}
 
-	init(_ opened: Shared<[OpenedReader]>) {
+	init(_ opened: Shared<[OpenedReader]>, ownerKey: UInt64) {
+		self.ownerKey = ownerKey
 		self.opened = opened
 		super.init(noHandle: Group.NoHandle())
 	}
@@ -54,8 +59,13 @@ private final class OpeningGroup: Group, @unchecked Sendable {
 
 private final class OpeningDm: Dm, @unchecked Sendable {
 	let opened: Shared<[OpenedReader]>
+	let ownerKey: UInt64
+	override func sdkStreamOwnerKey() -> UInt64 {
+		ownerKey
+	}
 
-	init(_ opened: Shared<[OpenedReader]>) {
+	init(_ opened: Shared<[OpenedReader]>, ownerKey: UInt64) {
+		self.ownerKey = ownerKey
 		self.opened = opened
 		super.init(noHandle: Dm.NoHandle())
 	}
@@ -72,8 +82,13 @@ private final class OpeningDm: Dm, @unchecked Sendable {
 
 private final class OpeningConversations: Conversations, @unchecked Sendable {
 	let opened: Shared<[OpenedReader]>
+	let ownerKey: UInt64
+	override func sdkStreamOwnerKey() -> UInt64 {
+		ownerKey
+	}
 
-	init(_ opened: Shared<[OpenedReader]>) {
+	init(_ opened: Shared<[OpenedReader]>, ownerKey: UInt64) {
+		self.ownerKey = ownerKey
 		self.opened = opened
 		super.init(noHandle: Conversations.NoHandle())
 	}
@@ -99,11 +114,11 @@ final class MessageStreamTests: XCTestCase {
 	func testNextRequestAcknowledgesThePreviousMessage() async throws {
 		try await withClients { scope in
 			let client = try await scope.create(signer: generateLocalSigner())
-			let group = try await client.conversations().createGroup(members: [InboxId]())
+			let group = try await client.conversations.createGroup(members: [InboxId]())
 			let firstId = try await group.sendText(text: "first")
 
 			let breakClose = CloseSignal()
-			for try await message in try await client.messages(in: group, onClose: breakClose.record) {
+			for try await message in try await group.streamMessages(options: .init(onClose: breakClose.record)) {
 				XCTAssertEqual(message.id, firstId)
 				break
 			}
@@ -113,9 +128,8 @@ final class MessageStreamTests: XCTestCase {
 
 			let secondId = try await group.sendText(text: "second")
 			let dropClose = CloseSignal()
-			var iterator: SDKMessageStream.Iterator? = try await client.messages(
-				in: group, onClose: dropClose.record,
-			).makeAsyncIterator()
+			var iterator: SDKMessageStream.Iterator? = try await group.streamMessages(options: .init(onClose: dropClose.record))
+				.makeAsyncIterator()
 			let first = try await read(iterator)
 			XCTAssertEqual(first?.id, firstId)
 			let second = try await read(iterator)
@@ -126,7 +140,7 @@ final class MessageStreamTests: XCTestCase {
 			XCTAssertEqual(afterDrop, secondId, "The second request did not acknowledge only the first message")
 
 			let idleClose = CloseSignal()
-			let idleIterator = try await client.messages(in: group, onClose: idleClose.record).makeAsyncIterator()
+			let idleIterator = try await group.streamMessages(options: .init(onClose: idleClose.record)).makeAsyncIterator()
 			let delivered = try await read(idleIterator)
 			XCTAssertEqual(delivered?.id, secondId)
 			let idle = Task { try await idleIterator.next() }
@@ -140,25 +154,25 @@ final class MessageStreamTests: XCTestCase {
 		}
 	}
 
-	/// Each stream form (`SDKClient.messages`) opens the reader of its own
+	/// Each receiver stream method opens the reader of its own
 	/// conversation, or of all conversations, with the caller's options.
 	func testStreamFormsOpenTheirReaderWithTheCallerOptions() async throws {
 		let opened = Shared<[OpenedReader]>([])
 		let raw = FakeClient(noHandle: Client.NoHandle())
-		raw.fakeConversations = OpeningConversations(opened)
+		raw.fakeConversations = OpeningConversations(opened, ownerKey: raw.clientKey())
 		let client = makeSDKClient(raw)
-		let group = OpeningGroup(opened)
-		let dm = OpeningDm(opened)
-		let groupOptions = ConversationMessageReaderOptions(from: "group cursor")
-		let dmOptions = ConversationMessageReaderOptions(from: "dm cursor")
-		let allOptions = MessageReaderOptions(conversationKind: .group, consentStates: [.allowed], from: "all cursor")
+		let group = OpeningGroup(opened, ownerKey: raw.clientKey())
+		let dm = OpeningDm(opened, ownerKey: raw.clientKey())
+		let groupOptions = ConversationMessageStreamOptions(from: "group cursor")
+		let dmOptions = ConversationMessageStreamOptions(from: "dm cursor")
+		let allOptions = MessageStreamOptions(conversationKind: .group, consentStates: [.allowed], from: "all cursor")
 		let streams = try await [
-			client.messages(in: group, options: groupOptions),
-			client.messages(in: dm, options: dmOptions),
-			client.messages(options: allOptions),
-			client.messages(in: group),
-			client.messages(in: dm),
-			client.messages(),
+			group.streamMessages(options: groupOptions),
+			dm.streamMessages(options: dmOptions),
+			client.conversations.streamAllMessages(options: allOptions),
+			group.streamMessages(),
+			dm.streamMessages(),
+			client.conversations.streamAllMessages(),
 		]
 		for stream in streams {
 			let iterator = stream.makeAsyncIterator()
@@ -168,7 +182,10 @@ final class MessageStreamTests: XCTestCase {
 			XCTAssertNil(first, "An empty reader delivered a message")
 		}
 		XCTAssertEqual(opened.value, [
-			.group(groupOptions), .dm(dmOptions), .all(allOptions), .group(nil), .dm(nil), .all(nil),
+			.group(ConversationMessageReaderOptions(from: "group cursor")),
+			.dm(ConversationMessageReaderOptions(from: "dm cursor")),
+			.all(MessageReaderOptions(conversationKind: .group, consentStates: [.allowed], from: "all cursor")),
+			.group(ConversationMessageReaderOptions()), .dm(ConversationMessageReaderOptions()), .all(MessageReaderOptions()),
 		])
 		try await client.end()
 	}
@@ -196,10 +213,10 @@ final class MessageStreamTests: XCTestCase {
 	func testBreakReportsClosedEvenWhenTheCallbackThrows() async throws {
 		try await withClients { scope in
 			let client = try await scope.create(signer: generateLocalSigner())
-			let group = try await client.conversations().createGroup(members: [InboxId]())
+			let group = try await client.conversations.createGroup(members: [InboxId]())
 			let messageId = try await group.sendText(text: "close after break")
 			let throwing = CloseSignal(throwing: true)
-			for try await message in try await client.messages(in: group, onClose: throwing.record) {
+			for try await message in try await group.streamMessages(options: .init(onClose: throwing.record)) {
 				XCTAssertEqual(message.id, messageId)
 				break
 			}
@@ -221,17 +238,17 @@ final class MessageStreamTests: XCTestCase {
 		try await withClients { scope in
 			let receiver = try await scope.create(signer: generateLocalSigner(), options: liveOptions(url: relayURL))
 			let sender = try await scope.create(signer: generateLocalSigner())
-			let group = try await sender.conversations().createGroup(members: [receiver.inboxId()])
-			try await receiver.conversations().sync()
-			guard case let .group(joined)? = try await receiver.conversations().getById(id: group.id()) else {
+			let group = try await sender.conversations.createGroup(members: [receiver.inboxId()])
+			try await receiver.conversations.sync()
+			guard case let .group(joined)? = try await receiver.conversations.getById(id: group.id()) else {
 				return XCTFail("The receiver did not join the group")
 			}
 			let states = Shared<[ConnectionState]>([])
 			let closed = CloseSignal()
-			let iterator = try await receiver.messages(
-				in: joined, onClose: closed.record,
+			let iterator = try await joined.streamMessages(options: .init(
+				onClose: closed.record,
 				onConnectionStateChange: { _, current in states.update { $0.append(current) } },
-			).makeAsyncIterator()
+			)).makeAsyncIterator()
 			func readUntil(_ id: MessageId, seconds: Double) async throws -> Bool {
 				let found = try await within(seconds: seconds) {
 					while let message = try await iterator.next() {

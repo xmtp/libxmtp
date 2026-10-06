@@ -52,7 +52,7 @@ public enum SDKReplyContent: Sendable {
     case unknown(encoded: EncodedContent?, rawBytes: Data, error: ErrorDetails)
 }
 
-private func clientClosedError() -> XmtpError {
+func clientClosedError() -> XmtpError {
     .ClientClosed(ErrorDetails(code: "ClientClosed", category: .lifecycle, retryable: false, message: "client is closed"))
 }
 

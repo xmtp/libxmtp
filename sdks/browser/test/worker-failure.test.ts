@@ -1,8 +1,4 @@
-import {
-  MessageStream,
-  XmtpError,
-  type StreamCloseReason,
-} from "@xmtp/browser-sdk";
+import { XmtpError, type StreamCloseReason } from "@xmtp/browser-sdk";
 import { afterEach, expect, test } from "vitest";
 
 import { create } from "./helpers";
@@ -37,7 +33,7 @@ test("worker death fails a pending stream read with a typed error and end still 
   const alix = await create();
   const group = await alix.conversations.createGroup([]);
   const reasons: StreamCloseReason[] = [];
-  const stream = MessageStream.openGroup(alix, group, undefined, {
+  const stream = group.streamMessages({
     onClose: (reason) => reasons.push(reason),
   });
   await stream.ready();

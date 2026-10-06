@@ -1,7 +1,5 @@
 import {
   Timestamp,
-  ConversationStream,
-  MessageStream,
   type Conversation,
   type CreateGroupOptions,
   type Message as XmtpMessage,
@@ -170,7 +168,7 @@ export const useConversations = () => {
       void addConversation(conversation);
     };
 
-    const stream = ConversationStream.open(client);
+    const stream = client.conversations.stream();
     await stream.ready();
     void stream.onValue(onValue).catch(console.error);
 
@@ -193,7 +191,7 @@ export const useConversations = () => {
       await addMessage(message.conversationId, message);
     };
 
-    const stream = MessageStream.open(client);
+    const stream = client.conversations.streamAllMessages();
     await stream.ready();
     void stream.onValue(onValue).catch(console.error);
 

@@ -8,12 +8,19 @@ const collected = new FinalizationRegistry<{
   held.session.collected(held.handle);
 });
 
+let sessionOfObject: (proxy: RemoteObject) => MainSession;
+
+export function sessionOf(proxy: RemoteObject): MainSession {
+  return sessionOfObject(proxy);
+}
+
 let endOwnerOf: ((proxy: RemoteObject) => void) | undefined;
 
 export class RemoteObject {
   private released = false;
 
   static {
+    sessionOfObject = (proxy) => proxy.session;
     endOwnerOf = (proxy) => proxy.#endOwner();
   }
 

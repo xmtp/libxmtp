@@ -40,7 +40,7 @@ class XmtpSession {
 			guard let client = self.client else {
 				throw XmtpSessionError.notInitialized
 			}
-			if let c = try await client.conversations().getById(id: conversationId) {
+			if let c = try await client.conversations.getById(id: conversationId) {
 				return c
 			}
 			throw XmtpSessionError.unableToLoadData
@@ -55,7 +55,7 @@ class XmtpSession {
 			guard let client = self.client else {
 				return []
 			}
-			if let c = try await client.conversations().getById(id: conversationId) {
+			if let c = try await client.conversations.getById(id: conversationId) {
 				return try await c.members()
 			}
 			return []
@@ -64,7 +64,7 @@ class XmtpSession {
 			guard let client = self.client else {
 				return []
 			}
-			if let c = try await client.conversations().getById(id: conversationId) {
+			if let c = try await client.conversations.getById(id: conversationId) {
 				return try await c.messages(options: ListMessagesOptions(limit: 10)) // TODO: paging etc.
 			}
 			return []
@@ -107,8 +107,8 @@ class XmtpSession {
 
 	func refreshConversations() async throws {
 		Self.logger.debug("refreshConversations")
-		_ = try await client?.conversations().syncAll(consentStates: nil)
-		let conversations = try await client?.conversations().list() ?? [] // TODO: Add pagination.
+		_ = try await client?.conversations.syncAll(consentStates: nil)
+		let conversations = try await client?.conversations.list() ?? [] // TODO: Add pagination.
 		for conversation in conversations {
 			self.conversations.insert(identifier: conversation.id(), value: conversation)
 			try await conversationNames.insert(identifier: conversation.id(), value: conversation.displayName())
@@ -118,7 +118,7 @@ class XmtpSession {
 
 	func refreshConversation(conversationId: String) async throws {
 		Self.logger.debug("refreshConversation \(conversationId)")
-		guard let c = try await client?.conversations().getById(id: conversationId) else {
+		guard let c = try await client?.conversations.getById(id: conversationId) else {
 			return // TODO: consider logging failure instead
 		}
 		try await c.sync()
@@ -132,7 +132,7 @@ class XmtpSession {
 
 	func sendMessage(_ message: String, to conversationId: String) async throws -> Bool {
 		Self.logger.debug("Send a message to \(conversationId)")
-		guard let c = try await client?.conversations().getById(id: conversationId) else {
+		guard let c = try await client?.conversations.getById(id: conversationId) else {
 			return false // TODO: consider logging failure instead
 		}
 		_ = try await c.sendText(text: message, options: nil)
@@ -143,9 +143,9 @@ class XmtpSession {
 	func createConversation(peer: String, isGroup: Bool) async throws -> String {
 		guard let client else { throw XmtpSessionError.notInitialized }
 		let conversation: Conversation = if isGroup {
-			try await .group(group: client.conversations().createGroup(members: [peer], options: nil))
+			try await .group(group: client.conversations.createGroup(members: [peer], options: nil))
 		} else {
-			try await .dm(dm: client.conversations().createDm(peer: peer, options: nil))
+			try await .dm(dm: client.conversations.createDm(peer: peer, options: nil))
 		}
 		try await refreshConversations()
 		return conversation.id()

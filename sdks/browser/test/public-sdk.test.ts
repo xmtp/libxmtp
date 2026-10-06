@@ -1,7 +1,5 @@
 import {
   Client,
-  ConversationStream,
-  MessageStream,
   Timestamp,
   XmtpError,
   latestInboxUpdatesCount,
@@ -94,8 +92,8 @@ test("stream callbacks observe new conversations and messages", async () => {
   const client = await create();
   const conversations: string[] = [];
   const messages: string[] = [];
-  const conversationStream = ConversationStream.open(client);
-  const messageStream = MessageStream.open(client);
+  const conversationStream = client.conversations.stream();
+  const messageStream = client.conversations.streamAllMessages();
   await conversationStream.ready();
   await messageStream.ready();
   const conversationRead = conversationStream.onValue((conversation) => {

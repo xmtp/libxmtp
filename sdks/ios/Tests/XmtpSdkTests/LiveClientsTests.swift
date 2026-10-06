@@ -65,7 +65,7 @@ final class LiveClientsTests: XCTestCase {
 		XCTAssertEqual(clients.count, count)
 		for client in clients {
 			do {
-				try await client.conversations().sync()
+				try await client.conversations.sync()
 				XCTFail("A client stayed open after the helper returned")
 			} catch XmtpError.ClientClosed {}
 		}

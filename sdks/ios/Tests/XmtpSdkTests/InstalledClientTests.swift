@@ -50,17 +50,17 @@ final class InstalledClientTests: XCTestCase {
 		let unregistered = await generateLocalSigner()
 		for peer in [client.inboxId(), client.identity().identifier] {
 			do {
-				_ = try await client.conversations().createDm(peer: peer)
+				_ = try await client.conversations.createDm(peer: peer)
 				XCTFail("DM creation accepted an invalid peer")
 			} catch {}
 		}
 		let identity = try await unregistered.identity()
 		do {
-			_ = try await client.conversations().createDm(peer: identity)
+			_ = try await client.conversations.createDm(peer: identity)
 			XCTFail("DM creation accepted an unregistered identity")
 		} catch {}
 		do {
-			_ = try await client.conversations().createGroup(members: [identity])
+			_ = try await client.conversations.createGroup(members: [identity])
 			XCTFail("Group creation accepted an unregistered identity")
 		} catch {}
 		try await client.end()
@@ -73,7 +73,7 @@ final class InstalledClientTests: XCTestCase {
 		try await withClients { scope in
 			let client = try await scope.create(signer: generateLocalSigner(), options: testOptions())
 			let peer = try await scope.create(signer: generateLocalSigner(), options: testOptions())
-			let conversations = client.conversations()
+			let conversations = client.conversations
 			let me = client.inboxId()
 			let other = peer.inboxId()
 			let empty = try await conversations.createGroup(members: [PublicIdentity]())
@@ -124,7 +124,7 @@ final class InstalledClientTests: XCTestCase {
 		let codec = SnapshotFailingCodec()
 		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions(), codecs: [codec])
 		let peer = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let group = try await client.conversations().createGroup(members: [InboxId]())
+		let group = try await client.conversations.createGroup(members: [InboxId]())
 		let first = try await group.sendText(text: "before snapshot")
 		let failedId = try await group.send(codec, value: "unreadable custom bytes")
 		let snapshot = try await group.messageHistorySnapshot(limit: 100)
@@ -149,15 +149,15 @@ final class InstalledClientTests: XCTestCase {
 		let next = try await reader.next()
 		XCTAssertEqual(next?.id, after)
 		try await reader.end()
-		let dm = try await client.conversations().createDm(peer: peer.inboxId())
+		let dm = try await client.conversations.createDm(peer: peer.inboxId())
 		let dmId = try await dm.sendText(text: "DM snapshot")
 		let dmSnapshot = try await dm.messageHistorySnapshot(limit: 100)
 		XCTAssertTrue(dmSnapshot.messages.contains { $0.id == dmId })
-		let all = try await client.conversations().messageHistorySnapshot(limit: 100, options: nil)
+		let all = try await client.conversations.messageHistorySnapshot(limit: 100, options: nil)
 		XCTAssertTrue(all.messages.contains { $0.id == dmId })
 		XCTAssertTrue(all.messages.contains { $0.id == after })
 		do {
-			_ = try await client.conversations().messageHistorySnapshot(
+			_ = try await client.conversations.messageHistorySnapshot(
 				limit: 100, options: MessageReaderOptions(from: snapshot.cursor),
 			)
 			XCTFail("History snapshot accepted a replay-only from option")
@@ -169,8 +169,8 @@ final class InstalledClientTests: XCTestCase {
 	func testGroupAndDmReadTypedMessages() async throws {
 		let sender = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
 		let receiver = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
-		let group = try await sender.conversations().createGroup(members: [receiver.inboxId()], options: nil)
-		let dm = try await sender.conversations().createDm(peer: receiver.inboxId(), options: nil)
+		let group = try await sender.conversations.createGroup(members: [receiver.inboxId()], options: nil)
+		let dm = try await sender.conversations.createDm(peer: receiver.inboxId(), options: nil)
 		for conversation in [Conversation.group(group: group), .dm(dm: dm)] {
 			let sentId = try await conversation.sendText(text: "installed package", options: nil)
 			let rows = try await conversation.messages(options: nil)

@@ -19,12 +19,12 @@ class GroupTest : BaseInstrumentedTest() {
         fixtures = runBlocking { createFixtures() }
     }
 
-    private suspend fun group() = bo.conversations().createGroup(listOf(alix.inboxId()))
+    private suspend fun group() = bo.conversations.createGroup(listOf(alix.inboxId()))
 
     private suspend fun find(
         client: SDKClient,
         id: ConversationId,
-    ): Group = (checkNotNull(client.conversations().getById(id)) as Conversation.Group).group
+    ): Group = (checkNotNull(client.conversations.getById(id)) as Conversation.Group).group
 
     private fun text(message: Message): String? =
         ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text)?.v1
@@ -42,7 +42,7 @@ class GroupTest : BaseInstrumentedTest() {
                 group.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).first().deliveryStatus,
             )
             assertEquals(3, group.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).size)
-            alix.conversations().sync()
+            alix.conversations.sync()
             val peer = find(alix, group.id())
             peer.sync()
             assertEquals(3, peer.messages(ListMessagesOptions(direction = MessageOrder.DESCENDING)).size)
@@ -52,13 +52,13 @@ class GroupTest : BaseInstrumentedTest() {
     @Test fun testCanStreamGroupMessages() =
         runBlocking {
             val group = group()
-            alix.conversations().sync()
+            alix.conversations.sync()
             val peer = find(alix, group.id())
             val retained = group.messageHistorySnapshot(10u).messages
             assertEquals(1, retained.size)
             assertEquals(MessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
             val messages = StreamTestMessages()
-            val job = launch(Dispatchers.IO) { bo.messages(group).collect { messages.add(it) } }
+            val job = launch(Dispatchers.IO) { group.streamMessages().collect { messages.add(it) } }
             try {
                 messages.awaitHistory(retained)
                 val first = peer.sendText("hi")
@@ -84,7 +84,7 @@ class GroupTest : BaseInstrumentedTest() {
     @Test fun testCanStreamGroups() =
         runBlocking {
             val reader =
-                alix.conversations().conversationReader(ConversationReaderOptions(kind = ConversationKind.GROUP))
+                alix.conversations.conversationReader(ConversationReaderOptions(kind = ConversationKind.GROUP))
             val received = Channel<Pair<ConversationId, String>>(Channel.UNLIMITED)
             val closed = CompletableDeferred<Unit>()
             val job =
@@ -105,8 +105,8 @@ class GroupTest : BaseInstrumentedTest() {
                     }
                 }
             try {
-                val first = bo.conversations().createGroup(listOf(alix.inboxId()))
-                val second = caro.conversations().createGroup(listOf(alix.inboxId()))
+                val first = bo.conversations.createGroup(listOf(alix.inboxId()))
+                val second = caro.conversations.createGroup(listOf(alix.inboxId()))
                 val expected = setOf(first.id() to first.topic(), second.id() to second.topic())
                 // Welcomes from two senders can arrive in either order; the stream
                 // orders rows by the time the Welcome was processed. Two received

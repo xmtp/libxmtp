@@ -38,10 +38,9 @@ async function within<T>(promise: Promise<T>, label: string): Promise<T> {
 // Delay actual successful replies. The worker, binding calls, and reply values
 // stay unchanged. One connection owns one opening and its cleanup.
 function heldOpeningConnection() {
-  const worker = new Worker(
-    new URL("./generated.worker.ts", import.meta.url),
-    { type: "module" },
-  );
+  const worker = new Worker(new URL("./generated.worker.ts", import.meta.url), {
+    type: "module",
+  });
   const opening = latch();
   const cleanup = latch();
   let armed = false;
@@ -166,7 +165,7 @@ export async function checkLateReaderOpen(backendURL: string): Promise<void> {
     const reasons: sdk.StreamCloseReason[] = [];
     const cleanupAtClose: number[] = [];
     gate.arm();
-    stream = sdk.MessageStream.openGroup(client, group, undefined, {
+    stream = group.streamMessages({
       signal: abort.signal,
       onClose: (reason) => {
         reasons.push(reason);
@@ -265,7 +264,7 @@ export async function checkClientEndDuringReaderOpen(
     const id = await group.sendText("owner close must preserve this message");
     const reasons: sdk.StreamCloseReason[] = [];
     gate.arm();
-    stream = sdk.MessageStream.openGroup(client, group, undefined, {
+    stream = group.streamMessages({
       onClose: (reason) => reasons.push(reason),
     });
     await within(gate.opening, "reader opening before client end");

@@ -71,6 +71,8 @@ internal class RecordingReaderClient(
     val readerOptions = mutableListOf<MessageReaderOptions?>()
     private val conversations =
         object : Conversations(NoHandle) {
+            override fun sdkStreamOwnerKey(): ULong = key
+
             override suspend fun messageReader(options: MessageReaderOptions?): MessageReader {
                 readerOptions.add(options)
                 return open()
@@ -95,20 +97,20 @@ internal fun streamFailure(code: String = "Storage"): XmtpException =
     )
 
 class MessageDeliveryFlowTest {
-    // The hand-written SDKClient.messages(options) wrapper must hand the
+    // The conversations.streamAllMessages(options) method must hand the
     // caller's filter and cursor to the native reader unchanged.
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun messagesPassesTheReaderOptionsToTheNativeReader() =
         runBlocking {
             val options =
-                MessageReaderOptions(
+                MessageStreamOptions(
                     conversationKind = ConversationKind.GROUP,
                     consentStates = listOf(ConsentState.ALLOWED),
                     from = "cursor-from",
                 )
             val raw = RecordingReaderClient { RecordingMessageReader { null } }
             val client = testSDKClient(raw)
-            client.messages(options).collect()
+            client.conversations.streamAllMessages(options = options).collect()
             assertEquals(
                 listOf<MessageReaderOptions?>(
                     MessageReaderOptions(
@@ -119,8 +121,8 @@ class MessageDeliveryFlowTest {
                 ),
                 raw.readerOptions,
             )
-            client.messages().collect()
-            assertNull(raw.readerOptions.last())
+            client.conversations.streamAllMessages().collect()
+            assertEquals(MessageReaderOptions(), raw.readerOptions.last())
         }
 
     // Host sequencing only. Native final commit admission has separate core proof.
@@ -146,12 +148,15 @@ class MessageDeliveryFlowTest {
             val closes = mutableListOf<SDKStreamCloseReason>()
             val job =
                 launch {
-                    client.messages(onClose = { closes.add(it) }).collect {
-                        received.add(it)
-                        assertEquals(1, reader.nextCalls)
-                        delivered.complete(Unit)
-                        release.await()
-                    }
+                    client.conversations
+                        .streamAllMessages(
+                            options = MessageStreamOptions(onClose = { closes.add(it) }),
+                        ).collect {
+                            received.add(it)
+                            assertEquals(1, reader.nextCalls)
+                            delivered.complete(Unit)
+                            release.await()
+                        }
                 }
             delivered.await()
             assertEquals(1, reader.nextCalls)
@@ -174,11 +179,14 @@ class MessageDeliveryFlowTest {
             val closes = mutableListOf<SDKStreamCloseReason>()
             val job =
                 launch {
-                    client.messages(onClose = { closes.add(it) }).collect {
-                        received++
-                        entered.complete(Unit)
-                        awaitCancellation()
-                    }
+                    client.conversations
+                        .streamAllMessages(
+                            options = MessageStreamOptions(onClose = { closes.add(it) }),
+                        ).collect {
+                            received++
+                            entered.complete(Unit)
+                            awaitCancellation()
+                        }
                 }
             entered.await()
             job.cancelAndJoin()
@@ -202,9 +210,12 @@ class MessageDeliveryFlowTest {
             val closes = mutableListOf<SDKStreamCloseReason>()
             val failure =
                 runCatching {
-                    client
-                        .messages(
-                            onClose = { closes.add(it) },
+                    client.conversations
+                        .streamAllMessages(
+                            options =
+                                MessageStreamOptions(onClose = {
+                                    closes.add(it)
+                                }),
                         ).collect { received++ }
                 }.exceptionOrNull()
             assertSame(error, failure)
@@ -249,7 +260,13 @@ class MessageDeliveryFlowTest {
                 assertSame(
                     failure,
                     runCatching {
-                        client.messages(onClose = { closes.add(it) }).collect { throw failure }
+                        client.conversations
+                            .streamAllMessages(
+                                options =
+                                    MessageStreamOptions(onClose = {
+                                        closes.add(it)
+                                    }),
+                            ).collect { throw failure }
                     }.exceptionOrNull(),
                 )
                 assertEquals(1, reader.nextCalls)

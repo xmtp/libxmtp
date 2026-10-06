@@ -21,3 +21,11 @@ export function boundMessageOf(value: RuntimeMessage): RuntimeMessage {
 
 /** Node storage accepts every public storage option. */
 export function checkStorage(_storage: object): void {}
+
+import { ClientRegistry, type Client } from "../client";
+
+export function streamOwner(source: {
+  sdkStreamOwnerKey(): bigint;
+}): Client | undefined {
+  return ClientRegistry.get(source.sdkStreamOwnerKey());
+}

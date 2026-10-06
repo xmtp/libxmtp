@@ -11,7 +11,10 @@ enum ReadFailure: Error {
 /// A Client fake. Each test sets the values that its runtime path reads.
 final class FakeClient: Client, @unchecked Sendable {
 	var eventReader: EventReader?
-	var fakeConversations: Conversations?
+	var fakeConversations: Conversations? {
+		didSet { (fakeConversations as? FakeConversations)?.ownerKey = clientKey() }
+	}
+
 	var listenerStarted: (@Sendable (EventListener) async -> ListenerId)?
 
 	override func clientKey() -> UInt64 {
@@ -166,6 +169,11 @@ final class FakeConversationReader: ConversationReader, @unchecked Sendable {
 }
 
 final class FakeConversations: Conversations, @unchecked Sendable {
+	var ownerKey: UInt64 = 0
+	override func sdkStreamOwnerKey() -> UInt64 {
+		ownerKey
+	}
+
 	private let reader: ConversationReader
 
 	init(_ reader: ConversationReader) {

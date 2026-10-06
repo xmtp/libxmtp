@@ -1,6 +1,6 @@
 import {
   Dm,
-  ConversationStream,
+  Conversations,
   type MessageContent,
   encodeText,
   type Client,
@@ -151,10 +151,11 @@ describe("Agent", () => {
 
     it("requires an explicit start after a startup failure", async () => {
       const startupError = new Error("Stream setup failed");
-      const originalStream = ConversationStream.open;
+      const conversations = agent.client.conversations;
+      const originalStream = conversations.stream.bind(conversations);
       let callCount = 0;
       const streamSpy = vi
-        .spyOn(ConversationStream, "open")
+        .spyOn(Conversations.prototype, "stream")
         .mockImplementation((...args) => {
           callCount++;
           if (callCount === 1) {

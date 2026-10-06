@@ -351,7 +351,7 @@ export async function exercise(): Promise<string[]> {
     results.push("codec_policy_failure_never_publishes");
 
     // Streams and events yield public values.
-    const stream = sdk.MessageStream.openGroup(alice, group);
+    const stream = group.streamMessages();
     const streamedId = await group.sendText("streamed");
     let streamed: sdk.Message | undefined;
     for (;;) {
@@ -364,7 +364,7 @@ export async function exercise(): Promise<string[]> {
     }
     await stream.end();
     check(streamed instanceof sdk.Message, "the stream yielded no Message");
-    const joined = sdk.ConversationStream.open(alice);
+    const joined = alice.conversations.stream();
     await joined.ready();
     const created = await conversations.createGroup([]);
     const next = await joined.next();
@@ -385,8 +385,8 @@ export async function exercise(): Promise<string[]> {
     const messageReader = await conversations.messageReader();
     const conversationReader =
       await conversations.conversationReader(undefined);
-    const openStream = sdk.MessageStream.openGroup(alice, group);
-    const openJoined = sdk.ConversationStream.open(alice);
+    const openStream = group.streamMessages();
+    const openJoined = alice.conversations.stream();
     const openEvents = await alice.events({
       kinds: ["conversation.joined"],
       references_own_messages: false,

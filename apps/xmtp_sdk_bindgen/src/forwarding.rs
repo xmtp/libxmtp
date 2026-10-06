@@ -19,6 +19,9 @@ fn common_methods_from_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) 
         let Metadata::Method(method) = metadata else {
             continue;
         };
+        if crate::markers::has(method.docstring.as_deref(), crate::markers::INTERNAL) {
+            continue;
+        }
         match method.self_name.as_str() {
             "Group" => {
                 group.insert(method.name.as_str(), method);
@@ -240,7 +243,10 @@ fn generate_client(
         .values()
         .flat_map(|group| &group.items)
         .collect::<Vec<_>>();
-    let selected = client_methods(items.iter().copied());
+    let selected = client_methods(items.iter().copied())
+        .into_iter()
+        .filter(|name| name != "conversations")
+        .collect::<Vec<_>>();
     let statics = client_statics::client_statics(&items)?;
     let (found, statics, header, footer, filename) = match language {
         Language::Swift => (

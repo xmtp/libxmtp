@@ -5,8 +5,8 @@ import path from "node:path";
 import type { Dm, Group } from "@xmtp/node-sdk";
 import {
   Client,
-  ConversationStream,
-  MessageStream,
+  type ConversationStream,
+  type MessageStream,
   generateInboxId,
   initLogging,
   type AnyContentCodec,
@@ -568,7 +568,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         }
       }
     };
-    const conversations = ConversationStream.open(this.#client, undefined, {
+    const conversations = this.#client.conversations.stream({
       ...options,
       onClose: close,
     });
@@ -603,7 +603,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
         else if (context.isDm()) await emit("dm");
       })
       .catch((error) => this.#handleStreamError(error, generation));
-    const messages = MessageStream.open(this.#client, undefined, {
+    const messages = this.#client.conversations.streamAllMessages({
       ...options,
       onClose: close,
     });

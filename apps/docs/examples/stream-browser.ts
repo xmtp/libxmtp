@@ -1,6 +1,4 @@
 import {
-  ConversationStream,
-  MessageStream,
   type Message,
   type Group,
   type Client,
@@ -12,7 +10,7 @@ export async function streamConversations(
   handleConversation: (conversation: Conversation) => void,
 ) {
   // #region stream
-  const stream = ConversationStream.open(client);
+  const stream = client.conversations.stream();
   const receive = (async () => {
     for await (const conversation of stream) handleConversation(conversation);
   })();
@@ -22,12 +20,11 @@ export async function streamConversations(
 
 // #region group-messages
 export async function streamGroupMessages(
-  client: Client,
   group: Group,
   handleMessage: (message: Message) => Promise<void>,
   signal: AbortSignal,
 ) {
-  const stream = MessageStream.openGroup(client, group, undefined, { signal });
+  const stream = group.streamMessages({ signal });
   try {
     await stream.onValue(async (message) => {
       await handleMessage(message);
@@ -44,11 +41,10 @@ export async function streamAllMessages(
   handleMessage: (message: Message) => Promise<void>,
   signal: AbortSignal,
 ) {
-  const stream = MessageStream.open(
-    client,
-    { consentStates: ["allowed"] },
-    { signal },
-  );
+  const stream = client.conversations.streamAllMessages({
+    consentStates: ["allowed"],
+    signal,
+  });
   try {
     await stream.onValue(async (message) => {
       await handleMessage(message);

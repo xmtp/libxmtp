@@ -1,5 +1,5 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import { MessageStream, standardContentType } from "@xmtp/node-sdk";
+import { standardContentType } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 // Stream delivery completes asynchronously; poll until the expected state
@@ -120,9 +120,7 @@ describe("Group", () => {
       await groups[0].messages({ direction: "descending", limit: 1 })
     )[0]?.deliveryCursor;
     const streamedMessages: unknown[] = [];
-    const stream = MessageStream.openGroup(client2, groups[0], {
-      from: cursor ?? undefined,
-    });
+    const stream = groups[0].streamMessages({ from: cursor ?? undefined });
     await stream.ready();
     void stream.onValue((message) => {
       if (message.content.kind === "text")

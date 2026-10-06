@@ -14,7 +14,7 @@ final class ClientOwnershipTests: XCTestCase {
 		let options = liveOptions(storage: StorageOptions(location: .directory(directory: root.path)))
 		try await withClients { scope in
 			let host = try await scope.create(signer: generateLocalSigner(), options: options)
-			let group = try await host.conversations().createGroup(members: [InboxId]())
+			let group = try await host.conversations.createGroup(members: [InboxId]())
 			let sentId = try await group.sendText(text: "owned")
 			let rows = try await group.messages(options: nil)
 			let sent = try XCTUnwrap(rows.first { $0.id == sentId })
@@ -32,7 +32,7 @@ final class ClientOwnershipTests: XCTestCase {
 			do {
 				let shortLived = try await SDKClient.build(identity: identity, options: options, inboxId: inboxId)
 				released = shortLived
-				let shortGroup = try await shortLived.conversations().createGroup(members: [InboxId]())
+				let shortGroup = try await shortLived.conversations.createGroup(members: [InboxId]())
 				let orphanId = try await shortGroup.sendText(text: "weak owner")
 				orphan = try await shortGroup.messages(options: nil).first { $0.id == orphanId }
 			}
@@ -48,9 +48,9 @@ final class ClientOwnershipTests: XCTestCase {
 	func testMessageEqualityComparesItsData() async throws {
 		try await withClients { scope in
 			let client = try await scope.create(signer: generateLocalSigner())
-			let group = try await client.conversations().createGroup(members: [InboxId]())
+			let group = try await client.conversations.createGroup(members: [InboxId]())
 			let id = try await group.sendText(text: "compared")
-			let lookup = try await client.conversations().getMessageById(id: id)
+			let lookup = try await client.conversations.getMessageById(id: id)
 			let message = try XCTUnwrap(lookup)
 			let copy = Message(data: message.data)
 			XCTAssertEqual(copy, message)

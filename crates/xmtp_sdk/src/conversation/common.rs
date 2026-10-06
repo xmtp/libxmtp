@@ -3,6 +3,12 @@ macro_rules! common_conversation {
     ($name:ident, $state:ty, $map:expr) => {
         #[xmtp_macro::sdk_export]
         impl $name {
+            /// Host stream ownership. @xmtp-internal
+            #[sdk(immutable)]
+            pub fn sdk_stream_owner_key(&self) -> u64 {
+                self.client_key
+            }
+
             #[sdk(immutable)]
             pub fn id(&self) -> ConversationId {
                 self.inner.group_id.into()

@@ -32,7 +32,7 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val listItems = mutableListOf<MainListItem>()
             try {
-                val conversations = ClientManager.client.conversations()
+                val conversations = ClientManager.client.conversations
                 // Sync before the list read.
                 conversations.sync()
                 listItems.addAll(
@@ -66,8 +66,8 @@ class MainViewModel : ViewModel() {
     val stream: StateFlow<MainListItem?> =
         stateFlow(viewModelScope, null) { subscriptionCount ->
             if (ClientManager.clientState.value is ClientManager.ClientState.Ready) {
-                ClientManager.client
-                    .conversationStream()
+                ClientManager.client.conversations
+                    .stream()
                     .flowWhileShared(
                         subscriptionCount,
                         SharingStarted.WhileSubscribed(1000L),

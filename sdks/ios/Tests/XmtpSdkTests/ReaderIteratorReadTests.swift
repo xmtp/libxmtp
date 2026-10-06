@@ -32,7 +32,7 @@ final class ReaderIteratorReadTests: XCTestCase {
 		let onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)? = closed.map { count in
 			{ @Sendable _ in count.increment() }
 		}
-		let stream = try await client.conversationStream(onClose: onClose)
+		let stream = try await client.conversations.stream(options: .init(onClose: onClose))
 		return (stream.makeAsyncIterator(), reader, client)
 	}
 

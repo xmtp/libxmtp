@@ -29,13 +29,15 @@ class CloseCallbackLogTest {
                     try {
                         System.setErr(PrintStream(output, true, "UTF-8"))
                         runCatching {
-                            client
-                                .messages(onClose = {
-                                    closeCalls += 1
-                                    reason = it
-                                    throw IllegalStateException(secret)
-                                })
-                                .collect {}
+                            client.conversations
+                                .streamAllMessages(
+                                    options =
+                                        MessageStreamOptions(onClose = {
+                                            closeCalls += 1
+                                            reason = it
+                                            throw IllegalStateException(secret)
+                                        }),
+                                ).collect {}
                         }.exceptionOrNull()
                     } finally {
                         System.setErr(previous)

@@ -1,5 +1,5 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import { Dm, MessageStream } from "@xmtp/node-sdk";
+import { Dm } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
 const nextWithin = async <T>(stream: {
@@ -32,7 +32,7 @@ describe("durable message delivery", () => {
       const secondId = await group.sendText("second retained message");
       const thirdId = await group.sendText("third retained message");
       const history = await group.messageHistorySnapshot(128);
-      const original = MessageStream.openGroup(client, group);
+      const original = group.streamMessages();
       await original.ready();
       streams.push(original);
       const firstPosition = history.messages.findIndex(
@@ -54,7 +54,7 @@ describe("durable message delivery", () => {
         throw new Error("Expected a delivery cursor");
       await original.end();
 
-      const resumed = MessageStream.openGroup(client, group);
+      const resumed = group.streamMessages();
       await resumed.ready();
       streams.push(resumed);
       const repeated = await nextWithin(resumed);
@@ -63,14 +63,14 @@ describe("durable message delivery", () => {
       expect((await nextWithin(resumed)).value?.id).toBe(secondId);
       await resumed.end();
 
-      const replay = MessageStream.openGroup(client, group, { from: cursor });
+      const replay = group.streamMessages({ from: cursor });
       await replay.ready();
       streams.push(replay);
       expect((await nextWithin(replay)).value?.id).toBe(secondId);
       expect((await nextWithin(replay)).value?.id).toBe(thirdId);
       await replay.end();
 
-      const unchanged = MessageStream.openGroup(client, group);
+      const unchanged = group.streamMessages();
       await unchanged.ready();
       streams.push(unchanged);
       expect((await nextWithin(unchanged)).value?.id).toBe(secondId);
@@ -109,15 +109,13 @@ describe("durable message delivery", () => {
         const thirdId = await group.sendText("also after the snapshot");
         const stream =
           scope === "all"
-            ? MessageStream.open(client, {
+            ? client.conversations.streamAllMessages({
                 from: history.cursor,
                 conversationKind: "group",
               })
             : group instanceof Dm
-              ? MessageStream.openDm(client, group, { from: history.cursor })
-              : MessageStream.openGroup(client, group, {
-                  from: history.cursor,
-                });
+              ? group.streamMessages({ from: history.cursor })
+              : group.streamMessages({ from: history.cursor });
         await stream.ready();
         closeStream = () => stream.end();
         expect((await nextWithin(stream)).value?.id).toBe(secondId);

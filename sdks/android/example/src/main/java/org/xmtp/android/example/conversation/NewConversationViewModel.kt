@@ -22,7 +22,7 @@ class NewConversationViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val conversation =
-                    ClientManager.client.conversations().createDm(
+                    ClientManager.client.conversations.createDm(
                         PublicIdentity(
                             address,
                             PublicIdentityKind.ETHEREUM,
@@ -41,7 +41,7 @@ class NewConversationViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val group =
-                    ClientManager.client.conversations().createGroup(
+                    ClientManager.client.conversations.createGroup(
                         addresses.map {
                             PublicIdentity(
                                 it,

@@ -8,18 +8,16 @@ Streams deliver conversations and messages as the SDK receives and processes the
 
 ## Stream methods
 
-Browser and Node expose these host streams:
+All four SDKs expose these stream methods:
 
-| Stream                                   | Value                                           |
-| ---------------------------------------- | ----------------------------------------------- |
-| `ConversationStream.open(client)`        | Conversations the client creates or joins       |
-| `MessageStream.open(client)`             | Messages across conversations                   |
-| `MessageStream.openGroup(client, group)` | Messages in one group                           |
-| `MessageStream.openDm(client, dm)`       | Messages in a DM, including its stitched groups |
+| Stream                                     | Value                                           |
+| ------------------------------------------ | ----------------------------------------------- |
+| `client.conversations.stream()`            | Conversations the client creates or joins       |
+| `client.conversations.streamAllMessages()` | Messages across conversations                   |
+| `group.streamMessages()`                   | Messages in one group                           |
+| `dm.streamMessages()`                      | Messages in a DM, including its stitched groups |
 
-Conversation streams select every consent state unless the app supplies a filter. Kotlin and Swift expose `client.conversationStream()` for conversations and `client.messages()` for messages. Their `messages` overloads also accept a `Group` or `Dm`.
-
-Use `kind` in the conversation selection to select groups or DMs. For all-conversation message readers, use `conversationKind`. Kotlin and Swift pass a `kind` argument to `conversationStream` and a `MessageReaderOptions` record to `messages`.
+Conversation streams select every consent state unless the app supplies a filter. Use `conversationKind` to select groups or DMs. Pass one options record: `ConversationStreamOptions`, `MessageStreamOptions`, or `ConversationMessageStreamOptions`. Scoped message options accept a replay cursor and lifecycle callbacks. They do not accept kind or consent filters.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -37,13 +35,13 @@ Use `kind` in the conversation selection to select groups or DMs. For all-conver
 </TabItem><TabItem label="Kotlin">
 
 ```kotlin
-client.conversationStream().collect(::handleConversation)
+client.conversations.stream().collect(::handleConversation)
 ```
 
 </TabItem><TabItem label="Swift">
 
 ```swift
-for try await conversation in try await client.conversationStream() {
+for try await conversation in try await client.conversations.stream() {
   handleConversation(conversation)
 }
 ```
@@ -53,7 +51,7 @@ for try await conversation in try await client.conversationStream() {
 
 ## Stream messages from one group
 
-Use `MessageStream.openGroup(client, group)` on Browser or Node. Kotlin uses `client.messages(group = group)`. Swift uses `client.messages(in: group)`. This reader selects one group. It does not apply a consent filter. Check the group's consent state before opening it if the app requires allowed-only delivery.
+Use `group.streamMessages()` in each SDK. This reader selects one group. It does not apply a consent filter. Check the group's consent state before opening it if the app requires allowed-only delivery.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -82,11 +80,10 @@ import uniffi.xmtp_sdk.SDKClient
 
 fun streamGroupMessages(
     scope: CoroutineScope,
-    client: SDKClient,
     group: Group,
     handleMessage: suspend (Message) -> Unit,
 ): Job = scope.launch {
-    client.messages(group = group).collect { message ->
+    group.streamMessages().collect { message ->
         handleMessage(message)
     }
 }
@@ -102,12 +99,11 @@ suspend fun stopGroupMessages(job: Job) {
 import XmtpSdk
 
 func streamGroupMessages(
-  client: SDKClient,
   group: Group,
   handleMessage: @escaping @Sendable (Message) async throws -> Void
 ) -> Task<Void, Error> {
   Task {
-    for try await message in try await client.messages(in: group) {
+    for try await message in try await group.streamMessages() {
       try await handleMessage(message)
     }
   }
@@ -130,7 +126,7 @@ Pass an `AbortController`'s `signal` to the Browser or Node helper. Call `contro
 
 ## Stream all messages
 
-Use `MessageStream.open(client)` on Browser or Node and `client.messages()` on Kotlin or Swift. These APIs provide the all-conversation message stream that older SDKs called `streamAll` or `streamAllMessages`. The current SDK does not expose those method names.
+Use `client.conversations.streamAllMessages()` in each SDK.
 
 With no consent filter, an all-conversation message reader selects allowed and unknown conversations. An empty consent filter selects none. The examples below select allowed conversations only. The filter does not remove messages already stored by another sync call or background task.
 
@@ -156,7 +152,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import uniffi.xmtp_sdk.ConsentState
-import uniffi.xmtp_sdk.MessageReaderOptions
+import uniffi.xmtp_sdk.MessageStreamOptions
 import uniffi.xmtp_sdk.Message
 import uniffi.xmtp_sdk.SDKClient
 
@@ -165,8 +161,8 @@ fun streamAllMessages(
     client: SDKClient,
     handleMessage: suspend (Message) -> Unit,
 ): Job = scope.launch {
-    client.messages(
-        options = MessageReaderOptions(consentStates = listOf(ConsentState.ALLOWED)),
+    client.conversations.streamAllMessages(
+        options = MessageStreamOptions(consentStates = listOf(ConsentState.ALLOWED)),
     ).collect { message ->
         handleMessage(message)
     }
@@ -187,8 +183,8 @@ func streamAllMessages(
   handleMessage: @escaping @Sendable (Message) async throws -> Void
 ) -> Task<Void, Error> {
   Task {
-    for try await message in try await client.messages(
-      options: MessageReaderOptions(consentStates: [.allowed])
+    for try await message in try await client.conversations.streamAllMessages(
+      options: MessageStreamOptions(consentStates: [.allowed])
     ) {
       try await handleMessage(message)
     }

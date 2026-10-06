@@ -16,7 +16,7 @@ Once you have the verified identities, you can create a new conversation, whethe
 
 The backend sets the group member limit. The default limit is 250 inboxes.
 
-All four SDKs use `conversations.createGroup(members, options)`. Pass a list of inbox IDs or a list of `PublicIdentity` values. Do not mix the two in one list. Swift uses the labels `members:` and `options:`. Kotlin and Swift get the collection with `client.conversations()`.
+All four SDKs use `conversations.createGroup(members, options)`. Pass a list of inbox IDs or a list of `PublicIdentity` values. Do not mix the two in one list. Swift uses the labels `members:` and `options:`. Kotlin and Swift get the collection with `client.conversations`.
 
 Set the group name, description, image URL, app data, permissions, and disappearing-message settings at creation. See [Groups](/sdk/groups/).
 
@@ -44,7 +44,7 @@ All four SDKs use `createGroupOptimistic(options)`. The call is asynchronous. Ad
 <TabItem label="Kotlin">
 
 ```kotlin
-val group = client.conversations().createGroupOptimistic()
+val group = client.conversations.createGroupOptimistic()
 group.addMembers(listOf(memberInboxId))
 ```
 
@@ -52,7 +52,7 @@ group.addMembers(listOf(memberInboxId))
 <TabItem label="Swift">
 
 ```swift
-let group = try await client.conversations().createGroupOptimistic()
+let group = try await client.conversations.createGroupOptimistic()
 try await group.addMembers(members: [memberInboxId])
 ```
 

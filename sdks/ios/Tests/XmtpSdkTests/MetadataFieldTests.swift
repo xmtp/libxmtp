@@ -11,7 +11,7 @@ final class MetadataFieldTests: XCTestCase {
 		try await withClients { scope in
 			let alix = try await scope.create(signer: generateLocalSigner())
 			let bo = try await scope.create(signer: generateLocalSigner())
-			let group = try await alix.conversations().createGroup(members: [bo.inboxId()])
+			let group = try await alix.conversations.createGroup(members: [bo.inboxId()])
 			let groupName = metadataFieldRef(field: .groupName)
 			let displayName = metadataFieldRef(field: .userDisplayName)
 			XCTAssertEqual(groupName.name, "GROUP_NAME")
@@ -28,8 +28,8 @@ final class MetadataFieldTests: XCTestCase {
 
 			try await group.updateMetadataField(field: groupName, operation: .replace(.string("Team")))
 			try await group.updateUserData(values: [UserFieldUpdate(field: displayName, value: .string("Alix"))])
-			try await bo.conversations().sync()
-			guard case let .group(boGroup)? = try await bo.conversations().getById(id: group.id()) else {
+			try await bo.conversations.sync()
+			guard case let .group(boGroup)? = try await bo.conversations.getById(id: group.id()) else {
 				return XCTFail("Bo did not join the group")
 			}
 			try await boGroup.sync()

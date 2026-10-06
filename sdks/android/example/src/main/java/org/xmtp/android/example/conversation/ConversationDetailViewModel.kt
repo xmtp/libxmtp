@@ -54,7 +54,7 @@ class ConversationDetailViewModel(
             val listItems = mutableListOf<MessageListItem>()
             try {
                 if (conversation == null) {
-                    conversation = ClientManager.client.conversations().getById(conversationTopic!!)
+                    conversation = ClientManager.client.conversations.getById(conversationTopic!!)
                 }
                 conversation?.let {
                     if (conversation is Conversation.Group) {
@@ -80,7 +80,7 @@ class ConversationDetailViewModel(
             flow {
                 val selected =
                     conversation ?: ClientManager.client
-                        .conversations()
+                        .conversations
                         .getById(checkNotNull(conversationTopic))
                         ?.also { conversation = it }
                 if (selected != null) emitAll(ClientManager.client.messageStream(selected))

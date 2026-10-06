@@ -30,7 +30,7 @@ struct Conformance {
                 deviceSync: false
             )
         )
-        let group = try await host.conversations().createGroup(members: [InboxId](), options: nil)
+        let group = try await host.conversations.createGroup(members: [InboxId](), options: nil)
         let heldId = try await group.sendText(text: "held by the app", options: nil)
         try await checkReaderAppError(owner: host, group: group, messageId: heldId)
         try await checkCooperativeReaderOpeningCancellation()

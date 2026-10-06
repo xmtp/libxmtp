@@ -37,19 +37,19 @@ class StreamLifecycleTest {
                 val sender = SDKClient.create(context, generateLocalSigner(), options())
                 val receiver = SDKClient.create(context, generateLocalSigner(), options())
                 try {
-                    val group = sender.conversations().createGroup(listOf(receiver.inboxId()))
+                    val group = sender.conversations.createGroup(listOf(receiver.inboxId()))
                     group.sendText("missed while away")
                     assertEquals(
                         "The receiver has no group before catch-up",
                         0,
-                        receiver.conversations().listGroups(null).size,
+                        receiver.conversations.listGroups(null).size,
                     )
                     val summary = receiver.catchUpToLive(null)
                     assertTrue(summary.completed)
                     assertEquals(0uL, summary.failed)
                     assertEquals(1uL, summary.conversations)
                     assertTrue(summary.messages >= 1uL)
-                    val groups = receiver.conversations().listGroups(null)
+                    val groups = receiver.conversations.listGroups(null)
                     assertEquals(1, groups.size)
                     val texts =
                         groups.single().messages().mapNotNull {

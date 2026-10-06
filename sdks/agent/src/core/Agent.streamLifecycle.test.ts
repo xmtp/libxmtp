@@ -2,8 +2,8 @@ import { setImmediate } from "node:timers/promises";
 
 import { ReaderStream } from "@node-private/streams/reader.js";
 import {
-  ConversationStream,
-  MessageStream,
+  type ConversationStream,
+  type MessageStream,
   Group,
   Dm,
   type Client,
@@ -41,20 +41,16 @@ function reader<T>(options?: StreamOptions) {
 function harness() {
   const conversations: ReturnType<typeof reader<Conversation>>[] = [];
   const messages: ReturnType<typeof reader<Message>>[] = [];
-  const openConversation = vi
-    .spyOn(ConversationStream, "open")
-    .mockImplementation((_client, _selection, options) => {
-      const stream = reader<Conversation>(options);
-      conversations.push(stream);
-      return stream as unknown as ConversationStream;
-    });
-  const openMessage = vi
-    .spyOn(MessageStream, "open")
-    .mockImplementation((_client, _selection, options) => {
-      const stream = reader<Message>(options);
-      messages.push(stream);
-      return stream as unknown as MessageStream;
-    });
+  const openConversation = vi.fn((options?: StreamOptions) => {
+    const stream = reader<Conversation>(options);
+    conversations.push(stream);
+    return stream as unknown as ConversationStream;
+  });
+  const openMessage = vi.fn((options?: StreamOptions) => {
+    const stream = reader<Message>(options);
+    messages.push(stream);
+    return stream as unknown as MessageStream;
+  });
   const group = Object.defineProperty(
     Object.create(Group.prototype) as Group,
     "id",
@@ -63,7 +59,11 @@ function harness() {
   const getById = vi.fn(async () => group as Conversation | undefined);
   const client = {
     inboxId: "agent",
-    conversations: { getById },
+    conversations: {
+      getById,
+      stream: openConversation,
+      streamAllMessages: openMessage,
+    },
   } as unknown as Client;
   const agent = new Agent({ client });
   return {
@@ -111,22 +111,21 @@ describe("Agent stream lifecycle", () => {
         streams.push(stream);
         return stream;
       };
-      const conversations = vi
-        .spyOn(ConversationStream, "open")
-        .mockImplementation(
-          (owner, _selection, options) =>
-            makeStream<Conversation>(
-              owner,
-              options,
-            ) as unknown as ConversationStream,
-        );
-      const messages = vi
-        .spyOn(MessageStream, "open")
-        .mockImplementation(
-          (owner, _selection, options) =>
-            makeStream<Message>(owner, options) as unknown as MessageStream,
-        );
-      const client = { inboxId: "agent" } as Client;
+      const conversations = vi.fn(
+        (options?: StreamOptions) =>
+          makeStream<Conversation>(
+            client,
+            options,
+          ) as unknown as ConversationStream,
+      );
+      const messages = vi.fn(
+        (options?: StreamOptions) =>
+          makeStream<Message>(client, options) as unknown as MessageStream,
+      );
+      const client = {
+        inboxId: "agent",
+        conversations: { stream: conversations, streamAllMessages: messages },
+      } as unknown as Client;
       const agent = new Agent({ client });
       const abort = new AbortController();
       const cause = new Error("app close failed");
@@ -483,28 +482,32 @@ describe("Agent stream lifecycle", () => {
         .mockResolvedValueOnce(message)
         .mockResolvedValue(undefined);
       const messageEnd = vi.fn(async () => undefined);
-      vi.spyOn(ConversationStream, "open").mockImplementation(
-        (owner, _selection, options) =>
+      const conversations = vi.fn(
+        (options?: StreamOptions) =>
           new ReaderStream<Conversation>(
             async () => ({
               next: () => conversationRead.promise,
               end: conversationEnd,
             }),
-            owner,
+            client,
             options && { signal: options.signal, onClose: options.onClose },
           ) as unknown as ConversationStream,
       );
-      vi.spyOn(MessageStream, "open").mockImplementation(
-        (owner, _selection, options) =>
+      const messages = vi.fn(
+        (options?: StreamOptions) =>
           new ReaderStream<Message>(
             async () => ({ next: messageNext, end: messageEnd }),
-            owner,
+            client,
             options && { signal: options.signal, onClose: options.onClose },
           ) as unknown as MessageStream,
       );
       const client = {
         inboxId: "agent",
-        conversations: { getById: vi.fn().mockRejectedValue(cause) },
+        conversations: {
+          getById: vi.fn().mockRejectedValue(cause),
+          stream: conversations,
+          streamAllMessages: messages,
+        },
       } as unknown as Client;
       const agent = new Agent({ client });
       const unhandled = vi.fn();
@@ -685,14 +688,12 @@ describe("Agent stream lifecycle", () => {
   it("fences startup after stop while local readiness is pending", async () => {
     const h = harness();
     const gate = deferred<void>();
-    h.openConversation.mockImplementationOnce(
-      (_client, _selection, options) => {
-        const stream = reader<Conversation>(options);
-        stream.ready.mockReturnValueOnce(gate.promise);
-        h.conversations.push(stream);
-        return stream as unknown as ConversationStream;
-      },
-    );
+    h.openConversation.mockImplementationOnce((options) => {
+      const stream = reader<Conversation>(options);
+      stream.ready.mockReturnValueOnce(gate.promise);
+      h.conversations.push(stream);
+      return stream as unknown as ConversationStream;
+    });
     const started = vi.fn();
     h.agent.on("start", started);
     const opening = h.agent.start();

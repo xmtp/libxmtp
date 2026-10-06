@@ -3,7 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { createRegisteredClient, createSigner } from "@test/helpers";
 import { createRecoveryProxy } from "@test/recoveryProxy";
 import {
-  ConversationStream,
+  type ConversationStream,
   type Client,
   type ConnectionState,
 } from "@xmtp/node-sdk";
@@ -33,19 +33,16 @@ it("recovers missed conversation notifications after an inbound blackhole", asyn
       deviceSync: false,
     });
     clients.push(receiver);
-    stream = ConversationStream.open(
-      receiver,
-      { kind: "group" },
-      {
-        onConnectionStateChange: (_previous, current) => {
-          connectionStates.push(current);
-        },
-        onClose: (reason) => {
-          closed.push(reason);
-          if (reason.kind === "failed") errors.push(reason.error);
-        },
+    stream = receiver.conversations.stream({
+      conversationKind: "group",
+      onConnectionStateChange: (_previous, current) => {
+        connectionStates.push(current);
       },
-    );
+      onClose: (reason) => {
+        closed.push(reason);
+        if (reason.kind === "failed") errors.push(reason.error);
+      },
+    });
     await stream.ready();
     consumption = stream
       .onValue((conversation) => {

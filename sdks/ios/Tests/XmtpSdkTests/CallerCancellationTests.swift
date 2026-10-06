@@ -160,7 +160,7 @@ final class CallerCancellationTests: XCTestCase {
 	func testReadCancelledBeforeFirstPollKeepsPriorItem() async throws {
 		try await withClients { scope in
 			let client = try await scope.create(signer: generateLocalSigner(), options: cancellationOptions())
-			let group = try await client.conversations().createGroup(members: [InboxId]())
+			let group = try await client.conversations.createGroup(members: [InboxId]())
 			let first = try await group.sendText(text: "delivered before the cancelled read")
 			let reader = try await group.messageReader(options: nil)
 			let delivered = try await reader.next()
@@ -196,7 +196,7 @@ final class CallerCancellationTests: XCTestCase {
 		}
 		try await withClients { scope in
 			let client = try await scope.create(signer: generateLocalSigner(), options: cancellationOptions())
-			let group = try await client.conversations().createGroup(members: [InboxId]())
+			let group = try await client.conversations.createGroup(members: [InboxId]())
 			let reader = try await group.messageReader(options: nil)
 
 			// The generated glue checks cancellation before its first suspension.
@@ -269,7 +269,7 @@ final class CallerCancellationTests: XCTestCase {
 				executor.release()
 				return
 			}
-			_ = try await client.conversations().createGroup(members: [InboxId]())
+			_ = try await client.conversations.createGroup(members: [InboxId]())
 			guard await waitUntil("The event read did not become ready", { executor.heldJobs > 0 }) else {
 				call.cancel()
 				executor.release()

@@ -56,19 +56,19 @@ suspend fun benchClose(client: BenchClient) = client.end()
 
 fun benchInbox(client: BenchClient) = client.inboxId()
 
-suspend fun benchSync(client: BenchClient) = client.conversations().sync()
+suspend fun benchSync(client: BenchClient) = client.conversations.sync()
 
 fun benchGroupID(group: BenchGroup) = group.id()
 
 suspend fun benchGroup(
     client: BenchClient,
     id: String,
-) = (client.conversations().getById(id) as Conversation.Group).group
+) = (client.conversations.getById(id) as Conversation.Group).group
 
 suspend fun benchNewGroup(
     client: BenchClient,
     members: List<String>,
-) = client.conversations().createGroup(members, null)
+) = client.conversations.createGroup(members, null)
 
 suspend fun benchPrepare(
     group: BenchGroup,
@@ -123,7 +123,7 @@ suspend fun benchGroupSync(group: BenchGroup) = group.sync()
 fun benchStream(
     client: BenchClient,
     group: BenchGroup,
-) = client.messages(group)
+) = group.streamMessages()
 
 suspend fun rows(
     group: BenchGroup,

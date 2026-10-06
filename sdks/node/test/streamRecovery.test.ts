@@ -7,7 +7,7 @@ import { createRecoveryBackend } from "@test/recoveryBackend";
 import { createRecoveryProxy } from "@test/recoveryProxy";
 import {
   Group,
-  MessageStream,
+  type MessageStream,
   XmtpError,
   flushTelemetry,
   initLogging,
@@ -64,20 +64,16 @@ async function observeMessages(
 ): Promise<MessageStream> {
   const state: { connection?: ConnectionState; connectionGeneration: number } =
     { connectionGeneration: 0 };
-  const stream = MessageStream.open(
-    client,
-    { from: observation.from },
-    {
-      onConnectionStateChange: (_previous, current) => {
-        state.connection = current;
-        state.connectionGeneration++;
-      },
-      onClose: (reason) => {
-        if (reason.kind === "failed")
-          observation.failure(reason.error as Error);
-      },
+  const stream = client.conversations.streamAllMessages({
+    from: observation.from,
+    onConnectionStateChange: (_previous, current) => {
+      state.connection = current;
+      state.connectionGeneration++;
     },
-  );
+    onClose: (reason) => {
+      if (reason.kind === "failed") observation.failure(reason.error as Error);
+    },
+  });
   connectionStates.set(stream, state);
   await stream.ready();
   if (observation.consume)

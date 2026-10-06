@@ -170,17 +170,17 @@ unchanged. `InvalidCursor`, `ForeignCursor`, and `ConsumerOwned` are separate
 failures. A history query plus a cursor read is not an atomic, gap-free
 history/live snapshot.
 
-| Host             | Old consumption call                         | Supported new consumption                                                            |
-| ---------------- | -------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Swift            | `group.streamMessages` / `streamAllMessages` | `client.messages(in: group)` / `client.messages()`; `for try await`                  |
-| Kotlin           | `group.streamMessages` / `streamAllMessages` | `client.messages(group)` / `client.messages()`; Flow `collect`                       |
-| Node and browser | `conversation.stream` / `streamAllMessages`  | `MessageStream.openGroup(client, group)` / `MessageStream.open(client)`; `for await` |
+| Host             | Old consumption call                         | Supported new consumption                                                              |
+| ---------------- | -------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Swift            | `group.streamMessages` / `streamAllMessages` | `group.streamMessages()` / `client.conversations.streamAllMessages()`; `for try await` |
+| Kotlin           | `group.streamMessages` / `streamAllMessages` | `group.streamMessages()` / `client.conversations.streamAllMessages()`; Flow `collect`  |
+| Node and browser | `conversation.stream` / `streamAllMessages`  | `group.streamMessages()` / `client.conversations.streamAllMessages()`; `for await`     |
 
 For supported iteration, use the existing host adapter. Swift uses
-`let stream = try await client.messages(in: group)` and `for try await message
-in stream`. Kotlin uses `client.messages(group).collect { ... }`; `first()` or
+`let stream = try await group.streamMessages()` and `for try await message
+in stream`. Kotlin uses `group.streamMessages().collect { ... }`; `first()` or
 `take(1).toList()` ends early. Node/browser use
-`MessageStream.openGroup(client, group)` with `for await`. Loop exit ends the
+`group.streamMessages()` with `for await`. Loop exit ends the
 reader automatically. Swift iterator destruction triggers end but cannot await
 teardown. Existing native reader `end()` remains the explicit awaited close;
 no new Swift iterator `end()` method is added. Kotlin Flow finalization awaits
@@ -285,3 +285,22 @@ The next generation waits for that active call before its first callback. A slow
 There is no final sink flush guarantee on replacement or client/process end.
 `flushTelemetry` does not flush the app log sink. Remove `setLogSinkQueued` and
 `LogWindow` usage. Treat logs as diagnostics, not as a durable app event stream.
+
+### Conversation and message stream entry points
+
+All four SDKs use `client.conversations.stream()` for conversation notifications,
+`client.conversations.streamAllMessages()` for message delivery across conversations,
+and `conversation.streamMessages()` for one group or DM. Native SDKs expose
+`client.conversations` as a property. History queries such as `group.messages()`
+keep their current names.
+
+Each stream method takes one options value. Use `conversationKind` and
+`consentStates` to select conversations. Use `from` to replay message delivery.
+One-conversation message options accept `from` and lifecycle callbacks; they have
+no kind or consent filter. An empty consent list stays empty.
+
+These methods replace the TypeScript static stream factories and the native
+client stream methods. There are no compatibility aliases. TypeScript still
+returns immediately and exposes `ready()`. Swift still creates a lazy sequence
+with `async throws`. Kotlin still returns a cold Flow and opens its reader at
+collection. Cancellation, acknowledgement, and replay rules are unchanged.

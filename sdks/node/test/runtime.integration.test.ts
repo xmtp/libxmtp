@@ -20,7 +20,6 @@ import {
   Group,
   MarkdownCodec,
   Message,
-  MessageStream,
   Preferences,
   ReadReceiptCodec,
   SignatureRequest,
@@ -197,7 +196,7 @@ it("a stream keeps hostile codec failures typed and delivers the next item", asy
   );
   const group = await client.conversations.createGroup([]);
   const states: [ConnectionState | undefined, ConnectionState][] = [];
-  const stream = MessageStream.openGroup(client, group, undefined, {
+  const stream = group.streamMessages({
     onConnectionStateChange: (previous, current) =>
       states.push([previous, current]),
   });
@@ -269,7 +268,7 @@ it("a public stream read after client end fails with the public ClientClosed", a
   );
   const group = await client.conversations.createGroup([]);
   const reasons: StreamCloseReason[] = [];
-  const stream = MessageStream.openGroup(client, group, undefined, {
+  const stream = group.streamMessages({
     onClose: (reason) => reasons.push(reason),
   });
   await stream.ready();
@@ -299,7 +298,7 @@ it.each(["break", "throw", "abort"] as const)(
     const closed = Promise.withResolvers<void>();
     const received = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-    const stream = MessageStream.openGroup(client, group, undefined, {
+    const stream = group.streamMessages({
       signal: controller.signal,
       onClose: (reason) => (reasons.push(reason), closed.resolve()),
     });

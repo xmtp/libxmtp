@@ -60,7 +60,7 @@ class ClientTest : BaseInstrumentedTest() {
                 assertEquals(inMemory, created.isInMemory())
                 assertEquals("Testing/0.0.0", created.appVersion())
                 assertNull(created.options().storage.encryptionKey)
-                val group = created.conversations().createGroup(emptyList<InboxId>())
+                val group = created.conversations.createGroup(emptyList<InboxId>())
                 val changed = CompletableDeferred<ClientEvent.ConversationMetadataChanged>()
                 val listener =
                     created.startListener(
@@ -118,7 +118,7 @@ class ClientTest : BaseInstrumentedTest() {
             assertTrue(SDKClient.isInstallationAuthorized(alixInbox, installation, backend()))
             assertFalse(SDKClient.isInstallationAuthorized(alixInbox, "00".repeat(32), backend()))
 
-            val group = fixtures.alixClient.conversations().createGroup(emptyList<InboxId>())
+            val group = fixtures.alixClient.conversations.createGroup(emptyList<InboxId>())
             group.sendText("newest")
             val metadata = SDKClient.newestMessageMetadata(listOf(group.id()), backend())
             assertTrue(checkNotNull(metadata[group.id()]).sequenceId > 0u)
@@ -135,13 +135,13 @@ class ClientTest : BaseInstrumentedTest() {
             val signer = createWallet()
             val options = createClientOptions()
             val original = client(signer, options)
-            original.conversations().createGroup(emptyList<InboxId>())
-            assertEquals(1, original.conversations().listGroups(null).size)
+            original.conversations.createGroup(emptyList<InboxId>())
+            assertEquals(1, original.conversations.listGroups(null).size)
             val path = checkNotNull(original.storage().path())
             original.storage().delete()
             assertFalse(File(path).exists())
             val replacement = client(signer, options)
-            assertTrue(replacement.conversations().listGroups(null).isEmpty())
+            assertTrue(replacement.conversations.listGroups(null).isEmpty())
         }
 
     // verifies: IDENT-076
@@ -168,12 +168,12 @@ class ClientTest : BaseInstrumentedTest() {
             val signer = createWallet()
             val options = createClientOptions()
             val original = client(signer, options)
-            val group = original.conversations().createGroup(emptyList<InboxId>())
+            val group = original.conversations.createGroup(emptyList<InboxId>())
             group.sendText("stored")
             original.end()
             assertTrue(
                 runCatching {
-                    original.conversations().listGroups(
+                    original.conversations.listGroups(
                         null,
                     )
                 }.exceptionOrNull() is XmtpException.ClientClosed,
@@ -183,7 +183,7 @@ class ClientTest : BaseInstrumentedTest() {
             assertEquals(
                 group.id(),
                 reopened
-                    .conversations()
+                    .conversations
                     .listGroups(null)
                     .single()
                     .id(),
@@ -228,8 +228,8 @@ class ClientTest : BaseInstrumentedTest() {
             SDKClient.activatePersistentLibXMTPLogWriter(context, LogLevel.TRACE, LogRotation.HOURLY, 3u)
             try {
                 val created = client(createWallet())
-                created.conversations().createGroup(emptyList<InboxId>())
-                created.conversations().sync()
+                created.conversations.createGroup(emptyList<InboxId>())
+                created.conversations.sync()
             } finally {
                 SDKClient.deactivatePersistentLibXMTPLogWriter()
             }

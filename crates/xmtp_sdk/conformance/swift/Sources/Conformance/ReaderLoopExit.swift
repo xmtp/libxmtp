@@ -4,7 +4,7 @@ import Foundation
 // The stored sequence stays alive after the app throws. Its loop iterator
 // must release the reader. The app error must not acknowledge the item.
 // verifies: PROC-052, PROC-031, PROC-041
-func checkReaderAppError(owner: SDKClient, group: Group, messageId: MessageId) async throws {
+func checkReaderAppError(owner _: SDKClient, group: Group, messageId: MessageId) async throws {
     // Keep the raw handle alive so native destruction cannot hide a missing
     // adapter end call.
     let (opened, openedSignal) = AsyncStream<MessageReader>.makeStream()
@@ -16,11 +16,11 @@ func checkReaderAppError(owner: SDKClient, group: Group, messageId: MessageId) a
     defer { SDKClient.readerOpenedForTest = previousOpenHook }
     let (closed, closeSignal) = AsyncStream<SDKStreamCloseReason>.makeStream()
     let closeCount = TestCounter()
-    let stream = try await owner.messages(in: group, onClose: { reason in
+    let stream = try await group.streamMessages(options: .init(onClose: { reason in
         closeCount.increment()
         closeSignal.yield(reason)
         closeSignal.finish()
-    })
+    }))
     do {
         for try await message in stream {
             guard message.id == messageId else {
