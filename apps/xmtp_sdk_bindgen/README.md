@@ -13,10 +13,10 @@ generator reads the result from the UniFFI library metadata.
 ## Metadata markers
 
 The macro turns its `pure` and `client_static` arguments and `#[sdk(...)]`
-member options into
-`#[doc = "@xmtp-..."]` lines. UniFFI carries docstrings into the library
-metadata, `src/markers.rs` reads them, and the generator strips them from
-generated documentation comments; code and string literals keep their text.
+member options into `#[doc = "@xmtp-..."]` lines. UniFFI carries docstrings
+into the library metadata, `src/markers.rs` reads them, and the generator
+strips them from generated documentation comments; code and string literals
+keep their text.
 `dev/nix-shell 'just sdk lint'` fails if a marker reaches a binding. UniFFI
 includes docstrings in its API checksums, so a new marker changes the
 checksum of its function; the library and its bindings are always generated
@@ -58,8 +58,8 @@ Rules the macro enforces at compile time:
   the object's lifetime; otherwise make the read async.
 - `#[sdk(kind)]` marks every variant of an enum, each with its own kind, or
   none.
-- `client_static` takes an asynchronous free function, and not with
-  `pure`.
+- `client_static` needs an asynchronous free function and excludes `pure`,
+  `native_only`, and `wasm_only`: every SDK has the static.
 - Redaction fails closed. Once a record, or any variant of an enum, has a
   `#[sdk(redact)]` field, every other field of the type takes
   `#[sdk(redact)]` or `#[sdk(shown)]`, so a new field or variant never prints
@@ -110,7 +110,8 @@ function's without a trailing `_with_backend`, in the SDK's casing. It takes
 the function's parameters in Rust order with the `BackendSource` parameter
 moved last, and the function stays exported. So
 `can_message_with_backend(backend, identities)` becomes
-`Client.canMessage(identities, backend)` in TypeScript and Kotlin and
+`Client.canMessage(identities, backend)` in TypeScript,
+`SDKClient.canMessage(identities, backend)` in Kotlin, and
 `SDKClient.canMessage(identities:backend:)` in Swift.
 
 - TypeScript: the generated `ClientMembers` base, which the public `Client`
@@ -121,10 +122,19 @@ moved last, and the function stays exported. So
 - Swift: `runtime/ClientForwarding.swift` gets a `static func` with every
   parameter labelled, with the binding's types.
 
-Generation stops on a function that the rule cannot express: a synchronous
-or `@xmtp-internal` one, one with two `BackendSource` parameters, a name that
-another static or the host constructors `create` and `build` take, or a
-Kotlin foreign trait that has no `SDKForeign` wrapper or sits in a container.
+Generation stops on a function that the rule cannot express:
+
+- a synchronous or `@xmtp-internal` one;
+- one with two `BackendSource` parameters or a defaulted `BackendSource`;
+- one with a defaulted parameter that the moved `BackendSource` would
+  follow, because a TypeScript caller could not leave that parameter out;
+- a name that another static, the host constructors `create` and `build`,
+  the class `constructor`, or a property of every JavaScript function
+  (`name`, `length`, `prototype`, `caller`, `arguments`) takes;
+- a binding declaration whose parameters differ from the metadata;
+- a Kotlin parameter that holds a foreign trait or a `BackendSource` that no
+  `SDKForeign` wrapper reaches: a foreign trait without a wrapper, or one in
+  a container, a record, or an enum.
 
 ## Message fields
 
