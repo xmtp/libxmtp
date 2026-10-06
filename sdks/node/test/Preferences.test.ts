@@ -1,11 +1,17 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import type { ClientEvent } from "@xmtp/node-sdk";
+import {
+  type ClientEvent,
+  type ConsentRecord,
+  generateInboxId,
+} from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   currentProjection,
   lowerEventFilter,
 } from "../dist/public-values.gen.js";
+
+const WAIT = { timeout: 30_000, interval: 100 };
 
 describe("Preferences", () => {
   it("defaults the omitted own-message event filter before binding conversion", () => {
@@ -69,5 +75,50 @@ describe("Preferences", () => {
     expect((await group.state()).common.consentState).toBe("allowed");
     await group.updateConsentState("denied");
     expect(await client.preferences.consentState(entity)).toBe("denied");
+  });
+
+  // verifies: EVENT-009
+  it("delivers every consent change from a multi-record update", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    const group = await client.conversations.createGroup([]);
+    const peerInboxId = generateInboxId(createSigner().identifier);
+    const events = await client.events({ kinds: ["consent.changed"] });
+    const seen: ClientEvent[] = [];
+    const consumed = (async () => {
+      for await (const event of events) seen.push(event);
+    })();
+    try {
+      const records: ConsentRecord[] = [
+        {
+          entity: { kind: "conversation", conversationId: group.id },
+          state: "denied",
+        },
+        { entity: { kind: "inbox", inboxId: peerInboxId }, state: "allowed" },
+      ];
+      await client.preferences.setConsentStates(records);
+      await vi.waitFor(() => {
+        expect(seen).toContainEqual({
+          kind: "consent.changed",
+          consent_changed: {
+            entity_kind: "conversation",
+            entity: group.id,
+            state: "denied",
+          },
+        });
+        expect(seen).toContainEqual({
+          kind: "consent.changed",
+          consent_changed: {
+            entity_kind: "inbox",
+            entity: peerInboxId,
+            state: "allowed",
+          },
+        });
+      }, WAIT);
+    } finally {
+      // The loop still waits in next(); return() must end it.
+      await events.return();
+      await consumed;
+      await client.end();
+    }
   });
 });

@@ -110,6 +110,10 @@ describe("Client", () => {
       expect(state.installations.map((i) => i.id)).toEqual([
         other.installationId,
       ]);
+      // The instance lookup returns an optional inbox ID. An identity with no
+      // inbox lifts to undefined, not null. (The static lookup above computes
+      // the nonce-0 inbox ID instead.)
+      expect(await other.inboxIdFor(createSigner().identifier)).toBeUndefined();
     } finally {
       await other.end();
     }

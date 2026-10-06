@@ -129,6 +129,20 @@ describe("server configuration", () => {
     const client = await createRegisteredClient(signer);
     expect(client.serverConfiguration).toEqual(fetched);
     await client.end();
+
+    // The binding lifts a failed static fetch to the public error class.
+    // Port 1 has no listener, as in the Rust check.
+    const failure = await Client.fetchServerConfiguration({
+      url: "http://127.0.0.1:1",
+    }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(XmtpError.ConfigurationUnavailable);
+    expect(failure).toMatchObject({
+      details: {
+        code: "ConfigurationUnavailable",
+        category: "configuration",
+        retryable: true,
+      },
+    });
   });
 
   // verifies: CONF-064
