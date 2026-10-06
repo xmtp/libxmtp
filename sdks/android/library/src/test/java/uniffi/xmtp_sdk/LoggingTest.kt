@@ -52,9 +52,10 @@ class LoggingTest {
     // A Kotlin sink can end a live client and clear itself from inside its
     // callback. Rust drives only a bare SinkQueue with no client
     // (logging/sink/tests.rs::callback_can_emit_and_clear_itself). The record
-    // comes from a call that holds no client: LOG-008 has a gap waiver for an
-    // emitting call that holds the client it ends. A deadlock in end() also
-    // blocks the cleanup end in withClients, so the JUnit timeout reports it.
+    // comes from a call that holds no client: the requirement keeps its gap
+    // waiver for an emitting call that holds the client it ends. A deadlock in
+    // end() also blocks the cleanup end in withClients, so the JUnit timeout
+    // reports it.
     @Test(timeout = 90_000L)
     fun sinkCanEndAClientAndClearItself() =
         runBlocking {

@@ -29,9 +29,9 @@ Run commands from the repository root in the Nix shell. Run
   the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
   in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
-- `dev/nix-shell 'just sdk conformance <swift|kotlin>'` runs scenarios against this
-  worktree's backend. The Node host checks are in `sdks/node/test`
-  (`dev/nix-shell 'just js test-node-sdk-ci'`).
+- `dev/nix-shell 'just sdk conformance <swift|kotlin>'` runs the host checks that
+  need the conformance build. Both runs are described below. The Node host
+  checks are in `sdks/node/test` (`dev/nix-shell 'just js test-node-sdk-ci'`).
   `dev/nix-shell 'just sdk conformance browser'` runs Chromium
   proofs in Vitest Playwright: a real WASM trap from a test-only panic fixture,
   storage layouts, attachment and event lifetime, and decode-once. It then
