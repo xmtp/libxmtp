@@ -1,8 +1,11 @@
 //! The SDK generator trusts the metadata markers that `xmtp_macro::sdk_export`
-//! writes. A doc comment that spells one out skips the macro's checks, and
-//! the macro sees only the items it exports, so this test reads every source
-//! file of the façade.
+//! writes. One written by hand skips the macro's checks, and the macro sees
+//! only the items it exports, so this test reads every source file of the
+//! façade. It flags a marker on any line, whatever carries it: a `///` or
+//! `/** */` doc comment, a continuation line of a block comment, or a
+//! `#[doc]` attribute.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
 /// The markers that only the macro writes. Only `@xmtp-worker` and
@@ -15,6 +18,7 @@ const MACRO_MARKERS: &[&str] = &[
     "@xmtp-redacted",
 ];
 
+#[cfg(not(target_arch = "wasm32"))]
 fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
@@ -27,10 +31,34 @@ fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
     Ok(())
 }
 
-/// A doc comment, or an attribute that may hold `doc = "..."`.
-fn documentation(line: &str) -> bool {
-    let line = line.trim_start();
-    line.starts_with("///") || line.starts_with("//!") || line.starts_with("#[")
+/// The lines of `source` that spell out a macro-owned marker, numbered from 1.
+fn written_markers(source: &str) -> Vec<(usize, &str)> {
+    source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| MACRO_MARKERS.iter().any(|marker| line.contains(marker)))
+        .map(|(index, line)| (index + 1, line.trim()))
+        .collect()
+}
+
+// A block doc comment reaches UniFFI's docstring like a `///` one does.
+#[xmtp_common::test(unwrap_try = true)]
+fn every_doc_comment_form_is_scanned() {
+    let source = "\
+/** @xmtp-redact */
+/**
+ * A key.
+ * @xmtp-redacted
+ */
+#[cfg_attr(all(), doc = \"@xmtp-kind=lagged\")]
+/// Made by the worker. @xmtp-worker @xmtp-internal
+fn read() {}
+";
+    let lines = written_markers(source)
+        .into_iter()
+        .map(|(line, _)| line)
+        .collect::<Vec<_>>();
+    assert_eq!(lines, [1, 4, 6]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -44,11 +72,13 @@ fn facade_doc_comments_write_no_macro_marker() {
     assert!(files.len() > 100, "found {} source files", files.len());
     let mut written = Vec::new();
     for file in files {
+        // This file names the markers it looks for.
+        if file.ends_with("tests/generator_markers.rs") {
+            continue;
+        }
         let source = std::fs::read_to_string(&file)?;
-        for (index, line) in source.lines().enumerate() {
-            if documentation(line) && MACRO_MARKERS.iter().any(|marker| line.contains(marker)) {
-                written.push(format!("{}:{}: {}", file.display(), index + 1, line.trim()));
-            }
+        for (line, text) in written_markers(&source) {
+            written.push(format!("{}:{line}: {text}", file.display()));
         }
     }
     assert!(
