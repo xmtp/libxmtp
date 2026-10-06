@@ -83,6 +83,8 @@ Node and agent version 8 require ESM and Node 22.12 or later. End a client with
 `await client.end()` before removing its storage.
 
 `dev/nix-shell 'pnpm --filter @xmtp/node-sdk typecheck'` checks the runtime
-test sources and the three public type fixtures under `type-tests/`. Keep the
+test sources and the four public type fixtures under `type-tests/`. Keep the
 fixtures in this command when public stream, notification, or configuration
-types change.
+types change. `publicSurface.ts` holds `@ts-expect-error` lines for the
+binding shapes that the generated root must hide. The Browser SDK `typecheck`
+compiles a copy from `sdks/browser/type-tests/`.
