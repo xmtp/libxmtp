@@ -12,6 +12,7 @@ const MACRO_MARKERS: &[&str] = &[
     "@xmtp-kind",
     "@xmtp-pure",
     "@xmtp-redact",
+    "@xmtp-redacted",
 ];
 
 fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
