@@ -151,50 +151,84 @@ let
     )
   );
   ubrn = pkgs.callPackage ../lib/packages/ubrn.nix { };
-  generated = stdenvNoCC.mkDerivation {
-    pname = "xmtp-sdk-generated";
-    version = xmtp.mkVersion rust;
-    src = sdkSource;
-    nativeBuildInputs = [
-      bindgen
-      rustToolchain
-      wasm-bindgen-cli
-      pkgs.python3
-    ];
-    buildPhase = ''
-      # Use the unpacked source: generation rewrites copied TypeScript files,
-      # while the source files in the Nix store are read-only.
-      mkdir -p $out
-      # The Nix build has no JavaScript workspace dependencies. Formatting
-      # changes layout only, so use the generator's supported no-format mode.
-      for language in swift kotlin typescript-napi; do
-        xmtp-sdk-bindgen generate \
-          --lib ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} \
-          --language "$language" --no-format --out "$out/$language" \
+  nativeLibrary = "${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"}";
+  mkRender =
+    language: artifact: pure:
+    stdenvNoCC.mkDerivation {
+      pname = "xmtp-sdk-render-${language}";
+      version = xmtp.mkVersion rust;
+      src = sdkSource;
+      nativeBuildInputs = [
+        bindgen
+        rustToolchain
+      ]
+      ++ lib.optional (artifact != nativeLibrary) wasm-bindgen-cli;
+      buildPhase = ''
+        # The unpacked source is writable. TypeScript generation changes copies.
+        # The Nix build has no JavaScript formatter dependencies.
+        xmtp-sdk-bindgen generate --lib ${artifact} \
+          --language ${if pure then "typescript-wasm" else language} \
+          ${lib.optionalString pure "--pure-only"} --no-format --out "$out" \
           --config apps/xmtp_sdk_bindgen/uniffi-global.toml
-      done
-      xmtp-sdk-bindgen generate --lib ${wasm}/lib/xmtp_sdk.wasm \
-        --language typescript-wasm --no-format --out "$out/typescript-wasm" \
-        --config apps/xmtp_sdk_bindgen/uniffi-global.toml
-      xmtp-sdk-bindgen stage-wasm --lib ${wasm}/lib/xmtp_sdk.wasm \
-        --out "$out/typescript-wasm"
-      xmtp-sdk-bindgen generate --lib ${pureWasm}/lib/xmtp_sdk.wasm \
-        --language typescript-wasm --pure-only --no-format --out "$out/typescript-pure" \
-        --config apps/xmtp_sdk_bindgen/uniffi-global.toml
-      xmtp-sdk-bindgen stage-wasm --lib ${pureWasm}/lib/xmtp_sdk.wasm \
-        --out "$out/typescript-pure"
-      cp ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} $out/typescript-napi/
-      python3 crates/xmtp_sdk/dev/record-generated.py "$out" \
-        --native ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} \
-        --wasm ${wasm}/lib/xmtp_sdk.wasm --pure ${pureWasm}/lib/xmtp_sdk.wasm \
-        --bindgen ${bindgen}/bin/xmtp-sdk-bindgen
-      mkdir -p $out/runtimes
-      ln -s ${ubrn.core} $out/runtimes/core
-      ln -s ${ubrn.node} $out/runtimes/node
-      ln -s ${ubrn.wasm} $out/runtimes/wasm
-    '';
-    installPhase = "true";
+        ${lib.optionalString (artifact != nativeLibrary) ''
+          xmtp-sdk-bindgen stage-wasm --lib ${artifact} --out "$out"
+        ''}
+        ${lib.optionalString (language == "typescript-napi") ''
+          cp ${nativeLibrary} "$out/"
+        ''}
+      '';
+      installPhase = "true";
+    };
+  renders = {
+    swift = mkRender "swift" nativeLibrary false;
+    kotlin = mkRender "kotlin" nativeLibrary false;
+    typescript-napi = mkRender "typescript-napi" nativeLibrary false;
+    typescript-wasm = mkRender "typescript-wasm" "${wasm}/lib/xmtp_sdk.wasm" false;
+    typescript-pure = mkRender "typescript-pure" "${pureWasm}/lib/xmtp_sdk.wasm" true;
   };
+  binaries = {
+    native = nativeLibrary;
+    bindgen = "${bindgen}/bin/xmtp-sdk-bindgen";
+    wasm = "${wasm}/lib/xmtp_sdk.wasm";
+    pure = "${pureWasm}/lib/xmtp_sdk.wasm";
+  };
+  mkGenerated =
+    name: languages: roles: runtimeNames:
+    stdenvNoCC.mkDerivation {
+      pname = "xmtp-sdk-generated${name}";
+      version = xmtp.mkVersion rust;
+      src = sdkSource;
+      nativeBuildInputs = [ pkgs.python3 ];
+      buildPhase = ''
+        mkdir -p "$out"
+        ${lib.concatMapStringsSep "\n" (language: ''
+          mkdir -p "$out/${language}"
+          cp -R ${renders.${language}}/. "$out/${language}/"
+        '') languages}
+        chmod -R u+w "$out"
+        python3 crates/xmtp_sdk/dev/record-generated.py "$out" \
+          ${lib.concatMapStringsSep " " (role: "--${role} ${binaries.${role}}") roles}
+        ${lib.optionalString (runtimeNames != [ ]) ''
+          mkdir -p "$out/runtimes"
+          ${lib.concatMapStringsSep "\n" (runtime: ''
+            ln -s ${ubrn.${runtime}} "$out/runtimes/${runtime}"
+          '') runtimeNames}
+        ''}
+      '';
+      installPhase = "true";
+    };
+  generatedSwift = mkGenerated "-swift" [ "swift" ] [ "native" "bindgen" ] [ ];
+  generatedKotlin = mkGenerated "-kotlin" [ "kotlin" ] [ "native" "bindgen" ] [ ];
+  generatedNode = mkGenerated "-node" [ "typescript-napi" ] [ "native" "bindgen" ] [ "core" "node" ];
+  generatedBrowser = mkGenerated "-browser" [
+    "typescript-wasm"
+    "typescript-pure"
+  ] [ "bindgen" "wasm" "pure" ] [ "core" "wasm" ];
+  # Re-record all raw roots together to retain the aggregate's full contract.
+  generated =
+    mkGenerated "" (builtins.attrNames renders)
+      [ "native" "wasm" "pure" "bindgen" ]
+      [ "core" "node" "wasm" ];
 in
 {
   libs = native;
@@ -203,6 +237,10 @@ in
     pureWasm
     bindgen
     generated
+    generatedSwift
+    generatedKotlin
+    generatedNode
+    generatedBrowser
     iosTargets
     ;
   runtimes = ubrn;

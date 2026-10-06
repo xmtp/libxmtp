@@ -98,8 +98,13 @@ check-native-nix:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-native-nix.py
     cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-source-nix.py
 
+# Check the real generation and mobile consumer build closures.
+check-generated-nix:
+    cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-generated-nix.py
+
 check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-native-nix-gate.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-generated-records.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py

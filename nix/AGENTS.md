@@ -30,12 +30,25 @@ to development shells. Run `dev/nix-shell 'just backend ci COMMAND'`.
 ## Generated SDK preparation
 
 `xmtp-sdk-generated` includes the native, worker, and pure roots with matched
-contract records. `xmtp-sdk-pure-wasm` is a separate artifact and shares the
+contract records. Select `xmtp-sdk-generated-swift`, `xmtp-sdk-generated-kotlin`,
+or `xmtp-sdk-generated-node` to build one native language without WASM.
+`xmtp-sdk-generated-browser` includes matched worker and pure roots.
+Each selected product keeps the aggregate's root names. Node and Browser
+include their required runtime links. Android and Apple preparation use the
+selected Kotlin and Swift products. Check these build closures with
+`dev/nix-shell 'just sdk check-generated-nix'`.
+`xmtp-sdk-pure-wasm` is a separate artifact and shares the
 worker dependency cache. The generated library outputs are
 `xmtp-sdk-node-<platform>` and `xmtp-sdk-android-<abi>`. Darwin adds `xmtp-sdk-ios-device` and
 `xmtp-sdk-ios-simulator`. Public SDK packaging stages these matched generated
-artifacts. The Browser package uses `xmtp-sdk-generated` through the `wasm.bin`
-output. Building and staging do not publish a package.
+artifacts. Building and staging do not publish a package.
+
+Run `dev/nix-shell 'python3 -B nix/check-sdk-products.py'` to build selected
+Kotlin, Android fast, and Swift on Darwin. It checks generated files, complete
+receipts, source identities, and the selected Android ELF library.
+Run `dev/nix-shell 'python3 -B nix/test-sdk-windows-staging.py'` to check the
+Windows Node job with cached generated roots. This fixture checks cleanup and
+receipt creation. It does not compile a Windows SDK.
 
 `android-sdk-libs` combines generated Kotlin, runtime and Android sources,
 the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`
