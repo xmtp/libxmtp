@@ -99,7 +99,22 @@ it("lifts every returned value to plain public data", async () => {
   const group = await alix.conversations.createGroup([bo.identity]);
   const id = await group.sendText("plain");
   const message = (await group.messages()).find((item) => item.id === id)!;
-  await message.reply("reply");
+  // The hand-written Message actions route by the message's own IDs.
+  const reply = (await alix.conversations.getMessageById(
+    await message.reply("reply"),
+  ))!;
+  const conversation = await reply.conversation();
+  expect(conversation).toBeInstanceOf(Group);
+  expect(conversation?.id).toBe(group.id);
+  expect((await reply.parent())?.id).toBe(id);
+  const reaction = await message.react({
+    action: "added",
+    schema: "unicode",
+    content: "👍",
+  });
+  expect((await message.refresh())?.reactions.map((item) => item.id)).toEqual([
+    reaction,
+  ]);
   for (const [path, value] of Object.entries({
     messages: await group.messages(),
     members: await group.members(),

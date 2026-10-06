@@ -228,6 +228,7 @@ describe("Content types", () => {
     },
   );
 
+  // verifies: CTYPE-017
   it("reports missing and failed custom codecs without losing the raw envelope", async () => {
     const codec = new TestCodec();
     const failing = new DecodeFailureCodec();
