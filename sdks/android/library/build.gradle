@@ -12,6 +12,13 @@ dokka {
     }
 }
 
+// Use the configured Dokka version for the Maven documentation artifact.
+// AGP's withJavadocJar() uses its own older Dokka version for Kotlin sources.
+def releaseJavadocJar = tasks.register("releaseJavadocJar", Jar) {
+    archiveClassifier.set("javadoc")
+    from(tasks.named("dokkaGeneratePublicationHtml").flatMap { it.outputDirectory })
+}
+
 // Read a port for the local test stack: the environment first, then
 // dev/docker/.env (written by dev/worktree-env), then the slot-0 default.
 // Gradle may run without the `just` recipes, so do not rely on the environment
@@ -87,7 +94,6 @@ android {
     publishing {
         singleVariant("release") {
             withSourcesJar()
-            withJavadocJar()
         }
     }
     lint {
@@ -141,6 +147,7 @@ afterEvaluate {
                 version = rootProject.version
 
                 from components.release
+                artifact releaseJavadocJar
 
                 pom {
                     name = "XMTP"

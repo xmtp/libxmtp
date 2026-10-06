@@ -85,8 +85,12 @@ jobs:
       - name: Build Android bindings
         run: NIX_DEVSHELL=android dev/nix-shell './sdks/android/dev/bindings --release'
 
+      - name: Build JVM test library
+        run: env -u LD_LIBRARY_PATH nix build .#xmtp-sdk-libs --out-link sdks/android/.build/test-host
+
       - name: Build and publish
         env:
+          JAVA_TOOL_OPTIONS: "-Djna.library.path=${{ github.workspace }}/sdks/android/.build/test-host/lib"
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
