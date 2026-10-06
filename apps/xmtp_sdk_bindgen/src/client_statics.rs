@@ -28,17 +28,21 @@ const BACKEND_SUFFIX: &str = "_with_backend";
 const BACKEND_SOURCE: &str = "BackendSource";
 /// Static names that the Client class cannot take: the host constructors,
 /// the class constructor, which TypeScript does not let a static method be
-/// named, and the properties of every JavaScript function, which a
-/// TypeScript class is.
+/// named, the properties of every JavaScript function, which a TypeScript
+/// class is, and the Swift declarations that `SDKClient.init` and the like
+/// would name instead of a static method.
 const TAKEN_STATICS: &[(&str, &str)] = &[
     ("arguments", "a property of every JavaScript function"),
     ("build", "a host constructor"),
     ("caller", "a property of every JavaScript function"),
     ("constructor", "the class constructor"),
     ("create", "a host constructor"),
+    ("deinit", "a Swift deinitializer"),
+    ("init", "a Swift initializer"),
     ("length", "a property of every JavaScript function"),
     ("name", "a property of every JavaScript function"),
     ("prototype", "a property of every JavaScript function"),
+    ("subscript", "a Swift subscript"),
 ];
 /// The Swift module of the generated package. A static named like its
 /// function (`fetchServerConfiguration`) calls the function through it,
@@ -599,6 +603,18 @@ mod tests {
             error(vec![marked("constructor_with_backend", vec![])])
                 .contains("Client.constructor is the class constructor")
         );
+        // Swift declares these with their own keyword, not as a method.
+        for (name, taken) in [
+            ("init", "a Swift initializer"),
+            ("deinit", "a Swift deinitializer"),
+            ("subscript", "a Swift subscript"),
+        ] {
+            let message = error(vec![marked(&format!("{name}_with_backend"), vec![])]);
+            assert!(
+                message.contains(&format!("Client.{name} is {taken}")),
+                "{name}: {message}"
+            );
+        }
         // A TypeScript class is a function, and its own properties are taken.
         for name in ["name", "length", "prototype", "caller", "arguments"] {
             let message = error(vec![marked(&format!("{name}_with_backend"), vec![])]);

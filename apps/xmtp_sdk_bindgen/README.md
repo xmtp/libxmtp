@@ -129,8 +129,9 @@ Generation stops on a function that the rule cannot express:
 - one with a defaulted parameter that the moved `BackendSource` would
   follow, because a TypeScript caller could not leave that parameter out;
 - a name that another static, the host constructors `create` and `build`,
-  the class `constructor`, or a property of every JavaScript function
-  (`name`, `length`, `prototype`, `caller`, `arguments`) takes;
+  the class `constructor`, a property of every JavaScript function
+  (`name`, `length`, `prototype`, `caller`, `arguments`), or a Swift
+  declaration keyword (`init`, `deinit`, `subscript`) takes;
 - a binding declaration whose parameters differ from the metadata;
 - a Kotlin parameter that holds a foreign trait or a `BackendSource` that no
   `SDKForeign` wrapper reaches: a foreign trait without a wrapper, or one in
