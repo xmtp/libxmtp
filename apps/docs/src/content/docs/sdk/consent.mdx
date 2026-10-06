@@ -4,7 +4,7 @@ title: Consent
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-Consent records what a user wants to hear. Every conversation and inbox ID has one of three states.
+Consent records what a user wants to hear. A conversation or inbox ID has one of three states. An entity with no record is `unknown`. The UI locations below are suggested app behavior.
 
 | State     | Meaning            | UI location |
 | --------- | ------------------ | ----------- |
@@ -12,20 +12,20 @@ Consent records what a user wants to hear. Every conversation and inbox ID has o
 | `allowed` | The user consented | Main inbox  |
 | `denied`  | The user refused   | Hidden      |
 
-Consent belongs to the inbox. [Device sync](/sdk/sync/) copies it to the user's other installations.
+Consent records are stored locally. When device sync is enabled, [device sync](/sdk/sync/) copies decisions to the inbox's other installations. A later consent time wins; at equal times, `denied` wins over `allowed`, then `unknown`.
 
 ## State changes
 
-| Trigger                                   | State     |
-| ----------------------------------------- | --------- |
-| A peer starts a conversation              | `unknown` |
-| The user creates a conversation           | `allowed` |
-| The user sends a message                  | `allowed` |
-| The app accepts or subscribes             | `allowed` |
-| The app blocks or unsubscribes            | `denied`  |
-| The user is re-added to a group they left | `unknown` |
+| Trigger                                              | State                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------- |
+| A peer starts a conversation                         | Usually `unknown`; an existing DM can inherit its prior state |
+| The user creates a conversation                      | `allowed`                                                     |
+| The user sends a message                             | `allowed`                                                     |
+| The app sets consent after accepting or subscribing  | `allowed`                                                     |
+| The app sets consent after blocking or unsubscribing | `denied`                                                      |
+| The user is re-added to a group they left            | `unknown`, unless the group names the own inbox as creator    |
 
-The user's creation of the conversation with the contact is considered consent.
+The user's creation of the conversation with the contact is considered consent. On the current client, a joined group that names the own inbox as creator is also set to `allowed`. This check uses the creator field; it does not prove which inbox added the user.
 
 The user's response to the conversation is considered consent.
 
@@ -33,16 +33,30 @@ Sending a message sets the conversation to `allowed` from any prior state, inclu
 
 ## Consent API
 
-| Task                    | Browser, Node                              | Kotlin, Swift                          |
-| ----------------------- | ------------------------------------------ | -------------------------------------- |
-| Read conversation       | `conversation.consentState()`              | `conversation.consentState()`          |
-| Read by conversation ID | `preferences.getConsentState(GroupId, id)` | `preferences.conversationState(id)`    |
-| Read by inbox ID        | `preferences.getConsentState(InboxId, id)` | `preferences.inboxIdState(id)`         |
-| Set conversation        | `conversation.updateConsentState(state)`   | `conversation.updateConsent(state)`    |
-| Set many                | `preferences.setConsentStates(records)`    | `preferences.setConsentState(entries)` |
-| Stream changes          | `preferences.streamConsent()`              | `preferences.streamConsent()`          |
+| Task             | Browser, Node                                  | Kotlin, Swift                                                   |
+| ---------------- | ---------------------------------------------- | --------------------------------------------------------------- |
+| Read group       | `(await group.state()).common.consentState`    | `group.state().common.consentState` with suspend or `try await` |
+| Read DM          | `(await dm.state()).consentState`              | `dm.state().consentState` with suspend or `try await`           |
+| Read an entity   | `client.preferences.consentState(entity)`      | `client.preferences().consentState(entity)`                     |
+| Set conversation | `conversation.updateConsentState(state)`       | `conversation.updateConsentState(state)`                        |
+| Set many         | `client.preferences.setConsentStates(records)` | `client.preferences().setConsentStates(records)`                |
+| Stream changes   | `client.events(filter)`                        | `client.events(filter)`                                         |
 
-Batch state changes when possible. One batch produces one device-sync message.
+For JavaScript, a consent entity is `{ kind: "conversation", conversationId }` or
+`{ kind: "inbox", inboxId }`. Kotlin uses `ConsentEntity.Conversation(id)` or
+`ConsentEntity.Inbox(id)`. Swift uses `.conversation(conversationId: id)` or
+`.inbox(inboxId: id)`. A `ConsentRecord` holds that entity and its state. Swift
+uses argument labels, such as `consentState(entity: entity)` and
+`setConsentStates(records: records)`.
+
+Inbox consent does not automatically set conversation consent. Set the
+conversation state when the user accepts or blocks a conversation. Consent does
+not prevent sending. Pass consent filters when listing or reading messages.
+
+The stream reports a `ConsentChanged` payload with `entityKind`, `entity`, and `state` on Kotlin and Swift. JavaScript wraps this payload in `event.consent_changed`; its fields are `entity_kind`, `entity`, and `state`.
+
+Batch state changes when possible. A batch commits its final state for each
+entity in one transaction. Device sync publishes preference changes separately.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -62,11 +76,11 @@ Batch state changes when possible. One batch produces one device-sync message.
 ```kotlin
 client.events(EventFilter(
     kinds = listOf(EventKind.CONSENT_CHANGED),
-    conversationIds = null,
+    groupIds = null,
     contentTypes = null,
     referencesOwnMessages = false,
 )).collect { event ->
-    if (event is ClientEvent.ConsentChanged) handleConsent(event)
+    if (event is ClientEvent.ConsentChanged) handleConsent(event.consentChanged)
 }
 ```
 
@@ -74,12 +88,12 @@ client.events(EventFilter(
 
 ```swift
 let filter = EventFilter(
-  kinds: [.consentChanged], conversationIds: nil,
+  kinds: [.consentChanged], groupIds: nil,
   contentTypes: nil, referencesOwnMessages: false
 )
 for try await event in try await client.events(filter) {
-  if case let .consentChanged(entityKind, entity, state) = event {
-    handleConsent(entityKind, entity, state)
+  if case let .consentChanged(change) = event {
+    handleConsent(change)
   }
 }
 ```
@@ -89,4 +103,6 @@ for try await event in try await client.events(filter) {
 
 ## See who added the user
 
-Use `conversation.addedByInboxId` on Browser and Node. Use `group.addedByInboxId()` on Kotlin and Swift. `creatorInboxId()` is available on groups on all four SDKs.
+Groups and DMs expose `addedByInboxId` and `creatorInboxId` as properties on Browser and Node. Kotlin and Swift expose `addedByInboxId()` and `creatorInboxId()` methods. Both values can be absent, for example after restoration. Do not treat a creator field alone as proof that the creator added the user.
+
+Use [client events](/sdk/events/) to react to local consent changes. Event listeners do not apply consent filters.

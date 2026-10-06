@@ -3,7 +3,7 @@ title: Push notifications
 ---
 
 The XMTP backend sends push notifications through APNs, FCM, or an HTTPS webhook.
-The Android, iOS, and Node SDKs register the installation and keep subscriptions
+The Android, iOS, and Node SDKs register a recipient for the local database and keep subscriptions
 current. The Browser SDK and WASM binding do not expose this API.
 
 Ask the backend operator which channels are configured. See
@@ -12,28 +12,35 @@ The example apps do not include push registration or a notification receiver.
 
 ## Enable and control notifications
 
-These five methods are asynchronous. Failures throw an error or reject a promise.
-Conversation methods are also available on `Group` and `Dm`.
+Enable, disable, override updates, and conversation state reads are asynchronous.
+`notificationState()` is synchronous and reads local state. Failures throw an error
+or reject a promise. Conversation methods are available on `Group` and `Dm`.
 
-| Method                                 | Result                                                             |
-| -------------------------------------- | ------------------------------------------------------------------ |
-| `client.enableNotifications(config)`   | Store the config, register the installation, and return its state. |
-| `client.disableNotifications()`        | Disable locally, then unregister from the backend.                 |
-| `client.notificationState()`           | Read local state without a backend request.                        |
-| `conversation.setNotifications(value)` | Set an override, or reset it to the config rules.                  |
-| `conversation.notificationsEnabled()`  | Read the effective value for the conversation.                     |
+| Method                                 | Result                                                                             |
+| -------------------------------------- | ---------------------------------------------------------------------------------- |
+| `client.enableNotifications(config)`   | Store the config, register the recipient, and return its local state.              |
+| `client.disableNotifications()`        | Disable locally, then unregister from the backend.                                 |
+| `client.notificationState()`           | Read local state without a backend request.                                        |
+| `conversation.setNotifications(value)` | Set an override, or reset it to the config rules.                                  |
+| `conversation.state()`                 | Read `common.notificationsEnabled` for a group or `notificationsEnabled` for a DM. |
 
 ### Kotlin
 
 ```kotlin
+import uniffi.xmtp_sdk.*
+
 suspend fun configurePush(client: SDKClient, conversation: Conversation, token: String) {
     client.enableNotifications(NotificationConfig(NotificationChannel.Fcm(token)))
     conversation.setNotifications(NotificationOverride.Disabled)
-    val enabled = conversation.notificationsEnabled()
+    val enabled = when (conversation) {
+        is Conversation.Group -> conversation.group.state().common.notificationsEnabled
+        is Conversation.Dm -> conversation.dm.state().notificationsEnabled
+    }
+    println(enabled)
     conversation.setNotifications(NotificationOverride.Default)
     val state = client.notificationState()
     if (state is NotificationState.Failed) {
-        println(state.error.code)
+        println(state.error)
     }
     client.disableNotifications()
 }
@@ -42,6 +49,8 @@ suspend fun configurePush(client: SDKClient, conversation: Conversation, token: 
 ### Swift
 
 ```swift
+import XmtpSdk
+
 func configurePush(client: SDKClient, conversation: Conversation, token: String) async throws {
   try await client.enableNotifications(config: NotificationConfig(channel: .apns(token: token)))
   try await conversation.setNotifications(value: .disabled)
@@ -75,11 +84,11 @@ notification work when it opens the same local database.
 ## Configuration and defaults
 
 `NotificationConfig.channel` is required. The variants are `Apns`, `Fcm`, and
-`Http` on Kotlin; `.apns`, `.fcm`, and `.http` on Swift; and objects with `type`
+`Http` on Kotlin; `.apns`, `.fcm`, and `.http` on Swift; and objects with `kind`
 equal to `"apns"`, `"fcm"`, or `"http"` on Node.
 
-APNs and FCM need a `token`. HTTP needs an HTTPS `url` and a random 32-byte
-`signingKey`. The receiver must keep the same signing key to verify requests.
+APNs and FCM need a `token`. HTTP needs an HTTPS `url` and a `signingKey` of 16 to 64 bytes.
+Use a random 32-byte key. The receiver must keep the same signing key to verify requests.
 Bytes use `ByteArray`, `Data`, and `Uint8Array`, respectively.
 
 ```ts source="push-notifications-node.ts" region="webhook"
@@ -96,27 +105,34 @@ Bytes use `ByteArray`, `Data`, and `Uint8Array`, respectively.
 An enabled or disabled override takes priority over `consentStates`. Reset with
 `NotificationOverride.Default`, `.default`, or `"default"`. Overrides cannot
 enable a group after this installation leaves it. Device-sync groups follow
-`includeSyncGroups` and have no per-conversation override.
+`includeSyncGroups` and have no per-conversation override. The value in
+conversation state reports the local rule. It does not confirm backend
+subscription delivery or active membership.
 
 The SDK updates subscriptions after consent, membership, and key changes. It
 uploads sender-filter keys and renews registrations automatically while its task
 runner is active. An update is asynchronous; it does not make messaging wait for
-push registration. A lost wake can delay an update until the next hourly sync.
+push registration. A lost wake can delay an update until the next periodic sync, which normally runs
+at least once an hour.
 Sender filtering can miss during key rotation or an epoch boundary, so an app
 must still suppress its own messages when it displays notifications.
 
 ## State and errors
 
 Local state is `Disabled`, `Enabled`, or `Failed(error)` on Kotlin; `.disabled`,
-`.enabled`, or `.failed(error)` on Swift; and a union with `state` set to
+`.enabled`, or `.failed(error)` on Swift; and a union with `kind` set to
 `"disabled"`, `"enabled"`, or `"failed"` on Node. Failed state contains a
-`NotificationError` with a stable `code`.
+`NotificationFailure` enum value. Kotlin uses values such as
+`CHANNEL_NOT_CONFIGURED`, Swift uses `.channelNotConfigured`, and Node uses
+`"channelNotConfigured"`.
 
-Terminal codes have the prefix `NotificationError::`: `PermissionDenied`,
-`InvalidArgument`, `OutOfRange`, `Unimplemented`, or `ChannelNotConfigured`.
-They stop notification work. Correct the cause and call `enableNotifications`
-again. `TaskRunnerDisabled` rejects enable without storing a config. Node apps
-must not disable `WorkerKind.TaskRunner` if they use notifications.
+Terminal failures are permission denied, invalid argument, out of range,
+unimplemented, and channel not configured. Operation errors use the matching
+public error variants and codes: `PermissionDenied`, `InvalidArgument`,
+`OutOfRange`, `Unimplemented`, and `ChannelNotConfigured`.
+These failures stop notification work. Correct the cause and call `enableNotifications`
+again. `TaskRunnerDisabled` rejects enable without storing a config. Keep the task runner enabled if the app uses notifications. Configure it through
+`ClientOptions.workers`; Node names this worker kind `"taskRunner"`.
 
 Other registration failures leave the local state enabled so the task can retry.
 `ResourceExhausted` waits for a change to the desired subscriptions before it
@@ -161,16 +177,18 @@ replayed webhook IDs.
 The app owns notification reception and display. It must obtain the provider
 token, request the required OS permissions, and install its background handler.
 APNs sends a background notification, not an alert with display text. FCM sends
-a data message. A notification does not contain the bytes accepted by
-`processMessage` or `fromWelcome`.
+a data message. A notification does not contain encrypted envelope bytes.
+Use the SDK sync methods to fetch and process the envelopes.
 
 1. Open the correct XMTP installation and its local database in the handler.
 2. Validate the payload and decode the topic. A webhook receiver first verifies
    the signature. Treat a push as a sync hint, not as proof of a message.
 3. Fetch and process pending welcomes. For a group topic, find the group by its
-   decoded ID, then sync it to fetch and decrypt the envelopes. On mobile,
-   `client.catchUpToLive(timeoutMs: ...)` provides a bounded sync; use the
-   language's argument syntax. On Node, use the calls below.
+   decoded ID, then sync it to fetch and decrypt the envelopes. Kotlin uses
+   `client.catchUpToLive(timeoutMs = 5_000uL)` for a bounded sync. Swift uses
+   `try await client.catchUpToLive(timeoutMs: 5_000)`. Check the returned
+   summary's `completed` and `failed` fields. Node also exposes
+   `catchUpToLive`; the example below uses explicit welcome and conversation sync.
 4. Read decoded messages from the local database. Check consent, sender, and
    the app's display policy. Suppress messages already displayed, including
    notifications that repeat after a backend restart.
@@ -191,8 +209,8 @@ the source of message state.
 ## DM stitching
 
 Different installations can create separate groups for the same DM. The SDK
-presents these groups as one visible DM and automatically subscribes to every
-matching group. A DM lookup can return a different group ID as the underlying
+presents these groups as one visible DM. It checks every underlying active group
+for notification subscriptions, using each group's consent and override rules. A DM lookup can return a different group ID as the underlying
 groups converge. Use the peer inbox ID for app state that belongs to the DM.
 Do not show a new-conversation alert when a welcome only adds a duplicate DM.
 

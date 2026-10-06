@@ -28,10 +28,6 @@ const SPEC_SOURCES = [
   },
 ];
 
-const BADGES = {
-  draft: { text: "Draft", variant: "caution" },
-};
-
 function idForRoute(route) {
   const id = route.replace(/^\/|\/$/gu, "");
   return id === "specs" ? "specs/index" : id;
@@ -57,7 +53,7 @@ export function siteLoader() {
           ? (target) =>
               names.get(source).has(target) ? source.route(target) : undefined
           : undefined;
-        const { title, body, order, status } = prepareDocument(
+        const { title, body, order } = prepareDocument(
           await readFile(url, "utf8"),
           filename,
           { spec: Boolean(source), resolveLink },
@@ -67,7 +63,6 @@ export function siteLoader() {
         // file. The real path is kept for schema errors.
         const filePath = `src/content/docs/${id}.md`;
         const sidebar = { order: source?.order?.(filename) ?? order };
-        if (BADGES[status]) sidebar.badge = BADGES[status];
         const data = await context.parseData({
           id,
           filePath: fileURLToPath(url),

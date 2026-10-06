@@ -2,47 +2,82 @@
 title: Cursors
 ---
 
-While cursors are managed automatically by the XMTP SDKs, understanding how they work is crucial for debugging and for grasping the underlying mechanics of message synchronization.
+The SDK stores progress for each topic in its local database. A wire cursor is a
+sequence ID. Zero means the start of retained history. Sequence IDs can have
+gaps. The order is defined within each topic; do not use IDs to infer an order
+between topics.
 
-## What is a cursor?
+## Received and processed positions
 
-Think of it as a bookmark in the chronological log of messages and events for a given topic. Its purpose is to remember the exact point up to which an installation has successfully synchronized its data.
+The SDK keeps two positions for group and identity topics:
 
-A cursor is one number per topic: the highest sequence ID the installation processed on that topic. Zero means the beginning. Each installation stores its cursors in its local database. A cursor only moves forward.
+- **Received position (`F`)**: The topic prefix stored as pending envelopes or
+  already handled. Storing the envelopes and advancing this position happen in
+  one database transaction.
+- **Processed position (`P`)**: The topic prefix applied to local state or
+  rejected with a recorded terminal reason. This position cannot exceed `F`.
 
-## How a read uses a cursor
+Both positions only move forward. A stream can advance `F` before the SDK can
+process the envelopes. If an envelope cannot be processed safely, it stays
+pending and blocks later envelopes on that topic. Other topics can still advance.
+A rejected envelope advances `P` only when the SDK has the state and preceding
+history needed to establish a terminal rejection.
 
-A read names topics and a cursor for each topic. The backend returns later envelopes in topic order. Only topics that return rows advance. A full response sets `has_more`; repeat the read until it is false.
+Welcome topics track received progress and unresolved Welcomes. They do not use
+the group processed position. A later Welcome can complete while an earlier one
+remains unresolved.
 
-Order is total within one topic. A sequence ID has no ordering meaning across topics.
+## Reads, streams, and sync
 
-| Call                      | Topics it advances                             |
-| ------------------------- | ---------------------------------------------- |
-| `conversation.sync()`     | That conversation's group-message topic        |
-| `conversations.sync()`    | The installation's Welcome topic               |
-| `conversations.syncAll()` | The Welcome topic and every conversation topic |
+A query names topics and an exclusive cursor for each topic. It returns retained
+envelopes after those cursors. Advance each topic only through the envelopes
+returned for that topic. `has_more` is true only when more matching rows exist
+in that query's database snapshot. A page at the row limit can still have
+`has_more = false`.
 
-`conversations.sync()` fetches new conversations. It does not fetch their messages.
+Streams and queries use the same durable receipt and processing path. A stream
+reconnects from the received position. Overlap is safe: admission and processing
+prevent duplicate effects. A crash can leave received envelopes pending; the
+SDK resumes that work from the local database.
 
-- **Streaming does not advance the cursor:** A successfully processed streamed message is stored, but the durable cursor stays at the last sync position. The stream tracks its own in-memory position. A later sync can read the envelope again; storage processing is idempotent.
+An explicit sync captures fixed topic targets. It completes after it processes
+those targets and the required discovery work. Later traffic does not extend
+that sync. A target from a read replica can lag the primary. A newest-envelope
+result or publish receipt supplies a target; it does not prove that the SDK has
+received all earlier envelopes.
 
-- **Access old messages from the local database:** Once `sync()` fetches messages from the backend, they are stored in a local database managed by the SDK. You can query this database at any time to retrieve historical messages without making a backend request. This provides fast, local access to the full message history available to the installation.
+| Call                      | Scope                                                |
+| ------------------------- | ---------------------------------------------------- |
+| `conversation.sync()`     | That conversation's group-message topic              |
+| `conversations.sync()`    | The installation's Welcome topic and group discovery |
+| `conversations.syncAll()` | Welcomes and the selected conversation topics        |
+
+`conversations.sync()` discovers conversations. Use conversation sync or
+`syncAll()` to fetch their message history.
+
+## Local history and delivery
+
+Message history reads use the local database. They do not fetch new backend
+messages. The available history depends on the installation's membership,
+backend retention, and the data it has already received and processed.
+
+A message delivery cursor is separate from the wire cursor. It contains a local
+database identity and delivery number. It resumes local message delivery after
+that item. Default stream delivery advances when the app acknowledges an item
+by returning normally from its callback or requesting the next iterator item.
+A crash before the acknowledgement is stored can repeat an item. Deduplicate
+app effects with the message ID when needed.
 
 ```mermaid
 sequenceDiagram
-  participant Client as Client <br> (Stores cursor)
-  participant Backend as Backend <br> (Stores group topic)
+  participant Client as SDK and local database
+  participant Backend as Backend topic
 
-  Note over Client: No cursor for topic yet
-  Client ->> Backend: Initial conversation.sync()
-  Backend ->> Client: Returns all messages from topic <br> (Msg1, Msg2, Msg3)
-  Note over Client: Stores new cursor for topic
-  Client ->> Client: Cursor points after Msg3
-  Note over Backend: New messages arrive on group topic
-  Backend ->> Client: streamAllMessages() <br> (Msg4, Msg5, Msg6)
-  Note over Client: Cursor unaffected by stream
-  Client ->> Backend: Subsequent conversation.sync() <br> (Sends stored cursor from after Msg3)
-  Backend ->> Client: Returns messages that occurred after cursor <br> (Msg4, Msg5, Msg6)
-  Note over Client: Advances cursor for topic
-  Client ->> Client: Cursor points after Msg6
+  Client ->> Backend: Subscribe from received position F
+  Backend ->> Client: Ordered envelope batch
+  Client ->> Client: Store pending envelopes and advance F together
+  Client ->> Client: Apply or reject each head in topic order
+  Client ->> Client: Advance P with each completed envelope
+  Note over Client: Held work stays pending. P can be below F
+  Client ->> Backend: Reconnect from durable F
 ```

@@ -14,3 +14,5 @@ agent.on("attachment", async (ctx) => {
   // receivedAttachment.content contains the decrypted file bytes
 });
 // #endregion example2
+
+await agent.start();

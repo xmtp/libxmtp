@@ -60,8 +60,19 @@ test("source validation requires the synchronized four-SDK tab set", async () =>
     '<Tabs syncKey="sdk"><TabItem label="Node">x</TabItem><TabItem label="Swift">x</TabItem></Tabs>',
   );
   assert.deepEqual(await checkSource({ contentRoot: content }), [
-    "page.mdx: SDK tabs must be Browser, Node, Kotlin, Swift in that order",
+    "page.mdx: SDK tabs must be Browser, Node, Kotlin, Swift in that order, with an optional Agent tab last",
   ]);
+});
+
+test("source validation accepts an Agent tab after the platform SDKs", async () => {
+  const root = await fixture();
+  const content = join(root, "content");
+  await mkdir(content);
+  await writeFile(
+    join(content, "page.mdx"),
+    '<Tabs syncKey="sdk"><TabItem label="Browser">b</TabItem><TabItem label="Node">n</TabItem><TabItem label="Kotlin">k</TabItem><TabItem label="Swift">s</TabItem><TabItem label="Agent">a</TabItem></Tabs>',
+  );
+  assert.deepEqual(await checkSource({ contentRoot: content }), []);
 });
 
 test("built validation rejects incomplete llms exports and allows growth", async () => {

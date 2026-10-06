@@ -1,8 +1,3 @@
-import type { Signer } from "@xmtp/node-sdk";
-declare const signer: Signer;
-const backendUrl = process.env.XMTP_BACKEND_URL;
-if (!backendUrl) throw new Error("Set XMTP_BACKEND_URL");
-
 // #region example1
 import type {
   ContentCodec,
@@ -10,7 +5,7 @@ import type {
   EncodedContent,
 } from "@xmtp/node-sdk";
 
-// Define the content type identifier
+// Define the content type identifier.
 export const CustomContentType: ContentTypeId = {
   authorityId: "your-domain.com",
   typeId: "your-custom-id",
@@ -18,7 +13,7 @@ export const CustomContentType: ContentTypeId = {
   versionMinor: 0,
 };
 
-// Implement the codec as a class
+// Implement a codec for string values.
 export class CustomCodec implements ContentCodec<string> {
   readonly type = CustomContentType;
 
@@ -27,7 +22,7 @@ export class CustomCodec implements ContentCodec<string> {
       type: this.type,
       parameters: new Map(),
       content: new TextEncoder().encode(content),
-      fallback: undefined,
+      fallback: content,
     };
   }
 
@@ -48,9 +43,10 @@ export class CustomCodec implements ContentCodec<string> {
 // #region example2
 import { Agent } from "@xmtp/agent-sdk";
 
-const client = await Agent.create(signer, {
-  backend: { url: backendUrl },
-  storage: { location: "default" },
+// Set XMTP_WALLET_KEY and XMTP_BACKEND_URL before this program runs.
+const agent = await Agent.createFromEnv({
   codecs: [new CustomCodec()],
 });
 // #endregion example2
+
+await agent.client.end();

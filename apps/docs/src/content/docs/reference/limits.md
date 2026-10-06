@@ -10,7 +10,11 @@ The backend does not apply a per-caller rate limit. Each bidirectional stream ha
 
 ## Backend request limits
 
-A request above a structural or byte limit is rejected with `INVALID_ARGUMENT`. A message-size rejection from the transport arrives as `OUT_OF_RANGE`. Neither is retryable. Reduce the batch and send again.
+A request above a structural limit is rejected with `INVALID_ARGUMENT`. An
+oversized publish envelope is also rejected with `INVALID_ARGUMENT`. A
+message-size rejection from the transport arrives as `OUT_OF_RANGE`. Reduce
+the batch or payload before sending it again. Query row limits are clamped to
+the configured maximum.
 
 | Limit                                                  |                       Default |
 | ------------------------------------------------------ | ----------------------------: |
@@ -37,13 +41,20 @@ A request above a structural or byte limit is rejected with `INVALID_ARGUMENT`. 
 | Stream update frames                          | 10 per second, burst 100 |
 | Client ping frames                            | 10 per second, burst 100 |
 | Keepalive interval                            |                     30 s |
-| Concurrent requests on one connection         |                      100 |
+| Concurrent HTTP/2 streams on one connection   |                      100 |
 
 A stream that exhausts its token bucket receives `RESOURCE_EXHAUSTED`. Reconnect with backoff from your durable per-topic cursors.
 
-The connection limit is advertised, not enforced. A client that opens more than 100 concurrent requests queues them locally instead of failing.
+The server advertises the HTTP/2 stream limit through the transport. A client
+that follows that limit queues new requests until an existing stream closes.
+Long-lived subscriptions also consume HTTP/2 streams. This is not a per-caller
+request quota.
 
 ## Client limits
+
+The first two values are defaults published in the backend's `[mls]`
+configuration. An operator can change them, and clients apply the configured
+values locally. The metadata byte limits are fixed in the client library.
 
 | Limit                          | Value |
 | ------------------------------ | ----: |
@@ -54,6 +65,8 @@ The connection limit is advertised, not enforced. A client that opens more than 
 | Group description bytes        | 1,000 |
 | Group image URL bytes          | 2,048 |
 
-A group message is bounded by the 1 MiB envelope limit. The payload must be smaller because the encoded envelope also contains MLS ciphertext and framing data.
+A group message is bounded by the backend's envelope limit, which defaults to
+1 MiB. The payload must be smaller because the encoded envelope also contains
+MLS ciphertext and framing data.
 
 The group cap counts inboxes, not installations. The installation cap applies separately to each inbox. See [Manage inboxes](/sdk/inboxes/).

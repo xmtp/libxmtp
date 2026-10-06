@@ -25,7 +25,7 @@ Create an empty directory. Save these two files in it. Replace
 app = "my-xmtp-backend"
 primary_region = "sjc"
 kill_signal = "SIGTERM"
-kill_timeout = "30s"
+kill_timeout = 30
 
 [build]
 image = "ghcr.io/xmtp/backend:sha-REPLACE_WITH_FULL_COMMIT"
@@ -135,8 +135,9 @@ fly deploy --ha=false
 `--ha=false` starts one Machine for this example. Before adding Machines, check
 the [connection budget](/deploy/overview/#connection-budget).
 
-Managed Postgres does not offer a read replica. If you need one, use unmanaged
-Fly Postgres (`fly postgres`) and follow the
+This example uses the primary connection only. If you need a read replica,
+check the current Managed Postgres options with Fly first. For an unmanaged
+Fly Postgres (`fly postgres`) replica, follow the
 [read replica requirements](/deploy/overview/#read-replica). Fly Support does
 not cover unmanaged Fly Postgres, so you own its operations, upgrades, backups,
 and disaster recovery.

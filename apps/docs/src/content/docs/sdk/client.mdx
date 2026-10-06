@@ -8,30 +8,32 @@ Create an XMTP client to connect an identity to your backend and keep its local 
 
 ## How it works
 
-When you call `Client.create()`, the following steps happen under the hood:
+When you call `Client.create()` on Browser or Node, or `SDKClient.create()` on Kotlin or Swift, these steps occur:
 
 1. The client asks the signer for its identifier.
-2. It looks up the inbox ID registered for that identifier on your backend. The inbox ID is the user's identity.
+2. It looks up the inbox ID registered for that identifier on your backend. If none exists, it derives an inbox ID from the identifier and a nonce.
 3. It opens or creates the local database for that inbox and installation.
-4. It registers a new installation when needed.
+4. It asks the signer to register a new installation when needed, unless `registration.auto` is `false`.
 
 ### Keep the database encryption key safe
 
-Generate a secure 32-byte encryption key and store it so the app can use the same key on every launch. If the key changes or is lost, the client cannot read the former encrypted database. Keep the same key when reopening it.
+For Node, Kotlin, and Swift, generate a secure 32-byte encryption key and store it so the app can use the same key on every launch. If the key changes or is lost, the client cannot read the former encrypted database. Keep the same key when reopening it.
 
 ### The database is the installation
 
-The database key and path select the stored installation. A different path can select a new database. In Swift, the wrong key fails to open an existing encrypted database with a typed storage error. It does not replace the stored key. A new installation needs a signature and counts against the limit of 10.
+The database key and path select the stored installation. A different path can select a new database. In Swift, the wrong key fails to open an existing encrypted database with a typed storage error. It does not replace the stored key. A new installation needs a signature and counts against the backend's installation limit, which defaults to 10.
 
-Store the key and path as durable app state. Keep the same `env` value because it selects the default file name. An agent deployment must mount durable storage for `XMTP_DB_DIRECTORY`.
+Store the key and path as durable app state. Keep the same storage location and label. An agent deployment must mount durable storage for `XMTP_DB_DIRECTORY`.
 
 ### Database encryption key loss during iOS device transfers
 
-When you transfer data to a new iOS device, the local database file may be moved without the encryption key, causing decryption errors. This commonly occurs when users choose Apple's direct transfer option during new device setup, as Apple aggressively moves files to the new device. To prevent this issue, exclude the database directory from backups and device transfers.
+A restored or transferred database cannot open if the app does not also restore its encryption key. Choose a backup policy for the database and key together. If your app excludes the key from backups, you can also exclude the database directory from backups.
 
-For example, if you set a custom `dbDirectory` to a known directory, you can mark it as excluded from backups in iOS:
+For example, if you set `StorageOptions.location` to a known directory, you can mark it as excluded from backups in iOS:
 
 ```swift
+import Foundation
+
 func addSkipBackupAttribute(folder: URL) throws {
   var folder = folder
   var values = URLResourceValues()
@@ -44,7 +46,7 @@ To learn more about this function, see [isExcludedFromBackupKey](https://develop
 
 ### View an encrypted database
 
-For debugging, it can be useful to decrypt a locally stored database. When a `dbEncryptionKey` is used, the XMTP client creates a [SQLCipher database](https://www.zetetic.net/sqlcipher/) which applies transparent 256-bit AES encryption. A `.sqlcipher_salt` file is also generated alongside the database.
+For debugging, it can be useful to decrypt a locally stored database. When `StorageOptions.encryptionKey` is used, the XMTP client creates a [SQLCipher database](https://www.zetetic.net/sqlcipher/) which applies transparent 256-bit AES encryption. A `.sqlcipher_salt` file is also generated alongside the database.
 
 To open this database, you need to construct the password by prefixing `0x` (to indicate hexadecimal numbers), then appending the encryption key (64 hex characters, 32 bytes) and the salt (32 hex characters, 16 bytes). For example, if your encryption key is `A` and your salt is `B`, the resulting password would be `0xAB`.
 
@@ -56,7 +58,7 @@ If you want to inspect the database visually, you can use [DB Browser for SQLite
 
 ### Common database error
 
-`PRAGMA key or salt has incorrect value` means the supplied encryption key does not match the database. It can also mean that the file is not an XMTP database. Do not replace the stored key automatically, because that creates another installation.
+`PRAGMA key or salt has incorrect value` means the supplied encryption key does not match the database. It can also mean that the file is not an XMTP database. Do not replace the stored key automatically. A replacement key cannot open the existing encrypted database.
 
 ## Create a client
 
@@ -115,53 +117,58 @@ databaseKey)`, `StorageOptions(location: .directory(directory: directory),
 encryptionKey: databaseKey)`, or `StorageOptions(location: .explicit(dbPath:
 dbPath, attachmentsDir: attachmentsDir), encryptionKey: databaseKey)`.
 
-The table below describes JavaScript and Kotlin options. Swift uses the
-`ClientOptions` record. Set `backend` to `.options(options: BackendOptions(...))`
-and set the database location and key through `storage`. `allowOffline` selects
-offline build behavior. Pass custom codecs to the create or build method.
+The SDKs share these client options. Browser and Node use JavaScript records.
+Kotlin and Swift use `ClientOptions` and `StorageOptions` records.
 
-| Option                                                           | Default                                | Purpose                                                               |
-| ---------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------- |
-| `backendUrl`                                                     | Required                               | Full HTTP or HTTPS URL of your backend                                |
-| `env`                                                            | `local` on mobile; unset in JavaScript | Label used in the default database file name                          |
-| `appVersion`                                                     | Unset                                  | App name and version sent with each request                           |
-| `dbEncryptionKey`                                                | Required on mobile                     | 32-byte database key; Browser ignores it                              |
-| `dbPath`                                                         | Unset                                  | Node path, `null`, or an inbox-ID callback; Browser path or `null`    |
-| `dbDirectory`                                                    | Unset                                  | Kotlin and Swift database directory                                   |
-| `codecs`                                                         | Empty                                  | Extra content-type codecs                                             |
-| `disableDeviceSync`                                              | `false`                                | Browser and Node device-sync switch                                   |
-| `deviceSyncEnabled`                                              | `true`                                 | Kotlin and Swift device-sync switch                                   |
-| `disableAutoRegister`                                            | `false`                                | Skip automatic identity registration                                  |
-| `nonce`                                                          | `1`                                    | Node-only inbox derivation nonce                                      |
-| `structuredLogging`                                              | `false`                                | JavaScript JSON logging                                               |
-| `loggingLevel`                                                   | Unset                                  | JavaScript log level                                                  |
-| `preAuthenticateToInboxCallback`                                 | Unset                                  | Callback before a mobile identity signature request                   |
-| `waitForRegistrationVisible`                                     | Unset                                  | Deprecated; ignored. Registration always waits for backend visibility |
-| `maxDbPoolSize`, `minDbPoolSize`, `useSingleConnection`          | SDK defaults                           | Database connection tuning                                            |
-| `workerConfig`, `forkRecoveryOptions`, `unstableChangeCallbacks` | SDK defaults                           | Advanced worker and recovery behavior                                 |
-| `otelEndpoint`, `resourceAttributes`, `stdoutLoggingLevel`       | Unset                                  | Telemetry and log output                                              |
-| `debugEventsEnabled`, `performanceLogging`                       | `false`                                | Diagnostic output                                                     |
+| Option                     | Default           | Purpose                                                   |
+| -------------------------- | ----------------- | --------------------------------------------------------- |
+| `backend`                  | Supply explicitly | Connection options or a connected `Backend`               |
+| `storage`                  | Supply explicitly | Database location, label, and native encryption key       |
+| `deviceSync`               | `true`            | Enable device sync                                        |
+| `allowOffline`             | `false`           | Start from stored state without backend requests          |
+| `registration.auto`        | `true`            | Register the identity when needed                         |
+| `registration.nonce`       | `0` when omitted  | Nonce for deriving an inbox ID when no association exists |
+| `forkRecovery`             | Unset             | Fork recovery policy and group selection                  |
+| `workers`                  | SDK defaults      | Background worker intervals                               |
+| `handlers.preAuthenticate` | Unset             | Callback before a registration signature request          |
+| `attachments`              | SDK defaults      | Attachment limits and private network access              |
 
-The table above describes the retained Node and mobile options. Browser SDK 8
-uses `backend: { url, credentials? }`, `storage: { location }`, and `deviceSync`.
-Use `storage.location: "inMemory"` for a Browser client without OPFS storage.
+Pass custom codecs in `ClientOptions.codecs` on Browser and Node. Kotlin and Swift
+take a `codecs` argument on `SDKClient.create()` and `SDKClient.build()`.
+Logging has a separate configuration API. See [Debug](/sdk/debug/#file-logging).
 
-For the retained Node options, `dbPath: null` creates an in-memory client. A string selects that exact path. Node also accepts a callback that receives the inbox ID. Browser does not accept the callback form.
+JavaScript storage locations are `"default"`, `"inMemory"`, `{ directory }`, or
+`{ dbPath, attachmentsDir }`. Kotlin and Swift use the corresponding
+`StorageLocation` variants. Browser storage uses OPFS and has no `encryptionKey`
+option. Node, Kotlin, and Swift accept an optional 32-byte `storage.encryptionKey`.
+Without that key, native storage is unencrypted.
 
-Node can take a pre-built `Backend` instead of inline network options. Do not
-pass both. Browser clients use typed backend records across the worker boundary.
-The retained Node `createBackend` takes `backendUrl`, `env`,
-`appVersion`, and an optional `authCallback`.
+A default or directory location stores each inbox under
+`{root}/{deployment}/{inboxId}/xmtp.db3`. A non-empty `storage.label` adds one
+directory below the root. An explicit location uses the supplied database and
+attachments paths. Changing the location or label can select a new installation.
+
+The default roots are `xmtp-sdk` in the Browser OPFS pool, `xmtp` in Node's current
+working directory, `filesDir/xmtp_db` on Android, and
+`Application Support/{bundleId}/xmtp` on Apple platforms. The Android default needs
+an application context. The Apple default needs a bundle identifier.
+
+JavaScript `backend` accepts `{ url, appVersion?, credentials? }` or a
+connected `Backend`. JavaScript `credentials` accepts a `CredentialSource` or a
+fixed `Credential`. Native `BackendOptions` has separate `credentials` and
+`credential` fields. Create a reusable connection with `Backend.connect(options)`.
+Kotlin uses `BackendSource.Options(options)` or `BackendSource.Connected(backend)`.
+Swift uses `.options(options: options)` or `.connected(backend: backend)`.
 
 ### Backend authentication
 
-If the backend requires an API key or JWT, Browser uses
-`backend.credentials.credential()`. Its expiry is a bigint in Unix seconds.
-The retained Node and mobile SDKs use `authCallback`. This async callback
-returns a credential with `value`, `expiresAtSeconds` in Unix seconds, and an
-optional header `name`. The default name is `authorization`. Include `Bearer`
-and one space before the token. This credential is separate from the XMTP wallet
-signer and the database encryption key.
+If the backend requires an API key or JWT, supply a `CredentialSource` in
+`BackendOptions.credentials`. Its async `credential()` method returns `value`,
+`expiresAtSeconds`, and an optional header `name`. Browser and Node use a `bigint`
+for expiry. Kotlin uses `Long`; Swift uses `Int64`. Expiry is in Unix seconds.
+The default header name is `authorization`. For a bearer token, include `Bearer`
+and one space before the token. This credential is separate from the XMTP signer
+and the database encryption key.
 
 The examples take an app function that obtains a token and its expiry. Fetch a
 current token each time the callback runs. Do not log tokens or embed an
@@ -198,7 +205,7 @@ fun authenticatedBackend(
 )
 ```
 
-Pass this API configuration to `ClientOptions.api`.
+Pass these options through `ClientOptions.backend = BackendSource.Options(options)`.
 
 </TabItem>
 <TabItem label="Swift">
@@ -252,25 +259,27 @@ through `ClientOptions.backend`.
 </TabItem>
 </Tabs>
 
-Agent apps pass `authCallback` to `Agent.create` or `Agent.createFromEnv`.
-The SDK caches credentials and invokes the callback after expiry or rejection.
+Agent apps pass `backend.credentials` to `Agent.create` or `Agent.createFromEnv`.
+The SDK caches credentials and calls the source after expiry or rejection.
 Callback failures report a fixed error without the app's error text.
 Server configuration discovery does not invoke the callback. Swift and Kotlin
-connections with callbacks are not shared through the unauthenticated connection
-cache. See [backend auth configuration](/get-started/run-the-backend/#auth).
+connections use their configured credential source. See [backend auth configuration](/get-started/run-the-backend/#auth).
 
 ## Build an existing client
 
 Build, or resume, an existing client (created using [`Client.create()`](#create-a-client)) that's logged in and has an existing local database.
 
-For the Kotlin SDK, when building a client with an existing `inboxId`, the client automatically operates in offline mode since no backend request is needed to check the identity ledger. In offline mode, the client:
+Build requires a database that already holds an identity. It does not register a
+new installation and needs no signer. A missing database or an in-memory location
+fails with `IdentityNotFound`.
 
-- Skips all backend requests, including preference sync and inbox validation
-- Works entirely from the local database
-- Can be synchronized later with `syncAllConversations()` or by recreating the client without the offline flag
-
-For Swift, set `ClientOptions.allowOffline` explicitly when local-only build
-behavior is required. An `inboxId` alone does not select offline mode.
+Set `ClientOptions.allowOffline` explicitly for startup without backend requests.
+Supplying an `inboxId` alone does not select offline mode on any SDK. Offline
+startup needs that ID, or an explicit database path that holds it. A directory
+location also needs a saved deployment record for the backend URL. The client
+checks stored identity membership. A smart contract wallet check that needs a
+network request can fail offline. Offline startup does not disable later network
+operations.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -308,7 +317,7 @@ let client = try await SDKClient.build(identity: identity, options: options)
 When you log a user out of your app, you can give them the option to delete their local database.
 
 :::tip[Important]
-If the user chooses to delete their local database, they will lose all of their messages and will have to create a new installation the next time they log in.
+Deleting the local database removes that installation's local message state and keys. A later client needs a new installation unless the app restores a backup. Deletion does not revoke the old installation on the backend.
 :::
 
 <Tabs syncKey="sdk">
@@ -348,16 +357,10 @@ try await storage.delete()
 
 ## Manage database connections
 
-In some scenarios, you may need to temporarily release the local database connection, such as when performing database maintenance or when the app goes into the background for an extended period.
+Node, Kotlin, and Swift expose `Storage.reconnect()` through `client.storage`
+(JavaScript) or `client.storage()` (Kotlin and Swift). Browser has no reconnect
+method. There is no public method to drop a database connection temporarily.
+Use `client.end()` when the app releases a client. End a client before replacing
+or restoring its storage.
 
-### Drop the database connection
-
-Kotlin and Swift provide `dropLocalDatabaseConnection()` to temporarily release the connection. Browser and Node do not provide this API.
-
-### Reconnect to the database
-
-Call `reconnectLocalDatabase()` before another operation needs the database. Browser and Node do not provide this API. Both mobile calls are no-ops for an in-memory client.
-
-:::warning
-For a file-backed client, operations that need the database fail after `dropLocalDatabaseConnection()` until you call `reconnectLocalDatabase()`.
-:::
+For listener setup, the event catalog, and handlers on each SDK, see [Listen for client events](/sdk/events/).

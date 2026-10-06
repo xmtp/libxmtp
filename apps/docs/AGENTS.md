@@ -46,7 +46,8 @@ formats `.astro` files. `just docs format-check` checks both formatters.
 
 Preserve retained source prose. Verify examples against the SDK source.
 Use MDX only when a page needs components. Platform tabs use `syncKey="sdk"`
-and the labels `Browser`, `Node`, `Kotlin`, and `Swift`. Package manager tabs
+and the labels `Browser`, `Node`, `Kotlin`, and `Swift`. A guide that also covers
+the Agent SDK can add `Agent` as the last tab. Package manager tabs
 use `syncKey="pkg"`. Do not add React Native examples until they can be verified.
 
 The public site deploys from `self-hosted`. Pull requests skip the Kotlin and

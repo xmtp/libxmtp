@@ -9,40 +9,68 @@ Install the SDK for your platform. All SDKs use a backend URL. See [Create a cli
 
 ## Install a package
 
-Browser SDK 8 is built from the checked-out source. Run
-`dev/nix-shell 'just js build-browser-sdk'`, then pack the matched public product
-at `target/sdk-packages/browser` with npm through `dev/nix-shell`. Keep its
-generated source, WASM, and runtime assets together.
+The examples on this site use SDK 8.0.0 from this repository. Build the SDK from
+the same checkout as your backend. SDK 8.0.0 is not published on npm. The
+published Browser 7 and Node 6 packages use an earlier backend API.
 
-Choose your package manager for a published package. These commands install the Browser package. Replace
-`@xmtp/browser-sdk` with `@xmtp/node-sdk` for a Node application.
+Run the following commands from the repository root with Nix installed:
+
+```sh
+dev/nix-shell 'just install-js'
+```
+
+Build and pack the SDK for your app:
+
+### Browser package
+
+```sh
+dev/nix-shell 'just js build-browser-sdk'
+dev/nix-shell 'npm pack ./target/sdk-packages/browser --pack-destination /tmp'
+```
+
+This writes `/tmp/xmtp-browser-sdk-8.0.0.tgz`.
+
+### Node package
+
+```sh
+dev/nix-shell 'just js build-node-sdk'
+dev/nix-shell 'npm pack ./target/sdk-packages/node --pack-destination /tmp'
+```
+
+This writes `/tmp/xmtp-node-sdk-8.0.0.tgz`. Build the archive on the operating
+system and architecture where your Node app will run.
+
+Install the archive from your app directory. These commands use the Browser
+archive. For Node, replace the filename with `xmtp-node-sdk-8.0.0.tgz`. If you
+move the archive, use its new path. Keep the generated source, native or WASM
+bindings, and runtime assets together by installing the complete archive.
 
 <Tabs syncKey="pkg">
 <TabItem label="npm">
 
 ```sh
-npm install @xmtp/browser-sdk
+npm install /tmp/xmtp-browser-sdk-8.0.0.tgz
 ```
 
 </TabItem>
 <TabItem label="pnpm">
 
 ```sh
-pnpm add @xmtp/browser-sdk
+pnpm add /tmp/xmtp-browser-sdk-8.0.0.tgz
 ```
 
 </TabItem>
 <TabItem label="yarn">
 
 ```sh
-yarn add @xmtp/browser-sdk
+yarn add /tmp/xmtp-browser-sdk-8.0.0.tgz
 ```
 
 </TabItem>
 <TabItem label="bun">
 
 ```sh
-bun add @xmtp/browser-sdk
+bun add /tmp/xmtp-browser-sdk-8.0.0.tgz
 ```
 
 </TabItem>
@@ -79,7 +107,7 @@ the same build. An older network SDK cannot use this backend.
 
 For Swift, the package manifest is at the root of
 [libxmtp](https://github.com/xmtp/libxmtp). Add the `XmtpSdk` product to your app.
-When using the self-hosted source branch, build its matching native bindings
+When using a source checkout, build its matching native bindings
 before adding the local package in Xcode:
 
 ```sh
@@ -99,23 +127,24 @@ package next to that checkout, add these dependency and target entries:
 .product(name: "XmtpSdk", package: "libxmtp")
 ```
 
-Use a matching published SDK and native binary after the self-hosted release is
-available. A remote branch dependency alone does not build the native bindings.
+Use a matching published SDK and native binary when they are available.
+A remote branch dependency alone does not build the native bindings.
 
 ## Platform prerequisites
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
-Use Node.js 22 or later for package tooling and a bundler that supports WebAssembly.
+Use Node.js 22.12.0 or later for package tooling and a bundler that supports WebAssembly.
 The Browser SDK stores its database in browser storage and does not encrypt it.
-`dbEncryptionKey` is ignored by the Browser SDK.
+Do not pass `storage.encryptionKey`; the Browser SDK rejects it.
 
 </TabItem>
 <TabItem label="Node">
 
-Use Node.js 22 or later. Keep the 32-byte `dbEncryptionKey` and the database path
-stable between launches.
+Use Node.js 22.12.0 or later. If you use database encryption, pass a 32-byte
+`storage.encryptionKey`. Keep that key and the database location stable between
+launches. Omitting the key selects unencrypted storage.
 
 </TabItem>
 <TabItem label="Kotlin">

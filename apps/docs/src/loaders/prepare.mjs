@@ -5,10 +5,8 @@ export function prepareDocument(
   filename,
   { spec = false, resolveLink } = {},
 ) {
-  // Specs carry YAML frontmatter that names their prefix and status. The site
-  // reads the status for a sidebar badge; the block itself is not published.
+  // Keep spec status in the source. Do not publish it on the site.
   const frontmatter = raw.match(FRONTMATTER);
-  const status = frontmatter?.[1].match(/^status:\s*(\S+)/mu)?.[1];
   const withoutFrontmatter = frontmatter
     ? raw.slice(frontmatter[0].length)
     : raw;
@@ -16,6 +14,7 @@ export function prepareDocument(
   let inReview = false;
   let fence;
   const kept = [];
+  let statusColumn;
   for (let line of lines) {
     const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/u)?.[1];
     if (marker) {
@@ -25,6 +24,23 @@ export function prepareDocument(
     }
     if (spec && !fence && /^##\s+/u.test(line)) {
       inReview = /^##\s+Review (?:record|log)\s*$/iu.test(line);
+    }
+    // The spec index has a status column. Keep the capability map, but omit
+    // that column from the published page.
+    if (spec && filename === "README.md" && !fence && !marker) {
+      if (line.startsWith("|")) {
+        const cells = line.split("|");
+        if (statusColumn === undefined) {
+          const column = cells.findIndex((cell) => cell.trim() === "Status");
+          if (column >= 0) statusColumn = column;
+        }
+        if (statusColumn !== undefined) {
+          cells.splice(statusColumn, 1);
+          line = cells.join("|");
+        }
+      } else {
+        statusColumn = undefined;
+      }
     }
     // A spec links to its neighbours by file name. The site publishes them
     // under routes, so the loader supplies the mapping.
@@ -44,7 +60,6 @@ export function prepareDocument(
   const title = kept.splice(titleIndex, 1)[0].replace(/^#\s+/u, "");
   return {
     title,
-    status,
     body: kept.join("\n").trim(),
     order: Number(filename.match(/^\d+/u)?.[0] ?? 99),
   };

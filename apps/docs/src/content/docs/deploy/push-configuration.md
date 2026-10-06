@@ -83,9 +83,10 @@ with a leading `*.`. Schemes, ports, paths, empty labels, and other star positio
 are invalid. Matching is case-insensitive.
 
 `hooks.example.com` matches that exact host. `*.example.org` matches
-`a.example.org` and `a.b.example.org`, but not `example.org`. The list is checked
-at registration. A registered URL remains usable until the next registration,
-even if the allowlist changes.
+`a.example.org` and `a.b.example.org`, but not `example.org`. The backend checks the list
+at registration and before each delivery attempt. After an allowlist change and
+backend restart, an existing registration can fail delivery if its host is no
+longer allowed.
 
 URLs must use HTTPS. By default, registration and each delivery reject hosts
 that resolve to private, loopback, link-local, or unspecified addresses. This
@@ -107,7 +108,8 @@ receivers must suppress duplicates.
 Each attempt has a 10-second deadline. APNs and HTTPS retries wait at least one
 second. FCM quota retries wait at least 60 seconds; other FCM retry responses
 honor `Retry-After`, with a maximum of 300 seconds. Attempts stop at
-`push.max_attempts`. Provider acceptance does not prove that the device displayed
+`push.max_attempts` within one dispatcher run. A replay after a restart starts
+the attempt count again. Provider acceptance does not prove that the device displayed
 a notification.
 
 Watch `xmtp_push_deliveries_total` by `channel` and `outcome`, and

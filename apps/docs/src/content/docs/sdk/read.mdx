@@ -6,23 +6,23 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
 
 ## Message list options
 
-`messages()` uses the filters below. Kotlin and Swift also expose `enrichedMessages()` with the same filters. Browser and Node do not expose a separate `enrichedMessages()` method because `messages()` already returns enriched messages. Browser and Node call the sent-time fields `sentBeforeNs` and `sentAfterNs`. Kotlin and Swift call them `beforeNs` and `afterNs`.
+`messages()` returns enriched messages on all four SDKs. Each message includes reactions, a reply count, and its reply parent when available. There is no separate `enrichedMessages()` method.
 
-| Option                                | Default           | Description                       |
-| ------------------------------------- | ----------------- | --------------------------------- |
-| `limit`                               | None              | Maximum result count              |
-| `sentBeforeNs` / `beforeNs`           | None              | Messages sent before this time    |
-| `sentAfterNs` / `afterNs`             | None              | Messages sent after this time     |
-| `insertedBeforeNs`, `insertedAfterNs` | None              | Filter by local insertion time    |
-| `sortBy`                              | `sentAt`          | Sort by sent or inserted time     |
-| `direction`                           | Platform-specific | Ascending or descending           |
-| `deliveryStatus`                      | All               | Published, unpublished, or failed |
-| `contentTypes`, `excludeContentTypes` | All / none        | Include or exclude content types  |
-| `excludeSenderInboxIds`               | None              | Exclude sender inbox IDs          |
+| Option                                | Default    | Description                       |
+| ------------------------------------- | ---------- | --------------------------------- |
+| `limit`                               | None       | Maximum result count              |
+| `sentBefore`, `sentAfter`             | None       | Filter by sent time               |
+| `insertedBefore`, `insertedAfter`     | None       | Filter by local insertion time    |
+| `sortBy`                              | Sent time  | Sort by sent or inserted time     |
+| `direction`                           | Ascending  | Ascending or descending           |
+| `deliveryStatus`                      | All        | Published, unpublished, or failed |
+| `kind`                                | All        | Application or membership change  |
+| `contentTypes`, `excludeContentTypes` | All / none | Include or exclude content types  |
+| `excludeSenderInboxIds`               | None       | Exclude sender inbox IDs          |
 
-Kotlin and Swift default to descending order. Browser and Node default to ascending order. Pass `direction` when order matters.
+Time filters use `Timestamp` values. A `Timestamp` has an `ns` field for nanoseconds. Pass `direction` when order matters.
 
-`countMessages()` returns a count without loading messages. It uses the content, sender, status, and time filters, but does not accept `limit` or `direction`.
+`countMessages(options)` returns a count without loading messages. It accepts `ListMessagesOptions`, but ignores `limit`, `direction`, and `sortBy`.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -52,15 +52,13 @@ let messages = try await conversation.messages(options: ListMessagesOptions(limi
 </TabItem>
 </Tabs>
 
-On Kotlin and Swift, `enrichedMessages()` retrieves messages with reactions, replies, and other associated data included. Browser and Node `messages()` provides the same enriched result.
-
-Be sure to handle content types properly by using the generic `content<T>()` method with the appropriate type for reactions and replies.
+Read the message's `content` value and handle its content kind. For a reply, also inspect `replyContent` or `inReplyToContent`.
 
 ### Paginate messages
 
-By default, messages are sorted by their `sentAtNs` timestamp (time when the message was sent). When you sort by `sentAtNs`, messages might arrive out of order. For example, a message sent 5 minutes ago might arrive in the local database after a message sent 1 minute ago. This can cause pagination issues, where you might miss messages when loading the next page.
+By default, messages are sorted by `sentAt`. A message can arrive after a newer message. Use `insertedAt` to paginate the local history by insertion time on all four SDKs.
 
-Kotlin and Swift can avoid this issue. They can sort by `insertedAtNs` (time when the message was inserted into the local database). Insertion timestamps are strictly sequential in the local database. Browser and Node do not expose `insertedAtNs` on decoded messages. Their supported cursor is `sentAtNs`. Messages with the same `sentAtNs` value can cross a page boundary, so deduplicate messages by ID.
+A timestamp-only cursor can skip messages that have the same timestamp at a page boundary. For recent history followed by live delivery, use a [message history snapshot and delivery cursor](/sdk/stream/). A snapshot is a bounded recent tail. To replay all retained delivery history, start an independent reader at `client.conversations.beginningDeliveryCursor()` in JavaScript, or `client.conversations().beginningDeliveryCursor()` on mobile.
 
 Here is how to paginate messages with the cursor that each SDK exposes:
 
@@ -137,31 +135,33 @@ We recommend listing allowed conversations only. This ensures that spammy conver
 </TabItem><TabItem label="Kotlin">
 
 ```kotlin
-val conversations = client.conversations().list()
+val conversations = client.conversations().list(
+    ListConversationsOptions(consentStates = listOf(ConsentState.ALLOWED))
+)
 ```
 
 </TabItem><TabItem label="Swift">
 
 ```swift
-let conversations = try await client.conversations().list()
+let conversations = try await client.conversations().list(
+  options: ListConversationsOptions(consentStates: [.allowed])
+)
 ```
 
 </TabItem>
 </Tabs>
 
-| Option                                        | Default             | Description                          |
-| --------------------------------------------- | ------------------- | ------------------------------------ |
-| `consentStates`                               | Allowed and unknown | Consent states to include            |
-| `conversationType`                            | Both                | Groups or DMs                        |
-| `limit`                                       | None                | Maximum result count                 |
-| `orderBy`                                     | Platform-specific   | Creation or last activity            |
-| `createdBeforeNs`, `createdAfterNs`           | None                | Creation-time bounds                 |
-| `lastActivityBeforeNs`, `lastActivityAfterNs` | None                | Kotlin and Swift only                |
-| `includeDuplicateDms`                         | `false`             | Include every underlying stitched DM |
+| Option                                    | Default             | Description                          |
+| ----------------------------------------- | ------------------- | ------------------------------------ |
+| `consentStates`                           | Allowed and unknown | Consent states to include            |
+| `kind`                                    | Both                | Groups or DMs                        |
+| `limit`                                   | None                | Maximum result count                 |
+| `orderBy`                                 | Created time        | Creation or last activity            |
+| `createdBefore`, `createdAfter`           | None                | Creation-time bounds                 |
+| `lastActivityBefore`, `lastActivityAfter` | None                | Last-activity bounds                 |
+| `includeDuplicateDms`                     | `false`             | Include every underlying stitched DM |
 
-Paginate with `orderBy: 'createdAt'` and `createdBeforeNs`. This stable sort prevents a conversation from moving between pages while you read them.
-
-Browser and Node default `orderBy` to `createdAt`. Kotlin and Swift default it to `lastActivity`. Pass it explicitly when order matters.
+These options are available on all four SDKs. Time bounds use `Timestamp` values. Set `orderBy` to creation time and use `createdBefore` to paginate. A timestamp-only boundary can skip conversations with the same creation time.
 
 :::warning[Do not use with streaming]
 Do not paginate a conversation list while a conversation stream adds items to that same list. Keep the stream and paginated result separate until pagination ends.

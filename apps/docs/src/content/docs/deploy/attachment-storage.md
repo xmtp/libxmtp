@@ -29,8 +29,8 @@ kind = "environment"
 ```
 
 The public `base_url` must be an absolute HTTPS URL in production. It must
-have no user info, query, fragment, trailing slash, or dot path segment. Use
-HTTP only for a local target. The target must serve objects at
+have no user info, query, fragment, trailing slash, or dot path segment. HTTP is accepted only for a loopback host, such as `127.0.0.1`,
+`[::1]`, or `localhost`. A private LAN address still needs HTTPS. The target must serve objects at
 `{base_url}/{hex SHA-256 digest}`. This backend signs path-style S3 requests,
 so use an endpoint that supports them. Keep the endpoint, bucket, and
 credential values private. The backend validates the URL, upload limit, and
@@ -52,8 +52,13 @@ The backend publishes the configured `retention_seconds`, or `0` when none is
 configured. A published `0` is the no-expiry value in the offer; it does not
 control the target. For positive retention, set the target's expiry rule to the
 same period after upload. When the target keeps objects without expiry,
-configure no retention. Check the target's lifecycle timing and clock behavior.
+set `retention_seconds = 0` or omit it. Check the target's lifecycle timing and clock behavior.
 The target applies its expiry rule; the backend does not delete objects.
+
+`max_upload_bytes` defaults to `104857600` (100 MiB) and must be from `1`
+through `4294967295`. `presign_ttl_seconds` defaults to `900` and must be from
+`300` through `3600`. Temporary credentials can shorten the signed request's
+lifetime. Credentials that leave less than 300 seconds cannot sign an upload.
 
 ## Credential kinds
 

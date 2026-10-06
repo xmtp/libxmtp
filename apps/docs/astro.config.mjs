@@ -116,7 +116,7 @@ export default defineConfig({
           label: "SDK guide",
           items: guidePages(
             "sdk",
-            "client signer inboxes conversations send-messages read stream sync backups groups consent disappearing-messages delete-messages push-notifications debug use-signatures extend-identity-model",
+            "client signer inboxes conversations send-messages read stream events sync backups groups consent disappearing-messages delete-messages push-notifications debug use-signatures extend-identity-model",
           ),
         },
         {

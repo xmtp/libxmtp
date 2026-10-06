@@ -42,9 +42,14 @@ export async function checkSource({ contentRoot }) {
       const labels = [
         ...group[1].matchAll(/<TabItem\s+label=["']([^"']+)["']/gu),
       ].map((match) => match[1]);
-      if (labels.join(",") !== "Browser,Node,Kotlin,Swift") {
+      if (
+        ![
+          "Browser,Node,Kotlin,Swift",
+          "Browser,Node,Kotlin,Swift,Agent",
+        ].includes(labels.join(","))
+      ) {
         failures.push(
-          `${label}: SDK tabs must be Browser, Node, Kotlin, Swift in that order`,
+          `${label}: SDK tabs must be Browser, Node, Kotlin, Swift in that order, with an optional Agent tab last`,
         );
       }
     }

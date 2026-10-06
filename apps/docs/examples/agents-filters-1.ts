@@ -14,4 +14,6 @@ agent.on("message", async (ctx) => {
     await ctx.sendTextReply("Received text");
   }
 });
+
+await agent.start();
 // #endregion example1

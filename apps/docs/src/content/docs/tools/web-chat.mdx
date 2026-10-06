@@ -1,6 +1,6 @@
 ---
 title: XMTP web chat
-description: Connect a browser client to a self-hosted XMTP backend and inspect conversations.
+description: Connect a browser client to an XMTP backend and inspect conversations.
 ---
 
 xmtp.chat is a browser-based developer tool for connecting identities, creating
@@ -23,11 +23,14 @@ connecting.
 
 ## Switch backends
 
-Open the app with a `backend` query parameter to request a backend change:
+Open the app with a `backend` query parameter to request a change to a backend
+on a different origin:
 
 ```text
 ?backend=http://127.0.0.1:5150
 ```
 
-The app asks for confirmation before disconnecting and switching. Local browser
-databases are separated by a label derived from each backend origin.
+The app asks for confirmation before disconnecting and switching. A query URL
+with the current origin does not open the switch dialog. Local browser databases
+use a label derived from each backend origin, plus the deployment identifier and
+inbox ID.
