@@ -79,6 +79,8 @@ pub(crate) mod tests {
         let encoded = GroupUpdatedCodec::encode(data).unwrap();
         assert_eq!(encoded.clone().r#type.unwrap().type_id, "group_updated");
         assert!(!encoded.content.is_empty());
+        // A membership-change message has no fallback text.
+        assert_eq!(encoded.fallback, None);
 
         let decoded = GroupUpdatedCodec::decode(encoded).unwrap();
         assert_eq!(decoded.added_inboxes[0], new_member);

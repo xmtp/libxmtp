@@ -241,6 +241,25 @@ mod tests {
         assert_eq!(decrypt_bytes(&bytes.ciphertext, &bytes.keys)?, b"raw bytes");
     }
 
+    /// Fixed fields from the original XMTP JavaScript ciphertext fixture.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn decrypt_bytes_reads_the_javascript_ciphertext_fixture() {
+        let keys = EncryptionKeys {
+            secret: vec![1, 2, 3, 4],
+            salt: vec![
+                23, 10, 217, 190, 235, 216, 145, 38, 49, 224, 165, 169, 22, 55, 152, 150, 176, 65,
+                207, 91, 45, 45, 16, 171, 146, 125, 143, 60, 152, 128, 0, 120,
+            ],
+            nonce: vec![219, 247, 207, 184, 141, 179, 171, 100, 251, 171, 120, 137],
+            digest: "68bd4ef27c192622cb66b1da180ddd78e7f928a9b31c319257ab297bbf186da4".into(),
+            length: 19,
+        };
+        let ciphertext = [
+            216, 215, 152, 167, 118, 59, 93, 177, 53, 242, 147, 10, 87, 143, 27, 245, 154, 169, 109,
+        ];
+        assert_eq!(decrypt_bytes(&ciphertext, &keys)?, [5, 5, 5]);
+    }
+
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_encrypt_decrypt_roundtrip() {
