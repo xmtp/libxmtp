@@ -186,7 +186,17 @@ async fn client_log_secrets_are_redacted() {
             },
         )
         .await;
-        assert!(created.is_err(), "an invalid database key was accepted");
+        // Match the key conversion error, so that a failure on another path
+        // does not count as coverage of the database key.
+        assert!(
+            matches!(
+                &created,
+                Err(crate::XmtpError::Unknown(details))
+                    if details.message == "could not convert slice to array"
+            ),
+            "create did not fail on the invalid database key: {:?}",
+            created.as_ref().err()
+        );
         tracing::error!(target: "xmtp_sdk::conformance", "secret operations completed");
     }
     drop(captured);
