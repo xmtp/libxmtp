@@ -14,35 +14,64 @@ use xmtp_events as core;
 pub struct ListenerId(pub u64);
 uniffi::custom_newtype!(ListenerId, u64);
 
+#[xmtp_macro::sdk_export]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum EventKind {
+    #[sdk(kind = "conversation.joined")]
     ConversationJoined,
+    #[sdk(kind = "conversation.removed")]
     ConversationRemoved,
+    #[sdk(kind = "conversation.membership_changed")]
     ConversationMembershipChanged,
+    #[sdk(kind = "conversation.metadata_changed")]
     ConversationMetadataChanged,
+    #[sdk(kind = "conversation.paused")]
     ConversationPaused,
+    #[sdk(kind = "message.received")]
     MessageReceived,
+    #[sdk(kind = "message.status_changed")]
     MessageStatusChanged,
+    #[sdk(kind = "message.deleted")]
     MessageDeleted,
+    #[sdk(kind = "message.expired")]
     MessageExpired,
+    #[sdk(kind = "consent.changed")]
     ConsentChanged,
+    #[sdk(kind = "hmac_keys.updated")]
     HmacKeysUpdated,
+    #[sdk(kind = "identity.registered")]
     IdentityRegistered,
+    #[sdk(kind = "identity.own_installation_added")]
     IdentityOwnInstallationAdded,
+    #[sdk(kind = "identity.own_installation_revoked")]
     IdentityOwnInstallationRevoked,
+    #[sdk(kind = "client.rejected_by_server")]
     ClientRejectedByServer,
+    #[sdk(kind = "client.lockout_changed")]
     ClientLockoutChanged,
+    #[sdk(kind = "conversation.fork_detected")]
     ConversationForkDetected,
+    #[sdk(kind = "notifications.failed")]
     NotificationsFailed,
+    #[sdk(kind = "archive.restored")]
     ArchiveRestored,
+    #[sdk(kind = "connection.state_changed")]
     ConnectionStateChanged,
+    #[sdk(kind = "attachment.upload_started")]
     AttachmentUploadStarted,
+    #[sdk(kind = "attachment.upload_completed")]
     AttachmentUploadCompleted,
+    #[sdk(kind = "attachment.upload_failed")]
     AttachmentUploadFailed,
+    #[sdk(kind = "attachment.download_started")]
     AttachmentDownloadStarted,
+    #[sdk(kind = "attachment.download_completed")]
     AttachmentDownloadCompleted,
+    #[sdk(kind = "attachment.download_failed")]
     AttachmentDownloadFailed,
+    #[sdk(kind = "attachment.deleted")]
     AttachmentDeleted,
+    #[sdk(kind = "lagged")]
     Lagged,
 }
 

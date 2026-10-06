@@ -28,8 +28,7 @@ impl Storage {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(native_only)]
 impl Storage {
     pub async fn reconnect(&self) -> Result<(), XmtpError> {
         let client = self.client.clone();
@@ -40,8 +39,7 @@ impl Storage {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(native_only)]
 impl Storage {
     pub async fn delete(&self) -> Result<(), XmtpError> {
         let path = self

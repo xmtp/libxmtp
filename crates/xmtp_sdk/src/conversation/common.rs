@@ -3,18 +3,22 @@ macro_rules! common_conversation {
     ($name:ident, $state:ty, $map:expr) => {
         #[xmtp_macro::sdk_export]
         impl $name {
+            #[sdk(immutable)]
             pub fn id(&self) -> ConversationId {
                 self.inner.group_id.into()
             }
 
+            #[sdk(immutable)]
             pub fn created_at(&self) -> Timestamp {
                 Timestamp(self.inner.created_at_ns)
             }
 
+            #[sdk(immutable)]
             pub fn topic(&self) -> String {
                 xmtp_proto::types::Topic::new_group_message(self.inner.group_id).to_string()
             }
 
+            #[sdk(immutable)]
             pub fn kind(&self) -> crate::ConversationKind {
                 match self.inner.conversation_type {
                     ConversationType::Dm => crate::ConversationKind::Dm,
@@ -22,14 +26,17 @@ macro_rules! common_conversation {
                 }
             }
 
+            #[sdk(immutable)]
             pub fn added_by_inbox_id(&self) -> Option<InboxId> {
                 self.identity.added_by_inbox_id.clone()
             }
 
+            #[sdk(immutable)]
             pub fn creator_inbox_id(&self) -> Option<InboxId> {
                 self.identity.creator_inbox_id.clone()
             }
 
+            #[sdk(immutable)]
             pub fn is_creator(&self) -> bool {
                 self.identity.is_creator
             }

@@ -327,8 +327,7 @@ mod sink {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_macro::sdk_export]
+    #[xmtp_macro::sdk_export(native_only)]
     pub fn enter_debug_writer(
         directory: String,
         rotation: LogRotation,
@@ -347,8 +346,7 @@ mod sink {
             .map_err(XmtpError::from_core)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_macro::sdk_export]
+    #[xmtp_macro::sdk_export(native_only)]
     pub fn exit_debug_writer() -> Result<(), XmtpError> {
         handle()?.disable_file().map_err(XmtpError::from_core)
     }

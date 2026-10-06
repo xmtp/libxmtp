@@ -1,68 +1,98 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
     ImplItem, Item, Meta, ReturnType, Token, TraitItem, Type, parse::Parser, punctuated::Punctuated,
 };
 
-pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
-    let mut pure = false;
-    let mut defaults = TokenStream::new();
-    let arguments = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(attr)?;
-    let mut arguments = arguments.into_iter();
-    let target = if arguments.len() == 0 {
-        None
-    } else {
-        let first = arguments.next().unwrap();
-        let Meta::Path(path) = first else {
-            return Err(syn::Error::new_spanned(
-                first,
-                "sdk_export requires a target name",
-            ));
-        };
-        let target = path
-            .get_ident()
-            .ok_or_else(|| syn::Error::new_spanned(&path, "sdk_export requires a target name"))?;
-        match target.to_string().as_str() {
-            "native_only" => Some(quote!(#[cfg(not(target_arch = "wasm32"))])),
-            "wasm_only" => Some(quote!(#[cfg(target_arch = "wasm32")])),
-            "pure" => {
-                pure = true;
-                None
-            }
-            _ => {
-                return Err(syn::Error::new_spanned(
-                    target,
-                    "sdk_export accepts only native_only, wasm_only, or pure",
-                ));
-            }
-        }
-    };
+use crate::sdk_member::{self, PURE, Target, push_marker};
 
-    for argument in arguments {
-        match argument {
-            Meta::List(value) if pure && value.path.is_ident("default") && defaults.is_empty() => {
-                defaults = value.tokens;
+const EXPORT_OPTIONS: &str = "sdk_export accepts native_only, wasm_only, pure, and default(...)";
+
+/// The arguments of `#[sdk_export(...)]`.
+#[derive(Default)]
+struct ExportOptions {
+    target: Option<Target>,
+    pure: bool,
+    defaults: TokenStream,
+}
+
+fn parse_options(attr: TokenStream) -> syn::Result<ExportOptions> {
+    let mut options = ExportOptions::default();
+    for argument in Punctuated::<Meta, Token![,]>::parse_terminated.parse2(attr)? {
+        let repeated = |what: &str| {
+            syn::Error::new_spanned(&argument, format!("sdk_export has more than one {what}"))
+        };
+        match &argument {
+            Meta::Path(path) if Target::from_path(path).is_some() => {
+                if options.target.is_some() {
+                    return Err(repeated("target"));
+                }
+                options.target = Target::from_path(path);
             }
-            other => {
-                return Err(syn::Error::new_spanned(
-                    other,
-                    "only pure functions accept one default(...) list",
-                ));
+            Meta::Path(path) if path.is_ident("pure") => {
+                if options.pure {
+                    return Err(repeated("pure"));
+                }
+                options.pure = true;
             }
+            Meta::List(list) if list.path.is_ident("default") => {
+                if !options.defaults.is_empty() {
+                    return Err(repeated("default(...) list"));
+                }
+                options.defaults = list.tokens.clone();
+            }
+            other => return Err(syn::Error::new_spanned(other, EXPORT_OPTIONS)),
         }
     }
-    let pure_export = if defaults.is_empty() {
-        quote!(uniffi::export)
+    if options.pure && options.target.is_some() {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "a pure export selects its own targets; drop native_only or wasm_only",
+        ));
+    }
+    if !options.defaults.is_empty() && !options.pure {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "only pure functions accept one default(...) list",
+        ));
+    }
+    Ok(options)
+}
+
+/// A record or enum keeps its UniFFI derive after this macro, so the markers
+/// reach the library metadata.
+fn require_uniffi_derive(attrs: &[syn::Attribute], name: &syn::Ident) -> syn::Result<()> {
+    let derives_uniffi = attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("derive"))
+        .filter_map(|attr| {
+            attr.parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated)
+                .ok()
+        })
+        .flatten()
+        .any(|path| {
+            path.segments
+                .first()
+                .is_some_and(|first| first.ident == "uniffi")
+        });
+    if derives_uniffi {
+        Ok(())
     } else {
-        quote!(uniffi::export(default(#defaults)))
-    };
+        Err(syn::Error::new_spanned(
+            name,
+            "sdk_export must be the first attribute on a record or enum, above #[derive(uniffi::Record)] or #[derive(uniffi::Enum)] and every other derive",
+        ))
+    }
+}
+
+pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let options = parse_options(attr)?;
+    let cfg = options.target.map(Target::cfg);
     let mut item: Item = syn::parse2(input)?;
-    if pure {
+    if options.pure {
         match &mut item {
             Item::Fn(function) if function.sig.asyncness.is_none() => {
-                function
-                    .attrs
-                    .push(syn::parse_quote!(#[doc = "@xmtp-pure"]));
+                push_marker(&mut function.attrs, PURE);
             }
             Item::Fn(function) => {
                 return Err(syn::Error::new_spanned(
@@ -82,38 +112,59 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
         Item::Impl(item_impl) => {
             let mut has_async = false;
             for impl_item in &mut item_impl.items {
-                if let ImplItem::Fn(method) = impl_item {
-                    has_async |= method.sig.asyncness.is_some();
-                    instrument(&mut method.attrs, &method.sig.output);
+                if let ImplItem::Fn(function) = impl_item {
+                    has_async |= function.sig.asyncness.is_some();
+                    sdk_member::method(&mut function.attrs, &function.sig, options.target)?;
+                    instrument(&mut function.attrs, &function.sig.output);
                 }
             }
             has_async
         }
         Item::Fn(function) => {
+            sdk_member::function(&mut function.attrs, &function.sig.ident)?;
             instrument(&mut function.attrs, &function.sig.output);
             function.sig.asyncness.is_some()
         }
         Item::Trait(item_trait) => {
             let mut has_async = false;
             for trait_item in &mut item_trait.items {
-                if let TraitItem::Fn(method) = trait_item {
-                    has_async |= method.sig.asyncness.is_some();
-                    if method.default.is_some() {
-                        instrument(&mut method.attrs, &method.sig.output);
+                if let TraitItem::Fn(function) = trait_item {
+                    has_async |= function.sig.asyncness.is_some();
+                    sdk_member::method(&mut function.attrs, &function.sig, options.target)?;
+                    if function.default.is_some() {
+                        instrument(&mut function.attrs, &function.sig.output);
                     }
                 }
             }
             has_async
         }
+        // The UniFFI derive exports a record or enum; this macro only adds
+        // the markers and the target's cfg.
+        Item::Struct(item_struct) => {
+            require_uniffi_derive(&item_struct.attrs, &item_struct.ident)?;
+            sdk_member::fields(&mut item_struct.fields)?;
+            return Ok(quote!(#cfg #item_struct));
+        }
+        Item::Enum(item_enum) => {
+            require_uniffi_derive(&item_enum.attrs, &item_enum.ident)?;
+            sdk_member::variants(item_enum)?;
+            return Ok(quote!(#cfg #item_enum));
+        }
         _ => {
             return Err(syn::Error::new_spanned(
                 item,
-                "sdk_export requires an impl block, trait, or function",
+                "sdk_export requires an impl block, trait, function, record, or enum",
             ));
         }
     };
 
-    let export = if pure {
+    let export = if options.pure {
+        let pure_export = if options.defaults.is_empty() {
+            quote!(uniffi::export)
+        } else {
+            let defaults = &options.defaults;
+            quote!(uniffi::export(default(#defaults)))
+        };
         quote! {
             #[cfg_attr(any(not(target_arch = "wasm32"), feature = "pure-only"), #pure_export)]
         }
@@ -127,7 +178,7 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
     };
 
     Ok(quote! {
-        #target
+        #cfg
         #export
         #item
     })
@@ -151,7 +202,7 @@ fn instrument(attrs: &mut Vec<syn::Attribute>, output: &ReturnType) {
     attrs.push(annotation);
 }
 
-fn returns_result(output: &ReturnType) -> bool {
+pub(crate) fn returns_result(output: &ReturnType) -> bool {
     fn is_result(ty: &Type) -> bool {
         match ty {
             Type::Path(path) => path

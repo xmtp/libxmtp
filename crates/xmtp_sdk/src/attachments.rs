@@ -139,6 +139,7 @@ impl Attachments {
 #[xmtp_macro::sdk_export]
 impl Attachments {
     /// Whether the deployment's server configuration offers attachments.
+    #[sdk(immutable)]
     pub fn offered(&self) -> bool {
         self.client.attachments().offered()
     }
@@ -295,6 +296,7 @@ pub struct PendingAttachment {
 #[xmtp_macro::sdk_export]
 impl PendingAttachment {
     /// The remote attachment to send. It is complete before the upload.
+    #[sdk(immutable)]
     pub fn remote_attachment(&self) -> RemoteAttachment {
         self.inner.remote_attachment().clone().into()
     }
