@@ -56,7 +56,7 @@ class DurableReplayTest {
 
                         // `first()` leaves the reader early, so it does not acknowledge.
                         suspend fun replayed(conversation: Group): MessageId? =
-                            withTimeoutOrNull(10_000) { owner.messages(conversation).first().id }
+                            withTimeoutOrNull(10_000) { conversation.streamMessages().first().id }
 
                         // Cancel the collection while its collector holds A.
                         val entered = CompletableDeferred<Unit>()
@@ -64,11 +64,14 @@ class DurableReplayTest {
                         val closes = mutableListOf<SDKStreamCloseReason>()
                         val collection =
                             async {
-                                owner.messages(group, onClose = { closes.add(it) }).collect {
-                                    delivered.add(it.id)
-                                    entered.complete(Unit)
-                                    awaitCancellation()
-                                }
+                                group
+                                    .streamMessages(
+                                        ConversationMessageStreamOptions(onClose = { closes.add(it) }),
+                                    ).collect {
+                                        delivered.add(it.id)
+                                        entered.complete(Unit)
+                                        awaitCancellation()
+                                    }
                             }
                         try {
                             entered.await()
@@ -86,10 +89,13 @@ class DurableReplayTest {
                         val failedCloses = mutableListOf<SDKStreamCloseReason>()
                         val thrown =
                             runCatching {
-                                owner.messages(restored, onClose = { failedCloses.add(it) }).collect {
-                                    consumed.add(it.id)
-                                    if (it.id == second) throw failure
-                                }
+                                restored
+                                    .streamMessages(
+                                        ConversationMessageStreamOptions(onClose = { failedCloses.add(it) }),
+                                    ).collect {
+                                        consumed.add(it.id)
+                                        if (it.id == second) throw failure
+                                    }
                             }.exceptionOrNull()
                         assertSame(failure, thrown)
                         assertEquals(listOf(first, second), consumed)

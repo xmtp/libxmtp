@@ -43,11 +43,12 @@ class StreamRecoveryTest {
                         var closed: SDKStreamCloseReason? = null
                         val stream =
                             launch(Dispatchers.Default) {
-                                receiver
-                                    .messages(
-                                        joined,
-                                        onClose = { closed = it },
-                                        onConnectionStateChange = { _, current -> states.add(current) },
+                                joined
+                                    .streamMessages(
+                                        ConversationMessageStreamOptions(
+                                            onClose = { closed = it },
+                                            onConnectionStateChange = { _, current -> states.add(current) },
+                                        ),
                                     ).collect { received.add(it.id) }
                             }
                         try {

@@ -238,8 +238,12 @@ class MessageDeliveryFlowTest {
                 var received = 0
                 assertSame(
                     failure,
-                    runCatching { client.messages(onClose = { closes.add(it) }).collect { received++ } }
-                        .exceptionOrNull(),
+                    runCatching {
+                        client.conversations
+                            .streamAllMessages(
+                                MessageStreamOptions(onClose = { closes.add(it) }),
+                            ).collect { received++ }
+                    }.exceptionOrNull(),
                 )
                 assertEquals(0, received)
                 assertEquals(1, reader.nextCalls)

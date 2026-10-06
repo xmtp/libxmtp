@@ -53,8 +53,11 @@ class MessageStreamTest {
 
     /** A Group and a Dm that record the options of each reader they open. */
     private class RecordingGroup(
+        private val ownerKey: ULong,
         private val open: suspend () -> MessageReader,
     ) : Group(NoHandle) {
+        override fun sdkStreamOwnerKey(): ULong = ownerKey
+
         val options = mutableListOf<ConversationMessageReaderOptions?>()
 
         override suspend fun messageReader(options: ConversationMessageReaderOptions?): MessageReader {
@@ -64,8 +67,11 @@ class MessageStreamTest {
     }
 
     private class RecordingDm(
+        private val ownerKey: ULong,
         private val open: suspend () -> MessageReader,
     ) : Dm(NoHandle) {
+        override fun sdkStreamOwnerKey(): ULong = ownerKey
+
         val options = mutableListOf<ConversationMessageReaderOptions?>()
 
         override suspend fun messageReader(options: ConversationMessageReaderOptions?): MessageReader {
@@ -102,6 +108,8 @@ class MessageStreamTest {
         val options = mutableListOf<ConversationReaderOptions?>()
         private val conversations =
             object : Conversations(NoHandle) {
+                override fun sdkStreamOwnerKey(): ULong = clientKey()
+
                 override suspend fun conversationReader(options: ConversationReaderOptions?): ConversationReader {
                     this@ConversationReaderClient.options += options
                     return open()
@@ -116,24 +124,29 @@ class MessageStreamTest {
     private fun ownerClient() =
         testSDKClient(RecordingReaderClient { error("only the conversation forms open readers") })
 
-    // The 4c handoff: no other Android test calls messages(group, options) or messages(dm, options).
+    // Each receiver passes its stream options to its reader.
     @Test(timeout = STREAM_TEST_TIMEOUT_MS)
     fun conversationFormsOpenTheirReaderWithTheCallerOptions() =
         runBlocking {
             val client = ownerClient()
-            val options = ConversationMessageReaderOptions(from = "cursor-from")
-            val group = RecordingGroup { RecordingMessageReader { null } }
-            client.messages(group, options).collect()
-            client.messages(group).collect()
-            assertEquals(listOf(options, null), group.options)
-            val dm = RecordingDm { RecordingMessageReader { null } }
-            client.messages(dm, options).collect()
-            client.messages(dm).collect()
-            assertEquals(listOf(options, null), dm.options)
+            val options = ConversationMessageStreamOptions(from = "cursor-from")
+            val group = RecordingGroup(client.raw.clientKey()) { RecordingMessageReader { null } }
+            group.streamMessages(options).collect()
+            group.streamMessages().collect()
+            assertEquals(
+                listOf(ConversationMessageReaderOptions(from = options.from), ConversationMessageReaderOptions()),
+                group.options,
+            )
+            val dm = RecordingDm(client.raw.clientKey()) { RecordingMessageReader { null } }
+            dm.streamMessages(options).collect()
+            dm.streamMessages().collect()
+            assertEquals(
+                listOf(ConversationMessageReaderOptions(from = options.from), ConversationMessageReaderOptions()),
+                dm.options,
+            )
         }
 
-    // conversationStream has its own hand-written wiring in SDKClient.kt and
-    // streams/Readers.kt (conversationFlow): the options, the reader end and onClose.
+    // The conversation adapter passes options, ends its reader, and calls onClose.
     @Test(timeout = STREAM_TEST_TIMEOUT_MS)
     fun conversationStreamEndsItsReaderAndReportsTheCloseOnce() =
         runBlocking {
@@ -144,10 +157,13 @@ class MessageStreamTest {
             val closes = mutableListOf<SDKStreamCloseReason>()
             val received =
                 client
-                    .conversationStream(
-                        kind = ConversationKind.GROUP,
-                        consentStates = listOf(ConsentState.ALLOWED),
-                        onClose = { closes.add(it) },
+                    .conversations
+                    .stream(
+                        ConversationStreamOptions(
+                            conversationKind = ConversationKind.GROUP,
+                            consentStates = listOf(ConsentState.ALLOWED),
+                            onClose = { closes.add(it) },
+                        ),
                     ).take(1)
                     .toList()
             assertTrue(received.single() is Conversation.Group)
@@ -174,11 +190,13 @@ class MessageStreamTest {
                 val received =
                     runCatching {
                         client
-                            .conversationStream(onClose = {
-                                closes.add(it)
-                                throw IllegalStateException("close callback failed")
-                            })
-                            .collect()
+                            .conversations
+                            .stream(
+                                ConversationStreamOptions(onClose = {
+                                    closes.add(it)
+                                    throw IllegalStateException("close callback failed")
+                                }),
+                            ).collect()
                     }.exceptionOrNull()
                 assertSame("The close callback error escaped the collection", failure, received)
                 assertEquals(1, reader.endCalls)
@@ -200,7 +218,7 @@ class MessageStreamTest {
                 val reader = RecordingMessageReader { rows.removeFirstOrNull() }
                 val client = testSDKClient(RecordingReaderClient { reader })
                 val closes = mutableListOf<SDKStreamCloseReason>()
-                val flow = client.messages(onClose = { closes.add(it) })
+                val flow = client.conversations.streamAllMessages(MessageStreamOptions(onClose = { closes.add(it) }))
                 val id =
                     if (form == "first") {
                         flow.first().id
@@ -230,8 +248,14 @@ class MessageStreamTest {
             val closes = mutableListOf<SDKStreamCloseReason>()
             val delivered = mutableListOf<Message>()
             val failure =
-                runCatching { client.messages(onClose = { closes.add(it) }).collect { delivered.add(it) } }
-                    .exceptionOrNull()
+                runCatching {
+                    client.conversations
+                        .streamAllMessages(
+                            MessageStreamOptions(onClose = {
+                                closes.add(it)
+                            }),
+                        ).collect { delivered.add(it) }
+                }.exceptionOrNull()
             assertTrue("Expected ClientClosed, got $failure", failure is XmtpException.ClientClosed)
             assertTrue(delivered.isEmpty())
             assertEquals(0, reader.nextCalls)
@@ -246,17 +270,17 @@ class MessageStreamTest {
             val opening = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             val late = RecordingMessageReader { error("a cancelled collection must not read") }
+            val client = ownerClient()
             val group =
-                RecordingGroup {
+                RecordingGroup(client.raw.clientKey()) {
                     opening.complete(Unit)
                     release.await()
                     late
                 }
-            val client = ownerClient()
             val closed = CompletableDeferred<SDKStreamCloseReason>()
             val collection =
                 async(start = CoroutineStart.UNDISPATCHED) {
-                    client.messages(group, onClose = { closed.complete(it) }).collect {}
+                    group.streamMessages(ConversationMessageStreamOptions(onClose = { closed.complete(it) })).collect {}
                 }
             withTimeout(5_000) { opening.await() }
             collection.cancel()
@@ -281,13 +305,15 @@ class MessageStreamTest {
             val collection =
                 launch {
                     client
-                        .messages(onConnectionStateChange = {
-                            previous,
-                            current,
-                            ->
-                            first.complete(previous to current)
-                        })
-                        .collect {}
+                        .conversations
+                        .streamAllMessages(
+                            MessageStreamOptions(onConnectionStateChange = {
+                                previous,
+                                current,
+                                ->
+                                first.complete(previous to current)
+                            }),
+                        ).collect {}
                 }
             try {
                 assertEquals(null to ConnectionState.CONNECTED, withTimeout(5_000) { first.await() })
@@ -312,11 +338,13 @@ class MessageStreamTest {
             val collection =
                 launch {
                     client
-                        .messages(onConnectionStateChange = { previous, current ->
-                            synchronized(states) { states.add(previous to current) }
-                            if (current == ConnectionState.CLOSED) closed.complete(Unit)
-                        })
-                        .collect {}
+                        .conversations
+                        .streamAllMessages(
+                            MessageStreamOptions(onConnectionStateChange = { previous, current ->
+                                synchronized(states) { states.add(previous to current) }
+                                if (current == ConnectionState.CLOSED) closed.complete(Unit)
+                            }),
+                        ).collect {}
                 }
             try {
                 withTimeout(5_000) { closed.await() }
@@ -351,11 +379,13 @@ class MessageStreamTest {
             try {
                 val delivered =
                     client
-                        .messages(onConnectionStateChange = { _, _ ->
-                            stateCalled.complete(Unit)
-                            throw IllegalStateException("state callback failed")
-                        })
-                        .toList()
+                        .conversations
+                        .streamAllMessages(
+                            MessageStreamOptions(onConnectionStateChange = { _, _ ->
+                                stateCalled.complete(Unit)
+                                throw IllegalStateException("state callback failed")
+                            }),
+                        ).toList()
                 assertEquals(listOf("01".repeat(32)), delivered.map { it.id })
                 assertNull("A state callback error crashed its coroutine", uncaught.get())
             } finally {

@@ -210,9 +210,15 @@ class AndroidContextStartupTest {
         val states = Collections.synchronizedList(mutableListOf<ConnectionState>())
         val stream =
             launch(Dispatchers.Default) {
-                receiver
-                    .messages(joined, onConnectionStateChange = { _, current -> states.add(current) })
-                    .collect { received.add(it.id) }
+                joined
+                    .streamMessages(
+                        ConversationMessageStreamOptions(onConnectionStateChange = {
+                            _,
+                            current,
+                            ->
+                            states.add(current)
+                        }),
+                    ).collect { received.add(it.id) }
             }
         try {
             val sentAt = System.nanoTime()
