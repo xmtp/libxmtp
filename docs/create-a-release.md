@@ -186,7 +186,12 @@ increment the RC number before publishing changed code.
 
 A backend dry run builds both architectures and prints the release plan. It
 creates no registry tags or GitHub release. A backend release builds commit
-images and adds a version manifest. It does not update the floating
+images and adds a version manifest. Release runs rebuild both platforms and
+sign their build attestations. The publisher verifies each digest against
+`xmtp/libxmtp`, the backend build workflow, and the source commit before it
+creates a version image or GitHub release. Select the same commit for the
+workflow revision and source `ref`; a mismatch fails before the build.
+An image without matching provenance cannot be promoted. It does not update the floating
 `self-hosted` image or deploy the development backend. Backend publication
 must succeed before the final release PR can merge automatically.
 

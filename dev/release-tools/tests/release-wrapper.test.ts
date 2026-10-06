@@ -165,6 +165,35 @@ describe("release action CLI wrapper", () => {
     expect(result.status).not.toBe(0);
   });
 
+  it("rejects a backend release whose checkout differs from the workflow source", () => {
+    const workflow = fs.readFileSync(
+      path.join(repoRoot, ".github/workflows/push-backend.yml"),
+      "utf8",
+    );
+    const match = workflow.match(
+      /- name: Pin the build source[\s\S]*?        run: \|\n([\s\S]*?)\n  deploy-dev:/,
+    );
+    if (!match?.[1]) throw new Error("Backend source script not found");
+    const output = path.join(tmpDir, "source-output");
+    fs.writeFileSync(output, "");
+    const result = spawnSync(
+      "bash",
+      ["-c", match[1].replace(/^          /gm, "")],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          RELEASE_BUILD: "true",
+          WORKFLOW_SHA: "0".repeat(40),
+          GITHUB_OUTPUT: output,
+        },
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).not.toBe(0);
+    expect(fs.readFileSync(output, "utf8")).toBe("");
+  });
+
   it("keeps command errors and a failed exit status", () => {
     const result = run([
       "compute-version",
@@ -177,4 +206,46 @@ describe("release action CLI wrapper", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("--rc-number is required");
   });
+
+  it.each([0, 1])(
+    "captures the local push digest and preserves Docker exit status %s",
+    (pushStatus) => {
+      const workflow = fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/push-backend.yml"),
+        "utf8",
+      );
+      const match = workflow.match(
+        /- name: Publish architecture image[\s\S]*?        run: \|\n([\s\S]*?)\n      - name: Attest/,
+      );
+      if (!match?.[1])
+        throw new Error("Backend image publish script not found");
+      const digest = `sha256:${"a".repeat(64)}`;
+      fs.writeFileSync(
+        path.join(tmpDir, "docker"),
+        `#!/bin/bash\nif [ "$1" = push ]; then\n  echo 'image: digest: ${digest} size: 1234'\n  exit ${pushStatus}\nfi\n`,
+      );
+      fs.chmodSync(path.join(tmpDir, "docker"), 0o755);
+      const output = path.join(tmpDir, "digest-output");
+      fs.writeFileSync(output, "");
+      const result = spawnSync(
+        "bash",
+        ["-c", match[1].replace(/^          /gm, "")],
+        {
+          env: {
+            ...process.env,
+            PATH: `${tmpDir}${path.delimiter}${process.env.PATH}`,
+            COMMIT_SHA: "a".repeat(40),
+            ARCH: "amd64",
+            RUNNER_TEMP: tmpDir,
+            GITHUB_OUTPUT: output,
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(result.status).toBe(pushStatus);
+      expect(fs.readFileSync(output, "utf8")).toBe(
+        pushStatus ? "" : `digest=${digest}\n`,
+      );
+    },
+  );
 });

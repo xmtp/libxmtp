@@ -330,6 +330,8 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write
+      attestations: write
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ format('{0}', inputs.rc-number) }}

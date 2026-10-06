@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import semver from "semver";
 import type { ArgumentsCamelCase, Argv } from "yargs";
 
+import { validateTimestamp } from "@/lib/version";
 import type { GlobalArgs } from "@/types";
 
 const IMAGE = "ghcr.io/xmtp/backend";
@@ -68,10 +69,24 @@ export function handler(argv: ArgumentsCamelCase<PublishBackendArgs>) {
   ) {
     throw new Error("Backend version must be semver without build metadata");
   }
-  const prerelease = semver.prerelease(argv.version) !== null;
-  if (prerelease !== (argv.releaseType !== "final")) {
+  const identifiers = semver.prerelease(argv.version) ?? [];
+  const suffix = identifiers.join(".");
+  const dev =
+    /^(?:dev\.[a-f0-9]{7,40}|pre\.[0-9]{14}\.dev\.[a-f0-9]{7,40})$/.test(
+      suffix,
+    );
+  const channelMatches =
+    argv.releaseType === "final"
+      ? identifiers.length === 0
+      : argv.releaseType === "rc"
+        ? /^rc[1-9][0-9]*$/.test(suffix)
+        : dev;
+  if (!channelMatches) {
     throw new Error("Backend version must match the release type");
   }
+  if (argv.releaseType === "dev" && identifiers[0] === "pre")
+    validateTimestamp(String(identifiers[1]));
+  const prerelease = identifiers.length !== 0;
   const run = (program: string, args: string[]) =>
     execFileSync(program, args, {
       cwd: argv.repoRoot,
@@ -140,6 +155,21 @@ export function handler(argv: ArgumentsCamelCase<PublishBackendArgs>) {
   const source = platformDigests(
     JSON.parse(run("docker", ["manifest", "inspect", sourceImage])),
   );
+  for (const digest of source) {
+    run("gh", [
+      "attestation",
+      "verify",
+      `oci://${IMAGE}@${digest}`,
+      "--repo",
+      "xmtp/libxmtp",
+      "--signer-workflow",
+      "xmtp/libxmtp/.github/workflows/push-backend.yml",
+      "--signer-digest",
+      sourceSha,
+      "--source-digest",
+      sourceSha,
+    ]);
+  }
   const existing = optional(
     "docker",
     ["manifest", "inspect", image],

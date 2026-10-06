@@ -13,13 +13,17 @@ on:
         description: "Build images without registry writes or deployment"
         type: boolean
         default: false
+      release-build:
+        description: "Rebuild and attest images for a tagged release"
+        type: boolean
+        default: false
     outputs:
       source-sha:
         description: "Commit used to build both architecture images"
         value: ${{ jobs.source.outputs.sha }}
 
 concurrency:
-  group: backend-image-${{ inputs.ref || github.sha }}-${{ inputs.dry-run && 'dry-run' || 'publish' }}
+  group: backend-image-${{ inputs.ref || github.sha }}-${{ inputs.release-build && 'release' || 'branch' }}-${{ inputs.dry-run && 'dry-run' || 'publish' }}
   cancel-in-progress: false
 
 permissions:
@@ -37,7 +41,16 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
       - name: Pin the build source
         id: source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_BUILD: ${{ inputs.release-build }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          if [ "$RELEASE_BUILD" = "true" ] && [ "$sha" != "$WORKFLOW_SHA" ]; then
+            echo "::error::Backend releases require the workflow revision and source ref to use the same commit"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   deploy-dev:
     if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted' && !inputs.ref && !inputs.dry-run
@@ -47,6 +60,11 @@ jobs:
 
   publish:
     needs: source
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Publish backend image (${{ matrix.arch }})
     strategy:
@@ -77,7 +95,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Check for the architecture image
         id: image
-        if: inputs.dry-run != true
+        if: inputs.dry-run != true && inputs.release-build != true
         env:
           BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ needs.source.outputs.sha }}-${{ matrix.arch }}
         run: |
@@ -100,14 +118,29 @@ jobs:
         if: steps.image.outputs.exists != 'true'
         run: just backend image ${{ matrix.target }}
       - name: Publish architecture image
+        id: publish-image
         if: steps.image.outputs.exists != 'true' && inputs.dry-run != true
         env:
           COMMIT_SHA: ${{ needs.source.outputs.sha }}
           ARCH: ${{ matrix.arch }}
         run: |
+          set -euo pipefail
           docker load --input result-backend-image
           docker tag ghcr.io/xmtp/backend:self-hosted "ghcr.io/xmtp/backend:sha-${COMMIT_SHA}-${ARCH}"
-          docker push "ghcr.io/xmtp/backend:sha-${COMMIT_SHA}-${ARCH}"
+          docker push "ghcr.io/xmtp/backend:sha-${COMMIT_SHA}-${ARCH}" | tee "$RUNNER_TEMP/backend-push.log"
+          digest=$(sed -nE 's/^.*: digest: (sha256:[a-f0-9]{64}) size: [0-9]+$/\1/p' "$RUNNER_TEMP/backend-push.log")
+          if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::Docker push did not return one image digest"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Attest the platform image
+        if: inputs.release-build == true && inputs.dry-run != true
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/xmtp/backend
+          subject-digest: ${{ steps.publish-image.outputs.digest }}
+          push-to-registry: true
 
   manifest:
     if: inputs.dry-run != true
@@ -122,6 +155,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Check for the complete commit manifest
         id: image
+        if: inputs.release-build != true
         env:
           BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ needs.source.outputs.sha }}
           AMD64_IMAGE: ghcr.io/xmtp/backend:sha-${{ needs.source.outputs.sha }}-amd64

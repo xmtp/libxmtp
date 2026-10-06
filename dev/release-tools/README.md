@@ -53,6 +53,10 @@ Publish a version manifest at `ghcr.io/xmtp/backend:<version>` and a GitHub
 release at `backend-<version>`. Run this after the commit images are published.
 The command reads the checked-out source commit. It requires Linux amd64 and
 arm64 manifests and refuses a version that belongs to another commit or build.
+It verifies signed provenance for both platform digests against `xmtp/libxmtp`,
+`push-backend.yml`, and the checked-out commit. Publish the images through the
+backend release workflow first. RC versions must use `rcN` with a positive
+integer. Dev versions must use `dev.<sha7>` or `pre.<timestamp>.dev.<sha7>`.
 Use `--dry-run` to print the plan without contacting registries or GitHub.
 
 ```bash

@@ -33,6 +33,7 @@ let existingImage: typeof manifest | null;
 let imageError: string;
 let pushFails: boolean;
 let releaseExists: boolean;
+let failedAttestation: string;
 
 function failure(stderr: string) {
   return Object.assign(new Error(stderr), { stderr });
@@ -55,6 +56,7 @@ beforeEach(() => {
   imageError = "no such manifest";
   pushFails = false;
   releaseExists = false;
+  failedAttestation = "";
   vi.mocked(execFileSync).mockReset();
   vi.mocked(execFileSync).mockImplementation((program, command) => {
     const cmd = command as string[];
@@ -68,6 +70,12 @@ beforeEach(() => {
       throw failure("push failed");
     if (program === "gh" && cmd[1] === "view" && !releaseExists)
       throw failure("release not found");
+    if (
+      program === "gh" &&
+      cmd[0] === "attestation" &&
+      cmd[2] === failedAttestation
+    )
+      throw failure("provenance verification failed");
     return "";
   });
 });
@@ -103,6 +111,74 @@ describe("publish-backend", () => {
       ],
     ]);
   });
+
+  it("verifies repository, workflow, and source provenance for both platform digests", () => {
+    handler(args);
+    const calls = vi.mocked(execFileSync).mock.calls;
+    for (const { digest } of manifest.manifests) {
+      expect(calls).toContainEqual([
+        "gh",
+        [
+          "attestation",
+          "verify",
+          `oci://ghcr.io/xmtp/backend@${digest}`,
+          "--repo",
+          "xmtp/libxmtp",
+          "--signer-workflow",
+          "xmtp/libxmtp/.github/workflows/push-backend.yml",
+          "--signer-digest",
+          SHA,
+          "--source-digest",
+          SHA,
+        ],
+        expect.anything(),
+      ]);
+    }
+    const lastVerification = calls.findLastIndex(
+      ([, command]) => command?.[0] === "attestation",
+    );
+    const firstWrite = calls.findIndex((call) => writes().includes(call));
+    expect(lastVerification).toBeLessThan(firstWrite);
+  });
+
+  it.each([0, 1])(
+    "rejects an untrusted platform digest at index %s before publication",
+    (index) => {
+      source.manifests[index].digest = `sha256:${"e".repeat(64)}`;
+      failedAttestation = `oci://ghcr.io/xmtp/backend@${source.manifests[index].digest}`;
+      expect(() => handler(args)).toThrow("provenance verification failed");
+      expect(writes()).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["8.0.0-dev.abcdef1", "rc"],
+    ["8.0.0-pre.20261006120000.dev.abcdef1", "rc"],
+    ["8.0.0-rc1", "dev"],
+    ["8.0.0-pre.20261006120000.nightly.abcdef1", "dev"],
+    ["8.0.0-rc0", "rc"],
+    ["8.0.0-rc01", "rc"],
+    ["8.0.0-rc1.extra", "rc"],
+    ["8.0.0-dev.abc", "dev"],
+    ["8.0.0-dev.notasha", "dev"],
+    ["8.0.0-pre.20261301120000.dev.abcdef1", "dev"],
+  ] as const)(
+    "rejects version %s for release type %s",
+    (version, releaseType) => {
+      expect(() => handler({ ...args, version, releaseType })).toThrow();
+      expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["8.0.0-dev.abcdef1", "8.0.0-pre.20261006120000.dev.abcdef1"])(
+    "publishes supported dev version %s as a prerelease",
+    (version) => {
+      handler({ ...args, version, releaseType: "dev" });
+      const create = writes().find(([program]) => program === "gh");
+      expect(create?.[1]).toContain(`backend-${version}`);
+      expect(create?.[1]).toContain("--prerelease");
+    },
+  );
 
   it("does not contact registries or GitHub in a dry run", () => {
     handler({ ...args, dryRun: true });

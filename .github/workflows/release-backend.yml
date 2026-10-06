@@ -24,6 +24,8 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   setup:
@@ -68,6 +70,7 @@ jobs:
     with:
       ref: ${{ needs.setup.outputs.source-sha }}
       dry-run: ${{ inputs.dry-run }}
+      release-build: true
     secrets: inherit
 
   publish:
