@@ -1,0 +1,88 @@
+// The browser download path: WASM fetch from the backend's object store,
+// digest check, decryption, and the plaintext file in OPFS. The Rust download
+// tests do not build for wasm32, so this is the only real browser download.
+import type { AttachmentSource, ClientOptions } from "@xmtp/browser-sdk";
+import { expect, test } from "vitest";
+
+import { create, signer } from "./helpers";
+
+// The local object store is on a loopback address.
+const fileClient = (directory: string): Partial<ClientOptions> => ({
+  storage: { location: { directory } },
+  attachments: { allowPrivateNetwork: true },
+});
+
+const source = (text: string): AttachmentSource => ({
+  kind: "bytes",
+  bytes: new TextEncoder().encode(text),
+  filename: "note.txt",
+  mimeType: "text/plain",
+});
+
+/** An attachment path names an OPFS entry. */
+async function opfsFile(path: string): Promise<File | undefined> {
+  const names = path.split("/").filter((name) => name !== "");
+  const name = names.pop()!;
+  try {
+    let directory = await navigator.storage.getDirectory();
+    for (const part of names)
+      directory = await directory.getDirectoryHandle(part);
+    return await (await directory.getFileHandle(name)).getFile();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotFoundError")
+      return undefined;
+    throw error;
+  }
+}
+
+// verifies: ATCH-048
+test("a peer downloads an uploaded attachment into OPFS and deletes it", async () => {
+  const root = `attachments-${crypto.randomUUID()}`;
+  const sender = await create(signer(), fileClient(`${root}/sender`));
+  const receiver = await create(signer(), fileClient(`${root}/receiver`));
+  const content = "attachment bytes";
+  const pending = await sender.attachments.create(source(content));
+  const other = await sender.attachments.create(source("other bytes"));
+  const dm = await sender.conversations.createDm(receiver.inboxId);
+  const sent = await dm.sendRemoteAttachment(pending.remoteAttachment);
+  await pending.upload();
+  await other.upload();
+
+  await receiver.conversations.syncAll(undefined);
+  const message = await receiver.conversations.getMessageById(sent);
+  if (message?.content.kind !== "remoteAttachment")
+    throw new Error("the attachment record did not arrive");
+  const received = message.content.value;
+  const attachments = receiver.attachments;
+  const path = await attachments.localPath(received);
+  expect(await opfsFile(path)).toBeUndefined();
+
+  const downloaded = await attachments.download(received);
+  expect(downloaded).toEqual({
+    path,
+    mimeType: "text/plain",
+    filename: "note.txt",
+  });
+  expect(await (await opfsFile(path))?.text()).toBe(content);
+  // Local paths are relative to the attachments directory.
+  const local = await attachments.listLocal();
+  expect(local).toHaveLength(1);
+  expect(path.endsWith(`/${local[0]!.path}`)).toBe(true);
+
+  // Another object under this record's digest fails the digest check, and
+  // no file is written for it.
+  const substituted = {
+    ...other.remoteAttachment,
+    contentDigest: received.contentDigest,
+  };
+  await expect(attachments.download(substituted)).rejects.toMatchObject({
+    attachmentFailure: { cause: "digestMismatch" },
+  });
+  expect(await opfsFile(await attachments.localPath(substituted))).toBe(
+    undefined,
+  );
+
+  await attachments.deleteLocal(received);
+  expect(await opfsFile(path)).toBeUndefined();
+  expect(await attachments.listLocal()).toEqual([]);
+});
