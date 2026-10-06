@@ -69,11 +69,50 @@ class SamplerControls(unittest.TestCase):
             )
         self.assertLess(time.monotonic() - start, 4)
 
+    def test_zero_timeout_still_kills(self):
+        # Zero is a timeout, not "no timeout". Only None turns the timer off.
+        start = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            processes.execute(child("import time; time.sleep(5)"), "go", timeout=0)
+        self.assertLess(time.monotonic() - start, 4)
+
+
+class CommandLine(unittest.TestCase):
+    def test_non_positive_timeout_is_rejected(self):
+        for value in ("0", "-1", "nan", "inf"):
+            argv = ["bench.py", "node", "--timeout", value]
+            with (
+                self.subTest(value),
+                patch.object(sys, "argv", argv),
+                patch.object(bench, "run") as run,
+                patch("sys.stderr"),
+            ):
+                with self.assertRaises(SystemExit):
+                    bench.main()
+                run.assert_not_called()
+
 
 class SampleChecks(unittest.TestCase):
     def test_percentile_interpolates(self):
         self.assertEqual(bench.percentile([4, 1, 3, 2], 0.5), 2.5)
         self.assertAlmostEqual(bench.percentile(range(1, 101), 0.95), 95.05)
+
+    def test_messages_per_second_counts_primary_messages_only(self):
+        events = bench.stream_events(bench.dataset())
+        self.assertGreater(events, bench.ROWS)
+        samples = [
+            {"workload": workload, "duration_ms": 2000, "peak_memory_bytes": 1}
+            for workload in bench.WORKLOADS
+        ]
+        for sample in samples:
+            sample["streamed_events"] = events
+        rates = {
+            row["metric"]: row["p50"]
+            for row in bench.summarize("node", samples)
+            if row["workload"] == "stream"
+        }
+        self.assertEqual(rates["messages_per_second"], bench.ROWS / 2)
+        self.assertEqual(rates["events_per_second"], events / 2)
 
     def test_page_order_and_stream_count_are_checked(self):
         fixture = bench.dataset()

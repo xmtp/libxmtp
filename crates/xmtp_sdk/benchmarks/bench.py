@@ -247,7 +247,12 @@ def summarize(host, samples):
             "peak_memory_bytes": [s["peak_memory_bytes"] for s in values],
         }
         if workload == "stream":
+            # A sample streams ROWS primary messages plus their reactions.
+            # check_measurement has rejected any other event count.
             metrics["messages_per_second"] = [
+                ROWS * 1000 / s["duration_ms"] for s in values
+            ]
+            metrics["events_per_second"] = [
                 s["streamed_events"] * 1000 / s["duration_ms"] for s in values
             ]
         if host == "browser":
@@ -387,6 +392,9 @@ def main():
     args = parser.parse_args()
     if args.samples < 1:
         parser.error("--samples must be positive")
+    # A zero timeout would turn off the host-call timer.
+    if not (math.isfinite(args.timeout) and args.timeout > 0):
+        parser.error("--timeout must be a positive number of seconds")
     if args.host == "check":
         check()
     else:

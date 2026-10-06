@@ -88,7 +88,7 @@ def execute(argv, input_text=None, timeout=None):
     ]
     for thread in threads:
         thread.start()
-    timer = Timer(timeout, expire) if timeout else None
+    timer = Timer(timeout, expire) if timeout is not None else None
     if timer:
         timer.start()
     try:

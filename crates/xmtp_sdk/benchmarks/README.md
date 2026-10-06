@@ -18,9 +18,10 @@ core.
 | `stream`     | Publish 1,000 messages and 250 reactions while one group stream reads all 1,250 events.         |
 
 Each workload reports `duration_ms` and `peak_memory_bytes`. Stream also
-reports `messages_per_second`. The browser reports long tasks above 50 ms
-inside the timer (`long_tasks` count and `long_task_ms` total). The run also
-records the package size, raw and as a deterministic tar with gzip level 9.
+reports `messages_per_second` (the 1,000 primary messages only) and
+`events_per_second` (all 1,250 events). The browser reports long tasks above
+50 ms inside the timer (`long_tasks` count and `long_task_ms` total). The run
+also records the package size, raw and as a deterministic tar with gzip level 9.
 
 Memory scope differs per host. Do not compare it across hosts:
 
@@ -57,7 +58,8 @@ that `NIX_DEVSHELL` names. Set it inside the command, because the `js` and
 
 Options: `--samples N` (default 5), `--output DIR` (a new directory; the
 default is `target/sdk-bench/<host>-<time>`), `--timeout SECONDS` per host
-call, `--simulator UDID`, `--device SERIAL`, and `--keep-state`.
+call (positive; default 900), `--simulator UDID`, `--device SERIAL`, and
+`--keep-state`.
 `XMTP_SDK_PACKAGES_DIR` selects another staged package directory.
 
 The output directory holds `results.json` (summary, raw samples, package size,
@@ -89,9 +91,10 @@ no backend, device or SDK build.
   build once with `--write-locks --write-verification-metadata sha256`, as in
   `sdks/android/CONTRIBUTING.md`, and review the new versions and checksums.
 - `test_bench.py` checks the memory sampler (also with zero RSS readings and
-  a descendant that keeps the output pipes open), the percentile helper, the
-  sample checks, the run integrity check, the iOS and Android timeout cleanup
-  and the Android backend port.
+  a descendant that keeps the output pipes open), the host-call timeout (a
+  zero timeout still kills, and the CLI rejects it), the percentile helper,
+  the stream rates, the sample checks, the run integrity check, the iOS and
+  Android timeout cleanup and the Android backend port.
   `test_workload.mjs` checks the Node and browser stream workload: the
   teardown runs once, outside the timer, and also after a read failure, a
   duplicate event or a publish failure. The Swift and Kotlin stream workloads
