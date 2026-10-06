@@ -43,8 +43,8 @@ pub struct StorageOptions {
     pub single_connection: bool,
 }
 
-impl std::fmt::Debug for StorageOptions {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl StorageOptions {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut record = f.debug_struct("StorageOptions");
         record
             .field("location", &self.location)

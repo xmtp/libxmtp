@@ -44,8 +44,8 @@ pub struct RemoteAttachment {
     pub filename: Option<String>,
 }
 
-impl std::fmt::Debug for RemoteAttachment {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl RemoteAttachment {
+    fn redacted_debug(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("RemoteAttachment")
             .field("url", &"<redacted>")

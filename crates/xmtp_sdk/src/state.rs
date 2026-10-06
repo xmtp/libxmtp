@@ -61,8 +61,8 @@ pub struct HmacKey {
     pub epoch: i64,
 }
 
-impl std::fmt::Debug for HmacKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl HmacKey {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HmacKey")
             .field("key", &"<redacted>")
             .field("epoch", &self.epoch)

@@ -6,17 +6,23 @@
 
 use std::collections::HashSet;
 
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream};
+use quote::quote;
 use syn::{
-    Attribute, Expr, ExprLit, Fields, FnArg, Ident, ItemEnum, Lit, Meta, Receiver, ReturnType,
-    Signature, Token, Type, punctuated::Punctuated, spanned::Spanned,
+    Attribute, Expr, ExprLit, Fields, FnArg, Generics, Ident, ImplItem, Item, ItemEnum, Lit, Meta,
+    Receiver, ReturnType, Signature, Token, TraitItem, Type, punctuated::Punctuated,
+    spanned::Spanned,
 };
 
 use crate::sdk_export::returns_result;
 
 const IMMUTABLE: &str = "@xmtp-immutable";
+const KIND: &str = "@xmtp-kind";
 pub(crate) const PURE: &str = "@xmtp-pure";
 const REDACT: &str = "@xmtp-redact";
+/// On a record or enum with a redacted field: the macro checked its fields
+/// and implements its `Debug`. The generator reads `@xmtp-redact` only there.
+const REDACTED: &str = "@xmtp-redacted";
 /// Written by hand in a doc comment: the browser worker makes the call
 /// itself, so it never crosses the bridge.
 const WORKER: &str = "@xmtp-worker";
@@ -209,39 +215,160 @@ fn documents(attrs: &[Attribute], marker: &str) -> bool {
     })
 }
 
-/// The derives of a record or enum that redaction cannot work with. The
-/// macro sees only the derives below it, so `sdk_export` comes first.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct Derives {
-    /// A derived `Debug`, under any path, prints every field.
-    debug: bool,
-    /// UniFFI's Kotlin binding renames a `uniffi::Error` type to an
-    /// exception class, which the generated diagnostics do not reach.
-    uniffi_error: bool,
+/// The paths in the `#[derive(...)]` attributes that the macro sees.
+fn derives(attrs: &[Attribute]) -> impl Iterator<Item = syn::Path> + '_ {
+    attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("derive"))
+        .filter_map(|attr| {
+            attr.parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated)
+                .ok()
+        })
+        .flatten()
 }
 
-impl Derives {
-    pub(crate) fn of(attrs: &[Attribute]) -> Self {
-        let mut derives = Self::default();
-        let paths = attrs
+/// Whether a record or enum derives `uniffi::Error`. UniFFI's Kotlin binding
+/// renames such a type to an exception class, which the generated
+/// diagnostics do not reach.
+pub(crate) fn derives_uniffi_error(attrs: &[Attribute]) -> bool {
+    derives(attrs).any(|path| {
+        let names = path
+            .segments
             .iter()
-            .filter(|attr| attr.path().is_ident("derive"))
-            .filter_map(|attr| {
-                attr.parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated)
-                    .ok()
+            .map(|segment| segment.ident.to_string());
+        names.eq(["uniffi", "Error"])
+    })
+}
+
+/// The option that writes each marker. The generator trusts these markers,
+/// so the macro rejects one written in a doc comment, where it would skip
+/// the macro's checks.
+const WRITTEN_BY_OPTIONS: &[(&str, &str)] = &[
+    (IMMUTABLE, "#[sdk(immutable)]"),
+    (KIND, "#[sdk(kind = \"...\")]"),
+    (PURE, "#[sdk_export(pure)]"),
+    (REDACT, "#[sdk(redact)]"),
+    (REDACTED, "#[sdk(redact)] on a field"),
+];
+
+/// The first marker and its option that a doc attribute spells out, also
+/// inside `cfg_attr`, which expands before UniFFI reads the docstring.
+fn written_marker(meta: &Meta) -> Option<(&'static str, &'static str)> {
+    match meta {
+        Meta::NameValue(pair) if pair.path.is_ident("doc") => {
+            let text = string_value(&pair.value)?;
+            text.split_whitespace().find_map(|word| {
+                let name = word.split_once('=').map_or(word, |(name, _)| name);
+                WRITTEN_BY_OPTIONS
+                    .iter()
+                    .copied()
+                    .find(|(marker, _)| *marker == name)
             })
-            .flatten();
-        for path in paths {
-            let names = path
-                .segments
-                .iter()
-                .map(|segment| segment.ident.to_string())
-                .collect::<Vec<_>>();
-            derives.debug |= names.last().is_some_and(|name| name == "Debug");
-            derives.uniffi_error |= names == ["uniffi", "Error"];
         }
-        derives
+        Meta::List(list) if list.path.is_ident("cfg_attr") => list
+            .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+            .ok()?
+            .iter()
+            .skip(1)
+            .find_map(written_marker),
+        _ => None,
     }
+}
+
+fn reject_written(attrs: &[Attribute]) -> syn::Result<()> {
+    match attrs
+        .iter()
+        .find_map(|attr| Some((attr, written_marker(&attr.meta)?)))
+    {
+        Some((attr, (marker, option))) => Err(syn::Error::new_spanned(
+            attr,
+            format!("write {option} instead of `{marker}` in a doc comment"),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Reject a marker that a doc comment of the item or of one of its members
+/// spells out. Runs before the macro adds its own markers.
+pub(crate) fn reject_written_markers(item: &Item) -> syn::Result<()> {
+    match item {
+        Item::Impl(item_impl) => {
+            reject_written(&item_impl.attrs)?;
+            for impl_item in &item_impl.items {
+                if let ImplItem::Fn(function) = impl_item {
+                    reject_written(&function.attrs)?;
+                }
+            }
+        }
+        Item::Trait(item_trait) => {
+            reject_written(&item_trait.attrs)?;
+            for trait_item in &item_trait.items {
+                if let TraitItem::Fn(function) = trait_item {
+                    reject_written(&function.attrs)?;
+                }
+            }
+        }
+        Item::Fn(function) => reject_written(&function.attrs)?,
+        Item::Struct(item_struct) => {
+            reject_written(&item_struct.attrs)?;
+            for field in &item_struct.fields {
+                reject_written(&field.attrs)?;
+            }
+        }
+        Item::Enum(item_enum) => {
+            reject_written(&item_enum.attrs)?;
+            for variant in &item_enum.variants {
+                reject_written(&variant.attrs)?;
+                for field in &variant.fields {
+                    reject_written(&field.attrs)?;
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// The `Debug` of a record or enum with a redacted field: it calls the
+/// type's own `fn redacted_debug(&self, f: &mut Formatter<'_>) -> fmt::Result`.
+/// Any other `Debug` conflicts with it, so a derived one fails to compile
+/// whatever its spelling, its `cfg_attr`, or its place among the attributes.
+/// A derive the macro sees gets a clearer error first. The impl takes the
+/// `#[cfg]` attributes written on the type.
+pub(crate) fn redacted_debug(
+    attrs: &mut Vec<Attribute>,
+    ident: &Ident,
+    generics: &Generics,
+) -> syn::Result<TokenStream> {
+    if let Some(path) = derives(attrs).find(|path| {
+        path.segments
+            .last()
+            .is_some_and(|segment| segment.ident == "Debug")
+    }) {
+        return Err(syn::Error::new_spanned(
+            path,
+            format!(
+                "`{ident}` has a #[sdk(redact)] field, so sdk_export implements its Debug through `fn redacted_debug`; remove this derive"
+            ),
+        ));
+    }
+    let cfgs = attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("cfg"))
+        .cloned()
+        .collect::<Vec<_>>();
+    push_marker(attrs, REDACTED);
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+    // The method takes the type's span, so a missing one points at the type.
+    let method = Ident::new("redacted_debug", ident.span());
+    Ok(quote! {
+        #(#cfgs)*
+        impl #impl_generics ::core::fmt::Debug for #ident #type_generics #where_clause {
+            fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                Self::#method(self, formatter)
+            }
+        }
+    })
 }
 
 /// A synchronous `&self` method without arguments that returns a value. The
@@ -329,19 +456,19 @@ pub(crate) fn function(attrs: &mut Vec<Attribute>, name: &Ident) -> syn::Result<
     }
 }
 
-/// Apply the options of the fields of a record or of one enum variant.
+/// Apply the options of the fields of a record or of one enum variant, and
+/// say whether one of them is redacted.
 ///
 /// Redaction fails closed: once one field is `#[sdk(redact)]`, every other
 /// field says `redact` or `shown`, so a new field never prints a secret by
-/// default. `item` is the record or enum, and `derives` holds the derives
-/// that a redacted field rules out.
+/// default. `item` is the record or enum.
 pub(crate) fn fields(
     fields: &mut Fields,
     item: &Ident,
     owner: &str,
-    derives: Derives,
-) -> syn::Result<()> {
-    let mut redacted = None;
+    uniffi_error: bool,
+) -> syn::Result<bool> {
+    let mut redacted = false;
     let mut shown = None;
     let mut unmarked = Vec::new();
     for field in fields.iter_mut() {
@@ -370,7 +497,7 @@ pub(crate) fn fields(
                     Redact::Key(key) => format!("{REDACT}={key}"),
                 };
                 push_marker(&mut field.attrs, &marker);
-                redacted.get_or_insert(name);
+                redacted = true;
             }
             (None, Some(span)) => {
                 shown.get_or_insert(span);
@@ -378,28 +505,20 @@ pub(crate) fn fields(
             (None, None) => unmarked.push(name),
         }
     }
-    let Some(redacted) = redacted else {
+    if !redacted {
         return match shown {
             Some(span) => Err(syn::Error::new(
                 span,
                 "#[sdk(shown)] applies beside a #[sdk(redact)] field",
             )),
-            None => Ok(()),
+            None => Ok(false),
         };
-    };
-    if derives.uniffi_error {
+    }
+    if uniffi_error {
         return Err(syn::Error::new_spanned(
             item,
             format!(
                 "`{item}` derives uniffi::Error, which the Kotlin binding renames to an exception class; #[sdk(redact)] applies to records and plain enums"
-            ),
-        ));
-    }
-    if derives.debug {
-        return Err(syn::Error::new_spanned(
-            item,
-            format!(
-                "`{item}` derives Debug, which prints `{redacted}`; write an `impl Debug` that redacts it. Keep sdk_export the first attribute, above every derive: it cannot see a derive written above it"
             ),
         ));
     }
@@ -410,15 +529,16 @@ pub(crate) fn fields(
                 "`{owner}.{field}` sits beside a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]"
             ),
         )),
-        None => Ok(()),
+        None => Ok(true),
     }
 }
 
-/// Apply the options of the variants of an enum. `#[sdk(kind = "...")]`
-/// names the public string of a variant; an enum marks every variant or none,
-/// and each kind once.
-pub(crate) fn variants(item: &mut ItemEnum) -> syn::Result<()> {
-    let derives = Derives::of(&item.attrs);
+/// Apply the options of the variants of an enum, and say whether a variant
+/// field is redacted. `#[sdk(kind = "...")]` names the public string of a
+/// variant; an enum marks every variant or none, and each kind once.
+pub(crate) fn variants(item: &mut ItemEnum) -> syn::Result<bool> {
+    let uniffi_error = derives_uniffi_error(&item.attrs);
+    let mut redacted = false;
     let mut kinds = HashSet::new();
     let mut unmarked = None;
     for variant in &mut item.variants {
@@ -427,7 +547,7 @@ pub(crate) fn variants(item: &mut ItemEnum) -> syn::Result<()> {
         options.reject_display()?;
         match options.kind {
             Some((span, kind)) => {
-                let marker = format!("@xmtp-kind={kind}");
+                let marker = format!("{KIND}={kind}");
                 if !kinds.insert(kind) {
                     return Err(syn::Error::new(span, "kind is repeated in this enum"));
                 }
@@ -438,7 +558,7 @@ pub(crate) fn variants(item: &mut ItemEnum) -> syn::Result<()> {
             }
         }
         let owner = format!("{}::{}", item.ident, variant.ident);
-        fields(&mut variant.fields, &item.ident, &owner, derives)?;
+        redacted |= fields(&mut variant.fields, &item.ident, &owner, uniffi_error)?;
     }
     match unmarked {
         Some(variant) if !kinds.is_empty() => Err(syn::Error::new_spanned(
@@ -448,6 +568,6 @@ pub(crate) fn variants(item: &mut ItemEnum) -> syn::Result<()> {
                 item.ident
             ),
         )),
-        _ => Ok(()),
+        _ => Ok(redacted),
     }
 }

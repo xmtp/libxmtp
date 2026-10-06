@@ -20,8 +20,8 @@ pub enum NotificationChannel {
     },
 }
 
-impl std::fmt::Debug for NotificationChannel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl NotificationChannel {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Apns { .. } => "Apns",
             Self::Fcm { .. } => "Fcm",

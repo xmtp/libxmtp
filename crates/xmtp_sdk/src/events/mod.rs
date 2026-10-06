@@ -169,8 +169,8 @@ pub struct AttachmentFailed {
     pub cause: String,
 }
 
-impl std::fmt::Debug for AttachmentRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl AttachmentRef {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentRef")
             .field("attachment_key", &self.attachment_key)
             .field("url", &"<redacted>")
@@ -179,8 +179,8 @@ impl std::fmt::Debug for AttachmentRef {
     }
 }
 
-impl std::fmt::Debug for AttachmentFailed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl AttachmentFailed {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentFailed")
             .field("attachment_key", &self.attachment_key)
             .field("url", &"<redacted>")

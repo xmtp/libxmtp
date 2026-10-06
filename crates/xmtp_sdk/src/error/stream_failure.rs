@@ -67,8 +67,8 @@ pub struct StreamBarrierTopic {
 }
 
 // Keep complete identifiers in structured data, outside diagnostic text.
-impl std::fmt::Debug for StreamBarrierTopic {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl StreamBarrierTopic {
+    fn redacted_debug(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("StreamBarrierTopic")
             .field("topic", &"<redacted>")

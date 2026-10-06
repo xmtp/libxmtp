@@ -56,15 +56,18 @@ mod timeout_macro_test;
 ///   `#[sdk(redact = "key")]` hides one key of a string map field; the key
 ///   holds ASCII letters, digits, `_`, `.`, and `-`. Redaction fails closed:
 ///   every other field of that record or variant takes `#[sdk(redact)]` or
-///   `#[sdk(shown)]`, and the item writes its own `impl Debug` instead of
-///   deriving one. The macro rejects a derived `Debug` only when it sees the
-///   derive, so `sdk_export` stays the first attribute. A `uniffi::Error`
-///   type cannot redact a field: the Kotlin binding renames it.
+///   `#[sdk(shown)]`, and the macro implements `Debug` for the type by
+///   calling its `fn redacted_debug(&self, f: &mut Formatter<'_>) ->
+///   fmt::Result`, which the type writes. A derived `Debug` then conflicts
+///   with it, wherever the derive sits. A `uniffi::Error` type cannot redact
+///   a field: the Kotlin binding renames it.
 ///
 /// `pure` and each member option but `shown` become a `#[doc = "@xmtp-..."]`
-/// line that UniFFI carries into the library metadata. The generator reads it
-/// and strips it from generated documentation; see
-/// `apps/xmtp_sdk_bindgen/README.md`. When rustc reports "cannot find
+/// line that UniFFI carries into the library metadata, and a type with a
+/// redacted field gets `@xmtp-redacted`. The generator reads them and strips
+/// them from generated documentation; see `apps/xmtp_sdk_bindgen/README.md`.
+/// The macro rejects these markers in a doc comment, where they would skip
+/// its checks. When rustc reports "cannot find
 /// attribute `sdk` in this scope", the item lacks `#[xmtp_macro::sdk_export]`
 /// as its first attribute.
 /// The caller must depend on `uniffi` and `tracing`.
@@ -91,6 +94,12 @@ mod timeout_macro_test;
 ///     pub name: Option<String>,
 ///     #[sdk(redact)]
 ///     pub value: String,
+/// }
+///
+/// impl Credential {
+///     fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+///         f.debug_struct("Credential").field("name", &self.name).finish_non_exhaustive()
+///     }
 /// }
 /// ```
 #[proc_macro_attribute]

@@ -89,6 +89,7 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
     let options = parse_options(attr)?;
     let cfg = options.target.map(Target::cfg);
     let mut item: Item = syn::parse2(input)?;
+    sdk_member::reject_written_markers(&item)?;
     if options.pure {
         match &mut item {
             Item::Fn(function) if function.sig.asyncness.is_none() => {
@@ -138,19 +139,43 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
             }
             has_async
         }
-        // The UniFFI derive exports a record or enum; this macro only adds
-        // the markers and the target's cfg.
+        // The UniFFI derive exports a record or enum; this macro adds the
+        // markers, the target's cfg, and the Debug of a redacted type.
         Item::Struct(item_struct) => {
             require_uniffi_derive(&item_struct.attrs, &item_struct.ident)?;
-            let derives = sdk_member::Derives::of(&item_struct.attrs);
+            let uniffi_error = sdk_member::derives_uniffi_error(&item_struct.attrs);
             let owner = item_struct.ident.to_string();
-            sdk_member::fields(&mut item_struct.fields, &item_struct.ident, &owner, derives)?;
-            return Ok(quote!(#cfg #item_struct));
+            let redacted = sdk_member::fields(
+                &mut item_struct.fields,
+                &item_struct.ident,
+                &owner,
+                uniffi_error,
+            )?;
+            let debug = if redacted {
+                let debug = sdk_member::redacted_debug(
+                    &mut item_struct.attrs,
+                    &item_struct.ident,
+                    &item_struct.generics,
+                )?;
+                Some(quote!(#cfg #debug))
+            } else {
+                None
+            };
+            return Ok(quote!(#cfg #item_struct #debug));
         }
         Item::Enum(item_enum) => {
             require_uniffi_derive(&item_enum.attrs, &item_enum.ident)?;
-            sdk_member::variants(item_enum)?;
-            return Ok(quote!(#cfg #item_enum));
+            let debug = if sdk_member::variants(item_enum)? {
+                let debug = sdk_member::redacted_debug(
+                    &mut item_enum.attrs,
+                    &item_enum.ident,
+                    &item_enum.generics,
+                )?;
+                Some(quote!(#cfg #debug))
+            } else {
+                None
+            };
+            return Ok(quote!(#cfg #item_enum #debug));
         }
         _ => {
             return Err(syn::Error::new_spanned(

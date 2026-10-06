@@ -14,8 +14,8 @@ pub struct Credential {
     pub expires_at_seconds: i64,
 }
 
-impl std::fmt::Debug for Credential {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Credential {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Credential")
             .field("name", &self.name)
             .field("value", &"[redacted]")

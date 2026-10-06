@@ -24,9 +24,13 @@ pub(crate) const INTERNAL: &str = "@xmtp-internal";
 /// A field that diagnostic text hides: `@xmtp-redact`, or
 /// `@xmtp-redact=secret` for one key of a string map.
 pub(crate) const REDACT: &str = "@xmtp-redact";
+/// A record or enum whose redacted fields the macro checked. The macro
+/// rejects both redaction markers in a doc comment, so `@xmtp-redact` counts
+/// only beside this one.
+pub(crate) const REDACTED: &str = "@xmtp-redacted";
 
 /// Every marker the generator reads.
-const VOCABULARY: &[&str] = &[IMMUTABLE, INTERNAL, KIND, PURE, REDACT, WORKER];
+const VOCABULARY: &[&str] = &[IMMUTABLE, INTERNAL, KIND, PURE, REDACT, REDACTED, WORKER];
 
 const PREFIX: &str = "@xmtp-";
 
@@ -159,7 +163,9 @@ fn check_doc(owner: &str, doc: &str) -> Result<()> {
 /// A marker value reaches generated string literals, and a doc comment can
 /// spell out a marker without the macro's checks, so the generator checks
 /// the value again. A kind is what `#[sdk(kind = "...")]` admits: lowercase
-/// letters, digits, `_`, and `.`. The other markers take no value.
+/// letters, digits, `_`, and `.`. A redacted map key is what
+/// `#[sdk(redact = "...")]` admits: ASCII letters, digits, `_`, `.`, and `-`.
+/// The other markers take no value.
 fn check_value(owner: &str, name: &str, value: Option<&str>) -> Result<()> {
     match (name, value) {
         (KIND, Some(kind))
@@ -173,8 +179,58 @@ fn check_value(owner: &str, name: &str, value: Option<&str>) -> Result<()> {
             "{owner}: {KIND} needs a kind of lowercase letters, digits, `_`, and `.`, such as \
              {KIND}=conversation.joined"
         ),
+        (REDACT, Some(key))
+            if key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')) =>
+        {
+            Ok(())
+        }
+        (REDACT, Some(_)) => {
+            bail!("{owner}: a {REDACT} map key holds ASCII letters, digits, `_`, `.`, and `-`")
+        }
         (_, Some(_)) => bail!("{owner}: {name} takes no value"),
         (_, None) => Ok(()),
+    }
+}
+
+/// A redacted field relies on the macro's checks: its siblings say whether
+/// they print, and the type's `Debug` hides it too. Only a type that went
+/// through `sdk_export` carries `@xmtp-redacted`.
+fn check_redaction(item: &Metadata) -> Result<()> {
+    // Each field with the name an error reports.
+    let (doc, fields): (_, Vec<(String, &FieldMetadata)>) = match item {
+        Metadata::Record(record) => (
+            record.docstring.as_deref(),
+            record
+                .fields
+                .iter()
+                .map(|field| (record.name.clone(), field))
+                .collect(),
+        ),
+        Metadata::Enum(value) => (
+            value.docstring.as_deref(),
+            value
+                .variants
+                .iter()
+                .flat_map(|variant| {
+                    let owner = format!("{}.{}", value.name, variant.name);
+                    variant
+                        .fields
+                        .iter()
+                        .map(move |field| (owner.clone(), field))
+                })
+                .collect(),
+        ),
+        _ => return Ok(()),
+    };
+    match fields.iter().find(|(_, field)| redaction(field).is_some()) {
+        Some((owner, field)) if !has(doc, REDACTED) => bail!(
+            "{owner}.{}: {REDACT} without {REDACTED}; mark the field #[sdk(redact)] under \
+             #[xmtp_macro::sdk_export]",
+            field.name
+        ),
+        _ => Ok(()),
     }
 }
 
@@ -189,6 +245,9 @@ pub(crate) fn validate(groups: &MetadataGroupMap) -> Result<()> {
             std::iter::once(namespace).chain(group.items.iter().flat_map(docstrings))
         {
             check_doc(&owner, doc.unwrap_or_default())?;
+        }
+        for item in &group.items {
+            check_redaction(item)?;
         }
     }
     Ok(())
@@ -363,7 +422,8 @@ mod tests {
             "{error}"
         );
         assert!(error.contains(
-            "@xmtp-immutable, @xmtp-internal, @xmtp-kind, @xmtp-pure, @xmtp-redact, @xmtp-worker"
+            "@xmtp-immutable, @xmtp-internal, @xmtp-kind, @xmtp-pure, @xmtp-redact, \
+             @xmtp-redacted, @xmtp-worker"
         ));
 
         // A marker with punctuation attached is not a marker; it must not
@@ -400,6 +460,18 @@ mod tests {
             "Client.id: @xmtp-immutable takes no value"
         );
         check_doc("EventKind.HmacKeysUpdated", "@xmtp-kind=hmac_keys.updated2")?;
+        check_doc("EncodedContent.parameters", "@xmtp-redact=x-Secret.v1_2")?;
+        for key in ["a\"b", "a'b", "${x}", "a\\b"] {
+            let error = check_doc("EncodedContent.parameters", &format!("@xmtp-redact={key}"))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("map key holds ASCII letters"),
+                "{key}: {error}"
+            );
+        }
+        let error = check_doc("Session", "@xmtp-redacted=1").unwrap_err();
+        assert_eq!(error.to_string(), "Session: @xmtp-redacted takes no value");
         // A package path is prose, whatever follows it.
         for doc in ["(@xmtp-org/pkg).", "@xmtp-org2/pkg-name,", "see:@xmtp-a/b"] {
             check_doc("Options.key", doc)?;
@@ -428,6 +500,44 @@ mod tests {
         assert_eq!(redact(Some("@xmtp-redacted")), None);
         assert_eq!(redact(Some("Plain.")), None);
         assert_eq!(redact(None), None);
+    }
+
+    // The macro checks a redacted field's siblings and implements the type's
+    // Debug, and it stamps the type. A redaction marker written by hand on an
+    // unstamped type skipped those checks, so generation stops.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn redaction_counts_only_on_a_type_the_macro_stamped() {
+        let secret = || field("token", Type::String, Some("@xmtp-redact"));
+        let items = || {
+            vec![
+                record(
+                    "Session",
+                    vec![field("label", Type::String, None), secret()],
+                ),
+                enumeration("Channel", vec![variant("Apns", None, vec![secret()])]),
+            ]
+        };
+        let mut stamped = items();
+        for item in &mut stamped {
+            match item {
+                Metadata::Record(record) => {
+                    record.docstring = Some("A session.\n@xmtp-redacted".into())
+                }
+                Metadata::Enum(value) => value.docstring = Some("@xmtp-redacted".into()),
+                _ => unreachable!(),
+            }
+        }
+        validate(&groups(stamped))?;
+        for (item, owner) in items().into_iter().zip(["Session", "Channel.Apns"]) {
+            let error = validate(&groups(vec![item])).unwrap_err().to_string();
+            assert_eq!(
+                error,
+                format!(
+                    "{owner}.token: @xmtp-redact without @xmtp-redacted; mark the field \
+                     #[sdk(redact)] under #[xmtp_macro::sdk_export]"
+                )
+            );
+        }
     }
 
     // UniFFI writes each docstring line as ` * line` in a `/** */` block. A

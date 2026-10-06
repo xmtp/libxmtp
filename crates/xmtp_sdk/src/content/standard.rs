@@ -14,8 +14,8 @@ pub struct EncodedContent {
     pub content: Vec<u8>,
 }
 
-impl std::fmt::Debug for EncodedContent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl EncodedContent {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut parameters = self.parameters.clone();
         if let Some(secret) = parameters.get_mut("secret") {
             *secret = "<redacted>".into();
