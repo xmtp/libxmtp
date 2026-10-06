@@ -331,6 +331,8 @@ fn parameters(inputs: &[FnParamMetadata]) -> String {
     parameters_with(inputs, &optional_parameters(inputs))
 }
 
+/// `defaults` holds the camel-case names that `optional_parameters`
+/// returns; a reserved word gains its `_` only in the declared name.
 fn parameters_with(
     inputs: &[FnParamMetadata],
     defaults: &std::collections::BTreeSet<String>,
@@ -339,9 +341,10 @@ fn parameters_with(
         .iter()
         .map(|p| {
             let name = identifier(&p.name);
-            let optional = if defaults.contains(&name) { "?" } else { "" };
+            let defaulted = defaults.contains(&camel(&p.name));
+            let optional = if defaulted { "?" } else { "" };
             let ty = match &p.ty {
-                Type::Optional { inner_type } if defaults.contains(&name) => inner_type,
+                Type::Optional { inner_type } if defaulted => inner_type,
                 ty => ty,
             };
             format!("{name}{optional}: {}", public_type(ty))

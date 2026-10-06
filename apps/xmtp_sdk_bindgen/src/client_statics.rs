@@ -677,6 +677,25 @@ mod tests {
             code.contains("static inboxStates(ids: string, nonce?: bigint): Promise<boolean> {\nreturn inboxStates(ids, nonce);\n}"),
             "{code}"
         );
+        // A reserved word keeps its default under its TypeScript name.
+        let items = [marked(
+            "inbox_states",
+            vec![
+                input("ids", Type::String),
+                defaulted(
+                    "default",
+                    Type::Optional {
+                        inner_type: Box::new(Type::UInt64),
+                    },
+                ),
+            ],
+        )];
+        let refs = items.iter().collect::<Vec<_>>();
+        let code = crate::public_projection::client_members_for_test(&refs)?;
+        assert!(
+            code.contains("static inboxStates(ids: string, default_?: bigint): Promise<boolean> {\nreturn inboxStates(ids, default_);\n}"),
+            "{code}"
+        );
     }
 
     // The public Client inherits the statics of the generated ClientMembers.
