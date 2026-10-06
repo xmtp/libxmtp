@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 import XCTest
 
-/// The `within(seconds:)` and `firstResult(of:_:)` test helpers in
+/// The `within(seconds:)`, `firstResult(of:_:)` and `eventually(seconds:_:)` test helpers in
 /// `LiveBackend.swift`. They need no backend.
 final class TimeoutHelperTests: XCTestCase {
 	/// An operation that ignores cancellation does not hold the helper past its
@@ -92,6 +92,27 @@ final class TimeoutHelperTests: XCTestCase {
 		XCTAssertTrue(ended, "The cancelled helper did not return")
 		XCTAssertThrowsError(try outcome.value?.get()) { XCTAssertTrue($0 is CancellationError, "\($0)") }
 		XCTAssertFalse(started.value, "A cancelled caller started the operation")
+	}
+}
+
+extension TimeoutHelperTests {
+	/// A cancelled caller stops polling at once instead of at the deadline.
+	func testEventuallyStopsWhenTheCallerIsCancelled() async {
+		let polled = Shared(false)
+		let caller = Task {
+			await eventually(seconds: 30) {
+				polled.update { $0 = true }
+				return false
+			}
+		}
+		let running = await eventually(seconds: 2) { polled.value }
+		XCTAssertTrue(running, "The helper did not poll")
+		let start = Date()
+		caller.cancel()
+		let result = await caller.value
+		let elapsed = Date().timeIntervalSince(start)
+		XCTAssertFalse(result)
+		XCTAssertLessThan(elapsed, 2, "The cancelled helper polled for \(elapsed) seconds")
 	}
 }
 

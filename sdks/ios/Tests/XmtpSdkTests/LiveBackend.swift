@@ -74,10 +74,11 @@ func pause(seconds: Double) async throws {
 	try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
 }
 
-/// Polls `condition` until it is true or `seconds` pass. Returns the last result.
+/// Polls `condition` until it is true, `seconds` pass, or the caller is
+/// cancelled. Returns the last result.
 func eventually(seconds: Double, _ condition: () async throws -> Bool) async rethrows -> Bool {
 	let deadline = Date().addingTimeInterval(seconds)
-	while Date() < deadline {
+	while Date() < deadline, !Task.isCancelled {
 		if try await condition() {
 			return true
 		}
