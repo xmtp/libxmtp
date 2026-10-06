@@ -137,8 +137,9 @@ impl Events {
 /// The records and enums that `ClientEvent` payloads and `EventFilter`
 /// reach. A record that another call also reaches would need both field
 /// spellings, so generation stops: give the event its own record. So does a
-/// shared enum whose snake_case and camelCase values differ. A shared enum
-/// with one-word values, such as `ConnectionState`, spells them the same.
+/// shared enum with an unmarked value that snake_case and camelCase spell
+/// differently. One-word values, as in `ConnectionState`, and
+/// `#[sdk(kind = "...")]` values read the same either way.
 fn event_types(items: &[&Metadata]) -> Result<(BTreeSet<String>, BTreeSet<String>)> {
     let mut events = BTreeSet::new();
     let mut other = BTreeSet::new();
@@ -379,8 +380,8 @@ mod tests {
     }
 
     // A record that an event and another call both reach would need two
-    // spellings of its fields. Calls that take the filter or return the event
-    // enum are the event API itself.
+    // spellings of its fields. The filter and the event enum are the event API
+    // itself, so the walk from another call stops at them.
     #[xmtp_common::test(unwrap_try = true)]
     fn event_record_shared_with_another_call_stops_generation() {
         let call = |inputs: Vec<Type>, output: Type| {
@@ -427,7 +428,7 @@ mod tests {
         );
 
         // An enum keeps one set of values. Shared one-word values read the
-        // same either way, and so do marked ones.
+        // same either way, and so do the values of a marked enum.
         let state = |variants: Vec<VariantMetadata>| {
             vec![
                 enumeration(
@@ -442,12 +443,20 @@ mod tests {
                 call(vec![], enum_type("State")),
             ]
         };
-        let items = state(vec![
-            variant("Connected", None, vec![]),
-            variant("NotConnected", Some("@xmtp-kind=offline"), vec![]),
-        ]);
-        let (_, enums) = event_types(&items.iter().collect::<Vec<_>>())?;
-        assert_eq!(enums, BTreeSet::from(["State".to_owned()]));
+        for variants in [
+            vec![
+                variant("Connected", None, vec![]),
+                variant("Closed", None, vec![]),
+            ],
+            vec![
+                variant("Connected", Some("@xmtp-kind=connected"), vec![]),
+                variant("NotConnected", Some("@xmtp-kind=offline"), vec![]),
+            ],
+        ] {
+            let items = state(variants);
+            let (_, enums) = event_types(&items.iter().collect::<Vec<_>>())?;
+            assert_eq!(enums, BTreeSet::from(["State".to_owned()]));
+        }
         let items = state(vec![
             variant("Connected", None, vec![]),
             variant("NotConnected", None, vec![]),

@@ -154,7 +154,7 @@ fn documents(attrs: &[Attribute], marker: &str) -> bool {
 /// A synchronous `&self` method without arguments that returns a value. The
 /// SDKs expose it as a readonly property, and the browser bridge reads it
 /// once, from a snapshot taken when the handle is made. `self: Arc<Self>`
-/// reads the same way; a `mut` or by-value receiver is no getter.
+/// reads the same way; `&mut self` and `self` make no getter.
 fn is_sync_getter(signature: &Signature) -> bool {
     let returns_value = match &signature.output {
         ReturnType::Default => false,
@@ -169,7 +169,7 @@ fn is_sync_getter(signature: &Signature) -> bool {
         && returns_value
 }
 
-/// `&self`, `self: &Self`, or `self: Arc<Self>`.
+/// A shared reference or an `Arc`: UniFFI takes `&self` and `self: Arc<Self>`.
 fn reads_only(receiver: &Receiver) -> bool {
     match receiver.ty.as_ref() {
         Type::Reference(reference) => reference.mutability.is_none(),

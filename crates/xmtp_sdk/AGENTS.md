@@ -131,7 +131,8 @@ metadata markers, so a routine export needs no generator edit:
 - A new event takes an `EventKind` variant with
   `#[sdk(kind = "namespace.name")]` and a `ClientEvent` variant of the same
   name. Its payload records keep their Rust field names, and its enums use
-  snake_case values, in TypeScript.
+  snake_case values, in TypeScript. Generation stops when another call
+  shares such a record, or such an enum with a multi-word value.
 - A `MessageData` field, a `*_with_backend` `Client` static, or a new identity
   route still needs the hand edits that the generator README lists.
 

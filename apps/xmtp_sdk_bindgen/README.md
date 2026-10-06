@@ -60,7 +60,10 @@ Derived without a marker:
   events spec writes them. A record that another call also reaches stops
   generation: give the event its own record.
 - Enums that the same payloads reach use snake_case values, as the events
-  spec writes them (`deleted_locally`). Other enums use camelCase values.
+  spec writes them (`deleted_locally`). Other enums use camelCase values. An
+  enum that another call also reaches stops generation when a value without
+  a kind marker reads differently in the two spellings: give the event its
+  own enum. One-word values, as in `ConnectionState`, read the same.
 - Swift cancellation cleanup: when the caller of an async `Client`
   constructor is cancelled, the future discards the ready `Client` it never
   returned. `src/swift_async.rs` names the two conformance probe calls that
