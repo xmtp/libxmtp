@@ -16,6 +16,7 @@ import {
   lowerPublicIdentity,
   lowerSigner,
   publicError,
+  XmtpError,
   type BackendSource,
   type ClientEvent,
   type ClientOptions as ProjectedClientOptions,
@@ -329,9 +330,14 @@ export class Client extends ClientMembers {
     return rethrow(() => host.stopListener(id));
   }
 
-  /** End the client. Messages from it then fail with `ClientClosed`. */
+  /**
+   * End the client. Messages from it then fail with `ClientClosed`. Ending a
+   * closed client does nothing, also after its browser worker stopped.
+   */
   end(): Promise<void> {
     const host = hostOf(this);
-    return rethrow(() => host.end());
+    return rethrow(() => host.end()).catch((error: unknown) => {
+      if (!(error instanceof XmtpError.ClientClosed)) throw error;
+    });
   }
 }

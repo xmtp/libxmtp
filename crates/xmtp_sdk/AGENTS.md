@@ -30,17 +30,18 @@ Run commands from the repository root in the Nix shell. Run
   in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
 - `dev/nix-shell 'just sdk conformance <swift|kotlin|node>'` runs scenarios against this
-  worktree's backend. `dev/nix-shell 'just sdk conformance browser'` runs scenarios 1-11
-  plus a real WASM trap from a test-only panic fixture in Vitest Playwright
-  Chromium, then checks real OPFS and worker behavior. Its recipe builds the
+  worktree's backend. `dev/nix-shell 'just sdk conformance browser'` runs Chromium
+  proofs in Vitest Playwright: a real WASM trap from a test-only panic fixture,
+  storage layouts, attachment and event lifetime, and decode-once. It then
+  checks real OPFS and worker behavior. The public browser scenarios are in
+  `sdks/browser/test`. Its recipe builds the
   pure codec and panic fixtures in the Rust shell before the JS shell.
   Kotlin JVM conformance uses small Android platform stand-ins for the storage
   helper and cleaner. It selects the JNA cleaner branch. Installed Android tests
   use the platform classes.
   Scenario 7 checks readers and streams. Scenario 8 checks events and listeners.
-  The browser run also checks storage layouts and attachments, with failure
-  records in the conformance-featured panic fixture. Worker death uses the
-  generated public package and its shared worker manager.
+  The browser attachment worker-death proof uses the generated public package
+  and its shared worker manager.
   All host runs start `conformance/ts/object-store.mjs` for their
   download fixtures. The default ephemeral fixture port keeps `SDK_FIXTURE_URL`
   separate from native S3 on port 9067. Swift CI uses
@@ -51,6 +52,18 @@ Run commands from the repository root in the Nix shell. Run
   replace only the upload URL in a real backend response. Native clients use
   the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
   preserve gRPC status trailers.
+- `dev/nix-shell 'just sdk bench <node|browser|swift|kotlin> [--samples N]'` measures
+  the staged package on one host against this worktree's backend and writes
+  `results.json` (p50 and p95, no pass or fail). Stage the package first. For
+  browser, swift and kotlin, set `NIX_DEVSHELL=js`, `ios` or `android` inside
+  the command, for example `dev/nix-shell 'NIX_DEVSHELL=js just sdk bench browser'`.
+  See `benchmarks/README.md`. CI does not run it.
+  The run accepts only a loopback `XMTP_BACKEND_URL` (`localhost`, `127.0.0.1`,
+  `::1`). Each run publishes messages that the backend keeps. For another host,
+  pass `--allow-remote-backend`; the run then prints a warning and takes at
+  most 3 samples per workload.
+- `dev/nix-shell 'just sdk bench-check'` runs the benchmark unit tests and static runner
+  checks. It needs no backend, device or SDK build.
 - `dev/nix-shell 'just sdk conformance-bridge'` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
   It also checks the public log setter, the real Rust queue, and final managed

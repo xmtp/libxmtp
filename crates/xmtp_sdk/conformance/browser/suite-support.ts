@@ -9,10 +9,7 @@ import {
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
 import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
-import {
-  Backend,
-  Client as ProxyClient,
-} from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import { Client as ProxyClient } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
 import { wrapClient } from "../../../../target/sdk-generated/typescript-wasm/public-client.gen";
 import {
   currentProjection,
@@ -43,7 +40,7 @@ export function equal(
     throw new Error(`${message}: ${String(actual)} != ${String(expected)}`);
 }
 
-export function connection(hash = CONTRACT_HASH): {
+export function connection(): {
   session: MainSession;
   worker: Worker;
 } {
@@ -66,7 +63,10 @@ export function connection(hash = CONTRACT_HASH): {
       worker.terminate();
     },
   };
-  return { worker, session: new MainSession(endpoint, PROTOCOL_VERSION, hash) };
+  return {
+    worker,
+    session: new MainSession(endpoint, PROTOCOL_VERSION, CONTRACT_HASH),
+  };
 }
 
 // The transport tests create clients in their own worker session. The public
@@ -107,13 +107,8 @@ export async function build(
   return { client: publicClient(wrapClient(proxy)), proxy };
 }
 
-export function signer(
-  session?: MainSession,
-  reenter = false,
-  backendURL?: string,
-): sdk.Signer & { didReenter: () => boolean } {
+export function signer(): sdk.Signer {
   const account = privateKeyToAccount(generatePrivateKey());
-  let reentered = false;
   return {
     async identity() {
       return { identifier: account.address.toLowerCase(), kind: "ethereum" };
@@ -122,26 +117,9 @@ export function signer(
       return { kind: "eoa" };
     },
     async sign(request) {
-      if (reenter) {
-        if (!backendURL || !session)
-          throw new Error("missing backend or session for reentry");
-        const backend = await Backend.connect(session, {
-          url: backendURL,
-          appVersion: undefined,
-          credentials: undefined,
-          credential: undefined,
-        });
-        equal(
-          backend.handle.type,
-          "Backend",
-          "signer callback could not call the SDK worker",
-        );
-        reentered = true;
-      }
       const signed = await account.signMessage({ message: request.text });
       return { kind: "ecdsa", value: Uint8Array.from(toBytes(signed)) };
     },
-    didReenter: () => reentered,
   };
 }
 
@@ -161,52 +139,4 @@ export function options(
     allowOffline: false,
     registration: { auto },
   };
-}
-
-export async function checkError(
-  action: () => Promise<unknown>,
-  test: (error: Error) => boolean,
-  message: string,
-): Promise<void> {
-  try {
-    await action();
-  } catch (error) {
-    if (error instanceof Error && test(error)) return;
-    throw error;
-  }
-  throw new Error(message);
-}
-
-/** A public error of this code, with plain details. */
-export function isPublicError(
-  error: unknown,
-  type: abstract new (...args: never[]) => sdk.XmtpError,
-  category: string,
-): boolean {
-  return (
-    error instanceof type &&
-    error.details.category === category &&
-    !("tag" in error) &&
-    !("inner" in error)
-  );
-}
-
-export async function checkRejectedPromise(
-  action: () => Promise<unknown>,
-  label: string,
-): Promise<void> {
-  let result: Promise<unknown>;
-  try {
-    result = action();
-  } catch (error) {
-    throw new Error(`${label} threw synchronously`, { cause: error });
-  }
-  expect(result instanceof Promise, `${label} did not return a promise`);
-  await checkError(
-    () => result,
-    (error) =>
-      isPublicError(error, sdk.XmtpError.ClientClosed, "lifecycle") &&
-      (error as sdk.XmtpError).details.code === "ClientClosed",
-    `${label} did not reject with ClientClosed`,
-  );
 }

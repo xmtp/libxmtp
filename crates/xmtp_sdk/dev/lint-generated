@@ -43,6 +43,5 @@ node crates/xmtp_sdk/dev/check-bridge-casts.mjs
 node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-pure/"*.gen.ts "$generated/typescript-pure/index.ts"
 sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions "$generated/typescript-pure/index.ts"
 node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --allowImportingTsExtensions \
-  crates/xmtp_sdk/conformance/browser/suite.chromium.ts crates/xmtp_sdk/conformance/browser/suite.worker.ts \
-  crates/xmtp_sdk/conformance/browser/attachments.chromium.ts crates/xmtp_sdk/conformance/browser/attachment-lifetime.chromium.ts \
+  crates/xmtp_sdk/conformance/browser/suite.worker.ts crates/xmtp_sdk/conformance/browser/attachment-lifetime.chromium.ts \
   crates/xmtp_sdk/conformance/browser/storage.layout.chromium.ts

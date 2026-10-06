@@ -30,7 +30,8 @@ jobs:
       - name: Run the minimum SDK smoke
         env:
           NIX_DEVSHELL: android
-          NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
+          NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/android-emulator-startup
+          NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192 -verbose -show-kernel"
         run: dev/nix-shell 'just android test-min-sdk'
       - name: Upload minimum SDK proof
         if: always()
@@ -43,6 +44,8 @@ jobs:
             sdks/android/library/build/outputs/aar/library-release.aar
             sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
             sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
+            ${{ runner.temp }}/android-emulator-startup/
+          include-hidden-files: true
 
   unit-tests:
     name: Unit Tests (Android)
@@ -96,7 +99,8 @@ jobs:
         timeout-minutes: 30
         env:
           NIX_DEVSHELL: android
-          NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
+          NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/android-emulator-startup
+          NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192 -verbose -show-kernel"
         run: dev/nix-shell 'just android test-integration'
       - name: Upload failed Android test reports
         if: failure()
@@ -108,3 +112,5 @@ jobs:
           path: |
             sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
             sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
+            ${{ runner.temp }}/android-emulator-startup/
+          include-hidden-files: true

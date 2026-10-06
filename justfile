@@ -87,6 +87,8 @@ lint-rust:
 # Config linting: TOML, Nix, and shell scripts.
 lint-config: lint-treefmt
     python3.11 dev/tests/test_android_clock.py
+    python3.11 dev/tests/test_android_emulator_start.py
+    python3.11 nix/lib/test-android-emulator-platform.py
 
 lint-toml:
     taplo format --check --diff
