@@ -9,6 +9,7 @@ mod logging_admission;
 mod markers;
 mod native_visibility;
 mod public_projection;
+mod redaction;
 mod swift_async;
 mod swift_events;
 mod swift_records;
@@ -312,6 +313,14 @@ fn generate(
         }
     } else {
         copy_tree(runtime.as_std_path(), out.join("runtime").as_std_path())?;
+        if matches!(language, Language::Swift) {
+            // Swift structs print every field, so a record with a redacted
+            // field gets its description from metadata.
+            fs::write(
+                out.join("runtime/RecordDescriptions.swift"),
+                redaction::swift(&metadata)?,
+            )?;
+        }
         if matches!(language, Language::Kotlin) {
             let android = runtime
                 .parent()

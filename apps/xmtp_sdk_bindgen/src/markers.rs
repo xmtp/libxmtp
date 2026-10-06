@@ -9,7 +9,7 @@
 use std::{borrow::Cow, ops::Range};
 
 use anyhow::{Result, bail};
-use uniffi_meta::{Metadata, MetadataGroupMap};
+use uniffi_meta::{FieldMetadata, Metadata, MetadataGroupMap};
 
 /// A synchronous getter whose value never changes for the object's lifetime.
 pub(crate) const IMMUTABLE: &str = "@xmtp-immutable";
@@ -59,6 +59,25 @@ pub(crate) fn has(doc: Option<&str>, name: &str) -> bool {
 /// The value of a `marker=value` entry.
 pub(crate) fn value<'a>(doc: Option<&'a str>, name: &str) -> Option<&'a str> {
     markers(doc?).find_map(|(found, value)| (found == name).then_some(value)?)
+}
+
+/// What a redacted field hides.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Redaction {
+    /// The whole value.
+    Whole,
+    /// One key of a string map.
+    Key(String),
+}
+
+/// The field's `#[sdk(redact)]`, if any.
+pub(crate) fn redaction(field: &FieldMetadata) -> Option<Redaction> {
+    markers(field.docstring.as_deref()?)
+        .find(|(name, _)| *name == REDACT)
+        .map(|(_, key)| match key {
+            Some(key) => Redaction::Key(key.to_owned()),
+            None => Redaction::Whole,
+        })
 }
 
 /// Every docstring of an item, with the name an error should report.
@@ -396,6 +415,19 @@ mod tests {
         )]);
         let error = validate(&variant_field).unwrap_err().to_string();
         assert!(error.starts_with("Channel.Apns.token: unknown metadata marker @xmtp-secret"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn redaction_distinguishes_a_whole_field_from_a_map_key() {
+        let redact = |doc: Option<&str>| redaction(&field("value", Type::String, doc));
+        assert_eq!(redact(Some("@xmtp-redact")), Some(Redaction::Whole));
+        assert_eq!(
+            redact(Some("Parameters.\n@xmtp-redact=secret")),
+            Some(Redaction::Key("secret".into()))
+        );
+        assert_eq!(redact(Some("@xmtp-redacted")), None);
+        assert_eq!(redact(Some("Plain.")), None);
+        assert_eq!(redact(None), None);
     }
 
     // UniFFI writes each docstring line as ` * line` in a `/** */` block. A
