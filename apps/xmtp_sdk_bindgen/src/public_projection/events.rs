@@ -136,7 +136,9 @@ impl Events {
 
 /// The records and enums that `ClientEvent` payloads and `EventFilter`
 /// reach. A record that another call also reaches would need both field
-/// spellings, so generation stops: give the event its own record.
+/// spellings, so generation stops: give the event its own record. So does a
+/// shared enum whose snake_case and camelCase values differ. A shared enum
+/// with one-word values, such as `ConnectionState`, spells them the same.
 fn event_types(items: &[&Metadata]) -> Result<(BTreeSet<String>, BTreeSet<String>)> {
     let mut events = BTreeSet::new();
     let mut other = BTreeSet::new();
@@ -170,6 +172,22 @@ fn event_types(items: &[&Metadata]) -> Result<(BTreeSet<String>, BTreeSet<String
             "{shared}: an event payload and another call share this record, and they spell \
              its TypeScript fields differently; give the event its own record"
         );
+    }
+    for shared in enums.intersection(&other) {
+        let variants = items.iter().flat_map(|item| match item {
+            Metadata::Enum(value) if &value.name == shared => value.variants.as_slice(),
+            _ => &[],
+        });
+        for variant in variants {
+            let marked = markers::value(variant.docstring.as_deref(), markers::KIND).is_some();
+            if !marked && variant.name.to_snake_case() != camel(&variant.name) {
+                bail!(
+                    "{shared}.{}: an event payload and another call share this enum, and they \
+                     spell this TypeScript value differently; give the event its own enum",
+                    variant.name
+                );
+            }
+        }
     }
     Ok((records, enums))
 }
@@ -406,6 +424,40 @@ mod tests {
             error
                 .to_string()
                 .starts_with("GroupRef: an event payload and another call share")
+        );
+
+        // An enum keeps one set of values. Shared one-word values read the
+        // same either way, and so do marked ones.
+        let state = |variants: Vec<VariantMetadata>| {
+            vec![
+                enumeration(
+                    "ClientEvent",
+                    vec![variant(
+                        "StateChanged",
+                        None,
+                        vec![field("state", enum_type("State"), None)],
+                    )],
+                ),
+                enumeration("State", variants),
+                call(vec![], enum_type("State")),
+            ]
+        };
+        let items = state(vec![
+            variant("Connected", None, vec![]),
+            variant("NotConnected", Some("@xmtp-kind=offline"), vec![]),
+        ]);
+        let (_, enums) = event_types(&items.iter().collect::<Vec<_>>())?;
+        assert_eq!(enums, BTreeSet::from(["State".to_owned()]));
+        let items = state(vec![
+            variant("Connected", None, vec![]),
+            variant("NotConnected", None, vec![]),
+        ]);
+        let error = event_types(&items.iter().collect::<Vec<_>>()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with("State.NotConnected: an event payload and another call share"),
+            "{error}"
         );
     }
 
