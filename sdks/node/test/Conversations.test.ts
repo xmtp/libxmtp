@@ -58,6 +58,24 @@ describe("Conversations", () => {
     const foundDm = await client1.conversations.getById(dm.id);
     expect(foundDm).toBeDefined();
     expect(foundDm!.id).toBe(dm.id);
+
+    // The generated lowering must carry each camelCase list option into the
+    // Rust filter. Rust tests check the filters, not this conversion.
+    const ids = async (
+      options: Parameters<typeof client1.conversations.list>[0],
+    ) => (await client1.conversations.list(options)).map((c) => c.id);
+    expect(await ids({ kind: "group" })).toEqual([group.id]);
+    expect(await ids({ kind: "dm" })).toEqual([dm.id]);
+    expect(await ids({ createdAfter: group.createdAt })).toEqual([dm.id]);
+    expect(await ids({ createdBefore: dm.createdAt })).toEqual([group.id]);
+    expect(
+      await ids({ createdAfter: group.createdAt, createdBefore: dm.createdAt }),
+    ).toEqual([]);
+    expect(await ids({ limit: 1, orderBy: "createdAt" })).toEqual([dm.id]);
+    await group.sendText("latest activity");
+    expect(await ids({ limit: 1, orderBy: "lastActivity" })).toEqual([
+      group.id,
+    ]);
   });
 
   it("should get a message by ID", async () => {

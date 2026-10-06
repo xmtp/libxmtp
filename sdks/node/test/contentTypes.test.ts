@@ -73,13 +73,37 @@ describe("Content types", () => {
       // wrapper sends it, and the read lifts the deletedMessage variant.
       const deletedId = await group.sendText("delete this message");
       const deleted = await client.conversations.getMessageById(deletedId);
-      expect(typeof (await deleted!.delete())).toBe("string");
-      expect(
-        (await client.conversations.getMessageById(deletedId))?.content,
-      ).toEqual({
+      expect(deleted!.rawBytes).toBeInstanceOf(Uint8Array);
+      expect(deleted!.rawBytes.byteLength).toBeGreaterThan(0);
+      const events = await client.events({
+        kinds: ["message.deleted"],
+        references_own_messages: false,
+      });
+      try {
+        expect(typeof (await deleted!.delete())).toBe("string");
+        // The generated event lift gives the IDs as bytes.
+        const next = await events.next();
+        if (next.done || next.value.kind !== "message.deleted")
+          throw new Error("expected a deletion event");
+        expect(next.value.message_deleted.message_id).toBeInstanceOf(
+          Uint8Array,
+        );
+        expect(Buffer.from(next.value.message_deleted.message_id)).toEqual(
+          Buffer.from(deletedId, "hex"),
+        );
+        expect(Buffer.from(next.value.message_deleted.group_id)).toEqual(
+          Buffer.from(group.id, "hex"),
+        );
+      } finally {
+        await events.return();
+      }
+      const read = await client.conversations.getMessageById(deletedId);
+      expect(read?.content).toEqual({
         kind: "deletedMessage",
         value: { deletedBy: { kind: "sender" } },
       });
+      expect(read?.rawBytes.byteLength).toBe(0);
+      expect(read?.fallback).toBeUndefined();
     } finally {
       await client.end();
     }

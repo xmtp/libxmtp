@@ -128,6 +128,7 @@ describe("server configuration", () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);
     expect(client.serverConfiguration).toEqual(fetched);
+    expect(await client.refreshServerConfiguration()).toEqual(fetched);
     await client.end();
 
     // The binding lifts a failed static fetch to the public error class.

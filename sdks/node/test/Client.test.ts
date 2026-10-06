@@ -10,7 +10,12 @@ import {
   createRegisteredClient,
   createSigner,
 } from "@test/helpers";
-import { Client, XmtpError, generateInboxId } from "@xmtp/node-sdk";
+import {
+  Client,
+  XmtpError,
+  generateInboxId,
+  latestInboxUpdatesCount,
+} from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
 describe("Client", () => {
@@ -69,6 +74,9 @@ describe("Client", () => {
     const { inboxId, installationId } = registered;
     const signature = await registered.signWithInstallationKey("gm");
     const installationKey = registered.installationIdBytes;
+    expect(
+      await registered.verifySignedWithInstallationKey("gm", signature),
+    ).toBe(true);
     await registered.end();
     expect(
       await Client.verifySignedWithPublicKey("gm", signature, installationKey),
@@ -114,6 +122,43 @@ describe("Client", () => {
       // inbox lifts to undefined, not null. (The static lookup above computes
       // the nonce-0 inbox ID instead.)
       expect(await other.inboxIdFor(createSigner().identifier)).toBeUndefined();
+
+      // Generated lifts with no Rust-side check: the inbox state identities,
+      // the boolean and bigint maps, and the optional key package lifetime.
+      expect(state.identities).toEqual([identifier]);
+      expect(state.recoveryIdentity).toEqual(identifier);
+      expect(await other.inboxState(true)).toMatchObject({
+        inboxId,
+        identities: [identifier],
+        recoveryIdentity: identifier,
+        installations: state.installations,
+      });
+      expect(
+        (await other.inboxStates([inboxId], true)).map((s) => s.identities),
+      ).toEqual([[identifier]]);
+      const unknown = createSigner().identifier;
+      expect(
+        Object.fromEntries(
+          await Client.canMessage([identifier, unknown], backend),
+        ),
+      ).toEqual({
+        [`ethereum:${address}`]: true,
+        [`ethereum:${unknown.identifier}`]: false,
+      });
+      const own = await other.ownInboxUpdatesCount(true);
+      expect(typeof own).toBe("bigint");
+      expect(await other.latestInboxUpdatesCount([inboxId], true)).toEqual(
+        new Map([[inboxId, own]]),
+      );
+      expect(await latestInboxUpdatesCount([inboxId], backend)).toEqual(
+        new Map([[inboxId, own]]),
+      );
+      const statuses = await other.keyPackageStatuses([other.installationId]);
+      const lifetime = statuses.get(other.installationId)?.lifetime;
+      expect(lifetime!.notAfter - lifetime!.notBefore).toBe(
+        BigInt(3600 * 24 * 7 * 12 + 3600),
+      );
+      expect(other.libxmtpVersion.length).toBeGreaterThan(0);
     } finally {
       await other.end();
     }
@@ -134,12 +179,17 @@ describe("Client", () => {
     };
     const workers = {
       defaultIntervalNs: 60_000_000_000n,
-      intervals: [{ kind: "deviceSync" as const, intervalNs: 30_000_000_000n }],
+      intervals: [
+        { kind: "deviceSync" as const, intervalNs: 30_000_000_000n },
+        { kind: "taskRunner" as const, enabled: false },
+      ],
     };
-    const client = await createClient(createSigner().signer, {
+    const { signer, identifier } = createSigner();
+    const client = await createClient(signer, {
       storage,
       backend,
       workers,
+      registration: { nonce: 1n },
     });
     try {
       expect(client.options.storage.location).toEqual(storage.location);
@@ -150,6 +200,23 @@ describe("Client", () => {
       expect(client.appVersion).toBe("test/8");
       expect(client.options.backend).toEqual(backend);
       expect(client.options.workers).toEqual(workers);
+      // The selected nonce reaches the inbox ID calculation as a u64.
+      expect(client.inboxId).toBe(generateInboxId(identifier, 1n));
+      // The disabled task runner reaches Rust, and its error lifts to the
+      // public class.
+      const failure = await client
+        .enableNotifications({
+          channel: {
+            kind: "http",
+            url: "https://example.com/xmtp-notification-test",
+            signingKey: new Uint8Array(32).fill(1),
+          },
+        })
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(XmtpError.TaskRunnerDisabled);
+      expect(failure).toMatchObject({
+        details: { code: "TaskRunnerDisabled" },
+      });
     } finally {
       await client.end();
     }

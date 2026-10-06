@@ -1,5 +1,6 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import { describe, expect, it } from "vitest";
+import { type ClientEvent, Timestamp, generateInboxId } from "@xmtp/node-sdk";
+import { describe, expect, it, vi } from "vitest";
 
 describe("Dm", () => {
   it("should create a dm", async () => {
@@ -9,8 +10,15 @@ describe("Dm", () => {
     const client2 = await createRegisteredClient(signer2);
 
     // An account identity routes to the generated `createDmWithIdentity`
-    // call. Other smoke tests create DMs from inbox IDs.
-    const dm = await client1.conversations.createDm(identifier2);
+    // call. Other smoke tests create DMs from inbox IDs. The options go
+    // through the generated `CreateDmOptions` lowering.
+    const disappearing = {
+      from: new Timestamp(1n),
+      retentionNs: 1_000_000_000n,
+    };
+    const dm = await client1.conversations.createDm(identifier2, {
+      disappearing,
+    });
     expect(dm).toBeDefined();
     expect(dm.id).toBeDefined();
     expect(dm.createdAt.ns).toBeDefined();
@@ -55,5 +63,55 @@ describe("Dm", () => {
 
     const dupeDms = await dm.duplicateDms();
     expect(dupeDms.length).toEqual(0);
+
+    // Generated lookups: an inbox ID and an identity find the DM, and a
+    // missing DM lifts to undefined.
+    expect(
+      (await client1.conversations.getDmByInboxId(client2.inboxId))?.id,
+    ).toBe(dm.id);
+    expect((await client1.conversations.getDmByIdentity(identifier2))?.id).toBe(
+      dm.id,
+    );
+    expect(
+      await client1.conversations.getDmByInboxId(
+        generateInboxId(createSigner().identifier),
+      ),
+    ).toBeUndefined();
+
+    // The disappearing settings lift back as a Timestamp and a bigint, and an
+    // expired message reaches the event payload as bytes.
+    const state = await dm.state();
+    expect(state.disappearingSettings).toEqual(disappearing);
+    expect(state.isDisappearingEnabled).toBe(true);
+    expect(state.pausedForVersion).toBeUndefined();
+    const events = await client1.events({
+      kinds: ["message.expired"],
+      references_own_messages: false,
+    });
+    const seen: ClientEvent[] = [];
+    const consumed = (async () => {
+      for await (const event of events) seen.push(event);
+    })();
+    try {
+      const expiringId = await dm.sendText("expires");
+      await vi.waitFor(
+        () => {
+          const [event] = seen;
+          if (event?.kind !== "message.expired")
+            throw new Error("expected an expired event");
+          expect(event.message_expired.message_id).toBeInstanceOf(Uint8Array);
+          expect(Buffer.from(event.message_expired.message_id)).toEqual(
+            Buffer.from(expiringId, "hex"),
+          );
+          expect(Buffer.from(event.message_expired.group_id)).toEqual(
+            Buffer.from(dm.id, "hex"),
+          );
+        },
+        { timeout: 30_000, interval: 500 },
+      );
+    } finally {
+      await events.return();
+      await consumed;
+    }
   });
 });

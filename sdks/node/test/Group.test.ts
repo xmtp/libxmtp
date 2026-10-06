@@ -1,5 +1,5 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import { MessageStream } from "@xmtp/node-sdk";
+import { MessageStream, standardContentType } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
 // Stream delivery completes asynchronously; poll until the expected state
@@ -48,6 +48,55 @@ describe("Group", () => {
     expect(lastMessage2).toBeDefined();
     expect(lastMessage2?.id).toBe(messages2[1].id);
     expect(lastMessage2?.content).toEqual({ kind: "text", value: text });
+
+    // Generated conversions that Rust tests cannot see: the group update
+    // body, the membership state enum, the sync summary, and each
+    // camelCase message list option.
+    expect(messages[0].content).toMatchObject({
+      kind: "groupUpdated",
+      value: {
+        initiatedByInboxId: client1.inboxId,
+        addedInboxes: [client2.inboxId],
+        removedInboxes: [],
+      },
+    });
+    expect((await group.state()).membershipState).toBe("allowed");
+    expect((await group2.state()).membershipState).toBe("pending");
+    expect(await client2.conversations.syncAll(["unknown"])).toEqual({
+      eligible: 1n,
+      synced: 1n,
+    });
+    const [updateId, textId] = messages.map((message) => message.id);
+    const ids = async (options: Parameters<typeof group.messages>[0]) =>
+      (await group.messages(options)).map((message) => message.id);
+    const textType = standardContentType("text");
+    expect(await ids({ contentTypes: [textType] })).toEqual([textId]);
+    expect(await ids({ excludeContentTypes: [textType] })).toEqual([updateId]);
+    expect(await ids({ excludeSenderInboxIds: [client1.inboxId] })).toEqual([]);
+    expect(await ids({ kind: "membershipChange" })).toEqual([updateId]);
+    expect(await ids({ sentAfter: messages[0].sentAt })).toEqual([textId]);
+    expect(await ids({ sentBefore: messages[1].sentAt })).toEqual([updateId]);
+    expect(await group.countMessages({ contentTypes: [textType] })).toBe(1n);
+
+    // Send options: an optimistic send stays unpublished until
+    // publishMessages(), and one idempotency key gives one message.
+    const draftId = await group.sendText("draft", { optimistic: true });
+    expect(await ids({ deliveryStatus: "unpublished" })).toEqual([draftId]);
+    expect(
+      (await client1.conversations.getMessageById(draftId))?.deliveryStatus,
+    ).toBe("unpublished");
+    await group.publishMessages();
+    expect(await ids({ deliveryStatus: "unpublished" })).toEqual([]);
+    expect(
+      (await client1.conversations.getMessageById(draftId))?.deliveryStatus,
+    ).toBe("published");
+    const keyed = await group.sendText("keyed", { idempotencyKey: "key-1" });
+    expect(await group.sendText("keyed", { idempotencyKey: "key-1" })).toBe(
+      keyed,
+    );
+    expect(await group.sendText("keyed", { idempotencyKey: "key-2" })).not.toBe(
+      keyed,
+    );
   });
 
   it("should stream messages", async () => {
