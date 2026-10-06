@@ -129,36 +129,78 @@ func runBenchmark(_ config: HostConfig, _ request: [String: Any], _ root: URL) a
     }
     let state = try load(Saved.self, root.appendingPathComponent(workload == "stream" ? "stream-\(sample).json" : "page.json"))
     let sender = try await benchOpen(config, state.senderAddress, state.senderPath, state.senderInbox)
-    let group = try await benchGroup(sender, state.groupId)
-    let keys = Dictionary(uniqueKeysWithValues: state.ids.enumerated().map { ($0.element, String($0.offset)) })
-    var result: [String: Any]
-    if workload == "page" {
-        let start = now(); let page = try await benchPage(group, 1000, keys)
-        result = ["duration_ms": now() - start, "observed_messages": page]
-    } else {
+    return try await closing(sender) { () async throws -> [String: Any] in
+        let group = try await benchGroup(sender, state.groupId)
+        if workload == "page" {
+            let keys = Dictionary(uniqueKeysWithValues: state.ids.enumerated().map { ($0.element, String($0.offset)) })
+            let start = now(); let page = try await benchPage(group, 1000, keys)
+            return ["duration_ms": now() - start, "observed_messages": page]
+        }
         try require(workload == "stream", "Unknown workload")
         let receiver = try await benchOpen(config, state.receiverAddress, state.receiverPath, state.receiverInbox)
-        let receivedGroup = try await benchGroup(receiver, state.groupId)
-        let stream = try await benchStream(receiver, receivedGroup)
-        // An untimed grace period lets the subscription start.
-        try await Task.sleep(nanoseconds: 1_000_000_000)
-        let start = now(); let publishing = Task { try await benchPublish(group) }
-        var seen = Set<String>(); let expected = Set(state.eventIds)
-        for try await message in stream {
-            if expected.contains(message.id) {
-                try require(seen.insert(message.id).inserted, "Duplicate expected stream event")
-            }
-            if seen.count == expected.count {
-                break
-            }
+        return try await closing(receiver) {
+            try await measureStream(receiver, group, state)
         }
-        try await publishing.value
-        try require(seen == expected, "Stream ended with missing fixture messages")
-        result = ["duration_ms": now() - start, "streamed_events": seen.count]
-        try await benchClose(receiver)
     }
-    try await benchClose(sender)
-    return result
+}
+
+/// Run `body`, then close `client`, also after a failure. Report the first failure.
+func closing<T>(_ client: BenchClient, _ body: () async throws -> T) async throws -> T {
+    let result: Result<T, Error>
+    do { result = try await .success(body()) } catch { result = .failure(error) }
+    do { try await benchClose(client) } catch {
+        if case .success = result {
+            throw error
+        }
+    }
+    return try result.get()
+}
+
+/// One stream sample, like `hosts/workload.mjs`. The reader and the publisher
+/// run in one task group, so a failure in either one cancels the other and the
+/// group waits for both. The timer stops when both finish. The reader task
+/// releases its iterator, which ends the SDK reader once. `onClose` reports
+/// that end, and the sample waits for it before the receiver closes.
+func measureStream(_ receiver: BenchClient, _ group: BenchGroup, _ state: Saved) async throws -> [String: Any] {
+    let receivedGroup = try await benchGroup(receiver, state.groupId)
+    let (ended, endSignal) = AsyncStream<Void>.makeStream()
+    let stream = try await benchStream(receiver, receivedGroup) { endSignal.finish() }
+    let expected = Set(state.eventIds)
+    let result: Result<[String: Any], Error>
+    do {
+        result = try await .success(withThrowingTaskGroup(of: Int?.self) { tasks in
+            // The reader opens the subscription during an untimed grace period.
+            tasks.addTask { try await readExpected(stream, expected) }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            let start = now()
+            tasks.addTask { try await benchPublish(group); return nil }
+            // A thrown error leaves the group, which cancels and awaits the other task.
+            var streamed = 0
+            while let value = try await tasks.next() {
+                if let value {
+                    streamed = value
+                }
+            }
+            return ["duration_ms": now() - start, "streamed_events": streamed]
+        })
+    } catch { result = .failure(error) }
+    // The reader task ran, so its iterator existed and its release ends the reader.
+    for await _ in ended {}
+    return try result.get()
+}
+
+/// Read until each expected event arrived once. Return the count.
+func readExpected(_ stream: BenchStream, _ expected: Set<String>) async throws -> Int {
+    var seen = Set<String>()
+    for try await message in stream {
+        if expected.contains(message.id) {
+            try require(seen.insert(message.id).inserted, "Duplicate expected stream event")
+        }
+        if seen.count == expected.count {
+            return seen.count
+        }
+    }
+    throw BenchFailure(message: "Stream ended with missing fixture messages")
 }
 
 func jsonRow(_ row: FixtureMessage) throws -> [String: Any] {

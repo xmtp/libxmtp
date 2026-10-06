@@ -3,6 +3,7 @@ import XmtpSdk
 
 typealias BenchClient = SDKClient
 typealias BenchGroup = Group
+typealias BenchStream = SDKMessageStream
 /// Signs through the host's HTTP signer, which holds a generated test key.
 final class BenchSigner: Signer, @unchecked Sendable {
     let config: HostConfig; let key: String; let address: String
@@ -88,16 +89,9 @@ func benchGroupSync(_ group: BenchGroup) async throws {
     try await group.sync()
 }
 
-func benchStream(_ client: BenchClient, _ group: BenchGroup) async throws -> AsyncThrowingStream<Message, Error> {
-    let source = try await client.messages(in: group)
-    return AsyncThrowingStream { continuation in
-        let task = Task {
-            do { for try await value in source {
-                continuation.yield(value)
-            }; continuation.finish() } catch { continuation.finish(throwing: error) }
-        }
-        continuation.onTermination = { _ in task.cancel() }
-    }
+/// `onEnd` runs once, after the SDK ended the stream's reader.
+func benchStream(_ client: BenchClient, _ group: BenchGroup, onEnd: @escaping @Sendable () -> Void) async throws -> BenchStream {
+    try await client.messages(in: group, onClose: { _ in onEnd() })
 }
 
 func benchRows(_ group: BenchGroup, _ count: Int) async throws -> [Message] {

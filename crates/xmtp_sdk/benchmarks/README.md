@@ -86,5 +86,8 @@ no backend, device or SDK build.
 - `test_bench.py` checks the memory sampler (also with zero RSS readings), the
   percentile helper, the sample checks, the run integrity check and the iOS
   timeout cleanup.
-  `test_workload.mjs` checks that the stream teardown runs once, outside the
-  timer, and also after a read or publish failure.
+  `test_workload.mjs` checks the Node and browser stream workload: the
+  teardown runs once, outside the timer, and also after a read failure, a
+  duplicate event or a publish failure. The Swift and Kotlin stream workloads
+  have no unit test; only `just sdk bench swift` and `just sdk bench kotlin`
+  run them.

@@ -6,7 +6,8 @@ import { measure } from "./hosts/workload.mjs";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-// One stream sample. `fault` is "read", "publish", "end" or undefined.
+// One stream sample. `fault` is "read", "duplicate", "publish", "end" or
+// undefined.
 async function run(t, fault) {
   const log = [];
   let clock = 100;
@@ -17,7 +18,11 @@ async function run(t, fault) {
   const stopped = new Promise((resolve) => {
     stopRead = resolve;
   });
-  const events = [{ id: "a" }, { id: "b" }];
+  // A duplicate stream delivers "a" twice before "b".
+  const events =
+    fault === "duplicate"
+      ? [{ id: "a" }, { id: "a" }, { id: "b" }]
+      : [{ id: "a" }, { id: "b" }];
   const stream = {
     [Symbol.asyncIterator]: () => ({
       async next() {
@@ -84,19 +89,22 @@ test("teardown is awaited once and stays outside the timer", async (t) => {
   ]);
 });
 
+// A duplicate expected event is a read failure.
 for (const [fault, message] of [
   ["read", "Reader failure"],
+  ["duplicate", "Duplicate expected stream event"],
   ["publish", "Publisher failure"],
 ]) {
   test(`a ${fault} failure still ends the stream and closes both clients`, async (t) => {
     const { outcome, log } = await run(t, fault);
     assert.equal(outcome.error?.message, message);
     // The clients close only after the stream ended and the publisher settled.
+    const readFailure = fault !== "publish";
     assert.deepEqual(log, [
-      ...(fault === "read" ? [] : ["published"]),
+      ...(readFailure ? [] : ["published"]),
       "end",
       "ended",
-      ...(fault === "read" ? ["published"] : []),
+      ...(readFailure ? ["published"] : []),
       "close receiver",
       "close sender",
       "returned",

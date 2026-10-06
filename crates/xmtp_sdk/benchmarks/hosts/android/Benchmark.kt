@@ -220,7 +220,12 @@ suspend fun perform(
             val expectedArray = state.getJSONArray("eventIds")
             val expected = (0 until expectedArray.length()).map { expectedArray.getString(it) }.toSet()
             val seen = mutableSetOf<String>()
+            // Set at the last expected event. When takeWhile stops, the flow
+            // ends its reader before collect returns, so the timer stops here.
+            var lastEvent = 0.0
             return coroutineScope {
+                // A failure in the reader or the publisher cancels the other
+                // one, and coroutineScope waits for both before the closes.
                 val collecting =
                     async {
                         benchStream(receiver, receivedGroup)
@@ -228,15 +233,19 @@ suspend fun perform(
                                 if (message.id in expected) {
                                     check(seen.add(message.id)) { "Duplicate expected stream event" }
                                 }
+                                if (seen.size == expected.size) lastEvent = now()
                                 seen.size != expected.size
                             }.collect { }
                     }
+                // The reader opens the subscription during an untimed grace period.
                 delay(1000)
                 val start = now()
                 benchPublish(group)
+                val published = now()
+                // This also waits for the reader to end, outside the timer.
                 collecting.await()
                 check(seen == expected) { "Stream ended with missing fixture messages" }
-                obj("duration_ms" to now() - start, "streamed_events" to seen.size)
+                obj("duration_ms" to maxOf(published, lastEvent) - start, "streamed_events" to seen.size)
             }
         } finally {
             benchClose(receiver)
