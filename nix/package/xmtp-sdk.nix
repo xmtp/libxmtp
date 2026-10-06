@@ -9,34 +9,9 @@ let
   rustToolchain = xmtp.mkNativeToolchain [ "wasm32-unknown-unknown" ] [ ];
   rust = xmtp.craneLib.overrideToolchain (p: rustToolchain);
   hostTarget = pkgs.stdenv.hostPlatform.rust.rustcTarget;
-  root = ./../..;
-  sdkSource = lib.fileset.toSource {
-    inherit root;
-    # Cargo checks every workspace member against Cargo.lock. Keep the full
-    # workspace so the filtered source does not change the lock file.
-    fileset = lib.fileset.unions [
-      xmtp.filesets.workspace
-      (lib.fileset.fileFilter (
-        file:
-        (
-          lib.hasSuffix ".rs" file.name || lib.hasSuffix ".proto" file.name || lib.hasSuffix ".sql" file.name
-        )
-        || file.name == "Cargo.toml"
-      ) (root + /crates))
-      (lib.fileset.fileFilter (
-        file:
-        (
-          lib.hasSuffix ".rs" file.name || lib.hasSuffix ".proto" file.name || lib.hasSuffix ".sql" file.name
-        )
-        || file.name == "Cargo.toml"
-      ) (root + /apps))
-      (root + /flake.lock)
-      (root + /rust-toolchain.toml)
-      (root + /crates/xmtp_sdk)
-      (root + /apps/xmtp_sdk_bindgen)
-      (root + /crates/xmtp_configuration)
-    ];
-  };
+  sources = pkgs.callPackage ../lib/sdk-sources.nix { };
+  sdkSource = sources.sdk rust;
+  mkProvenance = pkgs.callPackage ../lib/sdk-provenance.nix { };
   common = xmtp.base.commonArgs // {
     version = xmtp.mkVersion rust;
     doNotPostBuildInstallCargoBinaries = true;
@@ -50,7 +25,7 @@ let
     # Darwin setup replaces this variable before the Cargo build.
     preBuild = "export MACOSX_DEPLOYMENT_TARGET=11.0";
   };
-  native = rust.buildPackage (
+  nativeBuild = rust.buildPackage (
     common
     // nativeArgs
     // {
@@ -67,6 +42,11 @@ let
       '';
     }
   );
+  native = mkProvenance {
+    compilation = nativeBuild;
+    source = sources.provenanceSource;
+    target = hostTarget;
+  };
   wasmArgs = {
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     inherit (xmtp.shellCommon.wasmEnv)
@@ -102,7 +82,7 @@ let
     common
     // {
       pname = "xmtp-sdk-bindgen";
-      src = sdkSource;
+      src = sources.bindgen rust;
       cargoArtifacts = xmtp.base.mkCargoArtifacts rust false { };
       buildPhaseCargoCommand = "cargo build --release --locked -p xmtp-sdk-bindgen";
       installPhaseCommand = ''
@@ -129,7 +109,7 @@ let
         // nativeArgs
         // {
           pname = "xmtp-sdk-ios-${target}";
-          src = sdkSource;
+          src = sources.sdk iosRust;
           CARGO_BUILD_TARGET = target;
           __noChroot = true;
           cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (
@@ -151,15 +131,14 @@ let
     )
   );
   ubrn = pkgs.callPackage ../lib/packages/ubrn.nix { };
-  generated = stdenvNoCC.mkDerivation {
-    pname = "xmtp-sdk-generated";
+  generatedRaw = stdenvNoCC.mkDerivation {
+    pname = "xmtp-sdk-render";
     version = xmtp.mkVersion rust;
-    src = sdkSource;
+    src = sources.generationSource "all";
     nativeBuildInputs = [
       bindgen
       rustToolchain
       wasm-bindgen-cli
-      pkgs.python3
     ];
     buildPhase = ''
       # Use the unpacked source: generation rewrites copied TypeScript files,
@@ -169,7 +148,7 @@ let
       # changes layout only, so use the generator's supported no-format mode.
       for language in swift kotlin typescript-napi; do
         xmtp-sdk-bindgen generate \
-          --lib ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} \
+          --lib ${nativeBuild}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} \
           --language "$language" --no-format --out "$out/$language" \
           --config apps/xmtp_sdk_bindgen/uniffi-global.toml
       done
@@ -183,11 +162,9 @@ let
         --config apps/xmtp_sdk_bindgen/uniffi-global.toml
       xmtp-sdk-bindgen stage-wasm --lib ${pureWasm}/lib/xmtp_sdk.wasm \
         --out "$out/typescript-pure"
-      cp ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} $out/typescript-napi/
-      python3 crates/xmtp_sdk/dev/record-generated.py "$out" \
-        --native ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} \
-        --wasm ${wasm}/lib/xmtp_sdk.wasm --pure ${pureWasm}/lib/xmtp_sdk.wasm \
-        --bindgen ${bindgen}/bin/xmtp-sdk-bindgen
+      cp ${nativeBuild}/lib/libxmtp_sdk.${
+        if pkgs.stdenv.isDarwin then "dylib" else "so"
+      } $out/typescript-napi/
       mkdir -p $out/runtimes
       ln -s ${ubrn.core} $out/runtimes/core
       ln -s ${ubrn.node} $out/runtimes/node
@@ -195,6 +172,28 @@ let
     '';
     installPhase = "true";
   };
+  generated = stdenvNoCC.mkDerivation {
+    pname = "xmtp-sdk-generated";
+    version = xmtp.mkVersion rust;
+    src = sources.provenanceSource;
+    nativeBuildInputs = [ pkgs.python3 ];
+    dontFixup = true;
+    buildPhase = ''
+      mkdir -p "$out"
+      cp -R ${generatedRaw}/. "$out/"
+      chmod -R u+w "$out"
+      python3 crates/xmtp_sdk/dev/record-generated.py "$out" \
+        --native ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} \
+        --wasm ${wasm}/lib/xmtp_sdk.wasm --pure ${pureWasm}/lib/xmtp_sdk.wasm \
+        --bindgen ${bindgen}/bin/xmtp-sdk-bindgen
+    '';
+    installPhase = "true";
+    passthru = {
+      rendering = generatedRaw;
+      provenanceSource = sources.provenanceSource;
+    };
+  };
+
 in
 {
   libs = native;
@@ -204,6 +203,11 @@ in
     bindgen
     generated
     iosTargets
+    nativeBuild
+    ;
+  generationSource = sources.generationSource;
+  inherit (sources)
+    provenanceSource
     ;
   runtimes = ubrn;
 }

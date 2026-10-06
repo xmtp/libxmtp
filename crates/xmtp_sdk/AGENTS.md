@@ -15,7 +15,12 @@ Run commands from the repository root in the Nix shell. Run
   Both packaging suites share the fixture in `dev/packaging_test_base.py`.
 - `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
   the checkout source identity with the generated and native Nix source filters.
-  It does not compile a product.
+  It also prepares compiler source outputs and checks required Rust, protobuf,
+  SQL, and embedded data bytes. It does not compile a product.
+- `dev/nix-shell 'just sdk check-source-isolation-nix'` makes isolated source
+  snapshots and checks real Nix derivation changes. Run it after SDK source
+  filter changes. It checks unrelated source reuse, required input changes,
+  and complete provenance identities. It does not compile a product.
 - `dev/nix-shell 'just sdk check-file-sizes'` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.

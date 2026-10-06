@@ -97,6 +97,11 @@ package-smoke target="node":
 check-native-nix:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-native-nix.py
     cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-source-nix.py
+    cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-compiler-source-nix.py
+
+# Check compiler, renderer, and provenance changes with isolated source edits.
+check-source-isolation-nix:
+    cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-source-isolation-nix.py
 
 check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-native-nix-gate.py
