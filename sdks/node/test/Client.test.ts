@@ -119,7 +119,7 @@ describe("Client", () => {
     }
   });
 
-  it("uses the selected storage pool and encryption key", async () => {
+  it("uses the selected storage pool, encryption key, app version and workers", async () => {
     const storage = {
       location: {
         dbPath: `./test-${randomUUID()}.db3`,
@@ -128,11 +128,31 @@ describe("Client", () => {
       encryptionKey: new Uint8Array(32),
       pool: { min: 1, max: 2 },
     };
-    const client = await createClient(createSigner().signer, { storage });
-    expect(client.options.storage.location).toEqual(storage.location);
-    expect(client.options.storage.pool).toEqual(storage.pool);
-    expect(client.options.storage.encryptionKey).toBeUndefined();
-    expect(client.storagePath).toBe(resolve(storage.location.dbPath));
+    const backend = {
+      url: process.env.XMTP_BACKEND_URL!,
+      appVersion: "test/8",
+    };
+    const workers = {
+      defaultIntervalNs: 60_000_000_000n,
+      intervals: [{ kind: "deviceSync" as const, intervalNs: 30_000_000_000n }],
+    };
+    const client = await createClient(createSigner().signer, {
+      storage,
+      backend,
+      workers,
+    });
+    try {
+      expect(client.options.storage.location).toEqual(storage.location);
+      expect(client.options.storage.pool).toEqual(storage.pool);
+      expect(client.options.storage.encryptionKey).toBeUndefined();
+      expect(client.storagePath).toBe(resolve(storage.location.dbPath));
+      // The generated getters lift the app version and the worker options.
+      expect(client.appVersion).toBe("test/8");
+      expect(client.options.backend).toEqual(backend);
+      expect(client.options.workers).toEqual(workers);
+    } finally {
+      await client.end();
+    }
   });
 
   it("reconnects the same live client storage and keeps its history", async () => {

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import { Dm, type Group, type Conversation } from "@xmtp/node-sdk";
+import { Dm, XmtpError, type Group, type Conversation } from "@xmtp/node-sdk";
 import { type NotificationConfig } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
@@ -56,6 +56,25 @@ describe("Notifications", () => {
         await conversation.setNotifications("default");
         expect(await notificationEnabled(conversation)).toBe(false);
       }
+      await client.disableNotifications();
+      expect(client.notificationState()).toEqual({ kind: "disabled" });
+
+      // The local backend has no APNS channel. The binding lifts the failure
+      // to the public error class and the failed state union.
+      const failure = await client
+        .enableNotifications({
+          channel: { kind: "apns", token: "a".repeat(64) },
+          consentStates: ["allowed"],
+        })
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(XmtpError.ChannelNotConfigured);
+      expect(failure).toMatchObject({
+        details: { code: "ChannelNotConfigured" },
+      });
+      expect(client.notificationState()).toEqual({
+        kind: "failed",
+        error: "channelNotConfigured",
+      });
       await client.disableNotifications();
       expect(client.notificationState()).toEqual({ kind: "disabled" });
     } finally {
