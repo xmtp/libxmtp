@@ -134,9 +134,34 @@ class SampleChecks(unittest.TestCase):
             with self.subTest(name), self.assertRaises(bench.BenchError):
                 bench.check_measurement({**stream, **change}, "stream", fixture, "node")
 
+    def test_numbers_must_be_finite_and_positive(self):
+        # json.loads gives True for true and NaN or inf for NaN and Infinity.
+        sample = {"duration_ms": 1.5, "peak_memory_bytes": 1, "long_tasks_ms": []}
+        fixture = bench.dataset()
+        bench.check_measurement(dict(sample), "cold_start", fixture, "browser")
+        bench.check_measurement(
+            {**sample, "long_tasks_ms": [60.5]}, "cold_start", fixture, "browser"
+        )
+        bad = (True, float("nan"), float("inf"), 0, -1.5, "1", None)
+        for field in ("duration_ms", "peak_memory_bytes", "long_tasks_ms"):
+            for value in bad:
+                change = {field: [value] if field == "long_tasks_ms" else value}
+                with (
+                    self.subTest(field=field, value=value),
+                    self.assertRaises(bench.BenchError),
+                ):
+                    bench.check_measurement(
+                        {**sample, **change}, "cold_start", fixture, "browser"
+                    )
 
-def run_bench(temp, call, remove=None, keep_state=False):
-    """Run bench.run on a fake host in temp. Returns the output directory."""
+
+def run_bench(temp, call, remove=None, keep_state=False, output="out"):
+    """Run bench.run on a fake host in temp. Returns the output directory.
+
+    output is relative to temp. The sources are untracked in a new git
+    repository, so the digest sees them as a runner source in progress.
+    """
+    temp = temp.resolve()
     sources, package = temp / "sources", temp / "package"
     sources.mkdir()
     package.mkdir()
@@ -144,7 +169,7 @@ def run_bench(temp, call, remove=None, keep_state=False):
     (package / "entry.js").write_text("package")
     subprocess.run(["git", "init", "-q", str(sources)], check=True)
     args = argparse.Namespace(
-        output=str(temp / "out"), samples=1, keep_state=keep_state
+        output=str(temp / output), samples=1, keep_state=keep_state
     )
     with (
         patch.object(bench, "HERE", sources),
@@ -153,7 +178,7 @@ def run_bench(temp, call, remove=None, keep_state=False):
         patch("sys.stderr"),
     ):
         bench.run("node", args)
-    return temp / "out"
+    return temp / output
 
 
 def host_call(fixture, measured=lambda request: None):
@@ -176,7 +201,7 @@ def host_call(fixture, measured=lambda request: None):
 class RunIntegrity(unittest.TestCase):
     """A run fails when the package or a runner source changes during it."""
 
-    def run_changing(self, change):
+    def run_changing(self, change, output="out"):
         with tempfile.TemporaryDirectory() as temp:
             temp = Path(temp)
             files = {
@@ -185,10 +210,14 @@ class RunIntegrity(unittest.TestCase):
             }
 
             def measured(request):
+                # A host writes its logs in the output directory, as js_host
+                # does, during the run.
+                logs = Path(request["state_directory"]).parent / "logs"
+                (logs / f"{request['workload']}.stderr").write_text("log")
                 if change and request["workload"] == "stream":
                     files[change].write_text("changed")
 
-            out = run_bench(temp, host_call(bench.dataset(), measured))
+            out = run_bench(temp, host_call(bench.dataset(), measured), output=output)
             return json.loads((out / "results.json").read_text())
 
     def test_unchanged_run_writes_results(self):
@@ -198,6 +227,13 @@ class RunIntegrity(unittest.TestCase):
         for change in ("package", "sources"):
             with self.subTest(change), self.assertRaises(bench.BenchError):
                 self.run_changing(change)
+
+    def test_output_inside_the_sources_is_not_a_source(self):
+        # --output can be a new directory in the benchmarks directory.
+        inside = "sources/out"
+        self.assertEqual(self.run_changing(None, inside)["package"]["files"], 1)
+        with self.assertRaisesRegex(bench.BenchError, "source changed"):
+            self.run_changing("sources", inside)
 
 
 class StateCleanup(unittest.TestCase):

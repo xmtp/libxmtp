@@ -203,14 +203,20 @@ def open_host(host, args, out, stack):
     )
 
 
+def positive(value):
+    """A finite number above zero. JSON true is a bool, not a number."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and 0 < value < math.inf
+    )
+
+
 def check_measurement(response, workload, fixture, host):
     """Reject a sample whose observed values or counts are wrong."""
-    if not (
-        isinstance(response.get("duration_ms"), (int, float))
-        and response["duration_ms"] > 0
-    ):
+    if not positive(response.get("duration_ms")):
         raise BenchError(f"{workload}: invalid duration_ms")
-    if not response.get("peak_memory_bytes", 0) > 0:
+    if not positive(response.get("peak_memory_bytes")):
         raise BenchError(f"{workload}: memory was not sampled")
     if workload == "page":
         observed = response.pop("observed_messages", None)
@@ -223,12 +229,19 @@ def check_measurement(response, workload, fixture, host):
         fixture
     ):
         raise BenchError("stream: wrong number of streamed events")
-    if host == "browser" and not isinstance(response.get("long_tasks_ms"), list):
-        raise BenchError(f"{workload}: browser long tasks are absent")
+    if host == "browser" and not (
+        isinstance(response.get("long_tasks_ms"), list)
+        and all(positive(task) for task in response["long_tasks_ms"])
+    ):
+        raise BenchError(f"{workload}: browser long tasks are absent or invalid")
 
 
-def sources_digest():
-    """Hash the runner and host sources. Ignored build output is excluded."""
+def sources_digest(output):
+    """Hash the runner and host sources.
+
+    Ignored build output and the run's own output directory are excluded:
+    --output can be a directory in HERE, and the run writes logs there.
+    """
     listed = subprocess.run(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=HERE,
@@ -238,6 +251,8 @@ def sources_digest():
     content = hashlib.sha256()
     for name in sorted(n for n in listed if n and b"__pycache__/" not in n):
         path = HERE / os.fsdecode(name)
+        if path.is_relative_to(output):
+            continue
         content.update(name + b"\0")
         content.update(
             hashlib.sha256(path.read_bytes()).digest() if path.is_file() else b"-"
@@ -305,7 +320,7 @@ def run(host, args):
     fixture = dataset()
     (out / "state/fixture.json").write_bytes(canonical(fixture))
     samples = []
-    sources = sources_digest()
+    sources = sources_digest(out)
     with contextlib.ExitStack() as stack:
         # Without --keep-state, the run removes its client databases at the
         # end, also after a failure. The callbacks run in reverse order: the
@@ -335,7 +350,7 @@ def run(host, args):
     # run makes them wrong, so the run fails without results.json.
     if measure_package(package) != measured:
         raise BenchError("The package changed during the run")
-    if sources_digest() != sources:
+    if sources_digest(out) != sources:
         raise BenchError("A runner or host source changed during the run")
     results = {
         "schema": 1,
