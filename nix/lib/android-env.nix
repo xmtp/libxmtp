@@ -5,6 +5,8 @@
   androidenv,
   stdenv,
   writeShellScriptBin,
+  coreutils,
+  python3,
 }:
 let
   androidTargets = [
@@ -83,6 +85,7 @@ let
   # Keep the established emulator port range for local and CI runs.
   emulator = writeShellScriptBin "run-test-emulator" ''
     set -e
+    export PATH="${lib.makeBinPath [ coreutils ]}:$PATH"
 
     ADB="${androidSdk}/platform-tools/adb"
     EMULATOR_BIN="${androidSdk}/emulator/emulator"
@@ -106,7 +109,8 @@ let
     echo "Looking for a free TCP port in range 5560-5584" >&2
     port=""
     for i in $(seq 5560 2 5584); do
-      if ! "$ADB" devices 2>/dev/null | grep -q "emulator-$i"; then
+      devices="$(timeout --kill-after=2 15 "$ADB" devices)"
+      if ! echo "$devices" | grep -q "emulator-$i"; then
         port=$i
         break
       fi
@@ -121,7 +125,7 @@ let
     export ANDROID_SERIAL="emulator-$port"
 
     # Create AVD
-    yes "" | "$AVDMANAGER" create avd \
+    printf 'no\n' | timeout --kill-after=2 60 "$AVDMANAGER" create avd \
       --force -n "$DEVICE_NAME" \
       -k "system-images;android-$ANDROID_EMULATOR_API;${emulatorConfig.systemImageType};${emulatorConfig.abiVersion}" \
       -p "$ANDROID_AVD_HOME/$DEVICE_NAME.avd"
@@ -134,26 +138,10 @@ let
       echo "disk.dataPartition.size = 8192M"
     } >> "$ANDROID_AVD_HOME/$DEVICE_NAME.avd/config.ini"
 
-    # Launch emulator in background
-    "$EMULATOR_BIN" -avd "$DEVICE_NAME" -no-boot-anim -port "$port" $NIX_ANDROID_EMULATOR_FLAGS &
-
-    # Wait for device to appear
-    "$ADB" -s "emulator-$port" wait-for-device
-
-    # Wait for boot to complete
-    while [ -z "$("$ADB" -s "emulator-$port" shell getprop dev.bootcomplete 2>/dev/null | grep 1)" ]; do
-      sleep 5
-    done
-
-    bash ${./android-sync-clock.sh} "$ADB" "$ANDROID_SERIAL"
-
-    actual_api="$("$ADB" -s "$ANDROID_SERIAL" shell getprop ro.build.version.sdk | tr -d '\r')"
-    if [[ "$actual_api" != "$ANDROID_EMULATOR_API" ]]; then
-      echo "Android emulator API mismatch: expected $ANDROID_EMULATOR_API, got $actual_api" >&2
-      exit 1
-    fi
-
-    echo "Emulator ready (emulator-$port)" >&2
+    # The supervisor checks process death even while ADB or clock sync is blocked.
+    exec ${python3}/bin/python3 ${./android-emulator-start.py} \
+      "$ADB" "$EMULATOR_BIN" "$DEVICE_NAME" "$ANDROID_SERIAL" \
+      "$ANDROID_EMULATOR_API" ${./android-sync-clock.sh} $NIX_ANDROID_EMULATOR_FLAGS
   '';
 
 in

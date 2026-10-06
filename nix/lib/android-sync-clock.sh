@@ -5,7 +5,8 @@ adb=$1
 serial=$2
 
 device() {
-  timeout 15 "$adb" -s "$serial" "$@"
+  # Keep ADB in the supervisor's group so emulator death cancels clock sync.
+  timeout --foreground --kill-after=2 15 "$adb" -s "$serial" "$@"
 }
 
 # The backend uses the host clock. A slow guest clock delays message expiry.
