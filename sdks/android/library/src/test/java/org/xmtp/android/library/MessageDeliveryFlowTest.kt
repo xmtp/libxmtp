@@ -214,6 +214,29 @@ class MessageDeliveryFlowTest {
             assertSame(error, (closes.single() as SDKStreamCloseReason.Failed).error)
         }
 
+    // A native read failure keeps its Throwable and closes once with Failed,
+    // for an Exception and for an Error (moved from the deleted Kotlin
+    // conformance RetainedReaders.kt checkReaderReadFailuresEndExactlyOnce).
+    @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
+    fun readFailureOfEachThrowableKindClosesOnceWithFailed() =
+        runBlocking {
+            for (failure in listOf(IllegalStateException("read failed"), AssertionError("native read failed"))) {
+                val reader = RecordingMessageReader { throw failure }
+                val client = testSDKClient(RecordingReaderClient { reader })
+                val closes = mutableListOf<SDKStreamCloseReason>()
+                var received = 0
+                assertSame(
+                    failure,
+                    runCatching { client.messages(onClose = { closes.add(it) }).collect { received++ } }
+                        .exceptionOrNull(),
+                )
+                assertEquals(0, received)
+                assertEquals(1, reader.nextCalls)
+                assertEquals(1, reader.endCalls)
+                assertSame(failure, (closes.single() as SDKStreamCloseReason.Failed).error)
+            }
+        }
+
     // verifies: PROC-041
     // A collector failure closes once with Closed, separate from native reader failures.
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)

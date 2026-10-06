@@ -78,6 +78,109 @@ class StandardCodecWrapperTest {
         }
     }
 
+    // One Kotlin codec value and the StandardContent that Rust encodes for it.
+    private class RustSample<T : Any>(
+        val codec: ContentCodec<T>,
+        val value: T,
+        val rust: StandardContent,
+    ) {
+        fun check() {
+            val label = codec::class.simpleName
+            val expected = encodeStandard(rust)
+            val encoded = codec.encode(value)
+            assertEquals("$label type", codec.type, encoded.type)
+            assertEquals("$label bytes", expected, encoded)
+            val decoded = codec.decode(expected)
+            assertEquals("$label decode", value, decoded)
+            assertEquals("$label re-encode", expected, codec.encode(decoded))
+        }
+    }
+
+    // Each standard codec's envelope equals Rust's encodeStandard for the same
+    // value. A round trip through one codec cannot see a field that encode and
+    // decode map wrong in the same way; this comparison can. The samples are the
+    // ones the deleted Kotlin conformance loop (P69) used, from
+    // xmtp_sdk/src/content/pure_codec_tests.rs::standard_codec_samples, plus
+    // the omitted reference inbox from the deleted CodecRecordValues.kt.
+    // verifies: CTYPE-007, CTYPE-026
+    @Test
+    fun everyStandardCodecMatchesRustBytes() {
+        val reference = "a".repeat(64)
+        val text = TextCodec().encode("hello")
+        val remote = remoteAttachment
+        val samples =
+            listOf(
+                RustSample(TextCodec(), "hello", StandardContent.Text("hello")),
+                RustSample(MarkdownCodec(), "**hello**", StandardContent.Markdown("**hello**")),
+                RustSample(ReadReceiptCodec(), Unit, StandardContent.ReadReceipt),
+                Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE).let {
+                    RustSample(
+                        ReactionV2Codec(),
+                        ReactionV2Content(reference, "inbox", it),
+                        StandardContent.Reaction(reference, "inbox", it),
+                    )
+                },
+                // The generated record defaults the reference inbox to null.
+                Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE).let {
+                    RustSample(
+                        ReactionV2Codec(),
+                        ReactionV2Content(reference, reaction = it),
+                        StandardContent.Reaction(reference, null, it),
+                    )
+                },
+                Attachment(null, "text/plain", "file".toByteArray()).let {
+                    RustSample(AttachmentCodec(), it, StandardContent.Attachment(it))
+                },
+                RustSample(RemoteAttachmentCodec(), remote, StandardContent.RemoteAttachment(remote)),
+                MultiRemoteAttachment(listOf(remote)).let {
+                    RustSample(MultiRemoteAttachmentCodec(), it, StandardContent.MultiRemoteAttachment(it))
+                },
+                TransactionReference(null, "1", "0x1", null).let {
+                    RustSample(TransactionReferenceCodec(), it, StandardContent.TransactionReference(it))
+                },
+                WalletSendCalls("1", "0x1", "0xsender", emptyList(), null).let {
+                    RustSample(WalletSendCallsCodec(), it, StandardContent.WalletSendCalls(it))
+                },
+                Actions("actions", "Choose", listOf(Action("one", "One", null, null, null)), null).let {
+                    RustSample(ActionsCodec(), it, StandardContent.Actions(it))
+                },
+                Intent("actions", "one", null).let { RustSample(IntentCodec(), it, StandardContent.Intent(it)) },
+                RustSample(
+                    ReplyCodec(),
+                    ReplyContent(reference, "inbox", text),
+                    StandardContent.Reply(reference, "inbox", text),
+                ),
+                RustSample(
+                    ReplyCodec(),
+                    ReplyContent(reference, content = text),
+                    StandardContent.Reply(reference, null, text),
+                ),
+                GroupUpdated(
+                    "inbox",
+                    emptyList(),
+                    emptyList(),
+                    emptyList(),
+                    emptyList(),
+                    emptyList(),
+                    emptyList(),
+                    emptyList(),
+                    emptyList(),
+                ).let { RustSample(GroupUpdatedCodec(), it, StandardContent.GroupUpdated(it)) },
+                RustSample(
+                    DeleteMessageCodec(),
+                    DeleteMessageContent(reference),
+                    StandardContent.DeleteMessage(reference),
+                ),
+                LeaveRequest(null).let { RustSample(LeaveRequestCodec(), it, StandardContent.LeaveRequest(it)) },
+            )
+        // A new standard kind without a sample fails here.
+        assertEquals(
+            StandardContentKind.entries.map(::standardContentType).toSet(),
+            samples.map { it.codec.type }.toSet(),
+        )
+        samples.forEach { it.check() }
+    }
+
     @Test
     fun attachmentCodecKeepsEachField() {
         val codec = AttachmentCodec()
