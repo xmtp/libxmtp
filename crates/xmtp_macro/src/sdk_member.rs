@@ -251,18 +251,29 @@ const WRITTEN_BY_OPTIONS: &[(&str, &str)] = &[
     (REDACTED, "#[sdk(redact)] on a field"),
 ];
 
-/// The first marker and its option that a doc attribute spells out, also
-/// inside `cfg_attr`, which expands before UniFFI reads the docstring.
-fn written_marker(meta: &Meta) -> Option<(&'static str, &'static str)> {
+/// What a doc attribute writes that the macro rejects.
+enum Written {
+    /// A marker the generator trusts, and the option that writes it.
+    Marker(&'static str, &'static str),
+    /// A value that is not a string literal, such as `concat!(...)`. The
+    /// macro cannot read it, and it may expand into a marker.
+    Computed,
+}
+
+/// What a doc attribute writes that the macro rejects, also inside
+/// `cfg_attr`, which expands before UniFFI reads the docstring.
+fn written(meta: &Meta) -> Option<Written> {
     match meta {
         Meta::NameValue(pair) if pair.path.is_ident("doc") => {
-            let text = string_value(&pair.value)?;
+            let Some(text) = string_value(&pair.value) else {
+                return Some(Written::Computed);
+            };
             text.split_whitespace().find_map(|word| {
                 let name = word.split_once('=').map_or(word, |(name, _)| name);
                 WRITTEN_BY_OPTIONS
                     .iter()
-                    .copied()
                     .find(|(marker, _)| *marker == name)
+                    .map(|&(marker, option)| Written::Marker(marker, option))
             })
         }
         Meta::List(list) if list.path.is_ident("cfg_attr") => list
@@ -270,22 +281,28 @@ fn written_marker(meta: &Meta) -> Option<(&'static str, &'static str)> {
             .ok()?
             .iter()
             .skip(1)
-            .find_map(written_marker),
+            .find_map(written),
         _ => None,
     }
 }
 
 fn reject_written(attrs: &[Attribute]) -> syn::Result<()> {
-    match attrs
+    let Some((attr, written)) = attrs
         .iter()
-        .find_map(|attr| Some((attr, written_marker(&attr.meta)?)))
-    {
-        Some((attr, (marker, option))) => Err(syn::Error::new_spanned(
-            attr,
-            format!("write {option} instead of `{marker}` in a doc comment"),
-        )),
-        None => Ok(()),
-    }
+        .find_map(|attr| Some((attr, written(&attr.meta)?)))
+    else {
+        return Ok(());
+    };
+    let message = match written {
+        Written::Marker(marker, option) => {
+            format!("write {option} instead of `{marker}` in a doc comment")
+        }
+        Written::Computed => {
+            "write the doc comment as a string literal, which the macro checks for markers"
+                .to_owned()
+        }
+    };
+    Err(syn::Error::new_spanned(attr, message))
 }
 
 /// Reject a marker that a doc comment of the item or of one of its members

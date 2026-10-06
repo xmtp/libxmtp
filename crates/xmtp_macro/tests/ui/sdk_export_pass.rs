@@ -122,6 +122,22 @@ macro_rules! redacted_record {
 
 redacted_record!(SigningKey);
 
+// Docs that a macro_rules! caller forwards as an expression or as attributes
+// stay string literals that the macro can check.
+macro_rules! documented_record {
+    ($doc:expr, $(#[$meta:meta])*) => {
+        #[xmtp_macro::sdk_export]
+        $(#[$meta])*
+        #[derive(Clone, uniffi::Record)]
+        pub struct Documented {
+            #[doc = $doc]
+            pub value: u64,
+        }
+    };
+}
+
+documented_record!("A value.", #[doc = "A record that a macro wrote."]);
+
 #[derive(uniffi::Object)]
 struct Probe;
 

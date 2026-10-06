@@ -686,6 +686,62 @@ fn markers_the_macro_writes_are_rejected_in_doc_comments() {
         let message = error(quote!(), item);
         assert_eq!(message, format!("{option} in a doc comment"));
     }
+    // A doc value that is not a string literal may expand into a marker.
+    for item in [
+        quote!(
+            #[derive(uniffi::Record)]
+            pub struct Session {
+                #[doc = concat!("@xmtp-red", "act")]
+                pub token: String,
+            }
+        ),
+        quote!(
+            #[derive(uniffi::Record)]
+            #[cfg_attr(feature = "x", cfg_attr(all(), doc = concat!("@xmtp-red", "acted")))]
+            pub struct Session {
+                pub token: String,
+            }
+        ),
+        quote!(impl Client {
+            #[doc = include_str!("id.md")]
+            pub fn id(&self) -> u64 { 0 }
+        }),
+    ] {
+        assert_eq!(
+            error(quote!(), item),
+            "write the doc comment as a string literal, which the macro checks for markers"
+        );
+    }
+    // A literal that a `macro_rules!` caller passes through as an expression
+    // arrives in an invisible group. syn reads the literal inside, so the
+    // macro still checks it.
+    let forwarded =
+        |text: &str| proc_macro2::Group::new(proc_macro2::Delimiter::None, quote!(#text));
+    let marker = forwarded("@xmtp-redact");
+    assert_eq!(
+        error(
+            quote!(),
+            quote!(
+                #[derive(uniffi::Record)]
+                pub struct Session {
+                    #[doc = #marker]
+                    pub token: String,
+                }
+            )
+        ),
+        "write #[sdk(redact)] instead of `@xmtp-redact` in a doc comment"
+    );
+    let prose = forwarded("The token.");
+    export(
+        quote!(),
+        quote!(
+            #[derive(uniffi::Record)]
+            pub struct Session {
+                #[doc = #prose]
+                pub token: String,
+            }
+        ),
+    );
     // The markers written by hand, and prose, stay.
     export(
         quote!(),
