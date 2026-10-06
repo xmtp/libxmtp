@@ -4,6 +4,8 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vite";
 import { defineConfig as defineVitestConfig } from "vitest/config";
 
+import { recoveryProxyCommands } from "./test/recovery-proxy";
+
 // Keep package asset URLs inside the workspace during browser tests.
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -29,17 +31,14 @@ const vitestConfig = defineVitestConfig({
     exclude: ["@xmtp/browser-sdk", "@xmtp/browser-sdk/pure"],
   },
   test: {
-    include: [
-      "test/public*.test.ts",
-      "test/device-sync.test.ts",
-      "test/auth-public.test.ts",
-      "test/content-public.test.ts",
-    ],
+    include: ["test/*.test.ts"],
     browser: {
       provider: playwright(),
       enabled: true,
       headless: true,
       screenshotFailures: false,
+      // Node-side helpers that browser tests call through `vitest/browser`.
+      commands: recoveryProxyCommands,
       instances: [
         {
           browser: "chromium",

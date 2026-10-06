@@ -80,6 +80,22 @@ export function checkCustomMessageLift(): void {
     "custom raw bytes changed",
   );
 
+  // A deleted message keeps its encoded bytes. The host must use Rust's
+  // deleted marker, also when a registered codec could decode those bytes.
+  const deleted = new Message(
+    {
+      ...data,
+      content: B.MessageContent.DeletedMessage.new({
+        deletedBy: B.DeletedBy.Sender.new(),
+      }),
+    } as B.MessageData,
+    session,
+  );
+  expect(
+    deleted.content.tag === B.MessageContent_Tags.DeletedMessage,
+    "the host lifted deleted custom bytes as content",
+  );
+
   unregisterClient(session, clientKey);
   const closed = new Message(data, session);
   expect(

@@ -1,5 +1,6 @@
-// Helpers for the browser attachment scenarios: OPFS files, attachment events,
-// and attachment failures. Browser attachment paths name OPFS entries.
+// Helpers for the browser attachment lifetime and storage layout proofs: OPFS
+// files, attachment events, and attachment failures. Browser attachment paths
+// name OPFS entries.
 import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { equal, expect } from "./suite-support";
 
@@ -12,32 +13,6 @@ export const ATTACHMENT_KINDS: sdk.EventKind[] = [
   "attachment.download_failed",
   "attachment.deleted",
 ];
-
-export type AttachmentEvent = Extract<
-  sdk.ClientEvent,
-  { readonly kind: `attachment.${string}` }
->;
-
-export function attachmentPayload(
-  event: AttachmentEvent,
-): sdk.AttachmentRef | sdk.AttachmentFailed {
-  switch (event.kind) {
-    case "attachment.upload_started":
-      return event.attachment_upload_started;
-    case "attachment.upload_completed":
-      return event.attachment_upload_completed;
-    case "attachment.upload_failed":
-      return event.attachment_upload_failed;
-    case "attachment.download_started":
-      return event.attachment_download_started;
-    case "attachment.download_completed":
-      return event.attachment_download_completed;
-    case "attachment.download_failed":
-      return event.attachment_download_failed;
-    case "attachment.deleted":
-      return event.attachment_deleted;
-  }
-}
 
 /** Browser options for a client in an OPFS directory, allowed to reach loopback storage. */
 export function fileOptions(
@@ -154,45 +129,6 @@ export async function within<T>(
   }
 }
 
-/** The members `drain` uses, from the shipped build or the fixture. */
-type GroupCreator = {
-  readonly conversations: {
-    createGroup(members: []): Promise<{ readonly id: string }>;
-  };
-};
-type EventSource = { next(): Promise<IteratorResult<sdk.ClientEvent>> };
-
-/** Read attachment events up to the group this creates, which marks the end. */
-export async function drain(
-  client: GroupCreator,
-  stream: EventSource,
-): Promise<AttachmentEvent[]> {
-  const marker = (await client.conversations.createGroup([])).id;
-  const events: AttachmentEvent[] = [];
-  for (;;) {
-    const next = await within(stream.next(), "attachment events");
-    expect(!next.done, "the event stream ended");
-    const event = next.value;
-    switch (event.kind) {
-      case "conversation.joined":
-        if (hexBytes(event.conversation_joined.group_id) === marker)
-          return events;
-        break;
-      case "attachment.upload_started":
-      case "attachment.upload_completed":
-      case "attachment.upload_failed":
-      case "attachment.download_started":
-      case "attachment.download_completed":
-      case "attachment.download_failed":
-      case "attachment.deleted":
-        events.push(event);
-        break;
-      default:
-        throw new Error(`unexpected ${event.kind} event`);
-    }
-  }
-}
-
 function hexBytes(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
     "",
@@ -240,29 +176,14 @@ async function opfsFile(
   return (await opfsDirectory(names, create)).getFileHandle(name, { create });
 }
 
-export async function readOpfs(path: string): Promise<Uint8Array> {
-  const file = await (await opfsFile(path, false)).getFile();
-  return new Uint8Array(await file.arrayBuffer());
-}
-
 export async function readOpfsText(path: string): Promise<string> {
-  return new TextDecoder().decode(await readOpfs(path));
+  return (await (await opfsFile(path, false)).getFile()).text();
 }
 
 export async function writeOpfs(path: string, text: string): Promise<void> {
   const writable = await (await opfsFile(path, true)).createWritable();
   await writable.write(text);
   await writable.close();
-}
-
-export async function removeOpfs(path: string): Promise<void> {
-  const names = segments(path);
-  const name = names.pop()!;
-  await (
-    await opfsDirectory(names, false)
-  ).removeEntry(name, {
-    recursive: true,
-  });
 }
 
 export async function existsOpfs(
@@ -278,12 +199,6 @@ export async function existsOpfs(
       return false;
     throw error;
   }
-}
-
-/** The attachments directory beside a client's database. */
-export function attachmentsDir(databasePath: string | undefined): string {
-  expect(databasePath !== undefined, "file-backed client has no path");
-  return `${databasePath.slice(0, databasePath.lastIndexOf("/"))}/attachments`;
 }
 
 /**
@@ -305,18 +220,4 @@ export function relay(store: string): {
       return Number(await (await fetch(`${store}/count/${id}`)).text());
     },
   };
-}
-
-/** Store bytes on the loopback object store and return their URL. */
-export async function servedObject(
-  store: string,
-  body: Uint8Array,
-): Promise<string> {
-  const url = `${store}/fixtures/${crypto.randomUUID()}`;
-  const response = await fetch(url, {
-    method: "PUT",
-    body: Uint8Array.from(body),
-  });
-  equal(response.status, 200, "the object store did not take the fixture");
-  return url;
 }

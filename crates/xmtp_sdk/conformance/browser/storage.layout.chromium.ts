@@ -50,7 +50,7 @@ export async function checkStorageLayout(store: string): Promise<void> {
     const root = `layout-${crypto.randomUUID()}`;
     // A labelled directory holds the store at its deployment path.
     let backend = relay(store);
-    const owner = signer(session);
+    const owner = signer();
     const identity = await owner.identity();
     const { client: online } = await create(
       session,
@@ -107,7 +107,7 @@ export async function checkStorageLayout(store: string): Promise<void> {
 
     // An explicit location opens the database the app chose.
     backend = relay(store);
-    const chooser = signer(session);
+    const chooser = signer();
     const dbPath = `${root}-chosen.sqlite`;
     const explicit: sdk.ClientOptions = {
       backend: { url: backend.url },
