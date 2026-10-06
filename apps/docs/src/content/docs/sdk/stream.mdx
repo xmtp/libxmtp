@@ -77,6 +77,7 @@ import kotlinx.coroutines.launch
 import uniffi.xmtp_sdk.Group
 import uniffi.xmtp_sdk.Message
 import uniffi.xmtp_sdk.SDKClient
+import uniffi.xmtp_sdk.streamMessages
 
 fun streamGroupMessages(
     scope: CoroutineScope,
@@ -155,6 +156,7 @@ import uniffi.xmtp_sdk.ConsentState
 import uniffi.xmtp_sdk.MessageStreamOptions
 import uniffi.xmtp_sdk.Message
 import uniffi.xmtp_sdk.SDKClient
+import uniffi.xmtp_sdk.streamAllMessages
 
 fun streamAllMessages(
     scope: CoroutineScope,

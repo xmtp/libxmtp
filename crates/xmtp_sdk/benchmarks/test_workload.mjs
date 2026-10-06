@@ -3,9 +3,37 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { publicApi } from "./hosts/sdk.mjs";
 import { longTasksInWindow, measure } from "./hosts/workload.mjs";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test("stream adapter uses the supplied group and waits for its reader", async () => {
+  let release;
+  let calls = 0;
+  const ready = new Promise((resolve) => {
+    release = resolve;
+  });
+  const stream = { ready: () => ready };
+  const group = {
+    streamMessages() {
+      calls += 1;
+      return stream;
+    },
+  };
+  const api = publicApi({}, {}, "node", "unused", {});
+  let settled = false;
+  const opened = api.stream({}, group).then((value) => {
+    settled = true;
+    return value;
+  });
+  void opened.catch(() => {});
+  await tick();
+  assert.equal(calls, 1);
+  assert.equal(settled, false);
+  release();
+  assert.equal(await opened, stream);
+});
 
 // One stream sample. `fault` is "read", "duplicate", "publish", "end" or
 // undefined.
