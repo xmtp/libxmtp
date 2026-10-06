@@ -4,7 +4,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,14 +26,34 @@ class MetadataFieldTest {
                     val displayName = metadataFieldRef(WellKnownMetadataField.USER_DISPLAY_NAME)
                     assertEquals(MetadataFieldRef(0x800Cu, "USER_DISPLAY_NAME"), displayName)
 
+                    // The default policy set lets all members write the
+                    // name; delete stays super-admin only. Each member may
+                    // write only its own profile entry.
                     val group = alix.conversations().createGroup(listOf(bo.inboxId()))
                     val descriptors = group.metadataFields().associateBy { it.field }
-                    val name = descriptors.getValue(groupName)
-                    assertEquals(MetadataComponentType.String, name.componentType)
-                    assertFalse("GROUP_NAME read as a user field", name.isUserField)
-                    assertTrue(
-                        "USER_DISPLAY_NAME did not read as a user field",
-                        descriptors.getValue(displayName).isUserField,
+                    val allow = MetadataPolicy.Base(MetadataBasePolicy.Allow)
+                    assertEquals(
+                        MetadataFieldDescriptor(
+                            groupName,
+                            MetadataComponentType.String,
+                            ComponentPermissions(
+                                allow,
+                                allow,
+                                MetadataPolicy.Base(MetadataBasePolicy.AllowIfSuperAdmin),
+                            ),
+                            false,
+                        ),
+                        descriptors.getValue(groupName),
+                    )
+                    val selfOwned = MetadataPolicy.Base(MetadataBasePolicy.AllowIfSelfOrNonMember)
+                    assertEquals(
+                        MetadataFieldDescriptor(
+                            displayName,
+                            MetadataComponentType.Map(MetadataKeyType.INBOX_ID, MetadataScalarType.STRING),
+                            ComponentPermissions(selfOwned, selfOwned, selfOwned),
+                            true,
+                        ),
+                        descriptors.getValue(displayName),
                     )
                     assertEquals(groupName, group.metadataField("GROUP_NAME")?.field)
 
@@ -50,8 +69,16 @@ class MetadataFieldTest {
                     assertEquals(listOf(UserFieldValue(displayName, FieldValue.String("Bo"))), profiles[bo.inboxId()])
                     assertEquals(emptyList<UserFieldValue>(), profiles[alix.inboxId()])
                     assertEquals(FieldValue.String("Bo"), group.mapValue(displayName, FieldKey.InboxId(bo.inboxId())))
-                    val values = group.metadataValues(listOf(groupName, displayName)).map { it.field }
-                    assertEquals(listOf(groupName, displayName), values)
+                    val profileMap =
+                        MetadataValue.Map(listOf(MapEntry(FieldKey.InboxId(bo.inboxId()), FieldValue.String("Bo"))))
+                    assertEquals(profileMap, group.metadataValue(displayName))
+                    assertEquals(
+                        listOf(
+                            MetadataFieldValue(groupName, MetadataValue.Scalar(FieldValue.String("Team"))),
+                            MetadataFieldValue(displayName, profileMap),
+                        ),
+                        group.metadataValues(listOf(groupName, displayName)),
+                    )
 
                     val duplicate =
                         runCatching {
@@ -69,6 +96,93 @@ class MetadataFieldTest {
                 }
             }
         }
+
+    // An application catalogue, and so the Set, byte-keyed Map and Unknown
+    // component types and the And and Any policies, needs a backend catalogue
+    // or the conformance build's override. These records still cross the
+    // generated converters: ServerConfiguration.applicationComponents reads
+    // the definition list, and metadataFields() reads the descriptor list.
+    @Test
+    fun catalogueRecordsKeepEachVariant() {
+        val base = { policy: MetadataBasePolicy -> MetadataPolicy.Base(policy) }
+        val nested =
+            MetadataPolicy.Any(
+                listOf(
+                    MetadataPolicy.And(listOf(base(MetadataBasePolicy.AllowIfAdmin), base(MetadataBasePolicy.Deny))),
+                    base(MetadataBasePolicy.Unknown(7)),
+                ),
+            )
+        val types =
+            listOf(
+                MetadataComponentType.Bytes,
+                MetadataComponentType.String,
+                MetadataComponentType.Map(MetadataKeyType.BYTES, MetadataScalarType.BYTES),
+                MetadataComponentType.Map(MetadataKeyType.INBOX_ID, MetadataScalarType.STRING),
+                MetadataComponentType.Set(MetadataKeyType.BYTES),
+                MetadataComponentType.Set(MetadataKeyType.INBOX_ID),
+                MetadataComponentType.Unknown(99),
+            )
+        val permissions =
+            listOf(
+                ComponentPermissions(
+                    base(MetadataBasePolicy.Allow),
+                    base(MetadataBasePolicy.AllowIfSuperAdmin),
+                    base(MetadataBasePolicy.AllowIfSelfOrNonMember),
+                ),
+                ComponentPermissions(nested, base(MetadataBasePolicy.Deny), MetadataPolicy.And(emptyList())),
+            )
+        val definitions =
+            types.mapIndexed { index, type ->
+                ApplicationComponentDefinition(
+                    (0xC001 + index).toUShort(),
+                    "field_$index",
+                    type,
+                    permissions[index % 2],
+                    inGroups = index % 2 == 0,
+                    inDms = index % 3 == 0,
+                )
+            }
+        assertEquals(
+            definitions,
+            FfiConverterSequenceTypeApplicationComponentDefinition.lift(
+                FfiConverterSequenceTypeApplicationComponentDefinition.lower(definitions),
+            ),
+        )
+        val descriptors =
+            definitions.mapIndexed { index, definition ->
+                // A field this reader's catalogue does not name has no label.
+                MetadataFieldDescriptor(
+                    MetadataFieldRef(definition.componentId, if (index % 2 == 0) definition.name else null),
+                    definition.componentType,
+                    definition.permissions,
+                    isUserField = index % 3 == 0,
+                )
+            }
+        assertEquals(
+            descriptors,
+            FfiConverterSequenceTypeMetadataFieldDescriptor.lift(
+                FfiConverterSequenceTypeMetadataFieldDescriptor.lower(descriptors),
+            ),
+        )
+
+        // Byte arrays in generated enum variants compare by reference, so
+        // compare them by content.
+        val key = FieldKey.Bytes(byteArrayOf(0, -1))
+        val set =
+            FfiConverterTypeMetadataValue.lift(
+                FfiConverterTypeMetadataValue.lower(MetadataValue.Set(listOf(key, FieldKey.InboxId("ab")))),
+            ) as MetadataValue.Set
+        assertArrayEquals(byteArrayOf(0, -1), (set.v1[0] as FieldKey.Bytes).v1)
+        assertEquals(FieldKey.InboxId("ab"), set.v1[1])
+        val map =
+            FfiConverterTypeMetadataValue.lift(
+                FfiConverterTypeMetadataValue.lower(
+                    MetadataValue.Map(listOf(MapEntry(key, FieldValue.Bytes(byteArrayOf(4, 0))))),
+                ),
+            ) as MetadataValue.Map
+        assertArrayEquals(byteArrayOf(0, -1), (map.v1.single().key as FieldKey.Bytes).v1)
+        assertArrayEquals(byteArrayOf(4, 0), (map.v1.single().value as FieldValue.Bytes).v1)
+    }
 
     // Collection mutations with byte keys need an app catalogue, which only the
     // conformance build can install. Their records still cross the converter.
