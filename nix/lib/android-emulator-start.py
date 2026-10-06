@@ -38,11 +38,15 @@ def stop_process(process):
             os.killpg(process.pid, sig)
         except ProcessLookupError:
             pass
-        except PermissionError:
-            # Darwin can return EPERM for an empty group after its leader is
-            # reaped. A live child must still be terminated or report the error.
-            if process.poll() is None:
-                raise
+        except PermissionError as error:
+            # Darwin returns EPERM for a group whose leader is exiting or reaped.
+            # While the leader exits, waitpid can still report it as running,
+            # so give it the cleanup budget to finish. A live child must still
+            # be terminated or report the error.
+            try:
+                process.wait(timeout=CLEANUP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                raise error from None
 
     send(signal.SIGTERM)
     try:

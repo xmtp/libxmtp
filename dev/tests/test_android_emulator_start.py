@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the real startup supervisor with executable emulator/ADB fixtures."""
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -40,6 +41,7 @@ import time
 home = Path(os.environ["FIXTURE_HOME"])
 mode = os.environ["FIXTURE_MODE"]
 role = Path(sys.argv[0]).name
+child_script = Path(sys.argv[0]).with_name("child")
 args = sys.argv[1:]
 if role == "emulator" and args in (["-version"], ["-accel-check"]):
     print("emulator diagnostic " + args[0])
@@ -83,7 +85,7 @@ if role == "test":
     (home / "test.env").write_text(json.dumps({key: os.environ[key] for key in (
         "ANDROID_SERIAL", "ANDROID_USER_HOME", "ANDROID_AVD_HOME"
     )}))
-    subprocess.Popen([sys.executable, str(home / "child")])
+    subprocess.Popen([sys.executable, str(child_script)])
     while not (home / "child.started").exists():
         time.sleep(0.01)
     (home / "test.started").touch()
@@ -101,7 +103,7 @@ elif role == "clock":
         time.sleep(60)
     print("clock synchronized")
 elif args[2:] == ["root"] and mode == "crash-clock-real":
-    subprocess.Popen([sys.executable, str(home / "child")])
+    subprocess.Popen([sys.executable, str(child_script)])
     while not (home / "child.started").exists():
         time.sleep(0.01)
     (home / "clock.started").touch()
@@ -112,7 +114,7 @@ elif args[2:] == ["get-state"]:
     if mode in ("exit", "segfault"):
         time.sleep(60)
     if mode in ("crash-adb", "hung-adb"):
-        child = subprocess.Popen([sys.executable, str(home / "child")])
+        child = subprocess.Popen([sys.executable, str(child_script)])
         while not (home / "child.started").exists():
             time.sleep(0.01)
         time.sleep(60)
@@ -147,6 +149,27 @@ while True:
 
 
 class EmulatorStartupTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Write the fixture executables once. macOS checks a new executable on
+        # its first run. That costs about 120 ms, and much more under load,
+        # which made fixture commands outlast the shortened budgets below.
+        executables = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(executables.cleanup)
+        cls.bin = Path(executables.name)
+        for role, code in [
+            ("emulator", FIXTURE),
+            ("adb", FIXTURE),
+            ("clock", FIXTURE),
+            ("test", FIXTURE),
+            ("child", CHILD),
+        ]:
+            executable = cls.bin / role
+            executable.write_text(f"#!{sys.executable}\n" + code)
+            executable.chmod(0o755)
+        clock = cls.bin / "clock.sh"
+        clock.write_text(f'#!/usr/bin/env bash\nexec "{cls.bin / "clock"}"\n')
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -156,18 +179,6 @@ class EmulatorStartupTests(unittest.TestCase):
         self.avd = self.android_home / "avd/libxmtp-test.avd"
         self.avd.mkdir(parents=True)
         (self.avd / "config.ini").write_text("hw.ramSize=4096\n")
-        for role, code in [
-            ("emulator", FIXTURE),
-            ("adb", FIXTURE),
-            ("clock", FIXTURE),
-            ("test", FIXTURE),
-            ("child", CHILD),
-        ]:
-            executable = self.home / role
-            executable.write_text(f"#!{sys.executable}\n" + code)
-            executable.chmod(0o755)
-        clock = self.home / "clock.sh"
-        clock.write_text(f'#!/usr/bin/env bash\nexec "{self.home / "clock"}"\n')
         # Shorten only production budgets; run the same CLI and subprocess logic.
         helper = self.home / "supervisor.py"
         helper.write_text(
@@ -181,12 +192,12 @@ class EmulatorStartupTests(unittest.TestCase):
         self.command = [
             sys.executable,
             str(helper),
-            str(self.home / "adb"),
-            str(self.home / "emulator"),
+            str(self.bin / "adb"),
+            str(self.bin / "emulator"),
             "libxmtp-test",
             "emulator-5560",
             "23",
-            str(clock),
+            str(self.bin / "clock.sh"),
             "-no-window",
         ]
         self.env = dict(
@@ -255,7 +266,7 @@ class EmulatorStartupTests(unittest.TestCase):
         return process.returncode
 
     def scope_command(self):
-        self.command.extend(["--", str(self.android_home), str(self.home / "test")])
+        self.command.extend(["--", str(self.android_home), str(self.bin / "test")])
 
     def assert_scope_cleaned(self):
         self.assertFalse(self.android_home.exists(), "Owned Android home survived")
@@ -329,7 +340,7 @@ class EmulatorStartupTests(unittest.TestCase):
         other_home = self.home / "other-android-home"
         other_home.mkdir()
         other = subprocess.Popen(
-            [str(self.home / "emulator")],
+            [str(self.bin / "emulator")],
             env=dict(self.env, FIXTURE_HOME=str(other_home), FIXTURE_MODE="success"),
             start_new_session=True,
             stdout=subprocess.DEVNULL,
@@ -439,6 +450,31 @@ class EmulatorStartupTests(unittest.TestCase):
         self.assertNotEqual(self.run_start("boot-hang", interrupt=True), 0, self.output)
         self.assertIn("Startup interrupted", self.output)
         self.assertTrue(all(not self.alive(pid) for _, pid in self.processes()))
+
+
+class StopProcessTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "Only Darwin rejects the signal")
+    def test_stop_process_waits_for_an_exiting_leader(self):
+        spec = importlib.util.spec_from_file_location("android_emulator_start", HELPER)
+        supervisor = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(supervisor)
+        # Darwin rejects a signal to the group while its leader exits, and
+        # waitpid can still report the leader as running in that window.
+        for _ in range(50):
+            process = subprocess.Popen(
+                [sys.executable, "-c", "pass"], start_new_session=True
+            )
+            while True:
+                try:
+                    os.killpg(process.pid, 0)
+                except PermissionError:
+                    break
+            if process.poll() is None:
+                break
+        else:
+            self.fail("The leader exit window was never observed")
+        supervisor.stop_process(process)
+        self.assertEqual(process.returncode, 0)
 
 
 if __name__ == "__main__":
