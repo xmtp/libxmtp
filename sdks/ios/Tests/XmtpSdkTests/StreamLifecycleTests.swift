@@ -105,12 +105,22 @@ final class StreamLifecycleTests: XCTestCase {
 	/// `foreground`. The message must arrive only after `foreground`. A message
 	/// sent before `background` measures normal delivery, and the suspended
 	/// stream is watched for three times that long, at least 3 seconds, so a
-	/// slow backend cannot hide a stream that was not suspended.
+	/// slow backend cannot hide a stream that was not suspended. Both clients
+	/// end on every exit.
 	private func checkBackgroundCycle(
 		background: () async -> Void, foreground: () async -> Void,
 	) async throws {
-		let receiver = try await SDKClient.create(signer: generateLocalSigner(), options: liveOptions())
-		let sender = try await SDKClient.create(signer: generateLocalSigner(), options: liveOptions())
+		try await withLiveClients(2) { clients in
+			try await checkBackgroundCycle(
+				receiver: clients[0], sender: clients[1], background: background, foreground: foreground,
+			)
+		}
+	}
+
+	private func checkBackgroundCycle(
+		receiver: SDKClient, sender: SDKClient,
+		background: () async -> Void, foreground: () async -> Void,
+	) async throws {
 		let group = try await sender.conversations().createGroup(members: [receiver.inboxId()])
 		try await receiver.conversations().sync()
 		guard case let .group(joined)? = try await receiver.conversations().getById(id: group.id()) else {
@@ -150,7 +160,5 @@ final class StreamLifecycleTests: XCTestCase {
 
 		consumer.cancel()
 		_ = try? await consumer.value
-		try await sender.end()
-		try await receiver.end()
 	}
 }

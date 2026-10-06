@@ -12,6 +12,35 @@ func liveOptions(
 	ClientOptions(backend: .options(options: BackendOptions(url: url)), storage: storage, deviceSync: false)
 }
 
+/// Creates `count` clients on the live backend and runs `body` with them. It
+/// ends every created client on every exit: after `body` returns or throws,
+/// and when a later client create fails. The first error wins.
+func withLiveClients<T>(_ count: Int, _ body: ([SDKClient]) async throws -> T) async throws -> T {
+	var clients: [SDKClient] = []
+	let result: Result<T, Error>
+	do {
+		for _ in 0 ..< count {
+			try await clients.append(SDKClient.create(signer: generateLocalSigner(), options: liveOptions()))
+		}
+		result = try await .success(body(clients))
+	} catch {
+		result = .failure(error)
+	}
+	var endFailure: Error?
+	for client in clients {
+		do {
+			try await client.end()
+		} catch {
+			endFailure = endFailure ?? error
+		}
+	}
+	let value = try result.get()
+	if let endFailure {
+		throw endFailure
+	}
+	return value
+}
+
 /// A failed check that is not an XCTest assertion, for example in a callback.
 struct TestFailure: Error, CustomStringConvertible {
 	let description: String

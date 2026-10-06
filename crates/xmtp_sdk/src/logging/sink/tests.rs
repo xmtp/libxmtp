@@ -127,7 +127,6 @@ impl xmtp_logging::LogSinkTarget for QueueCapture {
 // verifies: LOG-001, LOG-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn client_log_secrets_are_redacted() {
-    use tracing::instrument::WithSubscriber;
     let credential = "LOG_CREDENTIAL_SENTINEL_89d42";
     let signing_key = b"LOG_SIGNING_KEY_SENTINEL_89d42!!!";
     let encryption_key = b"LOG_DATABASE_KEY_SENTINEL_89d42";
@@ -146,7 +145,10 @@ async fn client_log_secrets_are_redacted() {
         Some(Arc::new(QueueCapture(queue.clone()))),
     );
     let mut task = xmtp_common::spawn(None, drain(queue.clone()));
-    async {
+    // Create runs on a spawned build task, which a scoped subscriber does not
+    // reach. The test runtime has one thread, so a thread default does.
+    let captured = tracing::dispatcher::set_default(&capture.dispatch());
+    {
         let result = crate::Backend::connect(crate::BackendOptions {
             url: "http://127.0.0.1:1".into(),
             credential: Some(crate::Credential {
@@ -163,21 +165,31 @@ async fn client_log_secrets_are_redacted() {
                 .await
                 .is_err()
         );
-        assert!(
-            crate::client::open_store(
-                &crate::StorageOptions {
+        // The public create route that every SDK calls. The backend is live
+        // and the storage is in memory, so the key is the only invalid input.
+        let created = crate::Client::create(
+            crate::generate_local_signer().await,
+            crate::ClientOptions {
+                backend: Some(crate::BackendSource::Options {
+                    options: crate::BackendOptions {
+                        url: xmtp_configuration::backend_test_url(),
+                        ..Default::default()
+                    },
+                }),
+                storage: crate::StorageOptions {
+                    location: crate::StorageLocation::InMemory,
                     encryption_key: Some(encryption_key.to_vec()),
                     ..Default::default()
                 },
-                None
-            )
-            .await
-            .is_err()
-        );
+                device_sync: false,
+                ..Default::default()
+            },
+        )
+        .await;
+        assert!(created.is_err(), "an invalid database key was accepted");
         tracing::error!(target: "xmtp_sdk::conformance", "secret operations completed");
     }
-    .with_subscriber(capture.dispatch())
-    .await;
+    drop(captured);
     let mut app_records = Vec::new();
     loop {
         let record = receive(&mut records).await;
@@ -204,8 +216,9 @@ async fn client_log_secrets_are_redacted() {
         );
     }
     for secret in [signing_key.as_slice(), encryption_key.as_slice()] {
-        let native_exposed = native.contains(&format!("{secret:?}"));
-        let app_exposed = app.contains(&format!("{secret:?}"));
+        let forms = [format!("{secret:?}"), hex::encode(secret)];
+        let native_exposed = forms.iter().any(|form| native.contains(form));
+        let app_exposed = forms.iter().any(|form| app.contains(form));
         assert!(
             !native_exposed && !app_exposed,
             "key exposure: native={native_exposed}, app={app_exposed}"
