@@ -35,9 +35,9 @@ class StreamRecoveryTest {
                     withClients {
                         val sender = create()
                         val receiver = create(options = liveOptions(liveEnv("XMTP_BACKEND_TOXIC_URL")))
-                        val group = sender.conversations().createGroup(listOf(receiver.inboxId()))
-                        receiver.conversations().sync()
-                        val joined = (receiver.conversations().getById(group.id()) as Conversation.Group).group
+                        val group = sender.conversations.createGroup(listOf(receiver.inboxId()))
+                        receiver.conversations.sync()
+                        val joined = (receiver.conversations.getById(group.id()) as Conversation.Group).group
                         val received = Collections.synchronizedList(mutableListOf<MessageId>())
                         val states = Collections.synchronizedList(mutableListOf<ConnectionState>())
                         var closed: SDKStreamCloseReason? = null

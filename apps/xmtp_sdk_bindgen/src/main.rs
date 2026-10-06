@@ -265,12 +265,12 @@ fn generate(
                 source.push_str("\nlet pureLoading: Promise<void> | undefined;\nexport function initPureWasm(wasm: URL = new URL('./xmtp_sdk.wasm', import.meta.url)): Promise<void> { pureLoading ??= uniffiInitAsync(wasm); return pureLoading; }\nexport { TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime/codecs';\n");
                 source.push_str("export { Timestamp } from './runtime';\n");
             } else if is_wasm {
-                source.push_str("\nexport { Client, Storage } from './public-client.gen';\nexport type { StorageAdmin } from './storage-admin.gen';\nexport { Message } from './host-message.gen';\nexport { Timestamp, MessageStream, ConversationStream, EventStream } from './runtime';\n");
+                source.push_str("\nexport { Client, Storage } from './public-client.gen';\nexport type { StorageAdmin } from './storage-admin.gen';\nexport { Message } from './host-message.gen';\nexport { Timestamp, EventStream } from './runtime';\n");
                 source.push_str(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );
             } else {
-                source.push_str("\nexport { Client, Message, Timestamp, MessageStream, ConversationStream, EventStream, setLogSink, TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime';\n");
+                source.push_str("\nexport { Client, Message, Timestamp, EventStream, setLogSink, TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime';\n");
                 source.push_str(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );

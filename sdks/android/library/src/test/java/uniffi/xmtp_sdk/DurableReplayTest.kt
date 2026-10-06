@@ -44,14 +44,14 @@ class DurableReplayTest {
                         val identity = signer.identity()
                         var owner = create(signer, options)
                         val inbox = owner.inboxId()
-                        val group = owner.conversations().createGroup(emptyList())
+                        val group = owner.conversations.createGroup(emptyList())
                         val first = group.sendText("held collector A")
                         val second = group.sendText("held collector B")
 
                         suspend fun rebuild(): Group {
                             withContext(NonCancellable) { owner.end() }
                             owner = build(identity, options, inbox)
-                            return (checkNotNull(owner.conversations().getById(group.id())) as Conversation.Group).group
+                            return (checkNotNull(owner.conversations.getById(group.id())) as Conversation.Group).group
                         }
 
                         // `first()` leaves the reader early, so it does not acknowledge.

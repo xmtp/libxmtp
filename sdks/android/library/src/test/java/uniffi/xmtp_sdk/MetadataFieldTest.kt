@@ -29,7 +29,7 @@ class MetadataFieldTest {
                     // The default policy set lets all members write the
                     // name; delete stays super-admin only. Each member may
                     // write only its own profile entry.
-                    val group = alix.conversations().createGroup(listOf(bo.inboxId()))
+                    val group = alix.conversations.createGroup(listOf(bo.inboxId()))
                     val descriptors = group.metadataFields().associateBy { it.field }
                     val allow = MetadataPolicy.Base(MetadataBasePolicy.Allow)
                     assertEquals(
@@ -58,8 +58,8 @@ class MetadataFieldTest {
                     assertEquals(groupName, group.metadataField("GROUP_NAME")?.field)
 
                     group.updateMetadataField(groupName, ComponentMutation.Replace(FieldValue.String("Team")))
-                    bo.conversations().sync()
-                    val boGroup = (checkNotNull(bo.conversations().getById(group.id())) as Conversation.Group).group
+                    bo.conversations.sync()
+                    val boGroup = (checkNotNull(bo.conversations.getById(group.id())) as Conversation.Group).group
                     boGroup.sync()
                     assertEquals(MetadataValue.Scalar(FieldValue.String("Team")), boGroup.metadataValue(groupName))
 

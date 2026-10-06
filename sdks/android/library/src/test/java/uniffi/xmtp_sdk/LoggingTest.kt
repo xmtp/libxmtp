@@ -33,7 +33,7 @@ class LoggingTest {
                 try {
                     withClients {
                         val client = create()
-                        client.conversations().createGroup(emptyList())
+                        client.conversations.createGroup(emptyList())
                         assertTrue(
                             "No SDK log reached the Kotlin sink after ${calls.get()} calls",
                             eventually(

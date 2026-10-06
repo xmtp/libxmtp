@@ -110,7 +110,7 @@ class EventListenerTest {
                     val received = CompletableDeferred<ClientEvent>()
                     val id = client.startListener(joinedFilter) { received.complete(it) }
                     val first = async { events.first() }
-                    val group = client.conversations().createGroup(emptyList())
+                    val group = client.conversations.createGroup(emptyList())
                     val streamed = first.await() as ClientEvent.ConversationJoined
                     val heard = received.await() as ClientEvent.ConversationJoined
                     client.stopListener(id)
@@ -152,7 +152,7 @@ class EventListenerTest {
                         },
                     )
                     // The callback can end the client before createGroup returns.
-                    withContext(Dispatchers.Default) { runCatching { client.conversations().createGroup(emptyList()) } }
+                    withContext(Dispatchers.Default) { runCatching { client.conversations.createGroup(emptyList()) } }
                     try {
                         assertTrue(
                             "stopListener inside the callback waited for the callback to return",

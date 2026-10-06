@@ -21,7 +21,7 @@ class IdentityRoutesTest {
                 withClients {
                     val a = create()
                     val b = create()
-                    val conversations = a.conversations()
+                    val conversations = a.conversations
                     val empty = conversations.createGroup(emptyList<PublicIdentity>())
                     assertEquals(setOf(a.inboxId()), memberIds(empty))
                     assertEquals(a.inboxId(), empty.creatorInboxId())

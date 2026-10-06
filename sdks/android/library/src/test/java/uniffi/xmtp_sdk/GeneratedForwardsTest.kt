@@ -23,7 +23,7 @@ class GeneratedForwardsTest {
                 withClients {
                     val alix = create()
                     val bo = create()
-                    val group = alix.conversations().createGroup(listOf(bo.inboxId()))
+                    val group = alix.conversations.createGroup(listOf(bo.inboxId()))
                     // One commit moves the generated debug record's epoch by one.
                     val epoch = group.debugInfo().epoch
                     group.addAdmin(bo.inboxId())
@@ -33,16 +33,16 @@ class GeneratedForwardsTest {
                     assertEquals(MessageContent.Text("decoded"), alix.decodeContent(encodeText("decoded")))
 
                     val preparedId = group.prepareMessage(encodeText("prepared"))
-                    assertNull(checkNotNull(alix.conversations().getMessageById(preparedId)).deliveryCursor)
+                    assertNull(checkNotNull(alix.conversations.getMessageById(preparedId)).deliveryCursor)
                     Conversation.Group(group).publishMessage(preparedId)
-                    assertNotNull(checkNotNull(alix.conversations().getMessageById(preparedId)).deliveryCursor)
+                    assertNotNull(checkNotNull(alix.conversations.getMessageById(preparedId)).deliveryCursor)
 
                     // Each peer creates its own DM, so after a sync each one is the
                     // other's single duplicate.
-                    val dm = alix.conversations().createDm(bo.inboxId())
-                    val other = bo.conversations().createDm(alix.inboxId())
+                    val dm = alix.conversations.createDm(bo.inboxId())
+                    val other = bo.conversations.createDm(alix.inboxId())
                     assertTrue(dm.id() != other.id())
-                    alix.conversations().syncAll(null)
+                    alix.conversations.syncAll(null)
                     assertEquals(listOf(other.id()), dm.duplicateDms().map { it.id() })
 
                     val key = ByteArray(32) { 7 }
@@ -51,7 +51,7 @@ class GeneratedForwardsTest {
                     assertEquals(0.toUShort(), alix.archives().metadataFromBytes(archive, key).backupVersion)
                     val restored = create()
                     restored.archives().importFromBytes(archive, key)
-                    assertNotNull("The imported archive lost the group", restored.conversations().getById(group.id()))
+                    assertNotNull("The imported archive lost the group", restored.conversations.getById(group.id()))
                 }
             }
         }
