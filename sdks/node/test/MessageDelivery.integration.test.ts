@@ -1,5 +1,4 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import { Dm } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
 const nextWithin = async <T>(stream: {
@@ -113,9 +112,7 @@ describe("durable message delivery", () => {
                 from: history.cursor,
                 conversationKind: "group",
               })
-            : group instanceof Dm
-              ? group.streamMessages({ from: history.cursor })
-              : group.streamMessages({ from: history.cursor });
+            : group.streamMessages({ from: history.cursor });
         await stream.ready();
         closeStream = () => stream.end();
         expect((await nextWithin(stream)).value?.id).toBe(secondId);
