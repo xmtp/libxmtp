@@ -39,7 +39,9 @@ const NEW_BODY: &str = r#"    let allowsCancellation = errorHandler != nil
                     },
                     uniffiContinuationHandleMap.insert(obj: $0)
                 )
+                UniffiNativePolls.shared.polled()
             }
+            UniffiNativePolls.shared.resumed()
         } while pollResult != UNIFFI_RUST_FUTURE_POLL_READY
         // Lift stored ready results before the caller applies its handoff policy.
         let value = try future.complete { handle in
@@ -109,6 +111,32 @@ const STATE: &str = r#"fileprivate final class UniffiCancellableRustFuture: @unc
         guard !freed else { return }
         freed = true
         freeFunc(handle)
+    }
+}
+
+// Counts the native polls that returned and wait for their wake. The package
+// tests read it to cancel a call only after the call polled its native future.
+internal final class UniffiNativePolls: @unchecked Sendable {
+    static let shared = UniffiNativePolls()
+    private let lock = NSLock()
+    private var waiting = 0
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiting
+    }
+
+    fileprivate func polled() {
+        lock.lock()
+        waiting += 1
+        lock.unlock()
+    }
+
+    fileprivate func resumed() {
+        lock.lock()
+        waiting -= 1
+        lock.unlock()
     }
 }
 
@@ -232,6 +260,14 @@ mod tests {
         assert!(output.contains("let allowsCancellation = errorHandler != nil"));
         assert!(output.contains("if allowsCancellation { future.cancel() }"));
         assert!(output.contains("try await Task.detached { try await discard(lifted) }.value"));
+        let polled = output
+            .find("UniffiNativePolls.shared.polled()")
+            .expect("the poll count rises after the native poll");
+        let poll = output.find("pollFunc(\n").expect("native poll");
+        let resumed = output
+            .find("UniffiNativePolls.shared.resumed()")
+            .expect("the poll count falls after the wake");
+        assert!(poll < polled && polled < resumed);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

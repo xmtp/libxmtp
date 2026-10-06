@@ -27402,6 +27402,32 @@ fileprivate final class UniffiCancellableRustFuture: @unchecked Sendable {
     }
 }
 
+// Counts the native polls that returned and wait for their wake. The package
+// tests read it to cancel a call only after the call polled its native future.
+internal final class UniffiNativePolls: @unchecked Sendable {
+    static let shared = UniffiNativePolls()
+    private let lock = NSLock()
+    private var waiting = 0
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiting
+    }
+
+    fileprivate func polled() {
+        lock.lock()
+        waiting += 1
+        lock.unlock()
+    }
+
+    fileprivate func resumed() {
+        lock.lock()
+        waiting -= 1
+        lock.unlock()
+    }
+}
+
 fileprivate func uniffiRustCallAsync<F, T>(
     rustFutureFunc: () -> UInt64,
     pollFunc: (UInt64, @escaping UniffiRustFutureContinuationCallback, UInt64) -> (),
@@ -27435,7 +27461,9 @@ fileprivate func uniffiRustCallAsync<F, T>(
                     },
                     uniffiContinuationHandleMap.insert(obj: $0)
                 )
+                UniffiNativePolls.shared.polled()
             }
+            UniffiNativePolls.shared.resumed()
         } while pollResult != UNIFFI_RUST_FUTURE_POLL_READY
         // Lift stored ready results before the caller applies its handoff policy.
         let value = try future.complete { handle in
