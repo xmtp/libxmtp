@@ -1,12 +1,12 @@
 import { expect, it, vi } from "vitest";
 
 import { MainCallbacks } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/callbacks.js";
-import { WorkerCallbacks } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/callback-stub.js";
-import { pair } from "./bridge-support.js";
+import type { CallbackTarget } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/callbacks.js";
 import { logSinkSetter } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/log-sink.js";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.js";
-import type { CallbackTarget } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/callbacks.js";
 import type { CallbackWire } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
+import { WorkerCallbacks } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/callback-stub.js";
+import { pair } from "./bridge-support.js";
 import { waitForLog } from "./logging-wait.js";
 
 async function install(callbacks: MainCallbacks, sink: CallbackTarget) {

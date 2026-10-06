@@ -69,6 +69,10 @@ jobs:
         env:
           NIX_DEVSHELL: android
         run: dev/nix-shell 'just android test'
+      - name: Check consumers
+        env:
+          NIX_DEVSHELL: android
+        run: dev/nix-shell 'just android check-consumers'
 
   integration-tests:
     name: Integration Tests (Android)

@@ -5,9 +5,7 @@ import {
   bridgeError,
   encodeError,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
-import {
-  WorkerCallbacks,
-} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/callback-stub.js";
+import { WorkerCallbacks } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/callback-stub.js";
 import {
   PoolLocks,
   WorkerHost,

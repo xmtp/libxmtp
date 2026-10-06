@@ -65,7 +65,20 @@ private actor LateOpenGate {
 	}
 }
 
-private struct AppStop: Error {}
+/// Waits at most `seconds` for a task that the test has cancelled or released.
+/// Fails the test when the task does not end in time.
+private func awaitEnd(
+	_ task: Task<some Sendable, Error>, _ what: String, seconds: Double = 10,
+	file: StaticString = #filePath, line: UInt = #line,
+) async {
+	let ended = try? await within(seconds: seconds) {
+		_ = try? await task.value
+		return true
+	}
+	if ended == nil {
+		XCTFail("\(what) did not end in \(seconds) seconds", file: file, line: line)
+	}
+}
 
 /// The Swift reader stream (`runtime/streams/Readers.swift`) releases its reader
 /// before iteration ends, ends a reader that opens late, and stops its state
@@ -77,8 +90,9 @@ final class ReaderTeardownTests: XCTestCase {
 		makeSDKClient(FakeClient(noHandle: Client.NoHandle()))
 	}
 
-	/// The stored sequence stays alive after the app throws. Its loop iterator
-	/// must release the reader. The app error must not acknowledge the item.
+	/// The stored sequence stays alive after the app stops reading, as a loop
+	/// body that throws does. The dropped iterator must release the reader. The
+	/// stop must not acknowledge the item.
 	// verifies: PROC-052, PROC-031, PROC-041
 	func testAppErrorEndsTheReaderWithoutAcknowledgingTheItem() async throws {
 		try await withLiveClients(1) { clients in
@@ -96,15 +110,18 @@ final class ReaderTeardownTests: XCTestCase {
 			}, owner: owner, onClose: { reason in
 				reasons.update { $0.append(reason) }
 			}, onConnectionStateChange: nil)
-			var delivered: MessageId?
+			// The app reads one item and then stops, as a `for try await` loop
+			// that throws does: the iterator is dropped after its first item.
 			do {
-				for try await message in stream {
-					delivered = message.id
-					throw AppStop()
+				let iterator = stream.makeAsyncIterator()
+				guard let first = try await within(seconds: 10, { try await iterator.next() }) else {
+					return XCTFail("The stream delivered no message in 10 seconds")
 				}
-				XCTFail("The loop ended without an item")
-			} catch is AppStop {}
-			XCTAssertEqual(delivered, heldId, "The loop received the wrong message")
+				guard let delivered = first else {
+					return XCTFail("The stream ended without an item")
+				}
+				XCTAssertEqual(delivered.id, heldId, "The loop received the wrong message")
+			}
 
 			// Release starts an asynchronous teardown. Wait for its close signal;
 			// the end of the loop does not prove that teardown has finished.
@@ -164,7 +181,7 @@ final class ReaderTeardownTests: XCTestCase {
 		guard started else {
 			operation.cancel()
 			releaseSignal.finish()
-			_ = try? await operation.value
+			await awaitEnd(operation, "The cancelled read")
 			return XCTFail("The reader open did not start")
 		}
 		operation.cancel()
@@ -172,8 +189,8 @@ final class ReaderTeardownTests: XCTestCase {
 		// Release only after the deadline.
 		releaseSignal.finish()
 		do {
-			_ = try await operation.value
-			XCTFail("The cancelled open delivered a message")
+			let outcome = try await within(seconds: 10) { try await operation.value }
+			XCTFail(outcome == nil ? "The cancelled read did not end in 10 seconds" : "The cancelled open delivered a message")
 		} catch is CancellationError {}
 		XCTAssertTrue(completedWithoutRelease, "The cancelled read waited for the manual release")
 		XCTAssertTrue(cancelled.value, "The open did not receive cancellation")
@@ -208,7 +225,7 @@ final class ReaderTeardownTests: XCTestCase {
 			guard didOpen, let lateReader = opened.value else {
 				opening.cancel()
 				await gate.release()
-				_ = try? await opening.value
+				await awaitEnd(opening, "The cancelled open")
 				return XCTFail("The reader did not open before cancellation")
 			}
 			opening.cancel()
@@ -216,8 +233,8 @@ final class ReaderTeardownTests: XCTestCase {
 			let closesBeforeRelease = closes.value
 			await gate.release()
 			do {
-				_ = try await opening.value
-				XCTFail("The cancelled open delivered a message")
+				let outcome = try await within(seconds: 10) { try await opening.value }
+				XCTFail(outcome == nil ? "The released open did not end in 10 seconds" : "The cancelled open delivered a message")
 			} catch is CancellationError {}
 			XCTAssertEqual(closesBeforeRelease, 0, "Close ran before the late reader ended")
 			let readerClosed = await eventually(seconds: 10) { await lateReader.connectionState() == .closed }
@@ -255,13 +272,17 @@ final class ReaderTeardownTests: XCTestCase {
 				}
 			}
 
-			let ended = try await slowEndStream(read: { nil }).makeAsyncIterator().next()
+			let ending = slowEndStream(read: { nil }).makeAsyncIterator()
+			guard let ended = try await within(seconds: 10, { try await ending.next() }) else {
+				return XCTFail("An ended stream did not end in 10 seconds")
+			}
 			XCTAssertNil(ended, "An ended stream delivered a message")
 			try await reopenAfter("End of stream")
 
+			let failing = slowEndStream(read: { throw ReadFailure.failed }).makeAsyncIterator()
 			do {
-				_ = try await slowEndStream(read: { throw ReadFailure.failed }).makeAsyncIterator().next()
-				XCTFail("A failed read delivered a message")
+				let outcome = try await within(seconds: 10) { try await failing.next() }
+				XCTFail(outcome == nil ? "A failed read did not end in 10 seconds" : "A failed read delivered a message")
 			} catch ReadFailure.failed {}
 			try await reopenAfter("A read failure")
 
@@ -273,7 +294,7 @@ final class ReaderTeardownTests: XCTestCase {
 			}
 			try await pause(seconds: 0.1)
 			cancelledRead.cancel()
-			_ = try? await cancelledRead.value
+			await awaitEnd(cancelledRead, "The cancelled read")
 			try await reopenAfter("Cancellation")
 		}
 	}
@@ -328,7 +349,7 @@ final class ReaderTeardownTests: XCTestCase {
 		let callsAtClosed = monitorCalls.value
 		try await pause(seconds: 0.1)
 		closingRead.cancel()
-		_ = try? await closingRead.value
+		await awaitEnd(closingRead, "The closing read")
 		XCTAssertTrue(sawClosed, "The state monitor did not report Closed")
 		XCTAssertEqual(callsAtClosed, 1, "The state monitor did not wait for one change")
 		XCTAssertEqual(monitorCalls.value, callsAtClosed, "The state monitor kept reading after Closed")
@@ -345,7 +366,7 @@ final class ReaderTeardownTests: XCTestCase {
 		let connectedRead = Task { try await connected.makeAsyncIterator().next() }
 		let reported = await eventually(seconds: 5) { !states.value.isEmpty }
 		connectedRead.cancel()
-		_ = try? await connectedRead.value
+		await awaitEnd(connectedRead, "The connected read")
 		XCTAssertTrue(reported, "The connected reader reported no state")
 		XCTAssertEqual(states.value.first, .connected, "The connected reader reported another state first")
 		withExtendedLifetime(owner) {}

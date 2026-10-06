@@ -211,9 +211,11 @@ These stay outside the markers on purpose:
 ## Runtime tests
 
 `runtime-tests/ts` holds the unit tests of the TypeScript bridge runtime
-(`bridge.test.ts` and its `bridge-*.ts` parts), the codec send policy, and the
-generated public projection. `dev/nix-shell 'just sdk test-bridge'` runs them
-with the generated `conformance.gen.test.ts` against the staged SDK. The
-tests stay out of `runtime/` because generation copies that directory. The
+(`bridge.test.ts` and its `bridge-*.ts` parts), the reader stream consumers,
+the codec send policy, and the generated public projection. They import the
+runtime copy in the generated browser tree. `dev/nix-shell 'just sdk
+test-bridge'` runs them with the generated `conformance.gen.test.ts` against
+the staged SDK. The tests stay out of `runtime/` because generation copies
+that directory. The
 browser platform proofs that need Chromium, OPFS, or a fixture build are in
 `sdks/browser/test/platform` (`dev/nix-shell 'just sdk test-browser'`).

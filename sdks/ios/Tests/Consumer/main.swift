@@ -21,5 +21,10 @@ do {
 		options: ClientOptions(storage: StorageOptions(location: .default)),
 	)
 	fail("Default storage accepted a missing bundle identifier")
-} catch XmtpError.StorageLocationRequired {}
+} catch XmtpError.StorageLocationRequired {
+	// Expected: default storage has no location here.
+} catch {
+	fail("Unexpected error: \(error)")
+}
+
 print("Swift missing bundle identifier rejected")
