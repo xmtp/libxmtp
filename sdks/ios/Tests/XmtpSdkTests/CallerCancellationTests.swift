@@ -221,8 +221,8 @@ final class CallerCancellationTests: XCTestCase {
 		}
 	}
 
-	/// A cancelled event read ends the reader and returns nil, so no event is
-	/// handed off after cancellation.
+	/// A cancelled pending event read, with no event queued, ends the reader
+	/// and returns nil. The next test covers an event that is ready first.
 	func testCancelledPendingEventReadEndsTheReader() async throws {
 		guard #available(macOS 15.0, iOS 18.0, *) else {
 			throw XCTSkip("The call executor needs a task executor")
@@ -248,6 +248,44 @@ final class CallerCancellationTests: XCTestCase {
 			}
 			let reopened = try await reader.next()
 			XCTAssertNil(reopened, "The ended event reader read again")
+		}
+	}
+
+	/// An event read cancelled after its native future became ready does not
+	/// hand off the ready event. The executor holds the wake from the native
+	/// future, so the test cancels after the event is ready and before Swift
+	/// polls the result.
+	func testEventReadyBeforeCancellationIsNotHandedOff() async throws {
+		guard #available(macOS 15.0, iOS 18.0, *) else {
+			throw XCTSkip("The call executor needs a task executor")
+		}
+		try await withClients { scope in
+			let client = try await scope.create(signer: generateLocalSigner(), options: cancellationOptions())
+			let reader = try await client.raw.events(filter: EventFilter(kinds: [.conversationJoined]))
+			let executor = CallExecutor(holdAfterFirst: true)
+			let call = Task(executorPreference: executor) { try await reader.next() }
+			guard await waitUntil("The event read did not suspend", { executor.returnedJobs > 0 }) else {
+				call.cancel()
+				executor.release()
+				return
+			}
+			_ = try await client.conversations().createGroup(members: [InboxId]())
+			guard await waitUntil("The event read did not become ready", { executor.heldJobs > 0 }) else {
+				call.cancel()
+				executor.release()
+				return
+			}
+			call.cancel()
+			executor.release()
+			guard let result = await settle(call, "The cancelled ready event read") else {
+				return
+			}
+			switch result {
+			case let .success(event):
+				XCTAssertNil(event, "A ready event was handed off after cancellation")
+			case let .failure(error):
+				XCTFail("A cancelled event read threw \(error)")
+			}
 		}
 	}
 
