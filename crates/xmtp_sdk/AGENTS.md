@@ -127,8 +127,10 @@ metadata markers, so a routine export needs no generator edit:
   target. Every SDK gets a Client static named without the trailing
   `_with_backend`, with the `BackendSource` argument last, and the function
   stays exported.
-- A `MessageData` field or a new identity route still needs the hand edits
-  that the generator README lists.
+- A `MessageData` field gets an accessor on `Message` in every SDK, and a
+  place in Kotlin's `Message` equality, from the generator.
+- A new identity route still needs the hand edits that the generator README
+  lists.
 
 `apps/xmtp_sdk_bindgen/README.md` lists the markers and the areas that stay
 hand-maintained.

@@ -3,9 +3,12 @@
 mod errors;
 mod events;
 mod identity;
+mod message;
 mod objects;
 mod policy;
 mod values;
+
+pub(crate) use policy::is_delivery_cursor;
 
 use std::{fmt::Write as _, fs};
 
@@ -124,6 +127,7 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
         }
     }
     if target != Target::Pure {
+        message::fields(&mut code, &items)?;
         objects::projection(&mut code, &items, target)?;
     }
     // A hoisted helper, emitted only when a lift uses it.

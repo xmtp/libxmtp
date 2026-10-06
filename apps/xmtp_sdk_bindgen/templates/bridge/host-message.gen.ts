@@ -196,47 +196,6 @@ export class Message extends B.Message {
         : undefined;
   }
 
-  get deliveryCursor(): string | null {
-    return this.data.deliveryCursor ?? null;
-  }
-
-  get conversationId(): B.ConversationId {
-    return this.data.conversationId;
-  }
-  get topic(): string {
-    return this.data.topic;
-  }
-  get senderInboxId(): B.InboxId {
-    return this.data.senderInboxId;
-  }
-  get sentAt(): B.Timestamp {
-    return this.data.sentAt;
-  }
-  get contentType(): B.ContentTypeId | undefined {
-    return this.data.contentType;
-  }
-  get rawBytes(): ArrayBuffer {
-    return this.data.rawBytes;
-  }
-  get fallback(): string | undefined {
-    return this.data.fallback;
-  }
-  get replyCount(): bigint {
-    return this.data.replyCount;
-  }
-  get reactions(): B.ReactionMessage[] {
-    return this.data.reactions;
-  }
-  get insertedAt(): B.Timestamp {
-    return this.data.insertedAt;
-  }
-  get expiresAt(): B.Timestamp | undefined {
-    return this.data.expiresAt;
-  }
-  get inReplyTo(): B.ReplyParent | undefined {
-    return this.data.inReplyTo;
-  }
-
   client(): PublicClient {
     const value = owner(this.session, this.data.clientKey)?.client.deref();
     if (!value) throw closed();

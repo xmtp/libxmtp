@@ -5,7 +5,7 @@
 `crates/xmtp_sdk/AGENTS.md` for the recipes.
 
 A routine façade change (a method, a getter, an event variant or payload
-record, a Client static, a record field other than one of `MessageData`)
+record, a Client static, a record field, including one of `MessageData`)
 needs no edit here.
 The façade describes its items with `#[xmtp_macro::sdk_export]`, and the
 generator reads the result from the UniFFI library metadata.
@@ -126,6 +126,28 @@ or `@xmtp-internal` one, one with two `BackendSource` parameters, a name that
 another static or the host constructors `create` and `build` take, or a
 Kotlin foreign trait that has no `SDKForeign` wrapper or sits in a container.
 
+## Message fields
+
+Each SDK's `Message` wraps a `MessageData` record. The generator writes an
+accessor for every field but two that the host reads itself: `client_key`
+names the client that returned the message, and the host decodes `content`
+with that client's codecs. Generation stops when either one is missing.
+
+- TypeScript: `message-fields.gen.ts` holds the getters of the binding
+  message that the Node runtime's and the browser host's `Message` extend.
+  The public `Message` extends the `MessageFields` class of the public
+  projection, which lifts each field to its public value once. A delivery
+  cursor reads as `null` when absent.
+- Kotlin: `runtime/MessageFields.kt` is the base class of `Message`, with
+  value equality and a hash over every `MessageData` field. Byte arrays,
+  including those in enum variants and their records, compare by content;
+  every other value compares as its class does.
+- Swift: `runtime/MessageFields.swift` extends `Message` with an accessor per
+  field, of the type that the binding's `MessageData` struct declares.
+
+The hand-written `Message` classes keep only content and reply decoding and
+the message actions.
+
 ## Hand-maintained areas
 
 These stay outside the markers on purpose:
@@ -133,11 +155,10 @@ These stay outside the markers on purpose:
 - Codecs (`runtime/*/SDKCodecs*`, `runtime/ts/codecs.ts`): each codec needs
   a hand-written runtime class per language, and the name lists sit beside
   those classes.
-- `Message` accessors over `MessageData` (five runtime files, such as
-  `runtime/ts/message.ts` and `runtime/kotlin/SDKTypes.kt`): each language
-  reads the record's fields by hand. A later change generates them.
 - Public projection policy (`src/public_projection/policy.rs`): the
   `CREDENTIAL_GUARD` text and the `DELIVERY_CURSOR_*` lists.
+- The `MessageData` fields that the hand-written `Message` reads itself
+  (`HOST_FIELDS` in `src/message_fields.rs`): `client_key` and `content`.
 - Codec sends (`is_codec_send` in `src/public_projection/objects.rs`) and
   host client methods (`HOST_CLIENT_METHODS` in `src/forwarding.rs`).
 - Rust `Debug` of a redacted record (`redacted_debug` in the façade): the

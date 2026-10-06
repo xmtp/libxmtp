@@ -86,6 +86,8 @@ private func closedContentDetails() -> ErrorDetails {
     ErrorDetails(code: "ClientClosed", category: .lifecycle, retryable: false, message: "client is closed")
 }
 
+/// A received or stored message. `MessageFields.swift` holds its field
+/// accessors.
 public final class Message: Identifiable, Hashable, Sendable {
     public let data: MessageData
     public let content: SDKMessageContent
@@ -109,74 +111,6 @@ public final class Message: Identifiable, Hashable, Sendable {
         } else {
             content = .standard(data.content)
         }
-    }
-
-    public var deliveryCursor: String? {
-        data.deliveryCursor
-    }
-
-    public var id: MessageId {
-        data.id
-    }
-
-    public var conversationId: ConversationId {
-        data.conversationId
-    }
-
-    public var topic: String {
-        data.topic
-    }
-
-    public var senderInboxId: InboxId {
-        data.senderInboxId
-    }
-
-    public var sentAt: Timestamp {
-        data.sentAt
-    }
-
-    public var kind: MessageKind {
-        data.kind
-    }
-
-    public var deliveryStatus: DeliveryStatus {
-        data.deliveryStatus
-    }
-
-    public var rawBytes: Data {
-        data.rawBytes
-    }
-
-    public var contentType: ContentTypeId? {
-        data.contentType
-    }
-
-    public var fallback: String? {
-        data.fallback
-    }
-
-    public var encoded: EncodedContent? {
-        data.encoded
-    }
-
-    public var replyCount: UInt64 {
-        data.replyCount
-    }
-
-    public var reactions: [ReactionMessage] {
-        data.reactions
-    }
-
-    public var inReplyTo: ReplyParent? {
-        data.inReplyTo
-    }
-
-    public var insertedAt: Timestamp {
-        data.insertedAt
-    }
-
-    public var expiresAt: Timestamp? {
-        data.expiresAt
     }
 
     public func refresh() async throws -> Message? {

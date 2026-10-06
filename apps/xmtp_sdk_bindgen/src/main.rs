@@ -8,6 +8,7 @@ mod kotlin_callbacks;
 mod kotlin_records;
 mod logging_admission;
 mod markers;
+mod message_fields;
 mod native_visibility;
 mod public_projection;
 mod redaction;
@@ -321,8 +322,21 @@ fn generate(
                 out.join("runtime/RecordDescriptions.swift"),
                 redaction::swift(&metadata)?,
             )?;
+            // Message reads its MessageData fields through generated
+            // accessors in every language.
+            fs::write(
+                out.join("runtime/MessageFields.swift"),
+                message_fields::generate_swift(
+                    &metadata,
+                    &fs::read_to_string(out.join("xmtp_sdk.swift"))?,
+                )?,
+            )?;
         }
         if matches!(language, Language::Kotlin) {
+            fs::write(
+                out.join("runtime/MessageFields.kt"),
+                message_fields::generate_kotlin(&metadata)?,
+            )?;
             let android = runtime
                 .parent()
                 .context("Kotlin runtime has no parent directory")?
@@ -357,6 +371,7 @@ fn generate(
         )
     {
         forwarding::generate_typescript(&metadata, out)?;
+        message_fields::generate_typescript(&metadata, out)?;
         let target = if matches!(language, Language::TypescriptNapi) {
             public_projection::Target::Node
         } else {

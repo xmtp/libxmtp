@@ -184,7 +184,7 @@ fn enum_display(source: &str, value: &EnumMetadata) -> Result<String> {
     Ok(format!("{}{block}{}", &source[..start], &source[end..]))
 }
 
-fn byte_field(ty: &Type) -> bool {
+pub(crate) fn byte_field(ty: &Type) -> bool {
     match ty {
         Type::Bytes => true,
         Type::Optional { inner_type } => matches!(inner_type.as_ref(), Type::Bytes),
