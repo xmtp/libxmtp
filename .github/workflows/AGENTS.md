@@ -2,6 +2,10 @@
 
 Validate workflow edits with `dev/nix-shell 'just lint-config'`.
 
+Mobile release tags use `GH_APP_ID` and `GH_APP_PK` for the release App.
+The App installation must grant Contents write and Workflows write.
+`just lint-config` checks the release token setup with a local Git HTTP remote.
+
 - Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
 

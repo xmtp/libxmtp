@@ -1,0 +1,32 @@
+name: Setup Release Push
+description: Create a repository-scoped token that can push release tags
+inputs:
+  app-id:
+    description: Release GitHub App ID
+    required: true
+  private-key:
+    description: Release GitHub App private key
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Create release push token
+      id: token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        permission-contents: write
+        permission-workflows: write
+    - name: Configure Git release credentials
+      shell: bash
+      env:
+        RELEASE_TOKEN: ${{ steps.token.outputs.token }}
+      run: |
+        set -euo pipefail
+        AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 | tr -d '\n')"
+        echo "::add-mask::$AUTH_HEADER"
+        AUTH_KEY="http.${GITHUB_SERVER_URL}/.extraheader"
+        # Reset headers inherited from checkout before adding the release token.
+        git config --local --replace-all "$AUTH_KEY" ""
+        git config --local --add "$AUTH_KEY" "$AUTH_HEADER"

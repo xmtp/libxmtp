@@ -100,6 +100,12 @@ jobs:
           JAVA_TOOL_OPTIONS: "-Djna.library.path=${{ github.workspace }}/sdks/android/.build/test-host/lib"
         run: NIX_DEVSHELL=android dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && cd sdks/android && ./gradlew :library:build'
 
+      - name: Set up release push
+        uses: ./.github/actions/setup-release-push
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PK }}
+
       - name: Publish
         env:
           JAVA_TOOL_OPTIONS: "-Djna.library.path=${{ github.workspace }}/sdks/android/.build/test-host/lib"

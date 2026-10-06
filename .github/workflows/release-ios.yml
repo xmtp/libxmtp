@@ -128,6 +128,11 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
       - uses: ./.github/actions/setup-release-tools
+      - name: Set up release push
+        uses: ./.github/actions/setup-release-push
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PK }}
       - name: Update Package.swift and podspec
         env:
           VERSION: ${{ needs.build-and-package.outputs.version }}
