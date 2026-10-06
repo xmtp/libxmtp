@@ -25,6 +25,7 @@ import {
   metadataFieldRef,
   type ClientEvent,
   type FieldValue,
+  type MetadataBasePolicy,
   type PendingAttachment,
 } from "@xmtp/node-sdk";
 import { expect, it, vi } from "vitest";
@@ -81,6 +82,32 @@ it("well-known catalogue fields read and write between two Node clients", async 
     componentType: { kind: "map", keyType: "inboxId", valueType: "string" },
     isUserField: true,
   });
+  // Each slot of ComponentPermissions lifts its own policy. Rust builds these
+  // in xmtp_mls_common app_data/creation.rs (build_registry and
+  // register_configured_fields) from the default policy set. No standard
+  // field has different insert and update policies.
+  const policies = (
+    insert: MetadataBasePolicy,
+    update: MetadataBasePolicy,
+    remove: MetadataBasePolicy,
+  ) => ({
+    insert: { kind: "base", value: insert },
+    update: { kind: "base", value: update },
+    delete: { kind: "base", value: remove },
+  });
+  const allow = { kind: "allow" } as const;
+  const admin = { kind: "allowIfAdmin" } as const;
+  const superAdmin = { kind: "allowIfSuperAdmin" } as const;
+  const self = { kind: "allowIfSelfOrNonMember" } as const;
+  expect(described(displayName)?.permissions).toEqual(
+    policies(self, self, self),
+  );
+  expect(described(groupName)?.permissions).toEqual(
+    policies(allow, allow, superAdmin),
+  );
+  expect(
+    described(metadataFieldRef("messageDisappearInNs"))?.permissions,
+  ).toEqual(policies(admin, admin, superAdmin));
   await group.updateMetadataField(groupName, {
     kind: "replace",
     value: text("Team"),
@@ -97,6 +124,15 @@ it("well-known catalogue fields read and write between two Node clients", async 
   expect(await peer.userData([displayName], [alix.inboxId])).toEqual(
     new Map([[alix.inboxId, [{ field: displayName, value: text("Alix") }]]]),
   );
+  // An empty field filter keeps every member; an empty member filter keeps
+  // none. Absent filters lower to undefined, not to an empty list.
+  expect(await peer.userData([], undefined)).toEqual(
+    new Map([
+      [alix.inboxId, []],
+      [bo.inboxId, []],
+    ]),
+  );
+  expect(await peer.userData(undefined, [])).toEqual(new Map());
   // A map delta lowers its tuple variant (value0, value1) and inbox ID key;
   // the map value lifts back with that key.
   await peer.updateMetadataField(displayName, {
@@ -113,12 +149,20 @@ it("well-known catalogue fields read and write between two Node clients", async 
   expect(
     await group.mapValue(displayName, { kind: "inboxId", value: bo.inboxId }),
   ).toEqual(text("Bo"));
-  // A batch read lifts each value in request order.
-  const values = await group.metadataValues([displayName, groupName]);
+  // A batch read lifts each value in request order; an unset field lifts to
+  // an undefined value.
+  const description = metadataFieldRef("groupDescription");
+  const values = await group.metadataValues([
+    displayName,
+    groupName,
+    description,
+  ]);
   expect(values.map((value) => value.field.componentId)).toEqual([
     displayName.componentId,
     groupName.componentId,
+    description.componentId,
   ]);
+  expect(values[2]).toEqual({ field: description, value: undefined });
   const entry = (inboxId: string, name: string) => ({
     key: { kind: "inboxId", value: inboxId },
     value: text(name),
