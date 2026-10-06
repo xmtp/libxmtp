@@ -99,12 +99,15 @@ def reverse(config, ports):
     """Let the app reach the host's signer and backend at 127.0.0.1."""
     if not all(isinstance(port, int) and 0 < port < 65536 for port in ports):
         raise ValueError(f"adb reverse needs explicit TCP ports: {ports}")
-    for port in ports:
-        adb(config, "reverse", f"tcp:{port}", f"tcp:{port}")
+    # A failed mapping must not leave the earlier mappings on the device.
+    mapped = []
     try:
+        for port in ports:
+            adb(config, "reverse", f"tcp:{port}", f"tcp:{port}")
+            mapped.append(port)
         yield
     finally:
-        for port in ports:
+        for port in mapped:
             cleanup(config, "reverse", "--remove", f"tcp:{port}")
 
 

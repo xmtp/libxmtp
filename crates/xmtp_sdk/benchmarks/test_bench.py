@@ -527,6 +527,30 @@ class AndroidHost(unittest.TestCase):
         deadline = android_host.CLEANUP_SECONDS
         self.assertEqual(removed, [("tcp:5050", deadline), ("tcp:5555", deadline)])
 
+    def test_failed_reverse_removes_the_earlier_mappings(self):
+        commands = []
+
+        def adb(argv, **kwargs):
+            command = argv[3:]
+            commands.append(command)
+            if command == ["reverse", "tcp:5555", "tcp:5555"]:
+                raise subprocess.CalledProcessError(1, argv)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch.object(android_host.subprocess, "run", side_effect=adb):
+            with self.assertRaises(subprocess.CalledProcessError):
+                with android_host.reverse({"serial": "device"}, [5050, 5555]):
+                    self.fail("the body must not run without every mapping")
+        # Only the port that was mapped is removed.
+        self.assertEqual(
+            commands,
+            [
+                ["reverse", "tcp:5050", "tcp:5050"],
+                ["reverse", "tcp:5555", "tcp:5555"],
+                ["reverse", "--remove", "tcp:5050"],
+            ],
+        )
+
     def test_reverse_rejects_a_missing_port(self):
         with patch.object(android_host.subprocess, "run") as run:
             with self.assertRaises(ValueError):
