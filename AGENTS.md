@@ -79,7 +79,8 @@ and port block, so run `just backend status` for the checkout you are in. See th
 - After changes to the CI failure filter, run
   `dev/nix-shell 'just ci-failures-filter-test'`. It checks local log fixtures.
 - `dev/nix-shell 'just lint-config'` also checks Android emulator startup,
-  platform selection, and clock synchronization with local process fixtures.
+  scoped test teardown, platform selection, and clock synchronization with local
+  process fixtures.
 
 ## Test environment
 

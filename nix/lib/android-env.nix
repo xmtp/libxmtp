@@ -87,6 +87,15 @@ let
     set -e
     export PATH="${lib.makeBinPath [ coreutils ]}:$PATH"
 
+    scoped=""
+    if [ "''${1:-}" = "--" ] && [ "$#" -gt 1 ]; then
+      scoped=1
+      shift
+    elif [ "$#" -ne 0 ]; then
+      echo "Usage: run-test-emulator [-- COMMAND ARGS...]" >&2
+      exit 2
+    fi
+
     ADB="${androidSdk}/platform-tools/adb"
     EMULATOR_BIN="${androidSdk}/emulator/emulator"
     AVDMANAGER="${composeDevPackages.androidsdk}/bin/avdmanager"
@@ -96,6 +105,12 @@ let
 
     export ANDROID_SDK_ROOT="${androidSdk}"
     export ANDROID_USER_HOME=$(mktemp -d "''${TMPDIR:-/tmp}/nix-android-user-home-XXXX")
+    if [ -n "$scoped" ]; then
+      # Cover preparation errors; exec transfers lifetime ownership to Python.
+      trap 'rm -rf -- "$ANDROID_USER_HOME"' EXIT
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+    fi
     export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
     mkdir -p "$ANDROID_AVD_HOME"
 
@@ -139,6 +154,12 @@ let
     } >> "$ANDROID_AVD_HOME/$DEVICE_NAME.avd/config.ini"
 
     # The supervisor checks process death even while ADB or clock sync is blocked.
+    if [ -n "$scoped" ]; then
+      exec ${python3}/bin/python3 ${./android-emulator-start.py} \
+        "$ADB" "$EMULATOR_BIN" "$DEVICE_NAME" "$ANDROID_SERIAL" \
+        "$ANDROID_EMULATOR_API" ${./android-sync-clock.sh} $NIX_ANDROID_EMULATOR_FLAGS \
+        -- "$ANDROID_USER_HOME" "$@"
+    fi
     exec ${python3}/bin/python3 ${./android-emulator-start.py} \
       "$ADB" "$EMULATOR_BIN" "$DEVICE_NAME" "$ANDROID_SERIAL" \
       "$ANDROID_EMULATOR_API" ${./android-sync-clock.sh} $NIX_ANDROID_EMULATOR_FLAGS

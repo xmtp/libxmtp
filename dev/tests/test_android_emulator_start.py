@@ -4,6 +4,8 @@
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -60,6 +62,7 @@ if role == "emulator":
         "crash-boot": "boot.started",
         "crash-clock": "clock.started",
         "crash-clock-real": "clock.started",
+        "crash-test": "test.started",
     }.get(mode)
     if mode == "segfault" or marker:
         if marker:
@@ -69,7 +72,21 @@ if role == "emulator":
     while True:
         time.sleep(0.05)
 
-if role == "clock":
+if role == "test":
+    import json
+    (home / "test.env").write_text(json.dumps({key: os.environ[key] for key in (
+        "ANDROID_SERIAL", "ANDROID_USER_HOME", "ANDROID_AVD_HOME"
+    )}))
+    subprocess.Popen([sys.executable, str(home / "child")])
+    while not (home / "child.started").exists():
+        time.sleep(0.01)
+    (home / "test.started").touch()
+    if mode in ("test-hang", "crash-test"):
+        time.sleep(60)
+    if mode == "long-test":
+        time.sleep(2.2)
+    sys.exit(7 if mode == "test-failure" else 0)
+elif role == "clock":
     (home / "clock.started").touch()
     if mode == "clock-failure":
         print("clock differs from the host", flush=True)
@@ -129,13 +146,15 @@ class EmulatorStartupTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.home = Path(self.temporary.name)
         self.logs = self.home / "logs"
-        self.avd = self.home / "avd/libxmtp-test.avd"
+        self.android_home = self.home / "nix-android-user-home-fixture"
+        self.avd = self.android_home / "avd/libxmtp-test.avd"
         self.avd.mkdir(parents=True)
         (self.avd / "config.ini").write_text("hw.ramSize=4096\n")
         for role, code in [
             ("emulator", FIXTURE),
             ("adb", FIXTURE),
             ("clock", FIXTURE),
+            ("test", FIXTURE),
             ("child", CHILD),
         ]:
             executable = self.home / role
@@ -167,8 +186,8 @@ class EmulatorStartupTests(unittest.TestCase):
         self.env = dict(
             os.environ,
             FIXTURE_HOME=str(self.home),
-            ANDROID_USER_HOME=str(self.home),
-            ANDROID_AVD_HOME=str(self.home / "avd"),
+            ANDROID_USER_HOME=str(self.android_home),
+            ANDROID_AVD_HOME=str(self.android_home / "avd"),
             NIX_ANDROID_EMULATOR_LOG_DIR=str(self.logs),
         )
         self.addCleanup(self.clean_processes)
@@ -197,7 +216,9 @@ class EmulatorStartupTests(unittest.TestCase):
                 except ProcessLookupError:
                     os.kill(pid, signal.SIGKILL)
 
-    def run_start(self, mode, interrupt=False):
+    def run_start(
+        self, mode, interrupt=False, marker="boot.started", signum=signal.SIGTERM
+    ):
         process = subprocess.Popen(
             self.command,
             env=dict(self.env, FIXTURE_MODE=mode),
@@ -208,19 +229,123 @@ class EmulatorStartupTests(unittest.TestCase):
         try:
             if interrupt:
                 deadline = time.monotonic() + 3
-                while not (self.home / "boot.started").exists():
+                while not (self.home / marker).exists():
                     if time.monotonic() >= deadline:
-                        self.fail("Fixture did not reach boot polling")
+                        self.fail(f"Fixture did not reach {marker}")
                     time.sleep(0.02)
-                process.terminate()
+                process.send_signal(signum)
             stdout, stderr = process.communicate(timeout=8)
         except BaseException:
             process.kill()
             process.communicate()
             raise
         self.output = stdout + stderr
+        if "NIX_ANDROID_EMULATOR_LOG_DIR" not in self.env:
+            self.logs = Path(
+                re.search(r"Emulator startup diagnostics: (.+)", self.output)[1]
+            )
+            self.addCleanup(shutil.rmtree, self.logs)
         self.record = json.loads((self.logs / "startup.json").read_text())
         return process.returncode
+
+    def scope_command(self):
+        self.command.extend(["--", str(self.android_home), str(self.home / "test")])
+
+    def assert_scope_cleaned(self):
+        self.assertFalse(self.android_home.exists(), "Owned Android home survived")
+        self.assertTrue(self.logs.exists(), "Retained diagnostics were removed")
+        for role, pid in self.processes():
+            self.assertFalse(self.alive(pid), f"Owned {role} process {pid} survived")
+
+    def test_scoped_success_stops_emulator_and_test_descendant_and_removes_home(self):
+        self.scope_command()
+        self.assertEqual(self.run_start("success"), 0, self.output)
+        self.assertEqual(self.record["status"], "completed")
+        self.assertEqual(self.record["test_exit_status"], 0)
+        self.assert_scope_cleaned()
+        env = json.loads((self.home / "test.env").read_text())
+        self.assertEqual(env["ANDROID_SERIAL"], "emulator-5560")
+        self.assertEqual(env["ANDROID_USER_HOME"], str(self.android_home))
+        self.assertEqual(env["ANDROID_AVD_HOME"], str(self.android_home / "avd"))
+
+    def test_scoped_failure_preserves_test_exit_status_and_diagnostics(self):
+        self.scope_command()
+        self.assertEqual(self.run_start("test-failure"), 7, self.output)
+        self.assertEqual(self.record["status"], "test failed")
+        self.assertEqual(self.record["test_exit_status"], 7)
+        self.assertIn("fixture guest log", (self.logs / "logcat.txt").read_text())
+        self.assert_scope_cleaned()
+
+    def test_scoped_sigterm_stops_all_owned_processes_and_removes_home(self):
+        self.scope_command()
+        self.assertEqual(
+            self.run_start("test-hang", interrupt=True, marker="test.started"),
+            143,
+            self.output,
+        )
+        self.assert_scope_cleaned()
+
+    def test_scoped_sigint_stops_all_owned_processes_and_removes_home(self):
+        self.scope_command()
+        self.assertEqual(
+            self.run_start(
+                "test-hang", interrupt=True, marker="test.started", signum=signal.SIGINT
+            ),
+            130,
+            self.output,
+        )
+        self.assert_scope_cleaned()
+
+    def test_scoped_startup_crash_removes_home_without_running_tests(self):
+        self.scope_command()
+        self.assert_failed("segfault", "signal 11 (SIGSEGV)", "ADB connection")
+        self.assertFalse((self.home / "test.started").exists())
+        self.assert_scope_cleaned()
+
+    def test_scoped_emulator_crash_during_tests_stops_blocked_test(self):
+        self.scope_command()
+        self.assertEqual(self.run_start("crash-test"), 1, self.output)
+        self.assertIn(
+            "Emulator exited during test command: signal 11 (SIGSEGV)", self.output
+        )
+        self.assertEqual(self.record["phase"], "test command")
+        self.assertEqual(self.record["emulator_exit_status"], -signal.SIGSEGV)
+        self.assert_scope_cleaned()
+
+    def test_scoped_tests_can_outlast_startup_deadline(self):
+        self.scope_command()
+        self.assertEqual(self.run_start("long-test"), 0, self.output)
+        self.assertLess(self.record["startup_seconds"], 2)
+        self.assertGreater(self.record["elapsed_seconds"], 2)
+        self.assert_scope_cleaned()
+
+    def test_scoped_run_preserves_unrelated_emulator_and_home(self):
+        other_home = self.home / "other-android-home"
+        other_home.mkdir()
+        other = subprocess.Popen(
+            [str(self.home / "emulator")],
+            env=dict(self.env, FIXTURE_HOME=str(other_home), FIXTURE_MODE="success"),
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+        )
+
+        def stop_other():
+            other.terminate()
+            other.wait(timeout=2)
+
+        self.addCleanup(stop_other)
+        self.scope_command()
+        self.assertEqual(self.run_start("success"), 0, self.output)
+        self.assert_scope_cleaned()
+        self.assertIsNone(other.poll(), "Unrelated emulator was killed")
+        self.assertTrue(other_home.exists(), "Unrelated home was removed")
+
+    def test_scoped_default_diagnostics_survive_home_removal(self):
+        self.env.pop("NIX_ANDROID_EMULATOR_LOG_DIR")
+        self.scope_command()
+        self.assertEqual(self.run_start("test-failure"), 7, self.output)
+        self.assertFalse(self.logs.is_relative_to(self.android_home))
+        self.assert_scope_cleaned()
 
     def assert_failed(self, mode, reason, phase):
         self.assertNotEqual(self.run_start(mode), 0, self.output)

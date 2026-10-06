@@ -24,6 +24,12 @@ class StartupFailure(Exception):
     pass
 
 
+class StartupInterrupted(KeyboardInterrupt):
+    def __init__(self, signum):
+        super().__init__("Startup interrupted")
+        self.exit_status = 128 + signum
+
+
 def stop_process(process):
     """Reap the child and kill descendants, including a stuck adb shell."""
 
@@ -48,7 +54,7 @@ def stop_process(process):
     process.wait(timeout=CLEANUP_TIMEOUT)
 
 
-def check_emulator(emulator):
+def check_emulator(emulator, phase="before readiness"):
     status = emulator.poll()
     if status is not None:
         detail = (
@@ -56,7 +62,7 @@ def check_emulator(emulator):
             if status < 0
             else f"exit status {status}"
         )
-        raise StartupFailure(f"Emulator exited before readiness: {detail}")
+        raise StartupFailure(f"Emulator exited {phase}: {detail}")
 
 
 def run_command(args, deadline, emulator=None, timeout=COMMAND_TIMEOUT):
@@ -122,13 +128,14 @@ def retain_crash_data(directory, emulator_log):
             shutil.copytree(source, directory / "crashdb", dirs_exist_ok=True)
 
 
-def start(adb, binary, avd, serial, api, clock_helper, flags):
-    directory = Path(
-        os.environ.get(
-            "NIX_ANDROID_EMULATOR_LOG_DIR",
-            str(Path(os.environ["ANDROID_USER_HOME"]) / "startup"),
-        )
-    )
+def start(adb, binary, avd, serial, api, clock_helper, flags, test_command=None):
+    if "NIX_ANDROID_EMULATOR_LOG_DIR" in os.environ:
+        directory = Path(os.environ["NIX_ANDROID_EMULATOR_LOG_DIR"])
+    elif test_command is not None:
+        # Keep diagnostics outside the temporary Android home that we remove.
+        directory = Path(tempfile.mkdtemp(prefix="nix-android-emulator-logs-"))
+    else:
+        directory = Path(os.environ["ANDROID_USER_HOME"]) / "startup"
     directory.mkdir(parents=True, exist_ok=True)
     avd_directory = Path(os.environ["ANDROID_AVD_HOME"]) / f"{avd}.avd"
     command = [
@@ -145,6 +152,7 @@ def start(adb, binary, avd, serial, api, clock_helper, flags):
         "api": api,
         "serial": serial,
         "avd": str(avd_directory),
+        "android_home": os.environ["ANDROID_USER_HOME"],
         "host": platform.platform(),
         "status": "starting",
     }
@@ -156,6 +164,7 @@ def start(adb, binary, avd, serial, api, clock_helper, flags):
     record["kvm_accessible"] = kvm.exists() and os.access(kvm, os.R_OK | os.W_OK)
     record["free_disk_bytes"] = shutil.disk_usage(avd_directory).free
     emulator = None
+    test_process = None
     ready = False
     began = time.monotonic()
     deadline = began + STARTUP_TIMEOUT
@@ -214,7 +223,26 @@ def start(adb, binary, avd, serial, api, clock_helper, flags):
         check_emulator(emulator)
         ready = True
         record["status"] = "ready"
+        record["startup_seconds"] = time.monotonic() - began
         print(f"Emulator ready ({serial})", file=sys.stderr)
+        if test_command is not None:
+            record["phase"] = "test command"
+            record["test_command"] = test_command
+            test_process = subprocess.Popen(
+                test_command,
+                env=dict(os.environ, ANDROID_SERIAL=serial),
+                start_new_session=True,
+            )
+            # Tests have their own CI timeout; the startup deadline ends at ready.
+            while test_process.poll() is None:
+                check_emulator(emulator, "during test command")
+                time.sleep(POLL_INTERVAL)
+            status = test_process.returncode
+            if status == 0:
+                check_emulator(emulator, "during test command")
+            record["test_exit_status"] = status
+            record["status"] = "completed" if status == 0 else "test failed"
+            return 128 - status if status < 0 else status
     except (StartupFailure, OSError, KeyboardInterrupt) as error:
         record["status"] = "failed"
         record["error"] = str(error)
@@ -222,9 +250,15 @@ def start(adb, binary, avd, serial, api, clock_helper, flags):
             f"Android emulator startup failed during {record.get('phase', 'launch')}: {error}",
             file=sys.stderr,
         )
-        return 1
+        return error.exit_status if isinstance(error, StartupInterrupted) else 1
     finally:
-        if not ready:
+        # Finish owned-process teardown even if cancellation arrives again.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        if test_process is not None:
+            stop_process(test_process)
+        failed = record["status"] not in ("ready", "completed")
+        if failed:
             try:
                 diagnostics(
                     directory,
@@ -237,9 +271,10 @@ def start(adb, binary, avd, serial, api, clock_helper, flags):
                 print(
                     f"Could not collect emulator diagnostics: {error}", file=sys.stderr
                 )
-            if emulator is not None:
-                record["emulator_exit_status"] = emulator.poll()
-                stop_process(emulator)
+        if emulator is not None and (not ready or test_command is not None):
+            stop_process(emulator)
+            record["emulator_exit_status"] = emulator.poll()
+        if failed:
             log = directory / "emulator.log"
             emulator_log = log.read_text(errors="replace") if log.exists() else ""
             print(emulator_log[-16000:], end="", file=sys.stderr)
@@ -256,13 +291,37 @@ def start(adb, binary, avd, serial, api, clock_helper, flags):
     return 0
 
 
-def interrupted(_signal, _frame):
+def interrupted(signum, _frame):
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    raise KeyboardInterrupt("Startup interrupted")
+    raise StartupInterrupted(signum)
+
+
+def main(args):
+    flags = args[6:]
+    owned_home = None
+    test_command = None
+    if "--" in flags:
+        separator = flags.index("--")
+        owned_home = Path(flags[separator + 1])
+        test_command = flags[separator + 2 :]
+        flags = flags[:separator]
+        # The launcher passes only the home it just created, never a device PID
+        # or a previously existing user's Android home.
+        if owned_home != Path(os.environ["ANDROID_USER_HOME"]) or not test_command:
+            raise ValueError("Expected the launcher-owned Android home and a command")
+    try:
+        return start(*args[:6], flags, test_command)
+    finally:
+        if owned_home is not None:
+            try:
+                shutil.rmtree(owned_home)
+            except FileNotFoundError:
+                pass
+            print(f"Removed owned Android home: {owned_home}", file=sys.stderr)
 
 
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
-    sys.exit(start(*sys.argv[1:7], sys.argv[7:]))
+    sys.exit(main(sys.argv[1:]))

@@ -52,3 +52,8 @@ sync, and API verification, and fails when the emulator exits. CI retains the
 startup log, AVD configuration, and Crashpad database in its Android artifacts.
 `NIX_ANDROID_EMULATOR_LOG_DIR` selects CI's artifact directory; local runs retain
 diagnostics under the temporary Android user home printed by the launcher.
+`run-test-emulator -- COMMAND ARGS...` owns the emulator through that command,
+exports its selected `ANDROID_SERIAL` to the command, and stops its process
+group and removes its newly created Android home on success, failure, or TERM/INT.
+Scoped-run diagnostics stay outside that home. Calling `run-test-emulator`
+without a command leaves the ready emulator and home available for interactive reuse.
