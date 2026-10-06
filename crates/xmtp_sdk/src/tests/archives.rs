@@ -34,6 +34,71 @@ async fn consent_archive_storage_and_diagnostics() {
     client.end().await?;
 }
 
+/// The file routes write the archive to the path, read its metadata back
+/// from that file, reject a wrong key, and restore the archived messages.
+#[xmtp_common::test(unwrap_try = true)]
+async fn archive_file_export_metadata_and_import() {
+    use crate::ArchiveElement;
+
+    let signer = crate::generate_local_signer().await;
+    let first = Client::create(signer.clone(), options()).await?;
+    let group = first.conversations().create_group(vec![], None).await?;
+    group.send_text("archived".into(), None).await?;
+    let path = format!("{}.xmtp", xmtp_common::tmp_path());
+    let exported = first
+        .archives()
+        .export_to_file(path.clone(), vec![7; 32], None)
+        .await?;
+    assert!(std::fs::metadata(&path)?.len() > 0);
+    let read = first
+        .archives()
+        .metadata_from_file(path.clone(), vec![7; 32])
+        .await?;
+    for metadata in [&exported, &read] {
+        assert_eq!(metadata.backup_version, 0);
+        assert!(matches!(
+            metadata.elements[..],
+            [ArchiveElement::Messages, ArchiveElement::Consent]
+        ));
+    }
+    assert_eq!(read.exported_at.0, exported.exported_at.0);
+    assert!(
+        first
+            .archives()
+            .metadata_from_file(path.clone(), vec![8; 32])
+            .await
+            .is_err(),
+        "a wrong key must not read the archive"
+    );
+
+    let second = Client::create(signer, options()).await?;
+    second
+        .archives()
+        .import_from_file(path.clone(), vec![7; 32])
+        .await?;
+    let crate::Conversation::Group { group: imported } = second
+        .conversations()
+        .get_by_id(group.id())
+        .await?
+        .expect("archived group")
+    else {
+        panic!("archive must restore a group");
+    };
+    let texts = imported
+        .messages(None)
+        .await?
+        .into_iter()
+        .filter_map(|message| match message.0.content {
+            MessageContent::Text(text) => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(texts, ["archived"]);
+    std::fs::remove_file(&path)?;
+    first.end().await?;
+    second.end().await?;
+}
+
 // verifies: ARCH-017
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_empty_archive_elements_export_nothing() {

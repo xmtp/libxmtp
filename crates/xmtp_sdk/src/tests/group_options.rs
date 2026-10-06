@@ -132,6 +132,23 @@ async fn create_options_reach_state_and_immutable_fields_read_no_rows() {
             .retention_ns,
         2_000_000_000
     );
+    let groups = alix.conversations().list_groups(None).await?;
+    let group_ids = groups
+        .iter()
+        .map(|group| group.id())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(groups.len(), 2, "list_groups returns only the groups");
+    assert_eq!(
+        group_ids,
+        [group.id(), all_members.id()].into_iter().collect(),
+        "list_groups returns only the groups"
+    );
+    let dms = alix.conversations().list_dms(None).await?;
+    assert_eq!(
+        dms.iter().map(|dm| dm.id()).collect::<Vec<_>>(),
+        [dm.id()],
+        "list_dms returns only the DM"
+    );
     alix.end().await?;
     bo.end().await?;
 }

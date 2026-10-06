@@ -1,0 +1,206 @@
+import Foundation
+import XmtpSdk
+
+/// The backend of this checkout. The test recipes set `XMTP_BACKEND_URL`.
+let liveBackendURL = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://localhost:5050"
+
+/// Options for a client on the live backend, without device sync.
+func liveOptions(
+	url: String = liveBackendURL,
+	storage: StorageOptions = StorageOptions(location: .inMemory),
+) -> ClientOptions {
+	ClientOptions(backend: .options(options: BackendOptions(url: url)), storage: storage, deviceSync: false)
+}
+
+/// The clients that a `withClients` body creates. The helper ends all of them.
+final class ClientScope: @unchecked Sendable {
+	private let created = Shared<[SDKClient]>([])
+
+	/// The clients, in the order the body created them.
+	var clients: [SDKClient] {
+		created.value
+	}
+
+	/// Keeps `client` for the helper to end, and returns it.
+	@discardableResult
+	func own(_ client: SDKClient) -> SDKClient {
+		created.update { $0.append(client) }
+		return client
+	}
+
+	func create(
+		signer: Signer, options: ClientOptions = liveOptions(), codecs: [any ContentCodec] = [],
+	) async throws -> SDKClient {
+		try await own(SDKClient.create(signer: signer, options: options, codecs: codecs))
+	}
+
+	func build(
+		identity: PublicIdentity, options: ClientOptions, inboxId: InboxId? = nil, codecs: [any ContentCodec] = [],
+	) async throws -> SDKClient {
+		try await own(SDKClient.build(identity: identity, options: options, inboxId: inboxId, codecs: codecs))
+	}
+}
+
+/// Runs `body` and then ends every client that it created through the scope,
+/// in reverse order. It does this on every exit: when `body` returns, throws,
+/// or stops at a failed create. A client that `body` ended already ends again
+/// without an error, because `end()` on a closed client returns at once. The
+/// first error wins: the error of `body`, then the first failed `end()`.
+func withClients<T>(_ body: (ClientScope) async throws -> T) async throws -> T {
+	let scope = ClientScope()
+	let result: Result<T, Error>
+	do {
+		result = try await .success(body(scope))
+	} catch {
+		result = .failure(error)
+	}
+	var endFailure: Error?
+	for client in scope.clients.reversed() {
+		do {
+			try await client.end()
+		} catch {
+			endFailure = endFailure ?? error
+		}
+	}
+	let value = try result.get()
+	if let endFailure {
+		throw endFailure
+	}
+	return value
+}
+
+/// Creates `count` clients on the live backend and runs `body` with them.
+/// `withClients` ends every created client on every exit.
+func withLiveClients<T>(_ count: Int, _ body: ([SDKClient]) async throws -> T) async throws -> T {
+	try await withClients { scope in
+		var clients: [SDKClient] = []
+		for _ in 0 ..< count {
+			try await clients.append(scope.create(signer: generateLocalSigner()))
+		}
+		return try await body(clients)
+	}
+}
+
+/// A failed check that is not an XCTest assertion, for example in a callback.
+struct TestFailure: Error, CustomStringConvertible {
+	let description: String
+
+	init(_ description: String) {
+		self.description = description
+	}
+}
+
+/// A value that tasks and callbacks share.
+final class Shared<Value>: @unchecked Sendable {
+	private let lock = NSLock()
+	private var stored: Value
+
+	init(_ value: Value) {
+		stored = value
+	}
+
+	var value: Value {
+		lock.lock(); defer { lock.unlock() }; return stored
+	}
+
+	func update(_ change: (inout Value) -> Void) {
+		lock.lock(); defer { lock.unlock() }; change(&stored)
+	}
+}
+
+/// Sleeps for `seconds`. `Task.sleep(for:)` needs iOS 16 and macOS 13, above the
+/// package minimums, so the tests sleep with `Task.sleep(nanoseconds:)`.
+func pause(seconds: Double) async throws {
+	try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+}
+
+/// Polls `condition` until it is true, `seconds` pass, or the caller is
+/// cancelled. Returns the last result.
+func eventually(seconds: Double, _ condition: () async throws -> Bool) async rethrows -> Bool {
+	let deadline = Date().addingTimeInterval(seconds)
+	while Date() < deadline, !Task.isCancelled {
+		if try await condition() {
+			return true
+		}
+		try? await pause(seconds: 0.05)
+	}
+	return try await condition()
+}
+
+/// The result of `operation`, or nil when it does not finish in `seconds`.
+func within<T: Sendable>(
+	seconds: Double, _ operation: @escaping @Sendable () async throws -> T,
+) async throws -> T? {
+	try await firstResult(of: { try await operation() }, { try await pause(seconds: seconds); return nil })
+}
+
+/// The first result or error of `first` and `second`. Each one runs in its own
+/// unstructured task. When one finishes, the helper cancels the other and returns
+/// without waiting for it, so an operation that ignores cancellation cannot hang a
+/// test. Cancellation is cooperative, so such an operation can outlive the race and
+/// keep its resources. Callers must not rely on this cancellation for cleanup.
+/// When the caller is cancelled, the helper cancels both and throws
+/// `CancellationError`. A task group cannot do this: it waits for all of its child tasks.
+func firstResult<T: Sendable>(
+	of first: @escaping @Sendable () async throws -> T,
+	_ second: @escaping @Sendable () async throws -> T,
+) async throws -> T {
+	let race = Race<T>()
+	return try await withTaskCancellationHandler {
+		try await withCheckedThrowingContinuation { continuation in
+			race.start(continuation, [first, second])
+		}
+	} onCancel: {
+		race.finish(.failure(CancellationError()))
+	}
+}
+
+/// Resumes a continuation once, with the first result that arrives, and then
+/// cancels every task of the race.
+private final class Race<T: Sendable>: @unchecked Sendable {
+	private let lock = NSLock()
+	private var continuation: CheckedContinuation<T, Error>?
+	private var tasks: [Task<Void, Never>] = []
+	private var finished = false
+
+	/// Starts one task for each operation. When the caller was cancelled before
+	/// the start, it resumes at once and starts no task.
+	func start(_ continuation: CheckedContinuation<T, Error>, _ operations: [@Sendable () async throws -> T]) {
+		lock.lock()
+		guard !finished else {
+			lock.unlock()
+			return continuation.resume(throwing: CancellationError())
+		}
+		self.continuation = continuation
+		// The tasks are made under the lock, so `finish` always sees all of them.
+		tasks = operations.map { operation in
+			Task {
+				do {
+					try await self.finish(.success(operation()))
+				} catch {
+					self.finish(.failure(error))
+				}
+			}
+		}
+		lock.unlock()
+	}
+
+	/// Keeps only the first result. It marks the race finished before it cancels
+	/// the tasks, so a cancelled task cannot win.
+	func finish(_ result: Result<T, Error>) {
+		lock.lock()
+		guard !finished else {
+			return lock.unlock()
+		}
+		finished = true
+		let first = continuation
+		let losers = tasks
+		continuation = nil
+		tasks = []
+		lock.unlock()
+		for task in losers {
+			task.cancel()
+		}
+		first?.resume(with: result)
+	}
+}
