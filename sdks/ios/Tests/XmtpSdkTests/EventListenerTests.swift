@@ -17,7 +17,7 @@ final class EventListenerTests: XCTestCase {
 
 		await client.stopListener(id)
 		_ = try await client.conversations().createGroup(members: [InboxId]())
-		try await Task.sleep(for: .milliseconds(500))
+		try await pause(seconds: 0.5)
 		XCTAssertEqual(calls.value, 1, "A stopped listener ran")
 		try await client.end()
 	}

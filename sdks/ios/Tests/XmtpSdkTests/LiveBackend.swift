@@ -39,6 +39,12 @@ final class Shared<Value>: @unchecked Sendable {
 	}
 }
 
+/// Sleeps for `seconds`. `Task.sleep(for:)` needs iOS 16 and macOS 13, above the
+/// package minimums, so the tests sleep with `Task.sleep(nanoseconds:)`.
+func pause(seconds: Double) async throws {
+	try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+}
+
 /// Polls `condition` until it is true or `seconds` pass. Returns the last result.
 func eventually(seconds: Double, _ condition: () async throws -> Bool) async rethrows -> Bool {
 	let deadline = Date().addingTimeInterval(seconds)
@@ -46,7 +52,7 @@ func eventually(seconds: Double, _ condition: () async throws -> Bool) async ret
 		if try await condition() {
 			return true
 		}
-		try? await Task.sleep(for: .milliseconds(50))
+		try? await pause(seconds: 0.05)
 	}
 	return try await condition()
 }
@@ -58,7 +64,7 @@ func within<T: Sendable>(
 ) async throws -> T? {
 	let work = Task { try await operation() }
 	let timer = Task {
-		try? await Task.sleep(for: .seconds(seconds))
+		try? await pause(seconds: seconds)
 		work.cancel()
 	}
 	defer { timer.cancel() }

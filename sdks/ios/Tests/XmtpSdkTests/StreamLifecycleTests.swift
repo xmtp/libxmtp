@@ -32,7 +32,7 @@ final class StreamLifecycleTests: XCTestCase {
 		}
 		let suspending = await eventually(seconds: 2) { entered.value }
 		XCTAssertTrue(suspending, "The initial suspension did not start")
-		try await Task.sleep(for: .milliseconds(200))
+		try await pause(seconds: 0.2)
 		XCTAssertEqual(returned.value, 0, "A client start returned before the initial suspension ended")
 		signal.finish()
 		for start in starts {

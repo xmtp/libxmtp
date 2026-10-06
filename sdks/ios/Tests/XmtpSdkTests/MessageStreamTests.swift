@@ -129,7 +129,7 @@ final class MessageStreamTests: XCTestCase {
 		let delivered = try await read(idleIterator)
 		XCTAssertEqual(delivered?.id, secondId)
 		let idle = Task { try await idleIterator.next() }
-		try await Task.sleep(for: .milliseconds(50))
+		try await pause(seconds: 0.05)
 		idle.cancel()
 		let reason = try await idleClose.wait()
 		guard case .closed = reason else {
