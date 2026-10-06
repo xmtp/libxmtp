@@ -1,6 +1,6 @@
 ---
 title: Build secure messaging for people and agents
-description: Quantum-resistant, end-to-end encrypted DMs and groups. Native SDKs for mobile, web, servers, and agents.
+description: End-to-end encrypted DMs and groups. Native SDKs for mobile, web, servers, and agents.
 template: splash
 hero:
   title: Build secure messaging for people and agents.
@@ -81,7 +81,7 @@ import {
 <HomeAgentExamples>
 <div slot="two">
 <AgentDiagram ids={pairParticipants} variant="pair" />
-<p className="home-caption pair-caption">{"Agents from different products can share one private channel. Neither platform can read the conversation."}</p>
+<p className="home-caption pair-caption">{"Agents from different products can share one private channel. The backend cannot read messages without participant keys. Each agent's host controls the keys and plaintext that the agent uses."}</p>
 <a className="home-link home-link-blue pair-link" href={links.agents}>{"Build an agent integration"}<span aria-hidden="true">{"↗"}</span>
 </a>
 <div className="walkthrough">

@@ -2,8 +2,6 @@
 title: Groups
 ---
 
-import { Tabs, TabItem } from "@astrojs/starlight/components";
-
 Robust group chat permissions are key to providing users with a friendly and safe group chat experience.
 
 ## Understand the group permissions system
@@ -25,7 +23,7 @@ When a group is created, all groups have the same initial member "roles" set:
 
 ## Permissions
 
-The super admin has all of the available permissions and can use them to adjust the group's permissions and options.
+A super admin can change the group's permission policies. Each action uses the policy assigned to it.
 
 | Permission               | Allow all | Deny all | Admin only | Super admin only |
 | ------------------------ | --------- | -------- | ---------- | ---------------- |
@@ -51,17 +49,17 @@ If you do not select a policy set, the group uses **All members**.
 
 DMs use neither set. Participants cannot change membership or permissions, and both can change metadata.
 
-Add admin, remove admin, and update permissions cannot use an allow-all policy. Only a super admin can perform those actions.
+Add admin and remove admin cannot use an allow-all policy. A custom policy can allow admins to perform these actions. Only a super admin can update the permission policies or grant and revoke the super admin role.
 
 ### Custom policy set
 
 A custom set contains nine policies: add member, remove member, add admin, remove admin, update name, update description, update image URL, update disappearing messages, and update app data.
 
-Browser and Node pass `permissions: GroupPermissionsOptions.CustomPolicy` and `customPermissionPolicySet` to `createGroup`. Kotlin and Swift use `newGroupCustomPermissions`.
+Pass a custom `GroupPermissionMode` in `CreateGroupOptions.permissions`. The custom variant contains a `PermissionPolicySet`. This option is available on all four SDKs.
 
 ## Update permissions
 
-Browser and Node use `group.updatePermission(permissionType, policy, metadataField?)`. Kotlin and Swift provide named methods for add member, remove member, add admin, remove admin, name, description, and image URL. Mobile cannot change the disappearing-message or app-data policy after creation.
+All four SDKs use `group.updatePermission(kind, policy, metadataField)`. Use `PermissionUpdateKind` for the action and `PermissionPolicy` for the policy. For a metadata update, also pass `MetadataFieldKind`. This includes the disappearing-message and app-data policies. Swift uses the labels `kind:`, `policy:`, and `metadataField:`.
 
 ## Admins
 
@@ -72,27 +70,21 @@ Browser and Node use `group.updatePermission(permissionType, policy, metadataFie
 | Grant role  | `addAdmin(inboxId)`, `addSuperAdmin(inboxId)`       |
 | Revoke role | `removeAdmin(inboxId)`, `removeSuperAdmin(inboxId)` |
 
-These names are the same on all four SDKs.
+These names are the same on all four SDKs. The calls are asynchronous. Swift uses `inboxId:` for the methods that take an inbox ID.
 
 ## Members
 
-A group holds up to 250 members.
+The backend sets the group member limit. The default limit is 250 inboxes.
 
-| Action             | Browser, Node                             | Kotlin, Swift                         |
-| ------------------ | ----------------------------------------- | ------------------------------------- |
-| Add by inbox ID    | `addMembers(inboxIds)`                    | `addMembers(inboxIds)`                |
-| Add by identity    | `addMembersByIdentifiers(identifiers)`    | `addMembersByIdentity(identities)`    |
-| Remove by inbox ID | `removeMembers(inboxIds)`                 | `removeMembers(inboxIds)`             |
-| Remove by identity | `removeMembersByIdentifiers(identifiers)` | `removeMembersByIdentity(identities)` |
-| List               | `group.members`                           | `group.members()`                     |
+Use `addMembers` and `removeMembers` with a list of inbox IDs or a list of `PublicIdentity` values. Swift uses the `members:` label. Call `members()` to read the member list on all four SDKs. These calls are asynchronous.
 
 Sync before you read the member list.
 
 ## Leave a group
 
-A member can remove themselves from a group by calling `leaveGroup()`. After leaving, the group becomes inactive for that member.
+A member can request removal from a group by calling `requestRemoval()`. A super admin must process the request before the member is removed. After removal, the group becomes inactive for that member.
 
-The call is refused if the caller is a super admin, is the only member, or is in a DM. Between the call and the next sync, `membershipState()` returns `PENDING_REMOVE`. After processing completes, the group is inactive.
+The call is refused if the caller is a super admin, is the only member, or is in a DM. After the request is processed locally, `group.state()` reports `membershipState` as pending removal. This does not mean that the member has already been removed.
 
 ## Group metadata
 
@@ -103,6 +95,6 @@ Group chats can have metadata, like names, descriptions, and images. Metadata ca
 | Name        | `updateName(name)`               |   100 bytes |
 | Description | `updateDescription(description)` | 1,000 bytes |
 | Image URL   | `updateImageUrl(url)`            | 2,048 bytes |
-| App data    | `updateAppData(data)`            | 8,192 bytes |
+| App data    | `updateAppData(data, expected)`  | 8,192 bytes |
 
-Browser and Node expose metadata as properties. Kotlin and Swift expose methods. App data is a string. Serialize structured data before you set it. See [Disappearing messages](/sdk/disappearing-messages/).
+Read metadata from the asynchronous `group.state()` snapshot on all four SDKs. App data is a string. Pass the previous value as `expected` to update app data only if it still matches, or pass `undefined` on Browser and Node or `null`/`nil` on mobile to omit that check. Serialize structured data before you set it. See [Disappearing messages](/sdk/disappearing-messages/).

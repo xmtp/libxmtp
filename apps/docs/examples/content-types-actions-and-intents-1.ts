@@ -6,3 +6,5 @@ agent.on("intent", async (ctx) => {
   console.log(`Selected action: ${ctx.content.actionId}`);
 });
 // #endregion example1
+
+await agent.start();

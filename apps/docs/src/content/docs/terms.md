@@ -7,7 +7,7 @@ Our content licensing policies are based on those of the [Google Developer](http
 
 We are pleased to license much of the documentation on `docs.xmtp.org` under terms that explicitly encourage people to take, modify, reuse, re-purpose, and remix this content as they see fit.
 
-You will find the following notice at the bottom of pages on `docs.xmtp.org`:
+The guide footer shows this notice:
 
 > CC BY 4.0
 

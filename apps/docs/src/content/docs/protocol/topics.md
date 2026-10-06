@@ -30,13 +30,17 @@ The welcome message topic is used to deliver a `Welcome` message to a new member
 
 Key package topics do not support normal queries. Use a newest-envelope read.
 
-## Push routing labels
+## Topic text and push payloads
 
-Push code uses text labels that are different from wire topics.
+`conversation.topic` is a display string, such as
+`[group_message_v1/00112233445566778899aabbccddeeff]`. Do not send this display
+string as a binary wire topic.
 
-| Label                                  | Source                     |
-| -------------------------------------- | -------------------------- |
-| `/xmtp/mls/1/g-{groupId}/proto`        | `conversation.topic`       |
-| `/xmtp/mls/1/w-{installationId}/proto` | Installation Welcome label |
+Push payloads encode the complete binary wire topic with standard Base64. The
+JSON `sequence_id` is decimal text to preserve integer precision. Decode the
+`topic` field before you use it as a wire topic. Only group-message and Welcome
+topics support push subscriptions.
 
-These strings are push routing labels. They do not convert to or from binary wire topics. Only group messages and Welcomes have push routing labels.
+The old `/xmtp/mls/1/g-.../proto` and `/xmtp/mls/1/w-.../proto` labels are not the
+self-hosted push format. Update receivers to use the
+[current payload](/sdk/push-notifications/#payload).

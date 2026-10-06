@@ -13,7 +13,7 @@ XMTP's identity model includes an inbox ID and its associated identities and ins
 
 An inbox can contain several account identifiers. Messages to any linked identifier reach the same inbox. Supported identifiers include Ethereum EOAs, smart contract wallets, and passkeys.
 
-Each installation has independent keys and local state. An inbox supports up to 10 installations. The recovery identity can revoke installations.
+Each installation has independent keys and local state. The default limit is 10 installations per inbox. The backend can publish a different limit through `mls.max_installations_per_inbox`. The recovery identity can revoke installations.
 
 ```text
 Inbox ID (stable destination for messages)
@@ -28,7 +28,7 @@ Each identity can authenticate new installations:
 ├── Installation A (phone app)
 ├── Installation B (web app)
 ├── Installation C (desktop app)
-└── Up to 10 installations
+└── Up to the deployment's installation limit
 ```
 
 See [inboxes and installations](/sdk/inboxes/) for the SDK operations and limits.

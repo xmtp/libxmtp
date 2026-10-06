@@ -6,15 +6,15 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
 
 Support archive-based backups to give your users an easy and durable way to back up their XMTP conversations, messages, and consent preferences from one app installation and import them into another.
 
-When an archive-based backup is imported into an installation, **all imported conversations start off as inactive, with history visible and in read-only mode**. This is as intended by Messaging Layer Security (MLS), which ensures that there is no way to join a conversation without the permission of an existing member. As such, imported conversations will be inactive until the new installation is added to the conversation by an active member. This process happens invisibly and automatically as other members of the group come online and send or receive messages.
+When an archive adds a conversation that is absent from the local database, that conversation starts inactive. Its imported history is visible in read-only mode. Import does not grant MLS membership or provide group secrets. A validated Welcome must add this installation before it can send or decrypt new messages. A conversation that is already in the database keeps its current live state.
 
-This feature includes three core methods:
+This feature includes three operations:
 
-- `createArchive` creates an encrypted archive.
-- `archiveMetadata` reads metadata before import.
-- `importArchive` imports an archive into the current installation.
+- `exportToBytes` creates an encrypted archive in memory. Native SDKs also expose `exportToFile`.
+- `metadataFromBytes` reads metadata before import. Native SDKs also expose `metadataFromFile`.
+- `importFromBytes` imports an archive into the current installation. Native SDKs also expose `importFromFile`.
 
-Browser uses in-memory `Uint8Array` data. Node, Kotlin, and Swift use a file path. Supply a key of at least 32 bytes. The SDK uses the first 32 bytes. Store the key separately from the archive.
+Browser uses in-memory `Uint8Array` data. Node, Kotlin, and Swift also support file paths. Supply a key of exactly 32 bytes. Other key lengths fail. Store the key separately from the archive.
 
 ## Create an archive
 
@@ -23,14 +23,14 @@ The options can limit the time range and include messages, consent records, or b
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
-```ts source="backups-node.ts" region="create"
+```ts source="backups-browser.ts" region="create"
 
 ```
 
 </TabItem>
 <TabItem label="Node">
 
-```ts source="backups-browser.ts" region="create"
+```ts source="backups-node.ts" region="create"
 
 ```
 
@@ -61,21 +61,55 @@ try await client.archives().exportToFile(
 
 ## Read metadata
 
-`archiveMetadata` returns `startNs`, `endNs`, `elements`, and `exportedAtNs`. Browser takes archive bytes and a key. Node, Kotlin, and Swift take a file path and a key.
+`ArchiveMetadata` contains `backupVersion`, `elements`, `exportedAt`, `start`, and `end`. The time fields use the SDK `Timestamp` type. Browser reads metadata from bytes. Node, Kotlin, and Swift can read it from bytes or a file path. Both methods require the encryption key.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="backups-browser.ts" region="metadata"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="backups-node.ts" region="metadata"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+val metadata = client.archives().metadataFromFile(
+    path = "/path/to/archive.xmtp",
+    keyBytes = encryptionKey,
+)
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+let metadata = try await client.archives().metadataFromFile(
+  path: "/path/to/archive.xmtp",
+  keyBytes: encryptionKey
+)
+```
+
+</TabItem>
+</Tabs>
 
 ## Import an archive
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
-```ts source="backups-node.ts" region="import"
+```ts source="backups-browser.ts" region="import"
 
 ```
 
 </TabItem>
 <TabItem label="Node">
 
-```ts source="backups-browser.ts" region="import"
+```ts source="backups-node.ts" region="import"
 
 ```
 
@@ -100,4 +134,4 @@ The archive import is **additive**, not destructive: existing messages are prese
 
 ## Handle inactive conversations
 
-Attempting to send or sync on an inactive conversation throws a `Group is inactive` error. Show imported inactive conversations as read-only. An active member or another active installation can add the new installation when it sends a message or syncs the conversation.
+Sending to or syncing an imported inactive conversation fails with an inactive-group error. Show its history as read-only. An active member must add this installation. After the SDK processes a valid Welcome, the conversation can become active.

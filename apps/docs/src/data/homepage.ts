@@ -23,7 +23,7 @@ export const sdkCards = [
   { name: "Browser", platform: "Web", href: links.install },
   { name: "Node", platform: "Server", href: links.install },
   { name: "Agent SDK", platform: "Agents", href: links.agents },
-  { name: "React Native", platform: "Self-hosted support pending" },
+  { name: "React Native", platform: "Support pending" },
 ];
 
 export const participants = {

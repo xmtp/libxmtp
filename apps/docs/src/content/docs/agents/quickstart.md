@@ -12,7 +12,7 @@ npm i @xmtp/agent-sdk
 
 ## Configure
 
-Create a `.env` file:
+Create a `.env` file. Load it into `process.env` before you call `Agent.createFromEnv()`. The SDK does not read the file itself:
 
 ```bash
 XMTP_BACKEND_URL=https://your-backend.example.com
@@ -21,7 +21,7 @@ XMTP_DB_ENCRYPTION_KEY=0x...
 XMTP_ENV=my-app
 ```
 
-`XMTP_BACKEND_URL` is required and must include its scheme. `XMTP_ENV` is only a label for the default database file name. The wallet key must use `0x` hex format. The database encryption key is 32 bytes.
+`XMTP_BACKEND_URL` is required and must include its scheme. `XMTP_ENV` is only a label for a directory under the storage root. The wallet key must use `0x` hex format. The database encryption key is 32 bytes.
 
 ## Start the agent
 
@@ -29,10 +29,10 @@ XMTP_ENV=my-app
 
 ```
 
-An agent must start once before another client can find and message it.
+`Agent.createFromEnv()` creates the client and registers its installation. `agent.start()` starts message and conversation readers. The `start` event means that the local readers are ready. The backend can still be offline.
 
 :::caution
-Persist the local database across restarts and deployments. Losing it creates a new installation. An inbox supports 10 installations.
+Persist the local database across restarts and deployments. Losing it creates a new installation. The default backend limit is 10 installations per inbox.
 :::
 
-Use Node 22 or another supported Node.js LTS release. A minimal container image must include CA certificates for an HTTPS backend.
+Use Node.js 22.12.0 or later. A minimal container image must include CA certificates for an HTTPS backend.

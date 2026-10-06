@@ -4,39 +4,49 @@ description: Initialize identities, inspect clients, and work with XMTP conversa
 ---
 
 The XMTP CLI provides terminal commands for identities, conversations,
-messages, consent, and installations. It connects directly to a self-hosted
+messages, consent, and installations. It connects directly to an XMTP
 backend through a required URL.
 
 ## Install
 
+Use this repository's CLI with its matching Node SDK. The npm registry has
+CLI 0.2.0; this checkout's CLI 0.3.0 is not published. Install the workspace
+dependencies and build the CLI from the repository root with Nix installed:
+
 ```bash
-npm install --global @xmtp/cli
+dev/nix-shell 'just install-js'
+dev/nix-shell 'just cli build'
 ```
+
+Run all commands below from that same repository root.
 
 ## Initialize
 
 Choose the backend explicitly when generating the local configuration:
 
 ```bash
-xmtp init --backend-url http://127.0.0.1:5050
+dev/nix-shell 'node apps/cli/bin/run.js init --backend-url http://127.0.0.1:5050'
 ```
 
 This writes wallet and database-encryption keys, the backend URL, and the
-database label to `~/.xmtp/.env`. Later commands load configuration from flags,
-an explicit `--env-file`, `./.env`, then `~/.xmtp/.env`.
+database label to `~/.xmtp/.env`. Later commands use flags first, then process
+environment variables. They load an explicit `--env-file` when supplied.
+Otherwise, they load `./.env`, or `~/.xmtp/.env` if the local file cannot be
+loaded. Values already in the process environment take precedence over the file.
 
 ## Use the CLI
 
 ```bash
-xmtp client info
-xmtp can-message 0x...
-xmtp conversations create-dm 0x...
-xmtp conversation send-text <conversation-id> "Hello"
-xmtp conversation messages <conversation-id>
+dev/nix-shell 'node apps/cli/bin/run.js client info'
+dev/nix-shell 'node apps/cli/bin/run.js can-message 0x...'
+dev/nix-shell 'node apps/cli/bin/run.js conversations create-dm 0x...'
+dev/nix-shell 'node apps/cli/bin/run.js conversation send-text "<conversation-id>" "Hello"'
+dev/nix-shell 'node apps/cli/bin/run.js conversation messages "<conversation-id>"'
 ```
 
-Use `--json` for structured output. Run `xmtp <command> --help` for command and
-flag details.
+Replace `0x...` with the recipient's registered Ethereum address, and
+`<conversation-id>` with the returned conversation ID. Use `--json` for
+structured output. Add `--help` to a command for its command and flag details.
 
 ## Backend-specific databases
 

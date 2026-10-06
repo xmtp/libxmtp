@@ -4,7 +4,7 @@ title: Wallet transactions
 
 Wallet send calls ask a wallet to execute one or more chain calls.
 
-Type ID: `xmtp.org/walletSendCalls:1.0`. The payload is a `WalletSendCalls` protobuf. It has no fallback. `shouldPush` defaults to `true` on Browser, Node, and Kotlin. Swift does not include this codec.
+Type ID: `xmtp.org/walletSendCalls:1.0`. The payload is JSON-encoded `WalletSendCalls`. Its fallback contains `[Transaction request generated]:` followed by the JSON payload. `shouldPush` defaults to `true` on Browser, Node, Kotlin, and Swift.
 
 | Field          | Meaning                             |
 | -------------- | ----------------------------------- |
@@ -14,25 +14,22 @@ Type ID: `xmtp.org/walletSendCalls:1.0`. The payload is a `WalletSendCalls` prot
 | `calls`        | Calls for the wallet to execute     |
 | `capabilities` | Optional wallet capability requests |
 
-Each call contains a target address, optional value, call data, and optional metadata. After execution, send a [transaction reference](/content-types/transaction-refs/) so the conversation can follow the result.
+Each call can contain a target address, value, call data, gas limit, and metadata. These fields are all optional. After execution, send a [transaction reference](/content-types/transaction-refs/) so the conversation can follow the result.
 
 | Call field | Meaning                     |
 | ---------- | --------------------------- |
-| `to`       | Target address              |
+| `to`       | Optional target address     |
 | `value`    | Optional native token value |
-| `data`     | Encoded call data           |
+| `data`     | Optional encoded call data  |
 | `gas`      | Optional gas limit          |
 | `metadata` | Optional display metadata   |
 
-| Metadata field    | Meaning                                 |
-| ----------------- | --------------------------------------- |
-| `description`     | Human-readable action                   |
-| `transactionType` | Operation, such as `transfer` or `lend` |
-| `currency`        | Asset symbol                            |
-| `amount`          | Amount in the asset's smallest unit     |
-| `decimals`        | Asset decimal places                    |
-| `toAddress`       | Optional displayed recipient            |
-| `platform`        | Optional protocol or application        |
-| `apy`             | Optional displayed yield                |
+| SDK metadata field | Meaning                                 |
+| ------------------ | --------------------------------------- |
+| `description`      | Text that describes the action          |
+| `transactionType`  | Operation, such as `transfer` or `lend` |
+| `extra`            | Map of additional string values         |
 
-The Agent SDK also provides `getERC20Decimals`, `getERC20Balance`, `createERC20TransferCalls`, and `validHex` helpers.
+The codec writes `extra` entries as fields in the wire JSON metadata object. They are not a fixed set of transaction fields. `capabilities` is an optional map of string values.
+
+The Agent SDK also provides `getERC20Decimals`, `getERC20Balance`, and `createERC20TransferCalls` helpers through `@xmtp/agent-sdk/util`.

@@ -10,4 +10,6 @@ const ignoreSelf: AgentMiddleware = async (ctx, next) => {
 };
 
 agent.use(ignoreSelf);
+
+await agent.start();
 // #endregion example1

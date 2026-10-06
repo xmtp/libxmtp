@@ -1,10 +1,10 @@
 ---
 title: Run the backend
-description: Configure and run an XMTP self-hosted backend.
+description: Configure and run an XMTP backend.
 ---
 
 The XMTP backend is one binary. It serves native gRPC, gRPC-Web, and the standard
-gRPC health service on a single port. It keeps no local state, so you can run
+gRPC health service on a single port. It keeps no durable local state, so you can run
 several instances behind a load balancer and scale them horizontally. All durable
 state lives in PostgreSQL.
 
@@ -74,9 +74,8 @@ a different identifier stops with a backend-mismatch error and cannot recover
 without a new database. Move a deployment between hosts, ports, and URLs freely;
 keep the identifier the same.
 
-The check lives in the client library. A client older than the release that
-added configuration support never reads the identifier, so it keeps running
-against a renamed deployment until it is upgraded.
+The check runs in the client library. The current SDKs read and validate the
+deployment identifier when they connect.
 :::
 
 `min_libxmtp_version` is compared on major, minor, and patch only, so a
@@ -85,9 +84,8 @@ build, and a running client that learns of a raised minimum stops.
 
 Both are client-side checks, made by a client that reads this deployment's
 published configuration. The backend only publishes the minimum: it does not
-reject requests by version, so raising the minimum does not stop a client that
-predates configuration support, or one that reached the backend before the
-change and has not refreshed.
+reject requests by version. A connected client must refresh the published
+configuration before it can detect a raised minimum.
 
 ### `[telemetry]`
 
@@ -123,7 +121,9 @@ so those reads can lag behind a successful publish.
 The tailer holds one dedicated connection to the read database, beyond the
 request pools. Without a replica, budget `max_connections + 1` connections per
 instance. With a replica, budget `max_connections` on the primary and
-`max_connections + 1` on the replica.
+`max_connections + 1` on the replica. When push is enabled, also budget one
+dedicated primary connection for the push dispatcher. See the
+[connection budget](/deploy/overview/) for multi-instance deployments.
 
 ### `[publishing]`
 
@@ -230,7 +230,7 @@ Caller quotas are not implemented. A valid token does not prove group membership
 
 ### `[chains]`
 
-A map from CAIP-2 chain id to an HTTP or HTTPS RPC URL. Configure one route per
+A map from EIP-155 CAIP-2 chain ID to an HTTP or HTTPS RPC URL. Configure one route per
 chain you need for smart-contract-wallet signature verification. An empty map
 still serves identities that do not need chain verification; smart-contract-wallet
 operations on an unconfigured chain return `UNAVAILABLE`.
@@ -251,7 +251,8 @@ operations on an unconfigured chain return `UNAVAILABLE`.
 Every structural limit is one named key. See [Limits](/reference/limits/) for the values and
 what each one constrains. Lowering a limit here can require clients to send
 smaller batches. Startup rejects inconsistent pairs: `max_query_limit` must be at
-least `default_query_limit`, `max_envelope_bytes` at most `max_request_bytes`, and
+least `default_query_limit`, the envelope plus protocol overhead must fit the
+request and response byte limits, and
 `max_update_adds` at most `max_stream_topics`. `max_request_bytes` and
 `max_response_bytes` must each stay at or below the fixed 25 MiB transport
 ceiling.
@@ -323,7 +324,8 @@ The call needs no credential, so a client can learn what a deployment requires
 before it holds one. The response is built once at startup and does not change
 while the process runs. It carries the identifier, the backend version, the
 minimum client version, a summary of `[auth]`, the retention periods, the
-published limits, the `[mls]` policy, the configured chain ids, and the
+published limits, the `[mls]` policy, the configured chain IDs, the attachment
+offer when configured, and the
 `[[application_components]]` table sorted by `component_id`.
 
 It never carries the JWKS URL, chain RPC URLs, public key material, clock
@@ -337,11 +339,27 @@ To send notifications, configure one or more delivery channels. See
 [Push configuration](/deploy/push-configuration/) for APNs, FCM, and HTTPS
 settings and credential setup.
 
-`just backend up` starts PostgreSQL, the backend, an Anvil chain, and Toxiproxy.
-The backend listens on `127.0.0.1:5050`.
+Run these commands from the repository root with Nix and Docker installed:
 
-`just backend run` starts only the backend, outside Docker, against the database
-from `just backend db-up`.
+```sh
+dev/nix-shell 'just backend up'
+dev/nix-shell 'just backend status'
+```
+
+The first command starts the shared stack, including PostgreSQL, the backend,
+Anvil, Toxiproxy, attachment storage, and telemetry services. The status command
+shows this checkout's backend URL. The main checkout uses
+`http://127.0.0.1:5050`; worktrees use separate ports.
+
+To run only the backend outside Docker against the shared databases:
+
+```sh
+dev/nix-shell 'just backend db-up'
+dev/nix-shell 'just backend run'
+```
+
+Start Anvil separately if you need smart-contract-wallet verification with the
+local configuration.
 
 ## Run the container image
 
@@ -352,7 +370,7 @@ is only its arguments.
 ```sh
 docker run --rm -p 127.0.0.1:5050:5050 \
   -e XMTP_DATABASE_URL=postgres://user:password@host:5432/xmtp_backend \
-  -v ./config.toml:/config.toml:ro \
+  -v "$PWD/config.toml:/config.toml:ro" \
   ghcr.io/xmtp/backend:self-hosted --config-file /config.toml
 ```
 
@@ -408,7 +426,7 @@ before the key value. The middleware does not add this prefix. The header name d
 
 This JavaScript example uses the public Node SDK:
 
-```javascript
+```ts twoslash
 import { Backend } from "@xmtp/node-sdk";
 
 const backend = await Backend.connect({

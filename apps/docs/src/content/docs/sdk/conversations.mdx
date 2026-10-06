@@ -10,16 +10,13 @@ Once you have the verified identities, you can create a new conversation, whethe
 
 ## Check if an identity is reachable
 
-`Client.canMessage(identifiers)` works without a client. An existing client also has `canMessage`. Browser and Node return a `Map`; Kotlin and Swift return a dictionary keyed by identifier.
+`Client.canMessage(identities, backend)` works without a client on Browser and Node. Kotlin and Swift use `SDKClient.canMessage` with an explicit backend. An existing client also has `canMessage`. Browser and Node return a `Map`; Kotlin and Swift return a dictionary keyed by the identity identifier.
 
 ## Create a group
 
-A group chat holds up to 250 members.
+The backend sets the group member limit. The default limit is 250 inboxes.
 
-| Create by | Browser, Node                                       | Kotlin, Swift                           |
-| --------- | --------------------------------------------------- | --------------------------------------- |
-| Inbox ID  | `conversations.createGroup(inboxIds, options?)`     | `conversations.newGroup(inboxIds, …)`   |
-| Identity  | `createGroupWithIdentifiers(identifiers, options?)` | `newGroupWithIdentities(identities, …)` |
+All four SDKs use `conversations.createGroup(members, options)`. Pass a list of inbox IDs or a list of `PublicIdentity` values. Do not mix the two in one list. Swift uses the labels `members:` and `options:`. Kotlin and Swift get the collection with `client.conversations()`.
 
 Set the group name, description, image URL, app data, permissions, and disappearing-message settings at creation. See [Groups](/sdk/groups/).
 
@@ -27,12 +24,7 @@ Set the group name, description, image URL, app data, permissions, and disappear
 
 Optimistic group creation enables you to prepare a group and messages before you know its members. The group stays only in the local database until you add a member. It is not visible to anyone else before that step.
 
-| Platform      | Method                                          |
-| ------------- | ----------------------------------------------- |
-| Browser, Node | `conversations.createGroupOptimistic(options?)` |
-| Kotlin, Swift | `conversations.newGroupOptimistic(…)`           |
-
-Add members, then call `publishMessages()` to publish prepared messages. The Node creation call is synchronous. The other calls are asynchronous.
+All four SDKs use `createGroupOptimistic(options)`. The call is asynchronous. Add members, then call `publishMessages()` to publish prepared messages.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -71,10 +63,7 @@ try await group.addMembers(members: [memberInboxId])
 
 Creating a DM returns the existing conversation if you already have one with that peer. You cannot create a DM with yourself.
 
-| Create by | Browser, Node                                  | Kotlin, Swift                                  |
-| --------- | ---------------------------------------------- | ---------------------------------------------- |
-| Inbox ID  | `conversations.createDm(inboxId, options?)`    | `conversations.findOrCreateDm(peerInboxId, …)` |
-| Identity  | `createDmWithIdentifier(identifier, options?)` | `findOrCreateDmWithIdentity(peerIdentity, …)`  |
+All four SDKs use `conversations.createDm(peer, options)`. Pass an inbox ID or a `PublicIdentity` value. Swift uses the labels `peer:` and `options:`.
 
 Different installations can create separate DMs for the same pair. XMTP stitches these records into one visible DM. A lookup can therefore return a different conversation ID. Do not key app state on a DM conversation ID. See [DM stitching](/sdk/push-notifications/#dm-stitching).
 

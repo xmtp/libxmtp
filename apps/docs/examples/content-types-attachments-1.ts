@@ -1,18 +1,28 @@
-declare function createImageFile(): File;
-
 // #region example1
-import { CommandRouter, type AttachmentUploadCallback } from "@xmtp/agent-sdk";
+import {
+  Agent,
+  CommandRouter,
+  type AttachmentUploadCallback,
+} from "@xmtp/agent-sdk";
 import { PinataSDK } from "pinata";
 
+const agent = await Agent.createFromEnv();
 const router = new CommandRouter();
+const pinataJwt = process.env.PINATA_JWT;
+const pinataGateway = process.env.PINATA_GATEWAY;
+if (!pinataJwt || !pinataGateway) {
+  throw new Error("Set PINATA_JWT and PINATA_GATEWAY");
+}
 
-router.command("/send-image", async (ctx) => {
-  const file = createImageFile();
+router.command("/send-file", async (ctx) => {
+  const file = new File(["Hello from XMTP"], "hello.txt", {
+    type: "text/plain",
+  });
 
   const uploadCallback: AttachmentUploadCallback = async (attachment) => {
     const pinata = new PinataSDK({
-      pinataJwt: `${process.env.PINATA_JWT}`,
-      pinataGateway: `${process.env.PINATA_GATEWAY}`,
+      pinataJwt,
+      pinataGateway,
     });
 
     const mimeType = "application/octet-stream";
@@ -33,4 +43,6 @@ router.command("/send-image", async (ctx) => {
 
   await ctx.sendRemoteAttachment(file, uploadCallback);
 });
+agent.use(router.middleware());
+await agent.start();
 // #endregion example1

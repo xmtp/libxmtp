@@ -8,4 +8,6 @@ agent.on("message", async (ctx) => {
     await ctx.sendTextReply(`Hello ${sender ?? "there"}`);
   }
 });
+
+await agent.start();
 // #endregion example1
