@@ -85,6 +85,9 @@ elif args[2:] == ["root"] and mode == "crash-clock-real":
     time.sleep(60)
 elif args[2:] == ["get-state"]:
     (home / "adb.started").touch()
+    # These scenarios must not report an online device before emulator death.
+    if mode in ("exit", "segfault"):
+        time.sleep(60)
     if mode in ("crash-adb", "hung-adb"):
         child = subprocess.Popen([sys.executable, str(home / "child")])
         while not (home / "child.started").exists():
