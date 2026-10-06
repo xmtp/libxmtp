@@ -8,6 +8,7 @@ import * as computeVersion from "./commands/compute-version";
 import * as createReleaseBranch from "./commands/create-release-branch";
 import * as listSdks from "./commands/list-sdks";
 import * as pendingVersion from "./commands/pending-version";
+import * as publishBackend from "./commands/publish-backend";
 import * as resolveSdkVersion from "./commands/resolve-sdk-version";
 import * as setDependencyVersion from "./commands/set-dependency-version";
 import * as setDevcontainerImage from "./commands/set-devcontainer-image";
@@ -32,6 +33,7 @@ await yargs(hideBin(process.argv))
   .command(tagRelease)
   .command(setDevcontainerImage)
   .command(pendingVersion)
+  .command(publishBackend)
   .command(resolveSdkVersion)
   .command(listSdks)
   .command(setDependencyVersion)

@@ -29,6 +29,11 @@ export function builder(yargs: Argv<GlobalArgs>) {
       type: "number",
       describe: "RC number (required for rc releases)",
     })
+    .option("baseVersion", {
+      type: "string",
+      describe:
+        "Base version override (backend releases use their branch version)",
+    })
     .option("sourceRef", {
       type: "string",
       describe:
@@ -47,6 +52,7 @@ export function handler(
       sdk: string;
       releaseType: ReleaseType;
       rcNumber?: number;
+      baseVersion?: string;
       sourceRef?: string;
       timestamp?: string;
     }
@@ -60,7 +66,8 @@ export function handler(
   const runTimestamp = validateTimestamp(argv.timestamp);
 
   const config = getSdkConfig(argv.sdk);
-  const baseVersion = config.manifest.readVersion(argv.repoRoot);
+  const baseVersion =
+    argv.baseVersion ?? config.manifest.readVersion(argv.repoRoot);
   const needsSha = argv.releaseType === "dev" || argv.releaseType === "nightly";
   const shortSha = needsSha ? getShortSha(argv.repoRoot) : undefined;
   const fromMain =

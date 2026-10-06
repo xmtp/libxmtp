@@ -34,16 +34,34 @@ pnpm --filter @xmtp/release-tools cli bump-version --sdk ios --type minor
 
 Compute a full version string for dev, RC, or final releases. Dev builds append the short git SHA; RC builds append the RC number.
 
-| Flag             | Type                     | Required | Description  |
-| ---------------- | ------------------------ | -------- | ------------ |
-| `--sdk`          | string                   | yes      | SDK name     |
-| `--release-type` | `dev` \| `rc` \| `final` | yes      | Release type |
-| `--rc-number`    | number                   | for `rc` | RC number    |
+| Flag             | Type                     | Required | Description                                                                 |
+| ---------------- | ------------------------ | -------- | --------------------------------------------------------------------------- |
+| `--sdk`          | string                   | yes      | SDK name                                                                    |
+| `--release-type` | `dev` \| `rc` \| `final` | yes      | Release type                                                                |
+| `--rc-number`    | number                   | for `rc` | RC number                                                                   |
+| `--base-version` | string                   | no       | Override the manifest base; backend releases use the release branch version |
 
 ```bash
 pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type dev
 pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type rc --rc-number 1
 pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type final
+```
+
+### `publish-backend`
+
+Publish a version manifest at `ghcr.io/xmtp/backend:<version>` and a GitHub
+release at `backend-<version>`. Run this after the commit images are published.
+The command reads the checked-out source commit. It requires Linux amd64 and
+arm64 manifests and refuses a version that belongs to another commit or build.
+It verifies signed provenance for both platform digests against `xmtp/libxmtp`,
+`push-backend.yml`, and the checked-out commit. Publish the images through the
+backend release workflow first. RC versions must use `rcN` with a positive
+integer. Dev versions must use `dev.<sha7>` or `pre.<timestamp>.dev.<sha7>`.
+Use `--dry-run` to print the plan without contacting registries or GitHub.
+
+```bash
+pnpm --filter @xmtp/release-tools cli publish-backend \
+  --version 8.0.0-rc1 --release-type rc --dry-run
 ```
 
 ### `update-spm-checksum`

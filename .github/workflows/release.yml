@@ -49,6 +49,11 @@ on:
         required: false
         type: boolean
         default: false
+      backend:
+        description: "Release the backend container and GitHub tag"
+        required: false
+        type: boolean
+        default: false
       no-merge:
         description: "Skip merging the release PR (only applies to final releases)"
         required: false
@@ -60,7 +65,7 @@ on:
         type: string
         default: "self-hosted"
       dry-run:
-        description: "Build and preview npm packages; skip mobile jobs, publishing, and tags"
+        description: "Build npm packages and selected backend images; skip mobile jobs, publishing, and tags"
         required: false
         type: boolean
         default: false
@@ -81,6 +86,7 @@ jobs:
       browser-sdk: ${{ steps.resolve.outputs.browser-sdk }}
       agent-sdk: ${{ steps.resolve.outputs.agent-sdk }}
       cli: ${{ steps.resolve.outputs.cli }}
+      backend: ${{ steps.resolve.outputs.backend }}
       dry-run: ${{ steps.resolve.outputs.dry-run }}
       skip: ${{ steps.skip-check.outputs.skip }}
     steps:
@@ -97,6 +103,7 @@ jobs:
           INPUT_BROWSER_SDK: ${{ inputs.browser-sdk }}
           INPUT_AGENT_SDK: ${{ inputs.agent-sdk }}
           INPUT_CLI: ${{ inputs.cli }}
+          INPUT_BACKEND: ${{ inputs.backend }}
           INPUT_DRY_RUN: ${{ inputs.dry-run }}
         run: |
           if [ "$EVENT_NAME" = "schedule" ]; then
@@ -108,6 +115,7 @@ jobs:
             echo "browser-sdk=true" >> "$GITHUB_OUTPUT"
             echo "agent-sdk=true" >> "$GITHUB_OUTPUT"
             echo "cli=true" >> "$GITHUB_OUTPUT"
+            echo "backend=false" >> "$GITHUB_OUTPUT"
             echo "dry-run=false" >> "$GITHUB_OUTPUT"
           else
             echo "release-type=$INPUT_RELEASE_TYPE" >> "$GITHUB_OUTPUT"
@@ -118,6 +126,7 @@ jobs:
             echo "browser-sdk=$INPUT_BROWSER_SDK" >> "$GITHUB_OUTPUT"
             echo "agent-sdk=$INPUT_AGENT_SDK" >> "$GITHUB_OUTPUT"
             echo "cli=$INPUT_CLI" >> "$GITHUB_OUTPUT"
+            echo "backend=$INPUT_BACKEND" >> "$GITHUB_OUTPUT"
             echo "dry-run=${INPUT_DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
           fi
       # Use one timestamp for all SDK versions in this release run.
@@ -142,10 +151,15 @@ jobs:
         if: steps.resolve.outputs.release-type == 'rc' || steps.resolve.outputs.release-type == 'final'
         env:
           REF: ${{ steps.resolve.outputs.ref }}
+          BACKEND: ${{ steps.resolve.outputs.backend }}
         run: |
           BRANCH="${REF#refs/heads/}"
           if [[ ! "$BRANCH" =~ ^release/ ]]; then
             echo "::error::RC and final releases must be run from a release/* branch, got: $BRANCH"
+            exit 1
+          fi
+          if [ "$BACKEND" = "true" ] && ! [[ "$BRANCH" =~ ^release/(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Backend RC and final releases require release/X.Y.Z, got: $BRANCH"
             exit 1
           fi
       - name: Validate RC number
@@ -153,8 +167,8 @@ jobs:
         env:
           RC_NUMBER: ${{ inputs.rc-number }}
         run: |
-          if [ -z "$RC_NUMBER" ] || [ "$RC_NUMBER" -lt 1 ]; then
-            echo "::error::RC releases require rc-number to be set to a value greater than 0"
+          if ! [[ "$RC_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::RC releases require a positive integer rc-number"
             exit 1
           fi
       - name: Skip-if-no-new-commits (nightly only)
@@ -309,12 +323,29 @@ jobs:
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
+  release-backend:
+    needs: [validate]
+    if: needs.validate.outputs.backend == 'true' && needs.validate.outputs.skip != 'true'
+    uses: ./.github/workflows/release-backend.yml
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      release-type: ${{ needs.validate.outputs.release-type }}
+      rc-number: ${{ format('{0}', inputs.rc-number) }}
+      ref: ${{ needs.validate.outputs.ref }}
+      timestamp: ${{ needs.validate.outputs.timestamp }}
+      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
+    secrets: inherit
+
   merge-pr:
     # dry-run must not mutate the repo: a final + dry-run would otherwise merge
     # and delete the release branch even though the release-* jobs were skipped
     # (skipped ≠ failure, so the !contains(failure) check alone lets it through).
     if: needs.validate.outputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure') && needs.validate.outputs.dry-run != 'true'
-    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli]
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -352,7 +383,7 @@ jobs:
   # Do NOT drop any of the three; they jointly make non-nightly run and nightly
   # block-on-not-green / block-on-error.
   hub:
-    needs: [validate, plan, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli]
+    needs: [validate, plan, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend]
     if: >-
       needs.validate.outputs.release-type == 'nightly'
       && needs.plan.outputs.gate-skip != 'true'
@@ -495,7 +526,7 @@ jobs:
           fi
 
   notify:
-    needs: [validate, plan, hub, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, merge-pr]
+    needs: [validate, plan, hub, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, release-backend, merge-pr]
     if: always() && needs.validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -514,9 +545,15 @@ jobs:
           AGENT_VERSION: ${{ needs.release-agent-sdk.outputs.version }}
           CLI_RESULT: ${{ needs.release-cli.result }}
           CLI_VERSION: ${{ needs.release-cli.outputs.version }}
+          BACKEND_RESULT: ${{ needs.release-backend.result }}
+          BACKEND_VERSION: ${{ needs.release-backend.outputs.version }}
+          DRY_RUN: ${{ needs.validate.outputs.dry-run }}
           RELEASE_TYPE: ${{ needs.validate.outputs.release-type }}
         run: |
           MSG="${RELEASE_TYPE^} Release:"
+          if [ "$DRY_RUN" = "true" ]; then
+            MSG="Dry run: $MSG"
+          fi
           if [ -n "$IOS_VERSION" ] || [ "$IOS_RESULT" != "skipped" ]; then
             MSG="$MSG iOS ${IOS_VERSION:-failed} (${IOS_RESULT})"
           fi
@@ -534,6 +571,9 @@ jobs:
           fi
           if [ -n "$CLI_VERSION" ] || [ "$CLI_RESULT" != "skipped" ]; then
             MSG="$MSG CLI ${CLI_VERSION:-failed} (${CLI_RESULT})"
+          fi
+          if [ -n "$BACKEND_VERSION" ] || [ "$BACKEND_RESULT" != "skipped" ]; then
+            MSG="$MSG Backend ${BACKEND_VERSION:-failed} (${BACKEND_RESULT})"
           fi
           echo "message=$MSG" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/slack-notify
