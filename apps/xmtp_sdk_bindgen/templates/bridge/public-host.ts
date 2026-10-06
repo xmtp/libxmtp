@@ -40,13 +40,14 @@ export function checkStorage(storage: object): void {
 }
 
 import { owner } from "../../host-message.gen.js";
+import type { Client } from "../../public-client.gen.js";
 import { wrapClient } from "../../public-client.gen.js";
 import { RemoteObject, sessionOf } from "../bridge/main/remote-object.js";
 
 export function streamOwner(
   source: object,
   ownerKey: () => bigint,
-): import("../../public-client.gen.js").Client | undefined {
+): Client | undefined {
   if (!(source instanceof RemoteObject))
     throw new TypeError("not an XMTP receiver");
   const client = owner(sessionOf(source), ownerKey())?.client.deref();
