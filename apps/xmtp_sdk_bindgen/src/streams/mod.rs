@@ -99,6 +99,14 @@ pub(crate) fn resolve(items: &[&Metadata]) -> Result<Vec<Stream>> {
         }
         let (input, result) =
             reader_shape(method).with_context(|| format!("{label}: invalid stream reader"))?;
+        for (role, value) in [
+            ("stream", name),
+            ("owner", owner),
+            ("reader", method.name.as_str()),
+            ("argument", method.inputs[0].name.as_str()),
+        ] {
+            validate_host_name(value).with_context(|| format!("{label}: {role}"))?;
+        }
         let reader_type = match result {
             Reader::Conversation => "ConversationReader",
             Reader::Message => "MessageReader",
@@ -181,6 +189,51 @@ pub(crate) fn resolve(items: &[&Metadata]) -> Result<Vec<Stream>> {
     streams.sort_by(|a, b| (&a.receiver, &a.name).cmp(&(&b.receiver, &b.name)));
     common(&streams, "Group", "Dm")?;
     Ok(streams)
+}
+
+// Stream adapters use one unquoted callable spelling in all targets. Reject
+// names that a target would quote or rename, including its normalized form.
+fn validate_host_name(value: &str) -> Result<()> {
+    const KOTLIN_KEYWORDS: &[&str] = &[
+        "as",
+        "break",
+        "class",
+        "continue",
+        "do",
+        "else",
+        "false",
+        "for",
+        "fun",
+        "if",
+        "in",
+        "interface",
+        "is",
+        "null",
+        "object",
+        "package",
+        "return",
+        "super",
+        "this",
+        "throw",
+        "true",
+        "try",
+        "typealias",
+        "typeof",
+        "val",
+        "var",
+        "when",
+        "while",
+    ];
+    let name = value.to_lower_camel_case();
+    if !name.starts_with(|c: char| c.is_ascii_alphabetic())
+        || !name.chars().all(|c| c.is_ascii_alphanumeric())
+        || crate::redaction::swift_identifier(&name) != name
+        || crate::public_projection::identifier(value) != name
+        || KOTLIN_KEYWORDS.contains(&name.as_str())
+    {
+        bail!("unsupported host identifier {value:?} (normalized as {name:?})");
+    }
+    Ok(())
 }
 
 fn exported_type_name(item: &Metadata) -> Option<&str> {

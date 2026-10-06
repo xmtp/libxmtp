@@ -274,7 +274,7 @@ fn string_literal(value: &str) -> String {
 
 /// The binding's spelling of a method, function, or parameter name. The
 /// TypeScript backend adds `_` to a reserved word, for example `delete_`.
-fn identifier(name: &str) -> String {
+pub(crate) fn identifier(name: &str) -> String {
     const RESERVED: &[&str] = &[
         "await",
         "break",

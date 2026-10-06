@@ -218,6 +218,44 @@ fn stream_markers_names_and_host_types_reject_collisions() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+fn host_names_reject_keywords_and_normalized_collisions() {
+    for keyword in ["when", "inout", "delete", "_", "_1reader"] {
+        for role in ["stream", "owner", "reader", "argument"] {
+            let mut items = valid();
+            match role {
+                "stream" => {
+                    named(&mut items, "selected_reader").docstring = Some(format!(
+                        "@xmtp-stream={keyword}:MessageStreamOptions:private_owner"
+                    ))
+                }
+                "owner" => {
+                    named(&mut items, "private_owner").name = keyword.into();
+                    named(&mut items, "selected_reader").docstring = Some(format!(
+                        "@xmtp-stream=consume:MessageStreamOptions:{keyword}"
+                    ));
+                }
+                "reader" => named(&mut items, "selected_reader").name = keyword.into(),
+                "argument" => named(&mut items, "selected_reader").inputs[0].name = keyword.into(),
+                _ => unreachable!(),
+            }
+            reject(items, "unsupported host identifier");
+        }
+    }
+    let mut items = valid();
+    named(&mut items, "selected_reader").docstring =
+        Some("@xmtp-stream=consume_items:MessageStreamOptions:private_owner".into());
+    items.push(Metadata::Method(method("Renamed", "consumeItems")));
+    reject(items, "collides with an exported method");
+
+    let mut items = valid();
+    let mut duplicate = named(&mut items, "selected_reader").clone();
+    duplicate.name = "another_reader".into();
+    duplicate.docstring = Some("@xmtp-stream=consume_:MessageStreamOptions:private_owner".into());
+    items.push(Metadata::Method(duplicate));
+    reject(items, "duplicate or reserved public stream name");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn common_forwarding_uses_declared_names_and_keeps_extension_locations() {
     let mut items = valid();
     items.extend(receiver("Group"));

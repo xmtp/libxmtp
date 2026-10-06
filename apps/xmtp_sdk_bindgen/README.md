@@ -191,6 +191,9 @@ These stay outside the markers on purpose:
 - Streams and readers (`runtime/*/streams`): typed option mapping, host iterator,
   cancellation, and acknowledgement behavior stays in runtime code. The stream
   marker generates only thin methods and common Conversation forwarding.
+  Stream, owner, reader, and reader-argument names must have an ASCII
+  lower-camel spelling that no target quotes or renames. Target keywords and
+  names that collide after normalization fail validation.
 - Events host behaviour (`runtime/*/events`): listener and iterator lifetimes
   belong to the host runtime.
 - Logging (`runtime/ts/logging.ts`, `templates/bridge/logging.ts`,

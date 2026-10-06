@@ -130,7 +130,7 @@ it("stream methods use the receiver owner for create, get, list, and streamed va
       expect(ownerKey).toBe(firstOwnerKey);
       expect(session).not.toBe(firstSession);
     }
-    const owner = streamOwner(raw);
+    const owner = streamOwner(raw, () => raw.sdkStreamOwnerKey());
     expect(owner).toBeDefined();
     expect(publicClient(owner!)).toBe(client);
     const streamed = (await next).value!;
