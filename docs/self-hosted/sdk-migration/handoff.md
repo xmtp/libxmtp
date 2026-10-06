@@ -37,8 +37,9 @@ owning SDK PR. Do not change versions or run a release workflow in Phase 1.
 ## File ownership and consumer audit
 
 The temporary cutover audit and its path ledger are retired. The owner map
-below records the original lane scope. Current public consumer fixtures and
-target tests remain in the repository.
+below records the original lane scope. The public consumer fixtures were
+removed. `check-examples` now compiles each guide example inside its `sdks/*`
+package, and the target tests remain in the repository.
 
 | Writer | Scope and exact assignment rule |
 | --- | --- |
@@ -72,7 +73,7 @@ compiler/runtime result and raw output for every row. Unrun means PENDING.
 
 | Host | Compiler and guide runtime | Target/consumer switch proof | Status |
 | --- | --- | --- | --- |
-| Swift | Compile `Migration.swift` in the installed XmtpSdk consumer; call `exerciseMigration` with the package signer and persistent paths in an app bundle | Swift public consumer, iOS package/device/lifecycle examples; V14 target callback/release gate | PENDING |
+| Swift | Compile `Migration.swift` in the installed XmtpSdk consumer; call `exerciseMigration` with the package signer and persistent paths in an app bundle | `sdks/ios` package tests, iOS package/device/lifecycle examples; V14 target callback/release gate | PENDING |
 | Kotlin | Compile `Migration.kt` in the installed Android consumer; call `exerciseMigration` on JVM and emulator with Android paths | Context default storage, AAR/JNI packaging, emulator/lifecycle examples; V14 target gate | PENDING |
 | Node plus agent | Compile `node.ts` through the installed ESM root; call `exerciseMigration` with real signer and existing database | Native supported platforms, Node/agent/CLI tests and distinct docs examples; V14 target gate | PENDING |
 | Browser | Compile `browser.ts` through the installed ESM root; call it in Chromium with OPFS entries | Worker/pure assets, OPFS/import/export/locking, web consumers; V14 target gate | PENDING |
@@ -163,8 +164,8 @@ never returns has no thread-release guarantee.
 - The PR that removes the last old SDK also deletes `dev/sdk/inventory.py`,
   `dev/sdk/manifest_rules.py`, `dev/sdk/binding-test-map.tsv`,
   `docs/self-hosted/sdk-api-manifest.md`, their Just recipes, CI references, and
-  this temporary audit generator/receipts. Keep the migration prose and small
-  public consumer fixtures. Do not create a new member database. Search for stale
+  this temporary audit generator/receipts. Keep the migration prose and the
+  `check-examples` script. Do not create a new member database. Search for stale
   references and run surviving checks before merge.
 - J starts after F–I merge. It removes only remaining shared cleanup and proves
   no orphaned binding, callback, or dependency remains. The PR removing the last
