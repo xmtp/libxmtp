@@ -19,6 +19,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("Client", () => {
+  // verifies: STORE-004
   it("keeps default storage in the current data directory when an old database exists", async () => {
     const { signer, identifier } = createSigner();
     const directory = mkdtempSync(join(tmpdir(), "xmtp-node-default-"));

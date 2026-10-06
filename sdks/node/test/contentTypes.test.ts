@@ -228,6 +228,7 @@ describe("Content types", () => {
     },
   );
 
+  // verifies: CTYPE-017
   it("reports missing and failed custom codecs without losing the raw envelope", async () => {
     const codec = new TestCodec();
     const failing = new DecodeFailureCodec();
@@ -268,5 +269,68 @@ describe("Content types", () => {
     expect(
       (await sender.conversations.getMessageById(ids[0]))?.content,
     ).toMatchObject({ kind: "custom", value: { test: "unknown" } });
+  });
+
+  // The Node wrapper decodes custom reply bodies and parents with the
+  // client's codecs (runtime/ts/message.ts); Rust decodes only standard ones.
+  // verifies: CTYPE-029
+  it("keeps the outer reply when a custom reply body or parent fails to decode", async () => {
+    const failing = new DecodeFailureCodec();
+    const sender = await createRegisteredClient(createSigner().signer);
+    const receiver = await createRegisteredClient(createSigner().signer, {
+      codecs: [failing],
+    });
+    try {
+      const group = await sender.conversations.createGroup([receiver.inboxId]);
+      const text = await group.sendText("text parent");
+      const custom = await group.send(failing.encode("custom parent"));
+      const badReply = await group.sendReply(
+        text,
+        sender.inboxId,
+        failing.encode("custom reply"),
+      );
+      const textReply = await group.sendReply(
+        custom,
+        sender.inboxId,
+        new sdk.TextCodec().encode("text reply"),
+      );
+      await receiver.conversations.sync();
+      await (await receiver.conversations.getById(group.id))!.sync();
+      const read = (id: string) => receiver.conversations.getMessageById(id);
+      const sent = (await sender.conversations.getMessageById(badReply))!;
+
+      // A failed custom reply body reads as unknown with the outer envelope.
+      const failed = await read(badReply);
+      expect(failed?.content).toMatchObject({
+        kind: "unknown",
+        error: { code: "CodecDecodeFailed", category: "callback" },
+      });
+      if (failed?.content.kind !== "unknown") throw new Error("not unknown");
+      expect(failed.content.rawBytes).toEqual(sent.rawBytes);
+      expect(failed.content.encoded?.fallback).toBe(sent.fallback);
+      expect(sent.fallback).toBeTruthy();
+
+      // A text reply keeps its body; its failed custom parent is isolated.
+      const parent = await read(custom);
+      if (parent?.content.kind !== "custom") throw new Error("not custom");
+      const reply = await read(textReply);
+      expect(reply?.content).toMatchObject({
+        kind: "reply",
+        body: { kind: "text", value: "text reply" },
+      });
+      expect(reply?.replyContent).toEqual({
+        kind: "text",
+        value: "text reply",
+      });
+      expect(reply?.inReplyToContent).toMatchObject({
+        kind: "custom",
+        error: { code: "CodecDecodeFailed", category: "callback" },
+      });
+      if (reply?.inReplyToContent?.kind !== "custom")
+        throw new Error("parent is not custom");
+      expect(reply.inReplyToContent.rawBytes).toEqual(parent.content.rawBytes);
+    } finally {
+      await Promise.all([sender.end(), receiver.end()]);
+    }
   });
 });

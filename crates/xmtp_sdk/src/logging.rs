@@ -100,9 +100,6 @@ mod sink {
     use std::sync::Arc;
     use xmtp_logging::LogSinkTarget;
 
-    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
-    static CONFORMANCE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     /// Emit ordered records from one Rust thread for host callback checks.
     #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
     #[xmtp_macro::sdk_export]
@@ -123,25 +120,6 @@ mod sink {
             tracing::error!(target: "xmtp_sdk::conformance", sequence, "conformance log");
         }
         Ok(())
-    }
-
-    /// The inline sink deadlocks if its JavaScript callback reads this lock.
-    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
-    #[xmtp_macro::sdk_export]
-    pub async fn sdk_conformance_emit_under_lock() -> Result<(), XmtpError> {
-        tokio::task::spawn_blocking(|| {
-            let _guard = CONFORMANCE_LOCK.lock().expect("conformance lock");
-            tracing::error!(target: "xmtp_sdk::conformance", "locked log");
-        })
-        .await
-        .map_err(XmtpError::from_core)
-    }
-
-    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
-    #[xmtp_macro::sdk_export]
-    pub fn sdk_conformance_read_lock() -> u32 {
-        let _guard = CONFORMANCE_LOCK.lock().expect("conformance lock");
-        1
     }
 
     /// Read errors observed by Rust after direct host sink calls.

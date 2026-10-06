@@ -8,6 +8,7 @@ import {
   setLogSink,
   flushTelemetry,
   localSignerFromPrivateKey,
+  XmtpError,
 } from "@xmtp/node-sdk";
 
 const mode = process.argv[2];
@@ -64,6 +65,12 @@ async function waitFor(predicate) {
 try {
   const first = await collector();
   const second = await collector();
+  // Before initLogging, both sink forms fail with the public error.
+  for (const sink of [{ log: async () => {} }, undefined])
+    await assert.rejects(
+      setLogSink(sink),
+      (error) => error instanceof XmtpError.InvalidInput,
+    );
   const service = "node-otel-startup-service";
   const attribute = "node-otel-startup-resource";
   await initLogging({
@@ -75,13 +82,20 @@ try {
     resourceAttributes: new Map([["proof.attribute", attribute]]),
   });
   let records = 0;
+  let firstRecord;
   await setLogSink({
-    async log() {
+    async log(record) {
       records += 1;
+      firstRecord ??= record;
     },
   });
   await assert.rejects(localSignerFromPrivateKey(new Uint8Array(31)));
   await waitFor(() => records > 0);
+  // The public sink gets the public record: a string level, not the binding
+  // number.
+  assert.equal(firstRecord.level, "error");
+  assert.ok(firstRecord.fields instanceof Map);
+  assert.equal(typeof firstRecord.droppedRecords, "bigint");
   await flushTelemetry();
   if (mode === "otel") {
     await waitFor(() =>
@@ -118,7 +132,14 @@ try {
     0,
     "repeat init replaced the first logging exporter",
   );
+  // A cleared sink gets no later record. Records already handed to the JS
+  // thread may still land, so settle before the count is taken.
   await setLogSink(undefined);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const recordsAtClear = records;
+  await assert.rejects(localSignerFromPrivateKey(new Uint8Array(31)));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(records, recordsAtClear, "a cleared log sink was called");
   console.log(
     JSON.stringify({
       result: "PASS",

@@ -64,6 +64,7 @@ jobs:
               - 'dev/release-tools/**'
               - 'sdks/browser/**'
               - 'sdks/node/**'
+              - 'apps/xmtp_sdk_bindgen/**'
               - 'sdks/agent/**'
               - 'sdks/js.just'
               - 'dev/js/**'

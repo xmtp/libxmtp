@@ -11,6 +11,7 @@ import {
 } from "@xmtp/node-sdk";
 import { toBytes } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { onTestFinished } from "vitest";
 
 export const sleep = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,6 +51,16 @@ export function clientOptions(
     ...options,
     backend,
   };
+}
+/**
+ * End `resource` when the current test finishes, also after a failed step.
+ * Ending an ended client or stream does nothing.
+ */
+export function endAfterTest<T extends { end(): Promise<void> }>(
+  resource: T,
+): T {
+  onTestFinished(() => resource.end());
+  return resource;
 }
 export const createRegisteredClient = (
   signer: Signer,

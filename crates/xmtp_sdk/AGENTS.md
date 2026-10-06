@@ -29,8 +29,10 @@ Run commands from the repository root in the Nix shell. Run
   the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
   in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
-- `dev/nix-shell 'just sdk conformance <swift|kotlin|node>'` runs scenarios against this
-  worktree's backend. `dev/nix-shell 'just sdk conformance browser'` runs Chromium
+- `dev/nix-shell 'just sdk conformance <swift|kotlin>'` runs scenarios against this
+  worktree's backend. The Node host checks are in `sdks/node/test`
+  (`dev/nix-shell 'just js test-node-sdk-ci'`).
+  `dev/nix-shell 'just sdk conformance browser'` runs Chromium
   proofs in Vitest Playwright: a real WASM trap from a test-only panic fixture,
   storage layouts, attachment and event lifetime, and decode-once. It then
   checks real OPFS and worker behavior. The public browser scenarios are in
@@ -47,14 +49,17 @@ Run commands from the repository root in the Nix shell. Run
   runtime seams, and the negative consumers. The other Swift checks are in
   `sdks/ios/Tests`. Swift CI uses `dev/nix-shell 'just sdk generate swift'`, then
   `dev/nix-shell 'just backend ci just sdk conformance swift'`.
-  The Kotlin, Node, and browser runs start `conformance/ts/object-store.mjs` for their
+  The Kotlin and browser runs start `conformance/ts/object-store.mjs` for their
   download fixtures. The default ephemeral fixture port keeps `SDK_FIXTURE_URL`
   separate from native S3 on port 9067. Each run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a
   small PUT response, count upload grants and object requests, and refuse
   selected relayed backend URLs. It uses `protoc` from the Rust shell to
   replace only the upload URL in a real backend response. Native clients use
   the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
-  preserve gRPC status trailers.
+  preserve gRPC status trailers. The Node tests in `sdks/node/test` do not use
+  this fixture. The attachment end test starts its own held-upload relay
+  (`sdks/node/test/heldUpload.ts`) on ephemeral loopback ports. It needs no
+  `SDK_FIXTURE_URL` and no `protoc`.
 - `dev/nix-shell 'just sdk bench <node|browser|swift|kotlin> [--samples N]'` measures
   the staged package on one host against this worktree's backend and writes
   `results.json` (p50 and p95, no pass or fail). Stage the package first. For

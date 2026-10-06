@@ -109,7 +109,6 @@ Existing commands from the repository root:
 dev/nix-shell 'just sdk generate'
 dev/nix-shell 'just sdk conformance swift'
 dev/nix-shell 'just sdk conformance kotlin'
-dev/nix-shell 'just sdk conformance node'
 dev/nix-shell 'just sdk conformance browser'
 dev/nix-shell 'just spec-check'
 ```

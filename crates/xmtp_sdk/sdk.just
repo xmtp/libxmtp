@@ -38,8 +38,8 @@ _browser-panic-fixture target:
 
 conformance target: (_browser-pure-fixture target) (_browser-panic-fixture target)
     {{ _env }} && case "{{ target }}" in \
-      swift|kotlin|node|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
-      *) echo "Expected swift, kotlin, node, or browser" >&2; exit 2 ;; \
+      swift|kotlin|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
+      *) echo "Expected swift, kotlin, or browser" >&2; exit 2 ;; \
     esac
 
 conformance-bridge:

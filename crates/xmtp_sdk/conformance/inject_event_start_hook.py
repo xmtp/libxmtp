@@ -71,32 +71,6 @@ elif language == "swift":
         "            throw ListenerError.Failed\n        }\n"
         "        await callbackFinished?()\n",
     )
-elif language == "typescript":
-    source = replace_once(
-        source,
-        "declare const process: { cwd(): string } | undefined;\n",
-        "let eventStartHookForTest: (() => Promise<void>) | undefined;\n"
-        "let eventFinishedHookForTest: (() => Promise<void>) | undefined;\n\n"
-        "export function setEventStartHookForTest(hook?: () => Promise<void>, finished?: () => Promise<void>): void {\n"
-        "  eventStartHookForTest = hook;\n"
-        "  eventFinishedHookForTest = finished;\n"
-        "}\n\n"
-        "declare const process: { cwd(): string } | undefined;\n",
-    )
-    source = replace_once(
-        source,
-        "          if (gate.stopped) return;\n",
-        "          const callbackFinished = eventFinishedHookForTest;\n"
-        "          try {\n"
-        "          if (eventStartHookForTest) await eventStartHookForTest();\n"
-        "          if (gate.stopped) return;\n",
-    )
-    source = replace_once(
-        source,
-        "            throw new ListenerError.Failed();\n          }\n",
-        "            throw new ListenerError.Failed();\n          }\n"
-        "          } finally { await callbackFinished?.(); }\n",
-    )
 else:
     raise SystemExit(f"unknown conformance language: {language}")
 path.write_text(source)
