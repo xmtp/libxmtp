@@ -52,14 +52,17 @@ pub struct MembershipResult {
     pub failed_installation_ids: Vec<InstallationId>,
 }
 
+#[xmtp_macro::sdk_export]
 #[derive(Clone, uniffi::Record)]
 pub struct HmacKey {
+    #[sdk(redact)]
     pub key: Vec<u8>,
+    #[sdk(shown)]
     pub epoch: i64,
 }
 
-impl std::fmt::Debug for HmacKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl HmacKey {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HmacKey")
             .field("key", &"<redacted>")
             .field("epoch", &self.epoch)

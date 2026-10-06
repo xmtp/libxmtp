@@ -18,10 +18,13 @@ pub enum StorageLocation {
     },
 }
 
+#[xmtp_macro::sdk_export]
 #[derive(Clone, Default, uniffi::Record)]
 pub struct StorageOptions {
+    #[sdk(shown)]
     pub location: StorageLocation,
     #[uniffi(default = None)]
+    #[sdk(shown)]
     pub label: Option<String>,
     /// An optional 32-byte key for native database encryption.
     /// No key is required. When the key is absent, the database is not encrypted
@@ -30,15 +33,18 @@ pub struct StorageOptions {
     /// the database.
     #[cfg(not(target_arch = "wasm32"))]
     #[uniffi(default = None)]
+    #[sdk(redact)]
     pub encryption_key: Option<Vec<u8>>,
     #[uniffi(default = None)]
+    #[sdk(shown)]
     pub pool: Option<StoragePoolOptions>,
     #[uniffi(default = false)]
+    #[sdk(shown)]
     pub single_connection: bool,
 }
 
-impl std::fmt::Debug for StorageOptions {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl StorageOptions {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut record = f.debug_struct("StorageOptions");
         record
             .field("location", &self.location)

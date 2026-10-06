@@ -27,16 +27,23 @@ together.
 | `@xmtp-internal` | Written in a doc comment | Leaves the item out of the public projection |
 | `@xmtp-immutable` | `#[sdk(immutable)]` on a sync `&self` getter | Lets the browser bridge read the getter once, from a snapshot |
 | `@xmtp-kind=name` | `#[sdk(kind = "name")]` on each `EventKind` variant | Uses `name` as the public TypeScript string of the event kind |
+| `@xmtp-redact`, `@xmtp-redact=key` | `#[sdk(redact)]` or `#[sdk(redact = "key")]` on a record or variant field | Hides the value, or that key of a string map, in the generated Kotlin `toString` and the Swift `description` that `runtime/RecordDescriptions.swift` holds |
+| `@xmtp-redacted` | The record or enum of a `#[sdk(redact)]` field | Admits that type's `@xmtp-redact` markers; without it, generation stops |
 
 A marker is a whole word of a docstring: `@xmtp-`, a lowercase name, and an
 optional `=value`. The generator stops on such a word outside the table, so a
 misspelling such as `@xmtp-interal` cannot leave a private item public. A
 value reaches generated string literals, so the generator also stops on a
-kind outside the grammar of `#[sdk(kind)]` and on a value given to any
-other marker.
+kind or a redacted map key outside the grammar of its `#[sdk(...)]` option
+and on a value given to any other marker. Only `@xmtp-worker` and
+`@xmtp-internal` are written by hand. The others written in a doc comment
+would skip the macro's checks: `sdk_export` rejects them in the items it
+exports, and an `xmtp_macro` test rejects them anywhere in the façade source,
+along with a `doc` value that is not a string literal.
 
 `#[sdk_export(native_only)]` and `#[sdk_export(wasm_only)]` write no marker.
-They are the target's `#[cfg]` above the item.
+They are the target's `#[cfg]` above the item. `#[sdk(shown)]` writes none
+either: it marks a field that diagnostic text prints beside a redacted one.
 
 Rules the macro enforces at compile time:
 
@@ -48,13 +55,30 @@ Rules the macro enforces at compile time:
   the object's lifetime; otherwise make the read async.
 - `#[sdk(kind)]` marks every variant of an enum, each with its own kind, or
   none.
+- Redaction fails closed. Once a record, or any variant of an enum, has a
+  `#[sdk(redact)]` field, every other field of the type takes
+  `#[sdk(redact)]` or `#[sdk(shown)]`, so a new field or variant never prints
+  a secret by default. The macro implements
+  `Debug` for the record or enum by calling its `redacted_debug` method,
+  which the façade writes to hide the same fields. Any other `Debug`
+  conflicts with it, so a derived one fails to compile wherever the derive
+  sits. A `redact = "key"` key holds only ASCII letters, digits, `_`, `.`,
+  and `-`, both options need a named field, and a `uniffi::Error` type
+  cannot redact, because the Kotlin binding renames it to an exception class.
 - On a record or enum, `sdk_export` is the first attribute, above every
   derive: a derive written above it expands first, out of the macro's sight.
   When rustc reports "cannot find attribute `sdk` in this scope", the item
   lacks `#[xmtp_macro::sdk_export]` as its first attribute.
 
+The generator checks the key again: it stops when `redact = "key"` marks
+anything but a map with string keys and values, or when the key holds a
+character outside that set.
+
 Derived without a marker:
 
+- Kotlin prints a byte field of a redacted record as its length
+  (`contentBytes=16`), so a payload never reaches diagnostic text. Swift
+  prints a byte count by default.
 - Each `ClientEvent` variant takes the kind of the `EventKind` variant with
   its name. Generation stops when the two enums' variants differ, and the
   error names the missing ones.
@@ -90,8 +114,8 @@ These stay outside the markers on purpose:
   `CREDENTIAL_GUARD` text and the `DELIVERY_CURSOR_*` lists.
 - Codec sends (`is_codec_send` in `src/public_projection/objects.rs`) and
   host client methods (`HOST_CLIENT_METHODS` in `src/forwarding.rs`).
-- Kotlin record diagnostics (`src/kotlin_records.rs`): it pins the fields of
-  each record whose `toString` hides a secret.
+- Rust `Debug` of a redacted record (`redacted_debug` in the façade): the
+  façade writes it, and its own tests cover it.
 - Foreign callback results (`src/callback_results.rs`): the TypeScript
   callback rewrite pins the error and result types of the foreign-trait
   methods, so a new callback updates both lists.

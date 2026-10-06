@@ -65,10 +65,78 @@ pub enum EventKind {
 }
 
 #[xmtp_macro::sdk_export(native_only)]
-#[derive(Clone, Debug, uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum NotificationChannel {
-    Apns { token: String },
+    Apns {
+        #[sdk(redact)]
+        token: String,
+    },
 }
+
+#[xmtp_macro::sdk_export]
+#[derive(Clone, uniffi::Record)]
+pub struct EncodedContent {
+    #[sdk(shown)]
+    pub fallback: Option<String>,
+    #[sdk(redact = "secret")]
+    pub parameters: std::collections::HashMap<String, String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    #[sdk(redact)]
+    pub key: Option<Vec<u8>>,
+}
+
+// sdk_export implements Debug for a redacted type through this method.
+#[cfg(not(target_arch = "wasm32"))]
+impl NotificationChannel {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Apns")
+    }
+}
+
+impl EncodedContent {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EncodedContent")
+            .field("fallback", &self.fallback)
+            .finish_non_exhaustive()
+    }
+}
+
+// A type named by a macro_rules! caller: the generated Debug resolves `self`
+// and its formatter where the macro wrote them.
+macro_rules! redacted_record {
+    ($name:ident) => {
+        #[xmtp_macro::sdk_export]
+        #[derive(Clone, uniffi::Record)]
+        pub struct $name {
+            #[sdk(redact)]
+            pub key: Vec<u8>,
+        }
+
+        impl $name {
+            fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(stringify!($name))
+            }
+        }
+    };
+}
+
+redacted_record!(SigningKey);
+
+// Docs that a macro_rules! caller forwards as an expression or as attributes
+// stay string literals that the macro can check.
+macro_rules! documented_record {
+    ($doc:expr, $(#[$meta:meta])*) => {
+        #[xmtp_macro::sdk_export]
+        $(#[$meta])*
+        #[derive(Clone, uniffi::Record)]
+        pub struct Documented {
+            #[doc = $doc]
+            pub value: u64,
+        }
+    };
+}
+
+documented_record!("A value.", #[doc = "A record that a macro wrote."]);
 
 #[derive(uniffi::Object)]
 struct Probe;
@@ -90,4 +158,19 @@ fn main() {
         token: String::new(),
     };
     assert!(!Probe.entered());
+    let content = EncodedContent {
+        fallback: None,
+        parameters: Default::default(),
+        key: None,
+    };
+    assert!(content.parameters.is_empty() && content.fallback.is_none());
+    assert_eq!(
+        format!("{content:?}"),
+        "EncodedContent { fallback: None, .. }"
+    );
+    let channel = NotificationChannel::Apns {
+        token: "secret".into(),
+    };
+    assert_eq!(format!("{channel:?}"), "Apns");
+    assert_eq!(format!("{:?}", SigningKey { key: vec![7] }), "SigningKey");
 }

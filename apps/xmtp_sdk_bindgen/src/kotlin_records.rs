@@ -1,391 +1,187 @@
 use anyhow::{Context, Result, bail};
-use heck::ToLowerCamelCase;
+use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use uniffi_meta::{EnumMetadata, FieldMetadata, Metadata, MetadataGroupMap, RecordMetadata, Type};
 
-/// Kotlin's generated data classes compare ByteArray by reference.
+use crate::redaction;
+
+/// Kotlin's generated data classes compare ByteArray by reference and print
+/// every field. Each record with byte fields gets value equality; each record
+/// or variant with a redacted field gets a `toString` from its metadata.
 pub(crate) fn rewrite(source: &str, groups: &MetadataGroupMap) -> Result<String> {
     let mut output = source.to_owned();
-    for record in groups
-        .values()
-        .flat_map(|group| &group.items)
-        .filter_map(|item| match item {
-            Metadata::Record(record) => Some(record),
-            _ => None,
-        })
-    {
-        if record.name == "Credential" {
-            output = credential_display(&output, record)?;
-        }
-        if record.name == "StorageOptions" {
-            output = storage_display(&output, record)?;
-        }
-        if record.name == "EncodedContent" {
-            output = encoded_display(&output, record)?;
-        }
-        if record.name == "HmacKey" {
-            output = hmac_display(&output, record)?;
-        }
-        if record.name == "StreamBarrierTopic" {
-            output = topic_display(&output, record)?;
-        }
-        output = attachment_display(&output, record)?;
-        if !record.fields.iter().any(|field| byte_field(&field.ty)) {
-            continue;
-        }
-        let anchor = format!("data class {} (", record.name);
-        let start = output
-            .find(&anchor)
-            .with_context(|| format!("{}: generated Kotlin record was not found", record.name))?;
-        let body = output[start..]
-            .find("){\n")
-            .map(|at| start + at + 3)
-            .with_context(|| format!("{}: generated Kotlin record has no body", record.name))?;
-        let marker = "// Generated value equality for byte fields.";
-        if output[body..].starts_with(marker) {
-            continue;
-        }
-        let code = overrides(&record.name, &record.fields);
-        output.insert_str(body, &code);
-    }
-    for value in groups.values().flat_map(|group| &group.items) {
-        if let Metadata::Enum(value) = value
-            && value.name == "NotificationChannel"
-        {
-            output = notification_display(&output, value)?;
+    for item in groups.values().flat_map(|group| &group.items) {
+        match item {
+            Metadata::Record(record) => {
+                if redaction::redacted(&record.fields) {
+                    output = record_display(&output, record)?;
+                }
+                if !record.fields.iter().any(|field| byte_field(&field.ty)) {
+                    continue;
+                }
+                let class = record.name.to_upper_camel_case();
+                let body = class_body(&output, &format!("data class {class} ("), &class)?;
+                // The inserted block starts with its indent; compare the whole line.
+                let marker = "    // Generated value equality for byte fields.";
+                if output[body..].starts_with(marker) {
+                    continue;
+                }
+                let code = overrides(&class, &record.fields);
+                output.insert_str(body, &code);
+            }
+            Metadata::Enum(value)
+                if value
+                    .variants
+                    .iter()
+                    .any(|variant| redaction::redacted(&variant.fields)) =>
+            {
+                output = enum_display(&output, value)?;
+            }
+            _ => {}
         }
     }
     Ok(output)
 }
 
-fn attachment_display(source: &str, record: &RecordMetadata) -> Result<String> {
-    let (fields, text): (&[&str], &str) = match record.name.as_str() {
-        "RemoteAttachment" => (
-            &[
-                "url",
-                "content_digest",
-                "secret",
-                "salt",
-                "nonce",
-                "scheme",
-                "content_length",
-                "filename",
-            ],
-            "RemoteAttachment(url=<redacted>, contentDigest=$contentDigest, secret=<redacted>, salt=${salt.contentToString()}, nonce=${nonce.contentToString()}, scheme=$scheme, contentLength=$contentLength, filename=$filename)",
-        ),
-        "AttachmentRef" => (
-            &["attachment_key", "url", "content_digest"],
-            "AttachmentRef(attachmentKey=$attachmentKey, url=<redacted>, contentDigest=$contentDigest)",
-        ),
-        "AttachmentFailed" => (
-            &["attachment_key", "url", "content_digest", "cause"],
-            "AttachmentFailed(attachmentKey=$attachmentKey, url=<redacted>, contentDigest=$contentDigest, cause=$cause)",
-        ),
-        _ => return Ok(source.to_owned()),
+/// Skip a Kotlin string literal that starts at `at`; returns the offset after
+/// its closing quote.
+fn after_string(text: &str, at: usize) -> Option<usize> {
+    let mut escaped = false;
+    for (offset, c) in text[at + 1..].char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '"' => return Some(at + 1 + offset + 1),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The offset just inside the body of the class whose declaration starts
+/// with `anchor`, an opening `(` included. The primary constructor ends at
+/// its matching `)`, whatever its default values and field documentation
+/// hold. UniFFI may write supertypes before the body (`): Disposable{`), but
+/// nothing else.
+fn class_body(source: &str, anchor: &str, class: &str) -> Result<usize> {
+    if source.matches(anchor).count() != 1 {
+        bail!("{class}: expected one generated Kotlin class");
+    }
+    let open = source.find(anchor).context("anchor")? + anchor.len();
+    let mut depth = 1;
+    let mut at = open;
+    let close = loop {
+        let rest = &source[at..];
+        let Some(c) = rest.chars().next() else {
+            bail!("{class}: generated Kotlin constructor does not end");
+        };
+        // Field KDoc is prose: its parentheses and quotes do not count.
+        if rest.starts_with("/*") {
+            at += rest
+                .find("*/")
+                .with_context(|| format!("{class}: generated Kotlin comment does not end"))?
+                + 2;
+            continue;
+        }
+        if rest.starts_with("//") {
+            at += rest.find('\n').unwrap_or(rest.len());
+            continue;
+        }
+        match c {
+            '"' => {
+                at = after_string(source, at)
+                    .with_context(|| format!("{class}: generated Kotlin string does not end"))?;
+                continue;
+            }
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 {
+            break at;
+        }
+        at += c.len_utf8();
     };
-    if record
-        .fields
-        .iter()
-        .map(|field| field.name.as_str())
-        .ne(fields.iter().copied())
-        || !record
-            .fields
-            .iter()
-            .any(|field| field.name == "url" && field.ty == Type::String)
-        || (record.name == "RemoteAttachment"
-            && !record
-                .fields
-                .iter()
-                .any(|field| field.name == "secret" && field.ty == Type::Bytes))
+    let rest = &source[close + 1..];
+    let brace = rest
+        .find('{')
+        .with_context(|| format!("{class}: generated Kotlin class has no body"))?;
+    let supertypes = rest[..brace].trim();
+    if !(supertypes.is_empty()
+        || supertypes.starts_with(':') && !supertypes.contains([';', '=', '}']))
     {
-        bail!("{}: expected the attachment fields and URL", record.name);
+        bail!("{class}: generated Kotlin class body does not follow its constructor");
     }
-    let anchor = format!("data class {} (", record.name);
-    if source.matches(&anchor).count() != 1 {
-        bail!("{}: expected one generated data class", record.name);
-    }
-    let start = source.find(&anchor).expect("one admitted record");
-    let body = source[start..]
-        .find("){\n")
-        .map(|at| start + at + 3)
-        .with_context(|| format!("{}: generated record has no body", record.name))?;
+    let body = close + 1 + brace + 1;
+    Ok(body + usize::from(source[body..].starts_with('\n')))
+}
+
+const DISPLAY_COMMENT: &str = "    // Generated: redacted fields stay out of diagnostic text.\n";
+
+fn record_display(source: &str, record: &RecordMetadata) -> Result<String> {
+    // UniFFI's Kotlin class name.
+    let class = record.name.to_upper_camel_case();
+    let display = format!(
+        "{DISPLAY_COMMENT}    override fun toString(): String = \"{}\"\n\n",
+        redaction::kotlin_text(&class, &record.fields)?
+    );
+    let body = class_body(source, &format!("data class {class} ("), &class)?;
     let end = source[body..]
         .find("\n}")
         .map(|at| body + at)
-        .with_context(|| format!("{}: generated record has no end", record.name))?;
-    let display = format!("    override fun toString(): String = \"{text}\"\n\n");
+        .with_context(|| format!("{class}: generated record has no end"))?;
     if source[body..end].contains(&display) {
         return Ok(source.to_owned());
     }
     if source[body..end].contains("fun toString(") {
-        bail!("{}: generated display already exists", record.name);
+        bail!("{class}: generated display already exists");
     }
     let mut output = source.to_owned();
     output.insert_str(body, &display);
     Ok(output)
 }
 
-fn notification_display(source: &str, value: &EnumMetadata) -> Result<String> {
-    let expected = [
-        ("Apns", vec![("token", Type::String)]),
-        ("Fcm", vec![("token", Type::String)]),
-        (
-            "Http",
-            vec![("url", Type::String), ("signing_key", Type::Bytes)],
-        ),
-    ];
-    if value.variants.len() != expected.len()
-        || value
-            .variants
-            .iter()
-            .zip(&expected)
-            .any(|(variant, (name, fields))| {
-                variant.name != *name
-                    || variant.fields.len() != fields.len()
-                    || variant
-                        .fields
-                        .iter()
-                        .zip(fields)
-                        .any(|(field, (name, ty))| field.name != *name || field.ty != *ty)
-            })
-    {
-        bail!("NotificationChannel: expected APNS, FCM and HTTP credential fields");
-    }
-    let anchor = "sealed class NotificationChannel {";
-    if source.matches(anchor).count() != 1 {
-        bail!("NotificationChannel: expected one generated enum");
-    }
-    let start = source.find(anchor).expect("one admitted enum");
+fn enum_display(source: &str, value: &EnumMetadata) -> Result<String> {
+    let class = value.name.to_upper_camel_case();
+    let anchor = format!("sealed class {class}");
+    let start = source
+        .match_indices(&anchor)
+        .map(|(at, _)| at)
+        .filter(|at| matches!(source[at + anchor.len()..].chars().next(), Some(' ' | ':')))
+        .collect::<Vec<_>>();
+    let [start] = start[..] else {
+        bail!("{class}: expected one generated enum");
+    };
     let end = source[start..]
         .find("\n}\n")
         .map(|at| start + at)
-        .context("NotificationChannel: generated enum has no end")?;
+        .with_context(|| format!("{class}: generated enum has no end"))?;
     let mut block = source[start..end].to_owned();
-    for (name, text) in [
-        ("Apns", "Apns(token=<redacted>)"),
-        ("Fcm", "Fcm(token=<redacted>)"),
-        ("Http", "Http(url=<redacted>, signingKey=<redacted>)"),
-    ] {
-        let anchor = format!("data class {name}(");
-        if block.matches(&anchor).count() != 1 {
-            bail!("NotificationChannel: expected one {name} variant");
-        }
-        let start = block.find(&anchor).expect("one admitted variant");
-        let body = block[start..]
-            .find("\n    {")
-            .map(|at| start + at + "\n    {".len())
-            .context("NotificationChannel: generated variant has no body")?;
+    for variant in value
+        .variants
+        .iter()
+        .filter(|variant| redaction::redacted(&variant.fields))
+    {
+        let name = variant.name.to_upper_camel_case();
+        let text = redaction::kotlin_text(&name, &variant.fields)?;
+        let body = class_body(
+            &block,
+            &format!("data class {name}("),
+            &format!("{class}.{name}"),
+        )?;
         let end = block[body..]
             .find("companion object")
             .map(|at| body + at)
-            .context("NotificationChannel: generated variant has no companion")?;
-        let display = format!("\n        override fun toString(): String = \"{text}\"\n");
+            .with_context(|| format!("{class}.{name}: generated variant has no companion"))?;
+        let display = format!("        override fun toString(): String = \"{text}\"\n");
         if block[body..end].contains(&display) {
             continue;
         }
         if block[body..end].contains("fun toString(") {
-            bail!("NotificationChannel: generated variant display already exists");
+            bail!("{class}.{name}: generated variant display already exists");
         }
         block.insert_str(body, &display);
     }
     Ok(format!("{}{block}{}", &source[..start], &source[end..]))
-}
-
-const CREDENTIAL_DISPLAY: &str = "    // Keep credential values out of diagnostic text.\n    override fun toString(): String = \"Credential(name=$name, value=<redacted>, expiresAtSeconds=$expiresAtSeconds)\"\n\n";
-
-fn credential_display(source: &str, record: &RecordMetadata) -> Result<String> {
-    if !matches!(record.fields.as_slice(), [name, value, expires]
-        if name.name == "name" && matches!(&name.ty, Type::Optional { inner_type } if matches!(inner_type.as_ref(), Type::String))
-            && value.name == "value" && value.ty == Type::String
-            && expires.name == "expires_at_seconds" && expires.ty == Type::Int64)
-    {
-        bail!("Credential: expected name, value and signed expiry fields");
-    }
-    let anchor = "data class Credential (";
-    if source.matches(anchor).count() != 1 {
-        bail!("Credential: expected one generated data class");
-    }
-    let start = source.find(anchor).expect("one admitted record");
-    let body = source[start..]
-        .find("){\n")
-        .map(|at| start + at + 3)
-        .context("Credential: generated record has no body")?;
-    if source[body..].starts_with(CREDENTIAL_DISPLAY) {
-        return Ok(source.to_owned());
-    }
-    let end = source[body..]
-        .find("\n}")
-        .map(|at| body + at)
-        .context("Credential: generated record has no end")?;
-    if source[body..end].contains("fun toString(") {
-        bail!("Credential: generated display already exists");
-    }
-    let mut output = source.to_owned();
-    output.insert_str(body, CREDENTIAL_DISPLAY);
-    Ok(output)
-}
-
-const TOPIC_DISPLAY: &str = "    // Keep full topic identifiers out of diagnostic text.\n    override fun toString(): String = \"StreamBarrierTopic(topic=<redacted>, scopeGeneration=$scopeGeneration, target=$target, received=$received, processed=$processed, unresolvedWelcomes=$unresolvedWelcomes, inactive=$inactive, cause=$cause)\"\n\n";
-
-fn topic_display(source: &str, record: &RecordMetadata) -> Result<String> {
-    let expected = [
-        "topic",
-        "scope_generation",
-        "target",
-        "received",
-        "processed",
-        "unresolved_welcomes",
-        "inactive",
-        "cause",
-    ];
-    if record
-        .fields
-        .iter()
-        .map(|field| field.name.as_str())
-        .ne(expected)
-        || record.fields[0].ty != Type::Bytes
-    {
-        bail!("StreamBarrierTopic: expected the complete barrier fields and topic bytes");
-    }
-    let anchor = "data class StreamBarrierTopic (";
-    if source.matches(anchor).count() != 1 {
-        bail!("StreamBarrierTopic: expected one generated data class");
-    }
-    let start = source.find(anchor).expect("one admitted record");
-    let body = source[start..]
-        .find("){\n")
-        .map(|at| start + at + 3)
-        .context("StreamBarrierTopic: generated record has no body")?;
-    let end = source[body..]
-        .find("\n}")
-        .map(|at| body + at)
-        .context("StreamBarrierTopic: generated record has no end")?;
-    if source[body..end].contains(TOPIC_DISPLAY) {
-        return Ok(source.to_owned());
-    }
-    if source[body..end].contains("fun toString(") {
-        bail!("StreamBarrierTopic: generated display already exists");
-    }
-    let mut output = source.to_owned();
-    output.insert_str(body, TOPIC_DISPLAY);
-    Ok(output)
-}
-
-const STORAGE_DISPLAY: &str = "    // Keep database encryption keys out of diagnostic text.\n    override fun toString(): String = \"StorageOptions(location=$location, label=$label, encryptionKey=<redacted>, pool=$pool, singleConnection=$singleConnection)\"\n\n";
-
-fn storage_display(source: &str, record: &RecordMetadata) -> Result<String> {
-    let expected = [
-        "location",
-        "label",
-        "encryption_key",
-        "pool",
-        "single_connection",
-    ];
-    if record
-        .fields
-        .iter()
-        .map(|field| field.name.as_str())
-        .ne(expected)
-        || !matches!(&record.fields[2].ty, Type::Optional { inner_type } if matches!(inner_type.as_ref(), Type::Bytes))
-    {
-        bail!("StorageOptions: expected the storage fields and optional encryption key bytes");
-    }
-    let anchor = "data class StorageOptions (";
-    if source.matches(anchor).count() != 1 {
-        bail!("StorageOptions: expected one generated data class");
-    }
-    let start = source.find(anchor).expect("one admitted record");
-    let body = source[start..]
-        .find("){\n")
-        .map(|at| start + at + 3)
-        .context("StorageOptions: generated record has no body")?;
-    let end = source[body..]
-        .find("\n}")
-        .map(|at| body + at)
-        .context("StorageOptions: generated record has no end")?;
-    if source[body..end].contains(STORAGE_DISPLAY) {
-        return Ok(source.to_owned());
-    }
-    if source[body..end].contains("fun toString(") {
-        bail!("StorageOptions: generated display already exists");
-    }
-    let mut output = source.to_owned();
-    output.insert_str(body, STORAGE_DISPLAY);
-    Ok(output)
-}
-
-const HMAC_DISPLAY: &str =
-    "    override fun toString(): String = \"HmacKey(key=<redacted>, epoch=$epoch)\"\n\n";
-
-fn hmac_display(source: &str, record: &RecordMetadata) -> Result<String> {
-    if record
-        .fields
-        .iter()
-        .map(|field| field.name.as_str())
-        .ne(["key", "epoch"])
-        || record.fields[0].ty != Type::Bytes
-        || record.fields[1].ty != Type::Int64
-    {
-        bail!("HmacKey: expected key bytes and a signed epoch");
-    }
-    let anchor = "data class HmacKey (";
-    if source.matches(anchor).count() != 1 {
-        bail!("HmacKey: expected one generated data class");
-    }
-    let start = source.find(anchor).expect("one admitted record");
-    let body = source[start..]
-        .find("){\n")
-        .map(|at| start + at + 3)
-        .context("HmacKey: generated record has no body")?;
-    let end = source[body..]
-        .find("\n}")
-        .map(|at| body + at)
-        .context("HmacKey: generated record has no end")?;
-    if source[body..end].contains(HMAC_DISPLAY) {
-        return Ok(source.to_owned());
-    }
-    if source[body..end].contains("fun toString(") {
-        bail!("HmacKey: generated display already exists");
-    }
-    let mut output = source.to_owned();
-    output.insert_str(body, HMAC_DISPLAY);
-    Ok(output)
-}
-
-const ENCODED_DISPLAY: &str = r#"    override fun toString(): String = "EncodedContent(type=$type, parameters=${parameters.mapValues { (name, value) -> if (name == "secret") "<redacted>" else value }}, fallback=$fallback, contentBytes=${content.size})"
-
-"#;
-
-fn encoded_display(source: &str, record: &RecordMetadata) -> Result<String> {
-    if record.fields.iter().map(|field| field.name.as_str()).ne([
-        "type",
-        "parameters",
-        "fallback",
-        "content",
-    ]) {
-        bail!("EncodedContent: expected the four envelope fields");
-    }
-    let anchor = "data class EncodedContent (";
-    if source.matches(anchor).count() != 1 {
-        bail!("EncodedContent: expected one generated data class");
-    }
-    let start = source.find(anchor).expect("one admitted record");
-    let body = source[start..]
-        .find("){\n")
-        .map(|at| start + at + 3)
-        .context("EncodedContent: generated record has no body")?;
-    let end = source[body..]
-        .find("\n}")
-        .map(|at| body + at)
-        .context("EncodedContent: generated record has no end")?;
-    if source[body..end].contains(ENCODED_DISPLAY) {
-        return Ok(source.to_owned());
-    }
-    if source[body..end].contains("fun toString(") {
-        bail!("EncodedContent: generated display already exists");
-    }
-    let mut output = source.to_owned();
-    output.insert_str(body, ENCODED_DISPLAY);
-    Ok(output)
 }
 
 fn byte_field(ty: &Type) -> bool {
@@ -396,7 +192,7 @@ fn byte_field(ty: &Type) -> bool {
     }
 }
 
-fn overrides(name: &str, fields: &[FieldMetadata]) -> String {
+fn overrides(class: &str, fields: &[FieldMetadata]) -> String {
     let comparisons = fields
         .iter()
         .map(|field| {
@@ -410,7 +206,7 @@ fn overrides(name: &str, fields: &[FieldMetadata]) -> String {
         .collect::<Vec<_>>()
         .join(" &&\n            ");
     let mut code = format!(
-        "    // Generated value equality for byte fields.\n    override fun equals(other: Any?): Boolean =\n        other is {name} &&\n            {comparisons}\n\n    override fun hashCode(): Int {{\n"
+        "    // Generated value equality for byte fields.\n    override fun equals(other: Any?): Boolean =\n        other is {class} &&\n            {comparisons}\n\n    override fun hashCode(): Int {{\n"
     );
     for (index, field) in fields.iter().enumerate() {
         let name = field.name.to_lower_camel_case();
@@ -432,24 +228,13 @@ fn overrides(name: &str, fields: &[FieldMetadata]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_metadata::{enumeration, field, groups, record, variant};
 
     #[xmtp_common::test(unwrap_try = true)]
     fn byte_record_uses_value_equality() {
         let fields = [
-            FieldMetadata {
-                name: "id".into(),
-                orig_name: None,
-                ty: Type::String,
-                default: None,
-                docstring: None,
-            },
-            FieldMetadata {
-                name: "content".into(),
-                orig_name: None,
-                ty: Type::Bytes,
-                default: None,
-                docstring: None,
-            },
+            field("id", Type::String, None),
+            field("content", Type::Bytes, None),
         ];
         let code = overrides("Payload", &fields);
         assert!(code.contains("other is Payload"));
@@ -457,100 +242,177 @@ mod tests {
         assert!(code.contains("java.util.Arrays.hashCode(`content`)"));
         assert!(code.contains("`id` == other.`id`"));
     }
+
+    // Any record with a redacted field gets its display from metadata: a new
+    // record or a new field needs no generator change.
     #[xmtp_common::test(unwrap_try = true)]
-    fn credential_display_redacts_only_value_and_rejects_template_drift() {
-        let field = |name: &str, ty| FieldMetadata {
-            name: name.into(),
-            orig_name: None,
-            ty,
-            default: None,
-            docstring: None,
-        };
-        let mut record = RecordMetadata {
-            module_path: "xmtp_sdk::credentials".into(),
-            name: "Credential".into(),
-            orig_name: None,
-            remote: false,
-            fields: vec![
-                field(
-                    "name",
-                    Type::Optional {
-                        inner_type: Box::new(Type::String),
-                    },
-                ),
-                field("value", Type::String),
-                field("expires_at_seconds", Type::Int64),
+    fn redacted_record_display_comes_from_metadata_and_is_idempotent() {
+        let record = record(
+            "BrandNewSecret",
+            vec![
+                field("label", Type::String, None),
+                field("tags", crate::test_metadata::sequence(Type::String), None),
+                field("value", Type::String, Some("The secret. @xmtp-redact")),
+                field("key", Type::Bytes, None),
             ],
-            docstring: None,
-        };
-        let source = "data class Credential (var name: String?, var value: String, var expiresAtSeconds: Long){\n\n}\n";
-        let rewritten = credential_display(source, &record)?;
-        assert!(rewritten.contains("name=$name"));
-        assert!(rewritten.contains("expiresAtSeconds=$expiresAtSeconds"));
-        assert!(rewritten.contains("value=<redacted>"));
+        );
+        let source = "data class BrandNewSecret (\n    var `label`: kotlin.String = \"a(b\", \n    var `tags`: List<kotlin.String> = listOf(), \n    var `value`: kotlin.String, \n    var `key`: kotlin.ByteArray\n){\n\n    companion object\n}\n";
+        let groups = groups(vec![record]);
+        let rewritten = rewrite(source, &groups)?;
+        assert!(rewritten.contains(
+            "override fun toString(): String = \"BrandNewSecret(label=${`label`}, tags=${`tags`}, value=<redacted>, keyBytes=${`key`.size})\""
+        ));
         assert!(!rewritten.contains("$value"));
-        assert!(rewritten.contains("var value: String"));
-        assert_eq!(credential_display(&rewritten, &record)?, rewritten);
-        assert!(credential_display(&source.replace("data class", "class"), &record).is_err());
-        record.fields[2].ty = Type::UInt64;
-        assert!(credential_display(source, &record).is_err());
+        assert!(rewritten.contains("var `value`: kotlin.String"));
+        // Byte equality still comes first in the body.
+        assert!(
+            rewritten.find("Generated value equality").unwrap()
+                < rewritten.find("fun toString").unwrap()
+        );
+        assert_eq!(rewrite(&rewritten, &groups)?, rewritten);
+        assert!(rewrite(&source.replace("data class", "class"), &groups).is_err());
+    }
+
+    // A record that holds an object implements Disposable; its body follows
+    // the supertype. The anchor is the record's own constructor, never a
+    // later `){` in the file.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn record_body_follows_its_own_constructor_and_supertypes() {
+        let groups = groups(vec![record(
+            "Session",
+            vec![
+                field("token", Type::String, Some("@xmtp-redact")),
+                field(
+                    "client",
+                    Type::Object {
+                        module_path: "xmtp_sdk".into(),
+                        name: "Client".into(),
+                        imp: uniffi_meta::ObjectImpl::Struct,
+                    },
+                    None,
+                ),
+            ],
+        )]);
+        let source = "data class Session (\n    var `token`: kotlin.String, \n    var `client`: Client\n): Disposable{\n    \n    override fun destroy() {\n    }\n    companion object\n}\n\nfun other(){\n}\n";
+        let rewritten = rewrite(source, &groups)?;
+        assert!(rewritten.starts_with(
+            "data class Session (\n    var `token`: kotlin.String, \n    var `client`: Client\n): Disposable{\n    // Generated: redacted fields stay out of diagnostic text.\n    override fun toString(): String = \"Session(token=<redacted>, client=${`client`})\"\n"
+        ));
+        assert!(rewritten.ends_with("fun other(){\n}\n"));
+        // Anything but supertypes between the constructor and a brace is not
+        // the record body.
+        let error = rewrite(
+            "data class Session (\n    var `token`: kotlin.String\n)\nfun other(){\n}\n",
+            &groups,
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Session: generated Kotlin class body does not follow its constructor"),
+            "{error}"
+        );
+    }
+
+    // Field documentation sits between the constructor's parentheses. Its
+    // parentheses and quotes are prose, not code.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn field_documentation_does_not_end_the_constructor() {
+        let groups = groups(vec![record(
+            "Blob",
+            vec![
+                field("content", Type::Bytes, Some("The bytes (raw.")),
+                field("secret", Type::String, Some("@xmtp-redact")),
+            ],
+        )]);
+        for doc in [
+            "    /**\n     * The bytes (raw.\n     */\n",
+            "    /**\n     * Say \"hi.\n     */\n",
+            "    // A note ) with \" in it\n",
+        ] {
+            let source = format!(
+                "data class Blob (\n{doc}    var `content`: kotlin.ByteArray, \n    var `secret`: kotlin.String\n){{\n    companion object\n}}\n"
+            );
+            let rewritten = rewrite(&source, &groups)?;
+            assert!(
+                rewritten.contains(
+                    "var `secret`: kotlin.String\n){\n    // Generated value equality for byte fields."
+                ),
+                "{doc}"
+            );
+            assert!(rewritten.contains(
+                "override fun toString(): String = \"Blob(contentBytes=${`content`.size}, secret=<redacted>)\""
+            ));
+        }
+    }
+
+    // UniFFI's Kotlin class name is the upper camel case of the Rust name.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn class_names_follow_uniffi_casing() {
+        let groups = groups(vec![record(
+            "HMACKey",
+            vec![
+                field("key", Type::Bytes, Some("@xmtp-redact")),
+                field("epoch", Type::Int64, None),
+            ],
+        )]);
+        let source = "data class HmacKey (\n    var `key`: kotlin.ByteArray, \n    var `epoch`: kotlin.Long\n){\n    companion object\n}\n";
+        let rewritten = rewrite(source, &groups)?;
+        assert!(rewritten.contains("other is HmacKey &&"));
+        assert!(rewritten.contains("\"HmacKey(key=<redacted>, epoch=${`epoch`})\""));
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn topic_record_diagnostics_hide_bytes_and_keep_structured_fields() {
-        let names = [
-            "topic",
-            "scope_generation",
-            "target",
-            "received",
-            "processed",
-            "unresolved_welcomes",
-            "inactive",
-            "cause",
-        ];
-        let record = RecordMetadata {
-            module_path: "xmtp_sdk::error".into(),
-            name: "StreamBarrierTopic".into(),
-            orig_name: None,
-            remote: false,
-            fields: names
-                .iter()
-                .map(|name| FieldMetadata {
-                    name: (*name).into(),
-                    orig_name: None,
-                    ty: if *name == "topic" {
-                        Type::Bytes
-                    } else {
-                        Type::UInt64
-                    },
-                    default: None,
-                    docstring: None,
-                })
-                .collect(),
-            docstring: None,
-        };
-        let groups = MetadataGroupMap::from([(
-            "xmtp_sdk".into(),
-            uniffi_meta::MetadataGroup {
-                namespace: uniffi_meta::NamespaceMetadata {
-                    crate_name: "xmtp_sdk".into(),
-                    name: "xmtp_sdk".into(),
-                },
-                namespace_docstring: None,
-                items: std::collections::BTreeSet::from([Metadata::Record(record)]),
-            },
-        )]);
-        let source = "data class StreamBarrierTopic (var topic: ByteArray){\n\n}\n";
-        let rewritten = rewrite(source, &groups)?;
-        assert!(
-            rewritten.contains("topic=<redacted>"),
-            "record diagnostics need a redacted topic"
+    fn unredacted_record_keeps_the_stock_display() {
+        let groups = groups(vec![record("Plain", vec![field("id", Type::String, None)])]);
+        let source = "data class Plain (var id: String){\n\n}\n";
+        assert_eq!(rewrite(source, &groups)?, source);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn redacted_variant_display_covers_only_marked_variants() {
+        let channel = enumeration(
+            "NotificationChannel",
+            vec![
+                variant(
+                    "Apns",
+                    None,
+                    vec![field("token", Type::String, Some("@xmtp-redact"))],
+                ),
+                variant(
+                    "HTTPPush",
+                    None,
+                    vec![
+                        field("url", Type::String, Some("@xmtp-redact")),
+                        field("signing_key", Type::Bytes, Some("@xmtp-redact")),
+                    ],
+                ),
+                variant("Plain", None, vec![field("name", Type::String, None)]),
+                // A tuple variant cannot hold a redacted field; it keeps the
+                // stock display.
+                variant("Raw", None, vec![field("", Type::Bytes, None)]),
+            ],
         );
-        assert!(!rewritten.contains("topic=$topic"));
-        assert!(rewritten.contains("var topic: ByteArray"));
-        assert!(rewritten.contains("scopeGeneration=$scopeGeneration"));
-        assert!(rewritten.contains("processed=$processed"));
-        assert!(rewritten.contains("java.util.Arrays.equals"));
-        assert!(rewrite(&source.replace("data class", "class"), &groups).is_err());
+        let source = "sealed class NotificationChannel {\n    data class Apns(\n        val `token`: kotlin.String) : NotificationChannel()\n    {\n        companion object\n    }\n    data class HttpPush(\n        val `url`: kotlin.String, \n        val `signingKey`: kotlin.ByteArray) : NotificationChannel()\n    {\n        companion object\n    }\n    data class Plain(\n        val `name`: kotlin.String) : NotificationChannel()\n    {\n        companion object\n    }\n    data class Raw(\n        val v1: kotlin.ByteArray) : NotificationChannel()\n    {\n        companion object\n    }\n}\n";
+        let groups = groups(vec![channel]);
+        let rewritten = rewrite(source, &groups)?;
+        assert!(rewritten.contains("override fun toString(): String = \"Apns(token=<redacted>)\""));
+        assert!(rewritten.contains(
+            "    {\n        override fun toString(): String = \"HttpPush(url=<redacted>, signingKey=<redacted>)\"\n        companion object"
+        ));
+        assert_eq!(rewritten.matches("fun toString").count(), 2);
+        assert_eq!(rewrite(&rewritten, &groups)?, rewritten);
+        assert!(rewrite(&source.replace("sealed class", "class"), &groups).is_err());
+        // An enum that holds an object is Disposable.
+        let disposable = source.replace(
+            "sealed class NotificationChannel {",
+            "sealed class NotificationChannel: Disposable  {",
+        );
+        assert_eq!(
+            rewrite(&disposable, &groups)?
+                .matches("fun toString")
+                .count(),
+            2
+        );
     }
 }

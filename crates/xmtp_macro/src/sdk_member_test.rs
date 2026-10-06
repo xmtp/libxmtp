@@ -226,7 +226,7 @@ fn member_options_reject_the_wrong_member() {
         ),
         (
             quote!(impl Client { #[sdk(native_only)] pub async fn sync(&self) {} }),
-            "unknown sdk option; expected immutable or kind",
+            "unknown sdk option; expected immutable, kind",
         ),
         (
             quote!(
@@ -287,7 +287,7 @@ fn member_options_reject_the_wrong_member() {
             }
         ),
     );
-    assert!(message.contains("unknown sdk option; expected immutable or kind"));
+    assert!(message.contains("unknown sdk option; expected immutable, kind"));
     let message = error(
         quote!(),
         quote!(impl Client {
@@ -297,4 +297,514 @@ fn member_options_reject_the_wrong_member() {
         }),
     );
     assert!(message.contains("sdk option is repeated"));
+}
+
+// Redaction: a redacted field stays out of generated Kotlin and Swift
+// diagnostic text. A map field can hide one key.
+
+#[test]
+fn record_and_variant_fields_emit_redact_markers() {
+    let output = compact(&export(
+        quote!(),
+        quote! {
+            #[derive(Clone, uniffi::Record)]
+            pub struct Credential {
+                #[sdk(shown)]
+                pub name: Option<String>,
+                #[sdk(redact)]
+                pub value: String,
+                #[sdk(redact = "x-secret.v1_2")]
+                pub parameters: HashMap<String, String>,
+                #[cfg(not(target_arch = "wasm32"))]
+                #[sdk(redact)]
+                pub key: Option<Vec<u8>>,
+            }
+        },
+    ));
+    assert!(output.contains("#[doc=\"@xmtp-redact\"]pubvalue:String"));
+    assert!(output.contains("#[doc=\"@xmtp-redact=x-secret.v1_2\"]pubparameters"));
+    assert!(output.contains("#[cfg(not(target_arch=\"wasm32\"))]#[doc=\"@xmtp-redact\"]pubkey"));
+    assert!(output.contains("#[doc=\"@xmtp-redacted\"]pubstructCredential"));
+    assert_eq!(output.matches("@xmtp-").count(), 4);
+    assert!(!output.contains("sdk("));
+
+    let output = compact(&export(
+        quote!(native_only),
+        quote! {
+            #[derive(Clone, uniffi::Enum)]
+            pub enum NotificationChannel {
+                Apns { #[sdk(redact)] token: String },
+                Http { #[sdk(redact)] url: String, #[sdk(shown)] signing_key: Vec<u8> },
+                Disabled,
+            }
+        },
+    ));
+    assert_eq!(output.matches("#[doc=\"@xmtp-redact\"]").count(), 2);
+    assert!(output.contains("#[doc=\"@xmtp-redact\"]url:String,signing_key"));
+}
+
+#[test]
+fn redact_applies_to_named_fields_with_a_plain_key() {
+    let record = |field: proc_macro2::TokenStream| {
+        quote!(
+            #[derive(uniffi::Record)]
+            pub struct Envelope {
+                #field
+                pub parameters: HashMap<String, String>,
+            }
+        )
+    };
+    let mut cases = vec![
+        (
+            quote!(impl Client { #[sdk(redact)] pub async fn sync(&self) {} }),
+            "#[sdk(redact)] and #[sdk(shown)] apply to record and variant fields",
+        ),
+        (
+            quote!(impl Client { #[sdk(shown)] pub async fn sync(&self) {} }),
+            "#[sdk(redact)] and #[sdk(shown)] apply to record and variant fields",
+        ),
+        (
+            quote!(
+                #[derive(uniffi::Enum)]
+                pub enum Channel {
+                    #[sdk(redact)]
+                    Apns { token: String },
+                }
+            ),
+            "#[sdk(redact)] and #[sdk(shown)] apply to record and variant fields",
+        ),
+        (
+            quote!(
+                #[sdk(redact)]
+                pub async fn run() {}
+            ),
+            "`run` is a free function",
+        ),
+        (
+            quote!(
+                #[derive(uniffi::Record)]
+                pub struct Key(#[sdk(redact)] pub Vec<u8>);
+            ),
+            "#[sdk(redact)] and #[sdk(shown)] need a named field",
+        ),
+        (
+            quote!(
+                #[derive(uniffi::Enum)]
+                pub enum Channel {
+                    Apns(#[sdk(shown)] String),
+                }
+            ),
+            "#[sdk(redact)] and #[sdk(shown)] need a named field",
+        ),
+        (
+            record(quote!(#[sdk(redact, shown)])),
+            "a field is either #[sdk(redact)] or #[sdk(shown)]",
+        ),
+        (
+            record(quote!(#[sdk(redact, redact = "secret")])),
+            "sdk option is repeated",
+        ),
+        (
+            record(quote!(#[sdk(shown)])),
+            "#[sdk(shown)] applies in a type with a #[sdk(redact)] field",
+        ),
+    ];
+    // The key reaches a Kotlin and a Swift string literal as it is.
+    for key in ["", "a key", "a\"b", "a\\b", "$secret", "${x}", "ключ"] {
+        cases.push((
+            record(quote!(#[sdk(redact = #key)])),
+            "redact takes one map key of ASCII letters, digits, `_`, `.`, and `-`",
+        ));
+    }
+    for (item, expected) in cases {
+        let message = error(quote!(), item);
+        assert!(message.contains(expected), "{expected}: {message}");
+    }
+}
+
+// Redaction fails closed: in a type with a redacted field, every field says
+// whether it is redacted or shown, so a new field cannot print a secret by
+// default.
+#[test]
+fn every_field_beside_a_redacted_one_is_redacted_or_shown() {
+    let message = error(
+        quote!(),
+        quote! {
+            #[derive(Clone, uniffi::Record)]
+            pub struct Credential {
+                #[sdk(shown)]
+                pub name: Option<String>,
+                #[sdk(redact)]
+                pub value: String,
+                pub expires_at_seconds: i64,
+            }
+        },
+    );
+    assert_eq!(
+        message,
+        "`Credential.expires_at_seconds` is in a type with a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]"
+    );
+    // The whole enum is one scope, so a new variant cannot print a secret
+    // either, whichever variant holds the redacted field.
+    for (variants, message) in [
+        (
+            quote! {
+                Apns { #[sdk(redact)] token: String },
+                Fcm { token: String },
+            },
+            "`NotificationChannel::Fcm.token` is in a type with a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]",
+        ),
+        (
+            quote! {
+                Fcm { token: String },
+                Apns { #[sdk(redact)] token: String },
+            },
+            "`NotificationChannel::Fcm.token` is in a type with a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]",
+        ),
+        (
+            quote! {
+                Apns { #[sdk(redact)] token: String },
+                Http { #[sdk(redact)] url: String, signing_key: Vec<u8> },
+            },
+            "`NotificationChannel::Http.signing_key` is in a type with a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]",
+        ),
+        // No option can mark a tuple variant field.
+        (
+            quote! {
+                Apns { #[sdk(redact)] token: String },
+                Fcm(String),
+            },
+            "`NotificationChannel` has a redacted field, so each of its fields needs a name to take #[sdk(redact)] or #[sdk(shown)]",
+        ),
+        (
+            quote! {
+                Apns { #[sdk(shown)] token: String },
+                Fcm { #[sdk(shown)] token: String },
+            },
+            "#[sdk(shown)] applies in a type with a #[sdk(redact)] field",
+        ),
+    ] {
+        let item = quote! {
+            #[derive(Clone, uniffi::Enum)]
+            pub enum NotificationChannel { #variants }
+        };
+        assert_eq!(error(quote!(), item), message);
+    }
+    // A variant without a redacted field shows its fields, and a unit
+    // variant has none.
+    let output = export(
+        quote!(),
+        quote! {
+            #[derive(Clone, uniffi::Enum)]
+            pub enum NotificationChannel {
+                Apns { #[sdk(redact)] token: String },
+                Webhook { #[sdk(shown)] name: String },
+                Disabled,
+            }
+        },
+    );
+    assert!(output.contains("@xmtp-redact"));
+}
+
+// The macro implements Debug for a redacted type through the type's own
+// `redacted_debug`. Any other Debug then conflicts with it, so a derived one
+// fails to compile wherever it sits; tests/ui/sdk_export_redacted_debug.rs
+// shows rustc's error.
+#[test]
+fn redacted_record_or_enum_gets_debug_from_redacted_debug() {
+    let output = compact(&export(
+        quote!(),
+        quote! {
+            /// A key.
+            #[derive(Clone, uniffi::Record)]
+            pub struct HmacKey {
+                #[sdk(redact)]
+                pub key: Vec<u8>,
+                #[sdk(shown)]
+                pub epoch: i64,
+            }
+        },
+    ));
+    assert!(output.contains(
+        "#[doc=r\"Akey.\"]#[derive(Clone,uniffi::Record)]#[doc=\"@xmtp-redacted\"]pubstructHmacKey"
+    ));
+    assert!(output.ends_with(
+        "impl::core::fmt::DebugforHmacKey{fnfmt(&self,formatter:&mut::core::fmt::Formatter<'_>)->::core::fmt::Result{Self::redacted_debug(self,formatter)}}"
+    ));
+    // The impl takes the item's target.
+    let output = compact(&export(
+        quote!(native_only),
+        quote! {
+            #[derive(Clone, uniffi::Enum)]
+            pub enum NotificationChannel {
+                Apns { #[sdk(redact)] token: String },
+                Disabled,
+            }
+        },
+    ));
+    assert!(output.contains(
+        "#[derive(Clone,uniffi::Enum)]#[doc=\"@xmtp-redacted\"]pubenumNotificationChannel"
+    ));
+    assert!(output.contains(
+        "}#[cfg(not(target_arch=\"wasm32\"))]impl::core::fmt::DebugforNotificationChannel{"
+    ));
+    // So does a cfg written on the type.
+    let output = compact(&export(
+        quote!(),
+        quote! {
+            #[derive(Clone, uniffi::Record)]
+            #[cfg(feature = "keys")]
+            pub struct HmacKey { #[sdk(redact)] pub key: Vec<u8> }
+        },
+    ));
+    assert!(output.contains("}#[cfg(feature=\"keys\")]impl::core::fmt::DebugforHmacKey{"));
+    // A Debug derive that the macro sees gets a direct error; rustc rejects
+    // any other one as a second impl.
+    for derive in [quote!(Debug), quote!(std::fmt::Debug)] {
+        let message = error(
+            quote!(),
+            quote! {
+                #[derive(Clone, #derive, uniffi::Record)]
+                pub struct HmacKey { #[sdk(redact)] pub key: Vec<u8> }
+            },
+        );
+        assert_eq!(
+            message,
+            "`HmacKey` has a #[sdk(redact)] field, so sdk_export implements its Debug through `fn redacted_debug`; remove this derive"
+        );
+    }
+    // Without a redacted field, the type keeps its own Debug.
+    for item in [
+        quote! {
+            #[derive(Clone, Debug, uniffi::Record)]
+            pub struct Plain { pub epoch: i64 }
+        },
+        quote! {
+            #[derive(Clone, Debug, uniffi::Enum)]
+            pub enum Channel { Apns { token: String } }
+        },
+    ] {
+        let output = export(quote!(), item);
+        assert!(!output.contains("@xmtp-"));
+        assert!(!output.contains("impl"));
+    }
+}
+
+// UniFFI's Kotlin binding renames an error type, so its diagnostics cannot be
+// generated.
+#[test]
+fn uniffi_error_types_cannot_redact() {
+    for derive in [
+        quote!(#[derive(uniffi::Error)]),
+        quote!(#[derive(Debug, thiserror::Error, uniffi::Error)]),
+    ] {
+        let message = error(
+            quote!(),
+            quote! {
+                #derive
+                pub enum CredentialError {
+                    Rejected { #[sdk(redact)] token: String },
+                }
+            },
+        );
+        assert!(
+            message.starts_with("`CredentialError` derives uniffi::Error, which the Kotlin binding renames to an exception class"),
+            "{message}"
+        );
+    }
+    // Another derive named Error is not UniFFI's.
+    export(
+        quote!(),
+        quote! {
+            #[derive(thiserror::Error, uniffi::Enum)]
+            pub enum Channel {
+                Apns { #[sdk(redact)] token: String },
+            }
+        },
+    );
+}
+
+// The generator trusts the markers the macro writes. One written in a doc
+// comment would skip the macro's checks, so the macro rejects it.
+#[test]
+fn markers_the_macro_writes_are_rejected_in_doc_comments() {
+    for (item, option) in [
+        (
+            quote!(
+                #[derive(uniffi::Record)]
+                pub struct Session {
+                    /// The token. @xmtp-redact
+                    pub token: String,
+                }
+            ),
+            "write #[sdk(redact)] instead of `@xmtp-redact`",
+        ),
+        (
+            quote!(
+                #[derive(uniffi::Record)]
+                pub struct Session {
+                    #[doc = "@xmtp-redact=secret"]
+                    pub parameters: HashMap<String, String>,
+                }
+            ),
+            "write #[sdk(redact)] instead of `@xmtp-redact`",
+        ),
+        (
+            quote!(
+                /// @xmtp-redacted
+                #[derive(uniffi::Record)]
+                pub struct Session {
+                    pub token: String,
+                }
+            ),
+            "write #[sdk(redact)] on a field instead of `@xmtp-redacted`",
+        ),
+        (
+            quote!(
+                #[derive(uniffi::Enum)]
+                pub enum Channel {
+                    Apns {
+                        /// @xmtp-redact
+                        token: String,
+                    },
+                }
+            ),
+            "write #[sdk(redact)] instead of `@xmtp-redact`",
+        ),
+        (
+            quote!(
+                #[derive(uniffi::Enum)]
+                pub enum EventKind {
+                    /// @xmtp-kind=lagged
+                    Lagged,
+                }
+            ),
+            "write #[sdk(kind = \"...\")] instead of `@xmtp-kind`",
+        ),
+        (
+            quote!(impl Client {
+                /// The ID. @xmtp-immutable
+                pub fn id(&self) -> u64 { 0 }
+            }),
+            "write #[sdk(immutable)] instead of `@xmtp-immutable`",
+        ),
+        (
+            quote!(
+                trait Api {
+                    /// @xmtp-immutable
+                    fn id(&self) -> u64;
+                }
+            ),
+            "write #[sdk(immutable)] instead of `@xmtp-immutable`",
+        ),
+        (
+            quote!(
+                /// @xmtp-pure
+                pub fn encode() -> u64 {
+                    0
+                }
+            ),
+            "write #[sdk_export(pure)] instead of `@xmtp-pure`",
+        ),
+        // cfg_attr expands before UniFFI reads the docstring.
+        (
+            quote!(
+                #[derive(uniffi::Record)]
+                pub struct Session {
+                    #[cfg_attr(all(), doc = "@xmtp-redact")]
+                    pub token: String,
+                }
+            ),
+            "write #[sdk(redact)] instead of `@xmtp-redact`",
+        ),
+        (
+            quote!(
+                #[derive(uniffi::Record)]
+                #[cfg_attr(feature = "x", cfg_attr(all(), doc = "@xmtp-redacted"))]
+                pub struct Session {
+                    pub token: String,
+                }
+            ),
+            "write #[sdk(redact)] on a field instead of `@xmtp-redacted`",
+        ),
+    ] {
+        let message = error(quote!(), item);
+        assert_eq!(message, format!("{option} in a doc comment"));
+    }
+    // A doc value that is not a string literal may expand into a marker.
+    for item in [
+        quote!(
+            #[derive(uniffi::Record)]
+            pub struct Session {
+                #[doc = concat!("@xmtp-red", "act")]
+                pub token: String,
+            }
+        ),
+        quote!(
+            #[derive(uniffi::Record)]
+            #[cfg_attr(feature = "x", cfg_attr(all(), doc = concat!("@xmtp-red", "acted")))]
+            pub struct Session {
+                pub token: String,
+            }
+        ),
+        quote!(impl Client {
+            #[doc = include_str!("id.md")]
+            pub fn id(&self) -> u64 { 0 }
+        }),
+    ] {
+        assert_eq!(
+            error(quote!(), item),
+            "write the doc comment as a string literal, which the macro checks for markers"
+        );
+    }
+    // A literal that a `macro_rules!` caller passes through as an expression
+    // arrives in an invisible group. syn reads the literal inside, so the
+    // macro still checks it.
+    let forwarded =
+        |text: &str| proc_macro2::Group::new(proc_macro2::Delimiter::None, quote!(#text));
+    let marker = forwarded("@xmtp-redact");
+    assert_eq!(
+        error(
+            quote!(),
+            quote!(
+                #[derive(uniffi::Record)]
+                pub struct Session {
+                    #[doc = #marker]
+                    pub token: String,
+                }
+            )
+        ),
+        "write #[sdk(redact)] instead of `@xmtp-redact` in a doc comment"
+    );
+    let prose = forwarded("The token.");
+    export(
+        quote!(),
+        quote!(
+            #[derive(uniffi::Record)]
+            pub struct Session {
+                #[doc = #prose]
+                pub token: String,
+            }
+        ),
+    );
+    // The markers written by hand, and prose, stay.
+    export(
+        quote!(),
+        quote!(impl Client {
+            /// Made by the worker. @xmtp-worker @xmtp-internal See `@xmtp-redact`.
+            pub fn id(&self) -> u64 { 0 }
+        }),
+    );
+    // `pure` writes its own marker after the check.
+    assert!(
+        export(
+            quote!(pure),
+            quote!(
+                pub fn encode() -> u64 {
+                    0
+                }
+            )
+        )
+        .contains("@xmtp-pure")
+    );
 }

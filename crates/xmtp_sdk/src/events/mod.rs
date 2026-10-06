@@ -144,24 +144,33 @@ impl From<core::ConnectionState> for ConnectionState {
 }
 
 /// The attachment an `attachment.*` event reports.
+#[xmtp_macro::sdk_export]
 #[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AttachmentRef {
+    #[sdk(shown)]
     pub attachment_key: String,
+    #[sdk(redact)]
     pub url: String,
+    #[sdk(shown)]
     pub content_digest: String,
 }
 
 /// The attachment a failed transfer reports, with its failure cause.
+#[xmtp_macro::sdk_export]
 #[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AttachmentFailed {
+    #[sdk(shown)]
     pub attachment_key: String,
+    #[sdk(redact)]
     pub url: String,
+    #[sdk(shown)]
     pub content_digest: String,
+    #[sdk(shown)]
     pub cause: String,
 }
 
-impl std::fmt::Debug for AttachmentRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl AttachmentRef {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentRef")
             .field("attachment_key", &self.attachment_key)
             .field("url", &"<redacted>")
@@ -170,8 +179,8 @@ impl std::fmt::Debug for AttachmentRef {
     }
 }
 
-impl std::fmt::Debug for AttachmentFailed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl AttachmentFailed {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentFailed")
             .field("attachment_key", &self.attachment_key)
             .field("url", &"<redacted>")

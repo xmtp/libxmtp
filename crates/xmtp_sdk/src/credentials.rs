@@ -3,15 +3,19 @@ use xmtp_common::{BoxDynError, MaybeSend, MaybeSync};
 
 use crate::{XmtpError, foreign};
 
+#[xmtp_macro::sdk_export]
 #[derive(Clone, uniffi::Record)]
 pub struct Credential {
+    #[sdk(shown)]
     pub name: Option<String>,
+    #[sdk(redact)]
     pub value: String,
+    #[sdk(shown)]
     pub expires_at_seconds: i64,
 }
 
-impl std::fmt::Debug for Credential {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Credential {
+    fn redacted_debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Credential")
             .field("name", &self.name)
             .field("value", &"[redacted]")

@@ -23,20 +23,29 @@ impl From<xmtp_content_types::attachment::Attachment> for Attachment {
     }
 }
 
+#[xmtp_macro::sdk_export]
 #[derive(Clone, uniffi::Record)]
 pub struct RemoteAttachment {
+    #[sdk(redact)]
     pub url: String,
+    #[sdk(shown)]
     pub content_digest: String,
+    #[sdk(redact)]
     pub secret: Vec<u8>,
+    #[sdk(shown)]
     pub salt: Vec<u8>,
+    #[sdk(shown)]
     pub nonce: Vec<u8>,
+    #[sdk(shown)]
     pub scheme: String,
+    #[sdk(shown)]
     pub content_length: Option<u32>,
+    #[sdk(shown)]
     pub filename: Option<String>,
 }
 
-impl std::fmt::Debug for RemoteAttachment {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl RemoteAttachment {
+    fn redacted_debug(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("RemoteAttachment")
             .field("url", &"<redacted>")
