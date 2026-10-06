@@ -226,7 +226,7 @@ fn member_options_reject_the_wrong_member() {
         ),
         (
             quote!(impl Client { #[sdk(native_only)] pub async fn sync(&self) {} }),
-            "unknown sdk option; expected immutable, kind",
+            "unknown sdk option; expected immutable, host_internal, kind",
         ),
         (
             quote!(
@@ -287,7 +287,7 @@ fn member_options_reject_the_wrong_member() {
             }
         ),
     );
-    assert!(message.contains("unknown sdk option; expected immutable, kind"));
+    assert!(message.contains("unknown sdk option; expected immutable, host_internal, kind"));
     let message = error(
         quote!(),
         quote!(impl Client {
@@ -822,5 +822,79 @@ fn markers_the_macro_writes_are_rejected_in_doc_comments() {
             )
         )
         .contains("@xmtp-client-static")
+    );
+}
+
+#[test]
+fn host_internal_methods_emit_checked_and_projection_markers() {
+    let output = export(
+        quote!(),
+        quote! {
+            impl FourthReceiver {
+                #[sdk(immutable, host_internal)]
+                pub fn private_owner(&self) -> u64 { 1 }
+            }
+        },
+    );
+    assert!(output.contains("@xmtp-host-internal"));
+    assert!(output.contains("@xmtp-internal"));
+    assert!(output.contains("@xmtp-immutable"));
+}
+
+#[test]
+fn host_internal_rejects_other_locations_duplicates_and_written_markers() {
+    for item in [
+        quote!(
+            #[derive(uniffi::Record)]
+            struct Record {
+                #[sdk(host_internal)]
+                value: u64,
+            }
+        ),
+        quote!(
+            #[derive(uniffi::Enum)]
+            enum Kind {
+                #[sdk(host_internal)]
+                One,
+            }
+        ),
+        quote!(
+            trait Api {
+                #[sdk(host_internal)]
+                fn method(&self);
+            }
+        ),
+        quote!(impl Object { #[sdk(host_internal)] pub fn create() {} }),
+    ] {
+        let message = error(quote!(), item);
+        assert!(message.contains("applies to object methods"), "{message}");
+    }
+    assert!(
+        error(
+            quote!(),
+            quote!(impl Object {
+                #[sdk(host_internal, host_internal)] pub async fn method(&self) {}
+            })
+        )
+        .contains("sdk option is repeated")
+    );
+    assert!(
+        error(
+            quote!(),
+            quote!(impl Object {
+                #[doc = "@xmtp-host-internal"] pub async fn method(&self) {}
+            })
+        )
+        .contains("#[sdk(host_internal)]")
+    );
+    assert!(
+        error(
+            quote!(),
+            quote!(
+                #[sdk(host_internal)]
+                fn method() {}
+            )
+        )
+        .contains("free function")
     );
 }

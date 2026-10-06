@@ -28,6 +28,7 @@ together.
 | `@xmtp-client-static` | `#[sdk_export(client_static)]` on an async free function | Adds a static that calls the function to the Client of every SDK; see [Client statics](#client-statics) |
 | `@xmtp-worker` | Written in a doc comment | Keeps a call the browser worker makes itself off the bridge |
 | `@xmtp-internal` | Written in a doc comment | Leaves the item out of the public projection |
+| `@xmtp-host-internal` | `#[sdk(host_internal)]` on an object method | Keeps the binding method private to the host runtime and removes its native interface entry; also writes `@xmtp-internal` |
 | `@xmtp-immutable` | `#[sdk(immutable)]` on a sync `&self` getter | Lets the browser bridge read the getter once, from a snapshot |
 | `@xmtp-kind=name` | `#[sdk(kind = "name")]` on each `EventKind` variant | Uses `name` as the public TypeScript string of the event kind |
 | `@xmtp-redact`, `@xmtp-redact=key` | `#[sdk(redact)]` or `#[sdk(redact = "key")]` on a record or variant field | Hides the value, or that key of a string map, in the generated Kotlin `toString` and the Swift `description` that `runtime/RecordDescriptions.swift` holds |

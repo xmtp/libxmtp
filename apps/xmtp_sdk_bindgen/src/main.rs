@@ -165,7 +165,7 @@ fn generate(
                 let binding = out.join("uniffi/xmtp_sdk/xmtp_sdk.kt");
                 let callbacks = kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?;
                 let callbacks = logging_admission::kotlin(&callbacks)?;
-                let callbacks = native_visibility::kotlin(&callbacks)?;
+                let callbacks = native_visibility::kotlin(&callbacks, &metadata)?;
                 fs::write(&binding, kotlin_records::rewrite(&callbacks, &metadata)?)?;
             } else {
                 let binding = out.join("xmtp_sdk.swift");
@@ -173,6 +173,7 @@ fn generate(
                     &binding,
                     format::swift_trailing_whitespace(&native_visibility::swift(
                         &logging_admission::swift(&fs::read_to_string(&binding)?)?,
+                        &metadata,
                     )?),
                 )?;
             }

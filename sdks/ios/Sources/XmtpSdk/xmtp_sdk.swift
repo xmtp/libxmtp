@@ -28572,7 +28572,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_conversations_reply_to_message() != 46806) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_conversations_sdk_stream_owner_key() != 5327) {
+    if (uniffi_xmtp_sdk_checksum_method_conversations_sdk_stream_owner_key() != 58522) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_conversations_sync() != 50362) {
@@ -28662,7 +28662,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_publish_messages() != 413) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_dm_sdk_stream_owner_key() != 23762) {
+    if (uniffi_xmtp_sdk_checksum_method_dm_sdk_stream_owner_key() != 55660) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_dm_send() != 49931) {
@@ -28851,7 +28851,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_group_request_removal() != 18897) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_method_group_sdk_stream_owner_key() != 57277) {
+    if (uniffi_xmtp_sdk_checksum_method_group_sdk_stream_owner_key() != 37776) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_send() != 33159) {

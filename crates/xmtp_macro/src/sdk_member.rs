@@ -20,6 +20,7 @@ use crate::sdk_export::returns_result;
 /// member of its Client.
 pub(crate) const CLIENT_STATIC: &str = "@xmtp-client-static";
 const IMMUTABLE: &str = "@xmtp-immutable";
+const HOST_INTERNAL: &str = "@xmtp-host-internal";
 const KIND: &str = "@xmtp-kind";
 pub(crate) const PURE: &str = "@xmtp-pure";
 const REDACT: &str = "@xmtp-redact";
@@ -30,8 +31,7 @@ const REDACTED: &str = "@xmtp-redacted";
 /// itself, so it never crosses the bridge.
 const WORKER: &str = "@xmtp-worker";
 
-const MEMBER_OPTIONS: &str =
-    "unknown sdk option; expected immutable, kind = \"name\", redact, redact = \"key\", or shown";
+const MEMBER_OPTIONS: &str = "unknown sdk option; expected immutable, host_internal, kind = \"name\", redact, redact = \"key\", or shown";
 
 /// The target an export is limited to.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -71,6 +71,7 @@ enum Redact {
 #[derive(Default)]
 struct MemberOptions {
     immutable: Option<Span>,
+    host_internal: Option<Span>,
     redact: Option<(Span, Redact)>,
     shown: Option<Span>,
     kind: Option<(Span, String)>,
@@ -78,6 +79,12 @@ struct MemberOptions {
 
 impl MemberOptions {
     fn reject_immutable(&self) -> syn::Result<()> {
+        if let Some(span) = self.host_internal {
+            return Err(syn::Error::new(
+                span,
+                "#[sdk(host_internal)] applies to object methods",
+            ));
+        }
         match self.immutable {
             Some(span) => Err(syn::Error::new(
                 span,
@@ -155,6 +162,11 @@ fn take(attrs: &mut Vec<Attribute>) -> syn::Result<MemberOptions> {
             let span = meta.span();
             let repeated = || syn::Error::new(span, "sdk option is repeated");
             match &meta {
+                Meta::Path(path) if path.is_ident("host_internal") => {
+                    if options.host_internal.replace(span).is_some() {
+                        return Err(repeated());
+                    }
+                }
                 Meta::Path(path) if path.is_ident("immutable") => {
                     if options.immutable.replace(span).is_some() {
                         return Err(repeated());
@@ -248,6 +260,7 @@ pub(crate) fn derives_uniffi_error(attrs: &[Attribute]) -> bool {
 /// the macro's checks.
 pub(crate) const WRITTEN_BY_OPTIONS: &[(&str, &str)] = &[
     (CLIENT_STATIC, "#[sdk_export(client_static)]"),
+    (HOST_INTERNAL, "#[sdk(host_internal)]"),
     (IMMUTABLE, "#[sdk(immutable)]"),
     (KIND, "#[sdk(kind = \"...\")]"),
     (PURE, "#[sdk_export(pure)]"),
@@ -429,10 +442,21 @@ pub(crate) fn method(
     attrs: &mut Vec<Attribute>,
     signature: &Signature,
     target: Option<Target>,
+    object: bool,
 ) -> syn::Result<()> {
     let options = take(attrs)?;
     options.reject_display()?;
     options.reject_kind()?;
+    if let Some(span) = options.host_internal {
+        if !object || signature.receiver().is_none() {
+            return Err(syn::Error::new(
+                span,
+                "#[sdk(host_internal)] applies to object methods",
+            ));
+        }
+        push_marker(attrs, HOST_INTERNAL);
+        push_marker(attrs, "@xmtp-internal");
+    }
     // The browser bridge snapshots the getters it forwards. It forwards
     // neither a worker-only call nor a native-only item. The native-only
     // exemption goes with the conformance constructor probe, which reads live
@@ -465,6 +489,7 @@ pub(crate) fn function(attrs: &mut Vec<Attribute>, name: &Ident) -> syn::Result<
     let options = take(attrs)?;
     let span = options
         .immutable
+        .or(options.host_internal)
         .or(options.redact.map(|(span, _)| span))
         .or(options.shown)
         .or(options.kind.map(|(span, _)| span));
