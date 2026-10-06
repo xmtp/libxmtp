@@ -15,6 +15,10 @@ BUNDLE = "org.xmtp.benchmark"
 SOURCES = ["SwiftSupport.swift", "SwiftSdk.swift", "BenchmarkApp.swift"]
 # Termination after a failed or finished operation gets its own short deadline.
 CLEANUP_SECONDS = 15
+# The app keeps the client databases of a run under STATE/<state key>.
+STATE = "Library/Application Support/xmtp-benchmark"
+# Each call has a request and response directory here, deleted after the call.
+TRANSPORT = "Library/Caches/xmtp-benchmark"
 SCHEME = """<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2700" version="1.3"><BuildAction parallelizeBuildables="NO" buildImplicitDependencies="YES"><BuildActionEntries><BuildActionEntry buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES" buildForTesting="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A00000000000000000000004" BuildableName="XmtpBenchmark.app" BlueprintName="XmtpBenchmark" ReferencedContainer="container:Benchmark.xcodeproj"/></BuildActionEntry></BuildActionEntries></BuildAction></Scheme>
 """
@@ -139,6 +143,10 @@ def simctl(commands, *args, cleanup=False, deadline=None):
     return result
 
 
+def state_key(state_directory):
+    return digest({"state_directory": str(state_directory)})
+
+
 def install(config):
     deadline = time.monotonic() + config["timeout_seconds"]
     simctl(
@@ -152,6 +160,7 @@ def invoke(config, request, log):
     deadline = time.monotonic() + config["timeout_seconds"]
     commands = []
     operation = uuid.uuid4().hex
+    transport = None
     try:
         simctl(commands, "terminate", udid, BUNDLE, cleanup=True)
         container = Path(
@@ -160,8 +169,7 @@ def invoke(config, request, log):
             ).stdout.strip()
         )
         root = Path(request["state_directory"])
-        state_key = digest({"state_directory": str(root)})
-        local = container / "Library/Application Support/xmtp-benchmark" / state_key
+        local = container / STATE / state_key(root)
         local.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(root / "fixture.json", local / "fixture.json")
         host = {
@@ -169,12 +177,12 @@ def invoke(config, request, log):
             "signer_url": config["signer_url"],
         }
         (local / "host.json").write_text(json.dumps(host))
-        transport = container / "Library/Caches/xmtp-benchmark" / operation
+        transport = container / TRANSPORT / operation
         transport.mkdir(parents=True)
         envelope = {
             "operation_id": operation,
             "request": request,
-            "state_key": state_key,
+            "state_key": state_key(root),
         }
         (transport / "request.json").write_text(json.dumps(envelope))
         simctl(
@@ -203,3 +211,21 @@ def invoke(config, request, log):
             simctl(commands, "terminate", udid, BUNDLE, cleanup=True)
         finally:
             log.with_suffix(".simctl.json").write_text(json.dumps(commands, indent=2))
+            if transport:
+                shutil.rmtree(transport, ignore_errors=True)
+
+
+def remove_state(config, state_directory):
+    """Delete the client databases of one run from the app container."""
+    container = simctl(
+        [],
+        "get_app_container",
+        config["simulator_udid"],
+        BUNDLE,
+        "data",
+        cleanup=True,
+    ).stdout.strip()
+    local = Path(container) / STATE / state_key(state_directory)
+    # A run that failed before its first call has nothing to remove.
+    if local.exists():
+        shutil.rmtree(local)

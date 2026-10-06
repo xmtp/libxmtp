@@ -21,6 +21,8 @@ DEPENDENCY_INPUTS = [
     "gradle/verification-metadata.xml",
 ]
 CLEANUP_SECONDS = 15
+# The cleanup instrumentation starts the app once and deletes one directory.
+REMOVE_STATE_SECONDS = 120
 LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -127,10 +129,14 @@ def force_stop(config):
         pass
 
 
+def state_key(state_directory):
+    """The app keeps a run's databases in its private files directory under this key."""
+    return "bench-" + hashlib.sha256(str(state_directory).encode()).hexdigest()[:24]
+
+
 def invoke(config, request, log):
     root = Path(request["state_directory"])
-    # The app keeps its databases in its private files directory under this key.
-    key = "bench-" + hashlib.sha256(str(root).encode()).hexdigest()[:24]
+    key = state_key(root)
     adb(config, "shell", "mkdir", "-p", REMOTE)
     # A shell-created directory must permit the release app to write its result.
     # Keep the setgid bit that mkdir inherits from the app's files directory:
@@ -168,3 +174,14 @@ def invoke(config, request, log):
     ):
         raise RuntimeError(f"Android benchmark failed. See {output}")
     return json.loads(adb(config, "shell", "cat", f"{REMOTE}/response.json").stdout)
+
+
+def remove_state(config, state_directory, log):
+    """Delete the client databases of one run from the app's private files.
+
+    The release app is not debuggable, so `adb shell run-as` cannot reach its
+    files. A cleanup request makes the app delete them itself.
+    """
+    timeout = min(config["timeout_seconds"], REMOVE_STATE_SECONDS)
+    request = {"state_directory": str(state_directory), "phase": "cleanup"}
+    invoke({**config, "timeout_seconds": timeout}, request, log)

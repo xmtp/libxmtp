@@ -1,4 +1,4 @@
-"""Check the memory sampler, the sample checks, run integrity and host cleanup."""
+"""Check the memory sampler, the sample checks, run integrity and cleanup."""
 
 import argparse
 import json
@@ -135,47 +135,61 @@ class SampleChecks(unittest.TestCase):
                 bench.check_measurement({**stream, **change}, "stream", fixture, "node")
 
 
+def run_bench(temp, call, remove=None, keep_state=False):
+    """Run bench.run on a fake host in temp. Returns the output directory."""
+    sources, package = temp / "sources", temp / "package"
+    sources.mkdir()
+    package.mkdir()
+    (sources / "workload.mjs").write_text("runner")
+    (package / "entry.js").write_text("package")
+    subprocess.run(["git", "init", "-q", str(sources)], check=True)
+    args = argparse.Namespace(
+        output=str(temp / "out"), samples=1, keep_state=keep_state
+    )
+    with (
+        patch.object(bench, "HERE", sources),
+        patch.object(bench, "open_host", return_value=(call, package, remove)),
+        patch("sys.stdout"),
+        patch("sys.stderr"),
+    ):
+        bench.run("node", args)
+    return temp / "out"
+
+
+def host_call(fixture, measured=lambda request: None):
+    """A host that answers every request correctly."""
+
+    def call(request, log):
+        if request["phase"] != "measure":
+            return {"ready": True}
+        measured(request)
+        result = {"duration_ms": 1, "peak_memory_bytes": 1}
+        if request["workload"] == "page":
+            result["observed_messages"] = fixture["messages"]
+        if request["workload"] == "stream":
+            result["streamed_events"] = bench.stream_events(fixture)
+        return result
+
+    return call
+
+
 class RunIntegrity(unittest.TestCase):
     """A run fails when the package or a runner source changes during it."""
 
     def run_changing(self, change):
-        fixture = bench.dataset()
         with tempfile.TemporaryDirectory() as temp:
             temp = Path(temp)
-            sources, package = temp / "sources", temp / "package"
-            sources.mkdir()
-            package.mkdir()
-            (sources / "workload.mjs").write_text("runner")
-            (package / "entry.js").write_text("package")
-            subprocess.run(["git", "init", "-q", str(sources)], check=True)
             files = {
-                "sources": sources / "workload.mjs",
-                "package": package / "entry.js",
+                "sources": temp / "sources/workload.mjs",
+                "package": temp / "package/entry.js",
             }
 
-            def call(request, log):
-                if request["phase"] != "measure":
-                    return {"ready": True}
+            def measured(request):
                 if change and request["workload"] == "stream":
                     files[change].write_text("changed")
-                result = {"duration_ms": 1, "peak_memory_bytes": 1}
-                if request["workload"] == "page":
-                    result["observed_messages"] = fixture["messages"]
-                if request["workload"] == "stream":
-                    result["streamed_events"] = bench.stream_events(fixture)
-                return result
 
-            args = argparse.Namespace(
-                output=str(temp / "out"), samples=1, keep_state=False
-            )
-            with (
-                patch.object(bench, "HERE", sources),
-                patch.object(bench, "open_host", return_value=(call, package)),
-                patch("sys.stdout"),
-                patch("sys.stderr"),
-            ):
-                bench.run("node", args)
-            return json.loads((temp / "out/results.json").read_text())
+            out = run_bench(temp, host_call(bench.dataset(), measured))
+            return json.loads((out / "results.json").read_text())
 
     def test_unchanged_run_writes_results(self):
         self.assertEqual(self.run_changing(None)["package"]["files"], 1)
@@ -184,6 +198,48 @@ class RunIntegrity(unittest.TestCase):
         for change in ("package", "sources"):
             with self.subTest(change), self.assertRaises(bench.BenchError):
                 self.run_changing(change)
+
+
+class StateCleanup(unittest.TestCase):
+    """Without --keep-state a run deletes its databases, also on the device."""
+
+    def test_run_removes_device_state_unless_kept(self):
+        for keep in (False, True):
+            with self.subTest(keep=keep), tempfile.TemporaryDirectory() as temp:
+                removed = []
+                out = run_bench(
+                    Path(temp),
+                    host_call(bench.dataset()),
+                    # The device cleanup runs while out/state still exists.
+                    lambda: removed.append((Path(temp) / "out/state").exists()),
+                    keep_state=keep,
+                )
+                self.assertEqual(removed, [] if keep else [True])
+                self.assertEqual((out / "state").exists(), keep)
+                self.assertTrue((out / "results.json").exists())
+
+    def test_failed_run_still_removes_device_state(self):
+        def fail(request):
+            raise bench.BenchError("host failed")
+
+        with tempfile.TemporaryDirectory() as temp:
+            removed = []
+            with self.assertRaisesRegex(bench.BenchError, "host failed"):
+                run_bench(
+                    Path(temp),
+                    host_call(bench.dataset(), fail),
+                    lambda: removed.append(True),
+                )
+            self.assertEqual(removed, [True])
+            self.assertFalse((Path(temp) / "out/state").exists())
+
+    def test_device_cleanup_failure_keeps_the_results(self):
+        def broken():
+            raise RuntimeError("no device")
+
+        with tempfile.TemporaryDirectory() as temp:
+            out = run_bench(Path(temp), host_call(bench.dataset()), broken)
+            self.assertTrue((out / "results.json").exists())
 
 
 class IosCleanup(unittest.TestCase):
@@ -217,6 +273,44 @@ class IosCleanup(unittest.TestCase):
                 with self.assertRaises(TimeoutError):
                     ios_host.invoke(config, request, temp / "call")
         self.assertEqual(calls[-2:], ["launch", "terminate"])
+
+    def test_remove_state_deletes_the_run_databases_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            container = temp / "container"
+            (temp / "state").mkdir()
+            (temp / "state/fixture.json").write_text("{}")
+            other = container / ios_host.STATE / "other-run"
+            other.mkdir(parents=True)
+
+            def simctl(argv, timeout, **kwargs):
+                stdout = ""
+                if argv[2] == "get_app_container":
+                    stdout = f"{container}\n"
+                if argv[2] == "launch":
+                    # The app answers in the transport directory.
+                    envelope = container / argv[-1]
+                    operation = json.loads(envelope.read_text())["operation_id"]
+                    response = {"operation_id": operation, "result": {"ready": True}}
+                    (envelope.parent / "response.json").write_text(json.dumps(response))
+                return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+            config = {
+                "simulator_udid": "udid",
+                "backend_url": "http://backend",
+                "signer_url": "http://signer",
+                "timeout_seconds": 5,
+            }
+            # bench sends the state directory as a string and removes it by path.
+            request = {"state_directory": str(temp / "state"), "phase": "setup"}
+            with patch.object(ios_host.subprocess, "run", side_effect=simctl):
+                ios_host.invoke(config, request, temp / "setup")
+                self.assertEqual(len(list(other.parent.iterdir())), 2)
+                # The call deletes its request and response directory.
+                transport = container / ios_host.TRANSPORT
+                self.assertEqual(list(transport.iterdir()), [])
+                ios_host.remove_state(config, temp / "state")
+            self.assertEqual(list(other.parent.iterdir()), [other])
 
 
 class AndroidHost(unittest.TestCase):
@@ -263,6 +357,34 @@ class AndroidHost(unittest.TestCase):
         names = [command[:3] for command in self.calls]
         stop = names.index(self.FORCE_STOP[:3])
         self.assertEqual(names[stop - 1], ["shell", "am", "instrument"])
+
+    def test_remove_state_asks_the_app_to_delete_the_run_databases(self):
+        requests, timeouts = [], []
+
+        def adb(argv, **kwargs):
+            command = argv[3:]
+            if command[0] == "push" and command[2].endswith("/request.json"):
+                requests.append(json.loads(Path(command[1]).read_text()))
+            if command[:3] == ["shell", "am", "instrument"]:
+                timeouts.append(kwargs["timeout"])
+                stdout = "benchmark=complete\nINSTRUMENTATION_CODE: 0\n"
+                return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+            return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            (temp / "state").mkdir()
+            (temp / "state/fixture.json").write_text("{}")
+            config = {"serial": "device", "timeout_seconds": 900, "host": {}}
+            # bench sends the state directory as a string and removes it by path.
+            request = {"state_directory": str(temp / "state"), "phase": "setup"}
+            with patch.object(android_host.subprocess, "run", side_effect=adb):
+                android_host.invoke(config, request, temp / "setup")
+                android_host.remove_state(config, temp / "state", temp / "cleanup")
+        setup, cleanup = requests
+        self.assertEqual(cleanup["phase"], "cleanup")
+        self.assertEqual(cleanup["state_key"], setup["state_key"])
+        self.assertEqual(timeouts, [900, android_host.REMOVE_STATE_SECONDS])
 
     def test_input_directory_keeps_the_setgid_group(self):
         def complete(argv, timeout):

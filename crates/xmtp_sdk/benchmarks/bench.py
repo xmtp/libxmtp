@@ -140,7 +140,11 @@ def js_host(name, config, out, timeout):
 
 
 def open_host(host, args, out, stack):
-    """Return (call, package path) for one host, after any app build."""
+    """Return (call, package path, remove device state) for one host.
+
+    Only a mobile host keeps client databases outside out/state. Its third
+    value deletes them from the device; it is None for node and browser.
+    """
     if host == "node":
         package = staged("node", "just sdk stage node")
         config = {
@@ -148,7 +152,7 @@ def open_host(host, args, out, stack):
             "accounts_entry": tool(VIEM.format("node")),
             "backend_url": backend_url(),
         }
-        return js_host("node", config, out, args.timeout), package
+        return js_host("node", config, out, args.timeout), package, None
     if host == "browser":
         package = staged("browser", "just sdk stage browser")
         config = {
@@ -162,7 +166,7 @@ def open_host(host, args, out, stack):
             "tools_root": str(ROOT / "node_modules"),
             "backend_url": backend_url(),
         }
-        return js_host("browser", config, out, args.timeout), package
+        return js_host("browser", config, out, args.timeout), package, None
     if host == "swift":
         package = staged("ios", "just sdk mobile-stage ios")
         required(package / "Package.swift", "Run `just sdk mobile-stage ios` first.")
@@ -177,7 +181,11 @@ def open_host(host, args, out, stack):
             "timeout_seconds": args.timeout,
         }
         ios.install(config)
-        return lambda request, log: ios.invoke(config, request, log), package
+        return (
+            lambda request, log: ios.invoke(config, request, log),
+            package,
+            lambda: ios.remove_state(config, out / "state"),
+        )
     package = staged("android/xmtp-sdk.aar", "just sdk mobile-stage android")
     serial = args.device or android.only_device()
     backend = backend_url()
@@ -188,7 +196,11 @@ def open_host(host, args, out, stack):
     stack.enter_context(android.reverse(config, [port, *backend_ports]))
     config["host"] = {"backend_url": backend, "signer_url": f"http://127.0.0.1:{port}"}
     android.install(config)
-    return lambda request, log: android.invoke(config, request, log), package
+    return (
+        lambda request, log: android.invoke(config, request, log),
+        package,
+        lambda: android.remove_state(config, out / "state", out / "logs/cleanup"),
+    )
 
 
 def check_measurement(response, workload, fixture, host):
@@ -231,6 +243,17 @@ def sources_digest():
             hashlib.sha256(path.read_bytes()).digest() if path.is_file() else b"-"
         )
     return content.hexdigest()
+
+
+def remove_device_state(remove):
+    """Best effort: a cleanup failure must not hide the result of the run."""
+    try:
+        remove()
+    except Exception as error:
+        print(
+            f"Could not remove the client databases on the device: {error}",
+            file=sys.stderr,
+        )
 
 
 def ready(response, phase):
@@ -284,7 +307,14 @@ def run(host, args):
     samples = []
     sources = sources_digest()
     with contextlib.ExitStack() as stack:
-        call, package = open_host(host, args, out, stack)
+        # Without --keep-state, the run removes its client databases at the
+        # end, also after a failure. The callbacks run in reverse order: the
+        # device cleanup still has the host, the signer and out/state.
+        if not args.keep_state:
+            stack.callback(shutil.rmtree, out / "state", ignore_errors=True)
+        call, package, remove = open_host(host, args, out, stack)
+        if remove and not args.keep_state:
+            stack.callback(remove_device_state, remove)
         measured = measure_package(package)
         base = {"state_directory": str(out / "state")}
         ready(call({**base, "phase": "setup"}, out / "logs/setup"), "setup")
@@ -332,8 +362,6 @@ def run(host, args):
     for metric in ("raw_bytes", "compressed_bytes"):
         print(f"{'package':<12} {metric:<20} {results['package'][metric]:>14}")
     print(f"Results: {out / 'results.json'}")
-    if not args.keep_state:
-        shutil.rmtree(out / "state", ignore_errors=True)
 
 
 def check():
@@ -387,7 +415,9 @@ def main():
     )
     parser.add_argument("--device", help="adb serial (default: the only device)")
     parser.add_argument(
-        "--keep-state", action="store_true", help="keep client databases"
+        "--keep-state",
+        action="store_true",
+        help="keep client databases, also those on the simulator or device",
     )
     args = parser.parse_args()
     if args.samples < 1:

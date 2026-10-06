@@ -171,6 +171,11 @@ suspend fun perform(
         File(root, "page.json").writeText(seed(config, fixture, root, "page", false).toString())
         return obj("ready" to true)
     }
+    if (phase == "cleanup") {
+        // The launcher deletes a run's client databases with this request.
+        check(root.deleteRecursively()) { "Could not delete $root" }
+        return obj("ready" to true)
+    }
     if (phase == "reset") {
         if (workload == "stream") {
             File(root, "stream-$sample.json").writeText(seed(config, fixture, root, "stream-$sample", true).toString())

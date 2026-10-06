@@ -62,6 +62,14 @@ call (positive; default 900), `--simulator UDID`, `--device SERIAL`, and
 `--keep-state`.
 `XMTP_SDK_PACKAGES_DIR` selects another staged package directory.
 
+Without `--keep-state`, a run deletes its client databases when it ends, also
+after a failure: `state/` in the output directory and, for Swift and Kotlin,
+the run's directory in the app's private storage on the simulator or device.
+The iOS launcher deletes it from the app container. The Android app is not
+debuggable, so the launcher sends the app a `cleanup` request and the app
+deletes it. A failed device cleanup prints a warning and does not change the
+result of the run.
+
 The output directory holds `results.json` (summary, raw samples, package size,
 commit and environment) and `logs/` (stderr and launcher logs per call). Swift
 and Kotlin runs build the host app into the output directory and start
