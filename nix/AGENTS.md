@@ -43,6 +43,13 @@ worker dependency cache. The generated library outputs are
 `xmtp-sdk-ios-simulator`. Public SDK packaging stages these matched generated
 artifacts. Building and staging do not publish a package.
 
+Run `dev/nix-shell 'python3 -B nix/check-sdk-products.py'` to build selected
+Kotlin, Android fast, and Swift on Darwin. It checks generated files, complete
+receipts, source identities, and the selected Android ELF library.
+Run `dev/nix-shell 'python3 -B nix/test-sdk-windows-staging.py'` to check the
+Windows Node job with cached generated roots. This fixture checks cleanup and
+receipt creation. It does not compile a Windows SDK.
+
 `android-sdk-libs` combines generated Kotlin, runtime and Android sources,
 the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`
 selects the host emulator ABI. The SDK Gradle build reads this layout. The
