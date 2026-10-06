@@ -53,6 +53,29 @@ describe("compute-version --source-ref / --timestamp", () => {
     }
   }
 
+  it("uses a backend branch version without changing the Rust manifest", () => {
+    const cargoPath = path.join(tmpDir, "Cargo.toml");
+    const cargo = '[workspace.package]\nversion = "1.12.0-dev"\n';
+    fs.writeFileSync(cargoPath, cargo);
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      handler({
+        _: [],
+        $0: "test",
+        repoRoot: tmpDir,
+        sdk: "libxmtp",
+        baseVersion: "8.0.0",
+        releaseType: "rc",
+        rcNumber: 1,
+        sourceRef: "release/8.0.0",
+      });
+      expect(spy).toHaveBeenLastCalledWith("8.0.0-rc1");
+      expect(fs.readFileSync(cargoPath, "utf-8")).toBe(cargo);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("emits the ordered pre.* shape for a main-cut dev", () => {
     const version = run("refs/heads/main");
     expect(version).toMatch(

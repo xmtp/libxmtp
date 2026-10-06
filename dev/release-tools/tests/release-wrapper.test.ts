@@ -38,6 +38,7 @@ describe("release action CLI wrapper", () => {
     const body = action.match(/<< 'WRAPPER'\n([\s\S]*?)        WRAPPER/);
     if (!body?.[1]) throw new Error("Release action wrapper not found");
     fs.writeFileSync(wrapper, body[1].replace(/^        /gm, ""));
+    fs.chmodSync(wrapper, 0o755);
   });
 
   afterAll(() => {
@@ -53,6 +54,20 @@ describe("release action CLI wrapper", () => {
   }
 
   it.each([
+    [
+      [
+        "compute-version",
+        "--sdk",
+        "libxmtp",
+        "--base-version",
+        "8.0.0",
+        "--release-type",
+        "rc",
+        "--rc-number",
+        "1",
+      ],
+      "8.0.0-rc1",
+    ],
     [
       ["compute-version", "--sdk", "node-sdk", "--release-type", "final"],
       baseVersion("node-sdk"),
@@ -93,6 +108,62 @@ describe("release action CLI wrapper", () => {
       expect(result.stdout).toBe(`${expected}\n`);
     },
   );
+
+  it.each(["release/8.0.0", "refs/heads/release/8.0.0"])(
+    "uses the backend branch version from %s",
+    (ref) => {
+      const workflow = fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/release-backend.yml"),
+        "utf8",
+      );
+      const match = workflow.match(
+        /- name: Compute version[\s\S]*?        run: \|\n([\s\S]*?)\n  build:/,
+      );
+      if (!match?.[1]) throw new Error("Backend version script not found");
+      const output = path.join(tmpDir, "backend-output");
+      fs.writeFileSync(output, "");
+      const result = spawnSync(
+        "bash",
+        ["-c", match[1].replace(/^          /gm, "")],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            PATH: `${tmpDir}${path.delimiter}${process.env.PATH}`,
+            GITHUB_WORKSPACE: repoRoot,
+            GITHUB_OUTPUT: output,
+            RELEASE_TYPE: "rc",
+            RC_NUMBER: "1",
+            REF: ref,
+            TIMESTAMP: "20261006120000",
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(fs.readFileSync(output, "utf8")).toBe("version=8.0.0-rc1\n");
+    },
+  );
+
+  it("rejects a fractional RC number before starting release jobs", () => {
+    const workflow = fs.readFileSync(
+      path.join(repoRoot, ".github/workflows/release.yml"),
+      "utf8",
+    );
+    const match = workflow.match(
+      /- name: Validate RC number[\s\S]*?        run: \|\n([\s\S]*?)\n      - name:/,
+    );
+    if (!match?.[1]) throw new Error("RC validation script not found");
+    const result = spawnSync(
+      "bash",
+      ["-c", match[1].replace(/^          /gm, "")],
+      {
+        env: { ...process.env, RC_NUMBER: "1.5" },
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).not.toBe(0);
+  });
 
   it("keeps command errors and a failed exit status", () => {
     const result = run([

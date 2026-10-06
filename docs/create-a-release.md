@@ -1,8 +1,8 @@
-# Creating an SDK Release
+# Creating a Release
 
-SDK releases use **Actions > Release** (`release.yml`). The release branch
+SDK and backend releases use **Actions > Release** (`release.yml`). The release branch
 workflow prepares versions and notes. The Release workflow builds and publishes
-packages. Do not edit manifest versions by hand.
+packages and creates backend release tags. Do not edit manifest versions by hand.
 
 ## Prepare SDK 8.0 from self-hosted
 
@@ -113,12 +113,14 @@ gh workflow run release.yml \
   -f browser-sdk=true \
   -f agent-sdk=true \
   -f cli=false \
+  -f backend=true \
   -f dry-run=true \
   -f no-merge=true
 ```
 
-`dry-run=true` builds and previews the selected npm packages. It skips npm
-publication and git tags. It skips iOS and Android jobs entirely. It does not
+`dry-run=true` builds and previews the selected npm packages and builds both
+backend image architectures when `backend=true`. It skips registry publication,
+GitHub releases, and git tags. It skips iOS and Android jobs entirely. It does not
 prove registry authorization or mobile publication. Check mobile builds and
 installed packages separately. The workflow can send a completion notification
 even for a dry run.
@@ -153,7 +155,7 @@ After RC validation, run **Release** with:
 | --- | --- |
 | Workflow revision and `ref` | The release branch |
 | `release-type` | `final` |
-| SDK switches | The validated SDKs |
+| SDK switches and `backend` | The validated release targets |
 | `pr-base` | The release PR target, normally `self-hosted` |
 | `dry-run` | `false` |
 | `no-merge` | `true` to leave the PR open; `false` to merge it after publication |
@@ -161,6 +163,35 @@ After RC validation, run **Release** with:
 The workflow uses a squash merge and keeps the release branch. A final
 release with `no-merge=true` leaves the release PR open. Use this setting for
 maintenance releases that must not merge automatically.
+
+## Backend releases
+
+Select `backend=true` in **Release** to publish the backend with the SDKs or
+by itself. The backend RC and final version comes from the full release branch
+name. `release/8.0.0` with `rc-number=1` produces:
+
+- Git tag and GitHub release: `backend-8.0.0-rc1`.
+- Multi-platform image: `ghcr.io/xmtp/backend:8.0.0-rc1`.
+- Linux amd64 and arm64 images from one pinned source commit.
+
+The Rust workspace version remains the backend's build identifier. The release
+label does not change Cargo manifests. Dev builds from a release branch use
+that branch's version with a dev suffix. Other dev builds use the Rust
+workspace base version. Scheduled nightlies do not select the backend.
+
+The publisher checks that an existing version tag and image match the source
+commit and platform digests. A matching retry needs no overwrite. A version
+that belongs to another build fails. Bring fixes into the release branch and
+increment the RC number before publishing changed code.
+
+A backend dry run builds both architectures and prints the release plan. It
+creates no registry tags or GitHub release. A backend release builds commit
+images and adds a version manifest. It does not update the floating
+`self-hosted` image or deploy the development backend. Backend publication
+must succeed before the final release PR can merge automatically.
+
+If the release branch was created before backend release support was merged,
+bring that change into the release branch before selecting `backend=true`.
 
 ## Dev and nightly releases
 
@@ -183,6 +214,7 @@ and pending-version calculation. RC and final releases use the SDK manifests.
 | Node | `node-sdk-8.0.0-rc1` | npm `@xmtp/node-sdk` |
 | Browser | `browser-sdk-8.0.0-rc1` | npm `@xmtp/browser-sdk` |
 | Agent | `agent-sdk-8.0.0-rc1` | npm `@xmtp/agent-sdk` |
+| Backend | `backend-8.0.0-rc1` | GHCR `ghcr.io/xmtp/backend:8.0.0-rc1` |
 | CLI | `cli-<version>-rc1` | npm `@xmtp/cli`; separate version track |
 
 An iOS binary artifact also has a `libxmtp-ios-<sha7>` tag.
