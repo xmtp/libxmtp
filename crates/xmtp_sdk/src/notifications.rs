@@ -1,11 +1,23 @@
 use crate::{Client, ConsentState, XmtpError};
 use xmtp_mls::client::notifications as core;
 
+#[xmtp_macro::sdk_export]
 #[derive(Clone, uniffi::Enum)]
 pub enum NotificationChannel {
-    Apns { token: String },
-    Fcm { token: String },
-    Http { url: String, signing_key: Vec<u8> },
+    Apns {
+        #[sdk(redact)]
+        token: String,
+    },
+    Fcm {
+        #[sdk(redact)]
+        token: String,
+    },
+    Http {
+        #[sdk(redact)]
+        url: String,
+        #[sdk(redact)]
+        signing_key: Vec<u8>,
+    },
 }
 
 impl std::fmt::Debug for NotificationChannel {

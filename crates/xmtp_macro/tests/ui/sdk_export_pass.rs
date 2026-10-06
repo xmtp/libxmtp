@@ -65,9 +65,24 @@ pub enum EventKind {
 }
 
 #[xmtp_macro::sdk_export(native_only)]
-#[derive(Clone, Debug, uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum NotificationChannel {
-    Apns { token: String },
+    Apns {
+        #[sdk(redact)]
+        token: String,
+    },
+}
+
+#[xmtp_macro::sdk_export]
+#[derive(Clone, uniffi::Record)]
+pub struct EncodedContent {
+    #[sdk(shown)]
+    pub fallback: Option<String>,
+    #[sdk(redact = "secret")]
+    pub parameters: std::collections::HashMap<String, String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    #[sdk(redact)]
+    pub key: Option<Vec<u8>>,
 }
 
 #[derive(uniffi::Object)]
@@ -90,4 +105,10 @@ fn main() {
         token: String::new(),
     };
     assert!(!Probe.entered());
+    let content = EncodedContent {
+        fallback: None,
+        parameters: Default::default(),
+        key: None,
+    };
+    assert!(content.parameters.is_empty() && content.fallback.is_none());
 }

@@ -3,10 +3,14 @@ use xmtp_common::{BoxDynError, MaybeSend, MaybeSync};
 
 use crate::{XmtpError, foreign};
 
+#[xmtp_macro::sdk_export]
 #[derive(Clone, uniffi::Record)]
 pub struct Credential {
+    #[sdk(shown)]
     pub name: Option<String>,
+    #[sdk(redact)]
     pub value: String,
+    #[sdk(shown)]
     pub expires_at_seconds: i64,
 }
 

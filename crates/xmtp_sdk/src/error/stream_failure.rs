@@ -38,22 +38,31 @@ pub struct StreamBarrierCause {
 }
 
 /// One fixed topic obligation and its stored processing progress.
+#[xmtp_macro::sdk_export]
 #[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct StreamBarrierTopic {
     /// Complete topic bytes.
+    #[sdk(redact)]
     pub topic: Vec<u8>,
     /// Captured owning scope. None precedes admission.
     #[uniffi(default = None)]
+    #[sdk(shown)]
     pub scope_generation: Option<u64>,
     /// Target H. None differs from a captured empty target of zero.
+    #[sdk(shown)]
     pub target: Option<u64>,
     /// Stored receipt cursor F.
+    #[sdk(shown)]
     pub received: u64,
     /// Resolved processing cursor P, separate from consumer acknowledgement.
+    #[sdk(shown)]
     pub processed: u64,
     /// Unresolved Welcome sequence IDs at or below H.
+    #[sdk(shown)]
     pub unresolved_welcomes: Vec<u64>,
+    #[sdk(shown)]
     pub inactive: bool,
+    #[sdk(shown)]
     pub cause: Option<StreamBarrierCause>,
 }
 

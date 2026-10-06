@@ -51,10 +51,19 @@ mod timeout_macro_test;
 /// - `#[sdk(kind = "namespace.name")]` on an enum variant: the public string
 ///   of the variant. `EventKind` takes one per variant. Mark every variant of
 ///   the enum or none.
+/// - `#[sdk(redact)]` on a named record or variant field: generated Kotlin
+///   `toString` and Swift `description` print `<redacted>` for it.
+///   `#[sdk(redact = "key")]` hides one key of a string map field; the key
+///   holds ASCII letters, digits, `_`, `.`, and `-`. Redaction fails closed:
+///   every other field of that record or variant takes `#[sdk(redact)]` or
+///   `#[sdk(shown)]`, and the item writes its own `impl Debug` instead of
+///   deriving one. The macro rejects a derived `Debug` only when it sees the
+///   derive, so `sdk_export` stays the first attribute. A `uniffi::Error`
+///   type cannot redact a field: the Kotlin binding renames it.
 ///
-/// `pure` and each member option become a `#[doc = "@xmtp-..."]` line that
-/// UniFFI carries into the library metadata. The generator reads it and
-/// strips it from generated documentation; see
+/// `pure` and each member option but `shown` become a `#[doc = "@xmtp-..."]`
+/// line that UniFFI carries into the library metadata. The generator reads it
+/// and strips it from generated documentation; see
 /// `apps/xmtp_sdk_bindgen/README.md`. When rustc reports "cannot find
 /// attribute `sdk` in this scope", the item lacks `#[xmtp_macro::sdk_export]`
 /// as its first attribute.
@@ -73,6 +82,15 @@ mod timeout_macro_test;
 /// pub enum EventKind {
 ///     #[sdk(kind = "conversation.joined")]
 ///     ConversationJoined,
+/// }
+///
+/// #[xmtp_macro::sdk_export]
+/// #[derive(Clone, uniffi::Record)]
+/// pub struct Credential {
+///     #[sdk(shown)]
+///     pub name: Option<String>,
+///     #[sdk(redact)]
+///     pub value: String,
 /// }
 /// ```
 #[proc_macro_attribute]

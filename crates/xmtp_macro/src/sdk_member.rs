@@ -1,8 +1,8 @@
 //! The `#[sdk(...)]` member options of `sdk_export`.
 //!
-//! Each option becomes a `#[doc = "@xmtp-..."]` marker. UniFFI carries the
-//! marker into the library metadata, where the SDK generator reads it, so the
-//! generator needs no table of façade names.
+//! Each option but `shown` becomes a `#[doc = "@xmtp-..."]` marker. UniFFI
+//! carries the marker into the library metadata, where the SDK generator
+//! reads it, so the generator needs no table of façade names.
 
 use std::collections::HashSet;
 
@@ -16,11 +16,13 @@ use crate::sdk_export::returns_result;
 
 const IMMUTABLE: &str = "@xmtp-immutable";
 pub(crate) const PURE: &str = "@xmtp-pure";
+const REDACT: &str = "@xmtp-redact";
 /// Written by hand in a doc comment: the browser worker makes the call
 /// itself, so it never crosses the bridge.
 const WORKER: &str = "@xmtp-worker";
 
-const MEMBER_OPTIONS: &str = "unknown sdk option; expected immutable or kind = \"name\"";
+const MEMBER_OPTIONS: &str =
+    "unknown sdk option; expected immutable, kind = \"name\", redact, redact = \"key\", or shown";
 
 /// The target an export is limited to.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -48,10 +50,20 @@ impl Target {
     }
 }
 
+/// What `#[sdk(redact)]` hides in generated diagnostic text.
+enum Redact {
+    /// The whole field.
+    Whole,
+    /// One key of a string map field.
+    Key(String),
+}
+
 /// The `#[sdk(...)]` options of one member.
 #[derive(Default)]
 struct MemberOptions {
     immutable: Option<Span>,
+    redact: Option<(Span, Redact)>,
+    shown: Option<Span>,
     kind: Option<(Span, String)>,
 }
 
@@ -61,6 +73,17 @@ impl MemberOptions {
             Some(span) => Err(syn::Error::new(
                 span,
                 "#[sdk(immutable)] applies to methods",
+            )),
+            None => Ok(()),
+        }
+    }
+
+    /// `redact` and `shown` describe the fields of a record or variant.
+    fn reject_display(&self) -> syn::Result<()> {
+        match self.redact.as_ref().map(|(span, _)| *span).or(self.shown) {
+            Some(span) => Err(syn::Error::new(
+                span,
+                "#[sdk(redact)] and #[sdk(shown)] apply to record and variant fields",
             )),
             None => Ok(()),
         }
@@ -77,15 +100,29 @@ impl MemberOptions {
     }
 }
 
+fn string_value(value: &Expr) -> Option<String> {
+    match value {
+        Expr::Lit(ExprLit {
+            lit: Lit::Str(text),
+            ..
+        }) => Some(text.value()),
+        _ => None,
+    }
+}
+
+/// A map key that the generator can write into a Kotlin or Swift string
+/// literal as it is.
+fn redact_key(value: &Expr) -> Option<String> {
+    string_value(value).filter(|key| {
+        !key.is_empty()
+            && key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    })
+}
+
 fn kind_value(value: &Expr) -> Option<String> {
-    let Expr::Lit(ExprLit {
-        lit: Lit::Str(text),
-        ..
-    }) = value
-    else {
-        return None;
-    };
-    let kind = text.value();
+    let kind = string_value(value)?;
     let valid = !kind.is_empty()
         && kind
             .chars()
@@ -111,6 +148,27 @@ fn take(attrs: &mut Vec<Attribute>) -> syn::Result<MemberOptions> {
             match &meta {
                 Meta::Path(path) if path.is_ident("immutable") => {
                     if options.immutable.replace(span).is_some() {
+                        return Err(repeated());
+                    }
+                }
+                Meta::Path(path) if path.is_ident("redact") => {
+                    if options.redact.replace((span, Redact::Whole)).is_some() {
+                        return Err(repeated());
+                    }
+                }
+                Meta::NameValue(pair) if pair.path.is_ident("redact") => {
+                    let key = redact_key(&pair.value).ok_or_else(|| {
+                        syn::Error::new(
+                            span,
+                            "redact takes one map key of ASCII letters, digits, `_`, `.`, and `-`, such as \"secret\"",
+                        )
+                    })?;
+                    if options.redact.replace((span, Redact::Key(key))).is_some() {
+                        return Err(repeated());
+                    }
+                }
+                Meta::Path(path) if path.is_ident("shown") => {
+                    if options.shown.replace(span).is_some() {
                         return Err(repeated());
                     }
                 }
@@ -149,6 +207,41 @@ fn documents(attrs: &[Attribute], marker: &str) -> bool {
         },
         _ => false,
     })
+}
+
+/// The derives of a record or enum that redaction cannot work with. The
+/// macro sees only the derives below it, so `sdk_export` comes first.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Derives {
+    /// A derived `Debug`, under any path, prints every field.
+    debug: bool,
+    /// UniFFI's Kotlin binding renames a `uniffi::Error` type to an
+    /// exception class, which the generated diagnostics do not reach.
+    uniffi_error: bool,
+}
+
+impl Derives {
+    pub(crate) fn of(attrs: &[Attribute]) -> Self {
+        let mut derives = Self::default();
+        let paths = attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("derive"))
+            .filter_map(|attr| {
+                attr.parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated)
+                    .ok()
+            })
+            .flatten();
+        for path in paths {
+            let names = path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>();
+            derives.debug |= names.last().is_some_and(|name| name == "Debug");
+            derives.uniffi_error |= names == ["uniffi", "Error"];
+        }
+        derives
+    }
 }
 
 /// A synchronous `&self` method without arguments that returns a value. The
@@ -190,6 +283,7 @@ pub(crate) fn method(
     target: Option<Target>,
 ) -> syn::Result<()> {
     let options = take(attrs)?;
+    options.reject_display()?;
     options.reject_kind()?;
     // The browser bridge snapshots the getters it forwards. It forwards
     // neither a worker-only call nor a native-only item. The native-only
@@ -221,7 +315,12 @@ pub(crate) fn method(
 /// A free function takes its options in `#[sdk_export(...)]`.
 pub(crate) fn function(attrs: &mut Vec<Attribute>, name: &Ident) -> syn::Result<()> {
     let options = take(attrs)?;
-    match options.immutable.or(options.kind.map(|(span, _)| span)) {
+    let span = options
+        .immutable
+        .or(options.redact.map(|(span, _)| span))
+        .or(options.shown)
+        .or(options.kind.map(|(span, _)| span));
+    match span {
         Some(span) => Err(syn::Error::new(
             span,
             format!("`{name}` is a free function; it takes its options in #[sdk_export(...)]"),
@@ -231,24 +330,101 @@ pub(crate) fn function(attrs: &mut Vec<Attribute>, name: &Ident) -> syn::Result<
 }
 
 /// Apply the options of the fields of a record or of one enum variant.
-pub(crate) fn fields(fields: &mut Fields) -> syn::Result<()> {
-    for field in fields {
+///
+/// Redaction fails closed: once one field is `#[sdk(redact)]`, every other
+/// field says `redact` or `shown`, so a new field never prints a secret by
+/// default. `item` is the record or enum, and `derives` holds the derives
+/// that a redacted field rules out.
+pub(crate) fn fields(
+    fields: &mut Fields,
+    item: &Ident,
+    owner: &str,
+    derives: Derives,
+) -> syn::Result<()> {
+    let mut redacted = None;
+    let mut shown = None;
+    let mut unmarked = Vec::new();
+    for field in fields.iter_mut() {
         let options = take(&mut field.attrs)?;
         options.reject_immutable()?;
         options.reject_kind()?;
+        let Some(name) = field.ident.clone() else {
+            options.reject_display().map_err(|error| {
+                syn::Error::new(
+                    error.span(),
+                    "#[sdk(redact)] and #[sdk(shown)] need a named field",
+                )
+            })?;
+            continue;
+        };
+        match (options.redact, options.shown) {
+            (Some((span, _)), Some(_)) => {
+                return Err(syn::Error::new(
+                    span,
+                    "a field is either #[sdk(redact)] or #[sdk(shown)]",
+                ));
+            }
+            (Some((_, redact)), None) => {
+                let marker = match redact {
+                    Redact::Whole => REDACT.to_owned(),
+                    Redact::Key(key) => format!("{REDACT}={key}"),
+                };
+                push_marker(&mut field.attrs, &marker);
+                redacted.get_or_insert(name);
+            }
+            (None, Some(span)) => {
+                shown.get_or_insert(span);
+            }
+            (None, None) => unmarked.push(name),
+        }
     }
-    Ok(())
+    let Some(redacted) = redacted else {
+        return match shown {
+            Some(span) => Err(syn::Error::new(
+                span,
+                "#[sdk(shown)] applies beside a #[sdk(redact)] field",
+            )),
+            None => Ok(()),
+        };
+    };
+    if derives.uniffi_error {
+        return Err(syn::Error::new_spanned(
+            item,
+            format!(
+                "`{item}` derives uniffi::Error, which the Kotlin binding renames to an exception class; #[sdk(redact)] applies to records and plain enums"
+            ),
+        ));
+    }
+    if derives.debug {
+        return Err(syn::Error::new_spanned(
+            item,
+            format!(
+                "`{item}` derives Debug, which prints `{redacted}`; write an `impl Debug` that redacts it. Keep sdk_export the first attribute, above every derive: it cannot see a derive written above it"
+            ),
+        ));
+    }
+    match unmarked.first() {
+        Some(field) => Err(syn::Error::new_spanned(
+            field,
+            format!(
+                "`{owner}.{field}` sits beside a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]"
+            ),
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Apply the options of the variants of an enum. `#[sdk(kind = "...")]`
 /// names the public string of a variant; an enum marks every variant or none,
 /// and each kind once.
 pub(crate) fn variants(item: &mut ItemEnum) -> syn::Result<()> {
+    let derives = Derives::of(&item.attrs);
     let mut kinds = HashSet::new();
     let mut unmarked = None;
     for variant in &mut item.variants {
         let options = take(&mut variant.attrs)?;
         options.reject_immutable()?;
+        options.reject_display()?;
         match options.kind {
             Some((span, kind)) => {
                 let marker = format!("@xmtp-kind={kind}");
@@ -261,7 +437,8 @@ pub(crate) fn variants(item: &mut ItemEnum) -> syn::Result<()> {
                 unmarked.get_or_insert_with(|| variant.ident.clone());
             }
         }
-        fields(&mut variant.fields)?;
+        let owner = format!("{}::{}", item.ident, variant.ident);
+        fields(&mut variant.fields, &item.ident, &owner, derives)?;
     }
     match unmarked {
         Some(variant) if !kinds.is_empty() => Err(syn::Error::new_spanned(

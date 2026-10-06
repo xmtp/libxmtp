@@ -142,7 +142,9 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
         // the markers and the target's cfg.
         Item::Struct(item_struct) => {
             require_uniffi_derive(&item_struct.attrs, &item_struct.ident)?;
-            sdk_member::fields(&mut item_struct.fields)?;
+            let derives = sdk_member::Derives::of(&item_struct.attrs);
+            let owner = item_struct.ident.to_string();
+            sdk_member::fields(&mut item_struct.fields, &item_struct.ident, &owner, derives)?;
             return Ok(quote!(#cfg #item_struct));
         }
         Item::Enum(item_enum) => {

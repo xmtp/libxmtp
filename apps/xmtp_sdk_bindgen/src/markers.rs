@@ -21,9 +21,12 @@ pub(crate) const PURE: &str = "@xmtp-pure";
 pub(crate) const WORKER: &str = "@xmtp-worker";
 /// A private item that the public projection leaves out.
 pub(crate) const INTERNAL: &str = "@xmtp-internal";
+/// A field that diagnostic text hides: `@xmtp-redact`, or
+/// `@xmtp-redact=secret` for one key of a string map.
+pub(crate) const REDACT: &str = "@xmtp-redact";
 
 /// Every marker the generator reads.
-const VOCABULARY: &[&str] = &[IMMUTABLE, INTERNAL, KIND, PURE, WORKER];
+const VOCABULARY: &[&str] = &[IMMUTABLE, INTERNAL, KIND, PURE, REDACT, WORKER];
 
 const PREFIX: &str = "@xmtp-";
 
@@ -340,9 +343,9 @@ mod tests {
             error.starts_with("Options.key: unknown metadata marker @xmtp-interal;"),
             "{error}"
         );
-        assert!(
-            error.contains("@xmtp-immutable, @xmtp-internal, @xmtp-kind, @xmtp-pure, @xmtp-worker")
-        );
+        assert!(error.contains(
+            "@xmtp-immutable, @xmtp-internal, @xmtp-kind, @xmtp-pure, @xmtp-redact, @xmtp-worker"
+        ));
 
         // A marker with punctuation attached is not a marker; it must not
         // silently stop working.

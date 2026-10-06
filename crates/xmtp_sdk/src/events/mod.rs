@@ -144,19 +144,28 @@ impl From<core::ConnectionState> for ConnectionState {
 }
 
 /// The attachment an `attachment.*` event reports.
+#[xmtp_macro::sdk_export]
 #[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AttachmentRef {
+    #[sdk(shown)]
     pub attachment_key: String,
+    #[sdk(redact)]
     pub url: String,
+    #[sdk(shown)]
     pub content_digest: String,
 }
 
 /// The attachment a failed transfer reports, with its failure cause.
+#[xmtp_macro::sdk_export]
 #[derive(Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AttachmentFailed {
+    #[sdk(shown)]
     pub attachment_key: String,
+    #[sdk(redact)]
     pub url: String,
+    #[sdk(shown)]
     pub content_digest: String,
+    #[sdk(shown)]
     pub cause: String,
 }
 

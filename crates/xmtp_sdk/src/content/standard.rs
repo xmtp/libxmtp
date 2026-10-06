@@ -1,11 +1,16 @@
 /// Content at this boundary is uncompressed. Send options control wire compression.
+#[xmtp_macro::sdk_export]
 #[derive(Clone, uniffi::Record)]
 pub struct EncodedContent {
+    #[sdk(shown)]
     pub r#type: ContentTypeId,
     #[uniffi(default)]
+    #[sdk(redact = "secret")]
     pub parameters: HashMap<String, String>,
     #[uniffi(default = None)]
+    #[sdk(shown)]
     pub fallback: Option<String>,
+    #[sdk(shown)]
     pub content: Vec<u8>,
 }
 
