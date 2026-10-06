@@ -35,7 +35,7 @@ import { expect, it, vi } from "vitest";
 
 // The public options adapter, driven with a fake reader of binding states.
 import { hostOptions } from "../dist/runtime/public/streams.js";
-import { MessageStream as HostMessageStream } from "../dist/runtime/streams/reader.js";
+import { ReaderStream } from "../dist/runtime/streams/reader.js";
 import { ConnectionState as BoundState } from "../dist/xmtp_sdk.js";
 
 const PUBLIC_OBJECTS = [
@@ -233,7 +233,7 @@ it("public stream options lift the previous and current connection states", asyn
   const states: [ConnectionState | undefined, ConnectionState][] = [];
   const changes: ((state: BoundState) => void)[] = [];
   const stream = endAfterTest(
-    new HostMessageStream(
+    new ReaderStream(
       async () => ({
         next: () => new Promise<undefined>(() => {}),
         end: async () => {},

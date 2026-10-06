@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { MessageStream } from "../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader.js";
+import { ReaderStream } from "../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader.js";
 
 function latch() {
   let resolve!: () => void;
@@ -29,7 +29,7 @@ export function registerStreamTests(): void {
       },
       async end(): Promise<void> {},
     };
-    const stream = new MessageStream(async () => reader, {});
+    const stream = new ReaderStream(async () => reader, {});
     const first = stream.next();
     await expect(stream.next()).rejects.toThrow(
       "reader iterator read is active",
@@ -58,7 +58,7 @@ export function registerStreamTests(): void {
         return new Promise<void>(() => {});
       },
     };
-    const stream = new MessageStream(async () => reader, {});
+    const stream = new ReaderStream(async () => reader, {});
     const pending = stream.next();
     await entered.promise;
     void stream.end();

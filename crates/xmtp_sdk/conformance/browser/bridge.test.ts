@@ -29,89 +29,90 @@ describe("browser bridge transport", () => {
 });
 
 // verifies: PROC-046
-describe("message stream factories", () => {
-  for (const kind of ["all", "group", "dm"] as const) {
-    it(`cancels a blocked ${kind} opener through its transport signal`, async () => {
-      const { MessageStream } =
-        await import("../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader");
-      let opened!: () => void;
-      const arrived = new Promise<void>((resolve) => {
-        opened = resolve;
-      });
-      let openingSignal: AbortSignal | undefined;
-      let aborted = false;
-      const messageReader = vi.fn(
-        (_selection?: unknown, transport?: { signal: AbortSignal }) => {
-          openingSignal = transport?.signal;
-          opened();
-          return new Promise<{
-            next(): Promise<string | undefined>;
-            end(): Promise<void>;
-          }>((_resolve, reject) => {
-            openingSignal?.addEventListener(
-              "abort",
-              () => {
-                aborted = true;
-                reject(new Error("opening cancelled"));
-              },
-              { once: true },
-            );
-          });
-        },
-      );
-      const source = { messageReader };
-      const owner = { conversations: () => source };
-      const controller = new AbortController();
-      const onClose = vi.fn();
-      const options = { signal: controller.signal, onClose };
-      const stream =
-        kind === "all"
-          ? MessageStream.open(owner, undefined, options)
-          : kind === "group"
-            ? MessageStream.openGroup(owner, source, undefined, options)
-            : MessageStream.openDm(owner, source, undefined, options);
-      await arrived;
-      expect(openingSignal).toBeInstanceOf(AbortSignal);
-      expect(openingSignal?.aborted).toBe(false);
-      controller.abort();
-      expect(openingSignal?.aborted).toBe(true);
-      expect(aborted).toBe(true);
-      await stream.end();
-      expect(await stream.next()).toEqual({ done: true, value: undefined });
-      expect(onClose).toHaveBeenCalledExactlyOnceWith({ kind: "closed" });
+describe("reader stream opening", () => {
+  it("cancels a blocked opener through its transport signal", async () => {
+    const { ReaderStream } =
+      await import("../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader");
+    let opened!: () => void;
+    const arrived = new Promise<void>((resolve) => {
+      opened = resolve;
     });
-    it(`forwards ${kind} selection and transport separately`, async () => {
-      const { MessageStream } =
-        await import("../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader");
-      const selection = {
-        from: "dc1_exact",
-        consentStates: [],
-        conversationKind: undefined,
-      };
-      const end = vi.fn(async () => {});
-      const next = vi.fn(async () => "value");
-      const messageReader = vi.fn(async () => ({ next, end }));
-      const source = { messageReader };
-      const owner = { conversations: () => source };
-      const controller = new AbortController();
-      const onClose = vi.fn();
-      const options = { signal: controller.signal, onClose };
-      const stream =
-        kind === "all"
-          ? MessageStream.open(owner, selection, options)
-          : kind === "group"
-            ? MessageStream.openGroup(owner, source, selection, options)
-            : MessageStream.openDm(owner, source, selection, options);
-      expect(await stream.next()).toEqual({ done: false, value: "value" });
-      expect(messageReader).toHaveBeenCalledWith(selection, {
-        signal: expect.any(AbortSignal),
-      });
-      controller.abort();
-      await stream.end();
-      expect(end).toHaveBeenCalledTimes(1);
-      expect(onClose).toHaveBeenCalledExactlyOnceWith({ kind: "closed" });
-      expect(next).toHaveBeenCalledTimes(1);
-      expect(await stream.next()).toEqual({ done: true, value: undefined });
+    let openingSignal: AbortSignal | undefined;
+    let aborted = false;
+    const messageReader = vi.fn(
+      (_selection?: unknown, transport?: { signal: AbortSignal }) => {
+        openingSignal = transport?.signal;
+        opened();
+        return new Promise<{
+          next(): Promise<string | undefined>;
+          end(): Promise<void>;
+        }>((_resolve, reject) => {
+          openingSignal?.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              reject(new Error("opening cancelled"));
+            },
+            { once: true },
+          );
+        });
+      },
+    );
+    const source = { messageReader };
+    const owner = {};
+    const controller = new AbortController();
+    const onClose = vi.fn();
+    const options = { signal: controller.signal, onClose };
+    const stream = new ReaderStream(
+      (signal) => source.messageReader(undefined, { signal }),
+      owner,
+      options,
+    );
+    await arrived;
+    expect(openingSignal).toBeInstanceOf(AbortSignal);
+    expect(openingSignal?.aborted).toBe(false);
+    controller.abort();
+    expect(openingSignal?.aborted).toBe(true);
+    expect(aborted).toBe(true);
+    await stream.end();
+    expect(await stream.next()).toEqual({ done: true, value: undefined });
+    expect(onClose).toHaveBeenCalledExactlyOnceWith({ kind: "closed" });
+  });
+  it("closes the reader after its opener receives the transport signal", async () => {
+    const { ReaderStream } =
+      await import("../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader");
+    const selection = {
+      from: "dc1_exact",
+      consentStates: [],
+      conversationKind: undefined,
+    };
+    const end = vi.fn(async () => {});
+    const next = vi.fn(async () => "value");
+    const messageReader = vi.fn(
+      async (_selection: unknown, _transport: { signal: AbortSignal }) => ({
+        next,
+        end,
+      }),
+    );
+    const source = { messageReader };
+    const owner = {};
+    const controller = new AbortController();
+    const onClose = vi.fn();
+    const options = { signal: controller.signal, onClose };
+    const stream = new ReaderStream(
+      (signal) => source.messageReader(selection, { signal }),
+      owner,
+      options,
+    );
+    expect(await stream.next()).toEqual({ done: false, value: "value" });
+    expect(messageReader).toHaveBeenCalledWith(selection, {
+      signal: expect.any(AbortSignal),
     });
-  }
+    controller.abort();
+    await stream.end();
+    expect(end).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledExactlyOnceWith({ kind: "closed" });
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(await stream.next()).toEqual({ done: true, value: undefined });
+  });
 });
