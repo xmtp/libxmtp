@@ -39,21 +39,7 @@ _browser-panic-fixture target:
 conformance target: (_browser-pure-fixture target) (_browser-panic-fixture target)
     {{ _env }} && case "{{ target }}" in \
       swift|kotlin|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
-      bridge) cd "{{ root }}" && \
-        bash crates/xmtp_sdk/dev/check-wasm-init && \
-        NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run --config crates/xmtp_sdk/conformance/browser/vitest.config.mts --browser.enabled=false && \
-        NODE_OPTIONS="--preserve-symlinks --expose-gc" sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/bridge.real.mts && \
-        NODE_OPTIONS="--preserve-symlinks --expose-gc" sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/release.gc.mts ;; \
-      *) echo "Expected swift, kotlin, browser, or bridge" >&2; exit 2 ;; \
-    esac
-
-# Repeat held callback and constructor adoption probes on a native host.
-# browser-transport checks the real worker transport without a generated SDK.
-callback-lifetime target:
-    {{ _env }} && cd "{{ root }}" && case "{{ target }}" in \
-      swift|kotlin) SDK_CALLBACK_LIFETIME=1 SDK_CALLBACK_SOURCE_SHA="$(git rev-parse HEAD)" bash "crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
-      browser-transport) bash crates/xmtp_sdk/dev/callback-lifetime-browser ;; \
-      *) echo "Expected swift, kotlin, or browser-transport" >&2; exit 2 ;; \
+      *) echo "Expected swift, kotlin, or browser" >&2; exit 2 ;; \
     esac
 
 conformance-bridge:
@@ -69,15 +55,6 @@ conformance-package: wasm-init
 
 conformance-bridge-unit *args: wasm-init
     cd "{{ root }}" && NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run --config crates/xmtp_sdk/conformance/browser/vitest.config.mts --browser.enabled=false {{ args }}
-
-# Compile separate Swift and Kotlin consumers against staged public products.
-# Run `just sdk generate` first.
-public-consumer:
-    bash "{{ root }}/crates/xmtp_sdk/dev/public-consumer"
-
-# Compile or run an independent codec package through the Node/browser ESM roots.
-codec-author target="types":
-    {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/codec-author" {{ target }}
 
 # Run `just sdk generate` first: the root check reads the generated roots.
 # Build once. Later render calls reuse the recorded artifact hashes.
@@ -140,11 +117,3 @@ bench-check:
 # Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
 check-android-toolchain:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
-
-# Check selected-host counter injection with generated bindings and no Rust build.
-check-conformance-targets generated="target/sdk-generated":
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-conformance-targets.py "{{ generated }}"
-
-# Check nonthrowing, pending and READY reader cancellation through real native calls.
-caller-cancellation-swift:
-    {{ _env }} && SDK_SWIFT_CALLER_CANCELLATION=1 bash "{{ root }}/crates/xmtp_sdk/dev/conformance-swift"

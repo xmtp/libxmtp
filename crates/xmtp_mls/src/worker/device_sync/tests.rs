@@ -924,6 +924,71 @@ async fn sync_message_from_another_inbox_is_not_applied() {
     assert!(db.unprocessed_sync_group_messages()?.is_empty());
 }
 
+// A root HMAC key that another installation syncs is a `hmac_keys.updated`
+// trigger (EVENT section 1). One message with two keys is one change.
+// verifies: EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn synced_hmac_key_emits_hmac_keys_updated_once() {
+    use diesel::prelude::*;
+    use preference_sync::PreferenceUpdate;
+    use xmtp_db::schema::groups::dsl;
+    use xmtp_db::user_preferences::StoredUserPreferences;
+    use xmtp_events::{ClientEvent, EventEnvelope, EventFilter, EventKind};
+    use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
+
+    tester!(alix1, disable_workers);
+    tester!(alix2, from: alix1);
+    tester!(bo);
+    let group = bo
+        .create_group_with_members(&[alix1.inbox_id()], None, None)
+        .await?;
+    alix1.sync_welcomes().await?;
+    alix2.sync_welcomes().await?;
+    // Stands in for the shared sync group, which needs the sync worker.
+    alix1.context.db().raw_query(|conn| {
+        diesel::update(dsl::groups.find(&group.group_id))
+            .set(dsl::conversation_type.eq(ConversationType::Sync))
+            .execute(conn)
+    })?;
+
+    let now = now_ns();
+    let hmac = |key: u8, cycled_at_ns| PreferenceUpdate::Hmac {
+        key: vec![key; 42],
+        cycled_at_ns,
+    };
+    let updates = sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
+        updates: vec![hmac(1, now).into(), hmac(2, now + 1).into()],
+    }));
+    alix2
+        .group(&group.group_id)?
+        .send_message(&updates, SendMessageOpts::default())
+        .await?;
+    alix1.group(&group.group_id)?.sync().await?;
+
+    let events = alix1
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
+    let db = alix1.context.db();
+    let client = alix1.device_sync_client();
+    client
+        .process_sync_group_messages(&client.metrics, db.unprocessed_sync_group_messages()?)
+        .await?;
+
+    assert_eq!(
+        StoredUserPreferences::load(&db)?.hmac_key,
+        Some(vec![2; 42])
+    );
+    assert!(matches!(
+        events.drain().as_slice(),
+        [EventEnvelope {
+            client: Some(ClientEvent::HmacKeysUpdated(_)),
+            ..
+        }]
+    ));
+}
+
 // The same event reaches the JSON destination and the public app log callback.
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg(not(target_arch = "wasm32"))]

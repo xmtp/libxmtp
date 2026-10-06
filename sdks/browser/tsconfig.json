@@ -5,5 +5,10 @@
     "sourceMap": true,
     "types": ["vitest/globals", "vite/client"]
   },
-  "include": ["test", "type-tests/notifications.ts", "vite.config.ts"]
+  "include": [
+    "test",
+    "type-tests/notifications.ts",
+    "type-tests/publicSurface.ts",
+    "vite.config.ts"
+  ]
 }

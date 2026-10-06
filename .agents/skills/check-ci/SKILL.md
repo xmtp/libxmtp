@@ -65,10 +65,9 @@ If you must loop, back off: 60s, then 120s, then 300s.
   these recipes exist to replace.
 - Never open a browser for CI. Everything is in `gh`; the Blacksmith UI shows
   nothing `just ci-annotations` does not.
-- Check the plan's `## Findings` section before investigating a failure. These
-  tests are flaky here and have each been re-diagnosed several times by
-  different agents: `testCanSuccessfullyThreadDms`, `testNetworkDebugInformation`,
-  `testCanStreamGroupMessages`.
+- Check the plan's `## Findings` section before investigating a failure. This
+  test is flaky here and has been re-diagnosed several times by different
+  agents: `testCanStreamGroupMessages`.
 - Record the verdict in `## Findings` when you finish, so the next agent does
   not repeat the work.
 - "Re-run failed jobs" tests the same old merge commit again. When the fix

@@ -1,23 +1,28 @@
 #!/usr/bin/env bash
-# Compile guide examples against the staged public products in this worktree.
+# Compile guide examples as consumers of the SDK packages under sdks/.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 guide=docs/self-hosted/sdk-migration
-fixtures=crates/xmtp_sdk/conformance/public
-stage=target/sdk-public
+
+# Copy one guide file into a consumer, then remove only that copy.
+place() {
+  source="$2"
+  test ! -e "$source" || { echo "Refusing to overwrite $source" >&2; exit 1; }
+  trap 'rm -f "$source"' EXIT
+  cp "$guide/$1" "$source"
+}
+
 case "${1:-}" in
   node|browser)
     host="$1"
-    consumer="$stage/$host-consumer"
-    test -d "$consumer/node_modules" || {
-      echo "Missing staged $host product. Run the package staging gate first." >&2
+    package="sdks/$host"
+    test -f "$package/dist/entry.d.ts" || {
+      echo "Missing $package/dist. Run dev/nix-shell 'pnpm --filter @xmtp/$host-sdk build' first." >&2
       exit 1
     }
-    source="$consumer/src/migration.ts"
-    test ! -e "$source" || { echo "Refusing to overwrite $source" >&2; exit 1; }
-    trap 'rm -f "$source"' EXIT
-    cp "$guide/$host.ts" "$source"
+    # The package resolves its own name through its exports.
+    place "$host.ts" "$package/type-tests/migration-guide.ts"
     compiler_types=()
     if [[ "$host" == node ]]; then
       compiler_types=(--types node --typeRoots sdks/node/node_modules/@types)
@@ -26,20 +31,22 @@ case "${1:-}" in
       --module esnext --moduleResolution bundler --allowImportingTsExtensions "$source"
     ;;
   swift)
-    test -d "$stage/XmtpSdk" || { echo "Missing staged XmtpSdk product." >&2; exit 1; }
-    source="$fixtures/swift/Sources/PublicConsumer/Migration.swift"
-    test ! -e "$source" || { echo "Refusing to overwrite $source" >&2; exit 1; }
-    trap 'rm -f "$source"' EXIT
-    cp "$guide/Migration.swift" "$source"
-    NIX_DEVSHELL=ios dev/nix-shell "swift build --package-path $fixtures/swift -Xswiftc -strict-concurrency=complete"
+    test -d sdks/ios/Artifacts/XmtpSdkFFI.xcframework || {
+      echo "Missing the XmtpSdkFFI framework. Run dev/nix-shell 'just ios build' first." >&2
+      exit 1
+    }
+    # The test target imports XmtpSdk without @testable, so it sees only the public API.
+    place Migration.swift sdks/ios/Tests/XmtpSdkTests/MigrationGuide.swift
+    NIX_DEVSHELL=ios dev/nix-shell "swift build --build-tests -Xswiftc -strict-concurrency=complete"
     ;;
   kotlin)
-    test -d "$stage/kotlin" || { echo "Missing staged Kotlin product." >&2; exit 1; }
-    source="$fixtures/kotlin/consumer/src/main/kotlin/Migration.kt"
-    test ! -e "$source" || { echo "Refusing to overwrite $source" >&2; exit 1; }
-    trap 'rm -f "$source"' EXIT
-    cp "$guide/Migration.kt" "$source"
-    NIX_DEVSHELL=android dev/nix-shell "sdks/android/gradlew -p $fixtures/kotlin :consumer:compileDebugKotlin --no-daemon -q"
+    test -n "${XMTP_SDK_GENERATED_DIR:-}" || test -e sdks/android/.build/bindings || {
+      echo "Missing the generated Android SDK. Run dev/nix-shell 'just android build' first." >&2
+      exit 1
+    }
+    # The example app is a separate module, so it sees only the public API.
+    place Migration.kt sdks/android/example/src/main/java/MigrationGuide.kt
+    NIX_DEVSHELL=android dev/nix-shell "sdks/android/gradlew -p sdks/android :example:compileDebugKotlin --no-daemon -q"
     ;;
   *)
     echo "Expected node, browser, swift, or kotlin" >&2

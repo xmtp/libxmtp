@@ -38,20 +38,8 @@ mod error;
 mod events;
 #[cfg(all(feature = "conformance", not(feature = "pure-only")))]
 pub use client::SdkConformanceListenerCounts;
-#[cfg(all(
-    feature = "conformance",
-    not(feature = "pure-only"),
-    not(target_arch = "wasm32")
-))]
-pub use client::{SdkConformanceConstructorProbe, SdkConformanceConstructorState};
 #[cfg(not(feature = "pure-only"))]
 mod foreign;
-#[cfg(all(feature = "conformance", not(feature = "pure-only")))]
-mod foreign_conformance;
-#[cfg(all(feature = "conformance", not(feature = "pure-only")))]
-pub use foreign_conformance::{
-    SdkConformanceForeignCallCounts, sdk_conformance_foreign_call_counts,
-};
 #[cfg(not(feature = "pure-only"))]
 mod identity;
 mod ids;
@@ -86,12 +74,6 @@ pub use client::{
     AttachmentOptions, Client, ClientHandlers, ClientOptions, PreAuthenticate,
     PreAuthenticateError, StorageLocation, StorageOptions,
 };
-#[cfg(all(
-    feature = "conformance",
-    not(feature = "pure-only"),
-    not(target_arch = "wasm32")
-))]
-pub use configuration::sdk_conformance_server_configuration_sample;
 #[cfg(not(feature = "pure-only"))]
 pub use configuration::{
     AttachmentsConfiguration, AuthConfiguration, LimitsConfiguration, MlsConfiguration,

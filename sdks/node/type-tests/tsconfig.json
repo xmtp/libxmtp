@@ -3,5 +3,10 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["notifications.ts", "serverConfiguration.ts", "streamOptions.ts"]
+  "include": [
+    "notifications.ts",
+    "publicSurface.ts",
+    "serverConfiguration.ts",
+    "streamOptions.ts"
+  ]
 }

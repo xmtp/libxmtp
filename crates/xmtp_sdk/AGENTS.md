@@ -25,9 +25,7 @@ Run commands from the repository root in the Nix shell. Run
   Keep most new files below 500 lines.
 - `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
   Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
-  It checks shared public value types on Node and browser, including negative
-  consumers for readonly records, transport fields, credentials, and bytes. It also
-  rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) in
+  It also rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) in
   the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
   in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
@@ -71,25 +69,6 @@ Run commands from the repository root in the Nix shell. Run
   most 3 samples per workload.
 - `dev/nix-shell 'just sdk bench-check'` runs the benchmark unit tests and static runner
   checks. It needs no backend, device or SDK build.
-- `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and
-  real reader pre-poll, pending and READY handoff. It counts native cancel/free
-  calls in generated conformance copies and requires the prior item to replay.
-  It also checks EventReader and event iterator cancellation before polling,
-  while pending, and after READY or lift. Ended event reads return nil.
-  Constructor lifetime checks retain the READY gate and add a post-lift gate.
-  The post-lift control requires no native cancel, one complete and free,
-  weak owner release, stopped workers, and a disconnected store before cleanup.
-- `dev/nix-shell 'just sdk callback-lifetime <swift|kotlin>'` runs 20 held callback
-  and constructor adoption cycles against fresh conformance bindings. Set
-  `SDK_CALLBACK_LIFETIME_FAMILY` to select one family. These bindings expose
-  real foreign task and callback handle counts only for conformance.
-  `dev/nix-shell 'just sdk callback-lifetime browser-transport'` runs 20 real-worker cycles
-  for completion, session close, and worker death. It proves transport behavior;
-  it does not replace a generated browser SDK proof. Install JS dependencies
-  first with `dev/nix-shell 'just install-js'`.
-- `dev/nix-shell 'just sdk check-conformance-targets'` checks Swift, Kotlin, Node, browser, mixed,
-  and default target selection with the real counter injector. It uses generated
-  bindings and a renderer fixture. It does not build Rust libraries.
 - `dev/nix-shell 'just sdk conformance-bridge'` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
   It also checks the public log setter, the real Rust queue, and final managed
@@ -101,31 +80,6 @@ Run commands from the repository root in the Nix shell. Run
   Run `dev/nix-shell 'just sdk generate'` first after SDK or runtime changes.
 - `dev/nix-shell 'just sdk conformance-bridge-unit <vitest arguments>'` runs focused bridge
   unit tests against the staged SDK.
-- `dev/nix-shell 'just sdk public-consumer'` stages the generated Swift, Kotlin, Node, and
-  browser SDKs as separate public products under `target/sdk-public/`. It then
-  compiles separate consumers in `conformance/public/`: a SwiftPM package, an
-  Android library that uses a real `Context`, and TypeScript projects that
-  install the Node and browser packages in `node_modules`. The consumers call
-  the retained public Client surface, the identity unions, received identity,
-  and Message actions on the package roots. Each Swift/Kotlin codec record has
-  isolated wrong-value probes for encode, send, and reply. Negative probes check that the
-  binding Client, its factories, the generated identity routes, the browser
-  worker session, and private package paths stay private. The Node root must
-  export exactly the public names through ESM imports. It has no CJS or
-  `require` entry point. Its engine floor is Node 22.12.
-  Run `dev/nix-shell 'just sdk generate'` first.
-- `dev/nix-shell 'just sdk codec-author types'` stages independent Node and browser codec
-  packages and checks valid calls plus six wrong-value rejections per target.
-  `dev/nix-shell 'just sdk codec-author node'` and `dev/nix-shell 'just sdk codec-author browser'` also run
-  encode/send/receive/reply checks against this worktree's backend; the browser
-  run uses Chromium and the real package worker. Both read this worktree's
-  Docker backend to check published push flags. Run SDK generation first.
-  `XMTP_SDK_GENERATED_DIR` can select a separate generated input directory.
-  For final package checks, `XMTP_SDK_PACKAGES_DIR` selects staged `node` and
-  `browser` package folders and preserves their manifests, bundled dependencies,
-  and assets.
-  The proof installs local copies under `target/sdk-codec-author/` and uses
-  only the supported ESM roots in the codec package.
 - `dev/nix-shell 'just test crate xmtp_sdk'` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

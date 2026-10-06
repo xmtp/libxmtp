@@ -519,3 +519,58 @@ async fn failed_standard_reply_parent_decode_stays_unknown() {
     }
     client.end().await?;
 }
+
+/// A receiver sees who deleted a message: the sender, or the super admin with
+/// the super admin's inbox ID.
+#[xmtp_common::test(unwrap_try = true)]
+async fn deleted_message_reports_sender_or_admin_deleter() {
+    use crate::{Conversation, DeletedBy};
+
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = alix
+        .conversations()
+        .create_group(vec![bo.inbox_id()], None)
+        .await?;
+    bo.conversations().sync().await?;
+    let Some(Conversation::Group { group: bo_group }) =
+        bo.conversations().get_by_id(group.id()).await?
+    else {
+        panic!("bo must receive the group");
+    };
+    let by_admin = bo_group.send_text("deleted by admin".into(), None).await?;
+    let by_sender = bo_group.send_text("deleted by sender".into(), None).await?;
+
+    group.sync().await?;
+    // A deletion is queued like a prepared message, so publish it.
+    group.delete_message(by_admin.clone()).await?;
+    group.publish_messages().await?;
+    bo_group.delete_message(by_sender.clone()).await?;
+    bo_group.publish_messages().await?;
+    bo_group.sync().await?;
+
+    let deleted_by = |id: MessageId| {
+        let bo = &bo;
+        async move {
+            let message = bo
+                .conversations()
+                .get_message_by_id(id)
+                .await?
+                .expect("deleted message by ID");
+            let MessageContent::DeletedMessage(deleted) = message.0.content else {
+                panic!("expected a deleted message, got {:?}", message.0.content);
+            };
+            Ok::<_, XmtpError>(deleted.deleted_by)
+        }
+    };
+    let admin = deleted_by(by_admin).await?;
+    assert!(
+        matches!(&admin, DeletedBy::Admin { inbox_id } if *inbox_id == alix.inbox_id()),
+        "{admin:?}"
+    );
+    let sender = deleted_by(by_sender).await?;
+    assert!(matches!(sender, DeletedBy::Sender), "{sender:?}");
+
+    alix.end().await?;
+    bo.end().await?;
+}
