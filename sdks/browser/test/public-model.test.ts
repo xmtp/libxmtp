@@ -1,12 +1,15 @@
 import { Client, Timestamp, type ClientEvent } from "@xmtp/browser-sdk";
 import { initPureWasm, TextCodec } from "@xmtp/browser-sdk/pure";
+import { hexToBytes } from "viem";
 import { beforeAll, expect, test, vi } from "vitest";
 
 import { backend, create } from "./helpers";
 
 beforeAll(() => initPureWasm());
 
-test("consent records keep entity types and listener values with an omitted own-message filter", async () => {
+// verifies: EVENT-007
+// verifies: EVENT-024
+test("listeners deliver consent records with an omitted own-message filter and exact local deletions", async () => {
   const client = await create();
   const peer = await create();
   const group = await client.conversations.createGroup([peer.inboxId]);
@@ -20,6 +23,13 @@ test("consent records keep entity types and listener values with an omitted own-
     { kinds: ["consent.changed"] },
     (event) => {
       changes.push(event);
+    },
+  );
+  const deletions: ClientEvent[] = [];
+  const deletionListener = await client.startListener(
+    { kinds: ["message.deleted"], references_own_messages: true },
+    (event) => {
+      deletions.push(event);
     },
   );
   try {
@@ -62,7 +72,33 @@ test("consent records keep entity types and listener values with an omitted own-
       peer.inboxId,
       client.inboxId,
     ]);
+
+    const id = await group.sendText("delete locally", { shouldPush: false });
+    expect((await client.conversations.getMessageById(id))?.senderInboxId).toBe(
+      client.inboxId,
+    );
+    expect((await group.messages()).map((message) => message.id)).toContain(id);
+    await client.conversations.deleteMessageLocally(id);
+    await vi.waitFor(() => expect(deletions).toHaveLength(1), {
+      timeout: 10_000,
+    });
+    expect(await client.conversations.getMessageById(id)).toBeUndefined();
+    expect((await group.messages()).map((message) => message.id)).not.toContain(
+      id,
+    );
+    // The reads above give a duplicate event time to arrive.
+    expect(deletions).toEqual([
+      {
+        kind: "message.deleted",
+        message_deleted: {
+          group_id: hexToBytes(`0x${group.id}`),
+          message_id: hexToBytes(`0x${id}`),
+          cause: "deleted_locally",
+        },
+      },
+    ]);
   } finally {
+    await client.stopListener(deletionListener);
     await client.stopListener(listener);
   }
 });
