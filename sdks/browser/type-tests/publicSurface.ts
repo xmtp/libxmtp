@@ -6,13 +6,18 @@ import type * as Sdk from "@xmtp/browser-sdk";
 import type {
   BackendOptions,
   Client,
+  ContentTypeId,
   Conversation,
   ConversationId,
   EncodedContent,
+  ErrorDetails,
   LogLevel,
   LogSink,
+  Message,
+  MessageBody,
   MessageContent,
   PublicIdentity,
+  Signer,
   Timestamp,
 } from "@xmtp/browser-sdk";
 import { Group } from "@xmtp/browser-sdk";
@@ -90,5 +95,29 @@ export type LogRecordShape = Assert<
       readonly timestamp: Timestamp;
       readonly droppedRecords: bigint;
     }
+  >
+>;
+
+// Public value fields keep their projected types.
+export type IdentityKind = Assert<
+  Equal<PublicIdentity["kind"], "ethereum" | "passkey">
+>;
+export type SignerResult = Assert<
+  Equal<Awaited<ReturnType<Signer["identity"]>>, PublicIdentity>
+>;
+export type ReceivedBytes = Assert<Equal<Message["rawBytes"], Uint8Array>>;
+export type ReceivedEnvelope = Assert<
+  Equal<Message["encoded"], EncodedContent | undefined>
+>;
+export type ReceivedType = Assert<
+  Equal<Message["contentType"], ContentTypeId | undefined>
+>;
+export type UnknownDetails = Assert<
+  Equal<Extract<MessageContent, { kind: "unknown" }>["error"], ErrorDetails>
+>;
+export type CustomDetails = Assert<
+  Equal<
+    Extract<MessageBody, { kind: "custom" }>["error"],
+    ErrorDetails | undefined
   >
 >;
