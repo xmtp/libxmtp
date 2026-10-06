@@ -110,7 +110,7 @@ runs:
     # images (validation service, anvil).
     - name: Setup Blacksmith Docker builder
       if: ${{ inputs.docker-builder == 'true' && runner.os == 'Linux' }}
-      uses: useblacksmith/setup-docker-builder@v1
+      uses: useblacksmith/setup-docker-builder@e4c1c000c95f9cc255f72940e9c56bcbd1239436 # v1
       with:
         # Prune cap so stale layers don't grow the disk unbounded.
         max-cache-size-mb: "10240"

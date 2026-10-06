@@ -67,7 +67,6 @@ class AndroidReleaseTest(unittest.TestCase):
     def test_build_gates_publication_and_keeps_tests(self):
         text = WORKFLOW.read_text()
         self.assertIn('docker-builder: "true"', text)
-        self.assertIn("taiki-e/install-action@just", text)
         self.assertIn("just backend up", step("Start backend"))
         self.assertLess(
             text.index("- name: Start backend"), text.index("- name: Build and test")
@@ -76,6 +75,10 @@ class AndroidReleaseTest(unittest.TestCase):
             text.index("- name: Build and test"), text.index("- name: Publish\n")
         )
         build = step("Build and test")
+        self.assertIn(
+            'JAVA_TOOL_OPTIONS: "-Djna.library.path=${{ github.workspace }}/sdks/android/.build/test-host/lib"',
+            build,
+        )
         self.assertNotIn("publishToSonatype", build)
         self.assertNotIn("-x ", build)
         self.assertNotIn("continue-on-error", text)
@@ -84,6 +87,16 @@ class AndroidReleaseTest(unittest.TestCase):
         self.assertNotIn(":library:build", publish)
         self.assertIn(
             "publishToSonatype closeAndReleaseSonatypeStagingRepository", publish
+        )
+
+    def test_release_setup_actions_are_immutable(self):
+        self.assertRegex(
+            WORKFLOW.read_text(),
+            r"uses: taiki-e/install-action@[0-9a-f]{40}(?:\s|$)",
+        )
+        self.assertRegex(
+            (ROOT / ".github/actions/setup-nix/action.yml").read_text(),
+            r"uses: useblacksmith/setup-docker-builder@[0-9a-f]{40}(?:\s|$)",
         )
 
 
