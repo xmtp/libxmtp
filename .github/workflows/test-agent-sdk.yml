@@ -1,12 +1,16 @@
 name: Test Agent SDK
 on:
   workflow_call:
+    inputs:
+      prepared-products:
+        type: boolean
+        default: false
 env:
   NIX_DEVSHELL: js-node
 jobs:
   test:
     name: Test (agent-sdk)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ inputs.prepared-products && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -18,7 +22,27 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
+      - name: Restore prepared SDK product
+        if: inputs.prepared-products
+        uses: ./.github/actions/sdk-product
+        with:
+          target: node
+          artifact-name: ci-sdk-node
+      - name: Restore prepared backend product
+        if: inputs.prepared-products
+        id: backend-product
+        uses: ./.github/actions/backend-product
+        with:
+          artifact-name: ci-backend
+      - name: Start prepared backend
+        if: inputs.prepared-products
+        run: dev/nix-shell 'just backend up-prepared'
       - name: Start backend
+        if: ${{ !inputs.prepared-products }}
         run: just backend up
       - name: Run agent-sdk tests
-        run: just js test-agent-sdk-ci
+        if: ${{ !inputs.prepared-products }}
+        run: dev/nix-shell 'just js test-agent-sdk-ci'
+      - name: Run agent-sdk tests with prepared products
+        if: inputs.prepared-products
+        run: dev/nix-shell 'just js test-agent-sdk-prepared'

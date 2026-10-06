@@ -1,17 +1,21 @@
 name: Test Node SDK
 on:
   workflow_call:
+    inputs:
+      prepared-products:
+        type: boolean
+        default: false
 env:
   NIX_DEVSHELL: js-node
 jobs:
   test:
     name: Test (node-sdk) shard ${{ matrix.shard }}
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ inputs.prepared-products && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: ${{ fromJSON(inputs.prepared-products && '[1]' || '[1, 2]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -22,18 +26,42 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
+      - name: Restore prepared SDK product
+        if: inputs.prepared-products
+        uses: ./.github/actions/sdk-product
+        with:
+          target: node
+          artifact-name: ci-sdk-node
+      - name: Restore prepared backend product
+        if: inputs.prepared-products
+        id: backend-product
+        uses: ./.github/actions/backend-product
+        with:
+          artifact-name: ci-backend
+      - name: Start prepared backend
+        if: inputs.prepared-products
+        run: dev/nix-shell 'just backend up-prepared'
       - name: Start backend
+        if: ${{ !inputs.prepared-products }}
         run: dev/nix-shell 'just backend up'
       - name: Run node-sdk tests (shard ${{ matrix.shard }}/2)
+        if: ${{ !inputs.prepared-products }}
         run: dev/nix-shell 'just js test-node-sdk-ci --shard ${{ matrix.shard }}/2 --exclude test/streamRecovery.test.ts'
+      - name: Run all node-sdk tests with prepared products
+        if: inputs.prepared-products
+        run: dev/nix-shell 'just js test-node-sdk-prepared --exclude test/streamRecovery.test.ts'
       - name: Run CLI tests (shard ${{ matrix.shard }}/2)
-        run: dev/nix-shell 'just cli test-ci --shard ${{ matrix.shard }}/2'
+        run: dev/nix-shell 'just cli test-ci --shard ${{ matrix.shard }}/${{ inputs.prepared-products && 1 || 2 }}'
   recovery:
-    name: Test (node-sdk) recovery
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    name: Test (node-sdk) recovery ${{ matrix.group }}
+    runs-on: ${{ inputs.prepared-products && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     # A normal run takes about 15 minutes. The limit leaves room for several
     # tests to reach their own production deadlines and report a failure.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(inputs.prepared-products && '["A", "B", "C"]' || '["serial"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -44,12 +72,42 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
+      - name: Restore prepared SDK product
+        if: inputs.prepared-products
+        uses: ./.github/actions/sdk-product
+        with:
+          target: node
+          artifact-name: ci-sdk-node
+      - name: Restore prepared backend product
+        if: inputs.prepared-products
+        id: backend-product
+        uses: ./.github/actions/backend-product
+        with:
+          artifact-name: ci-backend
+      - name: Start prepared backend
+        if: inputs.prepared-products
+        run: dev/nix-shell 'just backend up-prepared'
       - name: Start backend
+        if: ${{ !inputs.prepared-products }}
         run: dev/nix-shell 'just backend up'
       - name: Build backend for graceful restart
+        if: ${{ !inputs.prepared-products }}
         run: dev/nix-shell 'just backend build'
       # The budget exhaustion tests run only locally. See sdks/node/AGENTS.md.
       - name: Run public recovery matrix
         env:
           XMTP_RECOVERY_BACKEND_BINARY: ${{ github.workspace }}/result/bin/xmtp-backend
+        if: ${{ !inputs.prepared-products }}
         run: dev/nix-shell 'just js test-node-sdk-ci test/streamRecovery.test.ts'
+      - name: Run isolated recovery partition
+        if: inputs.prepared-products
+        env:
+          XMTP_RECOVERY_BACKEND_BINARY: ${{ steps.backend-product.outputs.binary-path }}
+        run: dev/nix-shell 'just js test-node-sdk-recovery-prepared ${{ matrix.group }}'
+      - name: Save recovery inventory and results
+        if: ${{ always() && inputs.prepared-products }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: recovery-${{ matrix.group }}
+          path: target/recovery-results/${{ matrix.group }}/
+          if-no-files-found: error
