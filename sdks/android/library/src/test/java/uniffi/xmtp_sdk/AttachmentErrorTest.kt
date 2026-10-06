@@ -1,5 +1,7 @@
 package uniffi.xmtp_sdk
 
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -99,9 +101,27 @@ class AttachmentErrorTest {
                                 .resolve(".staged")
                                 .resolve(remote.contentDigest)
                         Files.delete(staged)
+                        // The event reader is registered before events() returns.
+                        val events =
+                            client.events(
+                                EventFilter(
+                                    kinds =
+                                        listOf(
+                                            EventKind.ATTACHMENT_UPLOAD_STARTED,
+                                            EventKind.ATTACHMENT_UPLOAD_FAILED,
+                                        ),
+                                ),
+                            )
                         val unusable = thrown { pending.upload() }.v2
                         assertEquals(failure(AttachmentFailureCause.STAGED_UNUSABLE), unusable)
                         assertEquals(PendingAttachmentStatus.Failed(unusable), pending.status())
+                        val (started, failed) = withTimeout(10_000) { events.take(2).toList() }
+                        val startedRef = (started as ClientEvent.AttachmentUploadStarted).attachmentUploadStarted
+                        val failedRef = (failed as ClientEvent.AttachmentUploadFailed).attachmentUploadFailed
+                        assertEquals(remote.contentDigest, startedRef.contentDigest)
+                        assertEquals(startedRef.attachmentKey, failedRef.attachmentKey)
+                        assertEquals(remote.contentDigest, failedRef.contentDigest)
+                        assertEquals("staged_unusable", failedRef.cause)
 
                         // The creating client holds the plaintext, so another client downloads.
                         val downloader = create(options = options(root.resolve("downloader")))
