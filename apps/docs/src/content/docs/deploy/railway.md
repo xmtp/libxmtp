@@ -16,8 +16,9 @@ The backend receives h2c over Railway's private network. Read the
 health, shutdown, and the ingress contract.
 
 Clients must use the Railway-assigned high port, **not port 443**. Do not create
-an HTTP domain for either service. Railway staff state that the HTTP edge
-“will demux down to HTTP/1.1 thus breaking gRPC”. That edge also caps a request at
+an HTTP domain for either service. Railway staff [state that the HTTP edge forwards native gRPC as
+HTTP/1.1](https://station.railway.com/questions/my-consul-cannot-perform-a-g-rpc-health-c-317f0644),
+which breaks that transport. That edge also caps a request at
 15 minutes even while data flows, and closes it after 5 minutes with no data.
 WebSockets are exempt; gRPC streams are not. The TCP proxy has no such
 documented request limit, though Railway guarantees none either. See
@@ -63,7 +64,8 @@ In the Railway dashboard:
 
 1. Create a project with a unique name. Keep all services in one environment
    and region. Start with one replica of each application service.
-2. Add the **Postgres** template. It runs PostgreSQL 18, which meets the
+2. Add the **Postgres** template. Check its image version and select PostgreSQL
+   17 or later to meet the
    [database requirements](/deploy/overview/#database-and-migrations).
 3. Add a service named `backend` from this published image:
 
@@ -296,14 +298,14 @@ choose the port, and 443 is not available. Copy both. Do not choose
 **Generate Domain** or add an HTTP custom domain: `railway domain --port` routes
 HTTP traffic and is not a substitute.
 
-CLI 5.15.0 and later can do this without the dashboard:
+The current Railway CLI can create the proxy without the dashboard:
 
 ```sh
 railway tcp-proxy create --port 18443 --service haproxy
 ```
 
-Older CLI versions, including 4.58.0, have no `tcp-proxy` subcommand and need
-the dashboard. One TCP proxy is allowed for each service instance.
+If your CLI has no `tcp-proxy` subcommand, update it or use the dashboard.
+Check the service's current TCP proxy limit before adding another proxy.
 
 At your DNS provider, create a CNAME from your certificate domain to the
 Railway TCP proxy hostname, without the port. For Cloudflare, select **DNS only**
@@ -327,7 +329,7 @@ Do not enable Cloudflare's HTTP proxy in front of this endpoint:
   It measures the gap between reads, so traffic resets it and a busy
   subscription survives. Cloudflare's 400 s client-side and 900 s proxy idle
   limits are not configurable on any plan.
-  Only Enterprise can raise it. Activity on other HTTP/2 streams is not a
+  Only Enterprise can raise the proxy read timeout. Activity on other HTTP/2 streams is not a
   substitute for subscription data.
 
 Cloudflare Spectrum's generic TCP support requires Enterprise plus an add-on.

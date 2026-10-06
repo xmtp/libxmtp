@@ -2,7 +2,7 @@
 title: Delete messages
 ---
 
-A user can delete messages they sent in a DM or group chat. In a group chat, the super admin role can delete any message in the group.
+A user can delete messages they sent in a DM or group chat. In a group chat, a super admin can also delete another member's message. The content type must be deletable.
 
 :::tip
 Message deletion is not a security or privacy feature. It provides a best-effort way to remove messages from conversation UIs, but does not guarantee the message content is permanently erased.
@@ -10,11 +10,11 @@ Message deletion is not a security or privacy feature. It provides a best-effort
 
 ## How message deletion works
 
-When a user deletes a message, a `DeleteMessage` content type containing the target message ID is sent to the conversation. Clients receiving this message validate the deletion request and filter the deleted message from queries.
+When a user deletes a message, a `DeleteMessage` content type containing the target message ID is sent to the conversation. Clients receiving this message validate the deletion request and replace the target content in queries.
 
 When you query messages, the client automatically:
 
-- Replaces deleted messages with a placeholder that indicates whether the sender or an admin deleted it
+- Replaces deleted messages with a placeholder that indicates whether the sender or a super admin deleted it
 - Filters out the `DeleteMessage` content type from message lists
 
 The deletion mechanism does NOT remove the original message from:
@@ -29,7 +29,7 @@ The deletion mechanism does NOT remove the original message from:
 | ------------------------------------ | -------------------------------------------------- |
 | Membership changes and group updates | They are the group transcript                      |
 | Leave requests                       | They are the group transcript                      |
-| Reactions                            | They are deleted with their target                 |
+| Reactions                            | Queries hide them when their target is deleted     |
 | Read receipts                        | They have no content to remove                     |
 | Actions and intents                  | They are not user-authored content                 |
 | A deletion                           | Removing it would hide the original with no record |
@@ -37,19 +37,18 @@ The deletion mechanism does NOT remove the original message from:
 
 ## Delete a message
 
-| Platform      | Method                                                      |
-| ------------- | ----------------------------------------------------------- |
-| Swift         | `conversation.deleteMessage(messageId:)`                    |
-| Kotlin        | `conversation.deleteMessage(messageId)`                     |
-| Browser, Node | Not available. These SDKs can receive and render deletions. |
+| Platform      | Method                                      |
+| ------------- | ------------------------------------------- |
+| Browser, Node | `conversation.deleteMessage(messageId)`     |
+| Kotlin        | `conversation.deleteMessage(messageId)`     |
+| Swift         | `conversation.deleteMessage(id: messageId)` |
+
+You can also call `delete()` on a loaded message. Each form returns the ID of the deletion message.
 
 The call throws when the message is absent, the caller is not the sender or a super admin, the message is already deleted, or its type cannot be deleted.
 
-## Stream deletions
+## Observe deletions
 
-| Platform      | Method                                          | Yields          |
-| ------------- | ----------------------------------------------- | --------------- |
-| Browser, Node | `client.conversations.streamDeletedMessages()`  | Deleted message |
-| Kotlin, Swift | `client.conversations.streamMessageDeletions()` | Deleted message |
+Use the [client event stream](/sdk/events/) and select the `message.deleted` event kind. The event contains the conversation ID, target message ID, and deletion cause. Read the affected message again to update the UI. Events carry IDs and state values, not message content.
 
-The deprecated Browser and Node `streamMessageDeletions()` method yields only the message ID.
+The cause distinguishes a conversation deletion from a local deletion. `message.expired` is a separate event for disappearing-message cleanup. The SDKs do not have `streamDeletedMessages` or `streamMessageDeletions` methods.

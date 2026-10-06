@@ -4,16 +4,16 @@ title: Sync
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-Syncing pulls new envelopes into the local database. Every read API reads the local database, so a sync makes new data visible to `list`, `messages`, and `countMessages`.
+Syncing pulls new envelopes into the local database. Conversation lists, message lists, and message counts read the local database. Sync makes new data visible to these queries.
 
-| Call                                   | Pulls                                            |
-| -------------------------------------- | ------------------------------------------------ |
-| `conversation.sync()`                  | Messages and group updates for one conversation  |
-| `conversations.sync()`                 | Conversations you have been added to             |
-| `conversations.syncAll(consentStates)` | Welcomes, changed conversations, and preferences |
-| `preferences.sync()`                   | Welcomes, consent records, and HMAC keys         |
+| Call                                   | Pulls                                                    |
+| -------------------------------------- | -------------------------------------------------------- |
+| `conversation.sync()`                  | Messages and group updates for one conversation          |
+| `conversations.sync()`                 | Conversations you have been added to                     |
+| `conversations.syncAll(consentStates)` | Welcomes, selected conversations, and device-sync groups |
+| `preferences.sync()`                   | Welcomes and conversations, including device-sync groups |
 
-Kotlin and Swift name `syncAll` as `syncAllConversations`.
+All four SDKs use `conversations.syncAll`. Kotlin and Swift access the collection through `client.conversations()`.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -31,33 +31,37 @@ Kotlin and Swift name `syncAll` as `syncAllConversations`.
 </TabItem><TabItem label="Kotlin">
 
 ```kotlin
+val consentStates = listOf(ConsentState.ALLOWED)
 val summary = client.conversations().syncAll(consentStates)
 ```
 
 </TabItem><TabItem label="Swift">
 
 ```swift
+let consentStates: [ConsentState] = [.allowed]
 let summary = try await client.conversations().syncAll(consentStates: consentStates)
 ```
 
 </TabItem>
 </Tabs>
 
-`syncAll` first processes welcomes. It then compares each local conversation cursor with the newest backend envelope and skips conversations with no new data. A membership change counts as new data. A conversation with no cursor is always included.
+`syncAll` fixes the initial conversation set before network work starts. It processes pending outgoing work, then fetches and processes envelopes through fixed targets. Welcomes within the captured target can add conversations to this call. Later publications do not expand its target. Restored inactive conversations from an archive are excluded.
 
-| Summary field | Meaning                                            |
-| ------------- | -------------------------------------------------- |
-| `numEligible` | Conversations that match the consent filter        |
-| `numSynced`   | Eligible conversations that were behind and active |
+| Summary field | Meaning                                                                     |
+| ------------- | --------------------------------------------------------------------------- |
+| `eligible`    | Conversations enrolled in this sync, including discoveries from welcomes    |
+| `synced`      | Enrolled conversations that remain active after the required work completes |
 
-An inactive conversation is eligible but is not synced. Therefore, `numSynced` can be less than `numEligible` without a failure.
+The counts can include device-sync groups and underlying groups of a stitched DM. An unchanged active conversation can count as synced. If sync cannot complete its required work, it throws an error instead of returning a successful summary.
 
-We recommend syncing messages for allowed conversations only. This ensures that spammy conversations with a consent state of unknown don't take up networking resources. This also ensures that unwanted spam messages aren't stored in the user's local database.
+Use an allowed-only consent filter to limit which conversations this call syncs. The filter does not remove messages already stored by another sync call or a background task.
 
 ## Device sync
 
-Device sync keeps a user's installations agreed on consent records and HMAC root keys. Messages do not move between installations. Use an [archive](/sdk/backups/) to move message history.
+Device sync shares consent records and HMAC root keys between a user's installations. It does not transfer message history. Use an [archive](/sdk/backups/) to move message history.
 
-An update from one installation is applied by the others when they next call `preferences.sync()` or `syncAll()`.
+The device-sync worker processes updates received in sync groups. `preferences.sync()` and `syncAll()` fetch those groups; the worker also runs in the background while enabled.
 
-Device sync is on by default. Set `disableDeviceSync: true` on Browser and Node, or `deviceSyncEnabled: false` on Kotlin and Swift, to turn it off.
+Device sync is on by default. Set `deviceSync: false` in `ClientOptions` to turn it off on any SDK.
+
+Use [client events](/sdk/events/) to update app state after local changes. Events do not replace durable message readers.

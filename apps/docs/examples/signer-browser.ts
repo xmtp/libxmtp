@@ -1,4 +1,4 @@
-import type { Signer } from "@xmtp/browser-sdk";
+import { generateLocalSigner, type Signer } from "@xmtp/browser-sdk";
 
 export function createSigner(
   address: string,
@@ -14,5 +14,12 @@ export function createSigner(
     }),
   };
   // #endregion signer
+  return signer;
+}
+
+export async function createLocalSigner() {
+  // #region local
+  const signer = await generateLocalSigner();
+  // #endregion local
   return signer;
 }

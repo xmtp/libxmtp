@@ -84,10 +84,12 @@ the database before deployment. Startup never deletes an existing database.
 
 ### Connection budget
 
-Without a replica, each instance needs up to `max_connections + 1` connections:
-its request pool plus one for the tailer. The default is 21. With a replica,
-budget 20 on the primary and 21 on the replica per instance at the default
-settings. Add capacity for migrations and administrative connections.
+Without a replica, each instance uses up to `max_connections` pooled connections
+and one dedicated tailer connection. With the default settings, that is 21.
+With a replica, budget 20 pooled connections on the primary and 21 on the replica
+at the defaults. When push delivery is enabled, its dispatcher also holds one
+dedicated primary connection. Add that connection to the primary budget, plus
+capacity for migrations and administrative connections.
 
 ### Read replica
 
@@ -150,9 +152,9 @@ limits on your load balancer.
 
 - Forward `access-control-request-headers` unmodified. The backend mirrors the
   preflight request, so this header is input. A terminator that strips or
-  rewrites it breaks browser clients. The backend allows `authorization`,
+  rewrites it breaks browser clients. The backend mirrors the requested header list, including `authorization`,
   `content-type`, `x-app-version`, `x-libxmtp-version`, `traceparent`, and
-  `tracestate`.
+  `tracestate` when the client requests them.
 - Forward response frames as the backend emits them. A subscription must receive
   its Started frame and later messages while the same response stays open.
 - Preserve `grpc-status`, `grpc-message`, and `grpc-status-details-bin` trailers,

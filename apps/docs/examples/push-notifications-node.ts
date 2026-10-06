@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import type { Client, Conversation, NotificationChannel } from "@xmtp/node-sdk";
 
 export async function configureNotifications(
@@ -14,7 +16,7 @@ export async function configureNotifications(
       ? conversationState.common.notificationsEnabled
       : conversationState.notificationsEnabled;
   await conversation.setNotifications("default");
-  const state = await client.notificationState();
+  const state = client.notificationState();
   if (state.kind === "failed") {
     console.error(state.error);
   }
@@ -23,8 +25,9 @@ export async function configureNotifications(
   return enabled;
 }
 
-export function webhookChannel(url: string, signingKey: Uint8Array) {
+export function webhookChannel(url: string) {
   // #region webhook
+  const signingKey = randomBytes(32);
   const channel: NotificationChannel = { kind: "http", url, signingKey };
   // #endregion webhook
   return channel;
@@ -36,10 +39,16 @@ export async function receivePushHint(
 ) {
   // #region receive
   const topic = Buffer.from(hint.topic, "base64");
+  if (topic.toString("base64") !== hint.topic) {
+    throw new Error("Invalid push topic encoding");
+  }
   if (!/^[0-9]+$/.test(hint.sequence_id)) {
     throw new Error("Invalid push sequence");
   }
   const sequenceId = BigInt(hint.sequence_id);
+  if (sequenceId === 0n || sequenceId > 18446744073709551615n) {
+    throw new Error("Invalid push sequence");
+  }
   const isGroup = topic[0] === 0 && topic.length === 17;
   const isWelcome = topic[0] === 1 && topic.length === 33;
   if (!isGroup && !isWelcome) throw new Error("Invalid push topic");

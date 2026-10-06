@@ -2,11 +2,11 @@
 title: Stream group updates with XMTP
 ---
 
-Stream group metadata changes (name, description, members) in real-time using the `group_updated` native content type.
+Receive group metadata and membership changes through the `group_updated` content type.
 
 ## Structure
 
-Type ID: `xmtp.org/group_updated:1.0`. The payload is a `GroupUpdated` protobuf. It has no fallback text. The codec sets `shouldPush` to `false`, but the locally stored transcript message has `shouldPush: true` on all four platforms. The message is not published, so it never reaches a push server.
+Type ID: `xmtp.org/group_updated:1.0`. The payload is a `GroupUpdated` protobuf. It has no fallback text. The codec sets `shouldPush` to `false`. Core stores the local transcript with its internal push flag set to `true`. This transcript is not published, so it does not trigger a push notification.
 
 | Field                      | Meaning                               |
 | -------------------------- | ------------------------------------- |
@@ -22,11 +22,7 @@ Type ID: `xmtp.org/group_updated:1.0`. The payload is a `GroupUpdated` protobuf.
 
 One message can contain several changes. `metadataFieldChanges` can identify the group name, description, group image URL, disappearing-message settings, minimum protocol version, app data, or commit-log signer.
 
-`Inbox`
-
-| Field     | Type   |
-| --------- | ------ |
-| `inboxId` | string |
+The public SDK record uses arrays of `InboxId` values for each inbox list. The wire protobuf uses `Inbox` records, each with an `inboxId` string.
 
 `MetadataFieldChange`
 

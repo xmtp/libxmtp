@@ -1,4 +1,9 @@
-import { Client, type PublicIdentity, type Signer } from "@xmtp/browser-sdk";
+import {
+  Storage,
+  Client,
+  type PublicIdentity,
+  type Signer,
+} from "@xmtp/browser-sdk";
 
 export async function createAuthenticatedClient(
   signer: Signer,
@@ -41,10 +46,17 @@ export async function buildClient(
   return client;
 }
 
-export async function closeClient(client: Client) {
+export async function deleteClient(client: Client) {
   // #region delete
-  // End this client and release its worker lease.
-  // Use Storage.admin() to manage closed OPFS database files.
+  const path = await client.storage.path();
   await client.end();
+  if (path !== undefined) {
+    const admin = await Storage.admin();
+    try {
+      await admin.deleteFile(path);
+    } finally {
+      await admin.end();
+    }
+  }
   // #endregion delete
 }

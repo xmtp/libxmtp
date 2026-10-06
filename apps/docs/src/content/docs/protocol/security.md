@@ -25,7 +25,7 @@ This video provides a walkthrough of XMTP's implementation of MLS.
   allowfullscreen
 ></iframe>
 
-To dive deeper into how XMTP implements MLS, see the [XMTP MLS protocol specification](https://github.com/xmtp/libxmtp/tree/main/crates/xmtp_mls).
+To dive deeper into how XMTP implements MLS, see the [XMTP MLS source](https://github.com/xmtp/libxmtp/tree/self-hosted/crates/xmtp_mls).
 
 ## Security properties
 
@@ -43,15 +43,15 @@ MLS achieves this by using the ratcheting mechanism, where the keys used to encr
 
 ### Post-compromise security
 
-Ensures that future messages remain secure even if current encryption keys are compromised.
+Restores protection for future messages after a suitable key update removes the attacker's access.
 
-XMTP uses regular key rotation achieved through a commit mechanism with a specific update path in MLS, meaning a new group secret is encrypted to all other members. This essentially resets the key and an attacker with the old state can't derive the new secret, as long as the private key from the leaf node in the ratchet tree construction hasn't been compromised.
+XMTP uses regular key rotation achieved through a commit mechanism with a specific update path in MLS, meaning a new group secret is encrypted to all other members. This essentially resets the key and an attacker with the old state can't derive the new secret, after the compromised state is no longer available to the attacker and an honest member contributes fresh key material.
 
 ### Message authentication
 
 Validates the identity of the participants in the conversation, preventing impersonation.
 
-XMTP uses digital signatures to strongly guarantee message authenticity. These signatures ensure that each message is cryptographically signed by the sender, verifying the sender's identity without revealing it to unauthorized parties. This prevents attackers from impersonating conversation participants.
+Clients validate MLS signatures to authenticate messages. These signatures ensure that each message is cryptographically signed by the sender, verifying the sender's identity for group members. This prevents attackers from impersonating conversation participants.
 
 ### Message integrity
 
@@ -71,7 +71,7 @@ To learn more about how XMTP achieves quantum resistance, see [XMTP and the Futu
 
 ### User anonymity
 
-Ensures that outsiders can't deduce the participants of a group, users who have interacted with each other, or the sender or recipient of individual messages.
+Hides participant data inside encrypted protocol messages. It does not hide all traffic metadata or access patterns.
 
 User anonymity is achieved through a combination of the following functions:
 
@@ -81,7 +81,7 @@ User anonymity is achieved through a combination of the following functions:
 
 - XMTP uses MLS [PrivateMessage](https://www.rfc-editor.org/rfc/rfc9420.html#name-confidentiality-of-sender-d) framing to hide the sender and content of group messages.
 
-- The backend treats envelope payloads as opaque bytes. It does not verify MLS group membership or MLS signatures. Clients must perform these checks. Only legitimate members possess the correct encryption keys for a given group.
+- The backend parses envelope structure and validates identity updates and key packages. It does not verify MLS group membership or MLS signatures on group messages. Clients must perform these checks. Only legitimate members possess the correct encryption keys for a given group.
 
 It's technically possible for backend operators to analyze query patterns per IP address. However, clients may choose to obfuscate this information using proxying/onion routing.
 
@@ -93,27 +93,27 @@ The backend operator can observe topic identifiers, request timing, request size
 
 ## Cryptographic tools in use
 
-XMTP messaging uses the ciphersuite _MLS_128_HPKEX25519_CHACHA20POLY1305_SHA256_Ed25519_.
+XMTP messaging uses the ciphersuite _MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519_.
 
 Here is a summary of individual cryptographic tools used to collectively ensure that XMTP messaging is secure, authenticated, and tamper-proof:
 
 - [HPKE](https://www.rfc-editor.org/rfc/rfc9180.html)
 
-  Used to encrypt Welcome messages, protect the identities of group invitees, and maintain the confidentiality of group membership. We use the ciphersuite HPKEX25519.
+  Used to encrypt Welcome messages, protect the identities of group invitees, and maintain the confidentiality of group membership. MLS uses DHKEMX25519. The outer Welcome wrapper uses XWING draft 06 with ML-KEM-768.
 
 - [AEAD](https://developers.google.com/tink/aead)
 
   Used to ensure both confidentiality and integrity of messages. In particular, we use the ciphersuite CHACHA20POLY1305.
 
-- [SHA3_256 and SHA2_256](http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf)
+- [SHA-256](https://csrc.nist.gov/pubs/fips/180-4/upd1/final)
 
-  XMTP uses two cryptographic hash functions to ensure data integrity and provide strong cryptographic binding. SHA3_256 is used in the multi-wallet identity structure. SHA2_256 is used in MLS. The ciphersuite is SHA256.
+  XMTP uses SHA-256 for inbox ID derivation, MLS, and backend envelope hashes. Ethereum address and signature operations also use Keccak-256. Keccak-256 and SHA3-256 are different algorithms.
 
 - [Ed25519](https://ed25519.cr.yp.to/ed25519-20110926.pdf)
 
   Used for digital signatures to provide secure, high-performance signing and verification of messages. The ciphersuite is Ed25519.
 
-- [XWING KEM](https://www.ietf.org/archive/id/draft-connolly-cfrg-xwing-kem-02.html)
+- [XWING KEM](https://www.ietf.org/archive/id/draft-connolly-cfrg-xwing-kem-06.html)
 
   Used for quantum-resistant key encapsulation in Welcome messages. XWING is a hybrid post-quantum KEM that combines conventional cryptography with [ML-KEM](https://csrc.nist.gov/pubs/fips/203/final) (the NIST-standardized post-quantum component), providing protection against future quantum computer attacks while maintaining current security standards.
 
@@ -125,7 +125,7 @@ Here is a summary of individual cryptographic tools used to collectively ensure 
 
 2. **How does XMTP's encryption compare to Signal or WhatsApp?**
 
-   XMTP provides the same security properties (forward secrecy and post-compromise security) as Signal and WhatsApp, using the newer, more efficient MLS protocol.
+   XMTP uses MLS for forward secrecy and post-compromise security. Its group protocol and identity model differ from those of Signal and WhatsApp. This is not a security audit or a direct comparison of their implementations.
 
 3. **Can others see who users are messaging with?**
 
@@ -145,4 +145,4 @@ Here is a summary of individual cryptographic tools used to collectively ensure 
 
 7. **How does encryption work across different XMTP apps?**
 
-   All XMTP apps use the same MLS protocol, ensuring consistent encryption across the ecosystem regardless of which app users choose.
+   Apps use the SDK's MLS protocol. They must use compatible protocol versions and the same backend deployment to exchange messages. An app also controls local key and database protection.

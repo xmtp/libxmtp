@@ -9,4 +9,6 @@ agent.on("text", async (ctx) => {
 agent.on("unhandledError", (error) => {
   console.error(error);
 });
+
+await agent.start();
 // #endregion example1

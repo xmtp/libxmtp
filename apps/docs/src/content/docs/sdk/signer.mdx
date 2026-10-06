@@ -4,21 +4,60 @@ title: Signer
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-To connect to XMTP, your app needs a **signer**, an object that identifies a user and can sign messages on their behalf. Under the hood, XMTP uses [ECDSA](https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm) signatures on the **secp256k1** curve.
+To connect to XMTP, your app needs a **signer**, an object that identifies a user and can sign messages on their behalf. Ethereum EOA signatures use [ECDSA](https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm) on the **secp256k1** curve. The SDK also supports smart contract wallet verification and P-256 passkey signatures.
 
-There are three ways to create a signer:
+There are four ways to create a signer:
 
 - **Key pair**: Generate or provide a secp256k1 private key directly. No wallet or blockchain needed.
 - **Externally Owned Account (EOA)**: Use an Ethereum wallet.
 - **Smart Contract Wallet (SCW)**: Use an [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271) compatible smart contract wallet.
+- **Passkey**: Use a P-256 key and the passkey signature fields.
 
-All three produce the same signer interface, so the rest of your XMTP integration is identical regardless of which you choose.
+All four use the same signer interface, so the rest of your XMTP integration is identical regardless of which you choose.
 
 ## Create a signer from a key pair
 
-Generate a secp256k1 key pair and sign messages directly.
+Use `generateLocalSigner()` to generate a secp256k1 private key. It returns a
+signer that derives the Ethereum address and signs ERC-191 text. To reuse a stored
+32-byte private key, use `localSignerFromPrivateKey` instead. Store that key
+securely if the identity must survive an app restart.
 
-Install [@noble/curves](https://github.com/paulmillr/noble-curves) and [@noble/hashes](https://github.com/paulmillr/noble-hashes):
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="signer-browser.ts" region="local"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="signer-node.ts" region="local"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val signer = generateLocalSigner()
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let signer = await generateLocalSigner()
+```
+
+</TabItem>
+</Tabs>
+
+## Use an external signer
+
+Connect your wallet or key provider to the signer interface. These EOA examples
+call an app function that signs `SigningRequest.text` as ERC-191 text and returns
+raw recoverable ECDSA signature bytes.
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -78,19 +117,23 @@ Name signer objects for their account or provider. Do not call a signer a wallet
 
 ## The signer interface
 
-| Part          | Browser, Node                      | Kotlin                      | Swift                         |
-| ------------- | ---------------------------------- | --------------------------- | ----------------------------- |
-| Type          | `type: "EOA" \| "SCW"`             | `val type: SignerType`      | `var type: SignerType`        |
-| Identifier    | `getIdentifier()`                  | `publicIdentity`            | `identity`                    |
-| Sign          | `signMessage(message): Uint8Array` | `sign(message): SignedData` | `sign(_ message): SignedData` |
-| Chain ID, SCW | `getChainId(): bigint`             | `chainId: Long?`            | `chainId: Int64?`             |
-| Block number  | `getBlockNumber?(): bigint`        | `blockNumber: Long?`        | `blockNumber: Int64?`         |
+| Part     | Browser, Node                         | Kotlin, Swift                         |
+| -------- | ------------------------------------- | ------------------------------------- |
+| Identity | `identity(): Promise<PublicIdentity>` | `identity()` returns `PublicIdentity` |
+| Kind     | `kind(): Promise<SignerKind>`         | `kind()` returns `SignerKind`         |
+| Sign     | `sign(request): Promise<Signature>`   | `sign(request)` returns `Signature`   |
 
-An EOA has no chain ID. Do not use `0` as a sentinel. Kotlin and Swift allow a null chain ID, but an SCW signer with no chain ID fails when it signs.
+All three methods are async. `PublicIdentity` has `identifier` and `kind`.
+Ethereum identities use the `ethereum` kind and an Ethereum address. Passkey
+identities use the `passkey` kind and a public key encoded as hex.
+
+`SignerKind` selects EOA, SCW, or passkey. An SCW kind carries a required chain ID
+and an optional block number. JavaScript uses `bigint`; Kotlin uses `ULong`;
+Swift uses `UInt64`. The EOA kind carries neither field.
 
 ### Return bytes
 
-Return raw signature bytes, not a hex string. Convert the value returned by a wallet library when needed.
+Return the matching `Signature` variant with raw bytes. An EOA returns `ecdsa` with 65-byte `[R || S || V]` data. Convert a wallet library's hex result to bytes when needed. An SCW returns its bytes, address, chain ID, and optional block number. A passkey returns its signature, public key, authenticator data, and client data JSON.
 
 ### Apply the ERC-191 prefix once
 
@@ -98,14 +141,14 @@ Most Ethereum wallet providers add the ERC-191 prefix and hash the message. If y
 
 ## Create a signer from a SCW
 
-An SCW signer uses the same interface and adds its chain ID. If verification needs historical state, it can also return a block number. The backend operator must configure the RPC endpoint for that chain.
+An SCW signer uses the same interface. Its `SignerKind` and `Signature` carry the same chain ID. The signature can include a block number for historical verification. The backend operator must configure the RPC endpoint for that chain.
 
 To add a different identity kind, see [Extend the identity model](/sdk/extend-identity-model/).
 
 ## Common errors
 
-| Error                              | Cause                                                                 |
-| ---------------------------------- | --------------------------------------------------------------------- |
-| `AssociationError.ChainIdMismatch` | The supplied chain ID does not match the registered identity          |
-| `NotFound.InboxIdForAddress`       | The identifier is not registered on this backend                      |
-| `SignatureError.Invalid`           | The bytes, prefix, signer type, or SCW verification result is invalid |
+| Error                          | Cause                                                                                               |
+| ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `InvalidInput`                 | The signature variant or SCW chain ID does not match the signer kind, or signature validation fails |
+| `Signer` (code `SignerFailed`) | An identity, kind, or sign callback failed                                                          |
+| `ChainNotAccepted`             | The backend configuration does not accept the SCW chain                                             |

@@ -295,8 +295,8 @@ required `ssl_policy`.
 The container probe uses EXEC form because the image has no shell.
 `nix/musl-docker.nix` includes the cross-compiled `grpc-health-probe` package in
 both image variants, which exposes `/bin/grpc-health-probe`. The NLB check is
-only a TCP connect. An HTTP check would send HTTP/1.1 to the h2c port and fail;
-NLB target groups have no gRPC matcher. Do not add `path` or `matcher` to this
+only a TCP connect. The backend has no HTTP health endpoint, so use the
+container gRPC probe for application health. NLB target groups have no gRPC matcher. Do not add `path` or `matcher` to this
 TCP check.
 
 The NLB TLS listener has a fixed 350 s idle timeout. It cannot be configured.

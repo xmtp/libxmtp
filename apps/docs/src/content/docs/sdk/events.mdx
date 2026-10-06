@@ -1,0 +1,390 @@
+---
+title: Events
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Client events report changes to a client's state. Use them to update a screen,
+clear a cache, or show message status. An event usually carries IDs and a small
+payload. Read the current conversation or message again when you need its full
+state.
+
+Events are live and are not stored for replay. A listener starts before the setup
+call returns. It receives changes emitted after registration. Start the listener
+before you read the initial state, then merge later updates into that state.
+
+An event listener does not start network activity. Message processing, an explicit
+sync, app operations, or background workers must make the changes it reports.
+For message processing that must survive a restart, use
+[message streams](/sdk/stream/#stream-all-messages).
+
+## Set up a listener
+
+All SDKs provide `startListener(filter, callback)` and `stopListener(id)`.
+Browser and Node return a `bigint` listener ID. Kotlin and Swift return a
+`ListenerId`. Keep this ID, or the stop function returned by the JavaScript
+examples, for as long as the screen or service needs the listener.
+
+The following examples handle received messages, outgoing message status, consent,
+and conversation changes. Their app callbacks receive the typed payload. The
+`refreshAll` callback reads the current state again after event loss. Add your app's
+UI or cache updates in these callbacks. For Swift, update UI state through the
+main actor. For Android, use the app's UI coroutine scope.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="events-browser.ts" region="listener"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="events-node.ts" region="listener"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+import uniffi.xmtp_sdk.*
+
+suspend fun startUiListener(
+    client: SDKClient,
+    onMessage: suspend (MessageReceived) -> Unit,
+    onStatus: suspend (MessageStatusChanged) -> Unit,
+    onConsent: suspend (ConsentChanged) -> Unit,
+    refreshConversation: suspend (ByteArray) -> Unit,
+    refreshAll: suspend (ULong) -> Unit,
+): ListenerId = client.startListener(EventFilter(
+    kinds = listOf(
+        EventKind.MESSAGE_RECEIVED,
+        EventKind.MESSAGE_STATUS_CHANGED,
+        EventKind.CONSENT_CHANGED,
+        EventKind.CONVERSATION_JOINED,
+        EventKind.CONVERSATION_REMOVED,
+        EventKind.CONVERSATION_MEMBERSHIP_CHANGED,
+        EventKind.CONVERSATION_METADATA_CHANGED,
+    ),
+)) { event ->
+    when (event) {
+        is ClientEvent.MessageReceived -> onMessage(event.messageReceived)
+        is ClientEvent.MessageStatusChanged -> onStatus(event.messageStatusChanged)
+        is ClientEvent.ConsentChanged -> onConsent(event.consentChanged)
+        is ClientEvent.ConversationJoined -> refreshConversation(event.conversationJoined.groupId)
+        is ClientEvent.ConversationRemoved -> refreshConversation(event.conversationRemoved.groupId)
+        is ClientEvent.ConversationMembershipChanged -> refreshConversation(event.membershipChanged.groupId)
+        is ClientEvent.ConversationMetadataChanged -> refreshConversation(event.metadataChanged.groupId)
+        is ClientEvent.Lagged -> refreshAll(event.lagged.discarded)
+        else -> Unit
+    }
+}
+```
+
+Stop the listener when its owner ends:
+
+```kotlin
+import uniffi.xmtp_sdk.*
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+
+suspend fun stopUiListener(client: SDKClient, id: ListenerId) {
+    withContext(NonCancellable) { client.stopListener(id) }
+}
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+import Foundation
+import XmtpSdk
+
+func startUiListener(
+    client: SDKClient,
+    onMessage: @escaping @Sendable (MessageReceived) async throws -> Void,
+    onStatus: @escaping @Sendable (MessageStatusChanged) async throws -> Void,
+    onConsent: @escaping @Sendable (ConsentChanged) async throws -> Void,
+    refreshConversation: @escaping @Sendable (Data) async throws -> Void,
+    refreshAll: @escaping @Sendable (UInt64) async throws -> Void
+) async throws -> ListenerId {
+    let filter = EventFilter(kinds: [
+        .messageReceived, .messageStatusChanged, .consentChanged,
+        .conversationJoined, .conversationRemoved,
+        .conversationMembershipChanged, .conversationMetadataChanged,
+    ])
+    return try await client.startListener(filter) { event in
+        switch event {
+        case let .messageReceived(change): try await onMessage(change)
+        case let .messageStatusChanged(change): try await onStatus(change)
+        case let .consentChanged(change): try await onConsent(change)
+        case let .conversationJoined(change): try await refreshConversation(change.groupId)
+        case let .conversationRemoved(change): try await refreshConversation(change.groupId)
+        case let .conversationMembershipChanged(change): try await refreshConversation(change.groupId)
+        case let .conversationMetadataChanged(change): try await refreshConversation(change.groupId)
+        case let .lagged(change): try await refreshAll(change.discarded)
+        default: break
+        }
+    }
+}
+
+func stopUiListener(client: SDKClient, id: ListenerId) async {
+    await client.stopListener(id)
+}
+```
+
+</TabItem>
+<TabItem label="Agent">
+
+An Agent exposes the Node client as `agent.client`. It has the same client event
+API and payloads as Node. Register the listener on `agent.client`.
+
+```ts source="events-agent.ts" region="listener"
+
+```
+
+</TabItem>
+</Tabs>
+
+Call the returned JavaScript stop function with `await stop()`. Stopping an unknown
+or stopped listener does nothing. `client.end()` also ends every event subscription
+of that client. On Agent, stop client event listeners separately; `agent.stop()`
+stops the Agent's message and conversation streams, and leaves its client open.
+
+## Handle event payloads
+
+On Browser, Node, and Agent, switch on `event.kind`. Payload names and fields use
+snake case. For example, `event.message_status_changed.current` is `"unpublished"`,
+`"published"`, or `"failed"`. This status reports publication by this installation.
+It is not a read receipt.
+
+On Kotlin, narrow the `ClientEvent` variant and read its record, such as
+`event.messageStatusChanged`. On Swift, match the enum case and its associated
+record. Native record fields use camel case. `EventMessageStatus` uses
+`UNPUBLISHED`, `PUBLISHED`, and `FAILED` on Kotlin, and `.unpublished`, `.published`,
+and `.failed` on Swift.
+
+Group and message IDs in event payloads are bytes: `Uint8Array` in JavaScript,
+`ByteArray` in Kotlin, and `Data` in Swift. Conversation and message lookup methods
+use hex IDs. For JavaScript, this helper converts a group ID and reads its state:
+
+This helper works in both Browser and Node:
+
+```ts source="events-browser.ts" region="refresh"
+
+```
+
+`message.received` carries message and sender IDs, not decoded content. Use message
+lookup to read the content. `conversation.metadata_changed.changed` names the
+changed fields or components. Read `conversation.state()` for the current values.
+That state can already contain later changes by the time the handler reads it.
+
+Consent filters do not apply to events. A denied conversation can still produce
+events. Check [consent](/sdk/consent/) before showing a notification or a
+conversation. Device sync conversations are hidden from client events.
+
+## Available events
+
+The table gives each JavaScript kind, its payload member, and its main values.
+The same kinds and payload records are available through the native enums. For
+example, `message.status_changed` is `EventKind.MESSAGE_STATUS_CHANGED` on Kotlin
+and `.messageStatusChanged` on Swift. Kotlin variants use names such as
+`ClientEvent.MessageStatusChanged`; Swift cases use `.messageStatusChanged`.
+
+| Kind                                | JavaScript payload member       | Change and payload                                                                                                                                                              |
+| ----------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversation.joined`               | `conversation_joined`           | Conversation created, joined, replaced, or activated after restoration. `group_id`, `conversation_type`, `origin`, optional `adder_inbox_id`.                                   |
+| `conversation.removed`              | `conversation_removed`          | This installation removed from a group. `group_id`, `cause` (`removed` or `left`).                                                                                              |
+| `conversation.membership_changed`   | `membership_changed`            | Inbox members added or removed. `group_id`, `added_inbox_ids`, `removed_inbox_ids`.                                                                                             |
+| `conversation.metadata_changed`     | `metadata_changed`              | Metadata, admins, or permissions changed. `group_id`, `changed`.                                                                                                                |
+| `conversation.paused`               | `conversation_paused`           | Conversation paused for a protocol version. `group_id`, `floor`.                                                                                                                |
+| `message.received`                  | `message_received`              | Message stored from another installation. `group_id`, `message_id`, optional `content_type`, `sender_inbox_id`.                                                                 |
+| `message.status_changed`            | `message_status_changed`        | Sent message status changed. `group_id`, `message_id`, `previous`, `current`.                                                                                                   |
+| `message.deleted`                   | `message_deleted`               | Message deleted. `group_id`, `message_id`, `cause` (`deleted` or `deleted_locally`).                                                                                            |
+| `message.expired`                   | `message_expired`               | Cleanup deleted an expired message. `group_id`, `message_id`. This can occur after its expiry time.                                                                             |
+| `consent.changed`                   | `consent_changed`               | Stored consent state changed. `entity_kind`, `entity`, `state`.                                                                                                                 |
+| `hmac_keys.updated`                 | `hmac_keys_updated`             | HMAC root key changed or the open client observed an HMAC epoch increase. Empty payload; read current HMAC keys again.                                                          |
+| `identity.registered`               | `identity_registered`           | This installation completed registration. `inbox_id`, `installation_key`.                                                                                                       |
+| `identity.own_installation_added`   | `own_installation_added`        | An installation added to the own inbox. `installation_key`.                                                                                                                     |
+| `identity.own_installation_revoked` | `own_installation_revoked`      | An installation revoked from the own inbox. `installation_key`, `is_this_installation`.                                                                                         |
+| `client.rejected_by_server`         | `rejected_by_server`            | Backend mismatch or client version too old. `cause`, optional `min_libxmtp_version`.                                                                                            |
+| `client.lockout_changed`            | `lockout_changed`               | Credential lockout entered or left. `change`.                                                                                                                                   |
+| `conversation.fork_detected`        | `conversation_fork_detected`    | Conversation became forked. `group_id`.                                                                                                                                         |
+| `notifications.failed`              | `notifications_failed`          | Notification state failed. `cause`. Browser has no notification subscription API.                                                                                               |
+| `archive.restored`                  | `archive_restored`              | Archive import ended after storing data. `complete` is false if import failed. Individual imported conversations, messages, and consent records do not emit their usual events. |
+| `connection.state_changed`          | `connection_state_changed`      | Aggregate connection state of app streams changed. `previous`, `current`. States are `connecting`, `connected`, `reconnecting`, `failed`, or `closed`.                          |
+| `attachment.upload_started`         | `attachment_upload_started`     | Pending upload started. `attachment_key`, `url`, `content_digest`.                                                                                                              |
+| `attachment.upload_completed`       | `attachment_upload_completed`   | Upload completed. `attachment_key`, `url`, `content_digest`.                                                                                                                    |
+| `attachment.upload_failed`          | `attachment_upload_failed`      | Upload failed. `attachment_key`, `url`, `content_digest`, `cause`.                                                                                                              |
+| `attachment.download_started`       | `attachment_download_started`   | Download started. `attachment_key`, `url`, `content_digest`.                                                                                                                    |
+| `attachment.download_completed`     | `attachment_download_completed` | Download produced a readable plaintext file. `attachment_key`, `url`, `content_digest`.                                                                                         |
+| `attachment.download_failed`        | `attachment_download_failed`    | Started download failed. `attachment_key`, `url`, `content_digest`, `cause`.                                                                                                    |
+| `attachment.deleted`                | `attachment_deleted`            | Local attachment data deleted. `attachment_key`, `url`, `content_digest`.                                                                                                       |
+| `lagged`                            | `lagged`                        | This subscription discarded events. `discarded` is a `bigint` in JavaScript, `ULong` in Kotlin, and `UInt64` in Swift.                                                          |
+
+`conversation_type` is `group` or `dm`. Join `origin` is `created` or `welcomed`;
+`adder_inbox_id` is present for a Welcome. Consent `entity_kind` is `conversation`
+or `inbox`, and `entity` is its hex ID. The content type filter and received-message
+payload use `authority_id`, `type_id`, and `version_major`.
+
+Connection state covers app streams with network interest. Internal background
+receivers do not count. The state can be `closed` while background work still uses
+the network. Server rejection keeps event subscriptions open so they can report
+the rejection.
+
+## Select events with filters
+
+| Filter                     | JavaScript                | Kotlin and Swift        | Effect                                                                                                                                               |
+| -------------------------- | ------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kinds                      | `kinds`                   | `kinds`                 | Required list. An empty list selects no ordinary events.                                                                                             |
+| Groups                     | `group_ids`               | `groupIds`              | Optional byte IDs. Absent means every group. An empty list selects no group events. Events with no group still pass.                                 |
+| Content types              | `content_types`           | `contentTypes`          | Optional list; applies only to `message.received`. Matches authority, type, and major version. An empty list selects no received messages.           |
+| References to own messages | `references_own_messages` | `referencesOwnMessages` | Defaults to false. When true, received-message events must be replies or v2 reactions that reference a locally stored message sent by the own inbox. |
+
+A group filter also selects the other groups of a stitched DM. A conversation
+consent event is subject to the group filter; an inbox consent event is not.
+Filters run before queueing. They do not affect the client's processing or
+message-stream delivery. `lagged` always reaches the subscription, even if its
+kind was not selected.
+
+## Use an iterator instead of a callback
+
+`client.events(filter)` provides an async iterator on Browser, Node, and Agent,
+a `Flow<ClientEvent>` on Kotlin, and an `SDKEventStream` async sequence on Swift.
+Create one iterator or collector for each subscription. Register separate
+subscriptions when separate consumers need the same event.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="events-browser.ts" region="iterator"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="events-node.ts" region="iterator"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+import uniffi.xmtp_sdk.*
+import kotlinx.coroutines.flow.collect
+
+suspend fun readEvents(
+    client: SDKClient,
+    handleStatus: suspend (MessageStatusChanged) -> Unit,
+    refreshAll: suspend (ULong) -> Unit,
+) {
+    client.events(EventFilter(kinds = listOf(EventKind.MESSAGE_STATUS_CHANGED)))
+        .collect { event ->
+            when (event) {
+                is ClientEvent.MessageStatusChanged -> handleStatus(event.messageStatusChanged)
+                is ClientEvent.Lagged -> refreshAll(event.lagged.discarded)
+                else -> Unit
+            }
+        }
+}
+```
+
+Run collection in an owned coroutine job. Cancel and join that job when the owner
+ends. The Flow closes the reader in `NonCancellable` when collection exits. Call
+`events` only when you will collect its Flow; registration occurs when `events`
+returns, before collection starts.
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+import XmtpSdk
+
+func readEvents(
+    client: SDKClient,
+    handleStatus: @Sendable (MessageStatusChanged) async throws -> Void,
+    refreshAll: @Sendable (UInt64) async throws -> Void
+) async throws {
+    let stream = try await client.events(EventFilter(kinds: [.messageStatusChanged]))
+    for try await event in stream {
+        switch event {
+        case let .messageStatusChanged(change): try await handleStatus(change)
+        case let .lagged(change): try await refreshAll(change.discarded)
+        default: break
+        }
+    }
+}
+```
+
+Run the loop in an owned task. Cancel and await that task when the owner ends.
+The first iterator owns the subscription. Releasing that iterator schedules reader
+cleanup. Use the callback API with `stopListener` when you need explicit listener
+cleanup. Ending the client also ends pending event reads.
+
+</TabItem>
+<TabItem label="Agent">
+
+Use the Node iterator function with `agent.client`. Stopping the Agent's streams
+does not end this event iterator. End the iterator or its client when its owner
+ends.
+
+</TabItem>
+</Tabs>
+
+Breaking a JavaScript `for await` loop calls the iterator's `return()` method.
+You can also call `await stream.return()` to end a pending read. A handler error
+in an iterator loop or Flow collection leaves that loop; catch the error if the
+app must keep reading. This differs from callback error handling below.
+
+## Callback errors, ordering, and event loss
+
+The SDK awaits one callback at a time for each listener. Return or await the work
+that must complete before the next callback starts. A thrown error or rejected
+promise in a callback does not stop later callbacks. Catch errors in your handler
+if your app needs to record or retry that work. The SDK does not replay the failed
+event.
+
+A callback can read from the same client, stop its listener, or end the client.
+Stopping prevents later callback starts. It does not wait for a callback that has
+already started. Give any app work started by that callback its own lifetime.
+
+Each subscription holds at most 1024 events, including a running callback. If its
+queue fills, it discards new events and reports their count in `lagged` before
+later events. Read the current state again after `lagged`. A slow listener does
+not stop the other listeners.
+
+Events follow change order within a group, consent entity, or attachment key.
+Changes for separate groups can arrive in either order. Only the client instance
+that makes a change emits its event. A second client or process that shares the
+database does not make this client's listener receive its changes. Shared
+credential lockout changes are reported by each affected client.
+
+## Agent message events
+
+Agent `agent.on(...)` events have a separate API from `agent.client` events.
+They carry typed message or conversation contexts. Use `agent.on("text", ...)`
+for text message handling, and `agent.client.startListener(...)` for state changes
+such as message status or consent.
+
+```ts source="events-agent.ts" region="agent"
+
+```
+
+The returned function removes only these Agent handlers. Register message handlers
+before calling `await agent.start()`. Use `await agent.stop()` to stop its stream
+generation. If your service also owns the client, end it with
+`await agent.client.end()` when the service ends.
+
+Agent message and conversation handlers can be async. The Agent awaits their work
+before accepting delivery. Middleware that returns without `next()` suppresses
+message events. The Agent skips messages from its own inbox. Handler failures use
+Agent error middleware; they do not follow the client-event callback error rule.
+A terminal stream failure needs an explicit `agent.start()` to open new streams.
+
+For the separate Agent event catalog and context APIs, see
+[Agent events](/agents/events/). For the full client event contract, see
+[Client events](/specs/event-client-events/).

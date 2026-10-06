@@ -3,7 +3,7 @@ import type { Client } from "@xmtp/browser-sdk";
 export async function createBackup(client: Client, key: Uint8Array) {
   // #region create
   const archiveData = await client.archives.exportToBytes(key, {
-    elements: ["consent"],
+    elements: ["messages", "consent"],
     excludeDisappearingMessages: true,
   });
   // #endregion create
@@ -18,4 +18,15 @@ export async function importBackup(
   // #region import
   await client.archives.importFromBytes(data, key);
   // #endregion import
+}
+
+export async function readBackupMetadata(
+  client: Client,
+  data: Uint8Array,
+  key: Uint8Array,
+) {
+  // #region metadata
+  const metadata = await client.archives.metadataFromBytes(data, key);
+  // #endregion metadata
+  return metadata;
 }

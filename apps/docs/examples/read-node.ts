@@ -11,14 +11,14 @@ export async function paginateMessages(group: Group) {
   // #region pagination
   const firstPage = await group.messages({
     limit: 20,
-    sortBy: "sentAt",
+    sortBy: "insertedAt",
     direction: "descending",
   });
   const secondPage = await group.messages({
     limit: 20,
-    sortBy: "sentAt",
+    sortBy: "insertedAt",
     direction: "descending",
-    sentBefore: firstPage.at(-1)?.sentAt,
+    insertedBefore: firstPage.at(-1)?.insertedAt,
   });
   // #endregion pagination
   return secondPage;
@@ -26,7 +26,9 @@ export async function paginateMessages(group: Group) {
 
 export async function listConversations(client: Client) {
   // #region conversations
-  const conversations = await client.conversations.list({});
+  const conversations = await client.conversations.list({
+    consentStates: ["allowed"],
+  });
   // #endregion conversations
   return conversations;
 }

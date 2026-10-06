@@ -68,14 +68,27 @@ test("frontmatter-like text after the title is preserved", () => {
   assert.match(result.body, /horizontal rule stays/u);
 });
 
-test("spec preparation reports the frontmatter status", () => {
+test("spec preparation does not publish the frontmatter status", () => {
   const result = prepareDocument(
     "---\nprefix: JOIN\nstatus: draft\n---\n# Joining groups\n\nText.",
     "JOIN-joining-groups.md",
     { spec: true },
   );
-  assert.equal(result.status, "draft");
+  assert.equal(result.status, undefined);
+  assert.equal(result.body, "Text.");
   assert.equal(prepareDocument("# T\n\nBody.", "t.md").status, undefined);
+});
+
+test("the spec index omits status labels and preserves other tables", () => {
+  const result = prepareDocument(
+    "# Specifications\n\n| Prefix | Spec | Owns | Status |\n| --- | --- | --- | --- |\n| API | Backend API | Transport | draft |\n| EVENT | Events | Delivery | approved |\n\n| Name | Value |\n| --- | --- |\n| Example | draft |",
+    "README.md",
+    { spec: true },
+  );
+  assert.equal(
+    result.body,
+    "| Prefix | Spec | Owns |\n| --- | --- | --- |\n| API | Backend API | Transport |\n| EVENT | Events | Delivery |\n\n| Name | Value |\n| --- | --- |\n| Example | draft |",
+  );
 });
 
 test("relative links to sibling specs become routes", () => {

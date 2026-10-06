@@ -11,18 +11,22 @@ When you build your quickstart app, you will use a key pair to create an identit
 
 ## 1. Install the SDK
 
+Follow [Install the XMTP SDK](/get-started/install/) to build and pack SDK
+8.0.0. That version is not published on npm. From your app directory, install
+the source-built archive:
+
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
 ```sh
-npm install @xmtp/browser-sdk viem
+npm install /tmp/xmtp-browser-sdk-8.0.0.tgz
 ```
 
 </TabItem>
 <TabItem label="Node">
 
 ```sh
-npm install @xmtp/node-sdk viem
+npm install /tmp/xmtp-node-sdk-8.0.0.tgz
 ```
 
 </TabItem>
@@ -40,13 +44,15 @@ Follow the [Swift installation instructions](/get-started/install/).
 
 ## 2. Create a signer and client
 
-The signer must return the account identifier and sign messages as bytes.
-`backendUrl` is required. Use the URL of your running backend. These examples
+The signer provides `identity()`, `kind()`, and `sign(request)`. Its `sign`
+method returns a `Signature` with the raw signature bytes. The SDK's
+`generateLocalSigner()` implements these methods for the examples below.
+The backend URL is required. Use the URL of your running backend. These examples
 create temporary identities for testing. Do not use their key lifecycle in a
 production app: store the signer key and database encryption key securely and
 reuse them with the same database on later launches.
 
-The Browser and Node blocks come from compiled source files. They are checked
+The Browser and Node blocks come from complete source files. They are checked
 against the SDK types during the docs build. The mobile examples create a second
 client so that the message recipient is registered on the same backend.
 
@@ -184,11 +190,18 @@ try await group.sendText(text: "Hello everyone", options: nil)
 </TabItem>
 </Tabs>
 
-With XMTP, sending a message delivers it to the backend, but doesn't automatically update the local UI (unless you use [optimistic sending](/sdk/send-messages/#optimistically-send-messages)).
+Sending a message stores it locally and publishes it to the backend. Update
+your UI from the message stream or query the conversation's messages. See
+[optimistic sending](/sdk/send-messages/#optimistically-send-messages) to show a
+message before publication completes.
 
 ## 4. Stream messages
 
-Use `streamAllMessages` to receive new messages. Use `syncAll` to fetch new welcomes, preference updates, conversations, and messages.
+Use `MessageStream.open` in Browser and Node, or `client.messages()` in Kotlin
+and Swift, to receive messages. Use `syncAll` to fetch welcomes and messages in
+the selected conversations. The JavaScript examples select allowed
+conversations; allow an incoming conversation before you expect its messages
+in that stream. See [Consent](/sdk/consent/).
 
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
@@ -225,3 +238,8 @@ for try await message in try await client.messages() {
 
 </TabItem>
 </Tabs>
+
+When you stop the JavaScript example, call `await stream.return()`, await
+`receive`, then call `await client.end()`. On mobile, stop the message stream
+and end both clients. The Kotlin helper does this when its block exits; use
+`try await recipient.end()` and `try await client.end()` in Swift.
