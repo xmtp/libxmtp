@@ -9,6 +9,9 @@ on:
       version:
         required: true
         type: string
+      source-sha:
+        required: true
+        type: string
 
 permissions: {}
 
@@ -25,17 +28,42 @@ jobs:
         env:
           SDK: ${{ inputs.sdk }}
           VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
           GIT_CONFIG_NOSYSTEM: "1"
           GIT_CONFIG_GLOBAL: /dev/null
         run: |
           set -euo pipefail
           case "$SDK" in ios|android) ;; *) exit 1 ;; esac
+          if ! [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Expected source commit must be a full SHA"
+            exit 1
+          fi
           TAG_REF="refs/tags/${SDK}-${VERSION}"
           git check-ref-format "$TAG_REF"
           git init --bare "$RUNNER_TEMP/release-push.git"
           git --git-dir="$RUNNER_TEMP/release-push.git" fetch --no-tags \
             "$RUNNER_TEMP/release-tag/release.bundle" "$TAG_REF:$TAG_REF"
-          git --git-dir="$RUNNER_TEMP/release-push.git" rev-parse "$TAG_REF^{commit}"
+          TAG_SHA=$(git --git-dir="$RUNNER_TEMP/release-push.git" rev-parse "$TAG_REF^{commit}")
+          if [ "$TAG_SHA" != "$SOURCE_SHA" ]; then
+            if [ "$SDK" != ios ]; then
+              echo "::error::Android tag does not match the workflow source commit"
+              exit 1
+            fi
+            PARENTS=$(git --git-dir="$RUNNER_TEMP/release-push.git" rev-list --parents -n 1 "$TAG_SHA")
+            if [ "$PARENTS" != "$TAG_SHA $SOURCE_SHA" ]; then
+              echo "::error::iOS tag must use the source commit or one direct release commit"
+              exit 1
+            fi
+            git --git-dir="$RUNNER_TEMP/release-push.git" diff \
+              --no-ext-diff --no-textconv --name-only -z "$SOURCE_SHA" "$TAG_SHA" \
+              > "$RUNNER_TEMP/release-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                Package.swift|sdks/ios/XMTP.podspec|sdks/ios/ReleaseArtifacts.json|sdks/ios/Sources/XmtpSdk/*) ;;
+                *) echo "::error::iOS release commit changes a file outside the release paths"; exit 1 ;;
+              esac
+            done < "$RUNNER_TEMP/release-paths"
+          fi
       - name: Create release push token
         id: token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3

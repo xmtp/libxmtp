@@ -135,4 +135,5 @@ jobs:
     with:
       sdk: android
       version: ${{ needs.publish.outputs.version }}
+      source-sha: ${{ github.sha }}
     secrets: inherit

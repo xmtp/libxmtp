@@ -25,6 +25,11 @@ def script(name):
 
 class ReleasePushTest(unittest.TestCase):
     def test_bundle_push_retains_commit_without_persisting_token(self):
+        for sdk in ["ios", "android"]:
+            with self.subTest(sdk=sdk):
+                self.bundle_push(sdk)
+
+    def bundle_push(self, sdk):
         requests = []
         with tempfile.TemporaryDirectory(prefix="release-push-") as directory:
             root = Path(directory)
@@ -53,11 +58,13 @@ class ReleasePushTest(unittest.TestCase):
             git("config", "user.name", "Test")
             git("config", "user.email", "test@example.com")
             git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "source")
-            (source / "Package.swift").write_text("generated release metadata")
-            git("add", "Package.swift")
-            git("-c", "commit.gpgSign=false", "commit", "-m", "release")
+            source_sha = git("rev-parse", "HEAD").strip()
+            if sdk == "ios":
+                (source / "Package.swift").write_text("generated release metadata")
+                git("add", "Package.swift")
+                git("-c", "commit.gpgSign=false", "commit", "-m", "release")
             expected = git("rev-parse", "HEAD").strip()
-            git("-c", "tag.gpgSign=false", "tag", "ios-1.2.3")
+            git("-c", "tag.gpgSign=false", "tag", f"{sdk}-1.2.3")
             hook = source / ".git/hooks/pre-push"
             hook.write_text("#!/bin/sh\nexit 99\n")
             hook.chmod(0o755)
@@ -65,7 +72,7 @@ class ReleasePushTest(unittest.TestCase):
                 "bundle",
                 "create",
                 str(temporary / "release-tag/release.bundle"),
-                "refs/tags/ios-1.2.3",
+                f"refs/tags/{sdk}-1.2.3",
             )
             remote = root / "fixture/repo.git"
             git("init", "--bare", str(remote))
@@ -115,8 +122,9 @@ class ReleasePushTest(unittest.TestCase):
                 step_env = dict(
                     env,
                     RUNNER_TEMP=str(temporary),
-                    SDK="ios",
+                    SDK=sdk,
                     VERSION="1.2.3",
+                    SOURCE_SHA=source_sha,
                     GITHUB_SERVER_URL=f"http://127.0.0.1:{server.server_port}",
                     GITHUB_REPOSITORY="fixture/repo",
                     RELEASE_TOKEN=token,
@@ -142,7 +150,9 @@ class ReleasePushTest(unittest.TestCase):
                 )
                 self.assertEqual(
                     expected,
-                    git("--git-dir=" + str(remote), "rev-parse", "ios-1.2.3").strip(),
+                    git(
+                        "--git-dir=" + str(remote), "rev-parse", f"{sdk}-1.2.3"
+                    ).strip(),
                 )
                 self.assertTrue(requests)
                 self.assertTrue(
@@ -173,6 +183,69 @@ class ReleasePushTest(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
 
+    def test_rejects_a_release_commit_that_changes_workflows(self):
+        for sdk in ["ios", "android"]:
+            with self.subTest(sdk=sdk), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                temporary = root / "runner"
+                (temporary / "release-tag").mkdir(parents=True)
+                env = {
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.startswith("GIT_")
+                }
+                env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+                def git(*args):
+                    return subprocess.run(
+                        ["git", *args],
+                        cwd=root,
+                        env=env,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip()
+
+                git("init", "--initial-branch=main")
+                git("config", "user.name", "Test")
+                git("config", "user.email", "test@example.com")
+                git(
+                    "-c",
+                    "commit.gpgSign=false",
+                    "commit",
+                    "--allow-empty",
+                    "-m",
+                    "source",
+                )
+                source_sha = git("rev-parse", "HEAD")
+                (root / ".github/workflows").mkdir(parents=True)
+                (root / ".github/workflows/injected.yml").write_text(
+                    "name: injected workflow\n"
+                )
+                git("add", ".github/workflows/injected.yml")
+                git("-c", "commit.gpgSign=false", "commit", "-m", "release")
+                tag = f"refs/tags/{sdk}-1.2.3"
+                git("-c", "tag.gpgSign=false", "tag", f"{sdk}-1.2.3")
+                git(
+                    "bundle",
+                    "create",
+                    str(temporary / "release-tag/release.bundle"),
+                    tag,
+                )
+                result = subprocess.run(
+                    ["bash", "-euc", script("Import release tag")],
+                    cwd=root,
+                    env=dict(
+                        env,
+                        RUNNER_TEMP=str(temporary),
+                        SDK=sdk,
+                        VERSION="1.2.3",
+                        SOURCE_SHA=source_sha,
+                    ),
+                    capture_output=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+
     def test_app_token_is_confined_to_separate_push_job(self):
         text = WORKFLOW.read_text()
         self.assertIn("permissions: {}", text)
@@ -202,6 +275,7 @@ class ReleasePushTest(unittest.TestCase):
                 self.assertIn("fetch-depth: 0", mobile)
                 self.assertIn(f"name: release-tag-{sdk}", mobile)
                 self.assertIn("uses: ./.github/workflows/push-release-tag.yml", mobile)
+                self.assertIn("source-sha: ${{ github.sha }}", mobile)
                 self.assertIn(
                     "uses: ./.github/workflows/check-release-push.yml", mobile
                 )
