@@ -54,9 +54,10 @@ Rules the macro enforces at compile time:
   the object's lifetime; otherwise make the read async.
 - `#[sdk(kind)]` marks every variant of an enum, each with its own kind, or
   none.
-- Redaction fails closed. Once a record or variant has a `#[sdk(redact)]`
-  field, each of its other fields takes `#[sdk(redact)]` or `#[sdk(shown)]`,
-  so a new field never prints a secret by default. The macro implements
+- Redaction fails closed. Once a record, or any variant of an enum, has a
+  `#[sdk(redact)]` field, every other field of the type takes
+  `#[sdk(redact)]` or `#[sdk(shown)]`, so a new field or variant never prints
+  a secret by default. The macro implements
   `Debug` for the record or enum by calling its `redacted_debug` method,
   which the façade writes to hide the same fields. Any other `Debug`
   conflicts with it, so a derived one fails to compile wherever the derive

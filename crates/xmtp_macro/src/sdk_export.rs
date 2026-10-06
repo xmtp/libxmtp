@@ -144,13 +144,8 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
         Item::Struct(item_struct) => {
             require_uniffi_derive(&item_struct.attrs, &item_struct.ident)?;
             let uniffi_error = sdk_member::derives_uniffi_error(&item_struct.attrs);
-            let owner = item_struct.ident.to_string();
-            let redacted = sdk_member::fields(
-                &mut item_struct.fields,
-                &item_struct.ident,
-                &owner,
-                uniffi_error,
-            )?;
+            let redacted =
+                sdk_member::fields(&mut item_struct.fields, &item_struct.ident, uniffi_error)?;
             let debug = if redacted {
                 let debug = sdk_member::redacted_debug(
                     &mut item_struct.attrs,

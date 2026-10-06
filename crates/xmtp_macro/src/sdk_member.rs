@@ -473,21 +473,21 @@ pub(crate) fn function(attrs: &mut Vec<Attribute>, name: &Ident) -> syn::Result<
     }
 }
 
-/// Apply the options of the fields of a record or of one enum variant, and
-/// say whether one of them is redacted.
-///
-/// Redaction fails closed: once one field is `#[sdk(redact)]`, every other
-/// field says `redact` or `shown`, so a new field never prints a secret by
-/// default. `item` is the record or enum.
-pub(crate) fn fields(
-    fields: &mut Fields,
-    item: &Ident,
-    owner: &str,
-    uniffi_error: bool,
-) -> syn::Result<bool> {
-    let mut redacted = false;
-    let mut shown = None;
-    let mut unmarked = Vec::new();
+/// The fields of a record, or of every variant of an enum, sorted by their
+/// `redact` and `shown` options.
+#[derive(Default)]
+struct Classified {
+    redacted: bool,
+    shown: Option<Span>,
+    /// Named fields with neither option, as `Owner.field`.
+    unmarked: Vec<(String, Ident)>,
+    /// A tuple variant field, which no option can mark.
+    unnamed: Option<Span>,
+}
+
+/// Apply the options of `fields`, writing a marker on each redacted one.
+/// `owner` names the record or variant in errors.
+fn classify(fields: &mut Fields, owner: &str, classified: &mut Classified) -> syn::Result<()> {
     for field in fields.iter_mut() {
         let options = take(&mut field.attrs)?;
         options.reject_immutable()?;
@@ -499,6 +499,7 @@ pub(crate) fn fields(
                     "#[sdk(redact)] and #[sdk(shown)] need a named field",
                 )
             })?;
+            classified.unnamed.get_or_insert(field.span());
             continue;
         };
         match (options.redact, options.shown) {
@@ -514,19 +515,27 @@ pub(crate) fn fields(
                     Redact::Key(key) => format!("{REDACT}={key}"),
                 };
                 push_marker(&mut field.attrs, &marker);
-                redacted = true;
+                classified.redacted = true;
             }
             (None, Some(span)) => {
-                shown.get_or_insert(span);
+                classified.shown.get_or_insert(span);
             }
-            (None, None) => unmarked.push(name),
+            (None, None) => classified.unmarked.push((owner.to_owned(), name)),
         }
     }
-    if !redacted {
-        return match shown {
+    Ok(())
+}
+
+/// Say whether a type redacts a field. Redaction fails closed: once one
+/// field of a record, or of any variant of an enum, is `#[sdk(redact)]`,
+/// every field of the type says `redact` or `shown`, so a new field or
+/// variant never prints a secret by default. `item` is the record or enum.
+fn redacts(classified: Classified, item: &Ident, uniffi_error: bool) -> syn::Result<bool> {
+    if !classified.redacted {
+        return match classified.shown {
             Some(span) => Err(syn::Error::new(
                 span,
-                "#[sdk(shown)] applies beside a #[sdk(redact)] field",
+                "#[sdk(shown)] applies in a type with a #[sdk(redact)] field",
             )),
             None => Ok(false),
         };
@@ -539,23 +548,41 @@ pub(crate) fn fields(
             ),
         ));
     }
-    match unmarked.first() {
-        Some(field) => Err(syn::Error::new_spanned(
+    if let Some(span) = classified.unnamed {
+        return Err(syn::Error::new(
+            span,
+            format!(
+                "`{item}` has a redacted field, so each of its fields needs a name to take #[sdk(redact)] or #[sdk(shown)]"
+            ),
+        ));
+    }
+    match classified.unmarked.first() {
+        Some((owner, field)) => Err(syn::Error::new_spanned(
             field,
             format!(
-                "`{owner}.{field}` sits beside a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]"
+                "`{owner}.{field}` is in a type with a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]"
             ),
         )),
         None => Ok(true),
     }
 }
 
+/// Apply the options of the fields of a record, and say whether one of them
+/// is redacted. `item` is the record.
+pub(crate) fn fields(fields: &mut Fields, item: &Ident, uniffi_error: bool) -> syn::Result<bool> {
+    let mut classified = Classified::default();
+    classify(fields, &item.to_string(), &mut classified)?;
+    redacts(classified, item, uniffi_error)
+}
+
 /// Apply the options of the variants of an enum, and say whether a variant
-/// field is redacted. `#[sdk(kind = "...")]` names the public string of a
-/// variant; an enum marks every variant or none, and each kind once.
+/// field is redacted. A redacted field in one variant makes every field of
+/// every variant say `redact` or `shown`. `#[sdk(kind = "...")]` names the
+/// public string of a variant; an enum marks every variant or none, and each
+/// kind once.
 pub(crate) fn variants(item: &mut ItemEnum) -> syn::Result<bool> {
     let uniffi_error = derives_uniffi_error(&item.attrs);
-    let mut redacted = false;
+    let mut classified = Classified::default();
     let mut kinds = HashSet::new();
     let mut unmarked = None;
     for variant in &mut item.variants {
@@ -575,8 +602,9 @@ pub(crate) fn variants(item: &mut ItemEnum) -> syn::Result<bool> {
             }
         }
         let owner = format!("{}::{}", item.ident, variant.ident);
-        redacted |= fields(&mut variant.fields, &item.ident, &owner, uniffi_error)?;
+        classify(&mut variant.fields, &owner, &mut classified)?;
     }
+    let redacted = redacts(classified, &item.ident, uniffi_error)?;
     match unmarked {
         Some(variant) if !kinds.is_empty() => Err(syn::Error::new_spanned(
             &variant,

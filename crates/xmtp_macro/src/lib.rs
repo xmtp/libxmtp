@@ -55,10 +55,10 @@ mod timeout_macro_test;
 ///   `toString` and Swift `description` print `<redacted>` for it.
 ///   `#[sdk(redact = "key")]` hides one key of a string map field; the key
 ///   holds ASCII letters, digits, `_`, `.`, and `-`. Redaction fails closed:
-///   every other field of that record or variant takes `#[sdk(redact)]` or
-///   `#[sdk(shown)]`, and the macro implements `Debug` for the type by
-///   calling its `fn redacted_debug(&self, f: &mut Formatter<'_>) ->
-///   fmt::Result`, which the type writes. A derived `Debug` then conflicts
+///   every other field of that record, or of any variant of that enum, takes
+///   `#[sdk(redact)]` or `#[sdk(shown)]`, and the macro implements `Debug`
+///   for the type by calling its `fn redacted_debug(&self, f: &mut
+///   Formatter<'_>) -> fmt::Result`, which the type writes. A derived `Debug` then conflicts
 ///   with it, wherever the derive sits. A `uniffi::Error` type cannot redact
 ///   a field: the Kotlin binding renames it.
 ///

@@ -406,7 +406,7 @@ fn redact_applies_to_named_fields_with_a_plain_key() {
         ),
         (
             record(quote!(#[sdk(shown)])),
-            "#[sdk(shown)] applies beside a #[sdk(redact)] field",
+            "#[sdk(shown)] applies in a type with a #[sdk(redact)] field",
         ),
     ];
     // The key reaches a Kotlin and a Swift string literal as it is.
@@ -422,8 +422,9 @@ fn redact_applies_to_named_fields_with_a_plain_key() {
     }
 }
 
-// Redaction fails closed: next to a redacted field, every field says whether
-// it is redacted or shown, so a new field cannot print a secret by default.
+// Redaction fails closed: in a type with a redacted field, every field says
+// whether it is redacted or shown, so a new field cannot print a secret by
+// default.
 #[test]
 fn every_field_beside_a_redacted_one_is_redacted_or_shown() {
     let message = error(
@@ -441,24 +442,68 @@ fn every_field_beside_a_redacted_one_is_redacted_or_shown() {
     );
     assert_eq!(
         message,
-        "`Credential.expires_at_seconds` sits beside a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]"
+        "`Credential.expires_at_seconds` is in a type with a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]"
     );
-    // Each variant is its own scope.
-    let message = error(
+    // The whole enum is one scope, so a new variant cannot print a secret
+    // either, whichever variant holds the redacted field.
+    for (variants, message) in [
+        (
+            quote! {
+                Apns { #[sdk(redact)] token: String },
+                Fcm { token: String },
+            },
+            "`NotificationChannel::Fcm.token` is in a type with a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]",
+        ),
+        (
+            quote! {
+                Fcm { token: String },
+                Apns { #[sdk(redact)] token: String },
+            },
+            "`NotificationChannel::Fcm.token` is in a type with a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]",
+        ),
+        (
+            quote! {
+                Apns { #[sdk(redact)] token: String },
+                Http { #[sdk(redact)] url: String, signing_key: Vec<u8> },
+            },
+            "`NotificationChannel::Http.signing_key` is in a type with a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]",
+        ),
+        // No option can mark a tuple variant field.
+        (
+            quote! {
+                Apns { #[sdk(redact)] token: String },
+                Fcm(String),
+            },
+            "`NotificationChannel` has a redacted field, so each of its fields needs a name to take #[sdk(redact)] or #[sdk(shown)]",
+        ),
+        (
+            quote! {
+                Apns { #[sdk(shown)] token: String },
+                Fcm { #[sdk(shown)] token: String },
+            },
+            "#[sdk(shown)] applies in a type with a #[sdk(redact)] field",
+        ),
+    ] {
+        let item = quote! {
+            #[derive(Clone, uniffi::Enum)]
+            pub enum NotificationChannel { #variants }
+        };
+        assert_eq!(error(quote!(), item), message);
+    }
+    // A variant without a redacted field shows its fields, and a unit
+    // variant has none.
+    let output = export(
         quote!(),
         quote! {
             #[derive(Clone, uniffi::Enum)]
             pub enum NotificationChannel {
                 Apns { #[sdk(redact)] token: String },
-                Fcm { token: String },
-                Http { #[sdk(redact)] url: String, signing_key: Vec<u8> },
+                Webhook { #[sdk(shown)] name: String },
+                Disabled,
             }
         },
     );
-    assert_eq!(
-        message,
-        "`NotificationChannel::Http.signing_key` sits beside a redacted field; mark it #[sdk(redact)] or #[sdk(shown)]"
-    );
+    assert!(output.contains("@xmtp-redact"));
 }
 
 // The macro implements Debug for a redacted type through the type's own

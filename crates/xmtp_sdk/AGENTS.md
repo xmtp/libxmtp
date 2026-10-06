@@ -105,8 +105,8 @@ metadata markers, so a routine export needs no generator edit:
   shares such a record, or such an enum with a multi-word value.
 - A record or variant field whose value must stay out of diagnostic text
   takes `#[sdk(redact)]`, or `#[sdk(redact = "key")]` for one key of a string
-  map. Every other field of that record or variant then takes
-  `#[sdk(redact)]` or `#[sdk(shown)]`. The macro implements `Debug` for the
+  map. Every other field of that record, or of any variant of that enum,
+  then takes `#[sdk(redact)]` or `#[sdk(shown)]`. The macro implements `Debug` for the
   type through its `fn redacted_debug(&self, f)`, which redacts the same
   fields, so the type cannot also derive `Debug`.
 - A `MessageData` field, a `*_with_backend` `Client` static, or a new identity
