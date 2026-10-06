@@ -6,9 +6,11 @@ import type * as Sdk from "@xmtp/browser-sdk";
 import type {
   BackendOptions,
   Client,
+  ContentCodec,
   ContentTypeId,
   Conversation,
   ConversationId,
+  Dm,
   EncodedContent,
   ErrorDetails,
   LogLevel,
@@ -18,9 +20,15 @@ import type {
   MessageContent,
   PublicIdentity,
   Signer,
+  StandardContent,
   Timestamp,
 } from "@xmtp/browser-sdk";
 import { Group } from "@xmtp/browser-sdk";
+import type {
+  DeleteMessageCodec,
+  ReactionV2Codec,
+  ReplyCodec,
+} from "@xmtp/browser-sdk/pure";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
@@ -121,3 +129,71 @@ export type CustomDetails = Assert<
     ErrorDetails | undefined
   >
 >;
+
+// Typed codecs keep their value type through the public send and reply
+// helpers. A standard codec for one StandardContent variant takes only that
+// variant. The standard codecs come from the `pure` entry point.
+type Point = { readonly x: number; readonly y: number };
+
+declare const pointCodec: ContentCodec<Point>;
+declare const textCodec: ContentCodec<string>;
+declare const literalCodec: ContentCodec<"a" | "b">;
+declare const anyText: string;
+declare const reactions: ReactionV2Codec;
+declare const replies: ReplyCodec;
+declare const deletions: DeleteMessageCodec;
+
+// verifies: CTYPE-017
+export async function rejectWrongCodecValues(
+  group: Group,
+  dm: Dm,
+  message: Message,
+  reaction: Extract<StandardContent, { kind: "reaction" }>,
+): Promise<void> {
+  await group.send(reactions, reaction);
+  await group.send(pointCodec, { x: 1, y: 2 });
+  await message.reply(pointCodec, { x: 1, y: 2 });
+
+  // @ts-expect-error A reaction codec does not take text content.
+  await group.send(reactions, { kind: "text", value: "x" });
+  // @ts-expect-error A reaction codec does not take text content.
+  await dm.send(reactions, { kind: "text", value: "x" });
+  // @ts-expect-error A reaction codec does not encode text content.
+  reactions.encode({ kind: "text", value: "x" });
+  // @ts-expect-error A reply codec does not take text content.
+  await group.send(replies, { kind: "text", value: "x" });
+  // @ts-expect-error A reply codec does not take text content.
+  await dm.send(replies, { kind: "text", value: "x" });
+  // @ts-expect-error A reply codec does not encode text content.
+  replies.encode({ kind: "text", value: "x" });
+  // @ts-expect-error A delete-message codec does not take text content.
+  await group.send(deletions, { kind: "text", value: "x" });
+  // @ts-expect-error A delete-message codec does not take text content.
+  await dm.send(deletions, { kind: "text", value: "x" });
+  // @ts-expect-error A delete-message codec does not encode text content.
+  deletions.encode({ kind: "text", value: "x" });
+
+  // @ts-expect-error The send value must be the codec's value type.
+  await group.send(pointCodec, { x: "1", y: 2 });
+  // @ts-expect-error The send value must be the codec's value type.
+  await group.prepareMessage(literalCodec, anyText);
+  // @ts-expect-error A codec send needs a value.
+  await group.send(pointCodec);
+  // @ts-expect-error The reply value must be the codec's value type.
+  await message.reply(pointCodec, { x: "1", y: 2 });
+  // @ts-expect-error The reply value must be the codec's value type.
+  await message.reply(textCodec, 1);
+  // @ts-expect-error A wider value must not widen the codec's value type.
+  await message.reply(literalCodec, anyText);
+}
+
+// verifies: CTYPE-017
+// @ts-expect-error A codec's value type does not widen.
+export const widened: ContentCodec<string | number> = textCodec;
+
+// verifies: CTYPE-017
+export const wrongHook: ContentCodec<Point> = {
+  ...pointCodec,
+  // @ts-expect-error A fallback hook takes the codec's value type.
+  fallback: (text: string) => text,
+};

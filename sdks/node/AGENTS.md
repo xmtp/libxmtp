@@ -86,5 +86,6 @@ Node and agent version 8 require ESM and Node 22.12 or later. End a client with
 test sources and the four public type fixtures under `type-tests/`. Keep the
 fixtures in this command when public stream, notification, or configuration
 types change. `publicSurface.ts` holds `@ts-expect-error` lines for the
-binding shapes that the generated root must hide. The Browser SDK `typecheck`
-compiles a copy from `sdks/browser/type-tests/`.
+binding shapes that the generated root must hide and for codec values that
+`send`, `prepareMessage`, `reply` and `encode` must reject. The Browser SDK
+`typecheck` compiles a copy from `sdks/browser/type-tests/`.
