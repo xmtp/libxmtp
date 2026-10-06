@@ -123,6 +123,11 @@ async fn can_message_keeps_kinds_for_static_and_instance_queries() {
         assert!(result[&expected_registered]);
     };
     verify(client.can_message(identities.clone()).await?);
+    assert_eq!(client.inbox_id_for(identities[0].clone()).await?, None);
+    assert_eq!(
+        client.inbox_id_for(registered.clone()).await?,
+        Some(client.inbox_id())
+    );
     for source in [
         BackendSource::Connected { backend },
         BackendSource::Options {
@@ -204,9 +209,70 @@ async fn latest_inbox_update_counts_preserve_registered_and_unknown_keys() {
     let counts = client
         .latest_inbox_updates_count(vec![own.clone(), unknown.clone()], false)
         .await?;
+    assert_eq!(
+        client.own_inbox_updates_count(true).await?,
+        counts[own.checked()?]
+    );
+    let backend = options().backend.expect("backend options");
+    let without_client =
+        crate::static_helpers::latest_inbox_updates_count(vec![own.clone()], backend).await?;
+    assert_eq!(without_client[own.checked()?], counts[own.checked()?]);
     assert_eq!(counts.len(), 2);
     assert!(counts[own.checked()?] > 0);
     assert_eq!(counts[unknown.checked()?], 0);
+    client.end().await?;
+}
+
+// The instance `inbox_state` and `inbox_states` use the client's own identity
+// route, not the static helper. A local read and a remote read of one inbox
+// are equal, and a selected read returns only the selected inboxes.
+#[xmtp_common::test(unwrap_try = true)]
+async fn instance_inbox_states_read_local_and_selected_inboxes() {
+    let signer = crate::generate_local_signer().await;
+    let identity = signer::identity(signer.clone()).await?;
+    let client = Client::create(signer, options()).await?;
+    let local = client.inbox_state(false).await?;
+    assert_eq!(local.inbox_id, client.inbox_id());
+    let installations: Vec<_> = local
+        .installations
+        .iter()
+        .map(|installation| installation.id.clone())
+        .collect();
+    assert_eq!(installations, vec![client.installation_id()]);
+    assert_eq!(
+        format!("{:?}", local.identities),
+        format!("{:?}", vec![identity.clone()])
+    );
+    assert_eq!(
+        format!("{:?}", local.recovery_identity),
+        format!("{identity:?}")
+    );
+    assert!(local.creation_signature_kind.is_some());
+
+    let second = Client::create(crate::generate_local_signer().await, options()).await?;
+    let mut unregistered = options();
+    unregistered.registration.auto = false;
+    let reader = Client::create(crate::generate_local_signer().await, unregistered).await?;
+    let states = reader
+        .inbox_states(vec![client.inbox_id(), second.inbox_id()], true)
+        .await?;
+    assert_eq!(states.len(), 2);
+    let state_of = |id: &InboxId| {
+        states
+            .iter()
+            .find(|state| &state.inbox_id == id)
+            .expect("selected inbox state")
+    };
+    assert_eq!(
+        format!("{:?}", state_of(&client.inbox_id())),
+        format!("{local:?}")
+    );
+    assert_eq!(
+        format!("{:?}", state_of(&second.inbox_id()).identities),
+        format!("{:?}", vec![second.identity()])
+    );
+    reader.end().await?;
+    second.end().await?;
     client.end().await?;
 }
 
@@ -232,7 +298,11 @@ async fn facade_key_package_statuses_keep_missing_entries() {
     assert_eq!(backend_entries.len(), 2);
     let registered = &backend_entries[own.checked()?];
     let lifetime = registered.lifetime.as_ref().expect("registered package");
-    assert!(lifetime.not_after > lifetime.not_before);
+    // openmls `Lifetime::default()`: 12 weeks, plus a 1 hour margin before now.
+    assert_eq!(
+        lifetime.not_after - lifetime.not_before,
+        3600 * 24 * 28 * 3 + 3600
+    );
     assert!(registered.validation_error.is_none());
     let absent = &backend_entries[missing.checked()?];
     assert!(absent.lifetime.is_none());

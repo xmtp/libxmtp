@@ -128,3 +128,54 @@ async fn message_history_queries_do_not_grow_per_row() {
     );
     client.end().await?;
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn conversation_list_created_filters_select_exact_ids() {
+    use crate::{Conversation, ListConversationsOptions, Timestamp};
+    use std::collections::HashSet;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let first = client.conversations().create_group(vec![], None).await?;
+    let second = client.conversations().create_group(vec![], None).await?;
+    let third = client.conversations().create_group(vec![], None).await?;
+    assert!(first.created_at().0 < second.created_at().0);
+    assert!(second.created_at().0 < third.created_at().0);
+
+    let list = |created_after: Option<Timestamp>, created_before: Option<Timestamp>| {
+        let conversations = client.conversations();
+        async move {
+            let listed = conversations
+                .list(Some(ListConversationsOptions {
+                    created_after,
+                    created_before,
+                    ..Default::default()
+                }))
+                .await?;
+            Ok::<_, crate::XmtpError>(
+                listed
+                    .into_iter()
+                    .map(|conversation| match conversation {
+                        Conversation::Group { group } => group.id(),
+                        Conversation::Dm { dm } => dm.id(),
+                    })
+                    .collect::<HashSet<_>>(),
+            )
+        }
+    };
+    let ids = |groups: &[&crate::Group]| groups.iter().map(|g| g.id()).collect::<HashSet<_>>();
+
+    // Both bounds are exclusive (`g.created_at_ns > ?` and `< ?`).
+    assert_eq!(
+        list(Some(first.created_at()), None).await?,
+        ids(&[&second, &third])
+    );
+    assert_eq!(
+        list(None, Some(third.created_at())).await?,
+        ids(&[&first, &second])
+    );
+    assert_eq!(
+        list(Some(first.created_at()), Some(third.created_at())).await?,
+        ids(&[&second])
+    );
+    client.end().await?;
+}

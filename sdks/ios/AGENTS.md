@@ -40,6 +40,20 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
 - Darwin only. The iOS recipes use `NIX_DEVSHELL=ios`.
 - Start the backend with `dev/nix-shell 'just backend up'`.
 - Tests read `XMTP_BACKEND_URL`. The test recipe loads this worktree's URL.
+- The stream recovery test sends its client through a loopback relay
+  (`TestRelay.swift`). The live lifecycle tests suspend the process streams and
+  resume them before they assert. The test that posts the UIKit background and
+  foreground notifications runs only in `test-simulator`. Other clients on the
+  backend are not affected.
+- Tests compile for the package minimums (iOS 14, macOS 11). `swift test` raises
+  the test deployment target, so it does not find an API that is too new. Use
+  `pause(seconds:)` from `LiveBackend.swift`, not `Task.sleep(for:)`. To check,
+  build the tests at the lowest target Xcode accepts:
+  `NIX_DEVSHELL=ios dev/nix-shell "env -u LD xcodebuild build-for-testing -scheme XmtpSdk -destination 'generic/platform=iOS Simulator' ARCHS=arm64 IPHONEOS_DEPLOYMENT_TARGET=15.0"`.
+- A live test creates its clients through `withClients` or `withLiveClients`
+  (`LiveBackend.swift`). The helper ends every client on every exit, also after
+  a throw or an early `return XCTFail(...)`. A test can still end a client
+  itself; a second `end()` returns without an error.
 - CI runs the test, example, and simulator recipes through `just backend ci`.
   This starts disposable native PostgreSQL, S3, and backend services.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
