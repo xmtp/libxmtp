@@ -4,11 +4,13 @@ import { describe, expect, it } from "vitest";
 describe("Dm", () => {
   it("should create a dm", async () => {
     const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
+    const { signer: signer2, identifier: identifier2 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
 
-    const dm = await client1.conversations.createDm(client2.inboxId);
+    // An account identity routes to the generated `createDmWithIdentity`
+    // call. Other smoke tests create DMs from inbox IDs.
+    const dm = await client1.conversations.createDm(identifier2);
     expect(dm).toBeDefined();
     expect(dm.id).toBeDefined();
     expect(dm.createdAt.ns).toBeDefined();

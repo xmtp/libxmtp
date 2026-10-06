@@ -209,9 +209,6 @@ async fn latest_inbox_update_counts_preserve_registered_and_unknown_keys() {
     let counts = client
         .latest_inbox_updates_count(vec![own.clone(), unknown.clone()], false)
         .await?;
-    assert_eq!(counts.len(), 2);
-    assert!(counts[own.checked()?] > 0);
-    assert_eq!(counts[unknown.checked()?], 0);
     assert_eq!(
         client.own_inbox_updates_count(true).await?,
         counts[own.checked()?]
@@ -220,6 +217,9 @@ async fn latest_inbox_update_counts_preserve_registered_and_unknown_keys() {
     let without_client =
         crate::static_helpers::latest_inbox_updates_count(vec![own.clone()], backend).await?;
     assert_eq!(without_client[own.checked()?], counts[own.checked()?]);
+    assert_eq!(counts.len(), 2);
+    assert!(counts[own.checked()?] > 0);
+    assert_eq!(counts[unknown.checked()?], 0);
     client.end().await?;
 }
 

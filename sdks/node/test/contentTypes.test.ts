@@ -108,6 +108,36 @@ describe("Content types", () => {
     },
   );
 
+  it("lifts reactions into the read message and onto the parent", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    try {
+      const group = await client.conversations.createGroup([]);
+      const parent = await group.sendText("parent");
+      const reactions = [
+        { action: "added", schema: "unicode", content: "👍" },
+        { action: "added", schema: "shortcode", content: ":thumbsup:" },
+        { action: "removed", schema: "custom", content: "thumbsup" },
+      ] as const;
+      const ids: string[] = [];
+      for (const reaction of reactions) {
+        const id = await group.sendReaction(parent, client.inboxId, reaction);
+        ids.push(id);
+        expect(
+          (await client.conversations.getMessageById(id))?.content,
+        ).toEqual({
+          kind: "reaction",
+          reference: parent,
+          referenceInboxId: client.inboxId,
+          reaction,
+        });
+      }
+      const original = await client.conversations.getMessageById(parent);
+      expect(original?.reactions.map((reaction) => reaction.id)).toEqual(ids);
+    } finally {
+      await client.end();
+    }
+  });
+
   it("retains replies with text, attachment, and custom bodies", async () => {
     const codec = new TestCodec();
     const client = await createRegisteredClient(createSigner().signer, {

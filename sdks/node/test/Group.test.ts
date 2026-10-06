@@ -52,10 +52,15 @@ describe("Group", () => {
 
   it("should stream messages", async () => {
     const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
+    const { signer: signer2, identifier: identifier2 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
-    const group = await client1.conversations.createGroup([client2.inboxId]);
+    // An identity list routes to the generated `createGroupWithIdentities`
+    // call. The send test above creates its group from inbox IDs.
+    const group = await client1.conversations.createGroup([identifier2]);
+    expect(
+      (await group.members()).map((member) => member.inboxId).sort(),
+    ).toEqual([client1.inboxId, client2.inboxId].sort());
 
     await client2.conversations.sync();
     const groups = await client2.conversations.listGroups({});
