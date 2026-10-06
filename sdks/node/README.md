@@ -77,12 +77,12 @@ Later `next()` calls reject with the same terminal error.
 Open an explicit replacement when the app is ready. End streams and clients
 with `await stream.end()` and `await client.end()`.
 
-Without `selection.from`, only one default message reader can own delivery
+Without `options.from`, only one default message reader can own delivery
 progress for a client database. Another default reader fails with
 `ConsumerOwned`, even for a different group, DM, or filter. End the current
 reader before opening another default reader.
 
-An explicit `selection.from` cursor opens an independent replay/live reader.
+An explicit `options.from` cursor opens an independent replay/live reader.
 These readers can run in parallel and do not change default delivery progress.
 They do not have separate durable consumer checkpoints. To resume a replay,
 save the last processed message's `deliveryCursor` and pass it as `from` when

@@ -54,7 +54,7 @@ changes. The Core controlled-clock tests in `recovery.rs` and
 
 Core owns network recovery for message and conversation notification streams.
 A terminal Core error ends that stream. An app can open a new stream on the
-same client, including from `onError` or an iterator's error handler. The old
+same client, including from `onClose` with a failed reason or an iterator's error handler. The old
 stream stays ended. A replacement resumes saved progress and gets its own
 network budget. Do not add automatic reader replacement in the SDK wrapper.
 

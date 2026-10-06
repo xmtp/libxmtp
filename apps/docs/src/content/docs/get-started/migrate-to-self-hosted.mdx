@@ -1390,9 +1390,11 @@ payload field names. Optional fields use `undefined`; record fields are read-onl
 
 ### Streams and live events
 
-Replace the old asynchronous stream factories with `MessageStream` and
-`ConversationStream`. `open` returns a stream immediately. `await stream.ready()`
-waits for local reader readiness; it does not prove that the backend is online.
+Use stream methods on `client.conversations`, a group, or a DM. TypeScript
+returns a stream immediately. `await stream.ready()` waits for the local reader
+to open; it does not prove that the backend is online or catch-up is complete.
+Swift uses `try await` to create a lazy sequence; its first read opens the reader.
+Kotlin returns a cold Flow; collection opens the reader.
 
 | Previous call                                                                                 | Current call                                                                                                                                                        |
 | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1443,7 +1445,7 @@ message. Do not also iterate a callback stream.
 
 Only one default message reader owns delivery progress for a database. This
 includes readers that select different conversations. A second default reader
-fails with `ConsumerOwned`. Use `selection.from` for independent replay.
+fails with `ConsumerOwned`. Use `options.from` for independent replay.
 `message.deliveryCursor` is a string or `null`; it is local to one database.
 `conversations.beginningDeliveryCursor()` selects the first retained message.
 Save a replay message's cursor only after processing succeeds.
