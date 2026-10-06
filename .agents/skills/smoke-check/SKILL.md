@@ -62,7 +62,9 @@ log path, and process handle. Each script prints its inbox ID on startup.
 The ping bot replies to exact plain text `ping` with `pong`. The bleep bot replies
 to exact plain text `bleep` with `bloop`. They ignore all other text, nontext
 content, and their own messages. Responses use `message.reply`, so web chat
-shows threaded replies. Logs include the request ID and reply ID.
+shows threaded replies. Logs include the request ID and reply ID. Group update
+receipts also include `groupUpdated`, with membership and metadata field changes.
+A group rename records `group_name`, its old value, and its new value.
 
 The current `self-hosted` SDK has no `streamAllMessages` method. Its all-message
 API is `MessageStream.open(client, {})`. The scripts use that API and await
@@ -108,6 +110,7 @@ bot logs. Diagnose the failure; do not report a pass from startup alone.
 | Bleep DM | Create a DM with the bleep inbox ID. Send `bleep` three times. | One `bloop` reply for each request, from the bleep bot. |
 | Group membership | Create a named group. Add both inbox IDs through the Members section. | The browser account and both bots are members. |
 | Group delivery | Send `ping`, `bleep`, `ping`, and `bleep`. | Each trigger gets one reply from the correct bot. |
+| Group name change | Open Manage Conversation > Metadata. Change Name to a distinct value, such as `Renamed smoke test`, and save. Check the header and sidebar, then send `ping` and `bleep`. | Both bots log a `received` record for the same group with `contentKind: "groupUpdated"`. Its `groupUpdated.metadataFieldChanges` contains `fieldName: "group_name"`, the original name as `oldValue`, and the new name as `newValue`. Neither bot replies to the update. Both still reply to their text triggers. |
 | Group exact match | Send `hello`, `Ping`, `Bleep`, `ping?`, and `bleep?`, then `ping` and `bleep`. | Only the last two messages get replies. |
 | Bot-to-bot receipt | Read both bots' group logs. | The ping bot receives the bleep bot's `bloop` reply IDs. The bleep bot receives the ping bot's `pong` reply IDs. Neither responds to those replies. |
 
@@ -126,7 +129,8 @@ Do not create clients or send messages through browser page evaluation.
 Save a screenshot that shows both group replies, the group membership count,
 and the backend label. Save the relevant bot JSON logs and a short result report.
 Report each check as passed, failed, or not run. Include the tested commit,
-backend URL, bot inbox IDs, group ID, and any failure or workaround.
+backend URL, bot inbox IDs, group ID, original and new group names, and any
+failure or workaround. Include the group rename receipt from each bot.
 
 When changing these scripts or the test procedure, prove that the relevant check
 can fail. For example, copy the scripts folder to a test-only directory. Change
@@ -158,5 +162,5 @@ To check the bot matching contract after a script change, run:
 dev/nix-shell 'node --test .agents/skills/smoke-check/scripts/run-bot.test.mjs'
 ```
 
-These tests check bot matching and reply errors. They do not replace the live
+These tests check bot matching, group rename logs, and reply errors. They do not replace the live
 browser and backend checks.

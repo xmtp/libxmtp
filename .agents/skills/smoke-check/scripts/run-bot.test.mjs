@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { replyToTrigger } from "./run-bot.mjs";
+import { receivedEvent, replyToTrigger } from "./run-bot.mjs";
 
 for (const [trigger, response] of [
   ["ping", "pong"],
@@ -85,4 +85,50 @@ test("reply failure reaches the stream consumer", async () => {
     ),
     (error) => error === failure,
   );
+});
+
+test("group rename logs preserve the old and new names and message IDs", () => {
+  const record = JSON.parse(
+    JSON.stringify(
+      receivedEvent({
+        id: "rename-message",
+        conversationId: "smoke-group",
+        senderInboxId: "owner",
+        sentAt: { ns: 123n },
+        content: {
+          kind: "groupUpdated",
+          value: {
+            initiatedByInboxId: "owner",
+            addedInboxes: [],
+            removedInboxes: [],
+            leftInboxes: [],
+            metadataFieldChanges: [
+              {
+                fieldName: "group_name",
+                oldValue: "Local smoke test",
+                newValue: "Renamed smoke test",
+              },
+            ],
+            addedAdminInboxes: [],
+            removedAdminInboxes: [],
+            addedSuperAdminInboxes: [],
+            removedSuperAdminInboxes: [],
+          },
+        },
+      }),
+    ),
+  );
+  assert.equal(record.event, "received");
+  assert.equal(record.id, "rename-message");
+  assert.equal(record.conversationId, "smoke-group");
+  assert.equal(record.senderInboxId, "owner");
+  assert.equal(record.contentKind, "groupUpdated");
+  assert.deepEqual(record.groupUpdated?.metadataFieldChanges, [
+    {
+      fieldName: "group_name",
+      oldValue: "Local smoke test",
+      newValue: "Renamed smoke test",
+    },
+  ]);
+  assert.equal(record.groupUpdated?.initiatedByInboxId, "owner");
 });

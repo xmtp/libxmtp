@@ -15,6 +15,27 @@ export async function replyToTrigger(message, inboxId, trigger, response) {
   return await message.reply(response);
 }
 
+export function receivedEvent(message) {
+  return {
+    event: "received",
+    id: message.id,
+    conversationId: message.conversationId,
+    senderInboxId: message.senderInboxId,
+    contentKind: message.content.kind,
+    groupUpdated:
+      message.content.kind === "groupUpdated"
+        ? message.content.value
+        : undefined,
+    text:
+      message.content.kind === "text"
+        ? message.content.value
+        : message.content.kind === "reply" &&
+            message.content.body.kind === "text"
+          ? message.content.body.value
+          : undefined,
+  };
+}
+
 export async function runBot(trigger, response) {
   const repoRoot = resolve(process.argv[2] ?? process.cwd());
   const backendUrl = process.env.XMTP_BACKEND_URL;
@@ -113,20 +134,7 @@ export async function runBot(trigger, response) {
       response,
     });
     for await (const message of stream) {
-      await log({
-        event: "received",
-        id: message.id,
-        conversationId: message.conversationId,
-        senderInboxId: message.senderInboxId,
-        contentKind: message.content.kind,
-        text:
-          message.content.kind === "text"
-            ? message.content.value
-            : message.content.kind === "reply" &&
-                message.content.body.kind === "text"
-              ? message.content.body.value
-              : undefined,
-      });
+      await log(receivedEvent(message));
       const replyId = await replyToTrigger(
         message,
         client.inboxId,
