@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 
 import { expect, it } from "vitest";
 
-it("settles all seven async callback routes and keeps later listener/log calls", async () => {
+it("settles all seven async callback routes, keeps later listener/log calls, and ends a client from a log sink", async () => {
   const { stdout, stderr } = await promisify(execFile)(
     process.execPath,
     [
@@ -17,7 +17,7 @@ it("settles all seven async callback routes and keeps later listener/log calls",
   const result = stdout.trim().split("\n").at(-1);
   expect(JSON.parse(result!)).toMatchObject({
     result: "PASS",
-    checks: 35,
+    checks: 36,
     failures: [],
     unhandled: 0,
   });

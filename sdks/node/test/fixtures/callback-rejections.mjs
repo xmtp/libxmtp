@@ -322,6 +322,40 @@ for (const reason of [null, undefined, new Error(privateReason)])
     `log/${reason === null ? "null" : reason === undefined ? "undefined" : "Error"}/continuation`,
     () => logContinuation(reason),
   );
+// A log sink callback can end a client and clear the sink from inside the
+// callback. Neither call waits for the callback that made it.
+// verifies: LOG-008
+await check("log/end client inside sink", async () => {
+  const client = await bounded(
+    Client.create(await generateLocalSigner(), {
+      ...options,
+      registration: { auto: false },
+    }),
+    "log end client",
+  );
+  const ended = Promise.withResolvers();
+  try {
+    await setLogSink({
+      async log() {
+        try {
+          await client.end();
+          await setLogSink();
+          ended.resolve();
+        } catch (error) {
+          ended.reject(error);
+        }
+      },
+    });
+    await assert.rejects(localSignerFromPrivateKey(new Uint8Array(31)));
+    await bounded(ended.promise, "end and clear inside log sink");
+    await assert.rejects(
+      client.isRegistered(),
+      (error) => error instanceof XmtpError.ClientClosed,
+    );
+  } finally {
+    await bounded(setLogSink(), "log end sink clear");
+  }
+});
 async function rawLogContinuation(reason) {
   let calls = 0;
   try {
