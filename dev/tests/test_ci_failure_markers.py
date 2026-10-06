@@ -105,6 +105,20 @@ class FailureMarkers(unittest.TestCase):
             [],
         )
 
+    def test_git_push_rejection_keeps_the_permission_cause(self):
+        rejection = (
+            " ! [remote rejected] ios-8.0.0-dev.f694bb7 -> ios-8.0.0-dev.f694bb7 "
+            "(refusing to allow a GitHub App to create or update workflow "
+            "`.github/workflows/push-backend.yml` without `workflows` permission)"
+        )
+        self.assertEqual(
+            self.filtered(
+                f"2026-10-06T22:55:36.7000470Z {rejection}\n"
+                "2026-10-06T22:55:36.7000470Z * [new tag] healthy -> healthy\n"
+            ),
+            [rejection],
+        )
+
     def test_failure_output_stays_sorted_unique_and_bounded(self):
         failures = [f"error: case_{number:02d}\n" for number in range(50)]
         self.assertEqual(

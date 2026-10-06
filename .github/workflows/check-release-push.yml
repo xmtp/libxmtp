@@ -1,0 +1,18 @@
+name: Check release push permissions
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify release App permissions
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PK }}
+          permission-contents: write
+          permission-workflows: write

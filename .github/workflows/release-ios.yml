@@ -32,6 +32,10 @@ on:
         value: ${{ jobs.publish.outputs.version }}
 
 jobs:
+  check-push-permissions:
+    uses: ./.github/workflows/check-release-push.yml
+    secrets: inherit
+
   build-and-package:
     runs-on: warp-macos-15-arm64-12x
     permissions:
@@ -115,11 +119,11 @@ jobs:
 
           echo "artifact-url=$ARTIFACT_URL" >> "$GITHUB_OUTPUT"
 
-  publish:
-    needs: [build-and-package]
+  prepare-release:
+    needs: [build-and-package, check-push-permissions]
     runs-on: warp-macos-15-arm64-12x
     permissions:
-      contents: write
+      contents: read
     outputs:
       version: ${{ needs.build-and-package.outputs.version }}
     steps:
@@ -181,14 +185,53 @@ jobs:
             echo "No changes to commit"
           fi
 
-      - name: Tag release
+      - name: Prepare release tag
         env:
           VERSION: ${{ needs.build-and-package.outputs.version }}
-        run: xmtp-release tag-release --sdk ios --version "$VERSION"
+        run: |
+          xmtp-release tag-release --sdk ios --version "$VERSION" --no-push
+          git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/ios-$VERSION"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-tag-ios
+          path: ${{ runner.temp }}/release.bundle
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ios-release-bundle
+          path: sdks/ios/XMTP-${{ needs.build-and-package.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  push-tag:
+    needs: [prepare-release]
+    uses: ./.github/workflows/push-release-tag.yml
+    with:
+      sdk: ios
+      version: ${{ needs.prepare-release.outputs.version }}
+      source-sha: ${{ github.sha }}
+    secrets: inherit
+
+  publish:
+    needs: [prepare-release, push-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ needs.prepare-release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ios-release-bundle
+          path: sdks/ios
       - name: Create release and upload bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.build-and-package.outputs.version }}
+          VERSION: ${{ needs.prepare-release.outputs.version }}
         working-directory: sdks/ios
         run: |
           TAG="ios-${VERSION}"
