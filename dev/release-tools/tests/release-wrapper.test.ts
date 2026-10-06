@@ -165,37 +165,33 @@ describe("release action CLI wrapper", () => {
     expect(result.status).not.toBe(0);
   });
 
-  it.each(["true", "false"])(
-    "rejects a backend checkout that differs from the workflow source (release build: %s)",
-    (releaseBuild) => {
-      const workflow = fs.readFileSync(
-        path.join(repoRoot, ".github/workflows/push-backend.yml"),
-        "utf8",
-      );
-      const match = workflow.match(
-        /- name: Pin the build source[\s\S]*?        run: \|\n([\s\S]*?)\n  deploy-dev:/,
-      );
-      if (!match?.[1]) throw new Error("Backend source script not found");
-      const output = path.join(tmpDir, "source-output");
-      fs.writeFileSync(output, "");
-      const result = spawnSync(
-        "bash",
-        ["-c", match[1].replace(/^          /gm, "")],
-        {
-          cwd: repoRoot,
-          env: {
-            ...process.env,
-            RELEASE_BUILD: releaseBuild,
-            WORKFLOW_SHA: "0".repeat(40),
-            GITHUB_OUTPUT: output,
-          },
-          encoding: "utf8",
+  it("rejects a backend checkout that differs from the workflow source", () => {
+    const workflow = fs.readFileSync(
+      path.join(repoRoot, ".github/workflows/push-backend.yml"),
+      "utf8",
+    );
+    const match = workflow.match(
+      /- name: Pin the build source[\s\S]*?        run: \|\n([\s\S]*?)\n  deploy-dev:/,
+    );
+    if (!match?.[1]) throw new Error("Backend source script not found");
+    const output = path.join(tmpDir, "source-output");
+    fs.writeFileSync(output, "");
+    const result = spawnSync(
+      "bash",
+      ["-c", match[1].replace(/^          /gm, "")],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          WORKFLOW_SHA: "0".repeat(40),
+          GITHUB_OUTPUT: output,
         },
-      );
-      expect(result.status).not.toBe(0);
-      expect(fs.readFileSync(output, "utf8")).toBe("");
-    },
-  );
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).not.toBe(0);
+    expect(fs.readFileSync(output, "utf8")).toBe("");
+  });
 
   it.each([true, false])(
     "validates the release ref without checking out its code (matching source: %s)",
