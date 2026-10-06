@@ -80,3 +80,11 @@ exports its selected `ANDROID_SERIAL` to the command, and stops its process
 group and removes its newly created Android home on success, failure, or TERM/INT.
 Scoped-run diagnostics stay outside that home. Calling `run-test-emulator`
 without a command leaves the ready emulator and home available for interactive reuse.
+
+## Migration packages
+
+`xmtp-migration-native`, `xmtp-migration-ios-device`, and
+`xmtp-migration-ios-simulator` build the independent conversion library.
+`xmtp-migration-android-libs` contains all four migration JNI libraries;
+`xmtp-migration-android-libs-fast` contains the host emulator ABI. Bindings and
+package assembly use `just migration build` and `just migration mobile-stage`.

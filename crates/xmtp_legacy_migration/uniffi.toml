@@ -1,0 +1,9 @@
+[bindings.swift]
+module_name = "XmtpMigration"
+ffi_module_name = "XmtpMigrationFFI"
+generate_module_map = true
+
+[bindings.kotlin]
+package_name = "uniffi.xmtp_migration"
+android = true
+android_cleaner = true

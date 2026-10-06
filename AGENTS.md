@@ -40,6 +40,7 @@ dev/nix-shell 'just lint-js-source' # source Oxlint without generated SDK produc
 dev/nix-shell 'just lint-rust-source' # Rust format and manifests, without Clippy
 just backend up              # shared services
 just backend status          # worktree ports and URLs
+just migration build         # standalone legacy migration bindings
 just outline <paths...>      # declarations and line ranges
 just show <file> <name>      # source of a named symbol
 just ci-status <pr>          # CI failures and summary

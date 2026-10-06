@@ -9,6 +9,7 @@ mod kotlin_records;
 mod logging_admission;
 mod markers;
 mod message_fields;
+mod migration;
 mod native_visibility;
 mod public_projection;
 mod redaction;
@@ -41,6 +42,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Generate the independent migration package without the client facade.
+    GenerateMigration {
+        #[arg(long)]
+        lib: Utf8PathBuf,
+        #[arg(long, value_enum)]
+        language: Language,
+        #[arg(long)]
+        out: Utf8PathBuf,
+    },
     Generate {
         #[arg(long)]
         lib: Utf8PathBuf,
@@ -76,6 +86,9 @@ enum Language {
 fn main() -> Result<()> {
     let Cli { command } = Cli::parse();
     match command {
+        Command::GenerateMigration { lib, language, out } => {
+            migration::generate(&lib, language, &out)
+        }
         Command::Generate {
             lib,
             language,

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+kind="${1:-all}"
+case "$kind" in native|browser|all) ;; *) echo "Expected native, browser, or all" >&2; exit 2 ;; esac
+export OPENSSL_NO_VENDOR=0 OPENSSL_STATIC=1
+dev/agent-run cargo build --locked -p xmtp-sdk-bindgen
+if [[ "$kind" != browser ]]; then
+  dev/agent-run cargo build --locked -p xmtp_legacy_migration
+  case "$(uname -s)" in Darwin) extension=dylib ;; Linux) extension=so ;; *) extension=dll ;; esac
+  library="target/debug/libxmtp_legacy_migration.$extension"
+  [[ "$extension" != dll ]] || library="target/debug/xmtp_legacy_migration.dll"
+  for language in typescript-napi swift kotlin; do
+    output="$language"
+    [[ "$language" != typescript-napi ]] || output=node
+    target/debug/xmtp-sdk-bindgen generate-migration --lib "$library" --language "$language" --out "target/migration-generated/$output"
+  done
+fi
+if [[ "$kind" != native ]]; then
+  dev/agent-run cargo build --locked -p xmtp_legacy_migration --target wasm32-unknown-unknown
+  target/debug/xmtp-sdk-bindgen generate-migration --lib target/wasm32-unknown-unknown/debug/xmtp_legacy_migration.wasm --language typescript-wasm --out target/migration-generated/browser
+fi

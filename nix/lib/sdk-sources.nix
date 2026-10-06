@@ -152,4 +152,6 @@ in
     ;
   sdk = rust: mkCompileSource rust sdkInputs;
   bindgen = rust: mkCompileSource rust bindgenInputs;
+  legacyMigration =
+    rust: mkCompileSource rust (restored (closure (root + /crates/xmtp_legacy_migration)) embedded);
 }

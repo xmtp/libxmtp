@@ -1,0 +1,33 @@
+{
+  "legacy_commit": "6a8e969785c62e0923cf3d8531aff4eaac3c91b7",
+  "group_id": "a06859a4aebe75c970b8875698fbeddb",
+  "key_hex": "47726f7570436f6e7465787447726f7570436f6e746578741000000000000000a06859a4aebe75c970b8875698fbeddb00010001",
+  "storage_version": 1,
+  "context_bytes": 734,
+  "creator_inbox_id": "0101010101010101010101010101010101010101010101010101010101010101",
+  "conversation_type": "Dm",
+  "dm_members": {
+    "member_one_inbox_id": "0101010101010101010101010101010101010101010101010101010101010101",
+    "member_two_inbox_id": "0202020202020202020202020202020202020202020202020202020202020202"
+  },
+  "attributes": {
+    "group_name": "Migration DM",
+    "app_data": "fixture-app-data",
+    "message_disappear_in_ns": "60000000000",
+    "description": "Legacy fixture",
+    "group_image_url_square": "https://example.test/image.png",
+    "message_disappear_from_ns": "1700000000000000000"
+  },
+  "admin_list": [
+    "0202020202020202020202020202020202020202020202020202020202020202"
+  ],
+  "super_admin_list": [
+    "0101010101010101010101010101010101010101010101010101010101010101"
+  ],
+  "members": [
+    "0101010101010101010101010101010101010101010101010101010101010101",
+    "0202020202020202020202020202020202020202020202020202020202020202"
+  ],
+  "full_mls_load_without_secrets": false,
+  "public_group_load_without_secrets": true
+}

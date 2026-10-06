@@ -1,7 +1,7 @@
 ---
 layout: "@astrojs/starlight/components/StarlightPage.astro"
 title: Migrate legacy SDK data
-description: Draft guide for moving legacy XMTP SDK history and consent to the self-hosted SDK through a local archive.
+description: Move legacy XMTP SDK history and consent to the self-hosted SDK through a local archive.
 sidebar:
   hidden: true
 pagefind: false
@@ -14,82 +14,69 @@ head:
       content: noindex
 ---
 
-:::caution[Draft API]
-The migration package is not implemented. This page describes the intended workflow.
-Migration API names and package names are proposed. TypeScript design examples are
-shown as text until the package can supply real types. The existing archive import
-examples use checked SDK source.
-:::
+Use `prepareMigrationArchive(args)` to convert a closed legacy database to a standard XMTP archive. Then import that archive with the current SDK. The standalone converter needs no SDK client or network connection.
 
-Use `prepareMigrationArchive(args)` to create a local archive from a database made by the last legacy major version of your SDK. You do not need to install intervening SDK releases. The package applies the required legacy database migrations.
+The converter copies the source before it applies legacy migrations. The source database and its sidecars stay unchanged. You do not need to install intervening SDK releases.
 
-The archive contains eligible groups, DMs, application messages, and consent. Message IDs and content bytes stay unchanged. Disappearing messages are always excluded. There is no option to include them.
+## Supported legacy data
 
-The archive does not contain installation keys, MLS secrets, or attachment files. Setup and group activation use the existing self-hosted SDK workflows. Imported conversations are history; importing them does not grant authority to send or decrypt later group traffic.
+The converter accepts known migration prefixes from the last legacy SDK majors: Node 6, Browser 7, Agent 2, iOS 4, and Android 4. The Agent SDK uses Node storage. Fixtures cover the Node 6.1.0, Browser 7.1.0, iOS 4.10.0 and 4.11.0, and Android 4.10.0 and 4.11.0 schema endpoints. Unknown migration histories fail with `UnsupportedSchema`.
 
-## 1. Close the legacy SDK and prepare the files
+The archive contains groups, DMs, application messages, and consent. Message IDs, content bytes, and nanosecond timestamps stay unchanged. Virtual sync conversations, one-shot conversations, and groups already marked as restored are excluded.
 
-Close the legacy client and its database connection before calling the migration function. The function fails if it cannot get the required database access. A SQLite lock check cannot prove that an idle client is closed; closing the client remains the caller's responsibility.
+**Messages with a stored expiry deadline are always excluded.** This includes deadlines in the past and future. A null deadline does not exclude a message. Some older schemas and previously imported histories have no recorded deadline. Those messages are included, even when their original disappearing-message status is unknown. The converter does not infer expiry from publish state, push flags, or timestamps. A conversation can remain in the archive when it has no eligible messages.
 
-Keep the database and its sidecars together, including the SQLCipher salt file if present. The function includes committed WAL data when it prepares the working copy.
+The archive does not contain installation keys, MLS secrets, or attachment files. Imported conversations are history. Import does not grant authority to send or decrypt later group traffic.
 
-Provide the database path, its encryption key when required, a new 32-byte archive key, and the output path. Store the archive key in your app's key storage before export. You need it again for import.
+## 1. Close the legacy SDK
 
-The proposed implementation migrates a temporary copy and leaves the source unchanged. This is a safety default, not a public option. The final choice between a copy and in-place migration remains open.
+Close the legacy client and every connection to its database. Native lock checks can detect some active writers. POSIX checks do not report locks held by the calling process. No lock check can prove that an idle client is closed. Closing the client remains the caller's responsibility.
 
-## 2. Create the archive
+For native storage, keep the database and its sidecars together. This includes the WAL and SQLCipher salt file when present. The working copy includes committed WAL data. Supply the original 32-byte database key for encrypted storage. Omit `databaseKey` for unencrypted storage.
 
-The proposed standalone packages expose `prepareMigrationArchive(args)`. The call owns source access, the working copy, legacy migrations, SQL extraction, metadata decoding, and the archive write. No existing SDK client or network connection is required.
+Create a separate random 32-byte archive key. Save it in the app's key storage before export. Use the same key for import. Choose an output path that is separate from the source and its sidecars.
 
-The Rust interface uses owned, UniFFI-compatible values:
+## 2. Create and import the archive
 
-```rust
-#[derive(uniffi::Record)]
-pub struct PrepareMigrationArchiveArgs {
-    pub database_path: String,
-    pub database_key: Option<Vec<u8>>,
-    pub archive_key: Vec<u8>,
-    pub output_path: String,
-}
+### Node and Agent
 
-#[derive(uniffi::Record)]
-pub struct MigrationReport {
-    pub archive_path: String,
-    pub group_count: u64,
-    pub message_count: u64,
-    pub consent_count: u64,
-}
+Use the standalone `@xmtp/migration` package. Keys are `Uint8Array` values. Buffer views are accepted without including bytes outside the view. Report counts are `bigint` values.
+
+```ts source="legacy-migration-node.ts" region="imports"
+
 ```
 
-The proposed exported signature is below. The body is omitted.
+The app supplies a destination client for the correct inbox, file paths, and keys:
 
-```rust
-#[uniffi::export]
-pub async fn prepare_migration_archive(
-    args: PrepareMigrationArchiveArgs,
-) -> Result<MigrationReport, MigrationError>;
+```ts source="legacy-migration-node.ts" region="migrate"
+
 ```
 
-Bindings expose this as `prepareMigrationArchive(args)`. The Rust function runs blocking database and file work off the async worker. `MigrationError` is a public UniFFI error with stable variants for invalid input, a busy source, an unsupported schema, migration failure, record-read failure, and output failure. Metadata decode failures use the fallback below.
+The Agent SDK uses the same Node converter and archive import workflow.
 
-The function always exports both standard categories without a time window and always excludes disappearing messages. It has no selection, in-place, schema-version, or resume option. `database_key: None` means the source is unencrypted. Sidecars use the legacy naming rules.
+### Browser
 
-**Node and agent SDK example.** `@xmtp/migration` is a proposed standalone package name. The app supplies `databaseKey` as `Uint8Array | undefined` and `archiveKey` as a 32-byte `Uint8Array`.
+Use `@xmtp/browser-migration` on a secure origin with OPFS and Web Locks support. Close the legacy client and the current SDK before conversion. The migration worker owns the SDK storage pool until conversion ends. The promise settles after worker termination and storage release.
 
-```text
-import { prepareMigrationArchive } from "@xmtp/migration";
+Use the exact legacy database name, including its leading slash if present. `outputPath` is a logical archive name in the separate `xmtp-migration-archives` OPFS directory. Browser legacy storage is unencrypted; omit `databaseKey`.
 
-const archive = await prepareMigrationArchive({
-  databasePath: "/data/legacy/xmtp.db3",
-  databaseKey,
-  archiveKey,
-  outputPath: "/data/migration/history.xmtp",
-});
+```ts source="legacy-migration-browser.ts" region="imports"
+
 ```
 
-**Swift example.** Import the proposed generated migration module. Paths and keys come from the app.
+Open the destination client after conversion completes. `readMigrationArchive` returns the completed file as bytes for the existing importer:
+
+```ts source="legacy-migration-browser.ts" region="migrate"
+
+```
+
+### Swift
+
+Add the standalone `XmtpMigration` Swift package and import its generated module. The app supplies `String` paths and `Data` keys. Report counts are `UInt64` values.
 
 ```swift
+import XmtpMigration
+
 let archive = try await prepareMigrationArchive(
     args: PrepareMigrationArchiveArgs(
         databasePath: databasePath,
@@ -100,9 +87,16 @@ let archive = try await prepareMigrationArchive(
 )
 ```
 
-**Kotlin example.** Call the proposed generated function from a coroutine.
+Pass `archive.archivePath` and the archive key to the current Swift SDK archive restore workflow.
+
+### Kotlin
+
+Add the standalone `org.xmtp:migration` Android library. The app supplies `String` paths and `ByteArray` keys. Call the function from a coroutine. Report counts are `ULong` values.
 
 ```kotlin
+import uniffi.xmtp_migration.PrepareMigrationArchiveArgs
+import uniffi.xmtp_migration.prepareMigrationArchive
+
 val archive = prepareMigrationArchive(
     PrepareMigrationArchiveArgs(
         databasePath = databasePath,
@@ -113,76 +107,35 @@ val archive = prepareMigrationArchive(
 )
 ```
 
-The browser package exposes the same logical arguments. Its paths refer to files in the SDK's browser storage, not native operating-system paths. The browser adapter must use the existing worker and OPFS integration. It must define how an app reads the completed local archive for byte-based import. Package setup and that adapter example are implementation work.
+Pass `archive.archivePath` and the archive key to the current Kotlin SDK archive restore workflow.
 
-Wait for the call to succeed. `archivePath` names the completed local file. The report counts emitted records and contains no keys. A failed write does not publish a completed new archive.
+## Optional metadata and failures
 
-## What happens when metadata cannot be decoded
+The converter uses the pinned legacy MLS decoder for conversation metadata. If an optional field cannot be decoded, the field is absent. Other decoded fields remain. The converter does not invent creator IDs, attributes, or admin lists. Required record failures still stop conversion.
 
-The converter uses a pinned legacy decoder for metadata stored in MLS state. If metadata cannot be decoded, it keeps the group and its eligible messages and leaves the affected optional metadata null. It retains metadata that can be decoded. It does not invent creator IDs, attributes, or admin lists.
+`MigrationError` has six stable variants: `InvalidInput`, `SourceBusy`, `UnsupportedSchema`, `Migration`, `RecordRead`, and `Output`. Use the typed variant to handle a failure. Do not match error message text.
 
-In protobuf, null means an absent optional message or field. Existing scalar fields that cannot represent null use their documented unknown value. Do not create a new wire encoding for null.
+A failed conversion does not replace an existing completed archive. On native targets, cancellation before publication also preserves the old output. A successful report names the completed file and gives the emitted group, message, and consent counts. It contains no keys.
 
-This fallback applies to optional legacy metadata. A database read failure, a missing required group identity, or an unencodable required record still fails export.
+**Inbox validation is not implemented.** Archive metadata has no owner inbox ID. The app must select the correct destination inbox. This migration does not change the archive wire format or add an owner check.
 
-The converter excludes messages with a disappearing deadline. If supported legacy data cannot establish that a message is non-disappearing, it excludes that message too. Missing or undecodable expiry data must not turn a disappearing message into permanent history. A conversation can remain in the archive when none of its messages qualify.
+## 3. Re-create missing conversations
 
-## 3. Import through the existing SDK workflow
+**TODO:** Define SDK methods to re-create missing DMs and groups on the new network. These methods are outside this converter. Re-creation can fail until the required members move to the new network. Retry later when the methods become available.
 
-Use the destination client for the correct inbox. Pass the completed file and archive key to the normal archive restore operation.
+## 4. Check the result and retry
 
-The Node SDK already supports file-based import. In this checked example, use `archive.archivePath` in place of `/path/to/archive.xmtp`, and supply the archive key as `key`:
+Check known conversations, message contents, and consent settings. Missing legacy metadata can appear as unknown. Existing messages remain unchanged, live groups keep their state, and consent uses the existing merge rule.
 
-```ts source="backups-node.ts" region="import"
+Export counts need not equal the increase in destination counts. The destination can already contain records. Keep the source until you accept the result.
 
-```
+| Result                         | Next action                                                                 |
+| ------------------------------ | --------------------------------------------------------------------------- |
+| Source is busy                 | Close all clients that use the source, then retry.                          |
+| Invalid input                  | Check paths, key lengths, the database key, and sidecars.                   |
+| Unsupported schema             | Check that the source uses a supported legacy migration history.            |
+| Migration or record read fails | Correct the cause, then run the converter again.                            |
+| Output fails                   | Check free space and permissions, then retry. Do not import partial output. |
+| Import fails partway through   | Correct the cause, then retry the same completed archive and key.           |
 
-An optional preview uses the existing method:
-
-```ts source="backups-node.ts" region="metadata"
-
-```
-
-A preview reads metadata without applying records. It does not validate the complete archive.
-
-The browser SDK already supports byte-based import. Once the browser storage adapter supplies the completed local file as `data: Uint8Array`, use the archive key as `key` in this checked example:
-
-```ts source="backups-browser.ts" region="import"
-
-```
-
-The browser file-read adapter is still to be specified. The import call above is the existing SDK method. Swift and Kotlin use their existing archive restore workflows.
-
-**Inbox validation is not implemented by these calls today.** Archive metadata has no owner inbox ID. To check the inbox inside the existing import operation, the format must carry that ID and the importer must compare it with the destination client before applying records. This is the remaining contract decision, not a check performed by `prepareMigrationArchive`.
-
-## 4. Re-create missing conversations
-
-After import, the new SDK will provide methods to re-create missing DMs and groups on the new network. These are separate SDK methods, not part of `prepareMigrationArchive`.
-
-Re-creation may fail if some members of the conversation are not yet on the new network. Retry the method later as members move to the new network. The method names and signatures are still to be defined.
-
-## 5. Check the result and retry if needed
-
-Check known conversations, message contents, and consent settings. Unavailable legacy metadata can appear as unknown. Existing messages remain unchanged, existing groups keep live state, and consent uses the existing merge rule.
-
-Export counts need not equal the increase in destination counts because the destination can already hold records. Keep the source until you accept the result.
-
-| Result                                           | Next action                                                                             |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| Source is busy or locked                         | Close the legacy SDK and retry.                                                         |
-| Source cannot be opened                          | Check the path, database key, and required sidecars.                                    |
-| Unsupported schema                               | Use a package release that supports the source's last legacy SDK major.                 |
-| Optional metadata cannot be decoded              | The converter uses null for the unavailable metadata and continues.                     |
-| Migration, required-record read, or export fails | Correct the cause and run the same function again. Do not import partial output.        |
-| Import fails partway through                     | Correct a transient cause and retry the existing import call. Completed records remain. |
-
-For example, after correcting an import failure, retry the same Node call:
-
-```text
-await destinationClient.archives.importFromFile(
-  archive.archivePath,
-  archiveKey,
-);
-```
-
-There is no migration resume cursor or automatic retry loop. Repeating malformed input does not repair it. Removing the archive does not undo an import.
+Import retry is idempotent for the same archive. Completed records remain after a partial import. No migration-specific resume option is needed.
