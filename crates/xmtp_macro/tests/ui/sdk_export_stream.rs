@@ -2,7 +2,12 @@ use xmtp_macro::sdk_export;
 
 #[sdk_export]
 impl Object {
-    #[sdk(stream(name = "consume", options = "MessageStreamOptions", owner = "key", extra = "value"))]
+    #[sdk(stream(
+        name = "consume",
+        options = "MessageStreamOptions",
+        owner = "key",
+        extra = "value"
+    ))]
     pub async fn unknown(&self) {}
 }
 

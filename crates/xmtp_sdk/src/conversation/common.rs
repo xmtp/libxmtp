@@ -516,7 +516,11 @@ macro_rules! common_conversation {
             }
 
             #[uniffi::method(default(options = None))]
-            #[sdk(stream(name = "stream_messages", options = "ConversationMessageStreamOptions", owner = "sdk_stream_owner_key"))]
+            #[sdk(stream(
+                name = "stream_messages",
+                options = "ConversationMessageStreamOptions",
+                owner = "sdk_stream_owner_key"
+            ))]
             pub async fn message_reader(
                 &self,
                 options: Option<crate::ConversationMessageReaderOptions>,
