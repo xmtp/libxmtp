@@ -1,5 +1,6 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import { describe, expect, it } from "vitest";
+import type { ClientEvent } from "@xmtp/node-sdk";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   currentProjection,
@@ -23,18 +24,25 @@ describe("Preferences", () => {
     }
   });
 
-  it("uses byte group IDs in the named event payload", async () => {
+  it("uses byte group IDs in the named event payload and ends a pending read", async () => {
     const client = await createRegisteredClient(createSigner().signer);
     const events = await client.events({
       kinds: ["conversation.joined"],
     });
+    const seen: ClientEvent[] = [];
+    const consumed = (async () => {
+      for await (const event of events) seen.push(event);
+    })();
     try {
       const group = await client.conversations.createGroup([]);
-      const next = await events.next();
-      expect(next.done).toBe(false);
-      if (next.done || next.value.kind !== "conversation.joined")
+      await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0), {
+        timeout: 30_000,
+        interval: 100,
+      });
+      const [event] = seen;
+      if (event?.kind !== "conversation.joined")
         throw new Error("expected a joined event");
-      const payload = next.value.conversation_joined;
+      const payload = event.conversation_joined;
       expect(payload.group_id).toBeInstanceOf(Uint8Array);
       expect(Buffer.from(payload.group_id)).toEqual(
         Buffer.from(group.id, "hex"),
@@ -42,6 +50,10 @@ describe("Preferences", () => {
       expect(payload.conversation_type).toBe("group");
       expect(payload.origin).toBe("created");
       expect("conversationId" in payload).toBe(false);
+      // The loop is now waiting in next(). return() must abort that read and
+      // end the loop without an error.
+      await events.return();
+      await expect(consumed).resolves.toBeUndefined();
     } finally {
       await events.return();
       await client.end();
