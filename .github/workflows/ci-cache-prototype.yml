@@ -8,18 +8,17 @@ on:
       arm:
         description: Compiler control or cache arm
         type: choice
-        options: [all, current, no-incremental, sccache, kache]
-        default: all
-      cold-samples:
-        description: Cold samples (1 for feasibility, 5 for qualification)
+        options: [current, no-incremental, sccache, kache]
+        default: kache
+      scenario:
+        description: Stable paths or a separate checkout for the warm sample
         type: choice
-        options: ["1", "5"]
-        default: "1"
-      warm-samples:
-        description: Warm samples (1 for feasibility, 10 for qualification)
-        type: choice
-        options: ["1", "10"]
-        default: "1"
+        options: [stable, cross-checkout]
+        default: stable
+      diagnostics:
+        description: Save Cargo commands and compiler key diagnostics (untimed)
+        type: boolean
+        default: true
       verify:
         description: Add untimed Kache compile-and-compare sample
         type: boolean
@@ -34,11 +33,11 @@ jobs:
     if: github.ref == 'refs/heads/codex/ci-efficiency-investigation'
     name: Compiler cache (${{ matrix.arm }})
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 120
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        arm: ${{ fromJSON(inputs.arm && inputs.arm != 'all' && format('["{0}"]', inputs.arm) || '["current","no-incremental","sccache","kache"]') }}
+        arm: ${{ fromJSON(format('["{0}"]', inputs.arm || 'kache')) }}
     env:
       NIX_DEVSHELL: rust
       TRIAL_DIR: ${{ github.workspace }}/target/cache-trial/${{ matrix.arm }}
@@ -48,7 +47,13 @@ jobs:
         run: date -u +%FT%TZ > "$RUNNER_TEMP/cache-trial-start.txt"
       - uses: actions/checkout@v6
       - name: Create initial checkpoint
-        run: python3 dev/ci/cache-trial.py init --arm '${{ matrix.arm }}' --output "$TRIAL_DIR"
+        env:
+          SCENARIO: ${{ inputs.scenario || 'stable' }}
+          DIAGNOSTICS: ${{ github.event_name == 'push' || inputs.diagnostics }}
+        run: |
+          args=(init --arm '${{ matrix.arm }}' --output "$TRIAL_DIR" --scenario "$SCENARIO")
+          if [[ "$DIAGNOSTICS" == true ]]; then args+=(--diagnostics); fi
+          python3 dev/ci/cache-trial.py "${args[@]}"
       - name: Save initial checkpoint
         uses: actions/upload-artifact@v4
         with:
@@ -72,12 +77,7 @@ jobs:
           save-cache: "false"
           warm: "false"
       - name: Cold SDK generation
-        env:
-          SAMPLES: ${{ inputs.cold-samples || '1' }}
-        run: |
-          for ((i=0; i<SAMPLES; i++)); do
-            dev/nix-shell --command python3 dev/ci/cache-trial.py sample --output "$TRIAL_DIR" --phase cold --index "$i"
-          done
+        run: dev/nix-shell --command python3 dev/ci/cache-trial.py sample --output "$TRIAL_DIR" --phase cold
       - name: Save cold checkpoint
         if: always()
         uses: actions/upload-artifact@v4
@@ -86,17 +86,15 @@ jobs:
           path: |
             target/cache-trial/${{ matrix.arm }}/trial.json
             target/cache-trial/${{ matrix.arm }}/cold-*/build.log
+            target/cache-trial/${{ matrix.arm }}/cold-*/context.json
+            target/cache-trial/${{ matrix.arm }}/cold-*/key-diagnostics.json
+            target/cache-trial/${{ matrix.arm }}/cold-*/sccache-debug.log
             target/cache-trial/${{ matrix.arm }}/cold-*/cache-stats.json
             target/cache-trial/${{ matrix.arm }}/cold-*/runtime/events.jsonl
             target/cache-trial/${{ matrix.arm }}/cold-*/artifacts/artifacts.json
           retention-days: 7
-      - name: Warm SDK generation from a second checkout
-        env:
-          SAMPLES: ${{ inputs.warm-samples || '1' }}
-        run: |
-          for ((i=0; i<SAMPLES; i++)); do
-            dev/nix-shell --command python3 dev/ci/cache-trial.py sample --output "$TRIAL_DIR" --phase warm --index "$i" --second-checkout
-          done
+      - name: Warm SDK generation with fresh Cargo outputs
+        run: dev/nix-shell --command python3 dev/ci/cache-trial.py sample --output "$TRIAL_DIR" --phase warm
       - name: Save warm checkpoint
         if: always()
         uses: actions/upload-artifact@v4
@@ -105,20 +103,23 @@ jobs:
           path: |
             target/cache-trial/${{ matrix.arm }}/trial.json
             target/cache-trial/${{ matrix.arm }}/warm-*/build.log
+            target/cache-trial/${{ matrix.arm }}/warm-*/context.json
+            target/cache-trial/${{ matrix.arm }}/warm-*/key-diagnostics.json
+            target/cache-trial/${{ matrix.arm }}/warm-*/sccache-debug.log
             target/cache-trial/${{ matrix.arm }}/warm-*/cache-stats.json
             target/cache-trial/${{ matrix.arm }}/warm-*/runtime/events.jsonl
             target/cache-trial/${{ matrix.arm }}/warm-*/artifacts/artifacts.json
           retention-days: 7
       - name: Untimed Kache comparison
         if: matrix.arm == 'kache' && inputs.verify
-        run: dev/nix-shell --command python3 dev/ci/cache-trial.py sample --output "$TRIAL_DIR" --phase verify --second-checkout
+        run: dev/nix-shell --command python3 dev/ci/cache-trial.py sample --output "$TRIAL_DIR" --phase verify
       - name: Save comparison and allocation checkpoint
         if: always()
         run: |
           cp "$RUNNER_TEMP/cache-trial-start.txt" "$TRIAL_DIR/runner-start.txt"
           date -u +%FT%TZ > "$TRIAL_DIR/runner-checkpoint.txt"
           echo 'Final job API timestamps include setup, artifacts, post steps, and cancellation cost.' >> "$GITHUB_STEP_SUMMARY"
-          cat "$TRIAL_DIR/trial.json" >> "$GITHUB_STEP_SUMMARY"
+          python3 dev/ci/cache-trial.py summary --output "$TRIAL_DIR" >> "$GITHUB_STEP_SUMMARY"
       - name: Save final checkpoint
         if: always()
         uses: actions/upload-artifact@v4
@@ -128,6 +129,9 @@ jobs:
             target/cache-trial/${{ matrix.arm }}/trial.json
             target/cache-trial/${{ matrix.arm }}/runner-*.txt
             target/cache-trial/${{ matrix.arm }}/verify-*/build.log
+            target/cache-trial/${{ matrix.arm }}/verify-*/context.json
+            target/cache-trial/${{ matrix.arm }}/verify-*/key-diagnostics.json
+            target/cache-trial/${{ matrix.arm }}/verify-*/sccache-debug.log
             target/cache-trial/${{ matrix.arm }}/verify-*/runtime/events.jsonl
             target/cache-trial/${{ matrix.arm }}/verify-*/cache-stats.json
           retention-days: 7

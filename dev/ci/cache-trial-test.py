@@ -5,6 +5,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -96,13 +97,62 @@ class EventChecks(unittest.TestCase):
                     self.assertEqual(env["KACHE_PRESERVE_INCREMENTAL"], "0")
                     self.assertEqual(env["KACHE_REMOTE_READONLY"], "1")
 
+    def test_summary_stays_small_with_full_key_and_product_records(self):
+        state = {
+            "arm": "kache",
+            "scenario": "stable",
+            "samples": [
+                {
+                    "phase": "warm",
+                    "index": 0,
+                    "status": "passed",
+                    "generationSeconds": 2,
+                    "products": {f"product-{i}": "f" * 64 for i in range(20000)},
+                    "cache": {
+                        "results": {"local_hit": 99, "miss": 1},
+                        "units": {
+                            f"crate-{i}": {"wrapperMs": i, "results": {"local_hit": 1}}
+                            for i in range(20000)
+                        },
+                    },
+                }
+            ],
+        }
+        summary = trial.compact_summary(state)
+        self.assertLess(len(summary.encode()), 8192)
+        self.assertIn("local_hit=99", summary)
+        self.assertIn("Qualification: UNVERIFIED", summary)
+        self.assertEqual(summary.count("wrapper "), 8)
+
+    def test_key_diagnostics_retain_fields_and_dependency_hashes(self):
+        event = {
+            "crate_name": "cfg_if",
+            "result": "miss",
+            "cache_key": "cold-key",
+            "key_fields": {"args": "args-hash", "sources": "source-hash"},
+            "key_externs": {"dep": "dep-hash"},
+            "root": "/checkout/target",
+            "compiler_runs": 1,
+        }
+        rows = trial.key_diagnostics([event, {"event": "heartbeat"}])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(
+            rows[0].get("key_fields"), {"args": "args-hash", "sources": "source-hash"}
+        )
+        self.assertEqual(rows[0].get("key_externs"), {"dep": "dep-hash"})
+        self.assertEqual(rows[0]["cache_key"], "cold-key")
+
 
 class TrialLifecycle(unittest.TestCase):
     def test_fresh_targets_and_failed_checkpoint(self):
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder) / "repo"
+            root = Path(folder).resolve() / "repo"
             root.mkdir()
             (root / "crates/xmtp_sdk/dev").mkdir(parents=True)
+            (root / ".cargo").mkdir()
+            (root / ".cargo/config.toml").write_text(
+                '[target."cfg(all())"]\nrustflags = ["--cfg", "tracing_unstable"]\n'
+            )
             (root / "crates/xmtp_sdk/dev/generate").write_text(
                 '#!/bin/bash\nset -eu\nwhile [ "$#" -gt 0 ]; do\n'
                 'case "$1" in --artifacts) artifacts="$2";; --out) out="$2";; esac\n'
@@ -140,7 +190,8 @@ class TrialLifecycle(unittest.TestCase):
                 arm="current",
                 phase="cold",
                 index=0,
-                second_checkout=False,
+                scenario="stable",
+                diagnostics=True,
             )
             env = {
                 "XMTP_NIX_ENV": "yes",
@@ -154,19 +205,70 @@ class TrialLifecycle(unittest.TestCase):
                 trial.init(args)
                 trial.sample(args)
                 args.phase = "warm"
-                args.second_checkout = True
                 trial.sample(args)
                 state = json.loads((output / "trial.json").read_text())
                 self.assertEqual(
                     [s["status"] for s in state["samples"]], ["passed", "passed"]
                 )
-                self.assertTrue(state["samples"][1]["secondCheckout"])
+                self.assertFalse(state["samples"][1]["secondCheckout"])
+                self.assertEqual(
+                    state["samples"][0]["checkout"], state["samples"][1]["checkout"]
+                )
+                self.assertEqual(
+                    state["samples"][0]["artifactRoot"],
+                    state["samples"][1]["artifactRoot"],
+                )
+                self.assertFalse(
+                    Path(state["samples"][0]["checkout"]).is_relative_to(root)
+                )
+                self.assertFalse(state["samples"][1]["timedArm"])
                 self.assertEqual(
                     state["samples"][0]["products"], state["samples"][1]["products"]
                 )
                 self.assertEqual(state["qualification"].split(":")[0], "UNVERIFIED")
+                for row in state["samples"]:
+                    local = [
+                        item
+                        for item in row["cargoConfigAncestry"]
+                        if item["scope"] == "workspace"
+                    ]
+                    self.assertEqual(len(local), 1)
+                    self.assertEqual(
+                        Path(local[0]["path"]).parent.parent, Path(row["checkout"])
+                    )
+                    self.assertNotIn(
+                        str(root / ".cargo/config.toml"),
+                        [item["path"] for item in row["cargoConfigAncestry"]],
+                    )
+                # The optional cross-checkout case also keeps source/config identity.
+                state["scenario"] = "cross-checkout"
+                trial.save(output / "trial.json", state)
                 args.index = 1
-                args.second_checkout = False
+                trial.sample(args)
+                state = json.loads((output / "trial.json").read_text())
+                self.assertTrue(state["samples"][-1]["secondCheckout"])
+                self.assertNotEqual(
+                    state["samples"][0]["checkout"], state["samples"][-1]["checkout"]
+                )
+                self.assertEqual(
+                    state["samples"][0]["products"], state["samples"][-1]["products"]
+                )
+                # Cleanup must not follow an output parent into foreign data.
+                state["scenario"] = "stable"
+                trial.save(output / "trial.json", state)
+                checkout = Path(state["samples"][0]["checkout"])
+                shutil.rmtree(checkout / "target")
+                foreign = Path(folder) / "foreign"
+                (foreign / "sdk-artifacts").mkdir(parents=True)
+                sentinel = foreign / "sdk-artifacts/keep"
+                sentinel.write_text("foreign data")
+                (checkout / "target").symlink_to(foreign, target_is_directory=True)
+                args.index = 2
+                with self.assertRaisesRegex(ValueError, "output escaped"):
+                    trial.sample(args)
+                self.assertEqual(sentinel.read_text(), "foreign data")
+                (checkout / "target").unlink()
+                args.index = 3
                 with patch.dict(os.environ, {"RUSTFLAGS": "--cfg changed"}):
                     with self.assertRaisesRegex(ValueError, "context changed"):
                         trial.sample(args)
@@ -178,8 +280,7 @@ class TrialLifecycle(unittest.TestCase):
                     (root / "crates/xmtp_sdk/dev/generate").read_text()
                     + "# source change\n"
                 )
-                args.index = 2
-                args.second_checkout = False
+                args.index = 4
                 with self.assertRaisesRegex(ValueError, "source changed"):
                     trial.sample(args)
                 state = json.loads((output / "trial.json").read_text())

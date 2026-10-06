@@ -12,6 +12,8 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
+import uuid
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -154,15 +156,172 @@ def run(command, cwd, env, log):
         raise RuntimeError(f"Command failed ({process.returncode}); see {log}")
 
 
+def cargo_config_ancestry(checkout, env):
+    """Record Cargo's ordered configuration files without copying values."""
+    records = []
+    cargo_home = Path(env.get("CARGO_HOME", str(Path.home() / ".cargo"))).resolve()
+    seen = set()
+    for directory in (checkout, *checkout.parents):
+        for name in ("config", "config.toml"):
+            candidate = directory / ".cargo" / name
+            if candidate.is_file():
+                scope = "workspace" if directory == checkout else "parent"
+                if candidate.parent.resolve() == cargo_home:
+                    scope = "cargo-home"
+                records.append(
+                    {
+                        "path": str(candidate),
+                        "scope": scope,
+                        "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+                    }
+                )
+                seen.add(candidate.resolve())
+                break  # Cargo gives config precedence over config.toml.
+    for name in ("config", "config.toml"):
+        candidate = cargo_home / name
+        if candidate.is_file():
+            if candidate.resolve() not in seen:
+                records.append(
+                    {
+                        "path": str(candidate),
+                        "scope": "cargo-home",
+                        "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+                    }
+                )
+            break
+    return records
+
+
+def checkout_for_sample(args, state, env, log):
+    owned = Path(state["checkoutRoot"]).resolve()
+    marker = json.loads((owned / "owner.json").read_text())
+    if marker != {"output": str(args.output), "token": state["checkoutToken"]}:
+        raise ValueError("Experiment checkout ownership mismatch")
+    if owned.parent != ROOT.parent.resolve() or not owned.name.startswith(
+        ".cache-trial-"
+    ):
+        raise ValueError("Experiment checkout root is outside its owned location")
+    cross = state["scenario"] == "cross-checkout" and args.phase != "cold"
+    checkout = owned / (f"checkout-{args.phase}-{args.index}" if cross else "checkout")
+    if checkout.resolve().is_relative_to(ROOT.resolve()):
+        raise ValueError(
+            "Experiment checkout must not inherit the source repository config"
+        )
+    if source_identity(ROOT) != state["source"]:
+        raise ValueError("Trial source changed after init")
+    if not checkout.exists():
+        run(
+            ["git", "clone", "--local", "--no-hardlinks", str(ROOT), str(checkout)],
+            ROOT,
+            env,
+            log,
+        )
+        run(["git", "checkout", "--detach", state["source"]["sha"]], checkout, env, log)
+        if (ROOT / "node_modules").is_dir():
+            (checkout / "node_modules").symlink_to(
+                ROOT / "node_modules", target_is_directory=True
+            )
+    if checkout.is_symlink() or not checkout.resolve().is_relative_to(owned):
+        raise ValueError("Experiment checkout escaped its owned directory")
+    if source_identity(checkout) != state["source"]:
+        raise ValueError("Trial source changed after init")
+    # Only these experiment-owned outputs are removed. Keep the compiler store.
+    for relative in ("target/sdk-artifacts", "target/sdk-generated"):
+        output = checkout / relative
+        if output.is_symlink() or not output.resolve().is_relative_to(
+            checkout.resolve()
+        ):
+            raise ValueError("Experiment output escaped its checkout")
+        if output.exists():
+            shutil.rmtree(output)
+    return checkout
+
+
+def key_diagnostics(events):
+    return [
+        {
+            key: event[key]
+            for key in event
+            if key.startswith("key_")
+            or key
+            in (
+                "cache_key",
+                "crate_name",
+                "root",
+                "result",
+                "miss_reason",
+                "lookup_rejection",
+                "verify_compare",
+            )
+        }
+        for event in events
+        if event.get("cache_key") and "result" in event
+    ]
+
+
+def compact_summary(state):
+    lines = [
+        f"Compiler cache: {state['arm']} ({state.get('scenario', 'legacy')})",
+        "Qualification: UNVERIFIED. Full records are in the checkpoint artifacts.",
+    ]
+    for sample in state["samples"]:
+        lines.append(
+            f"{sample['phase']} {sample['index']}: {sample['status']}; "
+            f"generation {sample.get('generationSeconds', 0):.3f}s; "
+            f"through teardown {sample.get('sampleSecondsThroughTeardown', 0):.3f}s"
+        )
+        cache = sample.get("cache", {})
+        if "results" in cache:
+            lines.append(
+                "Cache counts: "
+                + ", ".join(
+                    f"{key}={cache['results'].get(key, 0)}"
+                    for key in (
+                        "local_hit",
+                        "remote_hit",
+                        "prefetch_hit",
+                        "miss",
+                        "passthrough",
+                    )
+                )
+            )
+            units = sorted(
+                cache.get("units", {}).items(),
+                key=lambda item: item[1].get("wrapperMs", 0),
+                reverse=True,
+            )
+            for name, unit in units[:8]:
+                counts = unit.get("results", {})
+                lines.append(
+                    f"  {name[:64]}: wrapper {unit.get('wrapperMs', 0) / 1000:.3f}s; "
+                    f"hits {sum(counts.get(key, 0) for key in HITS)}; misses {counts.get('miss', 0)}"
+                )
+        elif "stats" in cache:
+            stats = cache["stats"]
+            for kind in ("Rust", "C/C++", "Assembler"):
+                lines.append(
+                    f"  {kind}: hits {stats.get('cache_hits', {}).get('counts', {}).get(kind, 0)}; "
+                    f"misses {stats.get('cache_misses', {}).get('counts', {}).get(kind, 0)}"
+                )
+        if sample.get("error"):
+            lines.append("Error: " + sample["error"].replace("\n", " ")[:200])
+    lines.append(
+        "Use final job API timestamps for setup, transfers, post steps, and cancellation cost."
+    )
+    return "\n".join(lines[:64]) + "\n"
+
+
 def init(args):
     if args.output.exists():
         raise ValueError("Trial output already exists; choose a new isolated directory")
     args.output.mkdir(parents=True)
     state = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
+        "scenario": getattr(args, "scenario", "stable"),
+        "diagnostics": bool(getattr(args, "diagnostics", False)),
         "arm": args.arm,
         "source": source_identity(ROOT),
-        "question": "Can the wrapper cache native SDK and bindgen with fresh Cargo targets?",
+        "question": "Do native SDK and bindgen compiler keys repeat with unchanged Cargo configuration?",
         "stopCondition": "One cold/warm pair, cache passthrough, or a build/setup failure",
         "samples": [],
         "qualification": "UNVERIFIED: this feasibility run does not adopt a cache",
@@ -183,6 +342,11 @@ def init(args):
             "completeAllocatedCost": "UNVERIFIED: use final job API timestamps; include post steps and cancelled jobs",
         },
     }
+    owned = Path(tempfile.mkdtemp(prefix=f".cache-trial-{args.arm}-", dir=ROOT.parent))
+    token = uuid.uuid4().hex
+    state["checkoutRoot"] = str(owned)
+    state["checkoutToken"] = token
+    save(owned / "owner.json", {"output": str(args.output), "token": token})
     save(args.output / "trial.json", state)
 
 
@@ -203,8 +367,10 @@ def sample(args):
         "index": args.index,
         "status": "running",
         "startedAt": datetime.now(timezone.utc).isoformat(),
-        "timedArm": args.phase != "verify",
-        "secondCheckout": args.second_checkout,
+        "timedArm": args.phase != "verify" and not state["diagnostics"],
+        "secondCheckout": state["scenario"] == "cross-checkout"
+        and args.phase != "cold",
+        "scenario": state["scenario"],
     }
     state["samples"].append(row)
     save(args.output / "trial.json", state)
@@ -232,21 +398,23 @@ def sample(args):
         elif store.exists():
             raise ValueError("Cold cache store already exists")
         env = environment(arm, store, runtime, env, args.phase == "verify")
-        if args.second_checkout:
-            cwd = path / "checkout"
-            run(
-                ["git", "clone", "--local", "--no-hardlinks", str(ROOT), str(cwd)],
-                ROOT,
-                env,
-                log,
-            )
-            run(["git", "checkout", "--detach", state["source"]["sha"]], cwd, env, log)
-            if (ROOT / "node_modules").is_dir():
-                (cwd / "node_modules").symlink_to(
-                    ROOT / "node_modules", target_is_directory=True
-                )
-        if source_identity(cwd) != state["source"]:
-            raise ValueError("Trial source changed after init")
+        cwd = checkout_for_sample(args, state, env, log)
+        row["checkout"] = str(cwd)
+        row["artifactRoot"] = str(cwd / "target/sdk-artifacts")
+        row["cargoConfigAncestry"] = cargo_config_ancestry(cwd, env)
+        if arm == "kache":
+            env["KACHE_BASE_DIR"] = str(cwd)
+            env["KACHE_SEED_NEW_TARGETS"] = "0"
+        if arm == "sccache":
+            env["SCCACHE_BASEDIRS"] = str(cwd)
+        if state["diagnostics"]:
+            env["CARGO_TERM_VERBOSE"] = "true"
+            if arm == "kache":
+                env["KACHE_EXPLAIN_MISS"] = "1"
+                env["KACHE_LOG"] = "kache=info,kache::cache_key=trace"
+            elif arm == "sccache":
+                env["SCCACHE_LOG"] = "debug"
+                env["SCCACHE_ERROR_LOG"] = str(path / "sccache-debug.log")
         row["effectiveEnvironment"] = {
             key: env.get(key)
             for key in (
@@ -259,6 +427,11 @@ def sample(args):
                 "KACHE_VERIFY",
                 "KACHE_CACHE_DIR",
                 "KACHE_RUNTIME_DIR",
+                "KACHE_BASE_DIR",
+                "KACHE_EXPLAIN_MISS",
+                "KACHE_SEED_NEW_TARGETS",
+                "SCCACHE_BASEDIRS",
+                "CARGO_TERM_VERBOSE",
                 "CI",
                 "XMTP_TEST_LOGGING",
                 "RUSTFLAGS",
@@ -303,6 +476,10 @@ def sample(args):
                     ("CARGO_TARGET_", "CARGO_PROFILE_", "CC_", "CXX_", "AR_", "CFLAGS_")
                 )
             },
+            "cargoConfigIdentity": [
+                {"scope": item["scope"], "sha256": item["sha256"]}
+                for item in row["cargoConfigAncestry"]
+            ],
             "profile": "debug",
             "features": "",
         }
@@ -327,9 +504,9 @@ def sample(args):
             "--targets",
             "node",
             "--artifacts",
-            str(path / "artifacts"),
+            str(cwd / "target/sdk-artifacts"),
             "--out",
-            str(path / "generated"),
+            str(cwd / "target/sdk-generated"),
         ]
         row["command"] = command
         save(args.output / "trial.json", state)
@@ -337,10 +514,10 @@ def sample(args):
         run(command, cwd, env, log)
         row["generationSeconds"] = time.monotonic() - build_started
         row["products"] = {
-            str(p.relative_to(path / "generated")): hashlib.sha256(
+            str(p.relative_to(cwd / "target/sdk-generated")): hashlib.sha256(
                 p.read_bytes()
             ).hexdigest()
-            for p in (path / "generated").rglob("*")
+            for p in (cwd / "target/sdk-generated").rglob("*")
             if p.is_file()
         }
         if not row["products"]:
@@ -352,6 +529,7 @@ def sample(args):
                 for line in events_file.read_text().splitlines()
                 if line.strip()
             ]
+            save(path / "key-diagnostics.json", key_diagnostics(events))
             row["cache"] = events_summary(events, args.phase == "verify")
             report = subprocess.run(
                 [env["RUSTC_WRAPPER"], "stats", "--full", "--json"],
@@ -382,6 +560,16 @@ def sample(args):
         row["error"] = str(error)
         raise
     finally:
+        if arm == "kache" and (runtime / "events.jsonl").is_file():
+            try:
+                saved_events = [
+                    json.loads(line)
+                    for line in (runtime / "events.jsonl").read_text().splitlines()
+                    if line.strip()
+                ]
+                save(path / "key-diagnostics.json", key_diagnostics(saved_events))
+            except (ValueError, OSError) as error:
+                row["diagnosticError"] = str(error)
         if arm == "sccache" and cache_wrapper:
             subprocess.run(
                 ["sccache", "--stop-server"],
@@ -402,8 +590,28 @@ def sample(args):
             )
         row["sampleSecondsThroughTeardown"] = time.monotonic() - started
         row["sampleCoreMinutes"] = row["sampleSecondsThroughTeardown"] * 16 / 60
+        if cwd != ROOT and (cwd / "target/sdk-artifacts/artifacts.json").is_file():
+            (path / "artifacts").mkdir(exist_ok=True)
+            shutil.copy2(
+                cwd / "target/sdk-artifacts/artifacts.json",
+                path / "artifacts/artifacts.json",
+            )
+        save(
+            path / "context.json",
+            {
+                key: row.get(key)
+                for key in (
+                    "checkout",
+                    "artifactRoot",
+                    "cargoConfigAncestry",
+                    "effectiveEnvironment",
+                    "compiler",
+                    "command",
+                )
+            },
+        )
         save(args.output / "trial.json", state)
-        print(json.dumps(row, indent=2, sort_keys=True))
+        print(compact_summary({**state, "samples": [row]}), end="")
 
 
 def main():
@@ -412,15 +620,25 @@ def main():
     setup = sub.add_parser("init")
     setup.add_argument("--arm", choices=ARMS, required=True)
     setup.add_argument("--output", type=Path, required=True)
+    setup.add_argument(
+        "--scenario", choices=("stable", "cross-checkout"), default="stable"
+    )
+    setup.add_argument("--diagnostics", action="store_true")
     build = sub.add_parser("sample")
     build.add_argument("--output", type=Path, required=True)
     build.add_argument("--phase", choices=("cold", "warm", "verify"), required=True)
     build.add_argument("--index", type=int, default=0)
-    build.add_argument("--second-checkout", action="store_true")
+    report = sub.add_parser("summary")
+    report.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.output = args.output.resolve()
     if args.action == "init":
         init(args)
+    elif args.action == "summary":
+        print(
+            compact_summary(json.loads((args.output / "trial.json").read_text())),
+            end="",
+        )
     else:
         sample(args)
 
