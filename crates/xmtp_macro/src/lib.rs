@@ -41,6 +41,16 @@ mod timeout_macro_test;
 ///   browser's main-thread module. It can forward stock argument defaults with
 ///   `pure, default(name = None)`. The SDK generator rejects object, client,
 ///   and foreign-trait arguments on a pure export.
+/// - `client_static`: an asynchronous free function that every SDK also
+///   exposes as a static member of its Client. The static's name is the
+///   function's without a trailing `_with_backend`, in the SDK's casing, and
+///   it takes the function's arguments in order with the `BackendSource`
+///   argument moved last: `can_message_with_backend(backend, identities)`
+///   becomes `Client.canMessage(identities, backend)`. The function stays
+///   exported as well. It cannot be `native_only` or `wasm_only`. The
+///   `BackendSource` cannot have a default, and no defaulted parameter can
+///   end the function after it: the static takes the backend last, so a
+///   TypeScript caller could not leave that parameter out.
 ///
 /// Members take `#[sdk(...)]`:
 ///
@@ -64,9 +74,9 @@ mod timeout_macro_test;
 ///   with it, wherever the derive sits. A `uniffi::Error` type cannot redact
 ///   a field: the Kotlin binding renames it.
 ///
-/// `pure` and each member option but `shown` become a `#[doc = "@xmtp-..."]`
-/// line that UniFFI carries into the library metadata, and a type with a
-/// redacted field gets `@xmtp-redacted`. The generator reads them and strips
+/// `pure`, `client_static`, and each member option but `shown` become a
+/// `#[doc = "@xmtp-..."]` line that UniFFI carries into the library metadata,
+/// and a type with a redacted field gets `@xmtp-redacted`. The generator reads them and strips
 /// them from generated documentation; see `apps/xmtp_sdk_bindgen/README.md`.
 /// The macro rejects these markers in a doc comment, where they would skip
 /// its checks. When rustc reports "cannot find

@@ -54,6 +54,12 @@ pub fn answer() -> u32 {
     42
 }
 
+// The SDKs also expose this function as a Client static.
+#[xmtp_macro::sdk_export(client_static)]
+pub async fn answer_with_backend(backend: String) -> u32 {
+    backend.len() as u32
+}
+
 // The markers travel as doc attributes, so the stock UniFFI derives accept them.
 #[xmtp_macro::sdk_export]
 #[derive(Clone, Copy, Debug, uniffi::Enum)]

@@ -220,7 +220,7 @@ fn export_rejects_unknown_argument_and_wrong_item() {
     assert!(
         error
             .to_string()
-            .contains("native_only, wasm_only, pure, and default(...)")
+            .contains("native_only, wasm_only, pure, client_static, and default(...)")
     );
 
     let error = sdk_export(
@@ -248,6 +248,11 @@ fn export_rejects_conflicting_arguments() {
         error(quote!(native_only, wasm_only), function.clone()).contains("more than one target")
     );
     assert!(error(quote!(pure, pure), function.clone()).contains("more than one pure"));
+    assert!(
+        error(quote!(client_static, client_static), function.clone())
+            .contains("more than one client_static")
+    );
+    assert!(error(quote!(pure, client_static), function.clone()).contains("choose one"));
     assert!(
         error(quote!(pure, native_only), function).contains("pure export selects its own targets")
     );
@@ -386,4 +391,72 @@ fn record_export_requires_the_uniffi_derive_after_it() {
         }
     );
     assert!(error(quote!(pure), record).contains("pure export must be a free function"));
+}
+
+// Client statics: an asynchronous free function that every SDK also exposes
+// as a static member of its Client. The function itself stays exported.
+
+#[test]
+fn client_static_marks_an_async_free_function_only() {
+    let output = compact(&export(
+        quote!(client_static),
+        quote!(
+            pub async fn can_message_with_backend(
+                backend: BackendSource,
+                identities: Vec<PublicIdentity>,
+            ) -> Result<HashMap<String, bool>, Error> {
+                Ok(HashMap::new())
+            }
+        ),
+    ));
+    assert!(output.contains("#[doc=\"@xmtp-client-static\"]"));
+    assert!(output.contains("uniffi::export(async_runtime=\"tokio\")"));
+    assert!(output.contains("asyncfncan_message_with_backend"));
+    assert_eq!(output.matches("@xmtp-").count(), 1);
+    // Every SDK has the static, so it has no target of its own.
+    for target in [quote!(native_only), quote!(wasm_only)] {
+        let message = error(
+            quote!(#target, client_static),
+            quote!(
+                pub async fn upload_with_backend(backend: BackendSource) {}
+            ),
+        );
+        assert!(
+            message.contains("a client_static export is a Client static in every SDK"),
+            "{message}"
+        );
+    }
+    // An unmarked function is no static.
+    assert!(
+        !export(
+            quote!(),
+            quote!(
+                pub async fn latest_inbox_updates_count() {}
+            )
+        )
+        .contains("@xmtp-")
+    );
+
+    for item in [
+        quote!(
+            pub fn version() -> String {
+                String::new()
+            }
+        ),
+        quote!(impl Client {
+            pub async fn sync(&self) {}
+        }),
+        quote!(
+            #[derive(uniffi::Record)]
+            pub struct Key {
+                pub bytes: Vec<u8>,
+            }
+        ),
+    ] {
+        let message = error(quote!(client_static), item);
+        assert!(
+            message.contains("client_static needs an asynchronous free function"),
+            "{message}"
+        );
+    }
 }

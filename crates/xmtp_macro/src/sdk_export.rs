@@ -4,15 +4,17 @@ use syn::{
     ImplItem, Item, Meta, ReturnType, Token, TraitItem, Type, parse::Parser, punctuated::Punctuated,
 };
 
-use crate::sdk_member::{self, PURE, Target, push_marker};
+use crate::sdk_member::{self, CLIENT_STATIC, PURE, Target, push_marker};
 
-const EXPORT_OPTIONS: &str = "sdk_export accepts native_only, wasm_only, pure, and default(...)";
+const EXPORT_OPTIONS: &str =
+    "sdk_export accepts native_only, wasm_only, pure, client_static, and default(...)";
 
 /// The arguments of `#[sdk_export(...)]`.
 #[derive(Default)]
 struct ExportOptions {
     target: Option<Target>,
     pure: bool,
+    client_static: bool,
     defaults: TokenStream,
 }
 
@@ -35,6 +37,12 @@ fn parse_options(attr: TokenStream) -> syn::Result<ExportOptions> {
                 }
                 options.pure = true;
             }
+            Meta::Path(path) if path.is_ident("client_static") => {
+                if options.client_static {
+                    return Err(repeated("client_static"));
+                }
+                options.client_static = true;
+            }
             Meta::List(list) if list.path.is_ident("default") => {
                 if !options.defaults.is_empty() {
                     return Err(repeated("default(...) list"));
@@ -44,10 +52,22 @@ fn parse_options(attr: TokenStream) -> syn::Result<ExportOptions> {
             other => return Err(syn::Error::new_spanned(other, EXPORT_OPTIONS)),
         }
     }
+    if options.pure && options.client_static {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "a pure export is synchronous and a client_static export is asynchronous; choose one",
+        ));
+    }
     if options.pure && options.target.is_some() {
         return Err(syn::Error::new(
             Span::call_site(),
             "a pure export selects its own targets; drop native_only or wasm_only",
+        ));
+    }
+    if options.client_static && options.target.is_some() {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "a client_static export is a Client static in every SDK; drop native_only or wasm_only",
         ));
     }
     if !options.defaults.is_empty() && !options.pure {
@@ -105,6 +125,19 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
                 return Err(syn::Error::new_spanned(
                     item,
                     "pure export must be a free function",
+                ));
+            }
+        }
+    }
+    if options.client_static {
+        match &mut item {
+            Item::Fn(function) if function.sig.asyncness.is_some() => {
+                push_marker(&mut function.attrs, CLIENT_STATIC);
+            }
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    item,
+                    "client_static needs an asynchronous free function",
                 ));
             }
         }

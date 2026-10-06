@@ -16,6 +16,9 @@ use syn::{
 
 use crate::sdk_export::returns_result;
 
+/// An asynchronous free function that every SDK also exposes as a static
+/// member of its Client.
+pub(crate) const CLIENT_STATIC: &str = "@xmtp-client-static";
 const IMMUTABLE: &str = "@xmtp-immutable";
 const KIND: &str = "@xmtp-kind";
 pub(crate) const PURE: &str = "@xmtp-pure";
@@ -244,6 +247,7 @@ pub(crate) fn derives_uniffi_error(attrs: &[Attribute]) -> bool {
 /// so the macro rejects one written in a doc comment, where it would skip
 /// the macro's checks.
 pub(crate) const WRITTEN_BY_OPTIONS: &[(&str, &str)] = &[
+    (CLIENT_STATIC, "#[sdk_export(client_static)]"),
     (IMMUTABLE, "#[sdk(immutable)]"),
     (KIND, "#[sdk(kind = \"...\")]"),
     (PURE, "#[sdk_export(pure)]"),

@@ -571,7 +571,7 @@ fn verify_signature(
     Ok(verify_signed_with_public_context(text, &signature, &public_key).is_ok())
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 pub async fn verify_signed_with_public_key(
     text: String,
     signature: Vec<u8>,
@@ -580,7 +580,7 @@ pub async fn verify_signed_with_public_key(
     verify_signature(text, signature, public_key)
 }
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(client_static)]
 pub async fn fetch_server_configuration(
     backend: crate::BackendSource,
 ) -> Result<crate::ServerConfiguration, XmtpError> {

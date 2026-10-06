@@ -28140,10 +28140,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_sdk_discard_unreturned_client() != 9468) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_fetch_server_configuration() != 50639) {
+    if (uniffi_xmtp_sdk_checksum_func_fetch_server_configuration() != 57085) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_verify_signed_with_public_key() != 31310) {
+    if (uniffi_xmtp_sdk_checksum_func_verify_signed_with_public_key() != 4939) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_catalogue_content_type_should_push() != 18071) {
@@ -28221,31 +28221,31 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_local_signer_from_private_key() != 30382) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 61425) {
+    if (uniffi_xmtp_sdk_checksum_func_can_message_with_backend() != 36605) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 57285) {
+    if (uniffi_xmtp_sdk_checksum_func_inbox_id_for_with_backend() != 22458) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_inbox_states_with_backend() != 527) {
+    if (uniffi_xmtp_sdk_checksum_func_inbox_states_with_backend() != 12284) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_is_address_authorized_with_backend() != 8126) {
+    if (uniffi_xmtp_sdk_checksum_func_is_address_authorized_with_backend() != 46390) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_is_installation_authorized_with_backend() != 56413) {
+    if (uniffi_xmtp_sdk_checksum_func_is_installation_authorized_with_backend() != 3264) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_key_package_statuses_with_backend() != 7088) {
+    if (uniffi_xmtp_sdk_checksum_func_key_package_statuses_with_backend() != 36494) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_latest_inbox_updates_count() != 52024) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_newest_message_metadata_with_backend() != 58754) {
+    if (uniffi_xmtp_sdk_checksum_func_newest_message_metadata_with_backend() != 24971) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_revoke_installations_with_backend() != 12225) {
+    if (uniffi_xmtp_sdk_checksum_func_revoke_installations_with_backend() != 40539) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_archives_export_to_bytes() != 60300) {
