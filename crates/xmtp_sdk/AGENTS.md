@@ -31,8 +31,10 @@ Run commands from the repository root in the Nix shell. Run
   the default bindings and in `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks
   in test source sets.
 - `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
-- `dev/nix-shell 'just sdk conformance <swift|kotlin|node>'` runs scenarios against this
-  worktree's backend. `dev/nix-shell 'just sdk conformance browser'` runs Chromium
+- `dev/nix-shell 'just sdk conformance <swift|kotlin>'` runs scenarios against this
+  worktree's backend. The Node host checks are in `sdks/node/test`
+  (`dev/nix-shell 'just js test-node-sdk-ci'`).
+  `dev/nix-shell 'just sdk conformance browser'` runs Chromium
   proofs in Vitest Playwright: a real WASM trap from a test-only panic fixture,
   storage layouts, attachment and event lifetime, and decode-once. It then
   checks real OPFS and worker behavior. The public browser scenarios are in
@@ -77,7 +79,7 @@ Run commands from the repository root in the Nix shell. Run
   Constructor lifetime checks retain the READY gate and add a post-lift gate.
   The post-lift control requires no native cancel, one complete and free,
   weak owner release, stopped workers, and a disconnected store before cleanup.
-- `dev/nix-shell 'just sdk callback-lifetime <swift|kotlin|node>'` runs 20 held callback
+- `dev/nix-shell 'just sdk callback-lifetime <swift|kotlin>'` runs 20 held callback
   and constructor adoption cycles against fresh conformance bindings. Set
   `SDK_CALLBACK_LIFETIME_FAMILY` to select one family. These bindings expose
   real foreign task and callback handle counts only for conformance.

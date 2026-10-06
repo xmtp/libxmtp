@@ -8,6 +8,7 @@ import {
   setLogSink,
   flushTelemetry,
   localSignerFromPrivateKey,
+  XmtpError,
 } from "@xmtp/node-sdk";
 
 const mode = process.argv[2];
@@ -64,6 +65,12 @@ async function waitFor(predicate) {
 try {
   const first = await collector();
   const second = await collector();
+  // Before initLogging, both sink forms fail with the public error.
+  for (const sink of [{ log: async () => {} }, undefined])
+    await assert.rejects(
+      setLogSink(sink),
+      (error) => error instanceof XmtpError.InvalidInput,
+    );
   const service = "node-otel-startup-service";
   const attribute = "node-otel-startup-resource";
   await initLogging({

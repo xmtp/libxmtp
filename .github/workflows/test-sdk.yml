@@ -63,8 +63,6 @@ jobs:
         run: dev/nix-shell 'just sdk conformance-bridge'
       - name: Test SDK crate
         run: dev/nix-shell 'just test crate xmtp_sdk'
-      - name: Node conformance
-        run: dev/nix-shell 'just sdk conformance node'
       - name: Kotlin JVM conformance
         run: dev/nix-shell 'just sdk conformance kotlin'
       - name: Chromium worker conformance
@@ -213,8 +211,6 @@ jobs:
           mkdir -p target/sdk-generated/typescript-napi/node_modules/@ubjs
           cp -R ubrn/typescript target/sdk-generated/typescript-napi/node_modules/@ubjs/core
           cp -R ubrn/runtimes/napi target/sdk-generated/typescript-napi/node_modules/@ubjs/node
-      - name: Conformance scenario 1
-        run: npx --yes tsx crates/xmtp_sdk/conformance/ts/load.mts
       - name: Use the package compiler Node version
         uses: actions/setup-node@v6
         with:

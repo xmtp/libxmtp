@@ -38,22 +38,22 @@ _browser-panic-fixture target:
 
 conformance target: (_browser-pure-fixture target) (_browser-panic-fixture target)
     {{ _env }} && case "{{ target }}" in \
-      swift|kotlin|node|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
+      swift|kotlin|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
       bridge) cd "{{ root }}" && \
         bash crates/xmtp_sdk/dev/check-wasm-init && \
         NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run --config crates/xmtp_sdk/conformance/browser/vitest.config.mts --browser.enabled=false && \
         NODE_OPTIONS="--preserve-symlinks --expose-gc" sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/bridge.real.mts && \
         NODE_OPTIONS="--preserve-symlinks --expose-gc" sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/release.gc.mts ;; \
-      *) echo "Expected swift, kotlin, node, browser, or bridge" >&2; exit 2 ;; \
+      *) echo "Expected swift, kotlin, browser, or bridge" >&2; exit 2 ;; \
     esac
 
 # Repeat held callback and constructor adoption probes on a native host.
 # browser-transport checks the real worker transport without a generated SDK.
 callback-lifetime target:
     {{ _env }} && cd "{{ root }}" && case "{{ target }}" in \
-      swift|kotlin|node) SDK_CALLBACK_LIFETIME=1 SDK_CALLBACK_SOURCE_SHA="$(git rev-parse HEAD)" bash "crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
+      swift|kotlin) SDK_CALLBACK_LIFETIME=1 SDK_CALLBACK_SOURCE_SHA="$(git rev-parse HEAD)" bash "crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
       browser-transport) bash crates/xmtp_sdk/dev/callback-lifetime-browser ;; \
-      *) echo "Expected swift, kotlin, node, or browser-transport" >&2; exit 2 ;; \
+      *) echo "Expected swift, kotlin, or browser-transport" >&2; exit 2 ;; \
     esac
 
 conformance-bridge:
