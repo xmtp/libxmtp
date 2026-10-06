@@ -39,12 +39,33 @@ for tree in "${trees[@]}"; do
   for name in $names; do wanted+=(".#ubjs-$name"); done
 done
 mapfile -t wanted < <(printf '%s\n' "${wanted[@]}" | sort -u)
-nix build --no-link "${wanted[@]}"
+if [[ -z "${XMTP_SDK_RUNTIME_DIR:-}" ]]; then
+  nix build --no-link "${wanted[@]}"
+else
+  runtime_root="$(realpath -m "$XMTP_SDK_RUNTIME_DIR")"
+  for tree in "${trees[@]}"; do
+    for name in $(packages "$tree"); do
+      if [[ ! -f "$runtime_root/$name/package.json" &&
+            ! -f "$runtime_root/lib/node_modules/@ubjs/$name/package.json" ]]; then
+        echo "missing pinned runtime: $name in $runtime_root" >&2
+        exit 1
+      fi
+    done
+  done
+fi
 
 for tree in "${trees[@]}"; do
   package_dir="$tree/node_modules/@ubjs"
   mkdir -p "$package_dir"
   for name in $(packages "$tree"); do
-    ln -sfn "$(nix path-info ".#ubjs-$name")/lib/node_modules/@ubjs/$name" "$package_dir/$name"
+    if [[ -n "${XMTP_SDK_RUNTIME_DIR:-}" ]]; then
+      runtime="$runtime_root/$name"
+      if [[ ! -f "$runtime/package.json" ]]; then
+        runtime="$runtime_root/lib/node_modules/@ubjs/$name"
+      fi
+    else
+      runtime="$(nix path-info ".#ubjs-$name")/lib/node_modules/@ubjs/$name"
+    fi
+    ln -sfn "$runtime" "$package_dir/$name"
   done
 done

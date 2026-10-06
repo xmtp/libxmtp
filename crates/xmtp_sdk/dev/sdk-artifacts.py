@@ -124,6 +124,7 @@ def build_context():
             "HOST_RANLIB",
             "HOST_RANLIBFLAGS",
         )
+        or name.startswith("CARGO_PROFILE_")
         or name.startswith(
             (
                 "CARGO_TARGET_",
@@ -177,7 +178,11 @@ def targets(value):
 
 
 def required(names):
-    return ["native", "bindgen"] + (["wasm", "pure"] if "browser" in names else [])
+    return (
+        (["native"] if set(names) - {"browser"} else [])
+        + ["bindgen"]
+        + (["wasm", "pure"] if "browser" in names else [])
+    )
 
 
 def verify(record):
@@ -212,6 +217,7 @@ def build(args):
             json.dumps(
                 [
                     kind,
+                    "role-receipt-v2",
                     context,
                     profile,
                     features,
@@ -239,7 +245,11 @@ def build(args):
             verify(cached)
             print(f"SDK reuse {kind} {key}", flush=True)
             continue
-        cargo_target = output / "build" / kind
+        # Cargo writes each role in sequence. Compatible host dependencies share
+        # one directory; each role still has its own receipt and saved bytes.
+        cargo_target = (
+            output / "build" / ("host" if kind in ("native", "bindgen") else "wasm")
+        )
         command = [
             "cargo",
             "build",
@@ -313,6 +323,34 @@ def build(args):
             "source": rust_source,
             "generator": generator,
             "target": args.rust_target if kind == "native" else "",
+            "buildContextHash": context,
+            "instrumentation": (
+                "coverage"
+                if "instrument-coverage"
+                in (
+                    os.environ.get("RUSTFLAGS", "")
+                    + os.environ.get("CARGO_ENCODED_RUSTFLAGS", "")
+                )
+                else "none"
+            ),
+            "compilerFlags": {
+                name: os.environ.get(name, "")
+                for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS")
+            },
+            "profileOverrides": {
+                name: value
+                for name, value in os.environ.items()
+                if name.startswith("CARGO_PROFILE_")
+            },
+            "compilerIdentity": subprocess.check_output(
+                [
+                    os.environ.get("RUSTC")
+                    or os.environ.get("CARGO_BUILD_RUSTC")
+                    or "rustc",
+                    "-vV",
+                ],
+                cwd=ROOT,
+            ).decode(),
         }
         index_file.write_text(json.dumps(index, indent=2) + "\n")
         print(f"SDK built {kind} {key}", flush=True)
@@ -389,10 +427,14 @@ def render(args):
         ).encode()
     ).hexdigest()
     binary = next(iter(selected["bindgen"]["files"]))
-    native = next(
-        path
-        for path in selected["native"]["files"]
-        if Path(path).suffix != ".a" and Path(path).suffix != ".lib"
+    native = (
+        next(
+            path
+            for path in selected["native"]["files"]
+            if Path(path).suffix not in (".a", ".lib")
+        )
+        if "native" in selected
+        else None
     )
     destination = args.out.resolve()
     destination.mkdir(parents=True, exist_ok=True)

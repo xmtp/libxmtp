@@ -394,6 +394,36 @@ class ArtifactTests(unittest.TestCase):
         self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
         self.assertFalse((self.args.out / "typescript-wasm").exists())
 
+    def test_browser_build_and_render_need_no_native_product(self):
+        self.args.targets = ("browser",)
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        self.assertFalse((self.args.artifacts / "native").exists())
+        self.assertEqual(len(self.cargo_environments), 3)
+        for tree in ("typescript-wasm", "typescript-pure"):
+            self.assertTrue((self.args.out / tree / "index.ts").is_file())
+            record = json.loads(
+                (self.args.out / tree / "sdk-contract.json").read_text()
+            )
+            self.assertEqual(record["artifact"]["profile"], "debug")
+        self.assertFalse((self.args.out / "typescript-napi").exists())
+
+    def test_sequential_host_builds_share_dependencies_and_keep_role_bytes(self):
+        artifacts.build(self.args)
+        self.assertEqual(
+            self.cargo_environments[0]["CARGO_TARGET_DIR"],
+            self.cargo_environments[1]["CARGO_TARGET_DIR"],
+        )
+        record = json.loads((self.args.artifacts / "artifacts.json").read_text())[
+            "artifacts"
+        ]
+        for role in ("native", "bindgen"):
+            artifacts.verify(record[role])
+            self.assertEqual(record[role]["profile"], "debug")
+            self.assertEqual(record[role]["features"], "")
+        artifacts.render(self.args)
+        self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
+
     def test_windows_build_invokes_cargo_without_the_posix_wrapper(self):
         self.args.skip_bindgen = True
         self.args.rust_target = "x86_64-pc-windows-msvc"
