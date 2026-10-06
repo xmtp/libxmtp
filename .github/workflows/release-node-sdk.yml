@@ -42,10 +42,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      source-sha: ${{ steps.source.outputs.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
+      - name: Pin the release source commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/setup-release-tools
 
       - name: Compute version
@@ -78,14 +82,14 @@ jobs:
     needs: setup
     uses: ./.github/workflows/build-sdk-node-platforms.yml
     with:
-      ref: ${{ inputs.ref }}
+      ref: ${{ needs.setup.outputs.source-sha }}
     secrets: inherit
 
   publish:
     needs: [setup, build]
     uses: ./.github/workflows/npm-publish.yml
     with:
-      ref: ${{ inputs.ref }}
+      ref: ${{ needs.setup.outputs.source-sha }}
       package-dir: target/sdk-packages/node
       sdk: node-sdk
       version: ${{ needs.setup.outputs.version }}
