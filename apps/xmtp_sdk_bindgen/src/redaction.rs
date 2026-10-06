@@ -111,6 +111,76 @@ fn swift_text(owner: &str, fields: &[FieldMetadata], values: &[String]) -> Resul
     Ok(format!("{owner}({})", parts.join(", ")))
 }
 
+/// The Swift keywords that UniFFI 0.32 quotes in a name
+/// (`uniffi_bindgen`'s `quote_general_keyword`, which it does not export).
+const SWIFT_KEYWORDS: &[&str] = &[
+    "Any",
+    "Self",
+    "as",
+    "associatedtype",
+    "await",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "continue",
+    "default",
+    "defer",
+    "deinit",
+    "do",
+    "else",
+    "enum",
+    "extension",
+    "fallthrough",
+    "false",
+    "fileprivate",
+    "for",
+    "func",
+    "guard",
+    "if",
+    "import",
+    "in",
+    "init",
+    "inout",
+    "internal",
+    "is",
+    "let",
+    "nil",
+    "open",
+    "operator",
+    "private",
+    "precedencegroup",
+    "protocol",
+    "public",
+    "repeat",
+    "rethrows",
+    "return",
+    "self",
+    "static",
+    "struct",
+    "subscript",
+    "super",
+    "switch",
+    "throw",
+    "throws",
+    "true",
+    "try",
+    "typealias",
+    "var",
+    "where",
+    "while",
+];
+
+/// An identifier as Swift code names it: a keyword in backticks, as UniFFI
+/// declares a function, enum case, or other name.
+pub(crate) fn swift_identifier(name: &str) -> String {
+    if SWIFT_KEYWORDS.contains(&name) {
+        format!("`{name}`")
+    } else {
+        name.to_owned()
+    }
+}
+
 /// The members that the generated Swift extension declares. A record field
 /// or an enum case of the same name would be declared twice.
 const SWIFT_MEMBERS: &[&str] = &["description", "debugDescription"];
@@ -156,8 +226,9 @@ fn swift_enum(code: &mut String, value: &EnumMetadata) -> Result<()> {
         let case = variant.name.to_lower_camel_case();
         check_swift_member(&name, &case)?;
         let owner = format!("{name}.{case}");
+        let pattern = swift_identifier(&case);
         if variant.fields.is_empty() {
-            writeln!(body, "        case .{case}: return \"{owner}\"")?;
+            writeln!(body, "        case .{pattern}: return \"{owner}\"")?;
             continue;
         }
         let values = variant
@@ -178,11 +249,11 @@ fn swift_enum(code: &mut String, value: &EnumMetadata) -> Result<()> {
             })
             .collect::<Vec<_>>();
         if bindings.iter().all(|binding| *binding == "_") {
-            writeln!(body, "        case .{case}: return \"{text}\"")?;
+            writeln!(body, "        case .{pattern}: return \"{text}\"")?;
         } else {
             writeln!(
                 body,
-                "        case let .{case}({}): return \"{text}\"",
+                "        case let .{pattern}({}): return \"{text}\"",
                 bindings.join(", ")
             )?;
         }
@@ -344,6 +415,30 @@ mod tests {
             "Plain",
             vec![field("description", Type::String, None)],
         )]))?;
+    }
+
+    // UniFFI declares a keyword case in backticks, so the switch names it
+    // the same way.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn swift_descriptions_quote_keyword_cases() {
+        let code = swift(&groups(vec![enumeration(
+            "Location",
+            vec![
+                variant(
+                    "Default",
+                    None,
+                    vec![field("key", Type::String, Some("@xmtp-redact"))],
+                ),
+                variant("Repeat", None, vec![field("path", Type::String, None)]),
+                variant("Plain", None, vec![]),
+            ],
+        )]))?;
+        assert!(code.contains("case .`default`: return"), "{code}");
+        assert!(
+            code.contains("case let .`repeat`(`path`): return"),
+            "{code}"
+        );
+        assert!(code.contains("case .plain: return"), "{code}");
     }
 
     // Swift gets a description for each record and enum with a redacted
