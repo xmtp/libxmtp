@@ -10,8 +10,21 @@ device() {
 }
 
 # The backend uses the host clock. A slow guest clock delays message expiry.
-device root
-device wait-for-device
+# Root restarts adbd, which can close its transport before replying. Reconnect
+# and verify the shell uid rather than trusting the root command's status.
+# The supervisor still enforces its shared deadline and emulator liveness.
+for attempt in {1..10}; do
+  device root || true
+  if device wait-for-device &&
+    uid=$(device shell id -u | tr -d '\r') && [[ "$uid" == 0 ]]; then
+    break
+  fi
+  if ((attempt == 10)); then
+    echo "Android root shell did not become ready ($serial)" >&2
+    exit 1
+  fi
+  sleep 1
+done
 # Settings can start after adbd accepts commands. API 23 uses a content provider.
 for attempt in {1..30}; do
   if auto_time=$(device shell settings get global auto_time | tr -d '\r') &&

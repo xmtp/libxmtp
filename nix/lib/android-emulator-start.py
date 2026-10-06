@@ -69,7 +69,7 @@ def check_emulator(emulator, phase="before readiness"):
         raise StartupFailure(f"Emulator exited {phase}: {detail}")
 
 
-def run_command(args, deadline, emulator=None, timeout=COMMAND_TIMEOUT):
+def run_command(args, deadline, emulator=None, timeout=COMMAND_TIMEOUT, env=None):
     """Bound commands and also notice emulator death while ADB is blocked."""
     if emulator is not None:
         check_emulator(emulator)
@@ -83,6 +83,7 @@ def run_command(args, deadline, emulator=None, timeout=COMMAND_TIMEOUT):
             stdout=output,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            env=env,
         )
         try:
             while True:
@@ -115,7 +116,13 @@ def diagnostics(directory, adb, binary, serial, emulator_pid):
         )
     for name, command in commands:
         try:
-            status, output = run_command(command, deadline, timeout=3)
+            env = None
+            if name == "core.txt":
+                # Host systemd tools must use host libraries, not the emulator's
+                # Nix libraries (which can require a newer glibc ABI).
+                env = dict(os.environ)
+                env.pop("LD_LIBRARY_PATH", None)
+            status, output = run_command(command, deadline, timeout=3, env=env)
             output = f"exit status: {status}\n{output}"
         except (StartupFailure, OSError) as error:
             output = str(error)
