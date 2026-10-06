@@ -219,6 +219,27 @@ async fn catch_up_replays_once_and_preserves_bounded_progress() {
     bo.end().await?;
 }
 
+// The static fetch needs no client. An unreachable backend is a public,
+// retryable configuration error, not a transport error.
+#[xmtp_common::test(unwrap_try = true)]
+async fn static_fetch_reports_an_unreachable_backend_as_configuration_unavailable() {
+    let result = crate::client_identity::fetch_server_configuration(BackendSource::Options {
+        options: BackendOptions {
+            url: "http://127.0.0.1:1".into(),
+            ..Default::default()
+        },
+    })
+    .await;
+    assert!(
+        matches!(result, Err(XmtpError::ConfigurationUnavailable(ref details))
+        if details.code == "ConfigurationUnavailable"
+            && matches!(details.category, crate::ErrorCategory::Configuration)
+            && details.retryable),
+        "{:?}",
+        result.err()
+    );
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn backend_url_is_required_and_offline_choice_is_explicit() {
     use xmtp_db::prelude::QueryServerConfiguration;

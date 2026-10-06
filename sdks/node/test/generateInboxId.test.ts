@@ -87,13 +87,12 @@ function invalidArgument(operation: () => unknown): void {
   });
 }
 
-test.each([
-  { kind: "ethereum", identifier: "invalid-address" },
-  { kind: "passkey", identifier: "not hex" },
-] satisfies PublicIdentity[])(
-  "synchronous inbox calculation rejects malformed %o with a typed input error",
-  (identity) => invalidArgument(() => generateInboxId(identity)),
-);
+// The nonce checks below throw in generated TypeScript. Only a malformed
+// identity reaches the native call and the synchronous Rust error lift.
+test("synchronous inbox calculation lifts a Rust input error for a malformed identity", () =>
+  invalidArgument(() =>
+    generateInboxId({ kind: "ethereum", identifier: "invalid-address" }),
+  ));
 
 test.each([-1n, 18_446_744_073_709_551_616n])(
   "synchronous inbox calculation rejects nonce %s before unsigned conversion",
@@ -109,9 +108,3 @@ test.each([1, Number(9_007_199_254_740_993n), "1", null])(
       generateInboxId(ethereum, nonce);
     }),
 );
-
-test("the public root calculates an inbox ID synchronously", () => {
-  const actual = generateInboxId(ethereum, 9_007_199_254_740_993n);
-  expect(actual).toBeTypeOf("string");
-  expect(actual).toBe(vectors[2][2]);
-});

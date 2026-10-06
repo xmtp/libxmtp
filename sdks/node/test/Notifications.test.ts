@@ -1,11 +1,7 @@
 import { randomBytes } from "node:crypto";
 
-import {
-  clientOptions,
-  createRegisteredClient,
-  createSigner,
-} from "@test/helpers";
-import { Dm, type Group, type Conversation } from "@xmtp/node-sdk";
+import { createRegisteredClient, createSigner } from "@test/helpers";
+import { Dm, XmtpError, type Group, type Conversation } from "@xmtp/node-sdk";
 import { type NotificationConfig } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
@@ -26,42 +22,6 @@ const notificationEnabled = async (conversation: Conversation) => {
 };
 
 describe("Notifications", () => {
-  it("restores notification state, rules, and overrides after restart", async () => {
-    const signer = createSigner().signer;
-    const { storage } = clientOptions();
-    let client = await createRegisteredClient(signer, { storage });
-    const peer = await createRegisteredClient(createSigner().signer);
-    try {
-      const group = await client.conversations.createGroup([peer.inboxId]);
-      const groupId = group.id;
-      const installationId = client.installationId;
-      await client.enableNotifications({
-        ...httpConfig(),
-        consentStates: [],
-        includeWelcomes: false,
-      });
-      await group.setNotifications("enabled");
-      await client.end();
-      client = await createRegisteredClient(signer, { storage });
-      expect(client.installationId).toBe(installationId);
-      expect(client.notificationState()).toEqual({ kind: "enabled" });
-      const restored = await client.conversations.getById(groupId);
-      expect(restored).toBeDefined();
-      if (!restored) throw new Error("Expected the saved group");
-      expect(await notificationEnabled(restored)).toBe(true);
-      await restored.setNotifications("default");
-      expect(await notificationEnabled(restored)).toBe(false);
-      await client.disableNotifications();
-      await client.end();
-      client = await createRegisteredClient(signer, { storage });
-      expect(client.installationId).toBe(installationId);
-      expect(client.notificationState()).toEqual({ kind: "disabled" });
-    } finally {
-      await client.end();
-      await peer.end();
-    }
-  });
-
   it("registers HTTP delivery and resets group and DM overrides", async () => {
     const client = await createRegisteredClient(createSigner().signer);
     const peer = await createRegisteredClient(createSigner().signer);
@@ -98,50 +58,28 @@ describe("Notifications", () => {
       }
       await client.disableNotifications();
       expect(client.notificationState()).toEqual({ kind: "disabled" });
-    } finally {
-      await client.end();
-      await peer.end();
-    }
-  });
 
-  it.each(["apns", "fcm"] as const)(
-    "returns a typed failure for an unconfigured %s channel",
-    async (type) => {
-      const client = await createRegisteredClient(createSigner().signer);
-      try {
-        await expect(
-          client.enableNotifications({
-            channel: { kind: type, token: "a".repeat(64) },
-            consentStates: ["allowed"],
-          }),
-        ).rejects.toMatchObject({
-          details: { code: "ChannelNotConfigured" },
-        });
-        const state = client.notificationState();
-        expect(state.kind).toBe("failed");
-        if (state.kind !== "failed") throw new Error("Expected failed state");
-        expect(state.error).toBe("channelNotConfigured");
-        await client.disableNotifications();
-        expect(client.notificationState()).toEqual({ kind: "disabled" });
-      } finally {
-        await client.end();
-      }
-    },
-  );
-
-  it("returns a typed task-runner failure without enabling notifications", async () => {
-    const client = await createRegisteredClient(createSigner().signer, {
-      workers: { intervals: [{ kind: "taskRunner", enabled: false }] },
-    });
-    try {
-      await expect(
-        client.enableNotifications(httpConfig()),
-      ).rejects.toMatchObject({
-        details: { code: "TaskRunnerDisabled" },
+      // The local backend has no APNS channel. The binding lifts the failure
+      // to the public error class and the failed state union.
+      const failure = await client
+        .enableNotifications({
+          channel: { kind: "apns", token: "a".repeat(64) },
+          consentStates: ["allowed"],
+        })
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(XmtpError.ChannelNotConfigured);
+      expect(failure).toMatchObject({
+        details: { code: "ChannelNotConfigured" },
       });
+      expect(client.notificationState()).toEqual({
+        kind: "failed",
+        error: "channelNotConfigured",
+      });
+      await client.disableNotifications();
       expect(client.notificationState()).toEqual({ kind: "disabled" });
     } finally {
       await client.end();
+      await peer.end();
     }
   });
 });

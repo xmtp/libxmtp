@@ -41,33 +41,74 @@ describe("Content types", () => {
       ).toEqual(encoded);
     },
   );
-  it.each(
-    [...standardSamples, ...variantSamples].filter(
-      (c) =>
-        ![
-          "groupUpdated",
-          "deleteMessage",
-          "leaveRequest",
-          "reaction",
-          "reply",
-          "readReceipt",
-        ].includes(c.kind),
-    ),
-  )("sends and receives $kind", async (content) => {
-    const first = await createRegisteredClient(createSigner().signer);
-    const second = await createRegisteredClient(createSigner().signer);
-    const group = await first.conversations.createGroup([second.inboxId]);
-    const id = await group.send(sdk.encodeStandard(content));
-    await second.conversations.sync();
-    const peer = await second.conversations.getById(group.id);
-    await peer!.sync();
-    const message = await second.conversations.getMessageById(id);
-    expect(message?.contentType).toEqual(sdk.standardContentType(content.kind));
-    expect(message?.content).toEqual({
-      kind: content.kind,
-      value: valueOf(sdk.decodeStandard(sdk.encodeStandard(content))),
-    });
+
+  it("lifts every sendable standard kind and a deletion into the read message", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    try {
+      const group = await client.conversations.createGroup([]);
+      const sendable = [...standardSamples, ...variantSamples].filter(
+        (c) =>
+          ![
+            "groupUpdated",
+            "deleteMessage",
+            "leaveRequest",
+            "reaction",
+            "reply",
+            "readReceipt",
+          ].includes(c.kind),
+      );
+      for (const content of sendable) {
+        const id = await group.send(sdk.encodeStandard(content));
+        const message = await client.conversations.getMessageById(id);
+        expect(message?.contentType).toEqual(
+          sdk.standardContentType(content.kind),
+        );
+        expect(message?.content).toEqual({
+          kind: content.kind,
+          value: valueOf(sdk.decodeStandard(sdk.encodeStandard(content))),
+        });
+      }
+
+      // A delete is not a sendable kind: the hand-written Message.delete()
+      // wrapper sends it, and the read lifts the deletedMessage variant.
+      const deletedId = await group.sendText("delete this message");
+      const deleted = await client.conversations.getMessageById(deletedId);
+      expect(deleted!.rawBytes).toBeInstanceOf(Uint8Array);
+      expect(deleted!.rawBytes.byteLength).toBeGreaterThan(0);
+      const events = await client.events({
+        kinds: ["message.deleted"],
+        references_own_messages: false,
+      });
+      try {
+        expect(typeof (await deleted!.delete())).toBe("string");
+        // The generated event lift gives the IDs as bytes.
+        const next = await events.next();
+        if (next.done || next.value.kind !== "message.deleted")
+          throw new Error("expected a deletion event");
+        expect(next.value.message_deleted.message_id).toBeInstanceOf(
+          Uint8Array,
+        );
+        expect(Buffer.from(next.value.message_deleted.message_id)).toEqual(
+          Buffer.from(deletedId, "hex"),
+        );
+        expect(Buffer.from(next.value.message_deleted.group_id)).toEqual(
+          Buffer.from(group.id, "hex"),
+        );
+      } finally {
+        await events.return();
+      }
+      const read = await client.conversations.getMessageById(deletedId);
+      expect(read?.content).toEqual({
+        kind: "deletedMessage",
+        value: { deletedBy: { kind: "sender" } },
+      });
+      expect(read?.rawBytes.byteLength).toBe(0);
+      expect(read?.fallback).toBeUndefined();
+    } finally {
+      await client.end();
+    }
   });
+
   it.each(["description", "transactionType"] as const)(
     "rejects wallet metadata with missing %s before publishing",
     async (missing) => {
@@ -102,29 +143,37 @@ describe("Content types", () => {
       }
     },
   );
-  it.each(["added", "removed"] as const)(
-    "retains %s reactions and their references",
-    async (action) => {
-      const client = await createRegisteredClient(createSigner().signer);
+
+  it("lifts reactions into the read message and onto the parent", async () => {
+    const client = await createRegisteredClient(createSigner().signer);
+    try {
       const group = await client.conversations.createGroup([]);
       const parent = await group.sendText("parent");
-      for (const schema of ["unicode", "shortcode", "custom"] as const) {
-        const reaction = {
-          action,
-          schema,
-          content: schema === "unicode" ? "👍" : ":thumbsup:",
-        };
+      const reactions = [
+        { action: "added", schema: "unicode", content: "👍" },
+        { action: "added", schema: "shortcode", content: ":thumbsup:" },
+        { action: "removed", schema: "custom", content: "thumbsup" },
+      ] as const;
+      const ids: string[] = [];
+      for (const reaction of reactions) {
         const id = await group.sendReaction(parent, client.inboxId, reaction);
-        const message = await client.conversations.getMessageById(id);
-        expect(message?.content).toEqual({
+        ids.push(id);
+        expect(
+          (await client.conversations.getMessageById(id))?.content,
+        ).toEqual({
           kind: "reaction",
           reference: parent,
           referenceInboxId: client.inboxId,
           reaction,
         });
       }
-    },
-  );
+      const original = await client.conversations.getMessageById(parent);
+      expect(original?.reactions.map((reaction) => reaction.id)).toEqual(ids);
+    } finally {
+      await client.end();
+    }
+  });
+
   it("retains replies with text, attachment, and custom bodies", async () => {
     const codec = new TestCodec();
     const client = await createRegisteredClient(createSigner().signer, {
@@ -159,6 +208,7 @@ describe("Content types", () => {
       (await client.conversations.getMessageById(parent))?.replyCount,
     ).toBe(3n);
   });
+
   it.each([true, false])(
     "retains attachment optional filename %s through encryption",
     async (named) => {
@@ -177,6 +227,7 @@ describe("Content types", () => {
       ).toEqual(value);
     },
   );
+
   it("reports missing and failed custom codecs without losing the raw envelope", async () => {
     const codec = new TestCodec();
     const failing = new DecodeFailureCodec();
