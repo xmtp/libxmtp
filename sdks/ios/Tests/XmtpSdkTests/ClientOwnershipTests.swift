@@ -107,9 +107,9 @@ final class ClientOwnershipTests: XCTestCase {
 			let backendOptions = BackendOptions(url: liveBackendURL)
 			let connected = try await Backend.connect(options: backendOptions)
 			for backend in [BackendSource.connected(backend: connected), .options(options: backendOptions)] {
-				let inboxId = try await SDKClient.inboxId(for: identity, backend: backend)
+				let inboxId = try await SDKClient.inboxIdFor(identity: identity, backend: backend)
 				XCTAssertEqual(inboxId, client.inboxId())
-				let reachable = try await SDKClient.canMessage([identity], backend: backend)
+				let reachable = try await SDKClient.canMessage(identities: [identity], backend: backend)
 				XCTAssertEqual(reachable, ["ethereum:\(identity.identifier)": true])
 				let configuration = try await SDKClient.fetchServerConfiguration(backend: backend)
 				XCTAssertEqual(configuration.identifier, client.serverConfiguration().identifier)

@@ -15,6 +15,7 @@ use super::policy::cursor_type;
 use super::{
     Target, convert, identifier as camel, optional_parameters, parameters_with, public_type,
 };
+use crate::client_statics::{self, ClientStatic};
 
 /// The host Client owns these members; the generated members exclude them.
 const HOST_CLIENT_MEMBERS: &[&str] = &[
@@ -410,7 +411,46 @@ pub(super) fn client_members(code: &mut String, items: &[&Metadata]) -> Result<(
         }
         member(code, "Client", method, "clientBinding(this)")?;
     }
+    // The public Client inherits the statics.
+    for item in client_statics::client_statics(items)? {
+        client_static(code, &item)?;
+    }
     code.push_str("}\n");
+    Ok(())
+}
+
+/// A Client static calls the public function that this module exports for
+/// the same `#[sdk_export(client_static)]` function.
+fn client_static(code: &mut String, item: &ClientStatic) -> Result<()> {
+    let function = camel(&item.function.name);
+    let parameters = item
+        .parameters
+        .iter()
+        .map(|parameter| (*parameter).clone())
+        .collect::<Vec<_>>();
+    // A parameter that the public function lets callers leave out stays
+    // optional; `client_statics` keeps it after every required parameter.
+    let declared = parameters_with(&parameters, &optional_parameters(&item.function.inputs));
+    let result = call(
+        "",
+        &function,
+        &item.function.inputs,
+        item.function.return_type.as_ref(),
+        true,
+    )
+    .result_type;
+    let arguments = item
+        .function
+        .inputs
+        .iter()
+        .map(|input| camel(&input.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    writeln!(
+        code,
+        "static {}({declared}): {result} {{\nreturn {function}({arguments});\n}}",
+        item.name
+    )?;
     Ok(())
 }
 

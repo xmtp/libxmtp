@@ -1,33 +1,16 @@
 import { ClientForwarders } from "../client-forwarding.gen";
 import {
   Client as RawClient,
-  type BackendSource as BackendSourceLike,
   StorageLocation,
   StorageLocation_Tags,
-  canMessageWithBackend,
-  fetchServerConfiguration,
-  inboxIdForWithBackend,
-  inboxStatesWithBackend,
-  isAddressAuthorizedWithBackend,
-  isInstallationAuthorizedWithBackend,
-  keyPackageStatusesWithBackend,
-  newestMessageMetadataWithBackend,
-  revokeInstallationsWithBackend,
-  verifySignedWithPublicKey,
   type ClientLike,
   type ClientOptions,
   type ClientEvent,
   type EventFilter,
   ListenerError,
   type EncodedContent,
-  type ConversationId,
   type InboxId,
-  type InstallationId,
-  type InboxState,
-  type KeyPackageStatus,
-  type MessageMetadataEntry,
   type PublicIdentity,
-  type ServerConfiguration,
   type Signer,
 } from "../xmtp_sdk";
 import {
@@ -138,84 +121,6 @@ export class Client extends ClientForwarders {
       await RawClient.build(identity, resolvedOptions(rustOptions), inboxId),
       codecs,
     );
-  }
-
-  static fetchServerConfiguration(
-    backend: BackendSourceLike,
-  ): Promise<ServerConfiguration> {
-    return fetchServerConfiguration(backend);
-  }
-
-  static canMessage(
-    identities: PublicIdentity[],
-    backend: BackendSourceLike,
-  ): Promise<Map<string, boolean>> {
-    return canMessageWithBackend(backend, identities);
-  }
-
-  static inboxIdFor(
-    identity: PublicIdentity,
-    backend: BackendSourceLike,
-  ): Promise<InboxId> {
-    return inboxIdForWithBackend(backend, identity);
-  }
-
-  static inboxStates(
-    ids: InboxId[],
-    backend: BackendSourceLike,
-  ): Promise<InboxState[]> {
-    return inboxStatesWithBackend(backend, ids);
-  }
-
-  static keyPackageStatuses(
-    ids: InstallationId[],
-    backend: BackendSourceLike,
-  ): Promise<Map<string, KeyPackageStatus>> {
-    return keyPackageStatusesWithBackend(backend, ids);
-  }
-
-  static newestMessageMetadata(
-    ids: ConversationId[],
-    backend: BackendSourceLike,
-  ): Promise<Map<string, MessageMetadataEntry>> {
-    return newestMessageMetadataWithBackend(backend, ids);
-  }
-
-  static revokeInstallations(
-    signer: Signer,
-    inboxId: InboxId,
-    ids: InstallationId[],
-    backend: BackendSourceLike,
-  ): Promise<void> {
-    return revokeInstallationsWithBackend(backend, signer, inboxId, ids);
-  }
-
-  static isAddressAuthorized(
-    inboxId: InboxId,
-    address: string,
-    backend: BackendSourceLike,
-  ): Promise<boolean> {
-    return isAddressAuthorizedWithBackend(backend, inboxId, address);
-  }
-
-  static isInstallationAuthorized(
-    inboxId: InboxId,
-    installationId: InstallationId,
-    backend: BackendSourceLike,
-  ): Promise<boolean> {
-    return isInstallationAuthorizedWithBackend(
-      backend,
-      inboxId,
-      installationId,
-    );
-  }
-
-  static verifySignedWithPublicKey(
-    text: string,
-    signature: ArrayBuffer,
-    publicKey: ArrayBuffer,
-  ): Promise<boolean> {
-    return verifySignedWithPublicKey(text, signature, publicKey);
   }
 
   protected binding(): ClientLike {

@@ -4,11 +4,6 @@ import {
   currentProjection,
   liftClientEvent,
   liftEncodedContent,
-  liftInboxState,
-  liftKeyPackageStatus,
-  liftMessageMetadataEntry,
-  liftServerConfiguration,
-  lowerBackendSource,
   lowerClientOptions,
   lowerContentTypeId,
   lowerEncodedContent,
@@ -17,19 +12,12 @@ import {
   lowerSigner,
   publicError,
   XmtpError,
-  type BackendSource,
   type ClientEvent,
   type ClientOptions as ProjectedClientOptions,
-  type ConversationId,
   type EventFilter,
   type InboxId,
-  type InboxState,
-  type InstallationId,
-  type KeyPackageStatus,
-  type MessageMetadataEntry,
   type ObjectProjection,
   type PublicIdentity,
-  type ServerConfiguration,
   type Signer,
 } from "../../public-values.gen";
 import type {
@@ -148,154 +136,6 @@ export class Client extends ClientMembers {
       ),
     );
     return publicClient(host);
-  }
-
-  static async fetchServerConfiguration(
-    backend: BackendSource,
-  ): Promise<ServerConfiguration> {
-    const projection = currentProjection();
-    const configuration = await rethrow(() =>
-      HostClient.fetchServerConfiguration(
-        lowerBackendSource(backend, projection),
-      ),
-    );
-    return liftServerConfiguration(configuration, projection);
-  }
-
-  static canMessage(
-    identities: PublicIdentity[],
-    backend: BackendSource,
-  ): Promise<Map<string, boolean>> {
-    const projection = currentProjection();
-    return rethrow(() =>
-      HostClient.canMessage(
-        identities.map((identity) => lowerPublicIdentity(identity, projection)),
-        lowerBackendSource(backend, projection),
-      ),
-    );
-  }
-
-  static inboxIdFor(
-    identity: PublicIdentity,
-    backend: BackendSource,
-  ): Promise<InboxId> {
-    const projection = currentProjection();
-    return rethrow(() =>
-      HostClient.inboxIdFor(
-        lowerPublicIdentity(identity, projection),
-        lowerBackendSource(backend, projection),
-      ),
-    );
-  }
-
-  static async inboxStates(
-    ids: InboxId[],
-    backend: BackendSource,
-  ): Promise<InboxState[]> {
-    const projection = currentProjection();
-    const states = await rethrow(() =>
-      HostClient.inboxStates(ids, lowerBackendSource(backend, projection)),
-    );
-    return states.map((state) => liftInboxState(state, projection));
-  }
-
-  static async keyPackageStatuses(
-    ids: InstallationId[],
-    backend: BackendSource,
-  ): Promise<Map<string, KeyPackageStatus>> {
-    const projection = currentProjection();
-    const statuses = await rethrow(() =>
-      HostClient.keyPackageStatuses(
-        ids,
-        lowerBackendSource(backend, projection),
-      ),
-    );
-    return new Map(
-      [...statuses].map(([id, status]) => [
-        id,
-        liftKeyPackageStatus(status, projection),
-      ]),
-    );
-  }
-
-  static async newestMessageMetadata(
-    ids: ConversationId[],
-    backend: BackendSource,
-  ): Promise<Map<string, MessageMetadataEntry>> {
-    const projection = currentProjection();
-    const entries = await rethrow(() =>
-      HostClient.newestMessageMetadata(
-        ids,
-        lowerBackendSource(backend, projection),
-      ),
-    );
-    return new Map(
-      [...entries].map(([id, entry]) => [
-        id,
-        liftMessageMetadataEntry(entry, projection),
-      ]),
-    );
-  }
-
-  static revokeInstallations(
-    signer: Signer,
-    inboxId: InboxId,
-    ids: InstallationId[],
-    backend: BackendSource,
-  ): Promise<void> {
-    const projection = currentProjection();
-    return rethrow(() =>
-      HostClient.revokeInstallations(
-        lowerSigner(signer, projection),
-        inboxId,
-        ids,
-        lowerBackendSource(backend, projection),
-      ),
-    );
-  }
-
-  static isAddressAuthorized(
-    inboxId: InboxId,
-    address: string,
-    backend: BackendSource,
-  ): Promise<boolean> {
-    const projection = currentProjection();
-    return rethrow(() =>
-      HostClient.isAddressAuthorized(
-        inboxId,
-        address,
-        lowerBackendSource(backend, projection),
-      ),
-    );
-  }
-
-  static isInstallationAuthorized(
-    inboxId: InboxId,
-    installationId: InstallationId,
-    backend: BackendSource,
-  ): Promise<boolean> {
-    const projection = currentProjection();
-    return rethrow(() =>
-      HostClient.isInstallationAuthorized(
-        inboxId,
-        installationId,
-        lowerBackendSource(backend, projection),
-      ),
-    );
-  }
-
-  static verifySignedWithPublicKey(
-    text: string,
-    signature: Uint8Array,
-    publicKey: Uint8Array,
-  ): Promise<boolean> {
-    return rethrow(() =>
-      HostClient.verifySignedWithPublicKey(
-        text,
-        Uint8Array.from(signature).buffer,
-        Uint8Array.from(publicKey).buffer,
-      ),
-    );
   }
 
   /** A stream of the client events that `filter` selects. */

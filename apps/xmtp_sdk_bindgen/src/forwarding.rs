@@ -5,7 +5,7 @@ use camino::Utf8Path;
 use heck::ToLowerCamelCase;
 use uniffi_meta::{Metadata, MetadataGroupMap, MethodMetadata};
 
-use crate::Language;
+use crate::{Language, client_statics};
 
 /// Select only methods with the same complete Rust signature on both objects.
 fn common_methods(groups: &MetadataGroupMap) -> Vec<String> {
@@ -236,23 +236,33 @@ fn generate_client(
     source: &str,
     out: &Utf8Path,
 ) -> Result<()> {
-    let selected = client_methods(groups.values().flat_map(|group| &group.items));
-    let (found, header, footer, filename) = match language {
+    let items = groups
+        .values()
+        .flat_map(|group| &group.items)
+        .collect::<Vec<_>>();
+    let selected = client_methods(items.iter().copied());
+    let statics = client_statics::client_statics(&items)?;
+    let (found, statics, header, footer, filename) = match language {
         Language::Swift => (
             swift_client_declarations(source)?,
-            "/// Generated from exported Client methods. Do not edit this output.\nimport Foundation\n\npublic extension SDKClient {\n",
+            client_statics::swift(&statics, source)?,
+            "/// Generated from exported Client methods and client statics. Do not edit\n/// this output.\nimport Foundation\n\npublic extension SDKClient {\n".to_owned(),
             "}\n",
             "ClientForwarding.swift",
         ),
         Language::Kotlin => (
             declarations(source, "public interface ClientInterface {", "fun ")?,
-            "// Generated from exported Client methods. Do not edit this output.\npackage uniffi.xmtp_sdk\n\n",
+            client_statics::kotlin(&statics, source, &items)?,
+            format!(
+                "// Generated from exported Client methods and client statics. Do not edit\n// this output.\npackage {}\n\n",
+                client_statics::KOTLIN_PACKAGE
+            ),
             "",
             "ClientForwarding.kt",
         ),
         _ => bail!("Client forwarding needs Swift or Kotlin"),
     };
-    let rendered = render_client(&selected, &found, language)?;
+    let rendered = render_client(&selected, &found, language)? + &statics;
     fs::write(
         out.join("runtime").join(filename),
         format!(

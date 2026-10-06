@@ -5,13 +5,15 @@
 `crates/xmtp_sdk/AGENTS.md` for the recipes.
 
 A routine façade change (a method, a getter, an event variant or payload
-record, a record field other than one of `MessageData`) needs no edit here.
+record, a Client static, a record field other than one of `MessageData`)
+needs no edit here.
 The façade describes its items with `#[xmtp_macro::sdk_export]`, and the
 generator reads the result from the UniFFI library metadata.
 
 ## Metadata markers
 
-The macro turns its `pure` argument and `#[sdk(...)]` member options into
+The macro turns its `pure` and `client_static` arguments and `#[sdk(...)]`
+member options into
 `#[doc = "@xmtp-..."]` lines. UniFFI carries docstrings into the library
 metadata, `src/markers.rs` reads them, and the generator strips them from
 generated documentation comments; code and string literals keep their text.
@@ -23,6 +25,7 @@ together.
 | Marker | Façade source | What the generator does |
 | --- | --- | --- |
 | `@xmtp-pure` | `#[sdk_export(pure)]` on a sync free function | Puts it in the browser's main-thread pure module, outside the worker bridge |
+| `@xmtp-client-static` | `#[sdk_export(client_static)]` on an async free function | Adds a static that calls the function to the Client of every SDK; see [Client statics](#client-statics) |
 | `@xmtp-worker` | Written in a doc comment | Keeps a call the browser worker makes itself off the bridge |
 | `@xmtp-internal` | Written in a doc comment | Leaves the item out of the public projection |
 | `@xmtp-immutable` | `#[sdk(immutable)]` on a sync `&self` getter | Lets the browser bridge read the getter once, from a snapshot |
@@ -55,6 +58,8 @@ Rules the macro enforces at compile time:
   the object's lifetime; otherwise make the read async.
 - `#[sdk(kind)]` marks every variant of an enum, each with its own kind, or
   none.
+- `client_static` takes an asynchronous free function, and not with
+  `pure`.
 - Redaction fails closed. Once a record, or any variant of an enum, has a
   `#[sdk(redact)]` field, every other field of the type takes
   `#[sdk(redact)]` or `#[sdk(shown)]`, so a new field or variant never prints
@@ -97,6 +102,30 @@ Derived without a marker:
   also build a `Client`; any other future that lifts a `Client` stops
   generation, because it may return a `Client` that the caller does not own.
 
+## Client statics
+
+`#[sdk_export(client_static)]` marks an asynchronous free function that every
+SDK also exposes as a static member of its Client. The static's name is the
+function's without a trailing `_with_backend`, in the SDK's casing. It takes
+the function's parameters in Rust order with the `BackendSource` parameter
+moved last, and the function stays exported. So
+`can_message_with_backend(backend, identities)` becomes
+`Client.canMessage(identities, backend)` in TypeScript and Kotlin and
+`SDKClient.canMessage(identities:backend:)` in Swift.
+
+- TypeScript: the generated `ClientMembers` base, which the public `Client`
+  extends, gets a static that calls the public function.
+- Kotlin: `runtime/ClientForwarding.kt` gets an extension of
+  `SDKClient.Companion`, with the binding's parameter and result types. A
+  `BackendSource` or a foreign trait passes through its `SDKForeign` wrapper.
+- Swift: `runtime/ClientForwarding.swift` gets a `static func` with every
+  parameter labelled, with the binding's types.
+
+Generation stops on a function that the rule cannot express: a synchronous
+or `@xmtp-internal` one, one with two `BackendSource` parameters, a name that
+another static or the host constructors `create` and `build` take, or a
+Kotlin foreign trait that has no `SDKForeign` wrapper or sits in a container.
+
 ## Hand-maintained areas
 
 These stay outside the markers on purpose:
@@ -107,9 +136,6 @@ These stay outside the markers on purpose:
 - `Message` accessors over `MessageData` (five runtime files, such as
   `runtime/ts/message.ts` and `runtime/kotlin/SDKTypes.kt`): each language
   reads the record's fields by hand. A later change generates them.
-- The `*_with_backend` `Client` statics (five hand copies in the Swift,
-  Kotlin, and TypeScript runtimes and the browser bridge templates). A later
-  change generates them.
 - Public projection policy (`src/public_projection/policy.rs`): the
   `CREDENTIAL_GUARD` text and the `DELIVERY_CURSOR_*` lists.
 - Codec sends (`is_codec_send` in `src/public_projection/objects.rs`) and

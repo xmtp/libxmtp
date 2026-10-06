@@ -1,4 +1,5 @@
-/// Generated from exported Client methods. Do not edit this output.
+/// Generated from exported Client methods and client statics. Do not edit
+/// this output.
 import Foundation
 
 public extension SDKClient {
@@ -184,5 +185,45 @@ public extension SDKClient {
 
     func verifySignedWithInstallationKey(text: String, signature: Data) async throws -> Bool {
         try await raw.verifySignedWithInstallationKey(text: text, signature: signature)
+    }
+
+    static func `canMessage`(identities: [PublicIdentity], backend: BackendSource) async throws -> [String: Bool] {
+        try await XmtpSdk.canMessageWithBackend(backend: backend, identities: identities)
+    }
+
+    static func `fetchServerConfiguration`(backend: BackendSource) async throws -> ServerConfiguration {
+        try await XmtpSdk.fetchServerConfiguration(backend: backend)
+    }
+
+    static func `inboxIdFor`(identity: PublicIdentity, backend: BackendSource) async throws -> InboxId {
+        try await XmtpSdk.inboxIdForWithBackend(backend: backend, identity: identity)
+    }
+
+    static func `inboxStates`(ids: [InboxId], backend: BackendSource) async throws -> [InboxState] {
+        try await XmtpSdk.inboxStatesWithBackend(backend: backend, ids: ids)
+    }
+
+    static func `isAddressAuthorized`(inboxId: InboxId, address: String, backend: BackendSource) async throws -> Bool {
+        try await XmtpSdk.isAddressAuthorizedWithBackend(backend: backend, inboxId: inboxId, address: address)
+    }
+
+    static func `isInstallationAuthorized`(inboxId: InboxId, installationId: InstallationId, backend: BackendSource) async throws -> Bool {
+        try await XmtpSdk.isInstallationAuthorizedWithBackend(backend: backend, inboxId: inboxId, installationId: installationId)
+    }
+
+    static func `keyPackageStatuses`(ids: [InstallationId], backend: BackendSource) async throws -> [String: KeyPackageStatus] {
+        try await XmtpSdk.keyPackageStatusesWithBackend(backend: backend, ids: ids)
+    }
+
+    static func `newestMessageMetadata`(ids: [ConversationId], backend: BackendSource) async throws -> [String: MessageMetadataEntry] {
+        try await XmtpSdk.newestMessageMetadataWithBackend(backend: backend, ids: ids)
+    }
+
+    static func `revokeInstallations`(signer: Signer, inboxId: InboxId, ids: [InstallationId], backend: BackendSource) async throws {
+        try await XmtpSdk.revokeInstallationsWithBackend(backend: backend, signer: signer, inboxId: inboxId, ids: ids)
+    }
+
+    static func `verifySignedWithPublicKey`(text: String, signature: Data, publicKey: Data) async throws -> Bool {
+        try await XmtpSdk.verifySignedWithPublicKey(text: text, signature: signature, publicKey: publicKey)
     }
 }

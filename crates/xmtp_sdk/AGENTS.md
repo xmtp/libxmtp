@@ -122,8 +122,13 @@ metadata markers, so a routine export needs no generator edit:
   then takes `#[sdk(redact)]` or `#[sdk(shown)]`. The macro implements `Debug` for the
   type through its `fn redacted_debug(&self, f)`, which redacts the same
   fields, so the type cannot also derive `Debug`.
-- A `MessageData` field, a `*_with_backend` `Client` static, or a new identity
-  route still needs the hand edits that the generator README lists.
+- A backend function that the Client also exposes takes
+  `#[sdk_export(client_static)]`; it must be async and available on every
+  target. Every SDK gets a Client static named without the trailing
+  `_with_backend`, with the `BackendSource` argument last, and the function
+  stays exported.
+- A `MessageData` field or a new identity route still needs the hand edits
+  that the generator README lists.
 
 `apps/xmtp_sdk_bindgen/README.md` lists the markers and the areas that stay
 hand-maintained.
