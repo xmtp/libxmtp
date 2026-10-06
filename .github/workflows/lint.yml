@@ -69,6 +69,9 @@ jobs:
               - 'dev/js/**'
               - 'proto/**'
               - 'crates/**'
+              # The generator emits the public roots that the package
+              # type-tests/publicSurface.ts compiles check.
+              - 'apps/xmtp_sdk_bindgen/**'
               - 'nix/**'
               - 'flake.lock'
               - '.github/workflows/lint-js*'
