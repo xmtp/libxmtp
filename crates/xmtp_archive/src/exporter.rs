@@ -27,29 +27,59 @@ pub fn export(
     options: ArchiveOptions,
     db: impl ConnectionExt,
     key: &[u8],
-    mut sink: impl io::Write,
+    sink: impl io::Write,
 ) -> Result<BackupMetadataSave, ArchiveError> {
-    let cipher = crate::cipher(key)?;
-    let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
-    sink.write_all(&BACKUP_VERSION.to_le_bytes())?;
-    sink.write_all(&nonce)?;
+    let mut writer = ElementWriter::new(key, sink)?;
+    let metadata = snapshot::read(&db, &options, |element| writer.write(element))?;
+    writer.finish()?;
+    Ok(metadata)
+}
 
-    #[allow(deprecated)]
-    let mut nonce = GenericArray::clone_from_slice(&nonce);
-    let mut zstd = ZstdEncoder::new(AllowStdIo::new(sink));
-    let write = |element: Element| -> Result<(), ArchiveError> {
+/// Streams standard archive elements to a synchronous sink.
+///
+/// The caller writes metadata first and each group before its messages. On any
+/// error, discard the sink. Only `finish` completes the compressed stream.
+#[allow(deprecated)]
+pub struct ElementWriter<W: io::Write> {
+    cipher: aes_gcm::Aes256Gcm,
+    nonce: GenericArray<u8, aes_gcm::aead::consts::U12>,
+    zstd: ZstdEncoder<AllowStdIo<W>>,
+}
+
+impl<W: io::Write> ElementWriter<W> {
+    /// Checks the key before writing the header.
+    pub fn new(key: &[u8], mut sink: W) -> Result<Self, ArchiveError> {
+        let cipher = crate::cipher(key)?;
+        let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
+        sink.write_all(&BACKUP_VERSION.to_le_bytes())?;
+        sink.write_all(&nonce)?;
+        #[allow(deprecated)]
+        Ok(Self {
+            cipher,
+            nonce: GenericArray::clone_from_slice(&nonce),
+            zstd: ZstdEncoder::new(AllowStdIo::new(sink)),
+        })
+    }
+
+    /// Writes one encrypted frame and advances its nonce.
+    // implements: ARCH-001
+    pub fn write(&mut self, element: Element) -> Result<(), ArchiveError> {
         let plaintext = BackupElement {
             element: Some(element),
         }
         .encode_to_vec();
-        let ciphertext = cipher.encrypt(&nonce, &*plaintext)?;
-        nonce.increment();
-        ready(zstd.write_all(&(ciphertext.len() as u32).to_le_bytes()))?;
-        Ok(ready(zstd.write_all(&ciphertext))?)
-    };
-    let metadata = snapshot::read(&db, &options, write)?;
-    ready(zstd.close())?;
-    Ok(metadata)
+        let ciphertext = self.cipher.encrypt(&self.nonce, &*plaintext)?;
+        self.nonce.increment();
+        let length = u32::try_from(ciphertext.len())
+            .map_err(|_| io::Error::other("archive frame exceeds u32 length"))?;
+        ready(self.zstd.write_all(&length.to_le_bytes()))?;
+        Ok(ready(self.zstd.write_all(&ciphertext))?)
+    }
+
+    /// Completes the compressed stream. A successful write alone is incomplete.
+    pub fn finish(mut self) -> Result<(), ArchiveError> {
+        Ok(ready(self.zstd.close())?)
+    }
 }
 
 /// Namespace for [`ArchiveExporter::export_to_file`], which the native

@@ -1,0 +1,30 @@
+{
+  "name": "@xmtp/migration",
+  "version": "0.1.0",
+  "description": "Offline conversion of legacy XMTP storage to standard archives",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xmtp/libxmtp.git",
+    "directory": "sdks/migration/node"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "node ../dev/stage-package.mjs node"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

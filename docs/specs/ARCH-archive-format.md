@@ -254,6 +254,8 @@ The eligibility table defines the exported set. An empty explicit selection sele
 
 Expiry is the absolute deadline assigned under META-050, not one recalculated from group settings at restore time. Settings may have changed after a message was sent. The pending fields in `GroupMessageSave` distinguish a known deadline, known absence of a deadline, and missing historical information.
 
+Legacy conversion uses the same selection and required-record rules. MIG-005 permits absent optional metadata when legacy decoding fails. Ordinary SDK database export retains the strict metadata failure rule.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | ARCH-009 | The window bounds messages | When the client writes an archive, it MUST include only messages whose `sent_at_ns` is greater than `start_ns` when set and not greater than `end_ns` when set, and whose expiry is absent or greater than the export time. When `exclude_disappearing_messages` is true, it MUST exclude every message with an expiry and every restored message whose expiry is unknown under ARCH-019. | The archive must not retain content the app excluded. |
