@@ -207,12 +207,21 @@ def invoke(config, request, log):
             raise RuntimeError(f"iOS app failed: {value['error']}")
         return value["result"]
     finally:
-        try:
-            simctl(commands, "terminate", udid, BUNDLE, cleanup=True)
-        finally:
-            log.with_suffix(".simctl.json").write_text(json.dumps(commands, indent=2))
-            if transport:
-                shutil.rmtree(transport, ignore_errors=True)
+        terminate(commands, udid)
+        log.with_suffix(".simctl.json").write_text(json.dumps(commands, indent=2))
+        if transport:
+            shutil.rmtree(transport, ignore_errors=True)
+
+
+def terminate(commands, udid):
+    """Stop the app after a call. Best effort: a failure here must not hide
+    the result or the error of the call. The next call terminates the app
+    again before it starts, and fails if it cannot.
+    """
+    try:
+        simctl(commands, "terminate", udid, BUNDLE, cleanup=True)
+    except (OSError, subprocess.SubprocessError, RuntimeError) as error:
+        commands.append({"cleanup_error": str(error)})
 
 
 def remove_state(config, state_directory):

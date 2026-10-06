@@ -310,6 +310,64 @@ class IosCleanup(unittest.TestCase):
                     ios_host.invoke(config, request, temp / "call")
         self.assertEqual(calls[-2:], ["launch", "terminate"])
 
+    def call_with_failing_terminate(self, answer, failure):
+        """One call whose app answers `answer` and whose final terminate fails.
+
+        The terminate before the launch succeeds. Returns the call result and
+        the recorded simctl commands.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            container = temp / "container"
+            (temp / "state").mkdir()
+            (temp / "state/fixture.json").write_text("{}")
+            launched = []
+
+            def simctl(argv, timeout, **kwargs):
+                stdout = ""
+                if argv[2] == "terminate" and launched:
+                    if failure == "timeout":
+                        raise subprocess.TimeoutExpired(argv, timeout)
+                    if failure == "start":
+                        raise FileNotFoundError("xcrun")
+                    return SimpleNamespace(returncode=1, stdout="", stderr="busy")
+                if argv[2] == "get_app_container":
+                    stdout = f"{container}\n"
+                if argv[2] == "launch":
+                    launched.append(argv)
+                    envelope = container / argv[-1]
+                    operation = json.loads(envelope.read_text())["operation_id"]
+                    response = {"operation_id": operation, **answer}
+                    (envelope.parent / "response.json").write_text(json.dumps(response))
+                return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+            config = {
+                "simulator_udid": "udid",
+                "backend_url": "http://backend",
+                "signer_url": "http://signer",
+                "timeout_seconds": 5,
+            }
+            request = {"state_directory": str(temp / "state"), "phase": "measure"}
+            try:
+                with patch.object(ios_host.subprocess, "run", side_effect=simctl):
+                    return ios_host.invoke(config, request, temp / "call")
+            finally:
+                self.commands = json.loads((temp / "call.simctl.json").read_text())
+
+    def test_failed_terminate_keeps_the_sample(self):
+        for failure in ("timeout", "start", "exit"):
+            with self.subTest(failure):
+                sample = {"duration_ms": 12.5}
+                result = self.call_with_failing_terminate({"result": sample}, failure)
+                self.assertEqual(result, sample)
+                self.assertIn("cleanup_error", self.commands[-1])
+
+    def test_failed_terminate_keeps_the_call_error(self):
+        for failure in ("timeout", "start", "exit"):
+            with self.subTest(failure):
+                with self.assertRaisesRegex(RuntimeError, "iOS app failed: no group"):
+                    self.call_with_failing_terminate({"error": "no group"}, failure)
+
     def test_remove_state_deletes_the_run_databases_only(self):
         with tempfile.TemporaryDirectory() as temp:
             temp = Path(temp)
@@ -447,6 +505,27 @@ class AndroidHost(unittest.TestCase):
                 self.assertEqual(android_host.backend_ports(url), ports)
         with self.assertRaises(ValueError):
             android_host.backend_ports("grpc://localhost")
+
+    def test_stuck_reverse_removal_does_not_block_the_run(self):
+        removed = []
+
+        def adb(argv, **kwargs):
+            if "--remove" in argv:
+                removed.append((argv[-1], kwargs.get("timeout")))
+                # A stuck adb never returns. subprocess.run kills it after
+                # its timeout; without a timeout the run would wait forever.
+                if kwargs.get("timeout") is None:
+                    raise AssertionError(f"{argv} has no deadline and would hang")
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch.object(android_host.subprocess, "run", side_effect=adb):
+            with self.assertRaisesRegex(ValueError, "request failed"):
+                with android_host.reverse({"serial": "device"}, [5050, 5555]):
+                    raise ValueError("request failed")
+        # Every port is removed, each within the cleanup deadline.
+        deadline = android_host.CLEANUP_SECONDS
+        self.assertEqual(removed, [("tcp:5050", deadline), ("tcp:5555", deadline)])
 
     def test_reverse_rejects_a_missing_port(self):
         with patch.object(android_host.subprocess, "run") as run:

@@ -105,28 +105,33 @@ def reverse(config, ports):
         yield
     finally:
         for port in ports:
-            subprocess.run(
-                ["adb", "-s", config["serial"], "reverse", "--remove", f"tcp:{port}"]
-            )
+            cleanup(config, "reverse", "--remove", f"tcp:{port}")
 
 
 def install(config):
     adb(config, "install", "-r", config["apk"], timeout=config["timeout_seconds"])
 
 
-def force_stop(config):
-    """Stop the app on the device. A timeout kills only the local adb client,
-    so an instrumentation can still run there and disturb the next request.
-    Best effort: a failure here must not hide the result of the request.
+def cleanup(config, *args):
+    """Run one adb cleanup command with a short deadline. Best effort: a
+    disconnected device or a stuck adb server must not block the run or hide
+    the result of the request.
     """
     try:
         subprocess.run(
-            ["adb", "-s", config["serial"], "shell", "am", "force-stop", PACKAGE],
+            ["adb", "-s", config["serial"], *args],
             capture_output=True,
             timeout=CLEANUP_SECONDS,
         )
     except (OSError, subprocess.SubprocessError):
         pass
+
+
+def force_stop(config):
+    """Stop the app on the device. A timeout kills only the local adb client,
+    so an instrumentation can still run there and disturb the next request.
+    """
+    cleanup(config, "shell", "am", "force-stop", PACKAGE)
 
 
 def state_key(state_directory):

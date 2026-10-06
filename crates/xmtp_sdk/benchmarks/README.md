@@ -19,8 +19,9 @@ core.
 
 Each workload reports `duration_ms` and `peak_memory_bytes`. Stream also
 reports `messages_per_second` (the 1,000 primary messages only) and
-`events_per_second` (all 1,250 events). The browser reports long tasks above
-50 ms inside the timer (`long_tasks` count and `long_task_ms` total). The run
+`events_per_second` (all 1,250 events). The browser reports each long task
+(a main-thread task above 50 ms) that overlaps the timer: `long_tasks` is the
+count and `long_task_ms` the total time inside the timer. The run
 also records the package size, raw and as a deterministic tar with gzip level 9.
 
 Memory scope differs per host. Do not compare it across hosts:
@@ -90,10 +91,12 @@ no backend, device or SDK build.
   and Chromium runners.
 - `hosts/ios_host.py`, `hosts/ios/`, `hosts/SwiftSupport.swift` and
   `hosts/SwiftSdk.swift` are the Release iOS Simulator app and its launcher.
-  The launcher stops the app after each call, also after a timeout.
+  The launcher stops the app after each call, also after a timeout. A failed
+  stop does not hide the result or the error of the call.
 - `hosts/android_host.py` and `hosts/android/` are the release APK and its
   instrumentation launcher. The launcher force-stops the app after each call,
-  also after a timeout. The APK builds with strict dependency verification
+  also after a timeout. Each adb cleanup command (force-stop, `reverse
+  --remove`) has a 15-second deadline and cannot hide a result. The APK builds with strict dependency verification
   against the checked-in `gradle.lockfile`, `buildscript-gradle.lockfile` and
   `gradle/verification-metadata.xml`. For an approved dependency change,
   build once with `--write-locks --write-verification-metadata sha256`, as in
@@ -102,9 +105,11 @@ no backend, device or SDK build.
   a descendant that keeps the output pipes open), the host-call timeout (a
   zero timeout still kills, and the CLI rejects it), the percentile helper,
   the stream rates, the sample checks, the run integrity check, the iOS and
-  Android timeout cleanup and the Android backend port.
+  Android timeout cleanup, a failed iOS stop, a stuck `adb reverse --remove`
+  and the Android backend port.
   `test_workload.mjs` checks the Node and browser stream workload: the
   teardown runs once, outside the timer, and also after a read failure, a
-  duplicate event or a publish failure. The Swift and Kotlin stream workloads
+  duplicate event or a publish failure. It also checks that a browser long
+  task that overlaps the timer counts with its time inside the timer. The Swift and Kotlin stream workloads
   have no unit test; only `just sdk bench swift` and `just sdk bench kotlin`
   run them.

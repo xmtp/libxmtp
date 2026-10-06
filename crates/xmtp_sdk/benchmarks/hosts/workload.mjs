@@ -160,3 +160,17 @@ async function teardown(api, open) {
   }
   return errors;
 }
+
+// The time of each long task inside the timed window. The browser reports a
+// long task only when the complete task is above 50 ms, so a task that
+// overlaps the window counts even when less than 50 ms of it is inside.
+// A task completely outside the window does not count.
+export function longTasksInWindow(entries, { start_ms: start, end_ms: end }) {
+  return entries
+    .map(
+      (entry) =>
+        Math.min(entry.startTime + entry.duration, end) -
+        Math.max(entry.startTime, start),
+    )
+    .filter((duration) => duration > 0);
+}
