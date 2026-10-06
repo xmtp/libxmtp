@@ -92,7 +92,7 @@ let
         cp --recursive --remove-destination ${inputs}/. $out/
       '';
     };
-  generationSource =
+  generationInputs =
     language:
     toSource {
       inherit root;
@@ -107,6 +107,16 @@ let
             root + /apps/xmtp_sdk_bindgen/runtime
         )
       ];
+    };
+  # The stock Swift/Kotlin renderer still asks Cargo for workspace metadata.
+  # Keep manifests and target stubs without adding real compilation sources.
+  generationSource =
+    language:
+    xmtp.craneLib.mkDummySrc {
+      src = workspaceSource;
+      extraDummyScript = ''
+        cp --recursive --remove-destination ${generationInputs language}/. $out/
+      '';
     };
   # Keep the complete source used by both existing identity producers.
   provenanceSource = toSource {
