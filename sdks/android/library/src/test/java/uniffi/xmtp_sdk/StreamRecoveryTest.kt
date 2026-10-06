@@ -10,8 +10,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.net.HttpURLConnection
-import java.net.URI
 import java.util.Collections
 
 // A live message stream through the local Toxiproxy fault proxy. The proxy
@@ -22,23 +20,6 @@ import java.util.Collections
 class StreamRecoveryTest {
     // dev/docker/toxiproxy/config.json defines this proxy in front of the backend.
     private val proxy = "backend"
-
-    private fun toxiproxy(
-        path: String,
-        body: String,
-    ) {
-        val connection = URI(liveEnv("XMTP_TOXIPROXY_API") + path).toURL().openConnection() as HttpURLConnection
-        try {
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.outputStream.use { it.write(body.toByteArray()) }
-            val status = connection.responseCode
-            check(status in 200..299) { "Toxiproxy $path returned $status" }
-        } finally {
-            connection.disconnect()
-        }
-    }
 
     private fun setProxyEnabled(enabled: Boolean) = toxiproxy("/proxies/$proxy", """{"enabled": $enabled}""")
 

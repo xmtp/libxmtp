@@ -5,6 +5,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -39,6 +40,9 @@ class ClientOwnershipTest {
                     val id = group.sendText("owned message")
                     val sent = group.messages().first { it.id == id }
                     assertSame(host, sent.client())
+                    // refresh() reads the stored message again through its owner.
+                    assertEquals(sent, sent.refresh())
+                    assertNotNull("A published message has a delivery cursor", sent.deliveryCursor)
                     host.end()
                     expectClientClosed { sent.client() }
                     expectClientClosed { sent.refresh() }

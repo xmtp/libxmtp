@@ -73,9 +73,11 @@ backend attachment URL. Tests set `allowPrivateNetwork = true` for this fixture.
 
 `library/src/test` has JVM tests. Most use recording fakes of the generated
 classes (`Group(NoHandle)`). The live JVM tests read `XMTP_BACKEND_URL`, and
-the stream recovery test reads `XMTP_TOXIPROXY_API` and
+the stream recovery and attachment lifetime tests read `XMTP_TOXIPROXY_API` and
 `XMTP_BACKEND_TOXIC_URL`; `just android test` loads them from the worktree
-environment. Live tests create clients through `withClients`, which ends each
+environment. Those two tests change the shared `backend` proxy and reset it on
+exit; do not run them at the same time as other Toxiproxy tests in the
+worktree. Live tests create clients through `withClients`, which ends each
 client on every exit. `library/src/androidTest` has installed Android tests.
 Host JVM checks do not prove an Android AAR loads.
 

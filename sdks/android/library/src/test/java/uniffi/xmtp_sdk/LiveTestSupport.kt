@@ -4,6 +4,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.HttpURLConnection
+import java.net.URI
 
 // Helpers for the JVM tests that use this worktree's local backend.
 // `just android test` loads dev/docker/.env, so each worktree reaches its own stack.
@@ -80,3 +82,28 @@ internal suspend fun eventually(
         while (!condition()) delay(50)
         true
     } ?: false
+
+/**
+ * Sends one request to this worktree's Toxiproxy API (`XMTP_TOXIPROXY_API`).
+ * A status in [accepted] is success; any other status fails.
+ */
+internal fun toxiproxy(
+    path: String,
+    body: String? = null,
+    method: String = "POST",
+    accepted: Iterable<Int> = 200..299,
+) {
+    val connection = URI(liveEnv("XMTP_TOXIPROXY_API") + path).toURL().openConnection() as HttpURLConnection
+    try {
+        connection.requestMethod = method
+        if (body != null) {
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.outputStream.use { it.write(body.toByteArray()) }
+        }
+        val status = connection.responseCode
+        check(status in accepted) { "Toxiproxy $method $path returned $status" }
+    } finally {
+        connection.disconnect()
+    }
+}
