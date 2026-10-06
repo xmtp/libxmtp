@@ -27,7 +27,7 @@ import {
   type FieldValue,
   type PendingAttachment,
 } from "@xmtp/node-sdk";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 const text = (value: string): FieldValue => ({ kind: "string", value });
 
@@ -249,6 +249,14 @@ it("a peer downloads an uploaded attachment to a file and deletes it", async () 
     const events = await receiver.events({
       kinds: ["attachment.download_completed", "attachment.deleted"],
     });
+    // A listener gets the same lifted public event as the reader.
+    const heard: ClientEvent[] = [];
+    const listener = await receiver.startListener(
+      { kinds: ["attachment.deleted"] },
+      (event) => {
+        heard.push(event);
+      },
+    );
     const path = await attachments.localPath(message.content.value);
     const downloaded = await attachments.download(message.content.value);
     expect(downloaded).toEqual({
@@ -309,6 +317,12 @@ it("a peer downloads an uploaded attachment to a file and deletes it", async () 
       kind: "attachment.deleted",
       attachment_deleted: reference,
     });
+    await vi.waitFor(() =>
+      expect(heard).toEqual([
+        { kind: "attachment.deleted", attachment_deleted: reference },
+      ]),
+    );
+    await receiver.stopListener(listener);
     await events.return();
     await receiver.end();
     await sender.end();
