@@ -242,6 +242,137 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     b.end().await?;
 }
 
+/// Clearing the disappearing settings (`None`) stores zero values and turns
+/// disappearing off, for the sender and for a member after sync.
+#[xmtp_common::test(unwrap_try = true)]
+async fn cleared_disappearing_settings_read_back_as_zero_for_all_members() {
+    use crate::{Conversation, ConversationState, DisappearingSettings, Timestamp};
+
+    fn settings(state: &ConversationState) -> Option<(i64, i64)> {
+        state
+            .disappearing_settings
+            .as_ref()
+            .map(|settings| (settings.from.0, settings.retention_ns))
+    }
+
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = alix
+        .conversations()
+        .create_group(vec![bo.inbox_id()], None)
+        .await?;
+    let from = xmtp_common::time::now_ns();
+    group
+        .update_disappearing_settings(Some(DisappearingSettings {
+            from: Timestamp(from),
+            retention_ns: xmtp_common::NS_IN_MIN,
+        }))
+        .await?;
+    bo.conversations().sync().await?;
+    let Some(Conversation::Group { group: bo_group }) =
+        bo.conversations().get_by_id(group.id()).await?
+    else {
+        panic!("bo must receive the group");
+    };
+    bo_group.sync().await?;
+    for state in [group.state().await?.common, bo_group.state().await?.common] {
+        assert!(state.is_disappearing_enabled);
+        assert_eq!(settings(&state), Some((from, xmtp_common::NS_IN_MIN)));
+    }
+
+    group.update_disappearing_settings(None).await?;
+    bo_group.sync().await?;
+    for state in [group.state().await?.common, bo_group.state().await?.common] {
+        assert!(!state.is_disappearing_enabled);
+        assert_eq!(settings(&state), Some((0, 0)));
+    }
+    alix.end().await?;
+    bo.end().await?;
+}
+
+/// The façade description, image URL and super-admin mutations change the
+/// matching group field for the sender and for a member after sync.
+#[xmtp_common::test(unwrap_try = true)]
+async fn group_mutations_change_only_their_own_field_for_all_members() {
+    use crate::{Conversation, GroupState};
+
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = alix
+        .conversations()
+        .create_group(
+            vec![bo.inbox_id()],
+            Some(crate::CreateGroupOptions {
+                image_url: Some("https://example.com/first".into()),
+                description: Some("first description".into()),
+                ..Default::default()
+            }),
+        )
+        .await?;
+    group.update_description("next description".into()).await?;
+    group
+        .update_image_url("https://example.com/next".into())
+        .await?;
+    group.add_super_admin(bo.inbox_id()).await?;
+    bo.conversations().sync().await?;
+    let Some(Conversation::Group { group: bo_group }) =
+        bo.conversations().get_by_id(group.id()).await?
+    else {
+        panic!("bo must receive the group");
+    };
+    bo_group.sync().await?;
+    let is_super_admin = |state: &GroupState| state.super_admins.contains(&bo.inbox_id());
+    for state in [group.state().await?, bo_group.state().await?] {
+        assert_eq!(state.description, "next description");
+        assert_eq!(state.image_url, "https://example.com/next");
+        assert!(is_super_admin(&state), "{:?}", state.super_admins);
+        assert!(!state.admins.contains(&bo.inbox_id()), "{:?}", state.admins);
+    }
+
+    group.remove_super_admin(bo.inbox_id()).await?;
+    bo_group.sync().await?;
+    for state in [group.state().await?, bo_group.state().await?] {
+        assert!(!is_super_admin(&state), "{:?}", state.super_admins);
+    }
+    alix.end().await?;
+    bo.end().await?;
+}
+
+/// An optimistic group keeps its create options locally, and a member sees
+/// them after the group is published and the member is added.
+#[xmtp_common::test(unwrap_try = true)]
+async fn optimistic_group_keeps_create_options_after_publish() {
+    use crate::{Conversation, CreateGroupOptions};
+
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = alix
+        .conversations()
+        .create_group_optimistic(Some(CreateGroupOptions {
+            name: Some("optimistic".into()),
+            description: Some("optimistic description".into()),
+            ..Default::default()
+        }))
+        .await?;
+    let state = group.state().await?;
+    assert_eq!(state.name, "optimistic");
+    assert_eq!(state.description, "optimistic description");
+
+    group.publish_messages().await?;
+    group.add_members(vec![bo.inbox_id()]).await?;
+    bo.conversations().sync().await?;
+    let Some(Conversation::Group { group: bo_group }) =
+        bo.conversations().get_by_id(group.id()).await?
+    else {
+        panic!("bo must receive the optimistic group");
+    };
+    let state = bo_group.state().await?;
+    assert_eq!(state.name, "optimistic");
+    assert_eq!(state.description, "optimistic description");
+    alix.end().await?;
+    bo.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn remove_members_rejects_account_address_and_keeps_nonmember_noop() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;

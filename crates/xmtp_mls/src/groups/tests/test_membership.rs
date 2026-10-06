@@ -378,6 +378,72 @@ async fn test_removed_member_does_not_receive_later_messages() {
     assert_eq!(texts(&bola_group), vec![b"before removal".to_vec()]);
 }
 
+/// Every installation of an inbox that is removed and added again keeps the
+/// message from before the removal, gets the message after the re-add, and
+/// never stores the message sent while the inbox was out of the group.
+// verifies: JOIN-044
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_rejoin_history_on_every_installation_of_the_inbox() {
+    tester!(amal);
+    tester!(bola);
+    tester!(bola2, from: bola);
+    assert_eq!(bola.inbox_id(), bola2.inbox_id());
+    assert_ne!(
+        bola.installation_public_key(),
+        bola2.installation_public_key()
+    );
+
+    let amal_group = amal.create_group(None, None)?;
+    amal_group.add_members(&[bola.inbox_id()]).await?;
+    let group_id = amal_group.group_id;
+    for client in [&bola, &bola2] {
+        client.sync_welcomes().await?;
+        assert!(client.group(&group_id)?.is_active()?);
+    }
+
+    amal_group
+        .send_message(b"before removal", SendMessageOpts::default())
+        .await?;
+    amal_group.remove_members(&[bola.inbox_id()]).await?;
+    amal_group
+        .send_message(b"while removed", SendMessageOpts::default())
+        .await?;
+    amal_group.add_members(&[bola.inbox_id()]).await?;
+    amal_group
+        .send_message(b"after rejoin", SendMessageOpts::default())
+        .await?;
+
+    let texts = |group: &TestMlsGroup| {
+        group
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
+            .unwrap()
+            .into_iter()
+            .map(|message| message.decrypted_message_bytes)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        texts(&amal_group),
+        vec![
+            b"before removal".to_vec(),
+            b"while removed".to_vec(),
+            b"after rejoin".to_vec()
+        ]
+    );
+    for client in [&bola, &bola2] {
+        client.sync_welcomes().await?;
+        let group = client.group(&group_id)?;
+        group.sync().await?;
+        assert!(group.is_active()?);
+        assert_eq!(
+            texts(&group),
+            vec![b"before removal".to_vec(), b"after rejoin".to_vec()]
+        );
+    }
+}
+
 #[xmtp_common::test]
 async fn test_add_missing_installations() {
     // Setup for test

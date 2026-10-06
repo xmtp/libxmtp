@@ -64,6 +64,36 @@ async fn identity_routes_change_membership_by_account() {
     assert_eq!(by_inbox.id(), dm.id());
 }
 
+// The account lookup finds the DM with a registered peer, and finds none for a
+// registered account without a DM or an account that has no inbox.
+#[xmtp_common::test(unwrap_try = true)]
+async fn dm_lookup_by_account_finds_only_an_existing_dm() {
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let caro = Client::create(crate::generate_local_signer().await, options()).await?;
+    let conversations = alix.conversations();
+    let dm = conversations.create_dm(bo.inbox_id(), None).await?;
+
+    let found = conversations.get_dm_by_identity(bo.identity()).await?;
+    assert_eq!(found.map(|dm| dm.id()), Some(dm.id()));
+    assert!(
+        conversations
+            .get_dm_by_identity(caro.identity())
+            .await?
+            .is_none()
+    );
+    let unregistered = PublicIdentity {
+        identifier: "1111111111111111111111111111111111111111".into(),
+        kind: PublicIdentityKind::Ethereum,
+    };
+    assert!(
+        conversations
+            .get_dm_by_identity(unregistered)
+            .await?
+            .is_none()
+    );
+}
+
 // A malformed element rejects the whole call, including valid elements before it.
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_routes_reject_a_malformed_element() {
