@@ -86,8 +86,7 @@ pub async fn decrypt_encoded_content(
         .map_err(XmtpError::from_core)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(native_only)]
 pub async fn encrypt_file(input: String, output: String) -> Result<EncryptionKeys, XmtpError> {
     tokio::task::spawn_blocking(move || {
         xmtp_content_types::file_encryption::encrypt_file(
@@ -101,8 +100,7 @@ pub async fn encrypt_file(input: String, output: String) -> Result<EncryptionKey
     .map_err(XmtpError::from_core)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(native_only)]
 pub async fn decrypt_file(
     input: String,
     output: String,

@@ -105,44 +105,9 @@ component source mapping. They do not use display text for classification.
 The following hand-maintained controls are current. Later lanes must update the
 owning source when they add a public member.
 
-- `bridge/mod.rs` IMMUTABLE_PROPERTIES permits only these synchronous snapshots:
-
-```rust
-const IMMUTABLE_PROPERTIES: &[&str] = &[
-    "Client.app_version",
-    "Client.archives",
-    "Client.client_key",
-    "Client.conversations",
-    "Client.diagnostics",
-    "Client.identity",
-    "Client.inbox_id",
-    "Client.installation_id",
-    "Client.installation_id_bytes",
-    "Client.is_in_memory",
-    "Client.libxmtp_version",
-    "Client.options",
-    "Client.preferences",
-    "Client.server_configuration",
-    "Client.storage",
-    "Client.storage_path",
-    "Dm.added_by_inbox_id",
-    "Dm.created_at",
-    "Dm.creator_inbox_id",
-    "Dm.id",
-    "Dm.is_creator",
-    "Dm.kind",
-    "Dm.peer_inbox_id",
-    "Dm.topic",
-    "Group.added_by_inbox_id",
-    "Group.created_at",
-    "Group.creator_inbox_id",
-    "Group.id",
-    "Group.is_creator",
-    "Group.kind",
-    "Group.topic",
-];
-```
-
+- The browser bridge permits a synchronous snapshot only for a getter that
+  the façade marks `#[sdk(immutable)]`. `apps/xmtp_sdk_bindgen/README.md`
+  lists the markers.
 - `validate.rs` requires async Reader.end. It rejects close methods, record methods,
   wrong error types, raw message records, and unsupported synchronous foreign calls.
   LogSink.log is the existing synchronous exception.

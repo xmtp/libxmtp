@@ -72,10 +72,7 @@ export function currentProjection(): ObjectProjection {
 /// The browser public layer calls functions in the package worker, so it has
 /// only the asynchronous ones; the synchronous ones belong to the pure module.
 fn exported_function(function: &FnMetadata, target: Target) -> bool {
-    !function
-        .docstring
-        .as_deref()
-        .is_some_and(|doc| doc.contains("@xmtp-internal"))
+    !crate::markers::has(function.docstring.as_deref(), crate::markers::INTERNAL)
         && (target != Target::Browser || function.is_async)
 }
 
@@ -112,10 +109,10 @@ fn methods<'a>(items: &[&'a Metadata], owner: &str) -> Vec<&'a MethodMetadata> {
         .filter_map(|item| match item {
             Metadata::Method(method)
                 if method.self_name == owner
-                    && !method
-                        .docstring
-                        .as_deref()
-                        .is_some_and(|doc| doc.contains("@xmtp-internal")) =>
+                    && !crate::markers::has(
+                        method.docstring.as_deref(),
+                        crate::markers::INTERNAL,
+                    ) =>
             {
                 Some(method)
             }
@@ -506,10 +503,10 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
             Metadata::Record(value)
                 if value.name != "ClientOptions"
                     && value.name != "MessageData"
-                    && !value
-                        .docstring
-                        .as_deref()
-                        .is_some_and(|doc| doc.contains("@xmtp-internal")) =>
+                    && !crate::markers::has(
+                        value.docstring.as_deref(),
+                        crate::markers::INTERNAL,
+                    ) =>
             {
                 types.insert(value.name.clone());
             }

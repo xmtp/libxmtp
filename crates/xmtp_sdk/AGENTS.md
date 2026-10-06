@@ -86,6 +86,29 @@ The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 Content and conversation exports use named `include!` files to keep UniFFI
 module paths stable. Use ordinary modules for helpers without exported metadata.
 
+## Adding exports
+
+Export impl blocks, traits, and functions with `#[xmtp_macro::sdk_export]`.
+A record or enum that needs a marker takes it too, as its first attribute,
+above every derive. The generator reads what it needs from the macro's
+metadata markers, so a routine export needs no generator edit:
+
+- A synchronous getter takes `#[sdk(immutable)]` when its value never changes
+  for the object's lifetime. Otherwise make it async. The crate does not
+  compile with an unmarked getter that the browser bridge forwards.
+- Limit an exported item to native targets with `#[sdk_export(native_only)]`;
+  it is the same `#[cfg]`.
+- A new event takes an `EventKind` variant with
+  `#[sdk(kind = "namespace.name")]` and a `ClientEvent` variant of the same
+  name. Its payload records keep their Rust field names, and its enums use
+  snake_case values, in TypeScript. Generation stops when another call
+  shares such a record, or such an enum with a multi-word value.
+- A `MessageData` field, a `*_with_backend` `Client` static, or a new identity
+  route still needs the hand edits that the generator README lists.
+
+`apps/xmtp_sdk_bindgen/README.md` lists the markers and the areas that stay
+hand-maintained.
+
 ## Matched package preparation
 
 - `dev/nix-shell 'just sdk build [swift,kotlin,node,browser]'` builds selected artifacts once.

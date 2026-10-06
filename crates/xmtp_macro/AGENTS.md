@@ -11,5 +11,11 @@ just test crate xmtp_macro
 
 ## Gotchas
 
-- No unit tests. Doc examples only.
+- `src/sdk_export_test.rs` and `src/sdk_member_test.rs` hold token-stream
+  tests; `tests/sdk_export.rs` runs the trybuild fixtures in `tests/ui`.
+  Refresh a fixture's expected error with `TRYBUILD=overwrite`.
+- Tests use `#[test]`: `xmtp_common` depends on this crate, so its test macro
+  would be a cycle.
+- `sdk_export` writes the `@xmtp-*` markers that `apps/xmtp_sdk_bindgen` reads.
+  Change a marker in both places; `apps/xmtp_sdk_bindgen/README.md` lists them.
 - A change rebuilds every dependent crate.

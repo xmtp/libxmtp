@@ -114,6 +114,20 @@ const STATE: &str = r#"fileprivate final class UniffiCancellableRustFuture: @unc
 
 "#;
 
+/// Whether a call makes a new Client. Every Client constructor does, and so
+/// do the two conformance probe calls that return the Client they build. A
+/// cancelled caller never receives that Client, so the future discards it. A
+/// call that returns an existing Client must not close it, so any other
+/// future that lifts a Client stops generation.
+fn makes_client(function: &str) -> bool {
+    function.starts_with("uniffi_xmtp_sdk_fn_constructor_client_")
+        || matches!(
+            function,
+            "uniffi_xmtp_sdk_fn_method_sdkconformanceconstructorprobe_build_ready"
+                | "uniffi_xmtp_sdk_fn_method_sdkconformanceconstructorprobe_create_ready"
+        )
+}
+
 /// Add caller cancellation without throwing from nonthrowing bindings.
 pub fn rewrite(source: &str) -> Result<String> {
     if !source.contains(HELPER) {
@@ -142,13 +156,7 @@ pub fn rewrite(source: &str) -> Result<String> {
             && function.starts_with("uniffi_xmtp_sdk_fn_")
         {
             caller = Some(function);
-            discard_ready = matches!(
-                function,
-                "uniffi_xmtp_sdk_fn_constructor_client_build"
-                    | "uniffi_xmtp_sdk_fn_constructor_client_create"
-                    | "uniffi_xmtp_sdk_fn_method_sdkconformanceconstructorprobe_build_ready"
-                    | "uniffi_xmtp_sdk_fn_method_sdkconformanceconstructorprobe_create_ready"
-            );
+            discard_ready = makes_client(function);
         }
         if let Some(lift) = line.trim().strip_prefix("liftFunc: ") {
             let owns_client = lift == "FfiConverterTypeClient_lift,";
@@ -245,7 +253,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn swift_client_ready_discard_is_private_and_requires_named_callers() {
+    fn swift_client_ready_discard_follows_client_constructors() {
         let caller = "uniffi_xmtp_sdk_fn_constructor_client_create";
         let source = fixture().replace("freeFunc: ffi_xmtp_sdk_rust_future_free_u64,",
             &format!("{caller}(FfiConverterTypeSigner_lower(signer),\nfreeFunc: ffi_xmtp_sdk_rust_future_free_u64,\nliftFunc: FfiConverterTypeClient_lift,"));
@@ -264,10 +272,19 @@ mod tests {
             ))
             .is_err()
         );
-        for probe in ["build_ready", "create_ready"] {
-            let name = format!("uniffi_xmtp_sdk_fn_method_sdkconformanceconstructorprobe_{probe}");
+        // Another object's constructor may return an existing Client.
+        assert!(
+            rewrite(&source.replace(caller, "uniffi_xmtp_sdk_fn_constructor_clientbuilder_new"))
+                .is_err()
+        );
+        for name in [
+            "uniffi_xmtp_sdk_fn_method_sdkconformanceconstructorprobe_build_ready",
+            "uniffi_xmtp_sdk_fn_method_sdkconformanceconstructorprobe_create_ready",
+            // A new Client constructor needs no generator change.
+            "uniffi_xmtp_sdk_fn_constructor_client_from_backup",
+        ] {
             assert_eq!(
-                rewrite(&source.replace(caller, &name))
+                rewrite(&source.replace(caller, name))
                     .unwrap()
                     .matches("discardReadyOnCancellation: { try await sdkDiscardUnreturnedClient(client: $0) },")
                     .count(),

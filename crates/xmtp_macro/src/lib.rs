@@ -5,6 +5,7 @@ mod error_code;
 mod log_macros;
 mod logging;
 mod sdk_export;
+mod sdk_member;
 mod span_macro;
 mod test_macro;
 mod timeout_macro;
@@ -12,27 +13,66 @@ mod timeout_macro;
 #[cfg(test)]
 mod sdk_export_test;
 #[cfg(test)]
+mod sdk_member_test;
+#[cfg(test)]
 mod timeout_macro_test;
 
-/// Export an impl block, trait, or function through UniFFI on native and wasm32 targets.
+/// Export an impl block, trait, function, record, or enum through UniFFI on
+/// native and wasm32 targets, and describe it to the SDK generator.
 ///
 /// If the item has an async function, native targets use the Tokio async
 /// runtime. Sync-only items use plain `uniffi::export` on every target.
 /// Every method in an impl block and every free function gets a tracing span.
 /// Trait methods with a default body also get a span. Functions that return
 /// `Result` record errors. An existing `#[tracing::instrument]` is kept.
+/// On a record or enum, make this the first attribute, above every derive: a
+/// derive written above it expands first, and the macro never sees it. The
+/// `#[derive(uniffi::Record)]` or `#[derive(uniffi::Enum)]` below it still
+/// exports the type.
 ///
-/// Use `native_only` or `wasm_only` to limit the whole item to one target.
-/// Use `pure` for a synchronous free function with value-only arguments.
-/// A pure function can forward stock argument defaults with `pure, default(name = None)`.
-/// The SDK generator rejects object, client, and foreign-trait arguments on a
-/// pure export.
+/// Arguments:
+///
+/// - `native_only` / `wasm_only`: limit the whole item to one target, as
+///   `#[cfg(not(target_arch = "wasm32"))]` or `#[cfg(target_arch = "wasm32")]`
+///   above it would.
+/// - `pure`: a synchronous free function with value-only arguments, for the
+///   browser's main-thread module. It can forward stock argument defaults with
+///   `pure, default(name = None)`. The SDK generator rejects object, client,
+///   and foreign-trait arguments on a pure export.
+///
+/// Members take `#[sdk(...)]`:
+///
+/// - `#[sdk(immutable)]` on a synchronous `&self` method without arguments
+///   that returns a value: the value never changes for the object's lifetime.
+///   The SDKs expose it as a readonly property, and the browser bridge reads
+///   it once. Such a method needs the option unless the bridge never forwards
+///   it: its item is `native_only`, or its doc comment says `@xmtp-worker`.
+///   Make a live read async instead.
+/// - `#[sdk(kind = "namespace.name")]` on an enum variant: the public string
+///   of the variant. `EventKind` takes one per variant. Mark every variant of
+///   the enum or none.
+///
+/// `pure` and each member option become a `#[doc = "@xmtp-..."]` line that
+/// UniFFI carries into the library metadata. The generator reads it and
+/// strips it from generated documentation; see
+/// `apps/xmtp_sdk_bindgen/README.md`. When rustc reports "cannot find
+/// attribute `sdk` in this scope", the item lacks `#[xmtp_macro::sdk_export]`
+/// as its first attribute.
 /// The caller must depend on `uniffi` and `tracing`.
 ///
 /// ```ignore
-/// #[xmtp_macro::sdk_export(native_only)]
+/// #[xmtp_macro::sdk_export]
 /// impl Client {
+///     #[sdk(immutable)]
+///     pub fn inbox_id(&self) -> InboxId { /* ... */ }
 ///     pub async fn sync(&self) -> Result<(), SyncError> { /* ... */ }
+/// }
+///
+/// #[xmtp_macro::sdk_export]
+/// #[derive(Clone, Copy, uniffi::Enum)]
+/// pub enum EventKind {
+///     #[sdk(kind = "conversation.joined")]
+///     ConversationJoined,
 /// }
 /// ```
 #[proc_macro_attribute]

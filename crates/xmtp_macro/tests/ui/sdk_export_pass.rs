@@ -26,6 +26,12 @@ impl SyncApi {
     pub fn value(&self) -> Result<u32, CallbackError> {
         Ok(42)
     }
+
+    /// A value that never changes for the object's lifetime.
+    #[sdk(immutable)]
+    pub fn fixed(&self) -> u32 {
+        42
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -48,7 +54,40 @@ pub fn answer() -> u32 {
     42
 }
 
+// The markers travel as doc attributes, so the stock UniFFI derives accept them.
+#[xmtp_macro::sdk_export]
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum EventKind {
+    #[sdk(kind = "conversation.joined")]
+    ConversationJoined,
+    #[sdk(kind = "lagged")]
+    Lagged,
+}
+
+#[xmtp_macro::sdk_export(native_only)]
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum NotificationChannel {
+    Apns { token: String },
+}
+
+#[derive(uniffi::Object)]
+struct Probe;
+
+#[xmtp_macro::sdk_export]
+impl Probe {
+    /// A live read the browser worker makes itself. @xmtp-worker
+    pub fn entered(&self) -> bool {
+        false
+    }
+}
+
 fn main() {
     assert_eq!(SyncApi::new().value().unwrap(), answer());
+    assert_eq!(SyncApi::new().fixed(), answer());
     let _ = AsyncApi::new();
+    let _ = EventKind::Lagged;
+    let _ = NotificationChannel::Apns {
+        token: String::new(),
+    };
+    assert!(!Probe.entered());
 }

@@ -1,5 +1,10 @@
 #[xmtp_macro::sdk_export]
 impl Client {
+    // Swift gives every async `Client` constructor cancellation cleanup: when
+    // the caller is cancelled, the future discards the ready `Client` it never
+    // returned. `apps/xmtp_sdk_bindgen/src/swift_async.rs` also names the two
+    // conformance probe calls that build a `Client`; any other async call that
+    // returns a `Client` stops generation, because the caller may not own it.
     #[uniffi::constructor]
     pub async fn create(
         signer: Arc<dyn Signer>,
@@ -52,19 +57,23 @@ impl Client {
         built
     }
 
+    #[sdk(immutable)]
     pub fn inbox_id(&self) -> InboxId {
         InboxId::unchecked(self.inner.inbox_id().to_owned())
     }
 
+    #[sdk(immutable)]
     pub fn installation_id(&self) -> InstallationId {
         InstallationId::unchecked(self.inner.installation_public_key().to_string())
     }
 
     /// Host runtimes use this key to find the owner of a lifted message.
+    #[sdk(immutable)]
     pub fn client_key(&self) -> u64 {
         self.key
     }
 
+    #[sdk(immutable)]
     pub fn conversations(&self) -> Arc<Conversations> {
         Arc::new(Conversations {
             client: self.inner.clone(),
@@ -72,18 +81,21 @@ impl Client {
         })
     }
 
+    #[sdk(immutable)]
     pub fn preferences(&self) -> Arc<Preferences> {
         Arc::new(Preferences {
             client: self.inner.clone(),
         })
     }
 
+    #[sdk(immutable)]
     pub fn diagnostics(&self) -> Arc<Diagnostics> {
         Arc::new(Diagnostics {
             client: self.inner.clone(),
         })
     }
 
+    #[sdk(immutable)]
     pub fn storage(&self) -> Arc<Storage> {
         Arc::new(Storage {
             #[cfg(not(target_arch = "wasm32"))]
@@ -96,12 +108,14 @@ impl Client {
         })
     }
 
+    #[sdk(immutable)]
     pub fn attachments(&self) -> Arc<Attachments> {
         Arc::new(Attachments {
             client: self.inner.clone(),
         })
     }
 
+    #[sdk(immutable)]
     pub fn archives(&self) -> Arc<Archives> {
         Arc::new(Archives {
             client: self.inner.clone(),

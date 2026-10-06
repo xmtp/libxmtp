@@ -237,8 +237,7 @@ mod tests {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(native_only)]
 impl Archives {
     pub async fn export_to_file(
         &self,

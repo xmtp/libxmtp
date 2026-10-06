@@ -40,14 +40,17 @@ impl Client {
 
 #[xmtp_macro::sdk_export]
 impl Client {
+    #[sdk(immutable)]
     pub fn identity(&self) -> PublicIdentity {
         self.identity.clone()
     }
 
+    #[sdk(immutable)]
     pub fn installation_id_bytes(&self) -> Vec<u8> {
         self.inner.installation_public_key().to_vec()
     }
 
+    #[sdk(immutable)]
     pub fn is_in_memory(&self) -> bool {
         matches!(
             self.options.storage.location,
@@ -55,14 +58,17 @@ impl Client {
         )
     }
 
+    #[sdk(immutable)]
     pub fn storage_path(&self) -> Option<String> {
         self.storage_path.clone()
     }
 
+    #[sdk(immutable)]
     pub fn libxmtp_version(&self) -> String {
         env!("CARGO_PKG_VERSION").into()
     }
 
+    #[sdk(immutable)]
     pub fn app_version(&self) -> Option<String> {
         self.options
             .backend
@@ -75,6 +81,7 @@ impl Client {
     /// static credential, the credential source, and the storage encryption
     /// key are `None`. Any holder of the client can read these options, and
     /// the browser worker copies them to the page.
+    #[sdk(immutable)]
     pub fn options(&self) -> crate::ClientOptions {
         let mut options = self.options.clone();
         if let Some(crate::BackendSource::Options { options: backend }) = &mut options.backend {
@@ -507,6 +514,7 @@ impl Client {
             .map_err(XmtpError::from_client)
     }
 
+    #[sdk(immutable)]
     pub fn server_configuration(&self) -> crate::ServerConfiguration {
         self.inner.server_configuration().into()
     }

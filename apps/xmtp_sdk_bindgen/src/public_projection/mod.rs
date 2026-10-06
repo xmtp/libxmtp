@@ -1,6 +1,7 @@
 //! Shared public values and objects above the private target binding.
 
 mod errors;
+mod events;
 mod identity;
 mod objects;
 mod policy;
@@ -44,6 +45,7 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
         .values()
         .flat_map(|group| &group.items)
         .collect::<Vec<_>>();
+    let events = events::Events::new(&items)?;
     let mut code = String::from("import * as B from '#xmtp/binding';\n");
     if target != Target::Pure {
         code.push_str("import type { Message as BoundMessage } from './runtime/message.js';\n");
@@ -92,7 +94,7 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
             Metadata::Record(value) if value.name == "BackendOptions" => {
                 code.push_str(policy::BACKEND_OPTIONS)
             }
-            Metadata::Record(value) => values::record(&mut code, value)?,
+            Metadata::Record(value) => values::record(&mut code, value, &events)?,
             Metadata::Enum(value) if value.name == "BackendSource" => {
                 code.push_str(policy::BACKEND_SOURCE)
             }
@@ -108,7 +110,7 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
                     errors::bridge_error(&mut code, value)?;
                 }
             }
-            Metadata::Enum(value) => values::enumeration(&mut code, value)?,
+            Metadata::Enum(value) => values::enumeration(&mut code, value, &events)?,
             Metadata::CustomType(value) if value.name != "Message" && value.name != "Timestamp" => {
                 writeln!(
                     code,
@@ -233,6 +235,28 @@ fn foreign(code: &mut String, items: &[&Metadata], name: &str) -> Result<()> {
 
 fn camel(name: &str) -> String {
     name.to_lower_camel_case()
+}
+
+/// A TypeScript string literal in single quotes. Event kinds come from
+/// metadata, so a quote, backslash, or line break in one cannot end it.
+fn string_literal(value: &str) -> String {
+    let mut literal = String::with_capacity(value.len() + 2);
+    literal.push('\'');
+    for c in value.chars() {
+        match c {
+            '\'' | '\\' => {
+                literal.push('\\');
+                literal.push(c);
+            }
+            '\n' => literal.push_str("\\n"),
+            '\r' => literal.push_str("\\r"),
+            '\u{2028}' => literal.push_str("\\u2028"),
+            '\u{2029}' => literal.push_str("\\u2029"),
+            c => literal.push(c),
+        }
+    }
+    literal.push('\'');
+    literal
 }
 
 /// The binding's spelling of a method, function, or parameter name. The

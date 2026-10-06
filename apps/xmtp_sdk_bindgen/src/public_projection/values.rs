@@ -3,9 +3,14 @@ use std::fmt::Write as _;
 use anyhow::{Result, bail};
 use uniffi_meta::{EnumMetadata, RecordMetadata, Type};
 
-use super::{camel, convert, policy::cursor_type, public_type};
+use super::{
+    camel, convert,
+    events::{EVENT_ENUM, Events},
+    policy::cursor_type,
+    public_type, string_literal,
+};
 
-pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
+pub(super) fn record(code: &mut String, record: &RecordMetadata, events: &Events) -> Result<()> {
     let name = &record.name;
     if record.fields.is_empty() {
         writeln!(code, "export type {name} = Record<string, never>;\n")?;
@@ -26,7 +31,7 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         writeln!(
             code,
             "readonly {}{optional}: {};",
-            public_record_field(name, &field.name),
+            public_record_field(name, &field.name, events),
             cursor_type(name, &camel(&field.name), public_type(&field.ty))
         )?;
     }
@@ -45,7 +50,7 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
             .iter()
             .map(|field| {
                 let binding_name = camel(&field.name);
-                let public_name = public_record_field(name, &field.name);
+                let public_name = public_record_field(name, &field.name, events);
                 if defaults && field.default.is_some() {
                     // An explicit undefined would replace the factory default,
                     // so a left-out field stays out.
@@ -114,60 +119,33 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
     Ok(())
 }
 
-fn public_record_field(record: &str, field: &str) -> String {
-    if matches!(
-        record,
-        "AttachmentRef"
-            | "AttachmentFailed"
-            | "ConversationJoined"
-            | "ConversationRemoved"
-            | "MembershipChanged"
-            | "MetadataChanged"
-            | "ConversationPaused"
-            | "EventContentTypeId"
-            | "MessageReceived"
-            | "MessageStatusChanged"
-            | "MessageDeleted"
-            | "MessageRef"
-            | "ConsentChanged"
-            | "HmacKeysUpdated"
-            | "IdentityRegistered"
-            | "InstallationRef"
-            | "InstallationRevoked"
-            | "ClientRejectedByServer"
-            | "LockoutChanged"
-            | "GroupRef"
-            | "NotificationsFailed"
-            | "ArchiveRestored"
-            | "ConnectionStateChanged"
-            | "Lagged"
-            | "EventFilter"
-    ) {
+fn public_record_field(record: &str, field: &str, events: &Events) -> String {
+    if events.keeps_rust_fields(record) {
         field.to_owned()
     } else {
         camel(field)
     }
 }
 
-pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()> {
+pub(super) fn enumeration(code: &mut String, value: &EnumMetadata, events: &Events) -> Result<()> {
     let name = &value.name;
-    if name == "ClientEvent"
+    if name == EVENT_ENUM
         && value
             .variants
             .iter()
             .any(|variant| variant.fields.len() != 1 || variant.fields[0].name.is_empty())
     {
-        bail!("each ClientEvent kind must have one named payload");
+        bail!("each {EVENT_ENUM} kind must have one named payload");
     }
     let flat = !value.shape.is_error() && value.variants.iter().all(|v| v.fields.is_empty());
     writeln!(code, "export type {name} =")?;
     for variant in &value.variants {
-        let kind = public_variant_kind(name, &variant.name)?;
+        let kind = string_literal(&events.variant_kind(name, variant)?);
         if flat {
-            writeln!(code, "| '{kind}'")?;
+            writeln!(code, "| {kind}")?;
             continue;
         }
-        writeln!(code, "| {{ readonly kind: '{kind}';")?;
+        writeln!(code, "| {{ readonly kind: {kind};")?;
         for (i, field) in variant.fields.iter().enumerate() {
             let field_name = if field.name.is_empty() {
                 if variant.fields.len() == 1 {
@@ -176,7 +154,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                     format!("value{i}")
                 }
             } else {
-                if name == "ClientEvent" {
+                if name == EVENT_ENUM {
                     field.name.clone()
                 } else {
                     camel(&field.name)
@@ -222,10 +200,10 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
             writeln!(code, "switch ({discriminant}) {{")?;
         }
         for variant in &value.variants {
-            let kind = public_variant_kind(name, &variant.name)?;
+            let kind = string_literal(&events.variant_kind(name, variant)?);
             let raw_variant = format!("B.{name}.{}", variant.name);
             let case = if lower {
-                format!("'{kind}'")
+                kind.clone()
             } else if flat {
                 raw_variant.clone()
             } else {
@@ -240,11 +218,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                 writeln!(
                     code,
                     "{prefix} return {};",
-                    if lower {
-                        raw_variant
-                    } else {
-                        format!("'{kind}'")
-                    }
+                    if lower { raw_variant } else { kind }
                 )?;
                 continue;
             }
@@ -263,7 +237,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                     } else {
                         camel(&field.name)
                     };
-                    let public_name = if name == "ClientEvent" && !field.name.is_empty() {
+                    let public_name = if name == EVENT_ENUM && !field.name.is_empty() {
                         field.name.clone()
                     } else {
                         binding_name.clone()
@@ -293,7 +267,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
                 };
                 format!("{raw_variant}.new({args})")
             } else {
-                format!("{{kind: '{kind}', {fields}}}")
+                format!("{{kind: {kind}, {fields}}}")
             };
             writeln!(code, "{prefix} return {result};")?;
         }
@@ -305,109 +279,100 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
     Ok(())
 }
 
-fn public_variant_kind(name: &str, variant: &str) -> Result<String> {
-    if name == "DeletionCause" {
-        return Ok(match variant {
-            "Deleted" => "deleted",
-            "DeletedLocally" => "deleted_locally",
-            _ => bail!("{name}: unmapped public cause {variant}"),
-        }
-        .to_owned());
-    }
-    if name == "RejectionCause" {
-        return Ok(match variant {
-            "BackendMismatch" => "backend_mismatch",
-            "VersionTooOld" => "version_too_old",
-            _ => bail!("{name}: unmapped public cause {variant}"),
-        }
-        .to_owned());
-    }
-    if name != "EventKind" && name != "ClientEvent" {
-        return Ok(camel(variant));
-    }
-    // The filter kind and emitted event kind use the same public string.
-    let kind = match variant {
-        "ConversationJoined" => "conversation.joined",
-        "ConversationRemoved" => "conversation.removed",
-        "ConversationMembershipChanged" => "conversation.membership_changed",
-        "ConversationMetadataChanged" => "conversation.metadata_changed",
-        "ConversationPaused" => "conversation.paused",
-        "MessageReceived" => "message.received",
-        "MessageStatusChanged" => "message.status_changed",
-        "MessageDeleted" => "message.deleted",
-        "MessageExpired" => "message.expired",
-        "ConsentChanged" => "consent.changed",
-        "HmacKeysUpdated" => "hmac_keys.updated",
-        "IdentityRegistered" => "identity.registered",
-        "IdentityOwnInstallationAdded" => "identity.own_installation_added",
-        "IdentityOwnInstallationRevoked" => "identity.own_installation_revoked",
-        "ClientRejectedByServer" => "client.rejected_by_server",
-        "ClientLockoutChanged" => "client.lockout_changed",
-        "ConversationForkDetected" => "conversation.fork_detected",
-        "NotificationsFailed" => "notifications.failed",
-        "ArchiveRestored" => "archive.restored",
-        "ConnectionStateChanged" => "connection.state_changed",
-        "AttachmentUploadStarted" => "attachment.upload_started",
-        "AttachmentUploadCompleted" => "attachment.upload_completed",
-        "AttachmentUploadFailed" => "attachment.upload_failed",
-        "AttachmentDownloadStarted" => "attachment.download_started",
-        "AttachmentDownloadCompleted" => "attachment.download_completed",
-        "AttachmentDownloadFailed" => "attachment.download_failed",
-        "AttachmentDeleted" => "attachment.deleted",
-        "Lagged" => "lagged",
-        _ => bail!("{name}: unmapped public event kind {variant}"),
-    };
-    Ok(kind.to_owned())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::public_variant_kind;
+    use uniffi_meta::{FieldMetadata, Metadata};
+
+    use super::*;
+
+    // Event kinds come from metadata, so a quote, backslash, or line break in
+    // one cannot end the TypeScript literal.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn string_literals_escape_what_would_end_them() {
+        assert_eq!(string_literal("hmac_keys.updated"), "'hmac_keys.updated'");
+        assert_eq!(
+            string_literal("x';globalThis.alert(1);//"),
+            r"'x\';globalThis.alert(1);//'"
+        );
+        assert_eq!(
+            string_literal("a\\b\nc\rd\u{2028}e\u{2029}"),
+            r"'a\\b\nc\rd\u2028e\u2029'"
+        );
+    }
+
+    // Every place a kind lands in generated TypeScript takes the encoded
+    // literal: the type, the lowering switch, and the lifted value, for an
+    // enum without fields and one with them.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn enum_kinds_reach_typescript_as_encoded_literals() {
+        use crate::test_metadata::{enumeration, field, variant};
+
+        let items = [
+            enumeration(
+                "Flat",
+                vec![
+                    variant("Quoted", Some("@xmtp-kind=a'b"), vec![]),
+                    variant("Plain", Some("@xmtp-kind=c"), vec![]),
+                ],
+            ),
+            enumeration(
+                "Payload",
+                vec![
+                    variant(
+                        "Quoted",
+                        Some("@xmtp-kind=a'b"),
+                        vec![field("x", Type::String, None)],
+                    ),
+                    variant(
+                        "Plain",
+                        Some("@xmtp-kind=c"),
+                        vec![field("y", Type::String, None)],
+                    ),
+                ],
+            ),
+        ];
+        let items = items.iter().collect::<Vec<_>>();
+        let events = Events::new(&items)?;
+        for item in &items {
+            let Metadata::Enum(value) = item else {
+                unreachable!()
+            };
+            let mut code = String::new();
+            super::enumeration(&mut code, value, &events)?;
+            assert!(!code.contains("'a'b'"), "{code}");
+            assert_eq!(code.matches(r"'a\'b'").count(), 3, "{code}");
+        }
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn event_filter_omission_has_a_public_false_default() -> anyhow::Result<()> {
-        let mut record = uniffi_meta::RecordMetadata {
+        let mut record = RecordMetadata {
             module_path: "test".into(),
             name: "EventFilter".into(),
             orig_name: None,
             remote: false,
-            fields: vec![uniffi_meta::FieldMetadata {
+            fields: vec![FieldMetadata {
                 name: "references_own_messages".into(),
                 orig_name: None,
-                ty: uniffi_meta::Type::Boolean,
+                ty: Type::Boolean,
                 default: None,
                 docstring: None,
             }],
             docstring: None,
         };
+        let filter = Metadata::Record(record.clone());
+        let events = Events::new(&[&filter])?;
         let mut code = String::new();
-        super::record(&mut code, &record)?;
+        super::record(&mut code, &record, &events)?;
         assert!(code.contains("readonly references_own_messages?: boolean;"));
         assert!(code.contains("referencesOwnMessages: (value.references_own_messages ?? false)"));
-        // A public default must not make unrelated required booleans optional.
+        // A public default must not make unrelated required booleans optional,
+        // and a record outside the event set uses camelCase fields.
         record.name = "OtherRecord".into();
         code.clear();
-        super::record(&mut code, &record)?;
+        super::record(&mut code, &record, &events)?;
         assert!(code.contains("readonly referencesOwnMessages: boolean;"));
         assert!(!code.contains("?? false"));
-        Ok(())
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn event_causes_use_specified_public_names() -> anyhow::Result<()> {
-        assert_eq!(public_variant_kind("DeletionCause", "Deleted")?, "deleted");
-        assert_eq!(
-            public_variant_kind("DeletionCause", "DeletedLocally")?,
-            "deleted_locally"
-        );
-        assert_eq!(
-            public_variant_kind("RejectionCause", "BackendMismatch")?,
-            "backend_mismatch"
-        );
-        assert_eq!(
-            public_variant_kind("RejectionCause", "VersionTooOld")?,
-            "version_too_old"
-        );
         Ok(())
     }
 }
