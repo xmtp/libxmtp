@@ -83,7 +83,17 @@ fn working_copy(source: &Path, destination: &Path) -> Result<tempfile::TempDir, 
         if target == path {
             return Err(MigrationError::invalid("output aliases source storage"));
         }
-        match fs::File::open(&path) {
+        match fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => (),
+            Ok(_) => {
+                return Err(MigrationError::invalid(
+                    "source storage is not a regular file",
+                ));
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound && !suffix.is_empty() => continue,
+            Err(e) => return Err(input(e)),
+        }
+        match open_regular_source(&path) {
             Ok(file) => {
                 if target == path.canonicalize().map_err(input)? || same_file(&file, destination)? {
                     return Err(MigrationError::invalid("output aliases source storage"));
@@ -111,6 +121,25 @@ fn working_copy(source: &Path, destination: &Path) -> Result<tempfile::TempDir, 
         io::copy(&mut file, &mut target).map_err(input)?;
     }
     Ok(directory)
+}
+
+fn open_regular_source(path: &Path) -> io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A path can become a FIFO after the caller checks its type.
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source storage is not a regular file",
+        ));
+    }
+    Ok(file)
 }
 
 #[cfg(unix)]

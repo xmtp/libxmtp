@@ -4,14 +4,45 @@ use crate::{
     InputError, MigrationError, MigrationReport, OutputError, PrepareMigrationArchiveArgs,
 };
 use diesel::{Connection, SqliteConnection};
+use std::io::{self, Write};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(module = "/browser-storage.js")]
 extern "C" {
     #[wasm_bindgen(catch, js_name = readMigrationOutput)]
     async fn read_output(path: &str) -> Result<JsValue, JsValue>;
-    #[wasm_bindgen(catch, js_name = writeMigrationOutput)]
-    async fn write_output(path: &str, bytes: &[u8]) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = beginMigrationOutput)]
+    async fn begin_output(path: &str) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = writeMigrationChunk)]
+    fn write_chunk(output: &JsValue, bytes: &[u8]) -> Result<usize, JsValue>;
+    #[wasm_bindgen(catch, js_name = flushMigrationOutput)]
+    fn flush_output(output: &JsValue) -> Result<(), JsValue>;
+    #[wasm_bindgen(catch, js_name = abortMigrationOutput)]
+    fn abort_output(output: &JsValue) -> Result<(), JsValue>;
+    #[wasm_bindgen(catch, js_name = commitMigrationOutput)]
+    async fn commit_output(output: &JsValue) -> Result<(), JsValue>;
+}
+
+// Limit each JavaScript transfer. The sink retains no archive chunks.
+const OUTPUT_CHUNK_BYTES: usize = 64 * 1024;
+struct Output(JsValue);
+impl Write for Output {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        write_chunk(&self.0, &bytes[..bytes.len().min(OUTPUT_CHUNK_BYTES)])
+            .map_err(|error| io::Error::other(format!("{error:?}")))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        flush_output(&self.0).map_err(|error| io::Error::other(format!("{error:?}")))
+    }
+}
+impl Drop for Output {
+    fn drop(&mut self) {
+        // The next access removes any file that was not published.
+        let _ = abort_output(&self.0);
+    }
+}
+fn output(error: JsValue) -> MigrationError {
+    MigrationError::Output(OutputError::Browser { value: error })
 }
 
 fn storage(error: xmtp_db::StorageError) -> MigrationError {
@@ -57,18 +88,18 @@ pub(crate) async fn prepare(
     let mut conn = SqliteConnection::establish(":memory:")
         .map_err(|error| MigrationError::InvalidInput(InputError::Database(error)))?;
     conn.deserialize_database_from_buffer(&bytes)?;
+    // SQLite owns a copy after deserialization.
+    drop(bytes);
     crate::migrations::apply(&mut conn)?;
-    let mut archive = Vec::new();
-    let mut writer = xmtp_archive::exporter::ElementWriter::new(&args.archive_key, &mut archive)?;
+    let mut sink = Output(begin_output(&args.output_path).await.map_err(output)?);
+    let mut writer = xmtp_archive::exporter::ElementWriter::new(&args.archive_key, &mut sink)?;
     let report = crate::records::export(&mut conn, args.output_path.clone(), |element| {
         writer.write(element).map_err(Into::into)
     })?;
     writer.finish()?;
     drop(conn);
     xmtp_db::database::pause_sqlite_if_idle();
-    write_output(&args.output_path, &archive)
-        .await
-        .map_err(|value| MigrationError::Output(OutputError::Browser { value }))?;
+    commit_output(&sink.0).await.map_err(output)?;
     Ok(report)
 }
 

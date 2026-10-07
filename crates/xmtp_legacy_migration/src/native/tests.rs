@@ -425,3 +425,90 @@ async fn oversized_optional_context_keeps_history_and_source() {
         }
     }
 }
+
+// verifies: MIG-002, MIG-004
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+fn special_source_files_are_rejected_without_blocking() {
+    use std::{
+        os::unix::{
+            ffi::OsStrExt,
+            fs::{FileTypeExt, MetadataExt},
+        },
+        time::{Duration, Instant},
+    };
+    const PROBE_PATH: &str = "XMTP_MIGRATION_SPECIAL_FILE_PROBE";
+    const PROBE_DIRECT: &str = "XMTP_MIGRATION_SPECIAL_FILE_DIRECT";
+    if let Some(path) = std::env::var_os(PROBE_PATH) {
+        let path = PathBuf::from(path);
+        if std::env::var_os(PROBE_DIRECT).is_some() {
+            // The caller saw a regular file before this path was replaced.
+            assert!(open_regular_source(&path).is_err());
+        } else {
+            let output = path.parent().unwrap().join("history.xmtp");
+            assert!(matches!(
+                working_copy(&path, &output),
+                Err(MigrationError::InvalidInput(_))
+            ));
+        }
+        return;
+    }
+    let mut failures = vec![];
+    for direct in [false, true] {
+        for suffix in SIDECARS {
+            let (_directory, args) = fixture("stable.db3");
+            let source = Path::new(&args.database_path);
+            let special = sidecar(source, suffix);
+            let before = source_bytes(&args);
+            fs::write(&args.output_path, b"completed archive")?;
+            // Check the regular path, then replace it before the open probe.
+            fs::write(&special, b"regular file")?;
+            assert!(fs::metadata(&special)?.is_file());
+            fs::remove_file(&special)?;
+            let name = std::ffi::CString::new(special.as_os_str().as_bytes())?;
+            // SAFETY: name is a live, NUL-terminated path. The mode is valid.
+            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+            let inode = fs::metadata(&special)?.ino();
+            let mut command = Command::new(std::env::current_exe()?);
+            command
+                .args([
+                    "--exact",
+                    "native::tests::special_source_files_are_rejected_without_blocking",
+                    "--nocapture",
+                ])
+                .env(PROBE_PATH, if direct { &special } else { source });
+            if direct {
+                command.env(PROBE_DIRECT, "1");
+            }
+            let mut child = command.spawn()?;
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let passed = loop {
+                if let Some(status) = child.try_wait()? {
+                    break status.success();
+                }
+                if Instant::now() >= deadline {
+                    child.kill()?;
+                    child.wait()?;
+                    break false;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            if !passed {
+                failures.push(format!("suffix={suffix:?}, direct={direct}"));
+            }
+            let metadata = fs::metadata(&special)?;
+            assert!(metadata.file_type().is_fifo());
+            assert_eq!(metadata.ino(), inode);
+            for (other_suffix, bytes) in &before {
+                if other_suffix != suffix {
+                    assert_eq!(fs::read(sidecar(source, other_suffix))?, *bytes);
+                }
+            }
+            assert_eq!(fs::read(&args.output_path)?, b"completed archive");
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "special source was accepted or blocked: {failures:?}"
+    );
+}

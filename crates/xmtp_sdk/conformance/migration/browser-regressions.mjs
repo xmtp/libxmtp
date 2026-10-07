@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { chromium } from "../../../../sdks/browser/node_modules/playwright/index.mjs";
 import { createServer } from "../../../../sdks/browser/node_modules/vite/dist/node/index.js";
@@ -52,6 +55,115 @@ try {
     },
     { source, fixture },
   );
+  if (["all", "memory"].includes(selected)) {
+    const temporary = await mkdtemp(join(tmpdir(), "migration-memory-"));
+    const memoryPage = await browser.newPage();
+    try {
+      const fixturePath = join(temporary, "large.db3");
+      execFileSync("python3", [
+        "-c",
+        `
+import random, shutil, sqlite3, sys
+shutil.copyfile("crates/xmtp_legacy_migration/fixtures/stable.db3", sys.argv[1])
+connection = sqlite3.connect(sys.argv[1])
+row = list(connection.execute("SELECT * FROM group_messages WHERE kind = 1 AND expire_at_ns IS NULL LIMIT 1").fetchone())
+random_bytes = random.Random(7)
+for index in range(512):
+    row[0] = (index + 1024).to_bytes(32, "big")
+    row[2] = random_bytes.randbytes(8192)
+    connection.execute("INSERT INTO group_messages VALUES (" + ",".join("?" for _ in row) + ")", row)
+connection.commit()
+connection.close()
+`,
+        fixturePath,
+      ]);
+      let measured;
+      memoryPage.on("console", (event) => {
+        if (event.text().startsWith("MIGRATION_OUTPUT_MEMORY "))
+          measured = JSON.parse(
+            event.text().slice("MIGRATION_OUTPUT_MEMORY ".length),
+          );
+      });
+      await memoryPage.goto(page.url());
+      const result = await memoryPage.evaluate(
+        async (bytes) => {
+          const fixture = new Uint8Array(bytes);
+          const path = "/migration-many-frames.db3";
+          async function fixtureCall(data) {
+            const worker = new Worker(
+              new URL("./fixture-worker.mjs", location.href),
+              { type: "module" },
+            );
+            try {
+              return await new Promise((resolve, reject) => {
+                worker.onmessage = ({ data }) =>
+                  data.ok ? resolve(data.value) : reject(new Error(data.error));
+                worker.onerror = (error) => reject(new Error(error.message));
+                worker.postMessage(data);
+              });
+            } finally {
+              worker.terminate();
+            }
+          }
+          await fixtureCall({ operation: "import", path, bytes: fixture });
+          const NativeWorker = globalThis.Worker;
+          globalThis.Worker = class extends NativeWorker {
+            constructor(url, options) {
+              super(
+                new URL(url, location.href).pathname.endsWith(
+                  "/worker-entry.gen.js",
+                )
+                  ? new URL("./memory-worker.mjs", location.href)
+                  : url,
+                options,
+              );
+            }
+          };
+          try {
+            const migration =
+              await import("/target/sdk-packages/browser/entry.js");
+            const report = await migration.prepareMigrationArchive({
+              databasePath: path,
+              archiveKey: new Uint8Array(32).fill(7),
+              outputPath: "many-frames.xmtp",
+            });
+            const length = (
+              await migration.readMigrationArchive(report.archivePath)
+            ).length;
+            globalThis.Worker = NativeWorker;
+            const after = await fixtureCall({ operation: "export", path });
+            return {
+              messages: report.messageCount,
+              length,
+              sourceUnchanged:
+                after.length === fixture.length &&
+                after.every((byte, index) => byte === fixture[index]),
+            };
+          } finally {
+            globalThis.Worker = NativeWorker;
+          }
+        },
+        [...(await readFile(fixturePath))],
+      );
+      assert.equal(result.messages, 515n);
+      assert.equal(result.sourceUnchanged, true);
+      assert.ok(
+        measured?.total > 4 * 1024 * 1024,
+        "many-frame output was too small",
+      );
+      assert.equal(measured.total, result.length);
+      assert.ok(
+        measured.maximum <= 64 * 1024,
+        `output retained a whole archive: ${JSON.stringify(measured)}`,
+      );
+      console.log(
+        `Many-frame output: ${JSON.stringify(measured)}, source unchanged`,
+      );
+    } finally {
+      await memoryPage.close();
+      await rm(temporary, { recursive: true, force: true });
+    }
+  }
   if (["all", "busy"].includes(selected)) {
     const busy = await page.evaluate(async (source) => {
       const migration = await import("/target/sdk-packages/browser/entry.js");
