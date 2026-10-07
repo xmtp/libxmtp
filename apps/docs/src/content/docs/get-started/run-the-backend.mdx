@@ -298,6 +298,16 @@ left; it denies every other type.
 ```toml
 [[application_components]]
 component_id = 0xC000
+name = "GROUP_CATEGORY"
+component_type = "string"
+insert_policy = "allow_if_admin"
+update_policy = "allow_if_admin"
+delete_policy = "allow_if_super_admin"
+in_groups = true
+in_dms = false
+
+[[application_components]]
+component_id = 0xC001
 name = "USER_PRONOUNS"
 component_type = "tls_map_inbox_id_string"
 insert_policy = "allow_if_self_or_non_member"
@@ -307,10 +317,27 @@ in_groups = true
 in_dms = true
 ```
 
+`GROUP_CATEGORY` is one string for the group. `USER_PRONOUNS` is one string per
+inbox in each group or DM. The name prefix does not grant permissions. The map
+type and the three policies control how members can change their entries.
+These values are encrypted conversation metadata. The backend publishes their
+definitions but cannot read their values.
+
+IDs from `0xC000` through `0xFCFF` are mutable. IDs from `0xFD00` through
+`0xFEFF` are immutable: a value can be set once, then cannot be changed or
+removed. Registration leaves the value unset in either range. Application
+scalars, collection keys, and collection values are limited to 8,192 bytes;
+serialized collection snapshots are limited to 65,536 bytes.
+
+See [Configurable fields](/sdk/groups/#configurable-fields) for field discovery,
+typed reads and writes, and user data examples.
+
 Keep a published field's ID, name, type, policies, and `in_groups` and `in_dms`
 stable. A conversation copies the definition when it registers the ID, so a
-change reaches only conversations that register it later; existing ones keep
-the old definition. Retire a field by removing it and publish a replacement
+change reaches only conversations that register it later; existing registered
+fields keep the old definition. A client with registry write authority can
+register missing eligible fields in an existing conversation when it makes a
+commit. Retire a field by removing it and publish a replacement
 under a new ID and name.
 
 Prefix the name of a field that holds one value per inbox with `USER_`, as the

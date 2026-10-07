@@ -9,5 +9,5 @@ export const searchRanking = {
   termSaturation: 2,
   termSimilarity: 9,
   // Keep guide title matches above repeated terms in longer guide bodies.
-  metaWeights: { title: 0, guideTitle: 100 },
+  metaWeights: { title: 0, guideTitle: 1000 },
 };

@@ -2,6 +2,8 @@
 title: Groups
 ---
 
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
 Robust group chat permissions are key to providing users with a friendly and safe group chat experience.
 
 ## Understand the group permissions system
@@ -98,3 +100,156 @@ Group chats can have metadata, like names, descriptions, and images. Metadata ca
 | App data    | `updateAppData(data, expected)`  | 8,192 bytes |
 
 Read metadata from the asynchronous `group.state()` snapshot on all four SDKs. App data is a string. Pass the previous value as `expected` to update app data only if it still matches, or pass `undefined` on Browser and Node or `null`/`nil` on mobile to omit that check. Serialize structured data before you set it. See [Disappearing messages](/sdk/disappearing-messages/).
+
+### Configurable fields
+
+An operator can publish additional fields through
+[`[[application_components]]`](/get-started/run-the-backend/#application_components).
+These fields can hold a group value, a set, or a map. An inbox-keyed map holds
+one value per user. All members who can read the conversation can read these
+values. User fields are conversation data, not a global inbox profile.
+
+New groups and DMs register the fields selected by `in_groups` and `in_dms`.
+Registration defines the type and the insert, update, and delete policies. It
+does not set a value. Existing conversations can register missing fields when
+a client with registry write authority makes a commit. A backend configuration
+change does not replace a field already in the conversation's registry.
+
+Use the conversation's descriptors to build a form or validate a value:
+
+| Method                                  | Result                                                                       |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| `metadataFields()`                      | Registered field descriptors, with refs, types, policies, and `isUserField`. |
+| `metadataField(name)`                   | The descriptor with this name, or no result.                                 |
+| `metadataValue(field)`                  | A scalar, map, or set value, or no value if unset.                           |
+| `metadataValues(fields)`                | Field and value records in the order requested.                              |
+| `mapValue(field, key)`                  | One map entry, or no value if the key is absent.                             |
+| `updateMetadataField(field, operation)` | A typed change checked against the committed field policies.                 |
+
+A `MetadataFieldRef` identifies a field by `componentId`. Its name is a label
+from the well-known fields or the client's backend configuration. A field can
+have no name when the local configuration does not name its ID. Keep the ref
+from the descriptor. Do not use a backend definition to assume the type or
+policy of an existing field.
+
+Use `ComponentMutation.Replace` on Kotlin or `.replace` on Swift for a scalar.
+Use `MapDelta` or `SetDelta` on Kotlin, or `.mapDelta` or `.setDelta` on Swift,
+for collection changes. Map operations insert, update, or delete one key; set
+operations insert or delete one key. A field in the immutable application
+range can be set only once. Wrong types, unknown fields, unsupported types, and
+denied writes produce typed errors.
+
+Browser and Node use records with `kind: "replace"`, `kind: "mapDelta"`, or
+`kind: "setDelta"`. A scalar value is a `FieldValue` with `kind: "string"` or
+`kind: "bytes"` and a matching `value`.
+
+Application scalars, collection keys, and collection values have an 8,192-byte
+limit. A serialized collection has a 65,536-byte limit. These limits also apply
+to `USER_DISPLAY_NAME` and `GROUP_IMAGE`. The existing string fields retain the
+limits in the table above.
+
+### Read and update user fields
+
+`USER_DISPLAY_NAME` is a well-known string map keyed by inbox ID. It is
+registered in new groups and DMs. Members can set or remove their own value.
+The default policy also lets members remove an entry for an inbox that has
+left. An application field such as `USER_PRONOUNS` can use the same shape and
+policies. The `USER_` prefix is a naming convention. The inbox-keyed map type
+determines whether `isUserField` is true.
+
+`updateUserData(values)` uses the caller's inbox ID. Each value sets that
+inbox's entry; an `undefined` value on Browser and Node, `null` on Kotlin,
+or `nil` on Swift removes it. All changes
+in the call use one commit. Duplicate fields, non-user fields, and type
+mismatches fail the call. Clearing an absent entry makes no change.
+
+The following examples run with an existing `group`. The operator must publish
+`GROUP_CATEGORY` and `USER_PRONOUNS` as shown in the backend guide. The group
+must have registered them, and the caller must be an admin to set the category.
+
+<div data-pagefind-weight="0.5">
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="metadata-fields-browser.ts" region="update"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="metadata-fields-node.ts" region="update"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val category = checkNotNull(group.metadataField("GROUP_CATEGORY")).field
+group.updateMetadataField(
+    category, ComponentMutation.Replace(FieldValue.String("engineering")),
+)
+
+val displayName = metadataFieldRef(WellKnownMetadataField.USER_DISPLAY_NAME)
+val pronouns = checkNotNull(group.metadataField("USER_PRONOUNS")).field
+
+group.updateUserData(
+    listOf(
+        UserFieldUpdate(displayName, FieldValue.String("Alix")),
+        UserFieldUpdate(pronouns, FieldValue.String("they/them")),
+    ),
+)
+
+group.sync()
+val profiles = group.userData(listOf(displayName, pronouns), null)
+group.updateUserData(listOf(UserFieldUpdate(pronouns, null)))
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+if let category = try await group.metadataField(name: "GROUP_CATEGORY")?.field {
+    try await group.updateMetadataField(
+        field: category, operation: .replace(.string("engineering"))
+    )
+}
+
+let displayName = metadataFieldRef(field: .userDisplayName)
+if let pronouns = try await group.metadataField(name: "USER_PRONOUNS")?.field {
+    try await group.updateUserData(values: [
+        UserFieldUpdate(field: displayName, value: .string("Alix")),
+        UserFieldUpdate(field: pronouns, value: .string("they/them")),
+    ])
+
+    try await group.sync()
+    let profiles = try await group.userData(
+        fields: [displayName, pronouns], inboxIds: nil
+    )
+    try await group.updateUserData(values: [
+        UserFieldUpdate(field: pronouns, value: nil),
+    ])
+}
+```
+
+</TabItem>
+</Tabs>
+</div>
+
+`userData(fields, inboxIds)` returns a map from inbox ID to present field and
+value records. Omit the filters with `undefined` on Browser and Node,
+`null` on Kotlin, or `nil` on Swift to read all user fields for current members
+or the two DM participants. An empty filter selects nothing. An inbox with no
+selected values has an empty list. Supply inbox IDs to read entries for former
+members. Sync before reads when you need changes from other members.
+
+### Store a group image
+
+`GROUP_IMAGE` holds opaque bytes. It is separate from the `GROUP_IMAGE_URL`
+string and is registered in new groups. An app can upload an image with the
+[attachment API](/content-types/attachments/#native-attachment-uploads-and-downloads),
+serialize the returned `RemoteAttachment`, and store those bytes with
+`updateMetadataField`. Agree on the serialization format with the other apps
+that read the group. The SDK does not parse or fetch these bytes. A reader
+decodes the descriptor and explicitly requests the attachment download.
