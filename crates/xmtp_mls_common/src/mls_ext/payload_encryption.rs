@@ -179,6 +179,70 @@ mod tests {
     use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
     use xmtp_configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE, WELCOME_HPKE_LABEL};
 
+    // These public test keys and ciphertexts were made with libcrux-kem 0.0.9.
+    // See payload_encryption/fixtures/legacy_xwing/README.md for their source.
+    const LEGACY_XWING_PUBLIC_KEY: &str =
+        include_str!("payload_encryption/fixtures/legacy_xwing/public_key.hex");
+    const LEGACY_XWING_PRIVATE_KEY: &str =
+        include_str!("payload_encryption/fixtures/legacy_xwing/private_key.hex");
+    const LEGACY_XWING_WRAPPED_PAYLOAD: &str =
+        include_str!("payload_encryption/fixtures/legacy_xwing/wrapped_payload.hex");
+    const LEGACY_XWING_SECONDARY_CIPHERTEXT: &str =
+        include_str!("payload_encryption/fixtures/legacy_xwing/secondary_ciphertext.hex");
+    const LEGACY_XWING_PAYLOAD: &[u8] = b"persisted Welcome compatibility fixture";
+    const LEGACY_XWING_SECONDARY_PAYLOAD: &[u8] = b"persisted Welcome metadata";
+    const LEGACY_XWING_IKM: [u8; 32] = [7; 32];
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn legacy_xwing_opens_persisted_welcome() {
+        let (payload, secondary) = unwrap_payload_hpke(
+            &hex::decode(LEGACY_XWING_WRAPPED_PAYLOAD.trim())?,
+            &hex::decode(LEGACY_XWING_SECONDARY_CIPHERTEXT.trim())?,
+            &hex::decode(LEGACY_XWING_PRIVATE_KEY.trim())?,
+            WrapperAlgorithm::XWingMLKEM768Draft6,
+            WELCOME_HPKE_LABEL,
+        )?;
+
+        assert_eq!(payload, LEGACY_XWING_PAYLOAD);
+        assert_eq!(secondary, LEGACY_XWING_SECONDARY_PAYLOAD);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn legacy_xwing_key_encoding_is_stable() {
+        let hpke = WrapperAlgorithm::XWingMLKEM768Draft6.to_hpke_config();
+        let pair = hpke.derive_key_pair(&LEGACY_XWING_IKM)?;
+
+        assert_eq!(
+            pair.public_key().as_slice(),
+            hex::decode(LEGACY_XWING_PUBLIC_KEY.trim())?
+        );
+        assert_eq!(
+            pair.private_key().as_slice(),
+            hex::decode(LEGACY_XWING_PRIVATE_KEY.trim())?
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn legacy_xwing_stored_keys_accept_new_welcome() {
+        let (wrapped, metadata) = wrap_payload_hpke(
+            LEGACY_XWING_PAYLOAD,
+            LEGACY_XWING_SECONDARY_PAYLOAD,
+            &hex::decode(LEGACY_XWING_PUBLIC_KEY.trim())?,
+            WrapperAlgorithm::XWingMLKEM768Draft6,
+            WELCOME_HPKE_LABEL,
+        )?;
+        let (payload, secondary) = unwrap_payload_hpke(
+            &wrapped,
+            &metadata,
+            &hex::decode(LEGACY_XWING_PRIVATE_KEY.trim())?,
+            WrapperAlgorithm::XWingMLKEM768Draft6,
+            WELCOME_HPKE_LABEL,
+        )?;
+
+        assert_eq!(payload, LEGACY_XWING_PAYLOAD);
+        assert_eq!(secondary, LEGACY_XWING_SECONDARY_PAYLOAD);
+    }
+
     const TEST_LABEL: &str = "test xmtp payload";
 
     fn fresh_curve25519_keypair() -> (Vec<u8>, Vec<u8>) {

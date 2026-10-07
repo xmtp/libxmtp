@@ -1,5 +1,6 @@
 [advisories]
 ignore = [
+  { id = "RUSTSEC-2026-0329", reason = "libcrux-hmac-drbg can panic when an auto-reseed request is a nonzero multiple of 65536 bytes. The fix is in 0.0.2, but the pinned xmtp/openmls provider requires ^0.0.1. Remove when the provider accepts a fixed release." },
   { id = "RUSTSEC-2024-0436", reason = "required by uniffi" },
   { id = "RUSTSEC-2025-0141", reason = "migrate from bincode" },
   { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; transitive via alloy-sol-macro, no upstream fix yet" },

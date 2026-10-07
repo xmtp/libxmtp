@@ -327,7 +327,7 @@ lto = true
 [patch.crates-io]
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
-# xmtp/hpke-rs fork of v0.6.1 with one extra commit adding
+# xmtp/hpke-rs fork of v0.6.1 with the patched libcrux KEM and
 # XWingDraft06Obsolete dispatch in the libcrux backend. Lets the
 # welcome wrapper pin to the obsolete 0x004D codepoint for wire compat
 # with v1.9 / v1.10 clients (hpke-rs 0.4). All four sister crates patch
@@ -335,10 +335,12 @@ diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "co
 # only the backend produces two HpkeCrypto trait versions in the graph
 # and breaks openmls_libcrux_crypto. Remove when the d14n cutover
 # migrates everyone to 0x647a (#3661).
-hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
-hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
-hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
-hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "6dba5c7ff23fa9ad47d56f3207c8f79ff76b67d2" }
+hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "c364068efa1f2020db58f6d2794b766e8dcc7b4d" }
+hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "c364068efa1f2020db58f6d2794b766e8dcc7b4d" }
+hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "c364068efa1f2020db58f6d2794b766e8dcc7b4d" }
+hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "c364068efa1f2020db58f6d2794b766e8dcc7b4d" }
+# OpenMLS uses HPKE 0.7. Keep its registry trait identity while updating the KEM.
+hpke-rs-libcrux-07 = { package = "hpke-rs-libcrux", git = "https://github.com/xmtp/libcrux", rev = "daf70be07b1913871b254a195049b42191f6eb0f" }
 tracing-oslog = { git = "https://github.com/xmtp/tracing-oslog", rev = "69cebec3804c33267b8d18aa50a5d9ba18617121" }
 
 [patch.crates-io.xmtp-workspace-hack]
