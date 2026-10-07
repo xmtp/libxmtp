@@ -154,7 +154,14 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           xmtp-release tag-release --sdk "$SDK" --version "$VERSION" --no-push --ignore-if-exists
-          git bundle create "$RUNNER_TEMP/release.bundle" "refs/tags/${SDK}-${VERSION}"
+          tag_ref="refs/tags/${SDK}-${VERSION}"
+          tag_sha=$(git rev-parse "$tag_ref^{commit}")
+          source_sha=$(git rev-parse HEAD)
+          if [ "$tag_sha" != "$source_sha" ]; then
+            echo "::error::Release tag does not match the selected source commit"
+            exit 1
+          fi
+          git bundle create "$RUNNER_TEMP/release.bundle" "$tag_ref"
       - name: Store release tag
         if: ${{ inputs.dry-run != true }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
