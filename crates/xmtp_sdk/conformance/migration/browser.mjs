@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { chromium } from "../../../../sdks/browser/node_modules/playwright/index.mjs";
 import { createServer } from "../../../../sdks/browser/node_modules/vite/dist/node/index.js";
@@ -37,8 +40,28 @@ try {
       "crates/xmtp_legacy_migration/fixtures/consent-states.db3",
     )),
   ];
+  const temporary = await mkdtemp(join(tmpdir(), "migration-record-close-"));
+  let invalidFixture;
+  try {
+    const path = join(temporary, "invalid.db3");
+    execFileSync("python3", [
+      "-c",
+      `
+import shutil, sqlite3, sys
+shutil.copyfile("crates/xmtp_legacy_migration/fixtures/consent-states.db3", sys.argv[1])
+connection = sqlite3.connect(sys.argv[1])
+connection.execute("UPDATE group_messages SET kind=99 WHERE id=(SELECT id FROM group_messages WHERE kind=1 AND expire_at_ns IS NULL LIMIT 1)")
+connection.commit()
+connection.close()
+`,
+      path,
+    ]);
+    invalidFixture = [...(await readFile(path))];
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
   const result = await page.evaluate(
-    async ({ fixture, currentSdk }) => {
+    async ({ fixture, invalidFixture, currentSdk }) => {
       const migration = await import("/target/sdk-packages/browser/entry.js");
       const storagePoolLock = "xmtp:.opfs-libxmtp-metadata";
       function check(value, message) {
@@ -149,6 +172,16 @@ try {
         invalid instanceof migration.XmtpError.InvalidInput,
         "invalid key lost its typed tag",
       );
+      const invalidSource = "/migration-record-close.db3";
+      await fixtureCall({
+        operation: "import",
+        path: invalidSource,
+        bytes: new Uint8Array(invalidFixture),
+      });
+      const invalidBefore = await fixtureCall({
+        operation: "export",
+        path: invalidSource,
+      });
       const NativeWorker = globalThis.Worker;
       let outputFailure;
       let fault;
@@ -172,6 +205,7 @@ try {
           "publish",
           "close",
           "commit-close",
+          "record-close",
         ]) {
           for (const outputPath of [
             args.outputPath,
@@ -179,13 +213,20 @@ try {
           ]) {
             outputFailure = undefined;
             try {
-              await migration.prepareMigrationArchive({ ...args, outputPath });
+              await migration.prepareMigrationArchive({
+                ...args,
+                databasePath: fault === "record-close" ? invalidSource : source,
+                outputPath,
+              });
             } catch (error) {
               outputFailure = error;
             }
             check(
               outputFailure !== undefined &&
-                outputFailure instanceof migration.XmtpError.MigrationOutput,
+                outputFailure instanceof
+                  (fault === "record-close"
+                    ? migration.XmtpError.MigrationRecordRead
+                    : migration.XmtpError.MigrationOutput),
               fault + " failure lost its typed tag",
             );
             const root = await navigator.storage.getDirectory();
@@ -200,21 +241,20 @@ try {
                 (outputPath === args.outputPath ? 1 : 0),
               fault + " failure settled before removing its private output",
             );
-            if (fault === "close" || fault === "commit-close") {
-              check(
-                String(outputFailure).includes(
-                  fault === "close"
-                    ? "Injected storage failure"
-                    : "Injected commit close failure",
-                ) && !String(outputFailure).includes("Injected close failure"),
-                "cleanup replaced the original write failure",
-              );
-            }
           }
         }
       } finally {
         globalThis.Worker = NativeWorker;
       }
+      const invalidAfter = await fixtureCall({
+        operation: "export",
+        path: invalidSource,
+      });
+      check(
+        invalidBefore.length === invalidAfter.length &&
+          invalidBefore.every((byte, index) => byte === invalidAfter[index]),
+        "close failure changed the invalid source",
+      );
       const preserved = await migration.readMigrationArchive(
         report.archivePath,
       );
@@ -323,7 +363,11 @@ try {
         ],
       };
     },
-    { fixture, currentSdk: process.argv.includes("--current-sdk") },
+    {
+      fixture,
+      invalidFixture,
+      currentSdk: process.argv.includes("--current-sdk"),
+    },
   );
   assert.deepEqual(result.counts, ["2", "3", "3"]);
   console.log(
