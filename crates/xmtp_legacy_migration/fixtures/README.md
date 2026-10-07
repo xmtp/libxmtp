@@ -48,9 +48,12 @@ The generator applies the copied legacy SQL and adds controlled records around t
 | File | Schema | Expected groups/messages/consent |
 | --- | --- | --- |
 | `stable.db3` | All 64 migrations | 2 / 3 / 1 |
+| `consent-states.db3` | Copy of `stable.db3`; all three consent states | 2 / 3 / 3 |
 | `mobile-4.10.db3` | First 62 migrations | 2 / 3 / 1 |
 | `early.db3` | First 36 migrations; no message expiry column | 2 / 5 / 1 |
 | `encrypted.db3` and sidecars | All 64; SQLCipher; committed message in WAL | 2 / 4 / 1 |
+
+`consent-states.db3` is a deterministic copy of `stable.db3` with only consent rows replaced. Its synthetic inboxes `02`, `03`, and `04` (each repeated 32 times) store Unknown, Allowed, and Denied as database values 0, 1, and 2. The corresponding archive values are 1, 2, and 3. `expected.json` records both sets. This derivative does not change the original producer fixtures or their hashes.
 
 The encrypted fixture uses a 32-byte key of `0x11` and a 16-byte salt of `0x22`. Its plaintext header is 32 bytes. The WAL stays separate because the producer process exits without closing the connection.
 

@@ -52,6 +52,8 @@ let
     # Welcome compatibility tests read the stored keys and ciphertexts at compile time.
     (src + /crates/xmtp_mls_common/src/mls_ext/payload_encryption/fixtures)
     (src + /crates/xmtp_db/migrations)
+    (src + /crates/xmtp_legacy_migration/migrations)
+    (src + /crates/xmtp_legacy_migration/browser-storage.js)
     # The attachment client reads the IANA special-purpose address snapshot at compile time.
     (src + /crates/xmtp_attachments/src/address-registry.txt)
     (lib.fileset.maybeMissing (src + /apps/backend/migrations))

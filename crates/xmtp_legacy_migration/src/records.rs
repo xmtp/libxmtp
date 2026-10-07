@@ -4,8 +4,11 @@ use diesel::{connection::DefaultLoadingMode, prelude::*, sql_types::*};
 use prost::Message;
 use xmtp_proto::xmtp::{
     device_sync::{
-        BackupMetadataSave, backup_element::Element, consent_backup::ConsentSave,
-        group_backup::GroupSave, message_backup::GroupMessageSave,
+        BackupMetadataSave,
+        backup_element::Element,
+        consent_backup::{ConsentSave, ConsentStateSave},
+        group_backup::GroupSave,
+        message_backup::GroupMessageSave,
     },
     message_contents::EncodedContent,
 };
@@ -183,15 +186,17 @@ pub(crate) fn export(
         .load_iter::<Consent, DefaultLoadingMode>(conn)?
     {
         let consent = consent?;
-        if !matches!(consent.entity_type, 1 | 2)
-            || !matches!(consent.state, 0..=2)
-            || consent.entity.is_empty()
-        {
+        if !matches!(consent.entity_type, 1 | 2) || consent.entity.is_empty() {
             return Err(invalid("invalid required consent identity or enum"));
         }
         emit(Element::Consent(ConsentSave {
             entity_type: consent.entity_type,
-            state: consent.state,
+            state: match consent.state {
+                0 => ConsentStateSave::Unknown,
+                1 => ConsentStateSave::Allowed,
+                2 => ConsentStateSave::Denied,
+                _ => return Err(invalid("invalid required consent state")),
+            } as i32,
             entity: consent.entity,
             consented_at_ns: consent.consented_at_ns,
         }))?;

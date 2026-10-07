@@ -1,12 +1,16 @@
 //! Legacy metadata encodings. OpenMLS and bincode revisions are pinned by the
 //! workspace and checked against library-produced database fixtures.
+use bincode::Options;
 use openmls::{
     extensions::{Extension, UnknownExtension},
     prelude::GroupContext,
 };
 use prost::Message;
 use tls_codec::Deserialize;
-use xmtp_mls_common::{inbox_id::InboxId, tls_set::TlsSet};
+use xmtp_mls_common::{
+    group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata_lossy},
+    inbox_id::InboxId,
+};
 use xmtp_proto::xmtp::{
     device_sync::group_backup::{ImmutableMetadataSave, MutableMetadataSave},
     mls::message_contents::{GroupMetadataV1, GroupMutableMetadataV1},
@@ -15,18 +19,8 @@ use xmtp_proto::xmtp::{
 const MUTABLE_METADATA_EXTENSION: u16 = 0xff00;
 const COMPONENT_REGISTRY: u16 = 0x8000;
 const CREATOR: u16 = 0xbffe;
-const ADMIN: u16 = 0x8002;
-const SUPER_ADMIN: u16 = 0x8001;
-const ATTRIBUTES: &[(u16, &str)] = &[
-    (0x8004, "group_name"),
-    (0x8005, "description"),
-    (0x8006, "group_image_url_square"),
-    (0x8007, "message_disappear_from_ns"),
-    (0x8008, "message_disappear_in_ns"),
-    (0x8009, "app_data"),
-    (0x800a, "minimum_supported_protocol_version"),
-    (0x800b, "commit_log_signer"),
-];
+// Optional metadata has a fixed byte budget. Larger contexts become unknown.
+const MAX_CONTEXT_BYTES: usize = 1024 * 1024;
 
 /// The source store applies its label and version wrapper twice.
 pub(crate) fn context_key(id: &[u8]) -> Vec<u8> {
@@ -41,7 +35,16 @@ pub(crate) fn context_key(id: &[u8]) -> Vec<u8> {
 /// elsewhere and never depends on this result.
 // implements: MIG-005
 pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<MutableMetadataSave>) {
-    let context: GroupContext = match bincode::deserialize(bytes) {
+    if bytes.len() > MAX_CONTEXT_BYTES {
+        return (None, None);
+    }
+    let context: GroupContext = match bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .with_little_endian()
+        .allow_trailing_bytes()
+        .with_limit(MAX_CONTEXT_BYTES as u64)
+        .deserialize(bytes)
+    {
         Ok(context) => context,
         Err(_) => return (None, None),
     };
@@ -83,40 +86,19 @@ pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<Mut
                         }),
                         Err(_) => None,
                     });
-            let mut result = MutableMetadataSave::default();
-            for &(id, name) in ATTRIBUTES {
-                if let Some(bytes) = dict.get(&id) {
-                    let value = match id {
-                        0x8007 | 0x8008 => match <[u8; 8]>::try_from(bytes) {
-                            Ok(bytes) => Some(i64::from_be_bytes(bytes).to_string()),
-                            Err(_) => None,
-                        },
-                        0x800b if bytes.len() == 32 => Some(hex::encode(bytes)),
-                        0x800b => None,
-                        _ => match String::from_utf8(bytes.to_vec()) {
-                            Ok(value) => Some(value),
-                            Err(error) => {
-                                tracing::debug!(component = id, %error, "Cannot decode optional legacy metadata");
-                                None
-                            }
-                        },
-                    };
-                    if let Some(value) = value {
-                        result.attributes.insert(name.to_owned(), value);
-                    }
-                }
+            let mut result = GroupMutableMetadata::new(Default::default(), vec![], vec![]);
+            let errors = merge_dict_into_mutable_metadata_lossy(&mut result, extensions);
+            if !errors.is_empty() {
+                tracing::debug!(
+                    count = errors.len(),
+                    "Cannot decode optional legacy metadata fields"
+                );
             }
-            for (id, list) in [
-                (ADMIN, &mut result.admin_list),
-                (SUPER_ADMIN, &mut result.super_admin_list),
-            ] {
-                if let Some(bytes) = dict.get(&id)
-                    && let Ok(ids) = TlsSet::<InboxId>::tls_deserialize_exact(bytes)
-                {
-                    *list = ids.iter().map(|id| hex::encode(id.as_bytes())).collect();
-                }
-            }
-            mutable = Some(result);
+            mutable = Some(MutableMetadataSave {
+                attributes: result.attributes,
+                admin_list: result.admin_list,
+                super_admin_list: result.super_admin_list,
+            });
         }
     }
     (immutable, mutable)
@@ -124,6 +106,64 @@ pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<Mut
 
 #[cfg(test)]
 mod tests {
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn absent_appdata_fields_keep_legacy_defaults() {
+        let (_, mutable) = super::decode(include_bytes!("../fixtures/appdata-context.bincode"));
+        let mutable = mutable.unwrap();
+        assert_eq!(mutable.attributes["group_image_url_square"], "");
+        assert_eq!(mutable.attributes["app_data"], "");
+        assert!(!mutable.attributes.contains_key("message_disappear_from_ns"));
+    }
+
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn context_byte_budget_rejects_large_optional_metadata() {
+        let context: super::GroupContext =
+            bincode::deserialize(include_bytes!("../fixtures/appdata-context.bincode"))?;
+        let expected = super::decode(include_bytes!("../fixtures/appdata-context.bincode"));
+        let below_limit = bincode::serialize(&(
+            context.protocol_version(),
+            context.ciphersuite(),
+            context.group_id(),
+            context.epoch(),
+            vec![0u8; 1024],
+            context.confirmed_transcript_hash(),
+            context.extensions(),
+        ))?;
+        assert_eq!(super::decode(&below_limit), expected);
+        let bytes = bincode::serialize(&(
+            context.protocol_version(),
+            context.ciphersuite(),
+            context.group_id(),
+            context.epoch(),
+            vec![0u8; 1024 * 1024],
+            context.confirmed_transcript_hash(),
+            context.extensions(),
+        ))?;
+        assert!(bincode::deserialize::<super::GroupContext>(&bytes).is_ok());
+        assert_eq!(super::decode(&bytes), (None, None));
+    }
+
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn oversized_declared_context_lengths_degrade_without_panicking() {
+        let context: super::GroupContext =
+            bincode::deserialize(include_bytes!("../fixtures/appdata-context.bincode"))?;
+        let prefix = bincode::serialize(&(
+            context.protocol_version(),
+            context.ciphersuite(),
+            context.group_id(),
+            context.epoch(),
+        ))?;
+        for length in [1u64 << 40, u64::MAX] {
+            let mut bytes = prefix.clone();
+            bytes.extend_from_slice(&length.to_le_bytes());
+            bytes.push(0);
+            assert_eq!(super::decode(&bytes), (None, None));
+        }
+    }
+
     // verifies: MIG-005
     #[xmtp_common::test(unwrap_try = true)]
     fn malformed_appdata_component_keeps_independent_fields() {
