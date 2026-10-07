@@ -178,10 +178,10 @@ pub(crate) fn export(
     }
     // Keep NULL expiry as unknown. Current group settings do not establish a
     // historical message expiry (MIG-006; ARCH-009 gap waiver).
-    let unknown_kind = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE m.expire_at_ns IS NULL AND m.kind IS NULL AND (g.id IS NULL OR (g.conversation_type IN (1,2) AND g.membership_state IN (1,2,3,5)))")
+    let unknown_kind = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE m.expire_at_ns IS NULL AND (m.kind IS NULL OR m.kind NOT IN (1,2)) AND (g.id IS NULL OR (g.conversation_type IN (1,2) AND g.membership_state IN (1,2,3,5)))")
         .get_result::<Count>(conn)?;
     if unknown_kind.count != 0 {
-        return Err(invalid("missing required message kind"));
+        return Err(invalid("invalid required message kind"));
     }
     let orphan = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE g.id IS NULL AND m.kind = 1 AND m.expire_at_ns IS NULL")
             .get_result::<Count>(conn)?;
