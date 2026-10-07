@@ -1,6 +1,9 @@
 name: Manual public SDK recovery
 on:
   workflow_dispatch: {}
+  push:
+    branches: [codex/ci-efficiency]
+    paths: [.github/workflows/manual-sdk-recovery.yml]
 permissions:
   contents: read
 concurrency:
@@ -10,11 +13,13 @@ env:
   NIX_DEVSHELL: js-node
 jobs:
   sdk-node:
+    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/build-ci-products.yml
     with:
       kind: node
     secrets: inherit
   backend-products:
+    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/build-ci-products.yml
     with:
       kind: backend
@@ -78,4 +83,4 @@ jobs:
     needs:
     - sdk-node
     - backend-products
-    if: '!cancelled() && needs.sdk-node.result == ''success'' && needs.backend-products.result == ''success'''
+    if: 'github.event_name == ''workflow_dispatch'' && !cancelled() && needs.sdk-node.result == ''success'' && needs.backend-products.result == ''success'''

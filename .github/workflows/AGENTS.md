@@ -66,12 +66,10 @@ Nix output warming builds and caches the complete root flake, including
 This is separate from the targeted shells that execute CI build and test commands.
 Keep the root lockfile check and all warming outputs.
 
-`ci-sdk-rust-shell-proof.yml` is a manual cold-build proof using the production
-Node and Browser producers and separate installed-package consumers on Linux.
-Run its guard fixtures with
-`dev/nix-shell --shell rust 'python3.11 -B dev/ci/test-sdk-rust-shell-proof.py'`.
-Fixtures do not replace actual compilation. Swift and Kotlin source generation
-on Linux does not prove an Apple platform library build.
+Run `37685867750` proved cold production Node and Browser builds and fresh
+installed-package loads on Linux. All five raw roles built in targeted shells.
+Swift and Kotlin source generation on Linux does not prove an Apple platform
+library build. The temporary proof workflow and guard were removed after this run.
 
 `docs-rust-reference.yml` keeps the Rust reference and glossary checks in one
 reusable job. Full site builds call it through `deploy-docs.yml`. A selected

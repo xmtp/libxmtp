@@ -5,9 +5,6 @@ on:
       kind:
         type: string
         required: true
-      sdk-rust-shell-proof:
-        type: boolean
-        default: false
 permissions:
   contents: read
 jobs:
@@ -32,13 +29,6 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
       - uses: taiki-e/install-action@just
-      - name: Prepare Linux Rust shell proof
-        if: inputs.sdk-rust-shell-proof
-        env:
-          PRODUCT_KIND: ${{ inputs.kind }}
-        run: >-
-          python3 -B dev/ci/sdk-rust-shell-proof.py prepare
-          --target "$PRODUCT_KIND" --directory "$RUNNER_TEMP/sdk-rust-shell-proof"
       - uses: ./.github/actions/setup-js
         if: inputs.kind != 'backend'
       - name: Find Cargo download directories
@@ -61,24 +51,12 @@ jobs:
           key: sdk-cargo-${{ inputs.kind }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'flake.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
           restore-keys: |
             sdk-cargo-${{ inputs.kind }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'flake.lock', 'rust-toolchain.toml') }}-
-      - name: Require a cold SDK role build for the proof
-        if: inputs.sdk-rust-shell-proof
-        run: >-
-          python3 -B dev/ci/sdk-rust-shell-proof.py cold
-          --directory "$RUNNER_TEMP/sdk-rust-shell-proof"
       - name: Build SDK product
         if: inputs.kind != 'backend'
         run: python3 -B dev/ci/sdk-products.py build --target '${{ inputs.kind }}' --output 'target/ci-products/sdk-${{ inputs.kind }}.tar'
       - name: Check real generation cleanup
         if: inputs.kind == 'node'
         run: dev/nix-shell 'just sdk check-clean-generate'
-      - name: Verify compiled SDKs and Rust shell evidence
-        if: inputs.sdk-rust-shell-proof
-        env:
-          PRODUCT_KIND: ${{ inputs.kind }}
-        run: >-
-          python3 -B dev/ci/sdk-rust-shell-proof.py verify
-          --target "$PRODUCT_KIND" --directory "$RUNNER_TEMP/sdk-rust-shell-proof"
       - name: Build backend product
         if: inputs.kind == 'backend'
         run: NIX_DEVSHELL=rust dev/nix-shell 'python3 -B dev/ci/backend-products.py build --output target/ci-products/backend.tar'
@@ -140,13 +118,5 @@ jobs:
             target/ci-products/cache-diagnostics.json
             target/ci-products/sdk-${{ inputs.kind }}.manifest.json
             target/sdk-artifacts/artifacts.json
-          if-no-files-found: error
-          retention-days: 7
-      - name: Retain Linux Rust shell proof
-        if: always() && inputs.sdk-rust-shell-proof
-        uses: actions/upload-artifact@v4
-        with:
-          name: sdk-rust-shell-proof-${{ inputs.kind }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/sdk-rust-shell-proof
           if-no-files-found: error
           retention-days: 7
