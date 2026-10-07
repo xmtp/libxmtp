@@ -142,6 +142,8 @@ jobs:
         with:
           nix: "true"
       - name: Generate Node SDK
+        env:
+          NIX_DEVSHELL: rust
         run: dev/nix-shell 'just sdk generate node'
       - name: Build CLI release artifact
         env:

@@ -1,12 +1,20 @@
 name: Test Native SDK Check
 on:
   workflow_call:
+    inputs:
+      run-ios:
+        type: boolean
+        default: true
+      run-android:
+        type: boolean
+        default: true
 jobs:
   check-swift:
+    if: ${{ inputs.run-ios }}
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 30
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         target:
           - aarch64-apple-darwin
@@ -18,13 +26,14 @@ jobs:
           disk-key: android
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "true"
+          kache: "true"
       - name: Check native SDK compile
         env:
           NIX_DEVSHELL: ios
         run: dev/nix-shell 'dev/agent-run cargo check --locked -p xmtp_sdk --target ${{ matrix.target }}'
 
   check-android:
+    if: ${{ inputs.run-android }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     env:
@@ -38,7 +47,7 @@ jobs:
           gradle-disk: "true"
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "true"
+          kache: "true"
       - uses: taiki-e/install-action@just
       - name: Start backend
         run: dev/nix-shell 'just backend up'

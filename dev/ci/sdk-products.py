@@ -1,0 +1,547 @@
+#!/usr/bin/env python3
+"""Build and transport matched debug SDK products for the current CI run."""
+
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path, PurePosixPath
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+sys.dont_write_bytecode = True
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location(
+    "sdk_artifacts", ROOT / "crates/xmtp_sdk/dev/sdk-artifacts.py"
+)
+artifacts = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(artifacts)
+runtime_spec = importlib.util.spec_from_file_location(
+    "sdk_native_runtime", Path(__file__).with_name("sdk-native-runtime.py")
+)
+native_runtime = importlib.util.module_from_spec(runtime_spec)
+runtime_spec.loader.exec_module(native_runtime)
+TREES = {
+    "node": ("typescript-napi", "swift", "kotlin"),
+    "browser": ("typescript-wasm", "typescript-pure"),
+}
+ROLES = {"node": ("native", "native", "native"), "browser": ("wasm", "pure")}
+LOCKS = ("Cargo.lock", "flake.lock", "rust-toolchain.toml", "pnpm-lock.yaml")
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def paths(root):
+    return sorted(path for path in root.rglob("*") if path.is_file())
+
+
+def inventory(root):
+    return {path.relative_to(root).as_posix(): digest(path) for path in paths(root)}
+
+
+def locks():
+    return {name: digest(ROOT / name) for name in LOCKS}
+
+
+def source_hash(target):
+    # Compilation receipts cover Rust and embedded inputs. Transport also binds
+    # the package source, stage tools, and all compiler environment definitions.
+    names = (
+        subprocess.check_output(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            cwd=ROOT,
+        )
+        .decode()
+        .split("\0")
+    )
+    selected = []
+    for name in names:
+        path = ROOT / name
+        if (
+            name
+            and path.is_file()
+            and "__pycache__" not in path.parts
+            and path.suffix != ".pyc"
+            and (
+                name.startswith(
+                    ("nix/", ".cargo/", "crates/xmtp_sdk/dev/", f"sdks/{target}/src/")
+                )
+                or name
+                in (
+                    "flake.nix",
+                    "dev/nix-shell",
+                    "dev/js/sdk-package",
+                    "dev/ci/sdk-products.py",
+                    "dev/ci/sdk-native-runtime.py",
+                    f"sdks/{target}/package.json",
+                    f"sdks/{target}/tsconfig.json",
+                    "package.json",
+                    "pnpm-lock.yaml",
+                )
+            )
+        ):
+            selected.append((name, digest(path)))
+    return hashlib.sha256(
+        json.dumps([artifacts.source_hash(), sorted(selected)]).encode()
+    ).hexdigest()
+
+
+def run_identity():
+    sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        identity = {
+            "runId": int(os.environ["GITHUB_RUN_ID"]),
+            "runAttempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+            "checkoutSha": os.environ["GITHUB_SHA"],
+        }
+        if (
+            identity["checkoutSha"] != sha
+            or min(identity["runId"], identity["runAttempt"]) < 1
+        ):
+            raise ValueError("CI checkout/run identity mismatch")
+        return {"origin": "github-run", **identity}
+    return {
+        "origin": "local-checkout",
+        "runId": None,
+        "runAttempt": None,
+        "checkoutSha": sha,
+    }
+
+
+def family(target):
+    host_os = platform.system().lower()
+    arch = {"x86_64": "x64", "aarch64": "arm64"}.get(
+        platform.machine(), platform.machine()
+    )
+    return f"sdk-{target}-debug-" + (
+        f"{host_os}-{arch}" if target == "node" else "wasm"
+    )
+
+
+def safe_name(name):
+    path = PurePosixPath(name)
+    if (
+        not name
+        or path.is_absolute()
+        or ".." in path.parts
+        or "\\" in name
+        or path.as_posix() != name
+    ):
+        raise ValueError(f"unsafe archive path: {name}")
+    return path
+
+
+def check_bytes(root, expected, label, ignore=()):
+    actual = inventory(root)
+    for name in ignore:
+        actual.pop(name, None)
+    if set(actual) != set(expected):
+        raise ValueError(f"{label} file set mismatch")
+    for name, checksum in expected.items():
+        safe_name(name)
+        if actual[name] != checksum:
+            raise ValueError(f"{label} bytes mismatch: {name}")
+
+
+def check_generated(generated, target):
+    records = []
+    for tree, role in zip(TREES[target], ROLES[target]):
+        folder = generated / tree
+        record = json.loads((folder / "sdk-contract.json").read_text())
+        expected = record["files"]
+        actual = inventory(folder)
+        actual.pop("sdk-contract.json", None)
+        if actual != expected:
+            raise ValueError(f"generated bytes/set mismatch: {tree}")
+        receipt = record["artifact"]
+        if receipt["source"] != artifacts.source_hash():
+            raise ValueError("SDK current source mismatch")
+        # The raw receipt records compile provenance. The render records the
+        # current bindgen identity, which can change without a library build.
+        if record["generator"] != artifacts.source_hash(True):
+            raise ValueError("SDK generator mismatch")
+        if receipt["profile"] != "debug":
+            raise ValueError("SDK profile mismatch")
+        if receipt["features"] != ("pure-only" if role == "pure" else ""):
+            raise ValueError("SDK features mismatch")
+        if (
+            receipt["instrumentation"] != "none"
+            or receipt["profileOverrides"]
+            or not artifacts.inputs.debug_flags_valid(receipt["compilerFlags"].values())
+            or receipt.get("debugProfileValid") is not True
+        ):
+            raise ValueError("SDK debug compiler semantics mismatch")
+        if receipt["target"] != "":
+            raise ValueError("SDK target mismatch")
+        if (
+            not re.fullmatch("[0-9a-f]{64}", receipt["buildContextHash"])
+            or not receipt["compilerIdentity"]
+        ):
+            raise ValueError("SDK compiler context missing")
+        records.append(record)
+    if len({record["contract"] for record in records}) != 1:
+        raise ValueError("SDK generated contract mismatch")
+    if len({record["artifact"]["buildContextHash"] for record in records}) != 1:
+        raise ValueError("SDK compiler context mismatch")
+    return records
+
+
+def runtime_record(package, target):
+    result = {}
+    revision = re.search(
+        r'uniffi-bindgen-(?:js|react-native).*?rev\s*=\s*"([0-9a-f]+)"',
+        (ROOT / "Cargo.toml").read_text(),
+    )
+    if not revision:
+        raise ValueError("pinned runtime revision missing")
+    for name in ("core", "node" if target == "node" else "wasm"):
+        folder = package / "node_modules/@ubjs" / name
+        if not (folder / "package.json").is_file():
+            raise ValueError(f"required runtime missing: {name}")
+        manifest = json.loads((folder / "package.json").read_text())
+        if manifest["name"] != "@ubjs/" + name:
+            raise ValueError(f"runtime identity mismatch: {name}")
+        files = inventory(folder)
+        if not any(path.endswith(".js") for path in files):
+            raise ValueError(f"runtime loader missing: {name}")
+        if name == "node" and not any(path.endswith(".node") for path in files):
+            raise ValueError("native runtime missing")
+        result[name] = {"revision": revision[1], "files": files}
+    return result
+
+
+def check_package(package, generated, target):
+    record = json.loads((package / "sdk-contract.json").read_text())
+    raw = check_generated(generated, target)
+    if (
+        record["contract"] != raw[0]["contract"]
+        or record["generator"] != raw[0]["generator"]
+    ):
+        raise ValueError("staged contract mismatch")
+    for name, checksum in record["assets"].items():
+        safe_name(name)
+        if not (package / name).is_file() or digest(package / name) != checksum:
+            raise ValueError(f"staged asset mismatch: {name}")
+    public = json.loads((ROOT / f"sdks/{target}/package.json").read_text())
+    staged = json.loads((package / "package.json").read_text())
+    if (
+        staged["name"] != public["name"]
+        or staged["version"] != public["version"]
+        or staged.get("private")
+    ):
+        raise ValueError("public package identity mismatch")
+    for name in ("entry.js", "entry.d.ts"):
+        if not (package / name).is_file():
+            raise ValueError(f"public package entry missing: {name}")
+    if target == "node" and not any(
+        path.suffix in (".so", ".dylib", ".dll") for path in paths(package)
+    ):
+        raise ValueError("native SDK library missing")
+    if target == "browser":
+        for tree in TREES[target]:
+            if not any(path.suffix == ".wasm" for path in paths(package / tree)):
+                raise ValueError(f"WASM SDK library missing: {tree}")
+    return raw, runtime_record(package, target)
+
+
+def check_manifest(manifest, target):
+    if manifest["schemaVersion"] != 1 or manifest["family"] != family(target):
+        raise ValueError("SDK product family mismatch")
+    current = run_identity()
+    for key, expected in current.items():
+        if key == "runAttempt" and current["origin"] == "github-run":
+            # Failed-job reruns can reuse a successful earlier producer. The
+            # run, checkout, source, context, and bytes must still match.
+            producer = manifest[key]
+            valid = type(producer) is int and 1 <= producer <= expected
+        else:
+            valid = manifest[key] == expected
+        if not valid:
+            raise ValueError(f"SDK run identity mismatch: {key}")
+    if manifest["sourceHash"] != source_hash(target):
+        raise ValueError("SDK product current source mismatch")
+    if manifest["generatorHash"] != artifacts.source_hash(True):
+        raise ValueError("SDK product generator mismatch")
+    context = manifest["context"]
+    expected = {
+        "os": platform.system().lower(),
+        "arch": platform.machine(),
+        "target": target,
+        "profile": "debug",
+        "features": [],
+        "instrumentation": "none",
+        "dependencyLocks": locks(),
+    }
+    for key, value in expected.items():
+        if context[key] != value:
+            raise ValueError(f"SDK product context mismatch: {key}")
+    compiler_host = next(
+        (
+            line[6:]
+            for line in context["compilerIdentity"].splitlines()
+            if line.startswith("host: ")
+        ),
+        None,
+    )
+    if compiler_host != context["host"]:
+        raise ValueError("SDK product context mismatch: host")
+    if set(manifest["modes"]) != set(manifest["files"]):
+        raise ValueError("SDK product mode set mismatch")
+    if manifest["testInventory"] != []:
+        raise ValueError("SDK product contains test results")
+
+
+def check_payload(folder, manifest, target):
+    check_manifest(manifest, target)
+    check_bytes(folder, manifest["files"], "product", ignore=("manifest.json",))
+    for name, mode in manifest["modes"].items():
+        if (folder / name).stat().st_mode & 0o777 != mode:
+            raise ValueError(f"product mode mismatch: {name}")
+    records, runtimes = check_package(folder / "package", folder / "generated", target)
+    context = manifest["context"]
+    for record in records:
+        receipt = record["artifact"]
+        if (
+            receipt["buildContextHash"] != context["buildContextHash"]
+            or receipt["compilerIdentity"] != context["compilerIdentity"]
+        ):
+            raise ValueError("SDK product compiler context mismatch")
+    if runtimes != manifest["runtimes"]:
+        raise ValueError("SDK product runtime mismatch")
+    check_bytes(
+        folder / "runtimes",
+        {
+            f"{name}/{path}": checksum
+            for name, runtime in runtimes.items()
+            for path, checksum in runtime["files"].items()
+        },
+        "runtime",
+    )
+    native_runtime.check(folder / "package", folder, manifest["nativeRuntime"])
+
+
+def copy(source, destination):
+    shutil.copytree(
+        source,
+        destination,
+        symlinks=False,
+        ignore=shutil.ignore_patterns("node_modules")
+        if destination.parent.name == "generated"
+        else None,
+    )
+
+
+def export_product(target, output, generated=None, package=None):
+    generated = generated or Path(
+        os.environ.get("XMTP_SDK_GENERATED_DIR", ROOT / "target/sdk-generated")
+    )
+    package = package or ROOT / "target/sdk-packages" / target
+    records, runtimes = check_package(package, generated, target)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        dir=output.parent, prefix=".sdk-export-"
+    ) as temporary:
+        folder = Path(temporary)
+        for tree in TREES[target]:
+            copy(generated / tree, folder / "generated" / tree)
+            receipt = folder / "generated" / tree / "sdk-contract.json"
+            record = json.loads(receipt.read_text())
+            # Raw compiler paths are diagnostic data. Keep portable file names.
+            record["artifact"]["files"] = {
+                Path(path).name: checksum
+                for path, checksum in record["artifact"]["files"].items()
+            }
+            receipt.write_text(json.dumps(record, indent=2) + "\n")
+        copy(package, folder / "package")
+        for name in runtimes:
+            copy(package / "node_modules/@ubjs" / name, folder / "runtimes" / name)
+        receipt = records[0]["artifact"]
+        identity = receipt["compilerIdentity"]
+        host = next(
+            (line[6:] for line in identity.splitlines() if line.startswith("host: ")),
+            None,
+        )
+        if not host:
+            raise ValueError("SDK compiler host missing")
+        native = native_runtime.export(folder / "package", folder)
+        files = inventory(folder)
+        manifest = {
+            "schemaVersion": 1,
+            "family": family(target),
+            **run_identity(),
+            "sourceHash": source_hash(target),
+            "generatorHash": artifacts.source_hash(True),
+            "context": {
+                "os": platform.system().lower(),
+                "arch": platform.machine(),
+                "host": host,
+                "target": target,
+                "profile": "debug",
+                "features": [],
+                "instrumentation": "none",
+                "compilerIdentity": identity,
+                "buildContextHash": receipt["buildContextHash"],
+                "dependencyLocks": locks(),
+            },
+            "runtimes": runtimes,
+            "nativeRuntime": native,
+            "files": files,
+            "modes": {name: (folder / name).stat().st_mode & 0o777 for name in files},
+            "testInventory": [],
+        }
+        check_payload(folder, manifest, target)
+        manifest_path = folder / "manifest.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        archive = folder / "product.tar"
+        with tarfile.open(archive, "w") as tar:
+            for name in ("manifest.json", *files):
+                tar.add(folder / name, arcname=name, recursive=False)
+        shutil.copy2(archive, output)
+        shutil.copy2(manifest_path, output.with_suffix(".manifest.json"))
+    return output
+
+
+def read_archive(archive, destination):
+    with tarfile.open(archive) as tar:
+        members = tar.getmembers()
+        names = set()
+        for member in members:
+            safe_name(member.name)
+            if member.name in names or not member.isfile() or member.mode & ~0o777:
+                raise ValueError(f"unsafe archive member: {member.name}")
+            names.add(member.name)
+        if "manifest.json" not in names:
+            raise ValueError("SDK product manifest missing")
+        manifest = json.load(tar.extractfile("manifest.json"))
+        if names != {"manifest.json", *manifest["files"]}:
+            raise ValueError("SDK archive file set mismatch")
+        for member in members:
+            if member.name == "manifest.json":
+                continue
+            path = destination / member.name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(tar.extractfile(member).read())
+            path.chmod(member.mode)
+        return manifest
+
+
+def restore(target, archive):
+    base = ROOT / "target/ci-products"
+    base.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=base, prefix=".sdk-restore-") as temporary:
+        folder = Path(temporary) / "payload"
+        folder.mkdir()
+        manifest = read_archive(archive, folder)
+        check_payload(folder, manifest, target)
+        native_runtime.restore(
+            folder,
+            manifest["nativeRuntime"],
+            base / ".native-runtime-roots" / family(target),
+        )
+        (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        destination = base / family(target)
+        # Each selected consumer owns its checkout. Promotion starts only after
+        # all provenance, path, contract, runtime, and byte checks pass.
+        for source, output in (
+            (folder / "package", ROOT / f"target/sdk-packages/{target}"),
+            (folder / "package", ROOT / f"sdks/{target}/dist"),
+        ):
+            with artifacts.staged_output(output) as stage:
+                shutil.copytree(source, stage, dirs_exist_ok=True)
+        with artifacts.staged_output(destination) as stage:
+            shutil.copytree(folder, stage, dirs_exist_ok=True)
+    return destination / "generated"
+
+
+def verify(target):
+    folder = ROOT / "target/ci-products" / family(target)
+    manifest = json.loads((folder / "manifest.json").read_text())
+    # The manifest is outside its own byte inventory.
+    check_payload(folder, manifest, target)
+    native_runtime.verify(manifest["nativeRuntime"])
+    expected = {
+        name.removeprefix("package/"): checksum
+        for name, checksum in manifest["files"].items()
+        if name.startswith("package/")
+    }
+    for package in (
+        ROOT / f"target/sdk-packages/{target}",
+        ROOT / f"sdks/{target}/dist",
+    ):
+        check_bytes(package, expected, "prepared package")
+    return folder / "generated"
+
+
+def build(target, output):
+    artifacts.inputs.require_debug_profile(ROOT)
+    subprocess.run(
+        [
+            str(ROOT / "dev/nix-shell"),
+            "--shell",
+            "rust",
+            f"just sdk generate {'swift,kotlin,node' if target == 'node' else 'browser'}",
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+    subprocess.run(
+        [
+            str(ROOT / "dev/nix-shell"),
+            "--shell",
+            "js",
+            f"bash dev/js/sdk-package {target}",
+        ],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "XMTP_SDK_GENERATED_DIR": str(ROOT / "target/sdk-generated"),
+        },
+        check=True,
+    )
+    return export_product(target, output)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("build", "export", "restore", "verify"))
+    parser.add_argument("--target", choices=tuple(TREES), required=True)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--input", type=Path)
+    args = parser.parse_args()
+    try:
+        if args.action in ("build", "export"):
+            if args.output is None:
+                parser.error("build/export require --output")
+            print(
+                (build if args.action == "build" else export_product)(
+                    args.target, args.output.resolve()
+                )
+            )
+        elif args.action == "restore":
+            if args.input is None:
+                parser.error("restore requires --input")
+            print(restore(args.target, args.input.resolve()))
+        else:
+            print(verify(args.target))
+    except (
+        ValueError,
+        KeyError,
+        OSError,
+        subprocess.CalledProcessError,
+        tarfile.TarError,
+    ) as error:
+        parser.exit(1, f"SDK product error: {error}\n")
+
+
+if __name__ == "__main__":
+    main()

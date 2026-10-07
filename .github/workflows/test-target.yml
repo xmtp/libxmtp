@@ -1,0 +1,106 @@
+name: Test suite target
+on:
+  workflow_call:
+    inputs:
+      suite:
+        type: string
+        required: true
+      selection:
+        type: string
+        required: true
+      prepared-products:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  test_native_backend:
+    if: inputs.suite == 'test_native_backend' && fromJSON(inputs.selection).checks.test_native_backend
+    uses: ./.github/workflows/test-native-backend.yml
+  test_validation:
+    if: inputs.suite == 'test_validation' && fromJSON(inputs.selection).checks.test_validation
+    uses: ./.github/workflows/test-validation.yml
+    secrets: inherit
+  test_backend:
+    if: inputs.suite == 'test_backend' && fromJSON(inputs.selection).checks.test_backend
+    uses: ./.github/workflows/test-backend.yml
+    secrets: inherit
+  test_workspace:
+    if: inputs.suite == 'test_workspace' && fromJSON(inputs.selection).checks.test_workspace
+    uses: ./.github/workflows/test-workspace.yml
+    with:
+      prepared-products: ${{ inputs.prepared-products }}
+    secrets: inherit
+  test_keepalive:
+    if: inputs.suite == 'test_keepalive' && fromJSON(inputs.selection).checks.test_keepalive
+    uses: ./.github/workflows/test-keepalive-probe.yml
+    secrets: inherit
+  test_wasm:
+    if: inputs.suite == 'test_wasm' && fromJSON(inputs.selection).checks.test_wasm
+    uses: ./.github/workflows/test-wasm.yml
+    with:
+      prepared-products: ${{ inputs.prepared-products }}
+    secrets: inherit
+  test_node:
+    if: inputs.suite == 'test_node' && fromJSON(inputs.selection).checks.test_node
+    uses: ./.github/workflows/test-node-sdk.yml
+    with:
+      prepared-products: ${{ inputs.prepared-products }}
+    secrets: inherit
+  test_agent:
+    if: inputs.suite == 'test_agent' && fromJSON(inputs.selection).checks.test_agent
+    uses: ./.github/workflows/test-agent-sdk.yml
+    with:
+      prepared-products: ${{ inputs.prepared-products }}
+    secrets: inherit
+  test_xdbg:
+    if: inputs.suite == 'test_xdbg' && fromJSON(inputs.selection).checks.test_xdbg
+    uses: ./.github/workflows/test-xdbg.yml
+    secrets: inherit
+  test_browser:
+    if: inputs.suite == 'test_browser' && fromJSON(inputs.selection).checks.test_browser
+    uses: ./.github/workflows/test-browser-sdk.yml
+    with:
+      prepared-products: ${{ inputs.prepared-products }}
+    secrets: inherit
+  test_bindings:
+    if: inputs.suite == 'test_bindings' && fromJSON(inputs.selection).checks.test_bindings
+    uses: ./.github/workflows/test-bindings-check.yml
+    with:
+      run-ios: ${{ fromJSON(inputs.selection).checks.check_bindings_ios }}
+      run-android: ${{ fromJSON(inputs.selection).checks.check_bindings_android }}
+    secrets: inherit
+  test_sdk_staging:
+    if: inputs.suite == 'test_sdk_staging' && fromJSON(inputs.selection).checks.test_sdk_staging
+    uses: ./.github/workflows/test-sdk-staging.yml
+    secrets: inherit
+  test_bridge_runtime:
+    if: inputs.suite == 'test_bridge_runtime' && fromJSON(inputs.selection).checks.test_bridge_runtime
+    uses: ./.github/workflows/test-sdk-platform.yml
+    with:
+      target: bridge
+      prepared-products: ${{ inputs.prepared-products }}
+    secrets: inherit
+  test_browser_platform:
+    if: inputs.suite == 'test_browser_platform' && fromJSON(inputs.selection).checks.test_browser_platform
+    uses: ./.github/workflows/test-sdk-platform.yml
+    with:
+      target: browser
+      prepared-products: ${{ inputs.prepared-products }}
+    secrets: inherit
+  result:
+    name: Require selected test target
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 1
+    if: always()
+    needs: [test_native_backend, test_validation, test_backend, test_workspace, test_keepalive, test_wasm, test_node, test_agent, test_xdbg, test_browser, test_bindings, test_sdk_staging, test_bridge_runtime, test_browser_platform]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require the selected literal workflow
+        env:
+          CI_SELECTION: ${{ inputs.selection }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+          CI_SUITE: ${{ inputs.suite }}
+        run: >-
+          python3 -B dev/ci/suite-gate.py --kind tests
+          --selection "$CI_SELECTION" --needs "$CI_NEEDS" --row "$CI_SUITE"

@@ -1,103 +1,87 @@
 name: Test self-hosted backend
-
-on:
-  workflow_dispatch:
-  workflow_call:
-
 permissions:
   contents: read
-
 jobs:
-  test-backend:
-    name: Test backend (native)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
-    env:
-      NIX_DEVSHELL: rust
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: rust
-          github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
-      - uses: taiki-e/install-action@just
-      - name: Start backend database and VersityGW
-        run: |
-          just backend db-up
-          just backend s3-up
-      - name: Check SQL cache
-        run: just backend sql-check
-      - name: Test backend, replica recovery, and HTTPS streaming
-        run: just backend test
-      - name: Stop backend database
-        if: always()
-        run: just backend db-down
-
-  backend-image:
-    name: Backend image (${{ matrix.arch }})
+  test:
+    name: Backend ${{ matrix.kind }} (${{ matrix.arch }})
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
-        # Automatic runs test amd64. Manual runs also test arm64.
-        arch: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["amd64", "arm64"]' || '["amd64"]') }}
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"kind":"native","arch":"amd64"},{"kind":"image","arch":"amd64"},{"kind":"image","arch":"arm64"}]' || '[{"kind":"native","arch":"amd64"},{"kind":"image","arch":"amd64"}]') }}
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'blacksmith-16vcpu-ubuntu-2404' }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ matrix.kind == 'native' && 30 || 60 }}
     env:
       NIX_DEVSHELL: rust
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: rust
-          nix-disk: ${{ matrix.arch == 'amd64' && 'true' || 'false' }}
-          github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
-      - uses: taiki-e/install-action@just
-      - name: Build backend image
-        run: just backend image
-      - name: Load backend image
-        run: docker load --input result-backend-image
-      - name: Check image architecture
-        env:
-          EXPECTED_ARCH: ${{ matrix.arch }}
-        run: |
-          actual_arch="$(docker image inspect ghcr.io/xmtp/backend:self-hosted --format '{{.Architecture}}')"
-          test "$actual_arch" = "$EXPECTED_ARCH"
-      # This smoke test proves the image starts, serves gRPC health, and reaches
-      # PostgreSQL. It runs no chain call, and the database subset has no anvil,
-      # so the chain URL points at a name that does not resolve. A smart-contract
-      # wallet test needs the full stack from `just backend up`.
-      - name: Run backend image
-        env:
-          PLATFORM: linux/${{ matrix.arch }}
-        run: |
-          just backend db-up
-          # The Compose project name is per-worktree, so the network name is too.
-          # CI is a clone, not a worktree, so this resolves to `libxmtp_default`.
-          set -a && . dev/docker/.env && set +a
-          docker run --detach --name backend-smoke --platform "$PLATFORM" \
-            --network "${XMTP_COMPOSE_PROJECT}_default" -p 127.0.0.1:55050:5050 \
-            -e XMTP_CHAIN_31337_URL=http://anvil.invalid:8545 \
-            -e XMTP_DATABASE_URL=postgres://xmtp:xmtp@db:5432/xmtp_backend \
-            -e XMTP_REPLICA_URL=postgres://xmtp:xmtp@replica:5432/xmtp_backend \
-            -v "$PWD/dev/backend/local.toml:/config.toml:ro" \
-            ghcr.io/xmtp/backend:self-hosted --config-file /config.toml
-          dev/nix-shell 'for attempt in {1..30}; do grpc-health-probe -addr=127.0.0.1:55050 && exit 0; sleep 1; done; exit 1'
-      - name: Verify observability
-        if: matrix.arch == 'amd64'
-        run: |
-          docker rm --force backend-smoke
-          just backend down
-          just backend up
-          just backend observe-check
-      - name: Backend logs and cleanup
-        if: always()
-        run: |
-          docker logs backend-smoke || true
-          docker rm --force backend-smoke || true
-          just backend db-down
+    - name: Checkout
+      uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: rust
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache: ${{ matrix.kind == 'native' && 'true' || 'false' }}
+        nix-disk: ${{ matrix.arch == 'amd64' && 'true' || 'false' }}
+    - uses: taiki-e/install-action@just
+    - name: Start backend database and VersityGW
+      run: |
+        just backend db-up
+        just backend s3-up
+      if: matrix.kind == 'native'
+    - name: Check SQL cache
+      run: just backend sql-check
+      if: matrix.kind == 'native'
+    - name: Test backend, replica recovery, and HTTPS streaming
+      run: just backend test
+      if: matrix.kind == 'native'
+    - name: Stop backend database
+      if: always() && matrix.kind == 'native'
+      run: just backend db-down
+      timeout-minutes: 2
+    - name: Build backend image
+      run: just backend image
+      if: matrix.kind == 'image'
+    - name: Load backend image
+      run: docker load --input result-backend-image
+      if: matrix.kind == 'image'
+    - name: Check image architecture
+      env:
+        EXPECTED_ARCH: ${{ matrix.arch }}
+      run: |
+        actual_arch="$(docker image inspect ghcr.io/xmtp/backend:self-hosted --format '{{.Architecture}}')"
+        test "$actual_arch" = "$EXPECTED_ARCH"
+      if: matrix.kind == 'image'
+    - name: Run backend image
+      env:
+        PLATFORM: linux/${{ matrix.arch }}
+      run: |
+        just backend db-up
+        # The Compose project name is per-worktree, so the network name is too.
+        # CI is a clone, not a worktree, so this resolves to `libxmtp_default`.
+        set -a && . dev/docker/.env && set +a
+        docker run --detach --name backend-smoke --platform "$PLATFORM" \
+          --network "${XMTP_COMPOSE_PROJECT}_default" -p 127.0.0.1:55050:5050 \
+          -e XMTP_CHAIN_31337_URL=http://anvil.invalid:8545 \
+          -e XMTP_DATABASE_URL=postgres://xmtp:xmtp@db:5432/xmtp_backend \
+          -e XMTP_REPLICA_URL=postgres://xmtp:xmtp@replica:5432/xmtp_backend \
+          -v "$PWD/dev/backend/local.toml:/config.toml:ro" \
+          ghcr.io/xmtp/backend:self-hosted --config-file /config.toml
+        dev/nix-shell 'for attempt in {1..30}; do grpc-health-probe -addr=127.0.0.1:55050 && exit 0; sleep 1; done; exit 1'
+      if: matrix.kind == 'image'
+    - name: Verify observability
+      if: matrix.kind == 'image' && matrix.arch == 'amd64'
+      run: |
+        docker rm --force backend-smoke
+        just backend down
+        just backend up
+        just backend observe-check
+    - name: Backend logs and cleanup
+      if: always() && matrix.kind == 'image'
+      run: |
+        docker logs backend-smoke || true
+        docker rm --force backend-smoke || true
+        just backend db-down
+      timeout-minutes: 2
+on:
+  workflow_dispatch: null
+  workflow_call: null

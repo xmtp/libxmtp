@@ -144,6 +144,8 @@ jobs:
   build:
     needs: [setup, check-push-permissions]
     runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      NIX_DEVSHELL: js-node
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -161,6 +163,8 @@ jobs:
       - uses: ./.github/actions/setup-js
 
       - name: Generate Node SDK
+        env:
+          NIX_DEVSHELL: rust
         run: dev/nix-shell 'just sdk generate node'
 
       - name: Install + build agent-sdk

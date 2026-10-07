@@ -203,6 +203,10 @@ docs/plans
 .claude/scheduled_tasks.lock
 /target-linux-amd64
 
+# Python runtime bytecode
+__pycache__/
+*.pyc
+
 # Agent Python runtime and bytecode
 dev/agents/.venv/
 dev/agents/__pycache__/

@@ -2,12 +2,12 @@ name: Lint JS
 on:
   workflow_call:
 env:
-  NIX_DEVSHELL: js
+  NIX_DEVSHELL: js-node
 jobs:
   lint:
-    name: Lint (JS SDKs)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+    name: Lint (JS source)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -17,15 +17,7 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - name: Build and stage selected SDK products
-        run: just js sdk-products
-      - name: Typecheck JavaScript workspace
-        # Retained binding tests need generated output. Their test jobs build
-        # that output and typecheck the tests against it.
-        run: dev/nix-shell 'pnpm -r run typecheck'
-      - name: Oxlint JavaScript workspace
-        # Retained binding tests import declarations from a test-utils addon.
-        # Its test job builds that addon and lints those tests there.
-        run: dev/nix-shell 'pnpm -r run lint'
+      - name: Oxlint JavaScript source
+        run: just lint-js-source
       - name: Check JavaScript formatting
         run: just lint-js-format

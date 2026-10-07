@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 """Check selected artifact scopes and the retained aggregate receipt."""
 
 import hashlib

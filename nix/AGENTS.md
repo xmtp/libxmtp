@@ -2,6 +2,13 @@
 
 Check an affected output with `nix build --no-link .#<output>`; run `dev/nix-shell 'just lint-config'`.
 
+Rust-capable development shells select pinned Kache through `dev/kache-env`.
+Check the package with `nix build --no-link .#kache` and the effective wrapper
+with `dev/nix-shell --shell rust '"$RUSTC_WRAPPER" --version'`.
+CI selects its wrapper through `setup-nix`. Nix build derivations retain their
+Nix/Crane caches; they do not receive the outer shell's compiler cache.
+Keep compiler credentials and writable host cache paths out of derivations.
+
 On macOS, keep the compiler, linker, and SDK from the same toolchain. The local
 and iOS shells select Xcode through `ios-env.nix` and use its native linker.
 Do not hard-code an Xcode version or use Nix's linker with the system SDK.

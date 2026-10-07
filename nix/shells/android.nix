@@ -3,6 +3,7 @@
   darwin,
   stdenv,
   git,
+  python311,
   kotlin,
   ktlint,
   jdk17,
@@ -11,6 +12,7 @@
   gnused,
   xmtp,
   zlib,
+  kache,
 }:
 let
   inherit (xmtp) androidEnv base shellCommon;
@@ -28,11 +30,13 @@ mkShell (
     XMTP_DEV_SHELL = "android";
 
     # Replace host overrides from an outer local or iOS shell.
-    shellHook = lib.optionalString stdenv.isDarwin ''
-      export CC_aarch64_apple_darwin="${stdenv.cc}/bin/cc"
-      export CXX_aarch64_apple_darwin="${stdenv.cc}/bin/c++"
-      export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="${stdenv.cc}/bin/cc"
-    '';
+    shellHook =
+      shellCommon.compilerCacheHook
+      + lib.optionalString stdenv.isDarwin ''
+        export CC_aarch64_apple_darwin="${stdenv.cc}/bin/cc"
+        export CXX_aarch64_apple_darwin="${stdenv.cc}/bin/c++"
+        export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="${stdenv.cc}/bin/cc"
+      '';
     OPENSSL_DIR = shellCommon.rustBase.env.OPENSSL_DIR;
     ANDROID_HOME = androidEnv.devPaths.home;
     ANDROID_SDK_ROOT = androidEnv.devPaths.home;
@@ -50,11 +54,13 @@ mkShell (
       base.commonArgs.buildInputs
       ++ [
         rust-android-toolchain
+        kache
         kotlin
         ktlint
         androidEnv.devComposition.androidsdk
         jdk17
         gnused
+        python311
         # in-shell nix eval spawns git (fetchGit); system git crashes against the nix-store libs in LD_LIBRARY_PATH
         git
       ]

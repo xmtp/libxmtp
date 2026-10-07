@@ -10,7 +10,7 @@ stale="$out/swift/runtime/Stale.swift"
 mkdir -p "$(dirname "$stale")"
 printf '%s\n' '// stale generated file' > "$stale"
 trap 'rm -rf "$out"' EXIT
-python3 crates/xmtp_sdk/dev/sdk-artifacts.py render --targets swift --out "$out"
+python3.11 crates/xmtp_sdk/dev/sdk-artifacts.py render --targets swift --out "$out"
 if [ -e "$stale" ]; then
   echo "SDK rendering kept $stale" >&2
   exit 1

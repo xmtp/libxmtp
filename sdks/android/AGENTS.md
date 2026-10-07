@@ -29,7 +29,15 @@ dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
 dev/nix-shell 'just android docs'
+dev/nix-shell 'just android docs-generated'
 ```
+
+`docs` keeps the full native preparation path. CI uses `docs-generated` for
+the reference build. It selects the current release-profile
+`xmtp-sdk-generated-kotlin` output and gives Dokka its Kotlin, runtime, Android,
+and contract files. It uses a new empty JNI directory for each run. A hosted
+comparison verified that its reference output matches the full path byte for
+byte. JNI, AAR, JVM, and emulator checks stay in the build and test recipes.
 
 The Android floor is API 23. Generated timestamps use `java.time.Instant`. Keep
 core library desugaring on in the library and app consumers, with pinned

@@ -2,6 +2,8 @@ name: Publish backend image
 
 on:
   push:
+    # Prototype commits test local products and do not publish images.
+    branches-ignore: [codex/ci-efficiency-investigation]
   pull_request:
   workflow_call:
     inputs:
@@ -112,7 +114,7 @@ jobs:
           nix-disk: ${{ matrix.nix-disk }}
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
+          kache: "false"
       - uses: taiki-e/install-action@just
         if: steps.image.outputs.exists != 'true'
       - name: Build image

@@ -1,0 +1,742 @@
+{
+  "kind": "single diagnostic feature-branch push",
+  "known_core_minutes": 2037.5333333333338,
+  "paired_acceptance": false,
+  "records": [
+    {
+      "attempt": 1,
+      "conclusion": "failure",
+      "cost_status": "UNVERIFIED",
+      "created_at": "2026-10-07T02:17:20Z",
+      "first_job_started_at": "2026-10-07T02:17:28Z",
+      "gates": [
+        {
+          "attempt": 1,
+          "completed_at": "2026-10-07T02:20:18Z",
+          "conclusion": "success",
+          "name": "Lint",
+          "run_id": 37561264227
+        },
+        {
+          "attempt": 1,
+          "completed_at": "2026-10-07T02:47:48Z",
+          "conclusion": "failure",
+          "name": "Test",
+          "run_id": 37561264227
+        }
+      ],
+      "jobs": [
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112598816687,
+          "name": "detect-changes",
+          "seconds": 60.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112598816687"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112599097807,
+          "name": "sdk-browser / Build current browser product",
+          "seconds": 380.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599097807"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112599097884,
+          "name": "sdk-node / Build current node product",
+          "seconds": 457.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599097884"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112599097896,
+          "name": "lint-android / Lint (Android)",
+          "seconds": 266.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599097896"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112599097952,
+          "name": "check-rust / Check (WASM Clippy)",
+          "seconds": 167.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599097952"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112599097965,
+          "name": "check-rust / Check (native all-feature Clippy)",
+          "seconds": 349.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599097965"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "unknown",
+            "source": [
+              "warp-macos-15-arm64-6x"
+            ]
+          },
+          "conclusion": "success",
+          "cores": null,
+          "job_id": 112599098045,
+          "name": "test-ios / Tests (iOS)",
+          "seconds": 291.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098045"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112599098052,
+          "name": "test-android / JNI, public client, and timestamp smoke (API 23)",
+          "seconds": 315.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098052"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112599098101,
+          "name": "test-android / Unit Tests (Android)",
+          "seconds": 209.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098101"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112599098121,
+          "name": "test-android / Integration Tests (Android)",
+          "seconds": 347.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098121"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112599098132,
+          "name": "docs-quality / Docs lint, format, and tests",
+          "seconds": 61.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098132"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112599098248,
+          "name": "backend-products / Build current backend product",
+          "seconds": 67.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098248"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112599098391,
+          "name": "source-lint / lint-js / Lint (JS source)",
+          "seconds": 64.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098391"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112599098411,
+          "name": "source-lint / lint-config / Lint (Config)",
+          "seconds": 73.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098411"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112599098417,
+          "name": "source-lint / lint-proto / Lint (Protobuf)",
+          "seconds": 28.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098417"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "unknown",
+            "source": [
+              "warp-macos-15-arm64-6x"
+            ]
+          },
+          "conclusion": "success",
+          "cores": null,
+          "job_id": 112599098423,
+          "name": "lint-ios / Lint (iOS)",
+          "seconds": 105.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098423"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112599098459,
+          "name": "source-lint / lint-workspace / Lint (Rust source)",
+          "seconds": 48.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599098459"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112599435170,
+          "name": "source-lint / Source lint results",
+          "seconds": 7.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599435170"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112599494009,
+          "name": "Lint",
+          "seconds": 6.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112599494009"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601039391,
+          "name": "check-sdk / Test (SDK crate debug)",
+          "seconds": 260.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601039391"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601039465,
+          "name": "check-types / Check (JavaScript types and full lint)",
+          "seconds": 123.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601039465"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "failure",
+          "cores": 4,
+          "job_id": 112601039532,
+          "name": "check-sdk / Check (generated SDK products)",
+          "seconds": 149.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601039532"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601039904,
+          "name": "tests / test-backend / Test backend (native)",
+          "seconds": 271.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601039904"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601039928,
+          "name": "tests / test-validation / Test (shared MLS validation)",
+          "seconds": 54.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601039928"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601039969,
+          "name": "tests / test-backend / Backend image (amd64)",
+          "seconds": 330.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601039969"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601040019,
+          "name": "tests / test-keepalive-probe / Check (keepalive-probe)",
+          "seconds": 233.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040019"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "unknown",
+            "source": [
+              "warp-macos-15-arm64-6x"
+            ]
+          },
+          "conclusion": "success",
+          "cores": null,
+          "job_id": 112601040054,
+          "name": "tests / test-native-backend / Native backend contract",
+          "seconds": 475.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040054"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601040081,
+          "name": "tests / test-workspace / Test (Rust Workspace)",
+          "seconds": 322.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040081"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601040088,
+          "name": "tests / test-wasm / Test (WASM)",
+          "seconds": 431.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040088"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "failure",
+          "cores": 4,
+          "job_id": 112601040134,
+          "name": "tests / test-agent-sdk / Test (agent-sdk)",
+          "seconds": 82.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040134"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040140,
+          "name": "tests / test-browser-sdk / Test (browser-sdk) shard 1",
+          "seconds": 155.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040140"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601040168,
+          "name": "tests / test-xdbg / Check (xdbg)",
+          "seconds": 218.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040168"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "unknown",
+            "source": [
+              "warp-macos-15-arm64-6x"
+            ]
+          },
+          "conclusion": "success",
+          "cores": null,
+          "job_id": 112601040194,
+          "name": "tests / test-bindings-check / check-swift (aarch64-apple-darwin)",
+          "seconds": 428.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040194"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601040251,
+          "name": "tests / test-bindings-check / check-android",
+          "seconds": 338.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040251"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "failure",
+          "cores": 4,
+          "job_id": 112601040273,
+          "name": "tests / test-node-sdk / Test (CLI)",
+          "seconds": 84.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040273"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040308,
+          "name": "tests / test-node-sdk / Test (node-sdk) shard 1",
+          "seconds": 168.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040308"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601040359,
+          "name": "docs / Site and JavaScript references",
+          "seconds": 296.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040359"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601040437,
+          "name": "tests / test-sdk-staging / Android SDK staging",
+          "seconds": 1253.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040437"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040467,
+          "name": "tests / test-node-sdk / Test (node-sdk) recovery 5",
+          "seconds": 217.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040467"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "unknown",
+            "source": [
+              "macos-15"
+            ]
+          },
+          "conclusion": "failure",
+          "cores": null,
+          "job_id": 112601040486,
+          "name": "docs / Swift reference",
+          "seconds": 248.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040486"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040495,
+          "name": "tests / test-node-sdk / Test (node-sdk) recovery 2",
+          "seconds": 114.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040495"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601040497,
+          "name": "docs / Rust reference and error glossary",
+          "seconds": 202.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040497"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040503,
+          "name": "tests / test-node-sdk / Test (node-sdk) recovery 4",
+          "seconds": 167.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040503"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112601040504,
+          "name": "docs / Kotlin reference",
+          "seconds": 197.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040504"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040514,
+          "name": "tests / test-node-sdk / Test (node-sdk) recovery 8",
+          "seconds": 179.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040514"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040524,
+          "name": "tests / test-node-sdk / Test (node-sdk) recovery 6",
+          "seconds": 213.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040524"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040557,
+          "name": "tests / test-node-sdk / Test (node-sdk) recovery 3",
+          "seconds": 163.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040557"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040564,
+          "name": "tests / test-node-sdk / Test (node-sdk) recovery 1",
+          "seconds": 105.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040564"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 4,
+          "job_id": 112601040587,
+          "name": "tests / test-node-sdk / Test (node-sdk) recovery 7",
+          "seconds": 175.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112601040587"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "failure",
+          "cores": 4,
+          "job_id": 112606350211,
+          "name": "tests / Test execution results",
+          "seconds": 7.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112606350211"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-4vcpu-ubuntu-2404"
+          },
+          "conclusion": "failure",
+          "cores": 4,
+          "job_id": 112606413202,
+          "name": "Test",
+          "seconds": 7.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561264227/job/112606413202"
+        }
+      ],
+      "known_core_minutes": 2020.2000000000005,
+      "last_job_completed_at": "2026-10-07T02:47:48Z",
+      "run_id": 37561264227,
+      "unknown_capacity_runner_minutes": 25.78333333333333,
+      "unverified_reasons": [
+        "Unknown allocated CPU capacity for job 112599098045",
+        "Unknown allocated CPU capacity for job 112599098423",
+        "Unknown allocated CPU capacity for job 112601040054",
+        "Unknown allocated CPU capacity for job 112601040194",
+        "Unknown allocated CPU capacity for job 112601040486"
+      ]
+    },
+    {
+      "attempt": 1,
+      "conclusion": "success",
+      "cost_status": "UNVERIFIED",
+      "created_at": "2026-10-07T02:17:20Z",
+      "first_job_started_at": "2026-10-07T02:17:22Z",
+      "gates": [],
+      "jobs": [
+        {
+          "capacity_evidence": {
+            "kind": "unknown",
+            "source": [
+              "ubuntu-latest"
+            ]
+          },
+          "conclusion": "success",
+          "cores": null,
+          "job_id": 112598813900,
+          "name": "source",
+          "seconds": 7.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561263852/job/112598813900"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "explicit-allocation-label",
+            "source": "blacksmith-16vcpu-ubuntu-2404"
+          },
+          "conclusion": "success",
+          "cores": 16,
+          "job_id": 112598849894,
+          "name": "Publish backend image (amd64)",
+          "seconds": 65.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561263852/job/112598849894"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "unknown",
+            "source": [
+              "ubuntu-24.04-arm"
+            ]
+          },
+          "conclusion": "success",
+          "cores": null,
+          "job_id": 112598849950,
+          "name": "Publish backend image (arm64)",
+          "seconds": 68.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561263852/job/112598849950"
+        },
+        {
+          "capacity_evidence": {
+            "kind": "unknown",
+            "source": [
+              "ubuntu-24.04"
+            ]
+          },
+          "conclusion": "success",
+          "cores": null,
+          "job_id": 112599160811,
+          "name": "manifest",
+          "seconds": 5.0,
+          "url": "https://github.com/xmtp/libxmtp/actions/runs/37561263852/job/112599160811"
+        }
+      ],
+      "known_core_minutes": 17.333333333333332,
+      "last_job_completed_at": "2026-10-07T02:18:51Z",
+      "run_id": 37561263852,
+      "unknown_capacity_runner_minutes": 1.3333333333333333,
+      "unverified_reasons": [
+        "Unknown allocated CPU capacity for job 112598813900",
+        "Unknown allocated CPU capacity for job 112598849950",
+        "Unknown allocated CPU capacity for job 112599160811"
+      ]
+    }
+  ],
+  "scope": "CI and automatic backend publication runs at this exact feature-branch push; not the full self-hosted automatic workflow scope",
+  "source_sha": "b60669ab424edf63b2276f05396430de8f0c6d49",
+  "status": "UNVERIFIED",
+  "unknown_capacity_runner_minutes": 27.116666666666664
+}

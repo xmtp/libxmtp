@@ -61,4 +61,4 @@ test-simulator destination="platform=iOS Simulator,name=iPhone 17":
 
 # Generate a static DocC site. The output path is relative to the repository root.
 docs output="apps/docs/generated/reference/swift":
-    ./dev/bindings && ./script/generate-docs.sh "{{ output }}"
+    ./script/generate-docs.sh "{{ output }}"

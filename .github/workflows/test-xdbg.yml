@@ -14,7 +14,7 @@ jobs:
           disk-key: rust
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
+          kache: "false"
       - name: Check xdbg compiles
         run: nix build --no-link .#cargo-clippy.x86_64-linux.xdbg
       - name: Warm sticky disk with build deps

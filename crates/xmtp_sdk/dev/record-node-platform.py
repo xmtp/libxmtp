@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 """Record one built SDK library and its pinned Node runtime addon."""
 
 import argparse

@@ -46,10 +46,10 @@ test-browser-package: wasm-init
 # Run `just sdk generate` first: the root check reads the generated roots.
 # Build once. Later render calls reuse the recorded artifact hashes.
 build targets="swift,kotlin,node,browser" *args:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --targets "{{ targets }}" {{ args }}
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/sdk-artifacts.py build --targets "{{ targets }}" {{ args }}
 
 render targets="swift,kotlin,node,browser" *args:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/sdk-artifacts.py render --targets "{{ targets }}" {{ args }}
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/sdk-artifacts.py render --targets "{{ targets }}" {{ args }}
 
 stage target:
     cd "{{ root }}" && node crates/xmtp_sdk/dev/stage-package.mjs "{{ target }}"
@@ -59,22 +59,22 @@ package-smoke target="node":
 
 # Evaluate native build inputs. This command does not compile a product.
 check-native-nix:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-native-nix.py
-    cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-source-nix.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-native-nix.py
+    cd "{{ root }}" && python3.11 -B crates/xmtp_sdk/dev/check-source-nix.py
 
 # Check the real generation and mobile consumer build closures.
 check-generated-nix:
-    cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-generated-nix.py
+    cd "{{ root }}" && python3.11 -B crates/xmtp_sdk/dev/check-generated-nix.py
 
 check-package-scripts:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-native-nix-gate.py
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-generated-records.py
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-native-build-context.py
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-staging.py
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-source-package.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-native-nix-gate.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-generated-records.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-artifacts.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-ios-openssl.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-packaging.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-native-build-context.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-staging.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/test-sdk-source-package.py
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-package-smoke-path.mjs
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-node-platforms.mjs
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-stamp-package.mjs
@@ -85,22 +85,22 @@ check-package-scripts:
 
 # Use the matching ios or android Nix shell. This does not switch a shipped SDK.
 mobile-build target:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py build "{{ target }}"
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/mobile-package.py build "{{ target }}"
 
 mobile-stage target:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py stage "{{ target }}"
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/mobile-package.py stage "{{ target }}"
 
 # Measure the staged package on one host (node, browser, swift or kotlin).
 # Writes results.json under target/sdk-bench/. See benchmarks/README.md.
 bench host *args:
-    {{ _env }} && cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/bench.py {{ quote(host) }} {{ args }}
+    {{ _env }} && cd "{{ root }}" && python3.11 crates/xmtp_sdk/benchmarks/bench.py {{ quote(host) }} {{ args }}
 
 # Check the benchmark runners without a backend, device or SDK build.
 bench-check:
-    cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
-    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/bench.py check
+    cd "{{ root }}" && python3.11 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/benchmarks/bench.py check
     cd "{{ root }}" && node --test crates/xmtp_sdk/benchmarks/test_workload.mjs
 
 # Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
 check-android-toolchain:
-    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-android-toolchain.py

@@ -9,6 +9,7 @@ jobs:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 45
     env:
+      NIX_DEVSHELL: rust
       SQLX_OFFLINE: "true"
     steps:
       - uses: actions/checkout@v6

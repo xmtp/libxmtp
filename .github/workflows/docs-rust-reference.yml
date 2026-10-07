@@ -1,0 +1,66 @@
+name: Rust reference and error glossary
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust reference and error glossary
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    env:
+      NIX_DEVSHELL: rust
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          github-token: ${{ github.token }}
+      - name: Compute exact rust reference key
+        id: reference-key
+        run: >-
+          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py key
+          --kind rust --state "$RUNNER_TEMP/docs-rust-key.json" --github-output "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v5
+        if: steps.reference-key.outputs.cache-eligible == 'true'
+        id: reference-cache
+        with:
+          path: target/doc
+          key: ${{ steps.reference-key.outputs.key }}
+      - name: Verify restored rust reference
+        if: steps.reference-cache.outputs.cache-hit == 'true'
+        run: >-
+          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py verify
+          --kind rust --state "$RUNNER_TEMP/docs-rust-key.json" --folder target/doc
+      - name: Generate the error glossary
+        if: steps.reference-cache.outputs.cache-hit != 'true'
+        run: dev/nix-shell 'dev/gen-error-glossary'
+      - name: Reject a stale committed glossary
+        if: steps.reference-cache.outputs.cache-hit != 'true'
+        run: git diff --exit-code -- docs/error_glossary.md
+      - name: Build rustdoc
+        if: steps.reference-cache.outputs.cache-hit != 'true'
+        run: dev/nix-shell 'cargo doc --locked --no-deps'
+      - name: Record current rust reference bytes
+        if: steps.reference-cache.outputs.cache-hit != 'true'
+        run: >-
+          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py stamp
+          --kind rust --state "$RUNNER_TEMP/docs-rust-key.json" --folder target/doc
+      - uses: actions/cache/save@v5
+        if: >-
+          steps.reference-key.outputs.cache-eligible == 'true'
+          && steps.reference-cache.outputs.cache-hit != 'true'
+          && github.event_name == 'push'
+          && (github.ref == 'refs/heads/self-hosted' || github.ref == 'refs/heads/main')
+        with:
+          path: target/doc
+          key: ${{ steps.reference-key.outputs.key }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs-rust
+          overwrite: true
+          path: target/doc
+          if-no-files-found: error

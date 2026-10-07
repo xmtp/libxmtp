@@ -1,0 +1,37 @@
+name: Check JavaScript types and full lint
+on:
+  workflow_call:
+    inputs:
+      prepared-products:
+        type: boolean
+        default: false
+env:
+  NIX_DEVSHELL: js-node
+jobs:
+  check:
+    name: Check (JavaScript types and full lint)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - uses: ./.github/actions/sdk-product
+        if: inputs.prepared-products
+        with:
+          target: node
+          artifact-name: ci-sdk-node
+      - uses: ./.github/actions/sdk-product
+        if: inputs.prepared-products
+        with:
+          target: browser
+          artifact-name: ci-sdk-browser
+      - name: Prepare local products
+        if: ${{ !inputs.prepared-products }}
+        run: just js sdk-products
+      - name: Check current public types and full Oxlint rules
+        run: just check-js-prepared

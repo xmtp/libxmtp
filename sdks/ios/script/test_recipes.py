@@ -119,14 +119,19 @@ class RecipeTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", directory], check=True)
             tools = checkout / "bin"
             tools.mkdir()
-            producer = tools / "swift"
+            builder = tools / "nix"
+            builder.write_text("#!/usr/bin/env bash\nexit 0\n")
+            builder.chmod(0o755)
+            producer = tools / "python3.11"
             producer.write_text(
                 f"#!{sys.executable}\n"
                 "from pathlib import Path\n"
                 "import sys\n"
                 "args = sys.argv[1:]\n"
-                "assert 'generate-documentation' in args\n"
-                "output = Path(args[args.index('--output-path') + 1])\n"
+                "assert args[0].endswith('/sdks/ios/script/docs-package.py')\n"
+                "assert '--product' in args and '--receipt' in args\n"
+                "output = Path(args[args.index('--output') + 1])\n"
+                "assert output.is_absolute()\n"
                 "output.mkdir()\n"
                 "(output / 'index.html').write_text('DocC output fixture')\n"
             )

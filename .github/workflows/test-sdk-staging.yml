@@ -1,0 +1,47 @@
+name: Test SDK Android packaging
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-stage:
+    name: Android SDK staging
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      NIX_DEVSHELL: android
+      SQLX_OFFLINE: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: android
+          gradle-disk: "true"
+          kache: "true"
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: taiki-e/install-action@just
+      - name: Build Kotlin SDK artifacts
+        run: dev/nix-shell 'just sdk build kotlin --profile release'
+      - name: Render Kotlin SDK bindings
+        run: dev/nix-shell 'just sdk render kotlin --profile release'
+      - name: Build all Android ABI libraries
+        run: dev/nix-shell 'just sdk mobile-build android'
+      - name: Clear prior Android package output
+        run: rm -rf target/sdk-packages/android
+      - name: Stage Android AAR with strict dependency verification
+        run: dev/nix-shell 'just sdk mobile-stage android'
+      - name: Retain Android AAR and contract
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-sdk-stage
+          if-no-files-found: error
+          path: |
+            target/sdk-packages/android/xmtp-sdk.aar
+            target/sdk-packages/android/sdk-contract.json
+      - name: Check Kotlin consumers
+        run: dev/nix-shell 'just android check-consumers'

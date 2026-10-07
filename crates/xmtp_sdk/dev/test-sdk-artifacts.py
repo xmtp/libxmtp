@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 """Check artifact reuse, render input checks, toolchain inputs, and stale output cleanup."""
 
 import argparse
@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 from unittest.mock import patch
 import unittest
@@ -302,6 +303,17 @@ class ArtifactTests(unittest.TestCase):
             "TARGET_RANLIBFLAGS",
             "HOST_RANLIB",
             "HOST_RANLIBFLAGS",
+            "VERGEN_GIT_SHA",
+            "CI",
+            "XMTP_TEST_LOGGING",
+            "CARGO_INCREMENTAL",
+            "KACHE_ADAPTIVE_INCREMENTAL",
+            "KACHE_PRESERVE_INCREMENTAL",
+            "KACHE_KEY_ENV_VARS",
+            "KACHE_BASE_DIR",
+            "KACHE_CACHE_EXECUTABLES",
+            "KACHE_BUILD_SCRIPT_CACHE",
+            "KACHE_CACHE_CC_LINKS",
         ) + tuple(
             prefix + target
             for prefix in ("RANLIB_", "RANLIBFLAGS_")
@@ -324,6 +336,28 @@ class ArtifactTests(unittest.TestCase):
                         before = artifacts.build_context()
                         os.environ[name] = "caller-selected input"
                         self.assertNotEqual(artifacts.build_context(), before)
+        finally:
+            self.context_patch.start()
+
+    def test_kache_additional_keyed_environment_changes_sdk_context(self):
+        self.context_patch.stop()
+        try:
+            with (
+                patch.object(
+                    artifacts.subprocess, "check_output", return_value=b"fixture rustc"
+                ),
+                patch.dict(
+                    os.environ,
+                    {
+                        "KACHE_KEY_ENV_VARS": "CI, SDK_CALLER_ABI",
+                        "SDK_CALLER_ABI": "first",
+                    },
+                    clear=True,
+                ),
+            ):
+                before = artifacts.build_context()
+                os.environ["SDK_CALLER_ABI"] = "second"
+                self.assertNotEqual(artifacts.build_context(), before)
         finally:
             self.context_patch.start()
 
@@ -393,6 +427,269 @@ class ArtifactTests(unittest.TestCase):
         artifacts.render(self.args)
         self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
         self.assertFalse((self.args.out / "typescript-wasm").exists())
+
+    def test_browser_build_and_render_need_no_native_product(self):
+        self.args.targets = ("browser",)
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        self.assertFalse((self.args.artifacts / "native").exists())
+        self.assertEqual(len(self.cargo_environments), 3)
+        for tree in ("typescript-wasm", "typescript-pure"):
+            self.assertTrue((self.args.out / tree / "index.ts").is_file())
+            record = json.loads(
+                (self.args.out / tree / "sdk-contract.json").read_text()
+            )
+            self.assertEqual(record["artifact"]["profile"], "debug")
+        self.assertFalse((self.args.out / "typescript-napi").exists())
+
+    def test_sequential_host_builds_share_dependencies_and_keep_role_bytes(self):
+        artifacts.build(self.args)
+        self.assertEqual(
+            self.cargo_environments[0]["CARGO_TARGET_DIR"],
+            self.cargo_environments[1]["CARGO_TARGET_DIR"],
+        )
+        record = json.loads((self.args.artifacts / "artifacts.json").read_text())[
+            "artifacts"
+        ]
+        for role in ("native", "bindgen"):
+            artifacts.verify(record[role])
+            self.assertEqual(record[role]["profile"], "debug")
+            self.assertEqual(record[role]["features"], "")
+        artifacts.render(self.args)
+        self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
+
+    def restored_checkout(self):
+        first = self.root / "first-checkout"
+        inputs = {
+            "Cargo.toml": "[workspace]\nmembers=[]\n",
+            "crates/fixture/src/lib.rs": "pub fn fixture() {}\n",
+            "apps/xmtp_sdk_bindgen/runtime/ts/fixture.ts": "export const marker='first';\n",
+            "sdks/node/test.ts": "export const marker='sdk';\n",
+        }
+        for name, body in inputs.items():
+            path = first / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body)
+        subprocess.run(["git", "init", "-q", str(first)], check=True)
+        self.hash_patch.stop()
+        self.args.artifacts = first / "target/sdk-artifacts"
+        with patch.object(artifacts, "ROOT", first):
+            artifacts.build(self.args)
+        second = self.root / "fresh-checkout"
+        shutil.copytree(first, second)
+        for name in inputs:
+            path = second / name
+            os.utime(path, (path.stat().st_atime, path.stat().st_mtime + 600))
+        shutil.rmtree(first)
+        self.args.artifacts = second / "target/sdk-artifacts"
+        self.args.out = second / "target/sdk-generated"
+        self.calls.clear()
+        self.cargo_environments.clear()
+        return second
+
+    def test_restored_content_skips_cargo_despite_new_checkout_mtimes_and_sdk_ts(self):
+        with patch.object(artifacts, "build_context", return_value="b" * 64):
+            checkout = self.restored_checkout()
+            (checkout / "sdks/node/test.ts").write_text(
+                "export const changed='typescript';\n"
+            )
+            with patch.object(artifacts, "ROOT", checkout):
+                artifacts.build(self.args)
+                self.assertEqual(self.cargo_environments, [])
+                artifacts.render(self.args)
+            record = json.loads((self.args.artifacts / "artifacts.json").read_text())[
+                "artifacts"
+            ]
+            for role in ("native", "bindgen"):
+                artifacts.verify(record[role])
+                self.assertTrue(
+                    all(str(checkout) in path for path in record[role]["files"])
+                )
+                self.assertEqual(record[role]["profile"], "debug")
+                self.assertEqual(record[role]["features"], "")
+            self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
+
+    def test_restored_cache_rebuilds_changed_rust_content(self):
+        with patch.object(artifacts, "build_context", return_value="b" * 64):
+            checkout = self.restored_checkout()
+            (checkout / "crates/fixture/src/lib.rs").write_text(
+                "pub fn changed_rust() {}\n"
+            )
+            with patch.object(artifacts, "ROOT", checkout):
+                artifacts.build(self.args)
+            self.assertEqual(len(self.cargo_environments), 2)
+            self.assertTrue(all("cargo" in command for command in self.calls))
+
+    def test_generator_only_cache_reuses_library_and_passes_current_source_preflight(
+        self,
+    ):
+        self.args.targets = ("swift", "kotlin", "node")
+        product_spec = importlib.util.spec_from_file_location(
+            "sdk_products", artifacts.ROOT / "dev/ci/sdk-products.py"
+        )
+        products = importlib.util.module_from_spec(product_spec)
+        product_spec.loader.exec_module(products)
+        with patch.object(artifacts, "build_context", return_value="b" * 64):
+            checkout = self.restored_checkout()
+            native = json.loads((self.args.artifacts / "artifacts.json").read_text())[
+                "artifacts"
+            ]["native"]
+            runtime = checkout / "apps/xmtp_sdk_bindgen/runtime/ts/fixture.ts"
+            runtime.write_text("export const changed='generator';\n")
+            with patch.object(artifacts, "ROOT", checkout):
+                artifacts.build(self.args)
+                self.assertEqual(len(self.cargo_environments), 1)
+                self.assertIn("xmtp-sdk-bindgen", self.calls[0])
+                artifacts.render(self.args)
+            with patch.object(products.artifacts, "ROOT", checkout):
+                records = products.check_generated(self.args.out, "node")
+            actual = records[0]["artifact"]
+            self.assertEqual(
+                {key: value for key, value in actual.items() if key != "files"},
+                {key: value for key, value in native.items() if key != "files"},
+            )
+            self.assertEqual(
+                list(actual["files"].values()), list(native["files"].values())
+            )
+            self.assertNotEqual(actual["generator"], records[0]["generator"])
+            with patch.object(products.artifacts, "ROOT", checkout):
+                self.assertEqual(
+                    records[0]["generator"], products.artifacts.source_hash(True)
+                )
+
+    def test_restored_cache_rejects_current_role_bytes_and_context_tampering(self):
+        with patch.object(artifacts, "build_context", return_value="b" * 64):
+            checkout = self.restored_checkout()
+            index = self.args.artifacts / "artifacts.json"
+            record = json.loads(index.read_text())
+            library = next(
+                (self.args.artifacts / "native").glob("*.dylib"),
+                next((self.args.artifacts / "native").glob("*.so"), None),
+            )
+            before = library.read_bytes()
+            library.write_bytes(b"changed restored role bytes")
+            with patch.object(artifacts, "ROOT", checkout):
+                with self.assertRaisesRegex(ValueError, "artifact mismatch"):
+                    artifacts.build(self.args)
+            library.write_bytes(before)
+            record["artifacts"]["native"]["features"] = "conformance"
+            index.write_text(json.dumps(record))
+            with patch.object(artifacts, "ROOT", checkout):
+                with self.assertRaisesRegex(
+                    ValueError, "artifact context mismatch: features"
+                ):
+                    artifacts.build(self.args)
+            self.assertEqual(self.cargo_environments, [])
+
+    def test_restored_legacy_cargo_config_invalidates_all_roles(self):
+        self.args.targets = artifacts.TARGETS
+        with patch.object(artifacts, "build_context", return_value="b" * 64):
+            checkout = self.restored_checkout()
+            config = checkout / ".cargo/config"
+            config.parent.mkdir()
+            config.write_text("[build]\nrustflags=['--cfg', 'new_checkout_flag']\n")
+            with patch.object(artifacts, "ROOT", checkout):
+                artifacts.build(self.args)
+            self.assertEqual(len(self.cargo_environments), 4)
+
+    def test_native_wrapper_context_gets_fresh_owned_objects(self):
+        self.context_patch.stop()
+        original = self.command
+        values = []
+
+        def sticky_native(command, **kwargs):
+            original(command, **kwargs)
+            if (
+                command[0] == "dev/agent-run"
+                and "xmtp_sdk" in command
+                and "--target" not in command
+            ):
+                target = Path(kwargs["env"]["CARGO_TARGET_DIR"])
+                marker = target / "untracked-native-object"
+                if not marker.exists():
+                    marker.write_text(kwargs["env"]["NIX_CFLAGS_COMPILE"])
+                for library in (target / "debug").glob("libxmtp_sdk.*"):
+                    library.write_text(marker.read_text())
+                values.append(marker.read_text())
+
+        with patch.object(artifacts, "run", side_effect=sticky_native):
+            with patch.dict(os.environ, {"NIX_CFLAGS_COMPILE": "first-wrapper-flags"}):
+                artifacts.build(self.args)
+            with patch.dict(os.environ, {"NIX_CFLAGS_COMPILE": "second-wrapper-flags"}):
+                artifacts.build(self.args)
+        self.assertEqual(values, ["first-wrapper-flags", "second-wrapper-flags"])
+        self.assertNotEqual(
+            self.cargo_environments[0]["CARGO_TARGET_DIR"],
+            self.cargo_environments[2]["CARGO_TARGET_DIR"],
+        )
+        self.assertEqual(
+            self.cargo_environments[0]["CARGO_TARGET_DIR"],
+            self.cargo_environments[1]["CARGO_TARGET_DIR"],
+        )
+
+    def test_new_literal_data_and_direct_environment_change_raw_keys(self):
+        checkout = self.restored_checkout()
+        source = checkout / "crates/fixture/src/lib.rs"
+        data = source.with_name("read-data.dat")
+        source.write_text(
+            'pub const DATA:&str=include_str!("read-data.dat");\npub const ENV:Option<&str>=option_env!("SDK_FIXTURE_EMBEDDED_INPUT");\n'
+        )
+        data.write_text("first embedded bytes")
+        self.context_patch.stop()
+        with patch.object(artifacts, "ROOT", checkout):
+            with patch.dict(os.environ, {"SDK_FIXTURE_EMBEDDED_INPUT": "first-env"}):
+                artifacts.build(self.args)
+                self.cargo_environments.clear()
+                data.write_text("second embedded bytes")
+                artifacts.build(self.args)
+                self.assertEqual(len(self.cargo_environments), 2)
+                self.cargo_environments.clear()
+            with patch.dict(os.environ, {"SDK_FIXTURE_EMBEDDED_INPUT": "second-env"}):
+                artifacts.build(self.args)
+                self.assertEqual(len(self.cargo_environments), 2)
+
+    def test_cargo_configuration_precedence_ancestors_and_home_are_hashed(self):
+        config = self.root / "project/.cargo"
+        config.mkdir(parents=True)
+        root = config.parent
+        legacy = config / "config"
+        modern = config / "config.toml"
+        legacy.write_text('[build]\nrustflags=["--cfg", "legacy"]\n')
+        modern.write_text('[build]\nrustflags=["-Cdebug-assertions=false"]\n')
+        home = self.root / "cargo-home"
+        home.mkdir()
+        (home / "config.toml").write_text('[build]\nrustflags=["--cfg", "home"]\n')
+        ancestor = self.root / ".cargo"
+        ancestor.mkdir()
+        (ancestor / "config.toml").write_text(
+            '[build]\nrustflags=["--cfg", "ancestor"]\n'
+        )
+        with patch.dict(os.environ, {"CARGO_HOME": str(home)}):
+            hashes, effective = artifacts.inputs.cargo_config(root)
+            self.assertIn("workspace:.cargo/config", hashes)
+            self.assertNotIn("workspace:.cargo/config.toml", hashes)
+            self.assertEqual(
+                effective["build"]["rustflags"],
+                ["--cfg", "home", "--cfg", "ancestor", "--cfg", "legacy"],
+            )
+            self.assertTrue(artifacts.inputs.debug_profile_valid(root))
+            (home / "config.toml").write_text(
+                '[build]\nrustflags=["--cfg", "changed_home"]\n'
+            )
+            self.assertNotEqual(artifacts.inputs.cargo_config(root)[0], hashes)
+
+    def test_unproved_dynamic_include_uses_fresh_outputs_each_build(self):
+        checkout = self.restored_checkout()
+        (checkout / "crates/fixture/src/lib.rs").write_text(
+            'const DATA:&str=include_str!(concat!(env!("SDK_DYNAMIC_INPUT"),"/data"));\n'
+        )
+        with patch.object(artifacts, "ROOT", checkout):
+            artifacts.build(self.args)
+            first = self.cargo_environments[-1]["CARGO_TARGET_DIR"]
+            self.cargo_environments.clear()
+            artifacts.build(self.args)
+            self.assertEqual(len(self.cargo_environments), 2)
+            self.assertNotEqual(first, self.cargo_environments[-1]["CARGO_TARGET_DIR"])
 
     def test_windows_build_invokes_cargo_without_the_posix_wrapper(self):
         self.args.skip_bindgen = True

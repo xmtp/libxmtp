@@ -20,6 +20,7 @@ dev/nix-shell 'just backend image'                     # host architecture image
 dev/nix-shell 'just backend image aarch64'            # explicit architecture image
 dev/nix-shell 'just backend observe-check'             # client operations, shared trace, metrics, Grafana
 dev/nix-shell 'just backend tls-check'                 # build, start, check, and remove the TLS stack
+dev/nix-shell 'just backend up-prepared'               # verified same-run CI products; no build
 dev/nix-shell 'just backend down'                      # stop the shared stack
 dev/nix-shell 'just backend logs backend tempo'
 dev/nix-shell 'just backend run'
@@ -33,6 +34,11 @@ Compose uses `dev/backend/local-s3.toml` to offer attachment storage through
 VersityGW. Both files set default and maximum query row limits to 50, so SDK
 tests exercise paging. Run `dev/nix-shell 'just backend s3-up'` before attachment integration
 tests. `dev/nix-shell 'just backend status'` prints the worktree's S3 URL.
+
+`up-prepared` requires `XMTP_CI_BACKEND_PREPARED=1` and
+`XMTP_CI_BACKEND_MANIFEST` from the backend product restore action. It checks
+this checkout, the current run, the runtime closure, and the loaded image
+before it starts this worktree's stack. Use `up` for the normal local build.
 
 `db-down` stops the entire shared stack, not only PostgreSQL.
 For an explicit database-port override, set `XMTP_BACKEND_DB_PORT` and

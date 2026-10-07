@@ -13,6 +13,8 @@ jobs:
     name: Node pair (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    env:
+      NIX_DEVSHELL: rust
     strategy:
       fail-fast: false
       matrix:
@@ -119,6 +121,8 @@ jobs:
     needs: [unix, windows]
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: rust
     steps:
       - uses: actions/checkout@v6
         with:
@@ -145,6 +149,8 @@ jobs:
           XMTP_SDK_GENERATED_DIR: target/sdk-generated
         run: dev/nix-shell 'bash dev/js/sdk-package node'
       - name: Check installed aggregate Node ESM package
+        env:
+          NIX_DEVSHELL: js-node
         run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs node'
       - uses: actions/upload-artifact@v7
         with:

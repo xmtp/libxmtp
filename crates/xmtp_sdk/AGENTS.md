@@ -1,6 +1,12 @@
 # XMTP SDK façade
 
-Run commands from the repository root in the Nix shell. Run
+Run commands from the repository root in the Nix shell.
+SDK Python tools require Python 3.11 or later. SDK recipes select `python3.11`
+from Nix. On Darwin, Xcode can place Python 3.9 before unversioned `python3`.
+CI compiles and renders SDK products in the targeted `rust` shell. JavaScript
+dependency setup uses `js-node`; package and browser checks select their own
+JavaScript shells. Do not force the full local `default` shell in CI helpers.
+Keep Python child processes on `sys.executable`. Run
 `dev/nix-shell 'just backend status'` to find this worktree's backend ports.
 
 - `dev/nix-shell 'just sdk generate'` builds the SDK libraries and writes Swift, Kotlin, Node,
@@ -25,6 +31,11 @@ Run commands from the repository root in the Nix shell. Run
   Keep most new files below 500 lines.
 - `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
   Run `dev/nix-shell 'just sdk generate'` first. Lint stops when a generated target root is missing.
+  CI sets `XMTP_SDK_PREPARED_PRODUCTS=1` after restoring both validated products.
+  This mode requires the generated union and pinned runtime paths. It skips
+  compilation and the retiring conformance fixture typecheck. The required
+  native compiler job checks bindgen. All structural, runtime, generated-source,
+  public-root, formatting, and WASM initialization checks still run.
   The TypeScript runtime imports the binding, so the lint and the bridge tests
   read its copy in each generated tree; `apps/xmtp_sdk_bindgen/GENERATED_LINT.md`
   has the details. Generation replaces a tree without its `@ubjs` packages:

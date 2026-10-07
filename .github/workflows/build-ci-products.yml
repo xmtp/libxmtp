@@ -1,0 +1,162 @@
+name: Build shared CI products
+on:
+  workflow_call:
+    inputs:
+      kind:
+        type: string
+        required: true
+      trial-cache:
+        type: boolean
+        default: false
+      sdk-rust-shell-proof:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build current ${{ inputs.kind }} product
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    env:
+      NIX_DEVSHELL: rust
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check product family
+        env:
+          PRODUCT_KIND: ${{ inputs.kind }}
+        run: |
+          case "$PRODUCT_KIND" in node|browser|backend) ;; *) echo 'Unknown product family' >&2; exit 1 ;; esac
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          kache: ${{ inputs.kind != 'backend' && 'true' || 'false' }}
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
+      - uses: taiki-e/install-action@just
+      - name: Prepare Linux Rust shell proof
+        if: inputs.sdk-rust-shell-proof
+        env:
+          PRODUCT_KIND: ${{ inputs.kind }}
+        run: >-
+          python3 -B dev/ci/sdk-rust-shell-proof.py prepare
+          --target "$PRODUCT_KIND" --directory "$RUNNER_TEMP/sdk-rust-shell-proof"
+      - uses: ./.github/actions/setup-js
+        if: inputs.kind != 'backend'
+      - name: Check isolated trial cache scope
+        if: inputs.trial-cache
+        run: |
+          test "$GITHUB_REF" = 'refs/heads/codex/ci-efficiency'
+          test "$GITHUB_EVENT_NAME" = 'push' || test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+      - name: Find Cargo download directories
+        if: inputs.kind != 'backend'
+        id: cargo
+        run: |
+          cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+          echo "path=$cargo_home" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v5
+        if: inputs.kind != 'backend'
+        id: cache
+        with:
+          path: |
+            target/sdk-artifacts
+            ${{ steps.cargo.outputs.path }}/registry/cache
+            ${{ steps.cargo.outputs.path }}/registry/src
+            ${{ steps.cargo.outputs.path }}/registry/index
+            ${{ steps.cargo.outputs.path }}/git/db
+            ${{ steps.cargo.outputs.path }}/git/checkouts
+          key: ${{ inputs.trial-cache && format('ci-products-trial-{0}', github.ref_name) || 'sdk-cargo' }}-${{ inputs.kind }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.trial-cache && hashFiles('Cargo.lock', 'flake.lock') || hashFiles('Cargo.lock', 'flake.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ inputs.trial-cache && format('ci-products-trial-{0}', github.ref_name) || 'sdk-cargo' }}-${{ inputs.kind }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.trial-cache && hashFiles('Cargo.lock', 'flake.lock') || hashFiles('Cargo.lock', 'flake.lock', 'rust-toolchain.toml') }}-
+      - name: Require a cold SDK role build for the proof
+        if: inputs.sdk-rust-shell-proof
+        run: >-
+          python3 -B dev/ci/sdk-rust-shell-proof.py cold
+          --directory "$RUNNER_TEMP/sdk-rust-shell-proof"
+      - name: Build SDK product
+        if: inputs.kind != 'backend'
+        run: python3 -B dev/ci/sdk-products.py build --target '${{ inputs.kind }}' --output 'target/ci-products/sdk-${{ inputs.kind }}.tar'
+      - name: Check real generation cleanup
+        if: inputs.kind == 'node'
+        run: dev/nix-shell 'just sdk check-clean-generate'
+      - name: Verify compiled SDKs and Rust shell evidence
+        if: inputs.sdk-rust-shell-proof
+        env:
+          PRODUCT_KIND: ${{ inputs.kind }}
+        run: >-
+          python3 -B dev/ci/sdk-rust-shell-proof.py verify
+          --target "$PRODUCT_KIND" --directory "$RUNNER_TEMP/sdk-rust-shell-proof"
+      - name: Build backend product
+        if: inputs.kind == 'backend'
+        run: NIX_DEVSHELL=rust dev/nix-shell 'python3 -B dev/ci/backend-products.py build --output target/ci-products/backend.tar'
+      - uses: actions/cache/save@v5
+        if: >-
+          inputs.kind != 'backend' && steps.cache.outputs.cache-hit != 'true'
+          && ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted'))
+          || (inputs.trial-cache && github.ref == 'refs/heads/codex/ci-efficiency'
+          && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')))
+        with:
+          path: |
+            target/sdk-artifacts
+            ${{ steps.cargo.outputs.path }}/registry/cache
+            ${{ steps.cargo.outputs.path }}/registry/src
+            ${{ steps.cargo.outputs.path }}/registry/index
+            ${{ steps.cargo.outputs.path }}/git/db
+            ${{ steps.cargo.outputs.path }}/git/checkouts
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Save same-run SDK product
+        if: inputs.kind != 'backend'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-sdk-${{ inputs.kind }}
+          overwrite: true
+          path: target/ci-products/sdk-${{ inputs.kind }}.tar
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save same-run backend product
+        if: inputs.kind == 'backend'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-backend
+          overwrite: true
+          path: target/ci-products/backend.tar
+          if-no-files-found: error
+          retention-days: 7
+      - name: Record SDK cache diagnostics
+        if: always() && inputs.kind != 'backend'
+        env:
+          PRODUCT_KIND: ${{ inputs.kind }}
+          CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+          CACHE_MATCHED_KEY: ${{ steps.cache.outputs.cache-matched-key }}
+          CACHE_PRIMARY_KEY: ${{ steps.cache.outputs.cache-primary-key }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          output = Path('target/ci-products/cache-diagnostics.json')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          names = ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_SHA',
+                   'PRODUCT_KIND', 'CACHE_HIT', 'CACHE_MATCHED_KEY', 'CACHE_PRIMARY_KEY')
+          output.write_text(json.dumps({name: os.environ[name] for name in names}, indent=2) + '\n')
+          PY
+      - name: Retain SDK product metadata
+        if: always() && inputs.kind != 'backend'
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-metadata-${{ inputs.kind }}-${{ github.run_attempt }}
+          path: |
+            target/ci-products/cache-diagnostics.json
+            target/ci-products/sdk-${{ inputs.kind }}.manifest.json
+            target/sdk-artifacts/artifacts.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retain Linux Rust shell proof
+        if: always() && inputs.sdk-rust-shell-proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-rust-shell-proof-${{ inputs.kind }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sdk-rust-shell-proof
+          if-no-files-found: error
+          retention-days: 7

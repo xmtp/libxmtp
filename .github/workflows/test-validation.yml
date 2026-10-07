@@ -14,6 +14,6 @@ jobs:
           disk-key: rust
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
+          kache: "false"
       - name: Check isolated graphs and run native and wasm tests
         run: nix build --no-link .#validation.x86_64-linux

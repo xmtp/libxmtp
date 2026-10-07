@@ -1,9 +1,7 @@
 name: Docs Quality
 
 on:
-  pull_request:
-  push:
-    branches: [main, self-hosted]
+  workflow_call:
 
 permissions:
   contents: read

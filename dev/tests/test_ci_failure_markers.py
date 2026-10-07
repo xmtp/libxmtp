@@ -52,6 +52,15 @@ class FailureMarkers(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             return result.stdout.splitlines()
 
+    def test_product_receipts_and_missing_commands_keep_the_cause(self):
+        messages = [
+            "Reference cache failed: Reference inputs changed during the build",
+            "SDK product failed: Current source does not match",
+            "Swift documentation failed: Swift documentation changed checkout inputs",
+            "dev/js/sdk-package: line 13: python3.11: command not found",
+        ]
+        self.assertEqual(self.filtered("\n".join(messages) + "\n"), sorted(messages))
+
     def test_plain_timeout_and_failure_keep_test_names(self):
         self.assertEqual(
             self.filtered(

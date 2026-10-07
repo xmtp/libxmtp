@@ -37,6 +37,13 @@ executable: without a bundle identifier, default storage fails with
 diagnostics. The negative consumers check typed IDs, typed codec values, and
 `Sendable` codec values. They are not part of the test target.
 
+`just ios docs` builds the current host release product and checks its source,
+generator, file receipts, and framework. It runs DocC in a temporary SwiftPM
+view with the current package, handwritten sources, tests, and generated
+bindings. It keeps checkout sources and `Package.resolved` unchanged. The
+reference output keeps the requested path. CI records the resolved view inputs
+in `$RUNNER_TEMP/docs-swift-inputs.json`.
+
 `RuntimeFakes.swift` in `Tests/XmtpSdkTests` replaces the generated Rust-backed
 objects with fakes, so a test can run the Swift runtime without a backend. The
 listener gate, reader iterator and event iterator tests use it. These tests and

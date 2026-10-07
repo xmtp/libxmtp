@@ -1,0 +1,103 @@
+name: SDK Rust shell proof
+on:
+  push:
+    branches: [codex/ci-efficiency]
+    paths: [.github/workflows/ci-sdk-rust-shell-proof.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sdk-rust-shell-proof-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  node:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/ci-efficiency'
+    uses: ./.github/workflows/build-ci-products.yml
+    with:
+      kind: node
+      sdk-rust-shell-proof: true
+  browser:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/ci-efficiency'
+    uses: ./.github/workflows/build-ci-products.yml
+    with:
+      kind: browser
+      sdk-rust-shell-proof: true
+  load:
+    needs: [node, browser]
+    name: Load Rust-shell product (${{ matrix.target }})
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [node, browser]
+    env:
+      NIX_DEVSHELL: js
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          github-token: ${{ github.token }}
+      - uses: ./.github/actions/setup-js
+      - name: Record fresh Linux consumer
+        env:
+          SDK_TARGET: ${{ matrix.target }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import platform
+          import shutil
+          paths = [Path('target/sdk-artifacts'), Path('target/sdk-packages'),
+                   Path('sdks') / os.environ['SDK_TARGET'] / 'dist']
+          absence = {'system': platform.system(),
+                     'xcodebuild': shutil.which('xcodebuild'),
+                     'xcrun': shutil.which('xcrun'),
+                     'xcodeAppExists': Path('/Applications/Xcode.app').exists()}
+          if absence['system'] != 'Linux' or any(
+                  absence[key] for key in ('xcodebuild', 'xcrun', 'xcodeAppExists')):
+              raise ValueError('Expected Linux without Xcode')
+          if any(path.exists() for path in paths):
+              raise ValueError('Consumer already has SDK products')
+          output = Path('target/ci-products/rust-shell-consumer.json')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(json.dumps({**absence,
+              'target': os.environ['SDK_TARGET'], 'freshProducts': True,
+              'checkoutSha': os.environ['GITHUB_SHA'],
+              'runId': os.environ['GITHUB_RUN_ID']}, indent=2) + '\n')
+          PY
+      - uses: ./.github/actions/sdk-product
+        with:
+          target: ${{ matrix.target }}
+          artifact-name: ci-sdk-${{ matrix.target }}
+      - name: Verify and load installed product
+        env:
+          SDK_TARGET: ${{ matrix.target }}
+        run: |
+          # shellcheck disable=SC2016
+          dev/nix-shell --shell js 'python3.11 -B dev/ci/sdk-products.py verify --target "$SDK_TARGET"'
+          # shellcheck disable=SC2016
+          dev/nix-shell --shell js 'node crates/xmtp_sdk/dev/package-smoke.mjs "$SDK_TARGET"'
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          target = os.environ['SDK_TARGET']
+          path = Path('target/ci-products/rust-shell-consumer.json')
+          record = json.loads(path.read_text())
+          record['sourceProfileBytesVerified'] = True
+          record['installedPackageLoaded'] = True
+          path.write_text(json.dumps(record, indent=2) + '\n')
+          PY
+      - name: Retain consumer proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-rust-shell-consumer-${{ matrix.target }}-${{ github.run_attempt }}
+          path: |
+            target/ci-products/rust-shell-consumer.json
+            target/ci-products/sdk-*/manifest.json
+          if-no-files-found: error
+          retention-days: 7

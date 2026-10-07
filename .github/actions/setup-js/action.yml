@@ -21,10 +21,10 @@ runs:
       if: ${{ inputs.nix == 'true' }}
       shell: bash
       run: |
-        echo "path=$(dev/nix-shell 'pnpm store path --silent')" >> "$GITHUB_OUTPUT"
+        echo "path=$(dev/nix-shell --shell js-node 'pnpm store path --silent')" >> "$GITHUB_OUTPUT"
         # Later composite actions can use the Nix-owned pnpm without entering
         # a second development shell.
-        echo "$(dirname "$(dev/nix-shell 'command -v pnpm')")" >> "$GITHUB_PATH"
+        echo "$(dirname "$(dev/nix-shell --shell js-node 'command -v pnpm')")" >> "$GITHUB_PATH"
 
     - name: Find pnpm store path
       id: host-store
@@ -43,7 +43,7 @@ runs:
     - name: Install workspace dependencies (Nix)
       if: ${{ inputs.nix == 'true' }}
       shell: bash
-      run: dev/nix-shell 'pnpm install --frozen-lockfile --prefer-offline'
+      run: dev/nix-shell --shell js-node 'pnpm install --frozen-lockfile --prefer-offline'
 
     - name: Install workspace dependencies
       if: ${{ inputs.nix != 'true' }}

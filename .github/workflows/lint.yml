@@ -1,164 +1,41 @@
-name: Lint
-
+name: Lint source
 on:
-  push:
-    # Trusted runs commit the /nix sticky disks and the sccache cache that PR
-    # jobs read, and are the only runs where dev/ci/warm-deps does anything.
-    # Work happens on self-hosted, so it must be here or PRs always build cold.
-    branches: [main, self-hosted]
-  pull_request:
-
+  workflow_call:
+    inputs:
+      selection:
+        type: string
+        required: true
+      suites:
+        type: string
+        default: ''
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      workspace: ${{ steps.filter.outputs.workspace }}
-      js: ${{ steps.filter.outputs.js }}
-      ios: ${{ steps.filter.outputs.ios }}
-      android: ${{ steps.filter.outputs.android }}
-      config: ${{ steps.filter.outputs.config }}
-      proto: ${{ steps.filter.outputs.proto }}
+  suites:
+    if: fromJSON(inputs.selection).checks.lint_workspace || fromJSON(inputs.selection).checks.lint_js || fromJSON(inputs.selection).checks.lint_config || fromJSON(inputs.selection).checks.lint_proto
+    strategy:
+      fail-fast: true
+      matrix:
+        suite: ${{ inputs.suites != '' && fromJSON(inputs.suites) || fromJSON(format('["none"{0}{1}{2}{3}]', fromJSON(inputs.selection).checks.lint_workspace && ',"lint_workspace"' || '', fromJSON(inputs.selection).checks.lint_js && ',"lint_js"' || '', fromJSON(inputs.selection).checks.lint_config && ',"lint_config"' || '', fromJSON(inputs.selection).checks.lint_proto && ',"lint_proto"' || '')) }}
+        exclude:
+          - suite: none
+    uses: ./.github/workflows/lint-target.yml
+    with:
+      suite: ${{ matrix.suite }}
+      selection: ${{ inputs.selection }}
+    secrets: inherit
+  results:
+    name: Source lint results
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: always()
+    needs: suites
     steps:
       - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v4
-        id: filter
-        with:
-          filters: |
-            workspace:
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - 'proto/**'
-              - 'crates/**'
-              - 'apps/backend/**'
-              - 'apps/db_tools/**'
-              - 'apps/error_glossary/**'
-              - 'apps/keepalive-probe/**'
-              - 'apps/xmtp_debug/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - '.cargo/**'
-              - 'rust-toolchain.toml'
-              - 'rustfmt.toml'
-              - '.github/workflows/lint.yml'
-              - '.github/workflows/lint-workspace*'
-            js:
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - '.oxlintrc.json'
-              - '.oxfmtrc.json'
-              - '.vscode/settings.json'
-              - '.vscode/extensions.json'
-              - '.zed/settings.json'
-              - 'apps/cli/**'
-              - 'apps/docs/**'
-              - 'apps/web-chat/**'
-              - 'dev/release-tools/**'
-              - 'sdks/browser/**'
-              - 'sdks/node/**'
-              - 'apps/xmtp_sdk_bindgen/**'
-              - 'sdks/agent/**'
-              - 'sdks/js.just'
-              - 'dev/js/**'
-              - 'proto/**'
-              - 'crates/**'
-              # The generator emits the public roots that the package
-              # type-tests/publicSurface.ts compiles check.
-              - 'apps/xmtp_sdk_bindgen/**'
-              - 'nix/**'
-              - 'flake.lock'
-              - '.github/workflows/lint-js*'
-            ios:
-              - 'sdks/ios/**'
-              - '.github/workflows/lint-ios*'
-            android:
-              - 'sdks/android/**'
-              - 'crates/xmtp_sdk/**'
-              - 'apps/xmtp_sdk_bindgen/**'
-              - '.github/workflows/lint-android*'
-            config:
-              - '**/*.toml'
-              - '**/*.nix'
-              - 'flake.nix'
-              - 'dev/**'
-              - 'justfile'
-              - '.github/workflows/lint-config*'
-              - 'sdks/ios/Sources/**'
-              - 'sdks/android/library/src/main/**'
-              - 'sdks/node/**'
-              - 'sdks/browser/**'
-            proto:
-              - 'proto/**'
-              - 'justfile'
-              - '.github/workflows/lint.yml'
-              - '.github/workflows/lint-proto.yml'
-
-  lint-workspace:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.workspace == 'true'
-    uses: ./.github/workflows/lint-workspace.yml
-    secrets: inherit
-
-  lint-wasm:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.workspace == 'true'
-    uses: ./.github/workflows/lint-wasm.yml
-    secrets: inherit
-
-  lint-js:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.js == 'true'
-    uses: ./.github/workflows/lint-js.yml
-    secrets: inherit
-
-  lint-ios:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.ios == 'true'
-    uses: ./.github/workflows/lint-ios.yml
-    secrets: inherit
-
-  lint-android:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.android == 'true'
-    uses: ./.github/workflows/lint-android.yml
-    secrets: inherit
-
-  lint-config:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.config == 'true'
-    uses: ./.github/workflows/lint-config.yml
-    secrets: inherit
-
-  lint-proto:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.proto == 'true'
-    uses: ./.github/workflows/lint-proto.yml
-    secrets: inherit
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    if: always()
-    needs:
-      - lint-workspace
-      - lint-wasm
-      - lint-js
-      # - lint-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
-      # - lint-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
-      - lint-config
-      - lint-proto
-    steps:
-      - run: |
-          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \
-                "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more lint jobs failed or were cancelled"
-            exit 1
-          fi
+      - name: Require complete selected suite results
+        env:
+          CI_SELECTION: ${{ inputs.selection }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+          CI_SUITES: ${{ inputs.suites }}
+        run: >-
+          python3 -B dev/ci/suite-gate.py --kind source
+          --selection "$CI_SELECTION" --needs "$CI_NEEDS" --suites "$CI_SUITES"

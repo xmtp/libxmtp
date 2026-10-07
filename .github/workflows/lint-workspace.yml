@@ -5,8 +5,8 @@ env:
   NIX_DEVSHELL: rust
 jobs:
   lint:
-    name: Lint (Rust Workspace)
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    name: Lint (Rust source)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -14,8 +14,6 @@ jobs:
         with:
           disk-key: rust
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "true"
       - uses: taiki-e/install-action@just
-      - name: Lint Rust workspace
-        run: just lint-rust
+      - name: Check Rust format and manifests
+        run: just lint-rust-source

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 """Check config provenance, mobile features, and Android target tools."""
 
 import argparse

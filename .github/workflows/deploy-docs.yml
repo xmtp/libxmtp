@@ -1,29 +1,15 @@
 name: Build and Deploy Docs
 
 on:
-  # A pull request builds the site and the Rust reference only, and only when
-  # it touches something the site is built from. The native references (Swift,
-  # Kotlin) are a from-scratch Rust cross-compile that dominates the run, so
-  # they are left to the push builds below. docs-quality.yml lints, formats,
-  # and tests the site on every pull request regardless.
-  pull_request:
-    paths:
-      - "apps/docs/**"
-      - "docs/**"
-      - "sdks/browser/**"
-      - "sdks/node/**"
-      - "sdks/agent/**"
-      - "sdks/js.just"
-      - "dev/js/**"
-      - "apps/xmtp_sdk_bindgen/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "crates/**"
-      - "nix/**"
-      - "flake.lock"
-      - ".github/workflows/deploy-docs.yml"
-  push:
-    branches: [main, self-hosted]
+  workflow_call:
+    inputs:
+      prepared-products:
+        type: boolean
+        default: false
+      selection:
+        type: string
+        required: false
+        default: '{}'
   workflow_dispatch:
 
 permissions:
@@ -35,28 +21,7 @@ concurrency:
 
 jobs:
   rust:
-    name: Rust reference and error glossary
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 45
-    env:
-      NIX_DEVSHELL: rust
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: rust
-          github-token: ${{ github.token }}
-      - name: Generate the error glossary
-        run: dev/nix-shell 'dev/gen-error-glossary'
-      - name: Reject a stale committed glossary
-        run: git diff --exit-code -- docs/error_glossary.md
-      - name: Build rustdoc
-        run: dev/nix-shell 'cargo doc --locked --no-deps'
-      - uses: actions/upload-artifact@v7
-        with:
-          name: docs-rust
-          path: target/doc
-          if-no-files-found: error
+    uses: ./.github/workflows/docs-rust-reference.yml
 
   swift:
     name: Swift reference
@@ -65,6 +30,8 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: ios
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
@@ -76,16 +43,67 @@ jobs:
           # dependency closure is rebuilt on every run.
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
+      - name: Compute exact swift reference key
+        id: reference-key
+        run: >-
+          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py key
+          --kind swift --state "$RUNNER_TEMP/docs-swift-key.json" --github-output "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v5
+        if: steps.reference-key.outputs.cache-eligible == 'true'
+        id: reference-cache
+        with:
+          path: apps/docs/generated/reference/swift
+          key: ${{ steps.reference-key.outputs.key }}
+      - name: Verify restored swift reference
+        if: steps.reference-cache.outputs.cache-hit == 'true'
+        run: >-
+          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py verify
+          --kind swift --state "$RUNNER_TEMP/docs-swift-key.json" --folder apps/docs/generated/reference/swift
       - run: just ios docs apps/docs/generated/reference/swift
+        if: steps.reference-cache.outputs.cache-hit != 'true'
+      - name: Record current swift reference bytes
+        if: steps.reference-cache.outputs.cache-hit != 'true'
+        run: >-
+          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py stamp
+          --kind swift --state "$RUNNER_TEMP/docs-swift-key.json" --folder apps/docs/generated/reference/swift
+      - name: Retain Swift reference input receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-swift-inputs-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docs-swift-inputs.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Retain failed Swift reference input diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-swift-failure-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/docs-swift-key.json.expected-safe.json
+            ${{ runner.temp }}/docs-swift-key.json.inputs.json
+            ${{ runner.temp }}/docs-swift-key.json.failure-safe.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/cache/save@v5
+        if: >-
+          steps.reference-key.outputs.cache-eligible == 'true'
+          && steps.reference-cache.outputs.cache-hit != 'true'
+          && github.event_name == 'push'
+          && (github.ref == 'refs/heads/self-hosted' || github.ref == 'refs/heads/main')
+        with:
+          path: apps/docs/generated/reference/swift
+          key: ${{ steps.reference-key.outputs.key }}
       - name: Archive Swift reference
         # DocC symbol filenames contain colons, which upload-artifact rejects.
         env:
           # Keep macOS metadata files out of the published reference.
           COPYFILE_DISABLE: "1"
-        run: tar -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
+        run: tar --exclude=.ci-reference.json -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
       - uses: actions/upload-artifact@v7
         with:
           name: docs-swift
+          overwrite: true
           path: ${{ runner.temp }}/docs-swift.tar
           if-no-files-found: error
 
@@ -96,6 +114,8 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
+    env:
+      NIX_DEVSHELL: android
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
@@ -105,15 +125,49 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
-      - run: just android docs
+      - name: Compute exact kotlin reference key
+        id: reference-key
+        run: >-
+          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py key
+          --kind kotlin --state "$RUNNER_TEMP/docs-kotlin-key.json" --github-output "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v5
+        if: steps.reference-key.outputs.cache-eligible == 'true'
+        id: reference-cache
+        with:
+          path: sdks/android/library/build/dokka/html
+          key: ${{ steps.reference-key.outputs.key }}
+      - name: Verify restored kotlin reference
+        if: steps.reference-cache.outputs.cache-hit == 'true'
+        run: >-
+          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py verify
+          --kind kotlin --state "$RUNNER_TEMP/docs-kotlin-key.json" --folder sdks/android/library/build/dokka/html
+      - run: just android docs-generated
+        if: steps.reference-cache.outputs.cache-hit != 'true'
+      - name: Record current kotlin reference bytes
+        if: steps.reference-cache.outputs.cache-hit != 'true'
+        run: >-
+          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py stamp
+          --kind kotlin --state "$RUNNER_TEMP/docs-kotlin-key.json" --folder sdks/android/library/build/dokka/html
+      - uses: actions/cache/save@v5
+        if: >-
+          steps.reference-key.outputs.cache-eligible == 'true'
+          && steps.reference-cache.outputs.cache-hit != 'true'
+          && github.event_name == 'push'
+          && (github.ref == 'refs/heads/self-hosted' || github.ref == 'refs/heads/main')
+        with:
+          path: sdks/android/library/build/dokka/html
+          key: ${{ steps.reference-key.outputs.key }}
       - uses: actions/upload-artifact@v7
         with:
           name: docs-kotlin
+          overwrite: true
           path: sdks/android/library/build/dokka/html
           if-no-files-found: error
 
   site:
     name: Site and JavaScript references
+    env:
+      NIX_DEVSHELL: js
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     steps:
@@ -129,10 +183,26 @@ jobs:
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
       - run: just docs check-agent-docs
-      - run: just docs build
+      - uses: ./.github/actions/sdk-product
+        if: inputs.prepared-products
+        with:
+          target: node
+          artifact-name: ci-sdk-node
+      - uses: ./.github/actions/sdk-product
+        if: inputs.prepared-products
+        with:
+          target: browser
+          artifact-name: ci-sdk-browser
+      - name: Build site from current prepared products
+        if: inputs.prepared-products
+        run: just docs build-prepared
+      - name: Build local products and site
+        if: ${{ !inputs.prepared-products }}
+        run: just docs build
       - uses: actions/upload-artifact@v7
         with:
           name: docs-site
+          overwrite: true
           path: apps/docs/dist
           if-no-files-found: error
 
@@ -194,7 +264,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: docs-browser-results
+          name: docs-browser-results-${{ github.run_attempt }}
           path: |
             apps/docs/test-results
             apps/docs/playwright-report

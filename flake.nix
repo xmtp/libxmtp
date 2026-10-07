@@ -76,6 +76,7 @@
             ios = pkgs.callPackage ./nix/shells/ios.nix { };
           };
           packages = {
+            kache = pkgs.kache;
             xmtp-sdk-libs = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).libs;
             xmtp-sdk-pure-wasm = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).pureWasm;
             xmtp-sdk-wasm = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).wasm;

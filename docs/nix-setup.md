@@ -136,87 +136,85 @@ nix flake show
 - **Omnix for CI orchestration** — the `.envrc` integrates with
   [omnix](https://omnix.page) for CI workflow management
 
-## Shared Build Cache (sccache)
+## Shared build cache (Kache)
 
-Each git worktree keeps its own `target/` directory. A shared compilation cache
-can reuse eligible dependency builds across worktrees. It does not replace
-`target/` or remove old build artifacts.
+Each Git worktree keeps its own `target/` directory. Kache 1.0.0 can reuse
+compiler output across worktrees. It does not replace `target/` or remove old
+build output. Keep each worktree's Cargo build lock and target directory.
 
-`sccache` is in the `rust` and `default` dev shells. It is **off by default**.
-Turn it on inside each Nix shell that needs it:
-
-```bash
-source dev/sccache-env
-dev/nix-shell 'dev/agent-run cargo build -p xmtp_common'
-```
-
-The helper selects `sccache` from `PATH` as `RUSTC_WRAPPER`. Each worktree keeps
-its own Cargo build lock. Do not point several worktrees at one mutable target
-directory. The helper does not change compiler flags, features, or profiles.
-
-### Local incremental builds and cache reuse
-
-The helper unsets `CARGO_INCREMENTAL`, including an inherited `0` or `1`.
-Cargo then uses the profile defaults: local dev crates use incremental builds,
-and the repository disables incremental builds for non-local dependencies.
-The WASM test profile and `just wasm check` disable incremental builds to limit
-the size of WASM build data. Repeat local WASM checks can take longer.
-sccache passes incremental builds through without caching them. Do not export
-`CARGO_INCREMENTAL=1` while this wrapper is active: sccache 0.16 rejects that
-explicit override before compilation.
-
-An isolated two-worktree test with sccache 0.16 reused the registry dependency
-and passed local incremental builds through. This proves cache eligibility,
-not a workspace speedup. A separate non-incremental test still missed the cache
-for local crates at different worktree paths. `SCCACHE_BASEDIRS` did not remove
-those misses. Different toolchains, features, profiles, and environment values
-can also split cache entries. In particular, different `CARGO_TARGET_DIR` values
-prevented reuse in the test. Keep the normal per-worktree `target/` path.
-
-Linked binaries, proc macros, and many check-only calls cannot be cached.
-See the [sccache Rust limits](https://github.com/mozilla/sccache/blob/v0.16.0/docs/Rust.md).
-Use `just cache-stats` to measure actual reuse. To disable the helper in this shell:
+The `rust`, `default`, `wasm`, `android`, and `ios` Nix shells enable Kache when
+they start. They source `dev/kache-env` and select the pinned Kache binary as
+`RUSTC_WRAPPER`. You do not need to source the helper yourself.
 
 ```bash
-unset RUSTC_WRAPPER
+dev/nix-shell 'just check crate xmtp_common'
+dev/nix-shell 'just cache-stats'
 ```
 
-This does not restore a previous wrapper or incremental override. If you need
-those settings, restore them explicitly. Existing build artifacts are not deleted.
+### Local incremental builds
+
+The helper keeps local compiler flags, features, profiles, and any explicit
+`CARGO_INCREMENTAL` value. Cargo uses its profile defaults when that value is
+unset. The WASM test profile and `just wasm check` still disable incremental
+builds to limit the size of WASM build data.
+
+On Linux, Kache can cache executable output. On Darwin, the wrapper caches only
+`rlib` and `lib` compiles. It passes binaries, dynamic libraries, proc macros,
+tests, static libraries, and unknown compile forms to rustc without caching
+them. Compiler arguments stay unchanged. The helper disables build-script caching and C/C++ link caching.
+It adds `CI` and `XMTP_TEST_LOGGING` to the cache key because our proc macros read
+those values without rustc environment dependency records.
+Different source, compilers, flags, features, profiles, and keyed environment
+values can produce different cache entries. Use `dev/nix-shell 'just cache-stats'`
+to measure reuse. Do not assume that a cache hit proves a workspace speedup.
+
+To start a fresh shell without Kache, set `XMTP_KACHE=0` before shell entry:
+
+```bash
+XMTP_KACHE=0 dev/nix-shell 'just check crate xmtp_common'
+```
+
+To disable the wrapper in an active shell, run `unset RUSTC_WRAPPER`. Set
+`XMTP_KACHE=0` as well if later shell entries must keep it disabled. Existing
+build output stays in place.
 
 ### Cache size
 
-The local cache evicts least-recently-used entries. The helper requests a 10 GiB
-cap in `~/.cache/sccache`. Set `SCCACHE_CACHE_SIZE` or `SCCACHE_DIR` before
-sourcing to use a different cap or location. Nonempty explicit values are kept.
-
-A running sccache server keeps the settings from its startup. Sourcing the helper
-does not restart it or reduce an existing 60 GiB cap. Check the actual cache
-location and maximum size with `just cache-stats`. To apply changed settings,
-wait until all builds that use that server have stopped, then run
-`sccache --stop-server`. The next build starts a server with the new settings.
-Do not stop a server that other worktrees are using. Cache storage is additional
-disk use; the cap does not limit any worktree's `target/` directory.
+The helper defaults to `${XDG_CACHE_HOME:-$HOME/.cache}/kache` with a 10 GiB
+limit. Set `KACHE_CACHE_DIR` or `KACHE_MAX_SIZE` before shell entry to use a
+different directory or limit. The helper keeps nonempty explicit values.
+This store is shared across worktrees. Its limit does not limit any worktree's
+`target/` directory.
 
 ```bash
-just cache-stats                        # hit rates and current size
-just disk                               # free space, target/ size per worktree
-just clean-incremental                  # delete incremental/ dirs unused 14+ days
-just clean-incremental 30               # ...or a different age
-just clean-incremental --minutes 30     # delete crate caches unchanged for 30 min
+dev/nix-shell 'just cache-stats'
+dev/nix-shell 'just disk'
+dev/nix-shell 'just clean-incremental'
+dev/nix-shell 'just clean-incremental 30'
+dev/nix-shell 'just clean-incremental --minutes 30'
 ```
 
-During a long run with several worktrees, start a disk guard before the first
-build, for example
-`while just clean-incremental --minutes 30 && df -h .; do sleep 600; done`
-in a background shell.
+The cleanup commands remove incremental directories unused for 14 days by
+default, or for the selected number of days or minutes. During a long run with
+several worktrees, you can run a disk guard in a background shell:
+
+```bash
+while dev/nix-shell 'just clean-incremental --minutes 30' && df -h .; do sleep 600; done
+```
 
 ### CI and releases
 
-`dev/sccache-env` is never sourced automatically and is for local use only.
+Direct Cargo CI jobs use the official Kache action through the default
+`kache: true` input of `.github/actions/setup-nix`. The action keeps its own
+store and runtime. The compiler wrapper comes from the immutable Nix Kache
+package, so exact source and compiler checks can bind it. CI sets `CARGO_INCREMENTAL=0`,
+`KACHE_ADAPTIVE_INCREMENTAL=0`, and `KACHE_PRESERVE_INCREMENTAL=0`. These CI
+settings do not change local profile defaults.
 
-- **Nix builds** (`nix build`, releases, `.#validation`, `.#nextest`) run in a
-  sandbox and never see `RUSTC_WRAPPER`. They are unaffected.
-- **CI** sets its own sccache through the `sccache` input of
-  `.github/actions/setup-nix`, backed by the GitHub Actions cache. Workflows
-  that build inside `nix build` set `sccache: "false"` on purpose.
+CI can restore cached output in all contexts. It saves output only on branch
+pushes to `main` or `self-hosted`. Pull requests, tags, manual runs, and other
+branches cannot save output. Kache uses the GitHub Actions cache. It does not
+need S3 or new secrets.
+
+`nix build` derivations, releases, `.#validation`, and `.#nextest` use Nix and
+Crane caching. They do not use the outer shell's Kache wrapper.

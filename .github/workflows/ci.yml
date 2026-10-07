@@ -1,0 +1,198 @@
+name: CI
+on:
+  push:
+    branches: [main, self-hosted]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+  checks: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  detect-changes:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      selection: ${{ steps.select.outputs.selection }}
+      source_suites: ${{ steps.select.outputs.source_suites }}
+      test_suites: ${{ steps.select.outputs.test_suites }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Keep actual merge parents. The selector fetches exact history only
+          # when the tested ancestor cannot be proved from this checkout.
+          fetch-depth: 2
+      - name: Select checks from a verified tested ancestor
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -B dev/ci/select-checks.py --output "$RUNNER_TEMP/ci-selection.json" --source-suites-output "$RUNNER_TEMP/source-suites.json" --test-suites-output "$RUNNER_TEMP/test-suites.json"
+          {
+            echo "selection=$(cat "$RUNNER_TEMP/ci-selection.json")"
+            echo "source_suites=$(cat "$RUNNER_TEMP/source-suites.json")"
+            echo "test_suites=$(cat "$RUNNER_TEMP/test-suites.json")"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-selection
+          path: |
+            ${{ runner.temp }}/ci-selection.json
+            ${{ runner.temp }}/source-suites.json
+            ${{ runner.temp }}/test-suites.json
+          retention-days: 7
+  docs-quality:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.docs_quality
+    uses: ./.github/workflows/docs-quality.yml
+  source-lint:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.source_lint
+    uses: ./.github/workflows/lint.yml
+    with:
+      selection: ${{ needs.detect-changes.outputs.selection }}
+      suites: ${{ needs.detect-changes.outputs.source_suites }}
+    secrets: inherit
+  lint-ios:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.lint_ios
+    uses: ./.github/workflows/lint-ios.yml
+    secrets: inherit
+  lint-android:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.lint_android
+    uses: ./.github/workflows/lint-android.yml
+    secrets: inherit
+  test-ios:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_ios
+    uses: ./.github/workflows/test-ios.yml
+    secrets: inherit
+  test-swift-seams:
+    needs: detect-changes
+    if: >-
+      fromJSON(needs.detect-changes.outputs.selection).checks.test_swift_seams
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/test-swift-seams.yml
+    secrets: inherit
+  test-android:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_android
+    uses: ./.github/workflows/test-android.yml
+    secrets: inherit
+  sdk-node:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.sdk_node
+    uses: ./.github/workflows/build-ci-products.yml
+    with:
+      kind: node
+      trial-cache: ${{ github.ref == 'refs/heads/codex/ci-efficiency' && github.event_name != 'pull_request' }}
+    secrets: inherit
+  sdk-browser:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.sdk_browser
+    uses: ./.github/workflows/build-ci-products.yml
+    with:
+      kind: browser
+      trial-cache: ${{ github.ref == 'refs/heads/codex/ci-efficiency' && github.event_name != 'pull_request' }}
+    secrets: inherit
+  backend-products:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.backend_products
+    uses: ./.github/workflows/build-ci-products.yml
+    with:
+      kind: backend
+    secrets: inherit
+  check-rust:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.check_rust
+    uses: ./.github/workflows/check-rust.yml
+  check-types:
+    needs: [detect-changes, sdk-node, sdk-browser]
+    if: >-
+      !cancelled() && fromJSON(needs.detect-changes.outputs.selection).checks.check_types
+      && needs.sdk-node.result == 'success' && needs.sdk-browser.result == 'success'
+    uses: ./.github/workflows/check-types.yml
+    with:
+      prepared-products: true
+  check-sdk:
+    needs: [detect-changes, sdk-node, sdk-browser]
+    if: >-
+      !cancelled() && fromJSON(needs.detect-changes.outputs.selection).checks.check_sdk
+      && needs.sdk-node.result == 'success' && needs.sdk-browser.result == 'success'
+    uses: ./.github/workflows/check-sdk-products.yml
+    with:
+      prepared-products: true
+  check-sdk-unit:
+    needs: [detect-changes, backend-products]
+    if: >-
+      !cancelled() && fromJSON(needs.detect-changes.outputs.selection).checks.check_sdk_unit
+      && needs.backend-products.result == 'success'
+    uses: ./.github/workflows/check-sdk-unit.yml
+    with:
+      prepared-products: true
+  tests:
+    needs: [detect-changes, sdk-node, sdk-browser, backend-products]
+    if: >-
+      !cancelled() && fromJSON(needs.detect-changes.outputs.selection).checks.tests
+      && needs.sdk-node.result != 'failure' && needs.sdk-browser.result != 'failure'
+      && needs.backend-products.result != 'failure'
+    uses: ./.github/workflows/test.yml
+    with:
+      selection: ${{ needs.detect-changes.outputs.selection }}
+      prepared-products: true
+      suites: ${{ needs.detect-changes.outputs.test_suites }}
+    secrets: inherit
+  docs-rust-reference:
+    needs: detect-changes
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.docs_rust && !fromJSON(needs.detect-changes.outputs.selection).checks.docs_site
+    uses: ./.github/workflows/docs-rust-reference.yml
+  docs:
+    needs: [detect-changes, sdk-node, sdk-browser]
+    if: >-
+      !cancelled() && fromJSON(needs.detect-changes.outputs.selection).checks.docs_site
+      && needs.sdk-node.result == 'success' && needs.sdk-browser.result == 'success'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-docs.yml
+    with:
+      prepared-products: true
+      selection: ${{ needs.detect-changes.outputs.selection }}
+    secrets: inherit
+  lint:
+    name: Lint
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: always()
+    needs: [detect-changes, source-lint, docs-quality, lint-ios, lint-android]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require all selected source checks
+        env:
+          CI_SELECTION: ${{ needs.detect-changes.outputs.selection }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: >-
+          python3 -B dev/ci/check-gate.py --selection "$CI_SELECTION" --needs "$CI_NEEDS"
+          --mapping '{"source_lint":"source-lint","docs_quality":"docs-quality","lint_ios":"lint-ios","lint_android":"lint-android"}'
+  test:
+    name: Test
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: always()
+    needs: [detect-changes, sdk-node, sdk-browser, backend-products, check-rust, check-types, check-sdk, check-sdk-unit, tests, docs, docs-rust-reference, test-ios, test-android, test-swift-seams]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require all selected products and checks
+        env:
+          CI_SELECTION: ${{ needs.detect-changes.outputs.selection }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+          DOCS_SITE: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.docs_site }}
+        run: |
+          python3 -B dev/ci/check-gate.py --selection "$CI_SELECTION" --needs "$CI_NEEDS" \
+            --mapping '{"sdk_node":"sdk-node","sdk_browser":"sdk-browser","backend_products":"backend-products","check_rust":"check-rust","check_types":"check-types","check_sdk":"check-sdk","check_sdk_unit":"check-sdk-unit","tests":"tests","docs_site":"docs","test_ios":"test-ios","test_android":"test-android","test_swift_seams":"test-swift-seams"}'
+          if [[ "$DOCS_SITE" == true ]]; then
+            python3 -B dev/ci/check-gate.py --selection "$CI_SELECTION" --needs "$CI_NEEDS" --mapping '{"docs_rust":"docs"}'
+          else
+            python3 -B dev/ci/check-gate.py --selection "$CI_SELECTION" --needs "$CI_NEEDS" --mapping '{"docs_rust":"docs-rust-reference"}'
+          fi

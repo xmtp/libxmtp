@@ -9,10 +9,15 @@ case "$target" in
 esac
 
 cd "$ROOT"
+if [[ "${XMTP_SDK_PREPARED_PRODUCTS:-}" == "1" ]]; then
+  python3.11 dev/ci/sdk-products.py verify --target "$target"
+  echo "SDK local imports verified: ${ROOT}/sdks/${target}/dist"
+  exit 0
+fi
 # Normal source callers build matched inputs before staging. Explicit generated
 # inputs are checked by the stager and keep the build/render reuse path.
 if [[ -z "${XMTP_SDK_GENERATED_DIR:-}" ]]; then
-  NIX_DEVSHELL=default "$ROOT/dev/nix-shell" "just sdk generate $target"
+  NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" "just sdk generate $target"
 fi
 node crates/xmtp_sdk/dev/stage-package.mjs "$target" --public
 

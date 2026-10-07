@@ -1,12 +1,17 @@
 name: Test Workspace
 on:
   workflow_call:
+    inputs:
+      prepared-products:
+        type: boolean
+        default: false
 jobs:
   test:
     name: Test (Rust Workspace)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     env:
+      NIX_DEVSHELL: rust
       SQLX_OFFLINE: "true"
       DATABASE_URL: postgres://xmtp:xmtp@localhost:55432/xmtp_backend
     steps:
@@ -17,12 +22,22 @@ jobs:
           disk-key: rust
           docker-builder: "true"
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
+          cachix-auth-token: ${{ !inputs.prepared-products && secrets.CACHIX_AUTH_TOKEN || '' }}
+          kache: "false"
       - uses: taiki-e/install-action@just
       - name: Check ephemeral backend build boundaries
         run: dev/check-ephemeral-backend
+      - name: Restore prepared backend product
+        if: inputs.prepared-products
+        uses: ./.github/actions/backend-product
+        with:
+          artifact-name: ci-backend
+          allow-earlier-attempt: "true"
+      - name: Start prepared backend
+        if: inputs.prepared-products
+        run: dev/nix-shell 'just backend up-prepared'
       - name: Start backend
+        if: ${{ !inputs.prepared-products }}
         run: just backend up
       - name: Dump docker logs on failure
         if: failure()
