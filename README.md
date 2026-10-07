@@ -174,8 +174,7 @@ libxmtp/
 
 ├ apps/
 
-│ ├ [`android`](./apps/android): Example Android app (in progress) │ ├
-[`xdbg`](./apps/xmtp_debug): comprehensive CLI for sending/load testing XMTP
+│ ├ [`xdbg`](./apps/xmtp_debug): comprehensive CLI for sending/load testing XMTP
 clients & network
 
 service
@@ -198,7 +197,7 @@ protocol buffers
 
 │ ├ [`agent`](./sdks/agent): Agent SDK (TypeScript)
 
-│ ├ [`android`](./sdks/android): Android SDK (Kotlin)
+│ ├ [`android`](./sdks/android): Android SDK (Kotlin) and its example app
 
 │ ├ [`browser`](./sdks/browser): Browser SDK (TypeScript)
 
