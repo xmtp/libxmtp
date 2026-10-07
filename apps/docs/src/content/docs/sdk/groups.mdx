@@ -158,7 +158,8 @@ policies. The `USER_` prefix is a naming convention. The inbox-keyed map type
 determines whether `isUserField` is true.
 
 `updateUserData(values)` uses the caller's inbox ID. Each value sets that
-inbox's entry; a `null` value on Kotlin or `nil` on Swift removes it. All changes
+inbox's entry; an `undefined` value on Browser and Node, `null` on Kotlin,
+or `nil` on Swift removes it. All changes
 in the call use one commit. Duplicate fields, non-user fields, and type
 mismatches fail the call. Clearing an absent entry makes no change.
 
@@ -167,6 +168,20 @@ The following examples run with an existing `group`. The operator must publish
 must have registered them, and the caller must be an admin to set the category.
 
 <Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="metadata-fields-browser.ts" region="update"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="metadata-fields-node.ts" region="update"
+
+```
+
+</TabItem>
 <TabItem label="Kotlin">
 
 ```kotlin

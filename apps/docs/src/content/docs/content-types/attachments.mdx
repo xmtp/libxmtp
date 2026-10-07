@@ -24,8 +24,10 @@ stage, upload, verify, and decrypt files. An upload callback is not required.
 The Agent SDK uses the same transfer service for `ctx.sendRemoteAttachment`.
 
 For uploads, the operator must configure
-[attachment storage](/deploy/attachment-storage/). Check `offered()` before you
-show the upload action. Downloads can use any permitted HTTPS host, including
+[attachment storage](/deploy/attachment-storage/). Check
+`client.attachments.offered` on Browser and Node or
+`client.attachments().offered()` on Kotlin and Swift before you show the upload
+action. Downloads can use any permitted HTTPS host, including
 another deployment or app-owned storage. They do not require an attachment
 offer from the recipient's backend.
 
@@ -43,9 +45,23 @@ source for large native files. Path creation and transfers stream the file;
 a byte source already holds the file in application memory.
 
 The following examples use an existing `client` and `group`. The path must name
-a readable file in the application's filesystem.
+a readable file in the application's filesystem. Browser paths name OPFS entries.
 
 <Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="attachments-browser.ts" region="upload"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="attachments-node.ts" region="upload"
+
+```
+
+</TabItem>
 <TabItem label="Kotlin">
 
 ```kotlin
@@ -101,6 +117,20 @@ Decode the received content with `RemoteAttachmentCodec` to get a
 `RemoteAttachment`. Pass that record to `download`:
 
 <Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="attachments-browser.ts" region="download"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="attachments-node.ts" region="download"
+
+```
+
+</TabItem>
 <TabItem label="Kotlin">
 
 ```kotlin
