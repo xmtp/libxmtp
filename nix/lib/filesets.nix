@@ -49,6 +49,8 @@ let
     (src + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
+    # Welcome compatibility tests read the stored keys and ciphertexts at compile time.
+    (src + /crates/xmtp_mls_common/src/mls_ext/payload_encryption/fixtures)
     (src + /crates/xmtp_db/migrations)
     # The attachment client reads the IANA special-purpose address snapshot at compile time.
     (src + /crates/xmtp_attachments/src/address-registry.txt)
