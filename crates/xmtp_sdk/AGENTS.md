@@ -67,11 +67,13 @@ Run commands from the repository root in the Nix shell. Run
   package worker proof (creation reservations, shared client/admin workers,
   final worker termination, and collection). Run
   `dev/nix-shell 'just sdk generate'` first after SDK or runtime changes.
-- The Swift reader and listener proofs are XCTest cases in `sdks/ios/Tests`.
+- The Swift reader and listener proofs are XCTest cases in `sdks/ios/Tests`
+  (`ReaderTeardownTests`, `ListenerGateTests`).
+  `dev/nix-shell 'just backend ci just ios test-seams'` runs only them.
   `dev/nix-shell 'just ios check-consumer'` runs the missing bundle identifier
   check in a bare executable and the Swift negative consumers.
   `dev/nix-shell 'just android check-consumers'` runs the Kotlin negative
-  consumers.
+  consumers. All three run in the required `test-sdk.yml` workflow.
 - `dev/nix-shell 'just sdk bench <node|browser|swift|kotlin> [--samples N]'` measures
   the staged package on one host against this worktree's backend and writes
   `results.json` (p50 and p95, no pass or fail). Stage the package first. For

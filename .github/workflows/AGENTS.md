@@ -15,13 +15,19 @@ creates its token.
 - Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
 
-- The iOS jobs use disposable native services through
-  `dev/nix-shell 'just backend ci COMMAND'`. Each job creates its own database
-  and S3 bucket. Failed-job-only reruns do not need a deployment job.
-- Keep both iOS job filters (`ios`, `ios_direct`) current when native setup
-  inputs change.
+- The iOS jobs and the Swift job in `test-sdk.yml` use disposable native
+  services through `dev/nix-shell 'just backend ci COMMAND'`. Each job creates
+  its own database and S3 bucket. Failed-job-only reruns do not need a
+  deployment job.
+- Keep the Swift job filters (`ios`, `ios_direct`, `sdk_swift`) current when
+  native setup inputs change.
   `test-native-backend.yml` checks wrapper cleanup and the real S3 contract.
   It also checks the owned loopback listeners and metrics endpoint. Backend
   source and build-input changes select this job, and it gates aggregate
   `Test`. The native acceptance job has no cache-write token.
   Service logs are retained for 7 days.
+- `test-sdk.yml` gates aggregate `Test`; `test-ios` and `test-android` do not.
+  The Swift seam proofs (`just ios test-seams`) and the Swift and Kotlin
+  consumer checks run in `test-sdk.yml`. The `sdk` and `sdk_swift` filters
+  list their paths under `sdks/`. `test-ios` runs `just ios test skip-seams`,
+  so its macOS run does not repeat the seam proofs.
