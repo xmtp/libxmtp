@@ -4,8 +4,8 @@ import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { chromium } from "../../../../sdks/browser/node_modules/playwright/index.mjs";
-import { createServer } from "../../../../sdks/browser/node_modules/vite/dist/node/index.js";
+import { chromium } from "../../../node_modules/playwright/index.mjs";
+import { createServer } from "../../../node_modules/vite/dist/node/index.js";
 const server = await createServer({
   root: process.cwd(),
   configFile: false,
@@ -33,7 +33,7 @@ page.on("console", (event) => console.log("browser:", event.text()));
 page.on("pageerror", (error) => console.error(error));
 try {
   await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/crates/xmtp_sdk/conformance/migration/browser.html`,
+    `http://127.0.0.1:${server.httpServer.address().port}/sdks/browser/test/platform/migration/browser.html`,
   );
   const fixture = [
     ...(await readFile(

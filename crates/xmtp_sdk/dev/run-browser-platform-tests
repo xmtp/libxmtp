@@ -6,12 +6,24 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
+case "${1:-all}" in
+  all|migration) ;;
+  *) echo "Expected all or migration" >&2; exit 2 ;;
+esac
 if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
-  exec env NIX_DEVSHELL=js dev/nix-shell 'bash crates/xmtp_sdk/dev/run-browser-platform-tests'
+  exec env NIX_DEVSHELL=js dev/nix-shell "bash crates/xmtp_sdk/dev/run-browser-platform-tests ${1:-all}"
 fi
 dev/worktree-env
 . dev/docker/load-env
 platform=sdks/browser/test/platform
+
+if [ "${1:-all}" = all ] || [ "${1:-all}" = migration ]; then
+  NIX_DEVSHELL=rust dev/nix-shell 'dev/agent-run cargo build --locked -p xmtp_legacy_migration --example fixture_host --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir target/migration-fixture-host target/wasm32-unknown-unknown/debug/examples/fixture_host.wasm'
+  node "$platform/migration/browser.mjs" --current-sdk
+  node "$platform/migration/browser-regressions.mjs"
+  node "$platform/migration/message-sizes.mjs"
+fi
+if [ "${1:-all}" = migration ]; then exit 0; fi
 
 bash crates/xmtp_sdk/dev/check-wasm-init
 NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture'

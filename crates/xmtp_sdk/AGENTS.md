@@ -239,10 +239,14 @@ Android staging dependency inputs:
   The staging fixture inputs do not cover this graph. An explicit
   `--sdk-root` selects the root whose inputs and output are used.
 
-Migration proofs use the normal SDK packages. Run
-`dev/nix-shell 'just sdk conformance-migration node|browser|swift|kotlin'` after
-`generate` and the applicable `stage` or `mobile-stage`. The browser proof uses
-`XMTP_BACKEND_URL` (default `http://127.0.0.1:5050`) and checks import, worker ownership, failed output, page
-termination, and source preservation. Its small fixture worker uses raw legacy
-bytes. It is not part of a public package. Kotlin uses the existing host Android
-stand-ins; mobile runtime checks still use the normal installed SDK tests.
+Migration tests use the normal SDK packages. Node and Agent use their existing
+Vitest suites. Browser fixtures and worker fault checks are in
+`sdks/browser/test/platform/migration`, included by `just sdk test-browser`.
+Run only those checks with `dev/nix-shell 'just sdk test-browser-migration'`
+after `generate` and `stage browser`. They check import, worker ownership,
+failed output, page termination, and source preservation. The small fixture
+worker uses raw legacy bytes and is not part of a public package.
+Swift uses `LegacyMigrationTests` in the normal XCTest target. Kotlin uses
+`LegacyMigrationTest` in the normal JUnit target. Run
+`dev/nix-shell 'just ios test-migration'` or
+`dev/nix-shell 'just android test-migration'`. Both run in `test-sdk.yml`.

@@ -13751,6 +13751,71 @@ public func FfiConverterTypeMetadataFieldValue_lower(_ value: MetadataFieldValue
 }
 
 
+/**
+ * Counts records in the completed archive, before import deduplication.
+ */
+public struct MigrationReport: Equatable, Hashable {
+    public var archivePath: String
+    public var groupCount: UInt64
+    public var messageCount: UInt64
+    public var consentCount: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(archivePath: String, groupCount: UInt64, messageCount: UInt64, consentCount: UInt64) {
+        self.archivePath = archivePath
+        self.groupCount = groupCount
+        self.messageCount = messageCount
+        self.consentCount = consentCount
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MigrationReport: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMigrationReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MigrationReport {
+        return
+            try MigrationReport(
+                archivePath: FfiConverterString.read(from: &buf),
+                groupCount: FfiConverterUInt64.read(from: &buf),
+                messageCount: FfiConverterUInt64.read(from: &buf),
+                consentCount: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MigrationReport, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.archivePath, into: &buf)
+        FfiConverterUInt64.write(value.groupCount, into: &buf)
+        FfiConverterUInt64.write(value.messageCount, into: &buf)
+        FfiConverterUInt64.write(value.consentCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMigrationReport_lift(_ buf: RustBuffer) throws -> MigrationReport {
+    return try FfiConverterTypeMigrationReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMigrationReport_lower(_ value: MigrationReport) -> RustBuffer {
+    return FfiConverterTypeMigrationReport.lower(value)
+}
+
+
 public struct MlsConfiguration: Equatable, Hashable {
     public var maxGroupMembers: UInt64
     public var maxInstallationsPerInbox: UInt64
@@ -14112,6 +14177,71 @@ public func FfiConverterTypePermissionPolicySet_lift(_ buf: RustBuffer) throws -
 #endif
 public func FfiConverterTypePermissionPolicySet_lower(_ value: PermissionPolicySet) -> RustBuffer {
     return FfiConverterTypePermissionPolicySet.lower(value)
+}
+
+
+/**
+ * Closed legacy storage and a separate output path. Keep both keys private.
+ */
+public struct PrepareMigrationArchiveArgs: Equatable, Hashable {
+    public var databasePath: String
+    public var databaseKey: Data?
+    public var archiveKey: Data
+    public var outputPath: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(databasePath: String, databaseKey: Data? = nil, archiveKey: Data, outputPath: String) {
+        self.databasePath = databasePath
+        self.databaseKey = databaseKey
+        self.archiveKey = archiveKey
+        self.outputPath = outputPath
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PrepareMigrationArchiveArgs: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePrepareMigrationArchiveArgs: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PrepareMigrationArchiveArgs {
+        return
+            try PrepareMigrationArchiveArgs(
+                databasePath: FfiConverterString.read(from: &buf),
+                databaseKey: FfiConverterOptionData.read(from: &buf),
+                archiveKey: FfiConverterData.read(from: &buf),
+                outputPath: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PrepareMigrationArchiveArgs, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.databasePath, into: &buf)
+        FfiConverterOptionData.write(value.databaseKey, into: &buf)
+        FfiConverterData.write(value.archiveKey, into: &buf)
+        FfiConverterString.write(value.outputPath, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePrepareMigrationArchiveArgs_lift(_ buf: RustBuffer) throws -> PrepareMigrationArchiveArgs {
+    return try FfiConverterTypePrepareMigrationArchiveArgs.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePrepareMigrationArchiveArgs_lower(_ value: PrepareMigrationArchiveArgs) -> RustBuffer {
+    return FfiConverterTypePrepareMigrationArchiveArgs.lower(value)
 }
 
 
@@ -23440,6 +23570,14 @@ enum XmtpError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     )
     case StorageBusy(ErrorDetails
     )
+    case MigrationUnsupportedSchema(ErrorDetails
+    )
+    case MigrationFailed(ErrorDetails
+    )
+    case MigrationRecordRead(ErrorDetails
+    )
+    case MigrationOutput(ErrorDetails
+    )
     case Signer(ErrorDetails
     )
     case Credential(ErrorDetails
@@ -23610,149 +23748,161 @@ public struct FfiConverterTypeXmtpError: FfiConverterRustBuffer {
         case 5: return .StorageBusy(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 6: return .Signer(
+        case 6: return .MigrationUnsupportedSchema(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 7: return .Credential(
+        case 7: return .MigrationFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 8: return .ConfigurationUnavailable(
+        case 8: return .MigrationRecordRead(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 9: return .ConfigurationInvalid(
+        case 9: return .MigrationOutput(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 10: return .BackendMismatch(
+        case 10: return .Signer(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 11: return .ClientVersionTooOld(
+        case 11: return .Credential(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 12: return .AuthRequired(
+        case 12: return .ConfigurationUnavailable(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 13: return .ChainNotAccepted(
+        case 13: return .ConfigurationInvalid(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 14: return .CredentialRejected(
+        case 14: return .BackendMismatch(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 15: return .CredentialCallbackFailed(
+        case 15: return .ClientVersionTooOld(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 16: return .CallbackFailed(
+        case 16: return .AuthRequired(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 17: return .CredentialExhausted(
+        case 17: return .ChainNotAccepted(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 18: return .CredentialMissing(
+        case 18: return .CredentialRejected(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 19: return .PermissionDenied(
+        case 19: return .CredentialCallbackFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 20: return .InvalidArgument(
+        case 20: return .CallbackFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 21: return .OutOfRange(
+        case 21: return .CredentialExhausted(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 22: return .Unimplemented(
+        case 22: return .CredentialMissing(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 23: return .ChannelNotConfigured(
+        case 23: return .PermissionDenied(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 24: return .TaskRunnerDisabled(
+        case 24: return .InvalidArgument(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 25: return .ResourceExhausted(
+        case 25: return .OutOfRange(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 26: return .RequestTimeout(
+        case 26: return .Unimplemented(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 27: return .NotificationNotFound(
+        case 27: return .ChannelNotConfigured(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 28: return .NotificationApi(
+        case 28: return .TaskRunnerDisabled(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 29: return .NotificationStorage(
+        case 29: return .ResourceExhausted(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 30: return .NotificationGroup(
+        case 30: return .RequestTimeout(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 31: return .RecoveryExhausted(
+        case 31: return .NotificationNotFound(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 32: return .Storage(
+        case 32: return .NotificationApi(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 33: return .Lagged(
+        case 33: return .NotificationStorage(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 34: return .ConsumerOwned(
+        case 34: return .NotificationGroup(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 35: return .InvalidCursor(
+        case 35: return .RecoveryExhausted(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 36: return .ForeignCursor(
+        case 36: return .Storage(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 37: return .StorageLocation(
+        case 37: return .Lagged(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 38: return .Attachment(
+        case 38: return .ConsumerOwned(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 39: return .InvalidCursor(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 40: return .ForeignCursor(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 41: return .StorageLocation(
+            try FfiConverterTypeErrorDetails.read(from: &buf)
+            )
+        case 42: return .Attachment(
             try FfiConverterTypeErrorDetails.read(from: &buf),
             try FfiConverterTypeAttachmentFailure.read(from: &buf)
             )
-        case 39: return .IdentityMismatch(
+        case 43: return .IdentityMismatch(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 40: return .UnknownField(
+        case 44: return .UnknownField(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 41: return .NotUserField(
+        case 45: return .NotUserField(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 42: return .DuplicateField(
+        case 46: return .DuplicateField(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 43: return .UnsupportedType(
+        case 47: return .UnsupportedType(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 44: return .TypeMismatch(
+        case 48: return .TypeMismatch(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 45: return .TypeChanged(
+        case 49: return .TypeChanged(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 46: return .CodecEncodeFailed(
+        case 50: return .CodecEncodeFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 47: return .CodecNotFound(
+        case 51: return .CodecNotFound(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 48: return .CodecDecodeFailed(
+        case 52: return .CodecDecodeFailed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 49: return .MalformedEnvelope(
+        case 53: return .MalformedEnvelope(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 50: return .PublishedButUnconfirmed(
+        case 54: return .PublishedButUnconfirmed(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 51: return .UserLimitExceeded(
+        case 55: return .UserLimitExceeded(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 52: return .Cancelled(
+        case 56: return .Cancelled(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
-        case 53: return .Unknown(
+        case 57: return .Unknown(
             try FfiConverterTypeErrorDetails.read(from: &buf)
             )
 
@@ -23792,244 +23942,264 @@ public struct FfiConverterTypeXmtpError: FfiConverterRustBuffer {
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Signer(v1):
+        case let .MigrationUnsupportedSchema(v1):
             writeInt(&buf, Int32(6))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Credential(v1):
+        case let .MigrationFailed(v1):
             writeInt(&buf, Int32(7))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ConfigurationUnavailable(v1):
+        case let .MigrationRecordRead(v1):
             writeInt(&buf, Int32(8))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ConfigurationInvalid(v1):
+        case let .MigrationOutput(v1):
             writeInt(&buf, Int32(9))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .BackendMismatch(v1):
+        case let .Signer(v1):
             writeInt(&buf, Int32(10))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ClientVersionTooOld(v1):
+        case let .Credential(v1):
             writeInt(&buf, Int32(11))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .AuthRequired(v1):
+        case let .ConfigurationUnavailable(v1):
             writeInt(&buf, Int32(12))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ChainNotAccepted(v1):
+        case let .ConfigurationInvalid(v1):
             writeInt(&buf, Int32(13))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CredentialRejected(v1):
+        case let .BackendMismatch(v1):
             writeInt(&buf, Int32(14))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CredentialCallbackFailed(v1):
+        case let .ClientVersionTooOld(v1):
             writeInt(&buf, Int32(15))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CallbackFailed(v1):
+        case let .AuthRequired(v1):
             writeInt(&buf, Int32(16))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CredentialExhausted(v1):
+        case let .ChainNotAccepted(v1):
             writeInt(&buf, Int32(17))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CredentialMissing(v1):
+        case let .CredentialRejected(v1):
             writeInt(&buf, Int32(18))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .PermissionDenied(v1):
+        case let .CredentialCallbackFailed(v1):
             writeInt(&buf, Int32(19))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .InvalidArgument(v1):
+        case let .CallbackFailed(v1):
             writeInt(&buf, Int32(20))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .OutOfRange(v1):
+        case let .CredentialExhausted(v1):
             writeInt(&buf, Int32(21))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Unimplemented(v1):
+        case let .CredentialMissing(v1):
             writeInt(&buf, Int32(22))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ChannelNotConfigured(v1):
+        case let .PermissionDenied(v1):
             writeInt(&buf, Int32(23))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .TaskRunnerDisabled(v1):
+        case let .InvalidArgument(v1):
             writeInt(&buf, Int32(24))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ResourceExhausted(v1):
+        case let .OutOfRange(v1):
             writeInt(&buf, Int32(25))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .RequestTimeout(v1):
+        case let .Unimplemented(v1):
             writeInt(&buf, Int32(26))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .NotificationNotFound(v1):
+        case let .ChannelNotConfigured(v1):
             writeInt(&buf, Int32(27))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .NotificationApi(v1):
+        case let .TaskRunnerDisabled(v1):
             writeInt(&buf, Int32(28))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .NotificationStorage(v1):
+        case let .ResourceExhausted(v1):
             writeInt(&buf, Int32(29))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .NotificationGroup(v1):
+        case let .RequestTimeout(v1):
             writeInt(&buf, Int32(30))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .RecoveryExhausted(v1):
+        case let .NotificationNotFound(v1):
             writeInt(&buf, Int32(31))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Storage(v1):
+        case let .NotificationApi(v1):
             writeInt(&buf, Int32(32))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Lagged(v1):
+        case let .NotificationStorage(v1):
             writeInt(&buf, Int32(33))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ConsumerOwned(v1):
+        case let .NotificationGroup(v1):
             writeInt(&buf, Int32(34))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .InvalidCursor(v1):
+        case let .RecoveryExhausted(v1):
             writeInt(&buf, Int32(35))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .ForeignCursor(v1):
+        case let .Storage(v1):
             writeInt(&buf, Int32(36))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .StorageLocation(v1):
+        case let .Lagged(v1):
             writeInt(&buf, Int32(37))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Attachment(v1,v2):
+        case let .ConsumerOwned(v1):
             writeInt(&buf, Int32(38))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .InvalidCursor(v1):
+            writeInt(&buf, Int32(39))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .ForeignCursor(v1):
+            writeInt(&buf, Int32(40))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .StorageLocation(v1):
+            writeInt(&buf, Int32(41))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .Attachment(v1,v2):
+            writeInt(&buf, Int32(42))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
             FfiConverterTypeAttachmentFailure.write(v2, into: &buf)
 
 
         case let .IdentityMismatch(v1):
-            writeInt(&buf, Int32(39))
-            FfiConverterTypeErrorDetails.write(v1, into: &buf)
-
-
-        case let .UnknownField(v1):
-            writeInt(&buf, Int32(40))
-            FfiConverterTypeErrorDetails.write(v1, into: &buf)
-
-
-        case let .NotUserField(v1):
-            writeInt(&buf, Int32(41))
-            FfiConverterTypeErrorDetails.write(v1, into: &buf)
-
-
-        case let .DuplicateField(v1):
-            writeInt(&buf, Int32(42))
-            FfiConverterTypeErrorDetails.write(v1, into: &buf)
-
-
-        case let .UnsupportedType(v1):
             writeInt(&buf, Int32(43))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .TypeMismatch(v1):
+        case let .UnknownField(v1):
             writeInt(&buf, Int32(44))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .TypeChanged(v1):
+        case let .NotUserField(v1):
             writeInt(&buf, Int32(45))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CodecEncodeFailed(v1):
+        case let .DuplicateField(v1):
             writeInt(&buf, Int32(46))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CodecNotFound(v1):
+        case let .UnsupportedType(v1):
             writeInt(&buf, Int32(47))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .CodecDecodeFailed(v1):
+        case let .TypeMismatch(v1):
             writeInt(&buf, Int32(48))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .MalformedEnvelope(v1):
+        case let .TypeChanged(v1):
             writeInt(&buf, Int32(49))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .PublishedButUnconfirmed(v1):
+        case let .CodecEncodeFailed(v1):
             writeInt(&buf, Int32(50))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .UserLimitExceeded(v1):
+        case let .CodecNotFound(v1):
             writeInt(&buf, Int32(51))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Cancelled(v1):
+        case let .CodecDecodeFailed(v1):
             writeInt(&buf, Int32(52))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
 
-        case let .Unknown(v1):
+        case let .MalformedEnvelope(v1):
             writeInt(&buf, Int32(53))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .PublishedButUnconfirmed(v1):
+            writeInt(&buf, Int32(54))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .UserLimitExceeded(v1):
+            writeInt(&buf, Int32(55))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .Cancelled(v1):
+            writeInt(&buf, Int32(56))
+            FfiConverterTypeErrorDetails.write(v1, into: &buf)
+
+
+        case let .Unknown(v1):
+            writeInt(&buf, Int32(57))
             FfiConverterTypeErrorDetails.write(v1, into: &buf)
 
         }
@@ -27975,6 +28145,25 @@ public func metadataFieldRef(field: WellKnownMetadataField) -> MetadataFieldRef 
 })
 }
 /**
+ * Prepare an archive without creating a client. Close the legacy SDK first.
+ * Source bytes stay unchanged. Import the completed archive into the correct inbox.
+ */
+public func prepareMigrationArchive(args: PrepareMigrationArchiveArgs)async throws  -> MigrationReport  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_func_prepare_migration_archive(FfiConverterTypePrepareMigrationArchiveArgs_lower(args)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMigrationReport_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+/**
  * Calculate an inbox ID from a public identity and a nonce.
  * An omitted nonce is 0, as in client creation. This operation does not use a backend or storage.
  */
@@ -28258,6 +28447,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_metadata_field_ref() != 37889) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_func_prepare_migration_archive() != 7183) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_generate_inbox_id() != 38075) {

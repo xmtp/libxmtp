@@ -105,12 +105,6 @@ bench-check:
 check-android-toolchain:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
 
-# Run the normal package migration proofs after generate and stage.
-conformance-migration target="node":
-    cd "{{ root }}" && case "{{ target }}" in \
-      node) node crates/xmtp_sdk/conformance/migration/node.mjs ;; \
-      browser) dev/agent-run cargo build --locked -p xmtp_legacy_migration --example fixture_host --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir target/migration-fixture-host target/wasm32-unknown-unknown/debug/examples/fixture_host.wasm && node crates/xmtp_sdk/conformance/migration/browser.mjs --current-sdk && node crates/xmtp_sdk/conformance/migration/browser-regressions.mjs ;; \
-      swift) NIX_DEVSHELL=ios dev/nix-shell 'swift run --package-path crates/xmtp_sdk/conformance/migration/swift MigrationConformance "$PWD/crates/xmtp_legacy_migration/fixtures/encrypted.db3"' ;; \
-      kotlin) NIX_DEVSHELL=android dev/nix-shell 'sdks/android/gradlew -p crates/xmtp_sdk/conformance/migration/kotlin run --no-daemon' ;; \
-      *) echo "Expected node, browser, swift, or kotlin" >&2; exit 2 ;; \
-    esac
+# Run only migration in the existing Browser platform suite.
+test-browser-migration:
+    bash "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests" migration
