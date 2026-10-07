@@ -5188,7 +5188,7 @@ dependencies = [
 [[package]]
 name = "hpke-rs"
 version = "0.6.1"
-source = "git+https://github.com/xmtp/hpke-rs?rev=c364068efa1f2020db58f6d2794b766e8dcc7b4d#c364068efa1f2020db58f6d2794b766e8dcc7b4d"
+source = "git+https://github.com/xmtp/hpke-rs?rev=78103b02868d6283524d6f7e4105bb85eedac8e2#78103b02868d6283524d6f7e4105bb85eedac8e2"
 dependencies = [
  "hpke-rs-crypto 0.6.1",
  "hpke-rs-libcrux 0.6.1",
@@ -5222,7 +5222,7 @@ dependencies = [
 [[package]]
 name = "hpke-rs-crypto"
 version = "0.6.1"
-source = "git+https://github.com/xmtp/hpke-rs?rev=c364068efa1f2020db58f6d2794b766e8dcc7b4d#c364068efa1f2020db58f6d2794b766e8dcc7b4d"
+source = "git+https://github.com/xmtp/hpke-rs?rev=78103b02868d6283524d6f7e4105bb85eedac8e2#78103b02868d6283524d6f7e4105bb85eedac8e2"
 dependencies = [
  "rand_core 0.9.5",
  "zeroize",
@@ -5241,7 +5241,7 @@ dependencies = [
 [[package]]
 name = "hpke-rs-libcrux"
 version = "0.6.1"
-source = "git+https://github.com/xmtp/hpke-rs?rev=c364068efa1f2020db58f6d2794b766e8dcc7b4d#c364068efa1f2020db58f6d2794b766e8dcc7b4d"
+source = "git+https://github.com/xmtp/hpke-rs?rev=78103b02868d6283524d6f7e4105bb85eedac8e2#78103b02868d6283524d6f7e4105bb85eedac8e2"
 dependencies = [
  "hpke-rs-crypto 0.6.1",
  "libcrux-aead",
@@ -5258,7 +5258,7 @@ dependencies = [
 [[package]]
 name = "hpke-rs-libcrux"
 version = "0.7.0"
-source = "git+https://github.com/xmtp/libcrux?rev=daf70be07b1913871b254a195049b42191f6eb0f#daf70be07b1913871b254a195049b42191f6eb0f"
+source = "git+https://github.com/xmtp/libcrux?rev=fd17d0257acd49f0c73b0dc4c3e9dcd4b42a7102#fd17d0257acd49f0c73b0dc4c3e9dcd4b42a7102"
 dependencies = [
  "hpke-rs-crypto 0.7.0",
  "libcrux-aead",
@@ -5275,7 +5275,7 @@ dependencies = [
 [[package]]
 name = "hpke-rs-rust-crypto"
 version = "0.6.1"
-source = "git+https://github.com/xmtp/hpke-rs?rev=c364068efa1f2020db58f6d2794b766e8dcc7b4d#c364068efa1f2020db58f6d2794b766e8dcc7b4d"
+source = "git+https://github.com/xmtp/hpke-rs?rev=78103b02868d6283524d6f7e4105bb85eedac8e2#78103b02868d6283524d6f7e4105bb85eedac8e2"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",

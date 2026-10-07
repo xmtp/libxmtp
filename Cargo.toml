@@ -335,12 +335,12 @@ diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "co
 # only the backend produces two HpkeCrypto trait versions in the graph
 # and breaks openmls_libcrux_crypto. Remove when the d14n cutover
 # migrates everyone to 0x647a (#3661).
-hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "c364068efa1f2020db58f6d2794b766e8dcc7b4d" }
-hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "c364068efa1f2020db58f6d2794b766e8dcc7b4d" }
-hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "c364068efa1f2020db58f6d2794b766e8dcc7b4d" }
-hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "c364068efa1f2020db58f6d2794b766e8dcc7b4d" }
+hpke-rs = { git = "https://github.com/xmtp/hpke-rs", rev = "78103b02868d6283524d6f7e4105bb85eedac8e2" }
+hpke-rs-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "78103b02868d6283524d6f7e4105bb85eedac8e2" }
+hpke-rs-libcrux = { git = "https://github.com/xmtp/hpke-rs", rev = "78103b02868d6283524d6f7e4105bb85eedac8e2" }
+hpke-rs-rust-crypto = { git = "https://github.com/xmtp/hpke-rs", rev = "78103b02868d6283524d6f7e4105bb85eedac8e2" }
 # OpenMLS uses HPKE 0.7. Keep its registry trait identity while updating the KEM.
-hpke-rs-libcrux-07 = { package = "hpke-rs-libcrux", git = "https://github.com/xmtp/libcrux", rev = "daf70be07b1913871b254a195049b42191f6eb0f" }
+hpke-rs-libcrux-07 = { package = "hpke-rs-libcrux", git = "https://github.com/xmtp/libcrux", rev = "fd17d0257acd49f0c73b0dc4c3e9dcd4b42a7102" }
 tracing-oslog = { git = "https://github.com/xmtp/tracing-oslog", rev = "69cebec3804c33267b8d18aa50a5d9ba18617121" }
 
 [patch.crates-io.xmtp-workspace-hack]
