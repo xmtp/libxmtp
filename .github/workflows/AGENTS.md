@@ -7,7 +7,8 @@ The App installation must grant Contents write and Workflows write.
 App tokens are available only in isolated permission and tag push jobs.
 These jobs do not run SDK or release tools. The tag push job imports a Git
 bundle into a new bare repository.
-Android tags must point to `github.sha`. iOS can use one direct release commit
+Resolve the requested ref before SDK code runs. All SDK jobs use that fixed
+source SHA. Android tags must point to it. iOS can use one direct release commit
 that changes only the iOS release files. The push job checks this before it
 creates its token.
 `just lint-config` checks the tag transfer with a local Git HTTP remote.
