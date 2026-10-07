@@ -155,7 +155,7 @@ hand-maintained.
   and installs it in an empty consumer. It checks a codec round trip without
   package receipts or runtime asset hashes. Browser smoke also loads its worker.
   Package configuration and asset identity are checked during staging and tests.
-  Switched SDK package builds use `bash ../../dev/js/sdk-package node|browser`
+  SDK package builds use `bash ../../dev/js/sdk-package node|browser`
   from the SDK directory. The helper stages a public manifest and copies the
   complete product into the SDK's `dist` directory for workspace imports.
   Release jobs pack `target/sdk-packages/<target>` directly. Private staging
@@ -174,9 +174,7 @@ hand-maintained.
   `XMTP_SDK_RUNTIME_DIR` (a directory with core/node or core/wasm products).
   These variables configure build tools. They add no SDK runtime option.
 
-The old SDK packages, binding outputs, release jobs, and version numbers stay
-in place until their owning Phase 2 switches. New package preparation does not
-publish a product. All switched SDKs will use the approved 8.0.0 version line.
+Package preparation does not publish a product.
 
 Package review checks:
 
@@ -229,10 +227,10 @@ Android staging dependency inputs:
   the SDK file-size limit.
 - Record the actual plugin classpath and each resolved release configuration.
   AAR output hashes do not prove dependency input coverage.
-- The switched Android project owns its own graph under Task 14. Do not copy
-  staging lock state into a different Gradle root.
+- `sdks/android` owns its own Gradle graph. Do not copy staging lock state
+  into a different Gradle root.
 
-- The switched Android stage builds `sdks/android/:library:assembleRelease`.
+- The Android stage builds `sdks/android/:library:assembleRelease`.
   It checks that selected SDK root's `buildscript-gradle.lockfile`,
   `library/gradle.lockfile`, and `gradle/verification-metadata.xml`.
   The staging fixture inputs do not cover this graph. An explicit

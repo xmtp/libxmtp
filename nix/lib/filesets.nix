@@ -69,7 +69,6 @@ let
     appSources
   ]);
   binaries = unions (flatten [
-    (commonCargoSources (src + /apps/android/xmtpv3_example))
     (crateSources (src + /apps))
   ]);
   forCrate =

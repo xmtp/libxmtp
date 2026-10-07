@@ -1,9 +1,7 @@
 # Migrate to the generated SDK
 
 This guide describes the approved generated SDK contract. The public package sources now use generated bindings. Use staged packages to check a migration.
-The [cutover handoff](handoff.md) records the checks that must pass before a
-package switch. Every switched SDK targets version **8.0.0**. This work changes
-no package version and publishes no package.
+Every SDK targets version **8.0.0**.
 
 ## Install and import
 
@@ -139,8 +137,28 @@ The complete source examples are [Node](node.ts), [browser](browser.ts),
 before reopening and checks the reopened path and inbox. Supply the public
 identity from the legacy database, backend options, and the actual persistent
 path. The default Android path also needs the saved inbox ID. These examples
-use `build` for both opens; they do not register a new identity. Compiler and runtime results are separate
-checks in the handoff.
+use `build` for both opens; they do not register a new identity.
+[Compile the examples](#compile-the-examples) describes the compiler check.
+Runtime calls need a real signer, backend, persistent paths, and the named
+host environment.
+
+### Compile the examples
+
+`check-examples` compiles each example inside its package under `sdks/`. Build
+the package first with `dev/nix-shell 'just ios build'`,
+`dev/nix-shell 'just android build'`, or
+`dev/nix-shell 'pnpm --filter @xmtp/<host>-sdk build'`. Then run the check for
+each host:
+
+```sh
+dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples swift'
+dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples kotlin'
+dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples node'
+dev/nix-shell 'bash docs/self-hosted/sdk-migration/check-examples browser'
+```
+
+The script does not overwrite an existing file. It removes only the copy that
+it makes.
 
 ## Select messages and save progress
 
@@ -185,8 +203,7 @@ reader automatically. Swift iterator destruction triggers end but cannot await
 teardown. Existing native reader `end()` remains the explicit awaited close;
 no new Swift iterator `end()` method is added. Kotlin Flow finalization awaits
 end even on cancellation. Node/browser `await stream.end()` joins teardown.
-The reader lane has focused proof with real reader leases. The final integrated package and
-platform checks remain pending in the handoff. Keep raw `next()` outside
+Keep raw `next()` outside
 supported app consumption. An iterator's next
 request acknowledges the prior item; a successful callback return acknowledges
 that item. Failure, cancellation, or loop exit must preserve the approved
