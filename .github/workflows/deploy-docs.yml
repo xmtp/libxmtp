@@ -120,6 +120,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # Keep page update dates without fetching old file contents.
+          filter: blob:none
       - uses: ./.github/actions/setup-nix
         with:
           disk-key: web
