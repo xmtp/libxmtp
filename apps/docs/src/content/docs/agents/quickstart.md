@@ -6,8 +6,10 @@ Use the XMTP Agent SDK to build a Node.js agent that listens for messages and re
 
 ## Install
 
+Use Agent SDK **8.0.0-rc1** with backend **8.0.0-rc1**.
+
 ```bash
-npm i @xmtp/agent-sdk
+npm i --save-exact @xmtp/agent-sdk@8.0.0-rc1
 ```
 
 ## Configure

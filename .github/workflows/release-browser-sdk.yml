@@ -69,7 +69,7 @@ jobs:
       - name: Compute version
         id: version
         env:
-          REF: ${{ needs.check-push-permissions.outputs.source-sha }}
+          REF: ${{ inputs.ref }}
           TIMESTAMP: ${{ inputs.timestamp }}
         run: |
           if [ "${{ inputs.release-type }}" = "rc" ]; then

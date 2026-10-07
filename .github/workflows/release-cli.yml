@@ -85,7 +85,7 @@ jobs:
           RC_NUMBER: ${{ inputs.rc-number }}
           PENDING_VERSION: ${{ inputs.pending-version }}
           PENDING_KIND: ${{ inputs.pending-kind }}
-          REF: ${{ needs.check-push-permissions.outputs.source-sha }}
+          REF: ${{ inputs.ref || github.ref }}
           TIMESTAMP: ${{ inputs.timestamp }}
         run: |
           if [ "$RELEASE_TYPE" = "rc" ]; then
