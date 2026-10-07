@@ -107,7 +107,8 @@ pub(crate) async fn prepare(
     let report = match result {
         Ok(report) => report,
         Err(error) => {
-            discard_output(&sink.0).await.map_err(output)?;
+            // Keep the conversion error if cleanup also fails.
+            let _ = discard_output(&sink.0).await;
             return Err(error);
         }
     };
