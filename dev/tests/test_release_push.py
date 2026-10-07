@@ -472,6 +472,29 @@ class ReleasePushTest(unittest.TestCase):
         self.assertIn("needs: [publish, check-push-permissions]", push)
         self.assertIn("uses: ./.github/workflows/push-release-tag.yml", push)
 
+    def test_npm_callers_fix_source_before_setup_and_build(self):
+        source = "${{ needs.check-push-permissions.outputs.source-sha }}"
+        for name in ["node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+            with self.subTest(caller=name):
+                text = (ROOT / f".github/workflows/release-{name}.yml").read_text()
+                jobs = re.split(
+                    r"(?m)^  ([a-z][a-z0-9-]*):\n", text.split("jobs:\n", 1)[1]
+                )
+                bodies = dict(zip(jobs[1::2], jobs[2::2]))
+                preflight = bodies["check-push-permissions"]
+                self.assertIn(
+                    "uses: ./.github/workflows/check-release-push.yml", preflight
+                )
+                self.assertIn("dry-run: ${{ inputs.dry-run }}", preflight)
+                for job in ["setup", "build", "publish"]:
+                    body = bodies[job]
+                    self.assertRegex(
+                        body, r"needs: \[[^\n]*check-push-permissions[^\n]*\]"
+                    )
+                    self.assertIn("ref: " + source, body)
+                    self.assertNotIn("ref: ${{ inputs.ref", body)
+                self.assertIn("REF: " + source, bodies["setup"])
+
 
 if __name__ == "__main__":
     unittest.main()

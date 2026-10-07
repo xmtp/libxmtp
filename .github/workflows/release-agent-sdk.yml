@@ -65,7 +65,15 @@ permissions:
   id-token: write
 
 jobs:
+  check-push-permissions:
+    uses: ./.github/workflows/check-release-push.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit
+
   setup:
+    needs: [check-push-permissions]
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -73,7 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: ./.github/actions/setup-release-tools
 
       # Inputs are passed through env, never interpolated into shell source:
@@ -85,7 +93,7 @@ jobs:
           RC_NUMBER: ${{ inputs.rc-number }}
           PENDING_VERSION: ${{ inputs.pending-version }}
           PENDING_KIND: ${{ inputs.pending-kind }}
-          REF: ${{ inputs.ref || github.ref }}
+          REF: ${{ needs.check-push-permissions.outputs.source-sha }}
           TIMESTAMP: ${{ inputs.timestamp }}
         run: |
           if [ "$RELEASE_TYPE" = "rc" ]; then
@@ -134,13 +142,13 @@ jobs:
           echo "Pinning @xmtp/node-sdk to: $VERSION"
 
   build:
-    needs: setup
+    needs: [setup, check-push-permissions]
     runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
 
       - uses: ./.github/actions/setup-nix
         with:
@@ -167,10 +175,10 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [setup, build]
+    needs: [setup, build, check-push-permissions]
     uses: ./.github/workflows/npm-publish.yml
     with:
-      ref: ${{ inputs.ref || github.ref }}
+      ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       package-dir: sdks/agent
       sdk: agent-sdk
       version: ${{ needs.setup.outputs.version }}
