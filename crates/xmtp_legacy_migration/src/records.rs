@@ -133,13 +133,13 @@ pub(crate) fn export(
         start_ns: None,
         end_ns: None,
     }))?;
-    let malformed = diesel::sql_query("SELECT count(*) AS count FROM groups WHERE conversation_type NOT IN (3,4) AND membership_state != 4 AND (typeof(id) != 'blob' OR length(id) != 16 OR conversation_type NOT IN (1,2) OR membership_state NOT IN (1,2,3,5))").get_result::<Count>(conn)?;
+    let malformed = diesel::sql_query("SELECT count(*) AS count FROM groups WHERE conversation_type IS NULL OR membership_state IS NULL OR (conversation_type NOT IN (3,4) AND membership_state != 4 AND (typeof(id) != 'blob' OR length(id) != 16 OR conversation_type NOT IN (1,2) OR membership_state NOT IN (1,2,3,5)))").get_result::<Count>(conn)?;
     if malformed.count != 0 {
         return Err(invalid("invalid required group identity or enum"));
     }
     let mut after = Vec::new();
     loop {
-        let page = diesel::sql_query("SELECT * FROM groups WHERE conversation_type NOT IN (3, 4) AND membership_state != 4 AND id > ? ORDER BY id LIMIT ?")
+        let page = diesel::sql_query("SELECT * FROM groups WHERE conversation_type IN (1, 2) AND membership_state IN (1, 2, 3, 5) AND id > ? ORDER BY id LIMIT ?")
             .bind::<Binary, _>(&after).bind::<BigInt, _>(GROUP_PAGE).load::<Group>(conn)?;
         if page.is_empty() {
             break;
@@ -176,12 +176,17 @@ pub(crate) fn export(
             report.group_count += 1;
         }
     }
+    let unknown_kind = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE m.expire_at_ns IS NULL AND m.kind IS NULL AND (g.id IS NULL OR (g.conversation_type IN (1,2) AND g.membership_state IN (1,2,3,5)))")
+        .get_result::<Count>(conn)?;
+    if unknown_kind.count != 0 {
+        return Err(invalid("missing required message kind"));
+    }
     let orphan = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE g.id IS NULL AND m.kind = 1 AND m.expire_at_ns IS NULL")
             .get_result::<Count>(conn)?;
     if orphan.count != 0 {
         return Err(invalid("message has no required group"));
     }
-    let messages = diesel::sql_query("SELECT m.* FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type NOT IN (3, 4) AND g.membership_state != 4 AND m.kind = 1 AND m.expire_at_ns IS NULL ORDER BY m.id")
+    let messages = diesel::sql_query("SELECT m.* FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL ORDER BY m.id")
             .load_iter::<MessageRow, DefaultLoadingMode>(conn)?;
     for message in messages {
         emit(Element::GroupMessage(message?.into_save()?))?;
