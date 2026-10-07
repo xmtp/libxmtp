@@ -1,0 +1,946 @@
+---
+title: Swift SDK Upgrade Guide
+description: Update Swift SDK calls, options, and results for a self-hosted backend.
+---
+
+Start with [Migrate to a self-hosted backend](/get-started/migrate-to-self-hosted/)
+for the backend, database, history, and push steps. This guide lists changes
+from [`main` at `cc878025da`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247)
+to [`self-hosted` at `610175f3b3`](https://github.com/xmtp/libxmtp/tree/610175f3b3108e7d8c6b8b01df6d99296a6e08b2).
+A call can keep its name and still have different parameters, results, or
+behavior. The **Before** examples use the old SDK. The **After** examples use
+the new SDK.
+
+The Swift package now exports `XmtpSdk`. Use `SDKClient` for the Swift client. The generated `Client` is the Rust-backed object used by the Swift runtime. `SDKClient` adds typed codecs, message actions, and Swift async sequences.
+
+The examples below compare `main` at `cc878025dab2f93bca18b67fa9fca562a65f2247` with `self-hosted` at `610175f3b3108e7d8c6b8b01df6d99296a6e08b2`. Each pair is a separate example. Parameters such as a signer, encryption key, inbox ID, or APNs token come from your app.
+
+## Package, imports, and types
+
+Select the SwiftPM product `XmtpSdk` in your app target. The old products `XMTPiOS` and `XMTPTestHelpers`, and the `static` and `dynamic` SwiftPM traits, are absent. The new package uses `XmtpSdkFFI.xcframework` and a release receipt. Do not copy an old binary URL or checksum into the new package. The minimum platforms stay at iOS 14 and macOS 11. Both package manifests require Swift tools 6.1. The new package uses Swift language mode 5.
+
+```swift title="Before"
+import XMTPiOS
+```
+
+```swift title="After"
+import XmtpSdk
+```
+
+| Old type or member                       | New type or member                  | Required change                                                         |
+| ---------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------- |
+| `Client`                                 | `SDKClient`                         | Use the Swift wrapper for app code.                                     |
+| `SigningKey`, `SignerType`, `SignedData` | `Signer`, `SignerKind`, `Signature` | Implement async signer methods.                                         |
+| `IdentityKind`                           | `PublicIdentityKind`                | Keep `.ethereum` or `.passkey`.                                         |
+| `ContentTypeID`                          | `ContentTypeId`                     | Use `authorityId`, `typeId`, and `UInt32` versions.                     |
+| `DecodedMessage`, `DecodedMessageV2`     | `Message`                           | Read a content enum and `Timestamp` values.                             |
+| `MessageDeliveryStatus`                  | `DeliveryStatus`                    | Use an optional filter instead of `.all`.                               |
+| `SortDirection`                          | `MessageOrder`                      | Keep `.ascending` or `.descending`.                                     |
+| `ConversationsOrderBy`                   | `ConversationOrder`                 | Keep `.createdAt` or `.lastActivity`.                                   |
+| `ConversationFilterType`                 | `ConversationKind?`                 | `.groups` becomes `.group`; `.dms` becomes `.dm`; `.all` becomes `nil`. |
+| `Conversation.XMTPConversationType`      | `ConversationKind`                  | Use `conversation.kind()`.                                              |
+| `GroupMembershipResult`                  | `MembershipResult`                  | `addedMembers` becomes `added`; `removedMembers` becomes `removed`.     |
+| `DisappearingMessageSettings`            | `DisappearingSettings`              | Use `from: Timestamp` and `retentionNs: Int64`.                         |
+| `GroupPermissionPreconfiguration`        | `GroupPermissionMode`               | Custom policy is `.custom(policySet:)`.                                 |
+| `PermissionOption`                       | `PermissionPolicy`                  | `.unknown` splits into `.doesNotExist` and `.other`.                    |
+| `PrivatePreferences`                     | `Preferences`                       | Use typed consent entities.                                             |
+| `XMTPDebugInformation`                   | `Diagnostics`                       | Statistics reads are async and throwing.                                |
+| `EncodedContentCompression`              | `Compression`                       | Pass `.gzip` or `.deflate` in send options.                             |
+| `Client.LogLevel`                        | `LogLevel`                          | Logging is a package API.                                               |
+
+`InboxId`, `ConversationId`, `MessageId`, and `InstallationId` are Swift aliases for `String`. Keep IDs in the SDK's canonical form. Do not replace them with `Data` at the API boundary. `Timestamp` stores signed nanoseconds in `.ns` and converts to `Date` through `.date`.
+
+## Connect and create a client
+
+Replace `ClientOptions.Api.env` with the backend URL. The old environment values and gateway option do not select a self-hosted deployment. The new backend options can hold a static `Credential` or an async `CredentialSource`.
+
+```swift title="Before"
+func openClient(account: SigningKey, key: Data) async throws -> Client {
+    try await Client.create(
+        account: account,
+        options: ClientOptions(
+            api: ClientOptions.Api(env: .dev),
+            dbEncryptionKey: key
+        )
+    )
+}
+```
+
+```swift title="After"
+func openClient(signer: Signer, key: Data, backendURL: String) async throws -> SDKClient {
+    try await SDKClient.create(
+        signer: signer,
+        options: ClientOptions(
+            backend: .options(options: BackendOptions(url: backendURL)),
+            storage: StorageOptions(location: .default, encryptionKey: key)
+        )
+    )
+}
+```
+
+`.default` storage uses the app's Application Support directory and bundle identifier. If that app context is absent, use `.directory(directory:)` or `.explicit(dbPath:attachmentsDir:)`. Storage keys are optional in the new API. Pass a key when you need an encrypted database. Keep that key outside the database.
+
+| Old option                                   | New option                                                            | Parameter and behavior change                                                                                                                                                                |
+| -------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `api.env`, `api.gatewayHost`, `api.isSecure` | `backend: .options(options: BackendOptions(url:))`                    | Supply the deployment URL. The old environment and gateway fields are absent.                                                                                                                |
+| `api.appVersion`                             | `BackendOptions.appVersion`                                           | Still `String?`.                                                                                                                                                                             |
+| `codecs`                                     | `SDKClient.create(..., codecs:)` or `build(..., codecs:)`             | Codec registration belongs to this client.                                                                                                                                                   |
+| `dbEncryptionKey: Data`                      | `storage.encryptionKey: Data?`                                        | The key is optional.                                                                                                                                                                         |
+| `dbDirectory`                                | `storage.location`                                                    | Choose `.default`, `.directory`, `.explicit`, or `.inMemory`.                                                                                                                                |
+| `dbPoolOptions.minPoolSize/maxPoolSize`      | `storage.pool.min/max`                                                | Both remain optional `UInt32`.                                                                                                                                                               |
+| `deviceSyncEnabled`                          | `deviceSync`                                                          | Default is `true`.                                                                                                                                                                           |
+| `preAuthenticateToInboxCallback`             | `handlers.preAuthenticate`                                            | Implement `PreAuthenticate.run() async throws`.                                                                                                                                              |
+| `waitForRegistrationVisible`                 | No matching quorum options                                            | The old visibility-confirmation record is absent.                                                                                                                                            |
+| `debugEventsEnabled`                         | Event APIs                                                            | Subscribe with an `EventFilter`.                                                                                                                                                             |
+| `unstableChangeCallbacks`                    | Event APIs                                                            | Read `.conversationMetadataChanged` events. Read current metadata after the event.                                                                                                           |
+| `forkRecoveryOptions`                        | `forkRecovery`                                                        | Rename `enableRecoveryRequests` to `policy`, `groupsToRequestRecovery` to `groups`, and `disableRecoveryResponses` to `disableResponses`. The last field is now `Bool` with default `false`. |
+| No old field                                 | `allowOffline`                                                        | Explicitly allow startup from stored state when the backend is unavailable.                                                                                                                  |
+| No old field                                 | `registration`                                                        | `RegistrationOptions(auto:nonce:)` controls automatic registration and inbox nonce.                                                                                                          |
+| No old field                                 | `workers`, `attachments`, `storage.label`, `storage.singleConnection` | Use the new records only when your app needs them.                                                                                                                                           |
+
+`Client.createInMemory(account:options:)` becomes `SDKClient.create` with `StorageOptions(location: .inMemory)`. `Client.build(publicIdentity:options:inboxId:)` becomes `SDKClient.build(identity:options:inboxId:codecs:)`. Both return `SDKClient`. The new `build` can use `allowOffline` rather than treating a supplied inbox ID as an implicit offline switch.
+
+```swift title="Before"
+func restoreClient(identity: PublicIdentity, inboxId: InboxId, key: Data) async throws -> Client {
+    try await Client.build(
+        publicIdentity: identity,
+        options: ClientOptions(dbEncryptionKey: key),
+        inboxId: inboxId
+    )
+}
+```
+
+```swift title="After"
+func restoreClient(identity: PublicIdentity, inboxId: InboxId, key: Data,
+                   backendURL: String, directory: String) async throws -> SDKClient {
+    try await SDKClient.build(
+        identity: identity,
+        options: ClientOptions(
+            backend: .options(options: BackendOptions(url: backendURL)),
+            storage: StorageOptions(location: .directory(directory: directory), encryptionKey: key),
+            allowOffline: true
+        ),
+        inboxId: inboxId
+    )
+}
+```
+
+Call `try await client.end()` when the app releases a client. This closes the client's listeners and Rust resources. UIKit lifecycle handling is enabled by `SDKClient.create` and `build`. Set `SDKClient.manageStreamLifecycle` before the first client to control the same process-wide behavior. The package still exports process-wide `suspendStreams()` and `resumeStreams()` as async throwing functions.
+
+## Implement a signer
+
+`SigningKey` had synchronous identity and kind properties. `Signer` has async throwing methods and requires `AnyObject` and `Sendable`. Sign `SigningRequest.text`. Return a `Signature` enum value rather than `SignedData`.
+
+```swift title="Before"
+final class WalletSigner: SigningKey {
+    let identity: PublicIdentity
+    let signText: (String) async throws -> Data
+
+    init(address: String, signText: @escaping (String) async throws -> Data) {
+        identity = PublicIdentity(kind: .ethereum, identifier: address)
+        self.signText = signText
+    }
+
+    func sign(_ message: String) async throws -> SignedData {
+        SignedData(rawData: try await signText(message))
+    }
+}
+```
+
+```swift title="After"
+final class WalletSigner: Signer {
+    let address: String
+    let signText: @Sendable (String) async throws -> Data
+
+    init(address: String, signText: @escaping @Sendable (String) async throws -> Data) {
+        self.address = address
+        self.signText = signText
+    }
+
+    func identity() async throws -> PublicIdentity {
+        PublicIdentity(identifier: address, kind: .ethereum)
+    }
+
+    func kind() async throws -> SignerKind { .eoa }
+
+    func sign(request: SigningRequest) async throws -> Signature {
+        .ecdsa(try await signText(request.text))
+    }
+}
+```
+
+For a smart contract wallet, return `.scw(chainId:blockNumber:)` from `kind()`. Return `.scw(bytes:address:chainId:blockNumber:)` from `sign`. Chain ID and block number are now `UInt64` and `UInt64?`, rather than `Int64?` properties. For a passkey, return `.passkey` from `kind()` and `.passkey(signature:publicKey:authenticatorData:clientDataJson:)` from `sign`. The passkey signature fields are required `Data` values. They are no longer optional fields in `SignedData`.
+
+`PublicIdentity(kind:identifier:)` becomes `PublicIdentity(identifier:kind:)`. `PublicIdentity.identifier` is a stored field in the new Swift record. Do not depend on the old Swift property's lowercase conversion. The core validates and normalizes identities for network operations.
+
+## Read client identity and use lookup helpers
+
+| Old call or property                                                | New call                                                   | Result change                                                                                                                                        |
+| ------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.inboxID`                                                    | `client.inboxId()`                                         | `InboxId`.                                                                                                                                           |
+| `client.installationID`                                             | `client.installationId()`                                  | `InstallationId`. Use `installationIdBytes()` only when bytes are needed.                                                                            |
+| `client.publicIdentity`                                             | `client.identity()`                                        | `PublicIdentity`.                                                                                                                                    |
+| `client.libXMTPVersion`                                             | `client.libxmtpVersion()`                                  | `String`. `sdkVersion()` is also a package function.                                                                                                 |
+| `client.environment`                                                | `client.serverConfiguration()` / `client.options()`        | There is no environment enum result. Read the selected deployment and its configuration.                                                             |
+| `client.isInMemory`                                                 | `client.isInMemory()`                                      | `Bool`.                                                                                                                                              |
+| `client.dbPath`                                                     | `client.storagePath()`                                     | `String?`; an in-memory client has no file path.                                                                                                     |
+| `client.conversations`, `.preferences`, `.debugInformation`         | `client.conversations`, `.preferences()`, `.diagnostics()` | Accessor methods return service objects.                                                                                                             |
+| `Client.connectToApiBackend(api:)`                                  | `Backend.connect(options:)`                                | Async throwing connection returns `Backend`. Pass `.connected(backend:)` as a `BackendSource`.                                                       |
+| `Client.getOrCreateInboxId(api:publicIdentity:)`                    | `SDKClient.inboxIdFor(identity:backend:)`                  | Async throwing `InboxId`. Use `generateInboxId(identity:nonce:)` for a pure derivation. Do not reproduce the old network-error fallback in app code. |
+| `client.inboxIdFromIdentity(identity:)`                             | `client.inboxIdFor(identity:)`                             | Async throwing `InboxId?`.                                                                                                                           |
+| `Client.canMessage(accountIdentities:api:)`                         | `SDKClient.canMessage(identities:backend:)`                | Async throwing `[String: Bool]`; keys include identity kind.                                                                                         |
+| `client.canMessage(identities:)`                                    | `client.canMessage(identities:)`                           | Same method shape; map keys now use `ethereum:<core text>` or `passkey:<lowercase core hex>`.                                                        |
+| `client.canMessage(identity:)`                                      | `client.canMessage(identities: [identity])`                | The single-identity `Bool` overload is absent. Read the typed-key map.                                                                               |
+| `Client.inboxStatesForInboxIds(inboxIds:api:)`                      | `SDKClient.inboxStates(ids:backend:)`                      | `[InboxState]`.                                                                                                                                      |
+| `client.inboxStatesForInboxIds(refreshFromNetwork:inboxIds:)`       | `client.inboxStates(ids:refreshFromNetwork:)`              | `[InboxState]`; labels and order change.                                                                                                             |
+| `client.inboxState(refreshFromNetwork:)`                            | Same method                                                | `InboxState`; installation timestamps are now `Timestamp?`.                                                                                          |
+| `Client.keyPackageStatusesForInstallationIds(installationIds:api:)` | `SDKClient.keyPackageStatuses(ids:backend:)`               | `[String: KeyPackageStatus]`; no `FfiKeyPackageStatus`.                                                                                              |
+| `Client.getNewestMessageMetadata(groupIds:api:)`                    | `SDKClient.newestMessageMetadata(ids:backend:)`            | `[String: MessageMetadataEntry]`; `cursor: FfiCursor` becomes `sequenceId: UInt64`; `createdNs: Int64` becomes `createdAt: Timestamp`.               |
+| `client.catchUpToLive(timeoutMs:)`                                  | Same name                                                  | The new wrapper requires the `timeoutMs` argument, including `nil`. `CatchUpSummary` adds `failed: UInt64`. Check `completed`.                       |
+
+`InboxState` retains `inboxId`, `identities`, `installations`, `recoveryIdentity`, and `creationSignatureKind`. `Installation.createdAt` changes from `Date?` to `Timestamp?`. `KeyPackageStatus` has `lifetime: KeyPackageLifetime?` and `validationError: String?`. The lifetime has `notBefore` and `notAfter` as `UInt64` values.
+
+```swift title="Before"
+func lookup(client: Client, address: String) async throws -> (Bool, InboxId?) {
+    let identity = PublicIdentity(kind: .ethereum, identifier: address)
+    return (
+        try await client.canMessage(identity: identity),
+        try await client.inboxIdFromIdentity(identity: identity)
+    )
+}
+```
+
+```swift title="After"
+func lookup(client: SDKClient, address: String) async throws -> ([String: Bool], InboxId?) {
+    let identity = PublicIdentity(identifier: address, kind: .ethereum)
+    return (
+        try await client.canMessage(identities: [identity]),
+        try await client.inboxIdFor(identity: identity)
+    )
+}
+```
+
+## Change accounts and installations
+
+| Old method                                                             | New method                                                                                       | Parameter or result change                                                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `addAccount(newAccount:allowReassignInboxId:)`                         | `unsafeAddAccount(signer:allowInboxReassign:)`                                                   | Pass `Signer`; the boolean has no omitted wrapper default.                                                         |
+| `removeAccount(recoveryAccount:identityToRemove:)`                     | `removeAccount(recoverySigner:identity:)`                                                        | Pass `Signer` and the identity to remove.                                                                          |
+| `revokeAllOtherInstallations(signingKey:)`                             | `revokeAllOtherInstallations(signer:)`                                                           | Pass `Signer`.                                                                                                     |
+| `revokeInstallations(signingKey:installationIds:)`                     | `revokeInstallations(signer:ids:)`                                                               | IDs are `[InstallationId]`.                                                                                        |
+| `Client.revokeInstallations(api:signingKey:inboxId:installationIds:)`  | `SDKClient.revokeInstallations(signer:inboxId:ids:backend:)`                                     | Supply the backend source.                                                                                         |
+| `ffiCreateClient(identity:clientOptions:)`                             | `SDKClient.create(signer:options:codecs:)` with `registration: RegistrationOptions(auto: false)` | Use manual registration for a new identity. `SDKClient.build` requires an identity already stored in the database. |
+| `ffiAddIdentity(identityToAdd:allowReassignInboxId:)`                  | `unsafeAddAccountSignatureRequest(identity:allowInboxReassign:)`                                 | Async throwing `SignatureRequest`.                                                                                 |
+| `ffiRevokeIdentity(identityToRemove:)`                                 | `unsafeRemoveAccountSignatureRequest(identity:)`                                                 | Async throwing `SignatureRequest`.                                                                                 |
+| `ffiRevokeInstallations(ids: [Data])`                                  | `unsafeRevokeInstallationsSignatureRequest(ids: [InstallationId])`                               | Pass ID strings, not byte arrays.                                                                                  |
+| `ffiRevokeAllOtherInstallations()`                                     | `unsafeRevokeAllOtherInstallationsSignatureRequest()`                                            | Async throwing `SignatureRequest?`.                                                                                |
+| `ffiSignatureRequest()`                                                | `unsafeCreateInboxSignatureRequest()`                                                            | Now async throwing; result remains optional.                                                                       |
+| `ffiApplySignatureRequest(signatureRequest:)`                          | `unsafeApplySignatureRequest(request:)`                                                          | Async throwing; label changes.                                                                                     |
+| `ffiRegisterIdentity(signatureRequest:visibilityConfirmationOptions:)` | `unsafeApplySignatureRequest(request:)`                                                          | Old visibility options are absent. `register()` is available for the stored signer path.                           |
+| Static `ffiApplySignatureRequest` / `ffiRevokeInstallations`           | No matching static manual request API                                                            | Use `SDKClient.revokeInstallations(...)` with a `Signer`, or a built client's unsafe request methods.              |
+| `SignatureRequest.addEcdsaSignature(signatureBytes:)`                  | `addSignature(signature: .ecdsa(bytes))`                                                         | One enum-based method.                                                                                             |
+| `SignatureRequest.addScwSignature(...)`                                | `addSignature(signature: .scw(...))`                                                             | Supply address and unsigned chain/block values in the enum.                                                        |
+| `SignatureRequest.signatureText()`                                     | Same method                                                                                      | Async `String`; no `throws`.                                                                                       |
+
+New operations include `changeRecoveryIdentifier(signer:identity:)`, its unsafe request form, and `SignatureRequest.sign(signer:)`. All account operations still need the appropriate account signature.
+
+```swift title="Before"
+func revoke(client: Client, key: SigningKey, ids: [String]) async throws {
+    try await client.revokeInstallations(signingKey: key, installationIds: ids)
+}
+```
+
+```swift title="After"
+func revoke(client: SDKClient, signer: Signer, ids: [InstallationId]) async throws {
+    try await client.revokeInstallations(signer: signer, ids: ids)
+}
+```
+
+Installation signing and verification are now async throwing methods. `signWithInstallationKey(message:)` becomes `signWithInstallationKey(text:)`. `verifySignature(message:signature:)` becomes `verifySignedWithInstallationKey(text:signature:)`. `verifySignatureWithInstallationId(message:signature:installationId:)` becomes `SDKClient.verifySignedWithPublicKey(text:signature:publicKey:)`. The new static helper takes the installation public-key bytes as `Data`. It does not take an ID string.
+
+## Create, find, and list Swift conversations
+
+Creation options move from separate arguments to `CreateDmOptions` or `CreateGroupOptions`. Inbox IDs and account identities use overloads of the same method. An empty member array needs an explicit type, such as `[InboxId]()`.
+
+```swift title="Before"
+func createChat(client: Client, peer: InboxId) async throws -> (Dm, Group) {
+    let dm = try await client.conversations.findOrCreateDm(with: peer)
+    let group = try await client.conversations.newGroup(
+        with: [peer], permissions: .adminOnly,
+        name: "Project", description: "Project discussion"
+    )
+    return (dm, group)
+}
+```
+
+```swift title="After"
+func createChat(client: SDKClient, peer: InboxId) async throws -> (Dm, Group) {
+    let dm = try await client.conversations.createDm(peer: peer)
+    let group = try await client.conversations.createGroup(
+        members: [peer],
+        options: CreateGroupOptions(
+            permissions: .adminOnly, name: "Project", description: "Project discussion"
+        )
+    )
+    return (dm, group)
+}
+```
+
+| Old method                                                                                                            | New method                                           | Parameter and result change                                                                           |
+| --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `newConversation(with:disappearingMessageSettings:)`                                                                  | `createDm(peer:options:)`                            | Returns `Dm`, rather than `Conversation`. Wrap with `.dm(dm)` if a conversation enum is needed.       |
+| `findOrCreateDm(with:disappearingMessageSettings:)`                                                                   | `createDm(peer: InboxId, options:)`                  | Still finds or creates the DM; returns `Dm`.                                                          |
+| `newConversationWithIdentity(with:disappearingMessageSettings:)`                                                      | `createDm(peer: PublicIdentity, options:)`           | Returns `Dm`, rather than `Conversation`.                                                             |
+| `findOrCreateDmWithIdentity(with:disappearingMessageSettings:)`                                                       | `createDm(peer: PublicIdentity, options:)`           | Put settings in `CreateDmOptions(disappearing:)`.                                                     |
+| `newGroup(with:permissions:name:imageUrl:description:disappearingMessageSettings:appData:)`                           | `createGroup(members: [InboxId], options:)`          | Put metadata, permissions, and settings in `CreateGroupOptions`.                                      |
+| `newGroupWithIdentities(...)`                                                                                         | `createGroup(members: [PublicIdentity], options:)`   | Same option record.                                                                                   |
+| `newGroupCustomPermissions(...)` / `newGroupCustomPermissionsWithIdentities(...)`                                     | `createGroup(members:options:)`                      | Use `permissions: .custom(policySet:)`.                                                               |
+| `newGroupOptimistic(permissions:groupName:groupImageUrlSquare:groupDescription:disappearingMessageSettings:appData:)` | `createGroupOptimistic(options:)`                    | Now async throwing. Option names are `name`, `imageUrl`, and `description`.                           |
+| `findConversation(conversationId:)`                                                                                   | `getById(id:)`                                       | Async throwing `Conversation?`.                                                                       |
+| `findGroup(groupId:)`                                                                                                 | `getById(id:)` then match `.group`                   | Result is `Conversation?`, rather than `Group?`; now async.                                           |
+| `findDmByInboxId(inboxId:)`                                                                                           | `getDmByInboxId(peer:)`                              | Now async throwing `Dm?`.                                                                             |
+| `findDmByIdentity(publicIdentity:)`                                                                                   | `getDmByIdentity(identity:)`                         | Async throwing `Dm?`.                                                                                 |
+| `findMessage(messageId:)`, `findEnrichedMessage(messageId:)`                                                          | `getMessageById(id:)`                                | Now async throwing `Message?`.                                                                        |
+| `findConversationByTopic(topic:)`                                                                                     | No topic lookup method                               | Store `conversation.id()` for `getById(id:)`. Topics are transport values.                            |
+| `sync()`                                                                                                              | `sync()`                                             | Async throwing `Void`.                                                                                |
+| `syncAllConversations(consentStates:)`                                                                                | `syncAll(consentStates:)`                            | `GroupSyncSummary.numEligible/numSynced` become `eligible/synced`. Pass `nil` explicitly when needed. |
+| `list`, `listGroups`, `listDms` with separate filters                                                                 | Same names with `options: ListConversationsOptions?` | All three are now async throwing. Results retain `[Conversation]`, `[Group]`, and `[Dm]`.             |
+| `fromWelcome(envelopeBytes:)`                                                                                         | No direct replacement                                | Let SDK sync and readers process Welcomes.                                                            |
+
+`ListConversationsOptions` uses `createdAfter`, `createdBefore`, `lastActivityAfter`, and `lastActivityBefore` as `Timestamp?`, rather than separate `Int64?` nanosecond arguments. `limit` is `UInt32?`, rather than `Int?`. `orderBy` is `ConversationOrder?`. It also has `kind`, `consentStates`, and `includeDuplicateDms` (default `false`).
+
+```swift title="Before"
+func recentGroups(client: Client, afterNs: Int64) throws -> [Group] {
+    try client.conversations.listGroups(
+        createdAfterNs: afterNs, limit: 20,
+        consentStates: [.allowed], orderBy: .lastActivity
+    )
+}
+```
+
+```swift title="After"
+func recentGroups(client: SDKClient, afterNs: Int64) async throws -> [Group] {
+    try await client.conversations.listGroups(
+        options: ListConversationsOptions(
+            consentStates: [.allowed], createdAfter: Timestamp(ns: afterNs),
+            limit: 20, orderBy: .lastActivity
+        )
+    )
+}
+```
+
+Conversation lists now default to creation time instead of last activity.
+Set `orderBy` explicitly to retain the old order. Message lists now default to
+ascending order instead of descending order. Set `direction` explicitly when
+newest-first order is required.
+
+## Read conversation and group state
+
+`Group` and `Dm` are now Rust-backed classes. `Conversation` still has `.group(Group)` and `.dm(Dm)` cases. It forwards common methods. It has no common `state()` method: match the case and read the group's `GroupState.common` or the DM's `ConversationState`.
+
+| Old property or method                                            | New method or result                                           | Required change                                                                                                                                   |
+| ----------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.id`, `.topic`, `.createdAt`, `.createdAtNs`                     | `id()`, `topic()`, `createdAt()`                               | Creation time is `Timestamp`; use `.date` or `.ns`.                                                                                               |
+| `.type`                                                           | `kind()`                                                       | Returns `.group` or `.dm`.                                                                                                                        |
+| `.lastActivityAtNs`                                               | `lastActivityAt(contentTypes:)`                                | Async throwing `Timestamp`; pass `nil` for all content types.                                                                                     |
+| `.members` on `Group` / `Dm`                                      | `members()`                                                    | The old async throwing getter becomes an async throwing method.                                                                                   |
+| `.peerInboxIds` on `Group`                                        | `peerInboxIds()`                                               | The old async throwing getter becomes an async throwing method.                                                                                   |
+| `.peerInboxId` on `Dm`                                            | `peerInboxId()`                                                | The old throwing getter becomes async throwing `InboxId?`.                                                                                        |
+| `creatorInboxId()`                                                | Same method                                                    | Now synchronous and nonthrowing `InboxId?`.                                                                                                       |
+| `addedByInboxId()`                                                | Same method                                                    | Now nonthrowing `InboxId?`.                                                                                                                       |
+| `isCreator()`                                                     | Same method                                                    | Now synchronous and nonthrowing `Bool`.                                                                                                           |
+| `.clientInboxId`                                                  | `client.inboxId()`                                             | The per-conversation field is absent.                                                                                                             |
+| `isActive()`                                                      | `state().isActive` on DM; `state().common.isActive` on group   | Read the async state result.                                                                                                                      |
+| `consentState()`                                                  | `state().consentState` or `.common.consentState`               | Read the async state result.                                                                                                                      |
+| `pausedForVersion()`                                              | `state().pausedForVersion` or `.common.pausedForVersion`       | `String?`.                                                                                                                                        |
+| `commitLogForkStatus()`                                           | `state().commitLogForkStatus` or `.common.commitLogForkStatus` | Enum remains `CommitLogForkStatus`.                                                                                                               |
+| `.disappearingMessageSettings`, `isDisappearingMessagesEnabled()` | State fields `disappearingSettings`, `isDisappearingEnabled`   | Async state read.                                                                                                                                 |
+| `name()`, `imageUrl()`, `description()`, `appData()`              | `group.state()` fields                                         | `String` fields in one async snapshot.                                                                                                            |
+| `.membershipState`                                                | `group.state().membershipState`                                | `MembershipState`; the five case names stay the same.                                                                                             |
+| `permissionPolicySet()`                                           | `group.state().permissions.policySet`                          | `GroupPermissions` also gives `policyType`.                                                                                                       |
+| `getDebugInformation()`                                           | `debugInfo()`                                                  | Async throwing `ConversationDebugInfo`. The old `commitLogForkStatus` enum becomes `isCommitLogForked: Bool?`; `nil` means the status is unknown. |
+| `getLastReadTimes()`                                              | `lastReadTimes()`                                              | Async throwing `[String: Timestamp]`, rather than `[String: Int64]`.                                                                              |
+
+`Member` retains `inboxId`, `identities`, `permissionLevel`, and `consentState`. Change `PermissionLevel.Member`, `.Admin`, and `.SuperAdmin` to `.member`, `.admin`, and `.superAdmin`.
+
+```swift title="Before"
+func groupDetails(group: Group) async throws -> (String, Bool, [Member]) {
+    (try group.name(), try group.isActive(), try await group.members)
+}
+```
+
+```swift title="After"
+func groupDetails(group: Group) async throws -> (String, Bool, [Member]) {
+    let state = try await group.state()
+    return (state.name, state.common.isActive, try await group.members())
+}
+```
+
+## Change members, metadata, and permissions
+
+| Old method                                                          | New method                                  | Parameter and result change                                                     |
+| ------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------- |
+| `addMembers(inboxIds:)`                                             | `addMembers(members: [InboxId])`            | `GroupMembershipResult` becomes `MembershipResult`.                             |
+| `addMembersByIdentity(identities:)`                                 | `addMembers(members: [PublicIdentity])`     | Same new result.                                                                |
+| `removeMembers(inboxIds:)`                                          | `removeMembers(members: [InboxId])`         | Async throwing `Void`.                                                          |
+| `removeMembersByIdentity(identities:)`                              | `removeMembers(members: [PublicIdentity])`  | Async throwing `Void`.                                                          |
+| `isAdmin(inboxId:)`, `isSuperAdmin(inboxId:)`                       | Same names and labels                       | Now async throwing `Bool`.                                                      |
+| `listAdmins()`, `listSuperAdmins()`                                 | Same names                                  | Now async throwing `[InboxId]`.                                                 |
+| `membershipCapabilities()`                                          | Same name                                   | Same outer record; installation ID is now `InstallationId`, rather than `Data`. |
+| `updateName(name:)`                                                 | `updateName(value:)`                        | Async throwing `Void`.                                                          |
+| `updateDescription(description:)`                                   | `updateDescription(value:)`                 | Async throwing `Void`.                                                          |
+| `updateImageUrl(imageUrl:)`                                         | `updateImageUrl(value:)`                    | Async throwing `Void`.                                                          |
+| `updateAppData(appData:expectedAppData:)`                           | `updateAppData(value:expected:)`            | Pass `expected: nil` when no comparison is needed.                              |
+| `updateConsentState(state:)`                                        | Same method                                 | Async throwing `Void`.                                                          |
+| `updateDisappearingMessageSettings(...)`                            | `updateDisappearingSettings(settings:)`     | Pass `DisappearingSettings?`.                                                   |
+| `clearDisappearingMessageSettings()`                                | `updateDisappearingSettings(settings: nil)` | Clear with the same method.                                                     |
+| `leaveGroup()`                                                      | `requestRemoval()`                          | Async throwing `Void`; sends a removal request.                                 |
+| `proposalsEnabled()`, `unstable.enableProposals(force:minVersion:)` | No matching switch                          | There is no Swift proposal-upgrade API in the new surface.                      |
+
+```swift title="Before"
+func updateGroup(group: Group, peer: InboxId, startNs: Int64) async throws {
+    let result = try await group.addMembers(inboxIds: [peer])
+    print(result.addedMembers)
+    try await group.updateName(name: "Planning")
+    try await group.updateDisappearingMessageSettings(
+        DisappearingMessageSettings(
+            disappearStartingAtNs: startNs, retentionDurationInNs: 86_400_000_000_000
+        )
+    )
+}
+```
+
+```swift title="After"
+func updateGroup(group: Group, peer: InboxId, startNs: Int64) async throws {
+    let result = try await group.addMembers(members: [peer])
+    print(result.added)
+    try await group.updateName(value: "Planning")
+    try await group.updateDisappearingSettings(
+        settings: DisappearingSettings(
+            from: Timestamp(ns: startNs), retentionNs: 86_400_000_000_000
+        )
+    )
+}
+```
+
+All old individual permission setters map to `updatePermission(kind:policy:metadataField:)`:
+
+| Old setter suffix        | `kind`            | `metadataField` |
+| ------------------------ | ----------------- | --------------- |
+| `AddMemberPermission`    | `.addMember`      | `nil`           |
+| `RemoveMemberPermission` | `.removeMember`   | `nil`           |
+| `AddAdminPermission`     | `.addAdmin`       | `nil`           |
+| `RemoveAdminPermission`  | `.removeAdmin`    | `nil`           |
+| `NamePermission`         | `.updateMetadata` | `.name`         |
+| `DescriptionPermission`  | `.updateMetadata` | `.description`  |
+| `ImageUrlPermission`     | `.updateMetadata` | `.imageUrl`     |
+
+The old `.unknown` permission mapped both missing and unrecognized policies to one case. Handle `.doesNotExist` and `.other` separately when your app reads policies.
+
+Each old setter took `newPermissionOption: PermissionOption`. The new method takes `policy: PermissionPolicy`. In a custom `PermissionPolicySet`, remove the `Policy` suffix: `addMemberPolicy` becomes `addMember`, `updateGroupNamePolicy` becomes `updateName`, `updateGroupDescriptionPolicy` becomes `updateDescription`, `updateGroupImagePolicy` becomes `updateImage`, `updateMessageDisappearingPolicy` becomes `updateDisappearing`, and `updateAppDataPolicy` becomes `updateAppData`. The admin and member fields follow the same rule. The new policy set is a value record, rather than a class.
+
+```swift title="Before"
+func restrictName(group: Group) async throws {
+    try await group.updateNamePermission(newPermissionOption: .admin)
+}
+```
+
+```swift title="After"
+func restrictName(group: Group) async throws {
+    try await group.updatePermission(kind: .updateMetadata, policy: .admin, metadataField: .name)
+}
+```
+
+New metadata methods include `metadataFields()`, `metadataField(name:)`, `metadataValue(field:)`, `metadataValues(fields:)`, `mapValue(field:key:)`, `updateMetadataField(field:operation:)`, `userData(fields:inboxIds:)`, and `updateUserData(values:)`. These calls are async and throwing. They use typed `MetadataFieldRef`, `MetadataValue`, `FieldKey`, `FieldValue`, and mutation records. Do not copy an old opaque `appData` string into these records without defining how your app maps it.
+
+## Send and prepare messages
+
+The old `send(content: Any, options:)` selected a codec from `SendOptions.contentType`. The new API has standard send methods, an encoded-envelope method, and typed codec methods. All sends return `MessageId` (a `String` alias).
+
+```swift title="Before"
+func sendHello(dm: Dm) async throws -> String {
+    try await dm.send(content: "Hello")
+}
+```
+
+```swift title="After"
+func sendHello(dm: Dm) async throws -> MessageId {
+    try await dm.sendText(text: "Hello")
+}
+```
+
+| Old method or option                                 | New method or option                                                                | Required change                                                                                                                   |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `send(content:options:)`                             | `sendText(text:options:)`, a standard send method, or `send(codec, value:options:)` | Select the typed operation.                                                                                                       |
+| `Conversation.send(text:options:)`                   | `sendText(text:options:)`                                                           | The forwarded enum method requires `options`, including `nil`.                                                                    |
+| `send(encodedContent:visibilityOptions:)`            | `send(encoded:options:)`                                                            | One `SendOptions` record holds visibility and send settings.                                                                      |
+| `encodeContent(content:options:)`                    | `codec.encode(value)` or `encodeStandard(value:)`                                   | Old tuple result `(EncodedContent, MessageVisibilityOptions)` is absent. Typed send applies fallback and push policy.             |
+| `prepareMessage(content:options:noSend: false)`      | Send with `SendOptions(optimistic: true)`                                           | The old default prepared and sent optimistically.                                                                                 |
+| `prepareMessage(..., noSend: true)`                  | Keep the draft in app storage, then call a send method when ready                   | There is no no-send mode. The new `prepareMessage` queues optimistic publication and can publish before an explicit publish call. |
+| `publishMessage(messageId:)`                         | `publishMessage(id:)`                                                               | Same async throwing `Void` result.                                                                                                |
+| `MessageVisibilityOptions.shouldPush/idempotencyKey` | `SendOptions.shouldPush/idempotencyKey`                                             | `shouldPush` is now `Bool?`; `nil` selects SDK policy.                                                                            |
+| `SendOptions.contentType`                            | A typed send method or codec argument                                               | Field removed.                                                                                                                    |
+| `SendOptions.ephemeral`                              | No matching send option                                                             | Field removed.                                                                                                                    |
+| `SendOptions.compression`                            | `SendOptions.compression`                                                           | Type becomes `Compression?`.                                                                                                      |
+
+Standard send methods on `Group`, `Dm`, and `Conversation` are `sendText`, `sendMarkdown`, `sendReadReceipt`, `sendReaction`, `sendReply`, `sendAttachment`, `sendRemoteAttachment`, `sendMultiRemoteAttachment`, `sendTransactionReference`, `sendWalletSendCalls`, `sendActions`, and `sendIntent`. Each takes its named typed payload and `options: SendOptions?`. `Group` and `Dm` give the options a default. The `Conversation` enum forwarders require `options: nil` when no options are needed.
+
+```swift title="Before"
+func prepare(dm: Dm) async throws {
+    let id = try await dm.prepareMessage(content: "Draft", noSend: true)
+    try await dm.publishMessage(messageId: id)
+}
+```
+
+```swift title="After"
+func sendDraft(dm: Dm, draft: String) async throws -> MessageId {
+    // Keep draft in app storage until the user chooses to send it.
+    try await dm.sendText(text: draft)
+}
+```
+
+```swift title="Before"
+func sendOptimistic(dm: Dm) async throws -> String {
+    try await dm.prepareMessage(content: "Hello")
+}
+```
+
+```swift title="After"
+func sendOptimistic(dm: Dm) async throws -> MessageId {
+    try await dm.sendText(text: "Hello", options: SendOptions(optimistic: true))
+}
+```
+
+## Read messages and their content
+
+`messages`, `messagesWithReactions`, and `enrichedMessages` now use one `messages(options:)` method and return `[Message]`. `lastMessage()` returns `Message?`. `countMessages(options:)` is now async throwing and returns `UInt64`, rather than `Int64`.
+
+| Old message filter                           | New `ListMessagesOptions` field        | Type change                                                                                                                                                           |
+| -------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `beforeNs`, `afterNs`                        | `sentBefore`, `sentAfter`              | `Int64?` to `Timestamp?`.                                                                                                                                             |
+| `insertedBeforeNs`, `insertedAfterNs`        | `insertedBefore`, `insertedAfter`      | `Int64?` to `Timestamp?`.                                                                                                                                             |
+| `limit`                                      | `limit`                                | `Int?` to `UInt32?`.                                                                                                                                                  |
+| `direction`                                  | `direction`                            | `SortDirection?` to `MessageOrder?`.                                                                                                                                  |
+| `deliveryStatus: .all`                       | `deliveryStatus: nil`                  | Other cases use `DeliveryStatus`.                                                                                                                                     |
+| `excludeContentTypes: [StandardContentType]` | `excludeContentTypes: [ContentTypeId]` | Use `standardContentType(kind:)` for catalogue types.                                                                                                                 |
+| No old high-level include filter             | `contentTypes`, `kind`                 | Select supported catalogue content kinds and `MessageKind`. Matching uses authority, type name, and major version; minor version is ignored. Custom IDs are rejected. |
+
+```swift title="Before"
+func readMessages(dm: Dm, afterNs: Int64) async throws -> [DecodedMessageV2] {
+    try await dm.enrichedMessages(afterNs: afterNs, limit: 50, direction: .ascending)
+}
+
+func messageText(_ message: DecodedMessageV2) throws -> String {
+    try message.content()
+}
+```
+
+```swift title="After"
+func readMessages(dm: Dm, afterNs: Int64) async throws -> [Message] {
+    try await dm.messages(options: ListMessagesOptions(
+        limit: 50, sentAfter: Timestamp(ns: afterNs), direction: .ascending
+    ))
+}
+
+func messageText(_ message: Message) -> String? {
+    if case .standard(.text(let text)) = message.content { return text }
+    return message.fallback
+}
+```
+
+| Old message result                                                     | New result                                                    | Required change                                                                        |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `sentAt: Date`, `sentAtNs: Int64`                                      | `sentAt: Timestamp`                                           | Use `.date` or `.ns`.                                                                  |
+| `insertedAt: Date`, `insertedAtNs`                                     | `insertedAt: Timestamp`                                       | Use `.date` or `.ns`.                                                                  |
+| `expiresAt: Date?`, `expiresAtNs`                                      | `expiresAt: Timestamp?`                                       | Use `?.date` or `?.ns`.                                                                |
+| `content<T>() throws -> T`                                             | `content: SDKMessageContent`                                  | Match `.standard`, `.custom`, or `.unknown`.                                           |
+| `body`, throwing `fallback: String`                                    | `fallback: String?`                                           | Text content comes from `.standard(.text(...))`; handle an absent fallback.            |
+| `contentTypeId` on `DecodedMessageV2`                                  | `contentType: ContentTypeId?`                                 | Handle an absent type.                                                                 |
+| Throwing `encodedContent` on `DecodedMessage`                          | `encoded: EncodedContent?`, `rawBytes: Data`                  | Keep the raw envelope even if decoding fails.                                          |
+| `childMessages: [DecodedMessage]?` or `reactions: [DecodedMessageV2]?` | `reactions: [ReactionMessage]`                                | Empty array replaces `nil`; elements contain ID, sender, time, status, and `Reaction`. |
+| `Reply.inReplyTo`                                                      | `inReplyTo: ReplyParent?`, `inReplyToContent`, `replyContent` | Parent and body use typed records/enums.                                               |
+| `kind: FfiConversationMessageKind`                                     | `kind: MessageKind`                                           | Keep `.application` and `.membershipChange`.                                           |
+| No matching old field                                                  | `replyCount: UInt64`, `deliveryCursor: String?`               | Reply totals and replay position are explicit.                                         |
+
+A custom decode failure is a result, not a failed message list. `.custom` holds `encoded`, `rawBytes`, optional decoded `value`, and optional `ErrorDetails`. `.unknown` holds the optional envelope, bytes, and an error. A standard result is `MessageContent`, including text, markdown, reaction, reply, attachment, group update, leave request, or deletion.
+
+New message actions are `refresh() -> Message?`, `delete() -> MessageId`, `deleteLocally()`, `react(_:options:) -> MessageId`, `reply(_:options:) -> MessageId`, `parent() -> Message?`, `conversation() -> Conversation?`, and `client() -> SDKClient`. All except `client()` are async throwing. `client()` is synchronous and throwing. Keep the owner client alive and call actions before `end()`.
+
+## Reactions, replies, and deletion
+
+The new `Reaction` contains `content`, `action`, and `schema`. The reference ID moves to `sendReaction(reference:referenceInboxId:reaction:options:)` or `ReactionV2Content`. `ReplyContent` contains the reference ID, optional reference inbox ID, and an `EncodedContent` body. It replaces the old `Reply` payload with an `Any` body and a separate content type.
+
+```swift title="Before"
+func react(dm: Dm, id: String) async throws -> String {
+    try await dm.send(
+        content: Reaction(reference: id, action: .added, content: "👍", schema: .unicode),
+        options: SendOptions(contentType: ContentTypeReactionV2)
+    )
+}
+```
+
+```swift title="After"
+func react(dm: Dm, id: MessageId) async throws -> MessageId {
+    try await dm.sendReaction(
+        reference: id, referenceInboxId: nil,
+        reaction: Reaction(content: "👍", action: .added, schema: .unicode)
+    )
+}
+```
+
+```swift title="Before"
+func reply(dm: Dm, id: String) async throws -> String {
+    try await dm.send(
+        content: Reply(reference: id, content: "Thanks", contentType: ContentTypeText),
+        options: SendOptions(contentType: ContentTypeReply)
+    )
+}
+```
+
+```swift title="After"
+func reply(dm: Dm, id: MessageId) async throws -> MessageId {
+    try await dm.sendReply(
+        reference: id, referenceInboxId: nil,
+        content: encodeText(text: "Thanks")
+    )
+}
+```
+
+`deleteMessage(messageId:)` on a conversation becomes `deleteMessage(id:)`. `Conversations.deleteMessageLocally(messageId:)` becomes `deleteMessageLocally(id:)` and is now async. You can also call the actions on a `Message`. `processMessage(messageBytes:)` is absent; let readers and sync process transport messages.
+
+The native action and intent records also change. `Intent.metadata` becomes
+`metadataJson`. `Action.expiresAtNs` and `Actions.expiresAtNs` become `expiresAt`
+with a nullable `Timestamp`. `TransactionReference` no longer supplies default
+values for `namespace` and `metadata`; pass both arguments explicitly, using
+`null` in Kotlin or `nil` in Swift when absent. `RemoteAttachment` also requires explicit nullable `contentLength` and `filename` arguments; their old constructor defaults are gone.
+
+## Codecs and envelope records
+
+All standard content types are built into the core. An app does not need to register `TextCodec` or other standard codecs to read standard content. Host codecs still support custom types. Pass receive codecs to `SDKClient.create` or `build`. `Client.register(codec:)` and the process-wide registry are absent.
+
+Every codec method changes from a labeled argument to an unlabeled argument: `encode(content:)` becomes `encode(_:)`, `decode(content:)` becomes `decode(_:)`, `fallback(content:)` becomes `fallback(_:)`, and `shouldPush(content:)` becomes `shouldPush(_:)`. Rename the associated type `T` to `Value`, and `contentType` to `type`. `Value` and the codec must be `Sendable`. `Hashable` and `Equatable` are no longer protocol requirements.
+
+```swift title="Before"
+struct StatusCodec: ContentCodec {
+    typealias T = String
+    let contentType = ContentTypeID(authorityID: "example.com", typeID: "status", versionMajor: 1, versionMinor: 0)
+
+    func encode(content: String) throws -> EncodedContent {
+        var encoded = EncodedContent()
+        encoded.type = contentType
+        encoded.content = Data(content.utf8)
+        return encoded
+    }
+    func decode(content: EncodedContent) throws -> String {
+        String(decoding: content.content, as: UTF8.self)
+    }
+    func fallback(content: String) throws -> String? { content }
+    func shouldPush(content: String) throws -> Bool { true }
+}
+
+func sendStatus(dm: Dm) async throws -> String {
+    Client.register(codec: StatusCodec())
+    return try await dm.send(content: "Ready", options: SendOptions(contentType: StatusCodec().contentType))
+}
+```
+
+```swift title="After"
+struct StatusCodec: ContentCodec {
+    typealias Value = String
+    let type = ContentTypeId(authorityId: "example.com", typeId: "status", versionMajor: 1, versionMinor: 0)
+
+    func encode(_ value: String) throws -> EncodedContent {
+        EncodedContent(type: type, content: Data(value.utf8))
+    }
+    func decode(_ encoded: EncodedContent) throws -> String {
+        String(decoding: encoded.content, as: UTF8.self)
+    }
+    func fallback(_ value: String) throws -> String? { value }
+    func shouldPush(_ value: String) throws -> Bool { true }
+}
+
+func sendStatus(dm: Dm) async throws -> MessageId {
+    try await dm.send(StatusCodec(), value: "Ready")
+}
+```
+
+For receive, create the client with `codecs: [StatusCodec()]`. A typed send applies encode, fallback, and push policy before publishing. An explicit `SendOptions.shouldPush` wins. A standard catalogue type keeps its standard policy. A custom codec's `shouldPush` is used when no explicit value is supplied.
+
+Replace the `ContentTypeText`, `ContentTypeAttachment`, `ContentTypeReply`, `ContentTypeReactionV2`, and other global content constants with `standardContentType(kind:)`. Catalogue kinds include `.text`, `.markdown`, `.reply`, `.reaction`, `.attachment`, `.remoteAttachment`, `.multiRemoteAttachment`, `.readReceipt`, `.transactionReference`, `.walletSendCalls`, `.actions`, `.intent`, `.groupUpdated`, `.deleteMessage`, and `.leaveRequest`.
+
+`EncodedContent` is now a record with `type`, `parameters`, optional `fallback`, and `content`. It is not a SwiftProtobuf message. Replace `serializedData()` / `serializedBytes()` with `encodeEncodedContent(content:)`, and `EncodedContent(serializedBytes:)` with `decodeEncodedContent(bytes:)`. The old `decoded<T>()`, `compress`, and `decompressContent` extension methods are absent. Use a codec or `decodeStandard(encoded:)`; pass compression in send options.
+
+| Content type                       | New record or codec change                                                                                                                                                                                                                |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Text, read receipt                 | `TextCodec.Value` is `String`; `ReadReceiptCodec.Value` is `Void`, rather than `ReadReceipt`. Use `sendReadReceipt()`.                                                                                                                    |
+| Markdown                           | `MarkdownCodec` and `sendMarkdown(markdown:)` are explicit.                                                                                                                                                                               |
+| Reaction V1                        | `ReactionCodec` is absent. Use `ReactionV2Codec` with `ReactionV2Content`, or `sendReaction`.                                                                                                                                             |
+| Reply                              | `ReplyCodec.Value` is `ReplyContent`; encode its body first.                                                                                                                                                                              |
+| Attachment                         | `Attachment.data` becomes `content: Data`; `filename` becomes `String?`.                                                                                                                                                                  |
+| Remote attachment                  | `scheme` is `String`, rather than `RemoteAttachment.Scheme`; `contentLength` is `UInt32?`, rather than `Int?`. The record initializer is nonthrowing.                                                                                     |
+| Multi remote attachment            | `remoteAttachments: [RemoteAttachmentInfo]` becomes `attachments: [RemoteAttachment]`; the nested info type is absent.                                                                                                                    |
+| Transaction reference              | Nested `TransactionReference.Metadata` becomes `TransactionMetadata`; fields retain their meanings.                                                                                                                                       |
+| Group update                       | SwiftProtobuf `GroupUpdated` becomes a record. `initiatedByInboxID` becomes `initiatedByInboxId`; inbox collections are `[InboxId]`; metadata changes retain optional old/new values. New admin and super-admin collections are explicit. |
+| Wallet send calls, actions, intent | Use public records `WalletSendCalls`, `WalletCall`, `WalletCallMetadata`, `Actions`, and `Intent`; do not expose `Ffi*` aliases or protobuf records.                                                                                      |
+| Leave request, delete message      | `DeleteMessageRequest(messageId:)` becomes `DeleteMessageContent(messageId:)`. `LeaveRequest` and `DeleteMessageContent` are records. `DeletedMessage` is a read result. Standard typed codecs have matching records.                     |
+
+The old generated codec functions also change. `encodeText(text:)` returned `Data`; it now returns `EncodedContent`. Use `encodeEncodedContent(content:)` when you need envelope bytes. The old `encodeActions`, `encodeAttachment`, `encodeDeleteMessage`, `encodeIntent`, `encodeLeaveRequest`, `encodeMarkdown`, `encodeMultiRemoteAttachment`, `encodeReaction`, `encodeReadReceipt`, `encodeRemoteAttachment`, `encodeReply`, `encodeTransactionReference`, and `encodeWalletSendCalls` functions are absent. Use the corresponding codec or `encodeStandard(value:)` with a `StandardContent` case. The old `decodeActions`, `decodeAttachment`, `decodeDeleteMessage`, `decodeGroupUpdated`, `decodeIntent`, `decodeLeaveRequest`, `decodeMarkdown`, `decodeMultiRemoteAttachment`, `decodeReaction`, `decodeReadReceipt`, `decodeRemoteAttachment`, `decodeReply`, `decodeText`, `decodeTransactionReference`, and `decodeWalletSendCalls` functions are absent. Decode envelope bytes first, then use the corresponding codec or `decodeStandard(encoded:)`.
+
+## Attachments
+
+For an inline attachment, rename the bytes field and use `sendAttachment`.
+
+```swift title="Before"
+func sendFile(dm: Dm, bytes: Data) async throws -> String {
+    try await dm.send(
+        content: Attachment(filename: "note.txt", mimeType: "text/plain", data: bytes),
+        options: SendOptions(contentType: ContentTypeAttachment)
+    )
+}
+```
+
+```swift title="After"
+func sendFile(dm: Dm, bytes: Data) async throws -> MessageId {
+    try await dm.sendAttachment(
+        attachment: Attachment(filename: "note.txt", mimeType: "text/plain", content: bytes)
+    )
+}
+```
+
+For the deployment's remote attachment service, stage the file first. Send its reference, then upload it. `create(source:)` returns before a network request. `upload()` is a separate async operation.
+
+```swift title="After"
+func sendRemoteFile(client: SDKClient, dm: Dm, path: String) async throws -> MessageId {
+    let pending = try await client.attachments().create(source: .path(path: path, filename: "note.txt", mimeType: "text/plain"))
+    let id = try await dm.sendRemoteAttachment(attachment: pending.remoteAttachment())
+    try await pending.upload()
+    return id
+}
+```
+
+`Attachments` adds `offered()`, `create(source:)`, `listPending()`, `pending(remote:)`, `download(remote:)`, `localPath(remote:)`, `listLocal()`, and `deleteLocal(remote:)`. Reads and mutations are async throwing except `offered()`. `PendingAttachment` has `remoteAttachment()`, `localPath()`, `status()`, and `upload()`. `download` returns `DownloadedAttachment(path:mimeType:filename:)`. Download verifies and decrypts the file. A failed download is not retried by that call.
+
+The low-level encryption shape also changes. The old `EncryptedEncodedContent` had flat `secret`, `salt`, `nonce`, `digest`, `payload`, `filename`, and `contentLength` fields. The new record has `ciphertext: Data` and `keys: EncryptionKeys`. Keys contain `secret`, `salt`, `nonce`, `digest`, and `length: UInt64`.
+
+| Old helper                                                                      | New helper                                                                                         | Required change                                                                        |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `RemoteAttachment.encodeEncrypted(content:codec:)`                              | Encode with a codec, serialize with `encodeEncodedContent`, then `encryptEncodedContent(content:)` | Encryption is now async throwing.                                                      |
+| `RemoteAttachment.encodeEncryptedBytes(encodedContent:filename:)`               | `encryptEncodedContent(content:)`                                                                  | Filename is separate from encryption output.                                           |
+| `RemoteAttachment.decryptEncoded(encrypted:)`                                   | `decryptEncodedContent(encrypted:)` then `decodeEncodedContent(bytes:)`                            | Decrypt returns `Data`; async throwing.                                                |
+| `RemoteAttachment.content()`                                                    | `client.attachments().download(remote:)`                                                           | Returns a verified local file record; decode an encoded envelope yourself when needed. |
+| `MultiRemoteAttachment.RemoteAttachmentInfo.from(url:encryptedEncodedContent:)` | `remoteAttachmentFromEncrypted(url:encryptedEncodedContent:filename:)`                             | Returns `RemoteAttachment`; URL is now `String`.                                       |
+| Multi-attachment encryption/build/decrypt helpers                               | `encryptBytes`, `encryptFile`, `decryptBytes`, `decryptFile`, and `remoteAttachmentFromEncrypted`  | Use `EncryptionKeys`; file calls use input/output path strings.                        |
+
+The old nested remote attachment types are absent. Use the attachment service or your app's network layer for externally hosted files.
+
+## Streams and replay
+
+Swift streams use the conversation collection or a loaded conversation. A stream yields `Message` or `Conversation`. Stream creation is async throwing. The close callback now receives `SDKStreamCloseReason` (`.closed` or `.failed(Error)`) and is `@Sendable`. The connection-state callback is also `@Sendable`.
+
+| Old stream                                                            | New stream                                         | Parameter change                                                                                  |
+| --------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `group.streamMessages(onClose:)` / `dm.streamMessages(onClose:)`      | `conversation.streamMessages(options:)`            | Use `ConversationMessageStreamOptions(from:onClose:onConnectionStateChange:)`.                    |
+| `conversation.streamMessages(onClose:)`                               | `conversation.streamMessages(options:)`            | The enum forwards to its group or DM.                                                             |
+| `client.conversations.streamAllMessages(type:consentStates:onClose:)` | `client.conversations.streamAllMessages(options:)` | Use `MessageStreamOptions(conversationKind:consentStates:from:onClose:onConnectionStateChange:)`. |
+| `client.conversations.stream(type:onClose:)`                          | `client.conversations.stream(options:)`            | `.all` becomes `nil`; `.groups` becomes `.group`; `.dms` becomes `.dm`.                           |
+| `group.endStream()` / `dm.endStream()`                                | Cancel the consumer task or release its iterator   | Stream lifetime belongs to the iterator.                                                          |
+| `streamMessageDeletions(...)`                                         | `client.events(EventFilter(...))`                  | Read typed deletion events.                                                                       |
+| `preferences.streamConsent(...)` / `streamPreferenceUpdates(...)`     | `client.events(EventFilter(...))`                  | Read typed consent and preference events.                                                         |
+
+```swift title="Before"
+func consume(dm: Dm) async throws {
+    for try await message in dm.streamMessages() {
+        print(message.id)
+    }
+}
+```
+
+```swift title="After"
+func consume(client: SDKClient, dm: Dm) async throws {
+    let stream = try await dm.streamMessages()
+    for try await message in stream {
+        print(message.id)
+    }
+}
+```
+
+```swift title="Before"
+func consumeAll(client: Client) async throws {
+    for try await message in client.conversations.streamAllMessages(type: .dms, consentStates: [.allowed]) {
+        print(message.id)
+    }
+}
+```
+
+```swift title="After"
+func consumeAll(client: SDKClient) async throws {
+    let stream = try await client.conversations.streamAllMessages(
+        options: MessageStreamOptions(conversationKind: .dm, consentStates: [.allowed])
+    )
+    for try await message in stream {
+        print(message.id)
+    }
+}
+```
+
+Each message or conversation iterator owns a reader. The next read acknowledges the previous message. Cancellation, close, and release do not acknowledge the pending message. Do not advance an app cursor before your app stores or handles the message.
+
+For history followed by live delivery, use the atomic history snapshot and its cursor:
+
+```swift title="After"
+func historyThenLive(client: SDKClient, dm: Dm) async throws {
+    let snapshot = try await dm.messageHistorySnapshot(limit: 100)
+    for message in snapshot.messages { print(message.id) }
+    let stream = try await dm.streamMessages(
+        options: ConversationMessageStreamOptions(from: snapshot.cursor)
+    )
+    for try await message in stream { print(message.id) }
+}
+```
+
+A low-level `MessageReader` or `ConversationReader` has `next()`, `end()`, `connectionState()`, and `connectionStateChanged(previous:)`. Use the Swift async sequence for ordinary app code. `Conversations.beginningDeliveryCursor()` gives a replay start cursor. `messageHistorySnapshot(limit:options:)` captures all selected conversations and returns `[Message]` plus a cursor. Its `MessageReaderOptions` must not contain a replay `from` value.
+
+## Consent and client events
+
+`ConsentRecord(value:entryType:consentType:)` becomes `ConsentRecord(entity:state:)`. `EntryType.conversationId` and `.inboxId` become `.conversation(conversationId:)` and `.inbox(inboxId:)` cases in `ConsentEntity`. `ConsentState` still has `.allowed`, `.denied`, and `.unknown`.
+
+```swift title="Before"
+func allowPeer(client: Client, peer: InboxId) async throws {
+    try await client.preferences.setConsentState(entries: [
+        ConsentRecord(value: peer, entryType: .inboxId, consentType: .allowed)
+    ])
+    let state = try await client.preferences.inboxIdState(inboxId: peer)
+    print(state)
+}
+```
+
+```swift title="After"
+func allowPeer(client: SDKClient, peer: InboxId) async throws {
+    try await client.preferences().setConsentStates(records: [
+        ConsentRecord(entity: .inbox(inboxId: peer), state: .allowed)
+    ])
+    let state = try await client.preferences().consentState(entity: .inbox(inboxId: peer))
+    print(state)
+}
+```
+
+`preferences.conversationState(conversationId:)` uses the same new `consentState(entity:)` call with `.conversation(conversationId:)`. `preferences.sync()` remains async throwing. Consent values are no longer Swift `String, Codable` enums; serialize an app-owned representation when needed.
+
+The event stream yields `ClientEvent`. `EventFilter` selects `kinds`, optional `groupIds: [Data]`, optional `contentTypes: [EventContentTypeId]`, and `referencesOwnMessages` (default `false`). Event content IDs contain authority, type ID, and major version. `events(_:)` returns `SDKEventStream`. `startListener(_:onEvent:)` returns `ListenerId`; `stopListener(_:)` is async and nonthrowing. An event stream permits one iterator. Events are live notifications, not a message replay cursor.
+
+```swift title="After"
+func watchConsent(client: SDKClient) async throws {
+    let events = try await client.events(EventFilter(kinds: [.consentChanged]))
+    for try await event in events {
+        if case .consentChanged(let change) = event { print(change) }
+    }
+}
+```
+
+## Swift push notifications
+
+The separate `XMTPPush.shared` client is absent. Push recipient registration and subscriptions now belong to `SDKClient`. Configure the deployment's channel with `NotificationConfig`. Your app still requests notification permission and obtains the APNs token through Apple APIs.
+
+```swift title="Before"
+func enablePush(client: Client, token: String, pushServer: String) async throws {
+    XMTPPush.shared.setPushServer(pushServer)
+    _ = try await XMTPPush.shared.request()
+    try await XMTPPush.shared.register(token: token)
+    try await XMTPPush.shared.subscribe(topics: client.conversations.allPushTopics())
+}
+```
+
+```swift title="After"
+func enablePush(client: SDKClient, token: String) async throws -> NotificationState {
+    try await client.enableNotifications(
+        config: NotificationConfig(channel: .apns(token: token), consentStates: [.allowed])
+    )
+}
+```
+
+| Old method                                                                            | New method                                                                            | Required change                                                                               |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `XMTPPush.setPushServer`                                                              | Backend configuration                                                                 | No separate push-server URL setter.                                                           |
+| `XMTPPush.request()`                                                                  | Apple notification permission API                                                     | The SDK does not expose a permission request helper.                                          |
+| `XMTPPush.register(token:)`                                                           | `client.enableNotifications(config:)`                                                 | Returns `NotificationState`, not `Void`.                                                      |
+| `subscribe(topics:)`, `subscribeWithMetadata(subscriptions:)`, `unsubscribe(topics:)` | Client-managed notification subscriptions and `conversation.setNotifications(value:)` | Select `.enabled`, `.disabled`, or `.default` per conversation.                               |
+| `allPushTopics()`, `getPushTopics()`                                                  | SDK-managed registration                                                              | No topic-list push setup methods. `topic()` remains available.                                |
+| `getHmacKeys()`                                                                       | `hmacKeys()`                                                                          | Async result is `[HmacKey]` for one conversation or `[String: [HmacKey]]` for the collection. |
+| `NotificationSubscription`, `NotificationSubscriptionHmacKey`                         | `NotificationConfig`, `HmacKey`                                                       | No old push protobuf aliases.                                                                 |
+
+`HmacKey` contains `key: Data` and `epoch: Int64`, instead of protobuf `hmacKey` and `thirtyDayPeriodsSinceEpoch`. `NotificationConfig` also supports `.fcm(token:)` and `.http(url:signingKey:)`. Optional flags are `includeWelcomes`, `includeSyncGroups`, and `includeCommits`. Read `client.notificationState()` to check the local state. Call `disableNotifications()` to disable the registration. Per-conversation state reports `notificationsEnabled`.
+
+## Storage and archives
+
+The database path is optional. Move database administration to `client.storage()`. `delete()` and `reconnect()` are async throwing. `path()` is also async throwing. The old `dropLocalDatabaseConnection()` method is absent; `end()` is the client shutdown operation.
+
+```swift title="Before"
+func deleteStore(client: Client) throws {
+    try client.deleteLocalDatabase()
+}
+```
+
+```swift title="After"
+func deleteStore(client: SDKClient) async throws {
+    try await client.storage().delete()
+}
+```
+
+Archive calls move to `client.archives()`. File export now returns archive metadata. Byte import/export and byte metadata reads are new.
+
+```swift title="Before"
+func saveArchive(client: Client, path: String, key: Data) async throws -> ArchiveMetadata {
+    try await client.createArchive(path: path, encryptionKey: key, opts: ArchiveOptions())
+    return try await client.archiveMetadata(path: path, encryptionKey: key)
+}
+
+func restoreArchive(client: Client, path: String, key: Data) async throws {
+    try await client.importArchive(path: path, encryptionKey: key)
+}
+```
+
+```swift title="After"
+func saveArchive(client: SDKClient, path: String, key: Data) async throws -> ArchiveMetadata {
+    try await client.archives().exportToFile(path: path, keyBytes: key, options: nil)
+}
+
+func restoreArchive(client: SDKClient, path: String, key: Data) async throws {
+    try await client.archives().importFromFile(path: path, keyBytes: key)
+}
+```
+
+| Old method or record                                                                                    | New method or record                                                 | Required change                                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `createArchive(path:encryptionKey:opts:) -> Void`                                                       | `archives().exportToFile(path:keyBytes:options:) -> ArchiveMetadata` | New labels and result.                                                                                                       |
+| `importArchive(path:encryptionKey:)`                                                                    | `archives().importFromFile(path:keyBytes:)`                          | Same async throwing `Void` result.                                                                                           |
+| `archiveMetadata(path:encryptionKey:)`                                                                  | `archives().metadataFromFile(path:keyBytes:)`                        | Same outer record name, changed fields.                                                                                      |
+| `ArchiveOptions.startNs/endNs`                                                                          | `ArchiveOptions.start/end`                                           | `Timestamp?`.                                                                                                                |
+| `ArchiveOptions.archiveElements`                                                                        | `ArchiveOptions.elements`                                            | Now `[ArchiveElement]?`; default is `nil`.                                                                                   |
+| `ArchiveMetadata.archiveVersion`                                                                        | `ArchiveMetadata.backupVersion`                                      | `UInt16`.                                                                                                                    |
+| `ArchiveMetadata.exportedAtNs/startNs/endNs`                                                            | `exportedAt/start/end`                                               | `Timestamp`, `Timestamp?`, `Timestamp?`.                                                                                     |
+| `sendSyncRequest`, `sendSyncArchive`, `processSyncArchive`, `listAvailableArchives`, `AvailableArchive` | No matching archive-service API                                      | Move file/byte transfer and archive selection to your app. There is no pin-based history-sync service in this Swift surface. |
+| `syncAllDeviceSyncGroups()`                                                                             | Same method                                                          | `GroupSyncSummary.eligible/synced` replace `numEligible/numSynced`.                                                          |
+
+`exportToBytes(keyBytes:options:)` returns `Data`. `importFromBytes(data:keyBytes:)` returns `Void`. `metadataFromBytes(data:keyBytes:)` returns `ArchiveMetadata`. All are async throwing. Keep archive encryption keys separate from the archive bytes.
+
+## Diagnostics, logging, and removed transport types
+
+`client.debugInformation.apiStatistics`, `.identityStatistics`, and `.aggregateStatistics` become async throwing methods on `client.diagnostics()`. `clearAllStatistics()` becomes `clearStatistics()`. `uploadDebugInformation(serverUrl:)` is absent.
+
+The statistics schema changes with the backend. `ApiStats` now has `publish`, `query`, `queryNewest`, `subscribe`, and `subscribeStatic` as `UInt64`. The old separate group, Welcome, and key-package counters are absent. `IdentityStats` now has `getInboxIds` and `verifySmartContractWalletSignatures` as `UInt64`. The old publish-identity and update-query counters are absent.
+
+| Old logging helper                                      | New API or action                                                  |
+| ------------------------------------------------------- | ------------------------------------------------------------------ |
+| `Client.activatePersistentLibXMTPLogWriter(...)`        | `enterDebugWriter(directory:rotation:maxFiles:level:processType:)` |
+| `Client.deactivatePersistentLibXMTPLogWriter()`         | `exitDebugWriter()`                                                |
+| `Client.setLibXMTPNativeLogLevel(...)`                  | Configure `initLogging(options: LoggingOptions(...))`.             |
+| `Client.getXMTPLogFilePaths(...)`, `clearXMTPLogs(...)` | Use your app's file operations for the chosen writer directory.    |
+| `XMTPLogger.main` / `.database`                         | `setLogSink(sink:)`, `LogSink.log(record:)`, and `AppleLogSink`    |
+
+The new writer entry takes a directory `String`, `LogRotation`, `maxFiles: UInt32`, `LogLevel`, and `LogProcessType`. The old helper took an optional directory `URL`, `maxFiles: Int`, and FFI enum types. Entry and exit are now throwing `Void` calls. `initLogging` is async throwing. `setLogSink` is async throwing and accepts `nil` to remove the sink. `flushTelemetry()` is async and nonthrowing.
+
+Use public `ErrorDetails` and typed SDK errors. Do not use old `ClientError.creationError` text as an error-code contract. Pure envelope functions can throw; client and reader operations also report typed failures and cancellation.
+
+The old `XMTPEnvironment.customLocalAddress`, `customHistorySyncUrl`, `isSecure`, and `getHistorySyncUrl()` members, and `getLocalAddressFromEnvironment()` / `getHistorySyncUrlFromEnvironment()` functions, are absent. Read your app configuration and pass the backend URL directly. The old `getVersionInfo()` helper becomes the public SDK/version reads. The generated Ethereum signing and address helpers (`ethereumAddressFromPubkey`, `ethereumGeneratePublicKey`, `ethereumHashPersonal`, `ethereumSignRecoverable`) have no direct exported replacements; use a `Signer` and your wallet library. `generateInboxId(accountIdentifier:nonce:)` now takes `identity: PublicIdentity` and optional `nonce`. Raw `connectToBackend`, `createClient`, `applySignatureRequest`, `getInboxIdForIdentifier`, `inboxStateFromInboxIds`, `isConnected`, and `revokeInstallations` calls must move to the client/backend methods above.
+
+The old mobile `Ffi*` API, generated protobuf records, `Topic` builders, `CipherText`, `PrivateKey` helpers, and Connect push client types are not compatibility APIs in `XmtpSdk`. Use public ID aliases, SDK records, `conversation.topic()`, and the new package functions. For local test identities, `generateLocalSigner()` and `localSignerFromPrivateKey(key:)` replace app use of the old `PrivateKey.generate()` and `PrivateKey(rawBytes)` helpers. The signer factories are async; `localSignerFromPrivateKey` is also throwing. The old public `String.hexToData` extension is absent. Do not carry generated converter or handle APIs into app code.

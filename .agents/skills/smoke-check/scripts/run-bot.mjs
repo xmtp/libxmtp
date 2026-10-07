@@ -51,12 +51,11 @@ export async function runBot(trigger, response) {
   const sdkRequire = createRequire(
     pathToFileURL(resolve(repoRoot, "sdks/node/package.json")),
   );
-  const [{ Client, MessageStream }, { isHex, toBytes }, accounts] =
-    await Promise.all([
-      import(pathToFileURL(resolve(repoRoot, "sdks/node/dist/entry.js"))),
-      import(pathToFileURL(sdkRequire.resolve("viem"))),
-      import(pathToFileURL(sdkRequire.resolve("viem/accounts"))),
-    ]);
+  const [{ Client }, { isHex, toBytes }, accounts] = await Promise.all([
+    import(pathToFileURL(resolve(repoRoot, "sdks/node/dist/entry.js"))),
+    import(pathToFileURL(sdkRequire.resolve("viem"))),
+    import(pathToFileURL(sdkRequire.resolve("viem/accounts"))),
+  ]);
   const { generatePrivateKey, privateKeyToAccount } = accounts;
   const backendKey = createHash("sha256")
     .update(backend.origin)
@@ -123,8 +122,7 @@ export async function runBot(trigger, response) {
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
-    // This is the current SDK's stream for all conversations.
-    stream = MessageStream.open(client, {});
+    stream = client.conversations.streamAllMessages();
     await stream.ready();
     await log({
       event: "ready",

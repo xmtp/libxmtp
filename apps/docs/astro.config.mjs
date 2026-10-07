@@ -99,10 +99,23 @@ export default defineConfig({
       sidebar: [
         {
           label: "Get started",
-          items: guidePages(
-            "get-started",
-            "quickstart install run-the-backend migrate-to-self-hosted",
-          ),
+          items: [
+            ...guidePages("get-started", "quickstart install run-the-backend"),
+            {
+              label: "Migrate to a self-hosted backend",
+              collapsed: true,
+              items: [
+                {
+                  slug: "get-started/migrate-to-self-hosted",
+                  label: "Migration overview",
+                },
+                ...guidePages(
+                  "get-started/migrate-to-self-hosted",
+                  "browser-sdk-upgrade-guide node-sdk-upgrade-guide kotlin-sdk-upgrade-guide swift-sdk-upgrade-guide agent-sdk-upgrade-guide",
+                ),
+              ],
+            },
+          ],
         },
         {
           label: "Deploy",
