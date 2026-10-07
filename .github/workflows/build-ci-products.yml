@@ -109,6 +109,9 @@ jobs:
                    'PRODUCT_KIND', 'CACHE_HIT', 'CACHE_MATCHED_KEY', 'CACHE_PRIMARY_KEY')
           output.write_text(json.dumps({name: os.environ[name] for name in names}, indent=2) + '\n')
           PY
+      - name: Record compiler cache counts
+        if: always() && inputs.kind != 'backend'
+        run: python3 -B dev/ci/kache-diagnostics.py --output target/ci-products/kache-diagnostics.json
       - name: Retain SDK product metadata
         if: always() && inputs.kind != 'backend'
         uses: actions/upload-artifact@v4
@@ -116,6 +119,7 @@ jobs:
           name: product-metadata-${{ inputs.kind }}-${{ github.run_attempt }}
           path: |
             target/ci-products/cache-diagnostics.json
+            target/ci-products/kache-diagnostics.json
             target/ci-products/sdk-${{ inputs.kind }}.manifest.json
             target/sdk-artifacts/artifacts.json
           if-no-files-found: error

@@ -4,6 +4,7 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,6 +24,23 @@ class ReferenceCacheTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        environment = patch.dict(
+            os.environ,
+            {
+                "CARGO_HOME": str(self.root / "cargo-home"),
+                "GRADLE_USER_HOME": str(self.root / "gradle-home"),
+            },
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.write(cache.POLICY_PATH, Path(cache.__file__).read_text())
+        self.write(cache.CONFIG_READER, "# Audited configuration reader\n")
+        self.write(
+            "crates/xmtp_sdk/dev/record-generated.py", "# Audited provenance reader\n"
+        )
+        self.write(
+            "crates/xmtp_sdk/dev/sdk-artifacts.py", "# Audited artifact reader\n"
+        )
         self.write(".gitignore", "output/\n")
         self.write("Cargo.lock", "locked dependency\n")
         self.write("crates/example/src/lib.rs", "pub struct Example;\n")
@@ -263,7 +281,7 @@ class ReferenceCacheTests(unittest.TestCase):
             cache.REVIEWED_READERS[kind] = cache.reader_contract(
                 self.root, cache.source_names(self.root), kind
             )
-            self.assertTrue(self.identity(kind)["cacheEligible"])
+            self.assertTrue(self.identity(kind)["source"]["cacheEligible"])
         for name, text in (
             ("dev/kache-env", 'export RUSTFLAGS="$(cat /tmp/compiler-flags)"\n'),
             ("dev/kache-darwin-wrapper", 'exec "$(cat /tmp/compiler-command)" "$@"\n'),
@@ -288,6 +306,166 @@ class ReferenceCacheTests(unittest.TestCase):
                     path.unlink()
                 else:
                     path.write_text(previous)
+
+    def test_policy_normalization_preserves_all_code_except_literal_pins(self):
+        source = (self.root / cache.POLICY_PATH).read_bytes()
+        normalized = cache.normalized_policy(source)
+        changed_pins = source
+        assignment = next(
+            node
+            for node in cache.ast.parse(source.decode()).body
+            if isinstance(node, cache.ast.Assign)
+            and isinstance(node.targets[0], cache.ast.Name)
+            and node.targets[0].id == "REVIEWED_READERS"
+        )
+        for value in cache.ast.literal_eval(assignment.value).values():
+            changed_pins = changed_pins.replace(value.encode(), b"new-reviewed-pin")
+        self.assertNotEqual(source, changed_pins)
+        self.assertEqual(normalized, cache.normalized_policy(changed_pins))
+        lines = source.splitlines(keepends=True)
+        lines[assignment.end_lineno - 1] = (
+            lines[assignment.end_lineno - 1].rstrip(b"\n")
+            + b"; external = Path('/tmp/unlisted').read_text()\n"
+        )
+        self.assertNotEqual(normalized, cache.normalized_policy(b"".join(lines)))
+        self.assertNotEqual(
+            normalized,
+            cache.normalized_policy(
+                source
+                + b"\ndef read_external():\n    return Path('/tmp/unlisted').read_text()\n"
+            ),
+        )
+        with self.assertRaises(ValueError):
+            cache.normalized_policy(b"REVIEWED_READERS = dict(rust='dynamic')\n")
+
+    def test_changed_policy_and_native_provenance_block_exact_new_receipts(self):
+        self.write("output/index.html", "<html>Native reference</html>")
+        self.write(
+            "output/documentation/xmtpsdk/index.html", "<html>Swift reference</html>"
+        )
+        for name in (
+            cache.POLICY_PATH,
+            cache.CONFIG_READER,
+            "crates/xmtp_sdk/dev/record-generated.py",
+            "crates/xmtp_sdk/dev/sdk-artifacts.py",
+        ):
+            path = self.root / name
+            original = path.read_text()
+            kinds = (
+                ("rust", "kotlin", "swift")
+                if name in (cache.POLICY_PATH, cache.CONFIG_READER)
+                else ("kotlin", "swift")
+            )
+            with self.subTest(reader=name):
+                path.write_text(
+                    original
+                    + "\ndef read_external():\n    return Path('/tmp/unlisted').read_text()\n"
+                )
+                for kind in kinds:
+                    current = self.identity(kind)
+                    self.assertFalse(current["source"]["cacheEligible"])
+                    cache.stamp(self.output, current, current)
+                    with self.assertRaisesRegex(ValueError, "not eligible"):
+                        cache.verify(self.output, current)
+                path.write_text(original)
+
+    def test_clean_supported_cargo_inputs_permit_rust_reuse(self):
+        self.write(
+            ".cargo/config.toml",
+            '[target."cfg(all())"]\nrustflags=["--cfg", "tracing_unstable"]\n',
+        )
+        cache.REVIEWED_READERS["rust"] = cache.reader_contract(
+            self.root, cache.source_names(self.root), "rust"
+        )
+        current = self.stamped()
+        self.assertTrue(current["cacheEligible"])
+        cache.verify(self.output, current)
+
+    def test_prior_schema_receipt_cannot_be_promoted(self):
+        current = self.stamped()
+        path = self.output / cache.RECEIPT
+        receipt = json.loads(path.read_text())
+        receipt["identity"]["schema"] = 2
+        path.write_text(json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, "current inputs"):
+            cache.verify(self.output, current)
+
+    def test_external_cargo_config_and_header_cannot_reuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            header = home / "header.html"
+            header.write_text("Alpha")
+            config = home / "config.toml"
+            config.write_text(
+                f'[build]\nrustdocflags=["--html-in-header", "{header}"]\n'
+            )
+            with patch.dict(os.environ, {"CARGO_HOME": str(home)}):
+                alpha = self.identity()
+                self.assertFalse(alpha["cacheEligible"])
+                cache.stamp(self.output, alpha, alpha)
+                header.write_text("Beta")
+                with self.assertRaisesRegex(ValueError, "not eligible"):
+                    cache.verify(self.output, self.identity())
+                config.write_text(
+                    '[build]\nrustdocflags=["--document-private-items"]\n'
+                )
+                self.assertNotEqual(alpha["key"], self.identity()["key"])
+
+    def test_workspace_cargo_file_flags_and_external_includes_are_ineligible(self):
+        for text in (
+            '[build]\nrustdocflags=["--html-in-header", "/tmp/header.html"]\n',
+            'include=["../../outside.toml"]\n',
+            '[env]\nCI="true"\n',
+        ):
+            with self.subTest(config=text):
+                self.write(".cargo/config.toml", text)
+                cache.REVIEWED_READERS["rust"] = cache.reader_contract(
+                    self.root, cache.source_names(self.root), "rust"
+                )
+                current = self.identity()
+                self.assertFalse(current["cacheEligible"])
+                cache.stamp(self.output, current, current)
+                with self.assertRaisesRegex(ValueError, "not eligible"):
+                    cache.verify(self.output, current)
+
+    def test_ignored_glossary_source_disables_reuse_and_binds_its_bytes(self):
+        before = self.stamped()
+        self.write("crates/example/.gitignore", "ignored.rs\n")
+        self.write("crates/example/ignored.rs", "pub enum IgnoredError { Alpha }\n")
+        current = self.identity()
+        self.assertFalse(current["cacheEligible"])
+        self.assertNotEqual(before["key"], current["key"])
+        cache.stamp(self.output, current, current)
+        with self.assertRaisesRegex(ValueError, "not eligible"):
+            cache.verify(self.output, current)
+        self.write("crates/example/ignored.rs", "pub enum IgnoredError { Beta }\n")
+        self.assertNotEqual(current["key"], self.identity()["key"])
+
+    def test_global_gradle_inputs_and_unqualified_native_tools_cannot_reuse(self):
+        self.write("output/index.html", "<html>Kotlin reference</html>")
+        for name in (
+            "gradle.properties",
+            "init.gradle",
+            "init.gradle.kts",
+            "init.d/custom.gradle",
+        ):
+            with self.subTest(input=name):
+                self.write("gradle-home/" + name, "external Gradle reader\n")
+                current = self.identity("kotlin")
+                self.assertFalse(current["cacheEligible"])
+                self.assertIn(
+                    "globalGradleConfig", current["ambientContract"]["unreviewed"]
+                )
+                cache.stamp(self.output, current, current)
+                self.write("gradle-home/" + name, "changed external Gradle reader\n")
+                changed = self.identity("kotlin")
+                self.assertNotEqual(current["key"], changed["key"])
+                with self.assertRaisesRegex(ValueError, "current inputs"):
+                    cache.verify(self.output, changed)
+                cache.stamp(self.output, changed, changed)
+                with self.assertRaisesRegex(ValueError, "not eligible"):
+                    cache.verify(self.output, changed)
+        self.assertFalse(self.identity("swift")["cacheEligible"])
 
     def test_unchanged_file_flag_string_cannot_reuse_changed_header(self):
         with tempfile.TemporaryDirectory() as directory:

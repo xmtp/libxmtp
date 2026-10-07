@@ -2,7 +2,9 @@
 """Bind reference caches to current source, tools, runner, and output bytes."""
 
 import argparse
+import ast
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,7 +18,14 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 RECEIPT = ".ci-reference.json"
-SCHEMA = 2
+SCHEMA = 3
+POLICY_PATH = "dev/ci/docs-reference-cache.py"
+CONFIG_READER = "crates/xmtp_sdk/dev/sdk-build-inputs.py"
+spec = importlib.util.spec_from_file_location(
+    "reference_cargo_inputs", ROOT / CONFIG_READER
+)
+cargo_inputs = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cargo_inputs)
 
 # These scripts read compiler inputs or generated OUT_DIR files, not prose.
 # Any change or new build script selects the complete source tree instead.
@@ -35,9 +44,9 @@ INCLUDE_NAME = re.compile(r"\binclude_(?:str|bytes)\b")
 # Review compiler readers before updating these digests. A changed reader can
 # add ignored or external inputs that a complete Git tree does not cover.
 REVIEWED_READERS = {
-    "rust": "7461c12f4a8593400fc8c7ee28e544fe2a150d31d1695e4f5c14259dc7c6e10f",
-    "kotlin": "a3066925ff6b0f120424f68ec4ba3404c876e41dc7aa59db272d6cbb28d808c6",
-    "swift": "51fb7ee11868ed3e01efd8eb149deefba0bd5945a92f200768a12ed80983b61f",
+    "rust": "38cd7ae75d9ca3513d772f92d8676abbc10a81ecb515ea5a8ce3f8b51bec4857",
+    "kotlin": "97c2b533ad4a901c39e2aae7619d54ac00a9f52426c2059923fc6a87f501af46",
+    "swift": "ed6fdcfce8992fa92f15f1d1b3b3217bbe96a127fa0f8eb9a87459ae70950bef",
 }
 
 JS_FAMILIES = ("sdks/node/", "sdks/browser/", "sdks/agent/")
@@ -86,6 +95,43 @@ def source_names(root):
     return names
 
 
+def normalized_policy(data):
+    source = data.decode()
+    nodes = [
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "REVIEWED_READERS"
+    ]
+    if len(nodes) != 1 or not isinstance(nodes[0].value, ast.Dict):
+        raise ValueError("Reviewed readers must have one literal dictionary")
+    node = nodes[0]
+    values = node.value
+    if (
+        len(values.keys) != 3
+        or any(not isinstance(key, ast.Constant) for key in values.keys)
+        or {key.value for key in values.keys} != {"rust", "kotlin", "swift"}
+        or any(
+            not isinstance(value, ast.Constant) or not isinstance(value.value, str)
+            for value in values.values
+        )
+    ):
+        raise ValueError("Reviewed readers must contain only the three literal pins")
+    lines = data.splitlines(keepends=True)
+    spans = [
+        (
+            sum(map(len, lines[: value.lineno - 1])) + value.col_offset,
+            sum(map(len, lines[: value.end_lineno - 1])) + value.end_col_offset,
+        )
+        for value in values.values
+    ]
+    for start, end in sorted(spans, reverse=True):
+        data = data[:start] + b"'<reviewed-value>'" + data[end:]
+    return data
+
+
 def reader_contract(root, names, kind):
     selected = set()
     macros = []
@@ -111,6 +157,7 @@ def reader_contract(root, names, kind):
                 "dev/kache-darwin-wrapper",
                 "dev/agent-run",
                 "dev/gen-error-glossary",
+                POLICY_PATH,
             )
         ):
             selected.add(name)
@@ -127,10 +174,25 @@ def reader_contract(root, names, kind):
             name.startswith(("sdks/android/dev/", "sdks/android/gradle/"))
             or name.endswith(".gradle")
             and name.startswith("sdks/android/")
-            or name == "sdks/android/android.just"
+            or name in ("sdks/android/android.just", "sdks/android/gradlew")
+        ):
+            selected.add(name)
+        if (
+            name == CONFIG_READER
+            or kind != "rust"
+            and name
+            in (
+                "crates/xmtp_sdk/dev/record-generated.py",
+                "crates/xmtp_sdk/dev/sdk-artifacts.py",
+            )
         ):
             selected.add(name)
     records = {name: file_record(root / name, root) for name in sorted(selected)}
+    if POLICY_PATH not in records:
+        raise ValueError("Reference policy source is missing")
+    records[POLICY_PATH] = {
+        "sha256": digest(normalized_policy((root / POLICY_PATH).read_bytes()))
+    }
     return digest(encoded(records))
 
 
@@ -162,6 +224,29 @@ def source_snapshot(root, kind="rust"):
     known_readers = readers == REVIEWED_READERS[kind]
     selected = {name for name in names if not unrelated_source(name, kind)}
     complete_tree = not known_readers
+    ignored = (
+        subprocess.check_output(
+            [
+                "git",
+                "ls-files",
+                "-z",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "--",
+                "crates",
+                "bindings",
+            ],
+            cwd=root,
+        )
+        .decode()
+        .split("\0")
+    )
+    glossary_inputs = {
+        name
+        for name in ignored
+        if name.endswith(".rs") or Path(name).name == "Cargo.toml"
+    }
     for name in names:
         path = root / name
         if path.name == "build.rs" and path.is_file():
@@ -191,12 +276,13 @@ def source_snapshot(root, kind="rust"):
             complete_tree = True
     if complete_tree:
         selected = set(names)
+    selected.update(glossary_inputs)
     records = {name: file_record(root / name, root) for name in sorted(selected)}
     identity = {
         "sha256": digest(encoded(records)),
         "completeTree": complete_tree,
         "readerContract": readers,
-        "cacheEligible": known_readers and not complete_tree,
+        "cacheEligible": known_readers and not complete_tree and not glossary_inputs,
     }
     return {"identity": identity, "files": records}
 
@@ -465,16 +551,112 @@ def pinned_nix_flags(value):
     return True
 
 
+def supported_cargo_flags(value):
+    words = shlex.split(value) if isinstance(value, str) else value
+    if not isinstance(words, list) or any(not isinstance(word, str) for word in words):
+        return False
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if (
+            word == "--cfg"
+            and index + 1 < len(words)
+            and re.fullmatch(
+                r'[A-Za-z_][A-Za-z_0-9]*(?:="[A-Za-z_0-9-]+")?', words[index + 1]
+            )
+        ):
+            index += 2
+        elif (
+            word == "-C"
+            and index + 1 < len(words)
+            and re.fullmatch(
+                r"target-feature=[+-][A-Za-z_0-9-]+(?:,[+-][A-Za-z_0-9-]+)*",
+                words[index + 1],
+            )
+        ):
+            index += 2
+        elif re.fullmatch(r"-Clink-arg=-Wl,-z,max-page-size=[0-9]+", word):
+            index += 1
+        else:
+            return False
+    return True
+
+
+def ambient_contract(kind, root):
+    unsafe = []
+    configs = {}
+    try:
+        configs, effective = cargo_inputs.cargo_config(root)
+        if any(not name.startswith("workspace:") for name in configs):
+            unsafe.append("externalCargoConfig")
+        if effective.get("env"):
+            unsafe.append("cargoEnvironment")
+        build = effective.get("build", {})
+        targets = list(effective.get("target", {}).values())
+        for settings in (build, *targets):
+            if not isinstance(settings, dict):
+                unsafe.append("unknownCargoOptions")
+                continue
+            if settings.get("rustdocflags"):
+                unsafe.append("cargoRustdocFlags")
+            if settings.get("rustflags") and not supported_cargo_flags(
+                settings["rustflags"]
+            ):
+                unsafe.append("cargoFileFlags")
+        if any(
+            build.get(name)
+            for name in (
+                "rustc",
+                "rustdoc",
+                "rustc-wrapper",
+                "rustc-workspace-wrapper",
+                "dep-info-basedir",
+            )
+        ):
+            unsafe.append("cargoCompilerOverride")
+    except (OSError, ValueError, TypeError, AttributeError):
+        unsafe.append("unknownCargoConfig")
+    gradle_inputs = {}
+    if kind == "kotlin":
+        home = Path(os.environ.get("GRADLE_USER_HOME") or Path.home() / ".gradle")
+        candidates = [
+            home / name
+            for name in ("gradle.properties", "init.gradle", "init.gradle.kts")
+        ]
+        candidates.extend((home / "init.d").rglob("*"))
+        for path in candidates:
+            if path.is_file():
+                gradle_inputs[path.relative_to(home).as_posix()] = digest(
+                    path.read_bytes()
+                )
+        if gradle_inputs:
+            unsafe.append("globalGradleConfig")
+        # The current wrapper distribution and installation inputs are not qualified.
+        unsafe.append("unqualifiedGradleTools")
+    if kind == "swift":
+        # Apple tools and global SwiftPM inputs do not have an immutable contract.
+        unsafe.append("unqualifiedSwiftTools")
+    return {
+        "cacheEligible": not unsafe,
+        "unreviewed": sorted(set(unsafe)),
+        "cargoConfigs": configs,
+        "gradleConfigs": gradle_inputs,
+    }
+
+
 def identity(kind, root):
     value = {
         "schema": SCHEMA,
         "kind": kind,
         "source": source_identity(root, kind),
         "environment": tool_identity(kind, root),
+        "ambientContract": ambient_contract(kind, root),
     }
     value["flagContract"] = flag_contract(kind, value["environment"])
     value["cacheEligible"] = (
-        value["source"]["cacheEligible"] and value["flagContract"]["cacheEligible"]
+        value["source"]["cacheEligible"]
+        and value["flagContract"]["cacheEligible"]
+        and value["ambientContract"]["cacheEligible"]
     )
     value["key"] = f"docs-reference-v{SCHEMA}-{kind}-" + digest(encoded(value))
     return value

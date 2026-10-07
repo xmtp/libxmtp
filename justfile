@@ -118,6 +118,7 @@ lint-config: lint-treefmt
     python3.11 -B dev/ci/check-targeted-shells.py
     python3.11 -B dev/ci/test-targeted-shells.py
     python3.11 -B dev/ci/test-prepared-sdk-lint.py
+    python3.11 -B dev/ci/test-kache-diagnostics.py
     python3.11 -B dev/ci/benchmark-test.py
 
 # Transport fixtures need Node and remain in the required SDK checks.

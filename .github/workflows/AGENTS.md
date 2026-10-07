@@ -77,6 +77,12 @@ Rust-only change calls it directly, without Node or Browser product jobs.
 Select one route per run and require its result in the `Test` gate. Both routes
 retain the exact reference key, byte stamp, and `docs-rust` artifact. Keep the
 immutable Nix compiler tools so the exact reference cache can remain eligible.
+Reference schema 3 pins the policy and native provenance helpers. External
+Cargo configuration, unknown compiler flags, and ignored glossary source files
+disable reuse. Clean supported Rust inputs can reuse references. Kotlin and
+Swift references build fresh until their global tool inputs are qualified.
+SDK producer metadata retains compiler cache counts and immutable wrapper
+identity. It omits raw events and old build times for reused raw roles.
 
 `lint.yml` and `test.yml` use selected suite matrices with `fail-fast: true`.
 Their fixed target routers validate each selected child result. Cancelled,
