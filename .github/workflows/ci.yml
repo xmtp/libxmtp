@@ -87,7 +87,6 @@ jobs:
     uses: ./.github/workflows/build-ci-products.yml
     with:
       kind: node
-      trial-cache: ${{ github.ref == 'refs/heads/codex/ci-efficiency' && github.event_name != 'pull_request' }}
     secrets: inherit
   sdk-browser:
     needs: detect-changes
@@ -95,7 +94,6 @@ jobs:
     uses: ./.github/workflows/build-ci-products.yml
     with:
       kind: browser
-      trial-cache: ${{ github.ref == 'refs/heads/codex/ci-efficiency' && github.event_name != 'pull_request' }}
     secrets: inherit
   backend-products:
     needs: detect-changes

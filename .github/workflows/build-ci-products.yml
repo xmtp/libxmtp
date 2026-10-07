@@ -5,9 +5,6 @@ on:
       kind:
         type: string
         required: true
-      trial-cache:
-        type: boolean
-        default: false
       sdk-rust-shell-proof:
         type: boolean
         default: false
@@ -44,11 +41,6 @@ jobs:
           --target "$PRODUCT_KIND" --directory "$RUNNER_TEMP/sdk-rust-shell-proof"
       - uses: ./.github/actions/setup-js
         if: inputs.kind != 'backend'
-      - name: Check isolated trial cache scope
-        if: inputs.trial-cache
-        run: |
-          test "$GITHUB_REF" = 'refs/heads/codex/ci-efficiency'
-          test "$GITHUB_EVENT_NAME" = 'push' || test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
       - name: Find Cargo download directories
         if: inputs.kind != 'backend'
         id: cargo
@@ -66,9 +58,9 @@ jobs:
             ${{ steps.cargo.outputs.path }}/registry/index
             ${{ steps.cargo.outputs.path }}/git/db
             ${{ steps.cargo.outputs.path }}/git/checkouts
-          key: ${{ inputs.trial-cache && format('ci-products-trial-{0}', github.ref_name) || 'sdk-cargo' }}-${{ inputs.kind }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.trial-cache && hashFiles('Cargo.lock', 'flake.lock') || hashFiles('Cargo.lock', 'flake.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          key: sdk-cargo-${{ inputs.kind }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'flake.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
           restore-keys: |
-            ${{ inputs.trial-cache && format('ci-products-trial-{0}', github.ref_name) || 'sdk-cargo' }}-${{ inputs.kind }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.trial-cache && hashFiles('Cargo.lock', 'flake.lock') || hashFiles('Cargo.lock', 'flake.lock', 'rust-toolchain.toml') }}-
+            sdk-cargo-${{ inputs.kind }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'flake.lock', 'rust-toolchain.toml') }}-
       - name: Require a cold SDK role build for the proof
         if: inputs.sdk-rust-shell-proof
         run: >-
@@ -93,9 +85,7 @@ jobs:
       - uses: actions/cache/save@v5
         if: >-
           inputs.kind != 'backend' && steps.cache.outputs.cache-hit != 'true'
-          && ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted'))
-          || (inputs.trial-cache && github.ref == 'refs/heads/codex/ci-efficiency'
-          && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')))
+          && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted')
         with:
           path: |
             target/sdk-artifacts
