@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "../..");
 const packages = JSON.parse(
@@ -10,21 +10,43 @@ const packages = JSON.parse(
     encoding: "utf8",
   }),
 );
-const temporary = mkdtempSync(join(tmpdir(), "xmtp-source-lint-"));
+const temporaryConfigs = [];
+const token = randomUUID();
 const sourceOptions = {
   typeAware: false,
   // Type-rule suppressions can only be judged in the full check.
   reportUnusedDisableDirectives: "off",
 };
-try {
-  const helperConfig = join(temporary, "helper.json");
+function sourceConfig(inheritedConfig, index) {
+  // Oxlint does not inherit ignore patterns through an extends-only wrapper.
+  // Resolve the original config and keep its directory for relative scopes.
+  const resolved = JSON.parse(
+    execFileSync(
+      "pnpm",
+      ["exec", "oxlint", "--print-config", "-c", inheritedConfig],
+      {
+        cwd: root,
+        encoding: "utf8",
+      },
+    ),
+  );
+  const config = join(
+    dirname(inheritedConfig),
+    `.oxlint-source-${token}-${index}.json`,
+  );
+  temporaryConfigs.push(config);
   writeFileSync(
-    helperConfig,
+    config,
     JSON.stringify({
-      extends: [join(root, ".oxlintrc.json")],
+      extends: [inheritedConfig],
+      ignorePatterns: resolved.ignorePatterns,
       options: sourceOptions,
     }),
   );
+  return config;
+}
+try {
+  const helperConfig = sourceConfig(join(root, ".oxlintrc.json"), "helper");
   execFileSync(
     "pnpm",
     ["exec", "oxlint", "-c", helperConfig, "dev/js/lint-source.mjs"],
@@ -41,17 +63,11 @@ try {
       continue;
     }
     const localConfig = join(pkg.path, ".oxlintrc.json");
-    const config = join(temporary, `${index}.json`);
     // Keep the shared rules and package overrides. The required full check
     // runs type rules against current products with the original config.
-    writeFileSync(
-      config,
-      JSON.stringify({
-        extends: [
-          existsSync(localConfig) ? localConfig : join(root, ".oxlintrc.json"),
-        ],
-        options: sourceOptions,
-      }),
+    const config = sourceConfig(
+      existsSync(localConfig) ? localConfig : join(root, ".oxlintrc.json"),
+      index,
     );
     execFileSync(
       "pnpm",
@@ -60,5 +76,5 @@ try {
     );
   }
 } finally {
-  rmSync(temporary, { recursive: true, force: true });
+  for (const config of temporaryConfigs) rmSync(config, { force: true });
 }

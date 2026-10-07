@@ -71,6 +71,10 @@ class FailureMarkers(unittest.TestCase):
             ["FAIL [0.1s] sdk::reader_end", "TIMEOUT [120.003s] sdk::held_callback"],
         )
 
+    def test_browser_launch_keeps_the_missing_executable_cause(self):
+        message = "apps/docs typecheck:prepared: browserType.launch: Executable doesn't exist at /runner/cache/chromium/headless_shell"
+        self.assertEqual(self.filtered(message + "\n"), [message])
+
     def test_timestamp_ansi_and_nix_prefix_keep_test_names(self):
         self.assertEqual(
             self.filtered(

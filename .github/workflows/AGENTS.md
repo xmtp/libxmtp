@@ -59,6 +59,8 @@ explicit. Reusable workflows do not inherit the caller's workflow environment.
 installation scripts enabled. SDK source staging uses `rust` for generation.
 Browser execution uses `js`; documentation tests use `docs`; native platform
 commands use `android` or `ios`.
+Full JavaScript type and lint checks use `js`. Astro renders Mermaid diagrams
+with the pinned Chromium browser during those checks.
 Run `dev/nix-shell --shell rust 'python3.11 -B dev/ci/check-targeted-shells.py && python3.11 -B dev/ci/test-targeted-shells.py'`
 to check workflow and composite inheritance. The fixtures use command stubs.
 Nix output warming builds and caches the complete root flake, including

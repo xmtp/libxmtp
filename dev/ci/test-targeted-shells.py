@@ -63,6 +63,21 @@ jobs:
 """)
         self.assertEqual(result, {"test.yml/check": ["docs", "ios", "js-node"]})
 
+    def test_full_prepared_javascript_check_has_pinned_browsers(self):
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/check-types.yml").read_text()
+        )
+        job = workflow["jobs"]["check"]
+        step = next(
+            step for step in job["steps"] if step.get("run") == "just check-js-prepared"
+        )
+        inherited = job.get("env", {}).get(
+            "NIX_DEVSHELL", workflow.get("env", {}).get("NIX_DEVSHELL")
+        )
+        self.assertEqual(
+            audit.check_steps(ROOT, [step], inherited, {}, "check-types/check"), {"js"}
+        )
+
     def test_step_environment_does_not_leak_to_later_shell_calls(self):
         with self.assertRaises(ValueError):
             self.workflow("""jobs:

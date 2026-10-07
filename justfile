@@ -92,6 +92,7 @@ lint-rust-source:
 
 lint-js-source:
     pnpm lint:source
+    node --test dev/js/test-lint-source.mjs
 
 # CI restores and validates both complete SDK products before this recipe.
 # Build only the handwritten JS packages whose declarations checks consume.

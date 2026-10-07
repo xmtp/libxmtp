@@ -354,6 +354,8 @@ class SelectionTests(unittest.TestCase):
                         "--paths-json",
                         str(changed),
                         "--verified",
+                        "--event",
+                        "pull_request",
                         "--source-suites-output",
                         str(folder / "source.json"),
                         "--test-suites-output",

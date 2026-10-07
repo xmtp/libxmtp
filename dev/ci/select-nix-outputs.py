@@ -44,7 +44,7 @@ WEB_EXTENSIONS = {
 SHA = re.compile(r"[0-9a-f]{40}")
 # Review the skip paths again before updating this input contract.
 AUDITED_INPUT_CONTRACT = (
-    "6e4433bf354a936617b8bf20579e09e21ef644b98f1ff0bbab3ebcab6401756e"
+    "844a3f6137c2e2e5785b19f803be81d053f8ee1990876b615e8dee2b14ddf93d"
 )
 SELECTOR_PATH = "dev/ci/select-nix-outputs.py"
 

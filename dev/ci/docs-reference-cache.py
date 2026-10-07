@@ -44,9 +44,9 @@ INCLUDE_NAME = re.compile(r"\binclude_(?:str|bytes)\b")
 # Review compiler readers before updating these digests. A changed reader can
 # add ignored or external inputs that a complete Git tree does not cover.
 REVIEWED_READERS = {
-    "rust": "38cd7ae75d9ca3513d772f92d8676abbc10a81ecb515ea5a8ce3f8b51bec4857",
-    "kotlin": "97c2b533ad4a901c39e2aae7619d54ac00a9f52426c2059923fc6a87f501af46",
-    "swift": "ed6fdcfce8992fa92f15f1d1b3b3217bbe96a127fa0f8eb9a87459ae70950bef",
+    "rust": "d0ed28ce9535ccffed35ce60e0c15f743a67ed7b086c8a6dd01cc4e07f31f0bb",
+    "kotlin": "8c26618730178c3cd0d7420235035c30b693a9230fb7cef964717e6cf57d2a32",
+    "swift": "29f3728f553f1e1507e8238f7ab36b0f398590fa23daa8b17607c0c2f72df71a",
 }
 
 JS_FAMILIES = ("sdks/node/", "sdks/browser/", "sdks/agent/")

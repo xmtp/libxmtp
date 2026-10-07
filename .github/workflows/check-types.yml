@@ -6,7 +6,7 @@ on:
         type: boolean
         default: false
 env:
-  NIX_DEVSHELL: js-node
+  NIX_DEVSHELL: js
 jobs:
   check:
     name: Check (JavaScript types and full lint)
