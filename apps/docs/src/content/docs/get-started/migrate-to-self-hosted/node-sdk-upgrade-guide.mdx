@@ -11,11 +11,22 @@ A call can keep its name and still have different parameters, results, or
 behavior. The **Before** examples use the old SDK. The **After** examples use
 the new SDK.
 
+## Install the recommended version
+
+Use SDK **8.0.0-rc1** with backend **8.0.0-rc1**. Run this command from your app
+directory to save the exact SDK version:
+
+```sh
+npm install --save-exact @xmtp/node-sdk@8.0.0-rc1
+```
+
+See [Install the XMTP SDK](/get-started/install/) for platform requirements.
+
 ## Node package and value types
 
 Keep the package name `@xmtp/node-sdk`. SDK 8 requires ESM and Node 22.12 or later.
-Use `import` instead of `require`. Build the current package before checking your
-app. The old `@xmtp/node-bindings` package is not the public SDK 8 API.
+Use `import` instead of `require`. Install the recommended version before checking
+your app. The old `@xmtp/node-bindings` package is not the public SDK 8 API.
 
 The **previous** examples below use
 [`main` at `cc878025d`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247/sdks/js/node-sdk/src).

@@ -11,9 +11,22 @@ A call can keep its name and still have different parameters, results, or
 behavior. The **Before** examples use the old SDK. The **After** examples use
 the new SDK.
 
+## Install the recommended version
+
+Use Android SDK **8.0.0-rc1** with backend **8.0.0-rc1**. Add the exact SDK
+version to your app module:
+
+```kotlin
+dependencies {
+    implementation("org.xmtp:android:8.0.0-rc1")
+}
+```
+
+See [Android installation requirements](/get-started/install/#android-package).
+
 ## Package, imports, and values
 
-Use the Android SDK version `8.0.0`. Keep the Gradle artifact `org.xmtp:android`; replace the old Kotlin imports with `uniffi.xmtp_sdk`. The public client is `SDKClient`. Do not use the generated internal `Client` as the app entry point. The AAR now includes the generated `xmtp_sdk` bindings and `libxmtp_sdk.so`.
+Use the Android SDK version `8.0.0-rc1`. Keep the Gradle artifact `org.xmtp:android`; replace the old Kotlin imports with `uniffi.xmtp_sdk`. The public client is `SDKClient`. Do not use the generated internal `Client` as the app entry point. The AAR now includes the generated `xmtp_sdk` bindings and `libxmtp_sdk.so`.
 
 ```kotlin
 // Before

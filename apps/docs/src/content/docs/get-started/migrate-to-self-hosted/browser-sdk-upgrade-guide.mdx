@@ -13,6 +13,17 @@ the new SDK.
 
 The package name stays `@xmtp/browser-sdk`. The self-hosted SDK uses ESM and generated public bindings. Its source moved from `sdks/js/browser-sdk` to `sdks/browser`. Remove imports from `@xmtp/wasm-bindings` and private package paths. Import client types from `@xmtp/browser-sdk`. Import standalone codecs and pure helpers from `@xmtp/browser-sdk/pure`.
 
+## Install the recommended version
+
+Use SDK **8.0.0-rc1** with backend **8.0.0-rc1**. Run this command from your app
+directory to save the exact SDK version:
+
+```sh
+npm install --save-exact @xmtp/browser-sdk@8.0.0-rc1
+```
+
+See [Install the XMTP SDK](/get-started/install/) for platform requirements.
+
 ## Create a client and adapt the signer
 
 The old signer used `type`, `getIdentifier()`, and `signMessage()`. The new signer uses asynchronous `identity()`, `kind()`, and `sign(request)`. The signature result names its kind. Replace `Identifier.identifierKind` with `PublicIdentity.kind`.

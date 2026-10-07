@@ -15,6 +15,21 @@ The Swift package now exports `XmtpSdk`. Use `SDKClient` for the Swift client. T
 
 The examples below compare `main` at `cc878025dab2f93bca18b67fa9fca562a65f2247` with `self-hosted` at `610175f3b3108e7d8c6b8b01df6d99296a6e08b2`. Each pair is a separate example. Parameters such as a signer, encryption key, inbox ID, or APNs token come from your app.
 
+## Install the recommended version
+
+Use Swift SDK **8.0.0-rc1** with backend **8.0.0-rc1**. Select the
+`ios-8.0.0-rc1` tag from `xmtp/libxmtp` and add the `XmtpSdk` product to your app:
+
+```swift
+// In Package.dependencies:
+.package(url: "https://github.com/xmtp/libxmtp.git", revision: "ios-8.0.0-rc1")
+
+// In your app target's dependencies:
+.product(name: "XmtpSdk", package: "libxmtp")
+```
+
+See [Swift installation requirements](/get-started/install/#swift-package).
+
 ## Package, imports, and types
 
 Select the SwiftPM product `XmtpSdk` in your app target. The old products `XMTPiOS` and `XMTPTestHelpers`, and the `static` and `dynamic` SwiftPM traits, are absent. The new package uses `XmtpSdkFFI.xcframework` and a release receipt. Do not copy an old binary URL or checksum into the new package. The minimum platforms stay at iOS 14 and macOS 11. Both package manifests require Swift tools 6.1. The new package uses Swift language mode 5.

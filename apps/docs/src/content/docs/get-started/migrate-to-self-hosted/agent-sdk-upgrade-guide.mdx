@@ -15,6 +15,17 @@ The package stays `@xmtp/agent-sdk`. Its source moved from `sdks/js/agent-sdk` t
 
 The Agent SDK re-exports the Node SDK. Apply the [Node SDK Upgrade Guide](/get-started/migrate-to-self-hosted/node-sdk-upgrade-guide/) to `agent.client`, `ctx.client`, and `ctx.conversation`. The Agent changes below cover the additional Agent API.
 
+## Install the recommended version
+
+Use SDK **8.0.0-rc1** with backend **8.0.0-rc1**. Run this command from your app
+directory to save the exact SDK version:
+
+```sh
+npm install --save-exact @xmtp/agent-sdk@8.0.0-rc1
+```
+
+See [Install the XMTP SDK](/get-started/install/) for platform requirements.
+
 ## Create and configure an agent
 
 `Agent.create(signer, options)` now requires options with an explicit `backend` and `storage`. An environment name no longer selects a public network. Replace `apiUrl` or `gatewayHost` with `backend.url`, including its scheme. Put `appVersion` under `backend`. Supply backend authentication through `backend.credentials`.
