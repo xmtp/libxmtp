@@ -14,7 +14,9 @@ use xmtp_proto::xmtp::{
 };
 
 const GROUP_PAGE: i64 = 64;
-const MAX_MESSAGE_ROW_BYTES: i64 = 64 * 1024 * 1024;
+const MAX_ROW_BYTES: i64 = 64 * 1024 * 1024;
+const ELIGIBLE_GROUPS: &str =
+    "FROM groups WHERE conversation_type IN (1, 2) AND membership_state IN (1, 2, 3, 5)";
 const ELIGIBLE_MESSAGES: &str = "FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL";
 
 #[derive(QueryableByName)]
@@ -145,10 +147,26 @@ pub(crate) fn export(
     if malformed.count != 0 {
         return Err(invalid("invalid required group identity or enum"));
     }
+    let oversized = diesel::sql_query(format!(
+        "SELECT EXISTS(SELECT 1 {ELIGIBLE_GROUPS} AND \
+         COALESCE(length(CAST(id AS BLOB)), 0) + \
+         COALESCE(length(CAST(added_by_inbox_id AS BLOB)), 0) + \
+         COALESCE(length(CAST(dm_id AS BLOB)), 0) + \
+         COALESCE(length(CAST(paused_for_version AS BLOB)), 0) > ?) AS count"
+    ))
+    .bind::<BigInt, _>(MAX_ROW_BYTES)
+    .get_result::<Count>(conn)?;
+    if oversized.count != 0 {
+        return Err(invalid("stored group row exceeds the 64 MiB byte limit"));
+    }
     let mut after = Vec::new();
     loop {
-        let page = diesel::sql_query("SELECT id FROM groups WHERE conversation_type IN (1, 2) AND membership_state IN (1, 2, 3, 5) AND id > ? ORDER BY id LIMIT ?")
-            .bind::<Binary, _>(&after).bind::<BigInt, _>(GROUP_PAGE).load::<GroupId>(conn)?;
+        let page = diesel::sql_query(format!(
+            "SELECT id {ELIGIBLE_GROUPS} AND id > ? ORDER BY id LIMIT ?"
+        ))
+        .bind::<Binary, _>(&after)
+        .bind::<BigInt, _>(GROUP_PAGE)
+        .load::<GroupId>(conn)?;
         if page.is_empty() {
             break;
         }
@@ -210,7 +228,7 @@ pub(crate) fn export(
          COALESCE(length(CAST(m.authority_id AS BLOB)), 0) + \
          COALESCE(length(CAST(m.reference_id AS BLOB)), 0) > ?) AS count"
     ))
-    .bind::<BigInt, _>(MAX_MESSAGE_ROW_BYTES)
+    .bind::<BigInt, _>(MAX_ROW_BYTES)
     .get_result::<Count>(conn)?;
     if oversized.count != 0 {
         return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
@@ -222,6 +240,15 @@ pub(crate) fn export(
     for message in messages {
         emit(Element::GroupMessage(message?.into_save()?))?;
         report.message_count += 1;
+    }
+    let oversized = diesel::sql_query(
+        "SELECT EXISTS(SELECT 1 FROM consent_records WHERE \
+         COALESCE(length(CAST(entity AS BLOB)), 0) > ?) AS count",
+    )
+    .bind::<BigInt, _>(MAX_ROW_BYTES)
+    .get_result::<Count>(conn)?;
+    if oversized.count != 0 {
+        return Err(invalid("stored consent row exceeds the 64 MiB byte limit"));
     }
     for consent in diesel::sql_query("SELECT entity_type, state, entity, consented_at_ns FROM consent_records ORDER BY entity_type, entity")
         .load_iter::<Consent, DefaultLoadingMode>(conn)?

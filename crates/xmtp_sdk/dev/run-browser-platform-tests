@@ -22,6 +22,7 @@ if [ "${1:-all}" = all ] || [ "${1:-all}" = migration ]; then
   node "$platform/migration/browser.mjs" --current-sdk
   node "$platform/migration/browser-regressions.mjs"
   node "$platform/migration/message-sizes.mjs"
+  node "$platform/migration/group-consent-sizes.mjs"
 fi
 if [ "${1:-all}" = migration ]; then exit 0; fi
 
