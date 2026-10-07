@@ -101,6 +101,9 @@ jobs:
               - 'apps/xmtp_sdk_bindgen/**'
               # Proofs and checks that moved out of crates/xmtp_sdk/conformance.
               - 'sdks/browser/test/platform/**'
+              # The code under test: an edit to it must run the moved proofs.
+              - 'sdks/ios/Sources/**'
+              - 'sdks/android/library/src/main/**'
               - 'Package.swift'
               - 'sdks/ios/ios.just'
               - 'sdks/ios/dev/**'
@@ -157,7 +160,9 @@ jobs:
               - 'crates/xmtp_sdk/**'
               - 'apps/xmtp_sdk_bindgen/**'
               - '.github/workflows/test-sdk.yml'
-              # Proofs and checks that moved out of crates/xmtp_sdk/conformance.
+              # Proofs and checks that moved out of crates/xmtp_sdk/conformance,
+              # and the Swift code they test.
+              - 'sdks/ios/Sources/**'
               - 'Package.swift'
               - 'sdks/ios/ios.just'
               - 'sdks/ios/dev/**'
