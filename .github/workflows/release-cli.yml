@@ -60,7 +60,15 @@ permissions:
   id-token: write
 
 jobs:
+  check-push-permissions:
+    uses: ./.github/workflows/check-release-push.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit
+
   setup:
+    needs: [check-push-permissions]
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -68,7 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: ./.github/actions/setup-release-tools
       - name: Compute version
         id: version
@@ -116,14 +124,14 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: setup
+    needs: [setup, check-push-permissions]
     runs-on: blacksmith-16vcpu-ubuntu-2404
     env:
       NIX_DEVSHELL: js-node
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: ./.github/actions/setup-nix
         with:
           nix-disk: "false"
@@ -154,10 +162,10 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [setup, build]
+    needs: [setup, build, check-push-permissions]
     uses: ./.github/workflows/npm-publish.yml
     with:
-      ref: ${{ inputs.ref || github.ref }}
+      ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       package-dir: apps/cli
       sdk: cli
       version: ${{ needs.setup.outputs.version }}

@@ -64,10 +64,18 @@ on:
         value: ${{ jobs.publish.outputs.version }}
 
 jobs:
+  check-push-permissions:
+    uses: ./.github/workflows/check-release-push.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit
+
   publish:
+    needs: [check-push-permissions]
     permissions:
       id-token: write
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     outputs:
       version: ${{ inputs.version }}
@@ -75,7 +83,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
+          fetch-depth: 0
 
       - name: Download build artifacts
         if: ${{ inputs.artifact-pattern != '' }}
@@ -138,6 +147,34 @@ jobs:
           fi
           echo "PACKAGE_TARBALL=${tarballs[0]}" >> "$GITHUB_ENV"
 
+      - name: Prepare release tag
+        if: ${{ inputs.dry-run != true }}
+        env:
+          SDK: ${{ inputs.sdk }}
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ needs.check-push-permissions.outputs.source-sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$SOURCE_SHA" ]; then
+            echo "::error::Release HEAD does not match the selected source commit"
+            exit 1
+          fi
+          xmtp-release tag-release --sdk "$SDK" --version "$VERSION" --no-push --ignore-if-exists
+          tag_ref="refs/tags/${SDK}-${VERSION}"
+          tag_sha=$(git rev-parse "$tag_ref^{commit}")
+          if [ "$tag_sha" != "$SOURCE_SHA" ]; then
+            echo "::error::Release tag does not match the selected source commit"
+            exit 1
+          fi
+          git bundle create "$RUNNER_TEMP/release.bundle" "$tag_ref"
+      - name: Store release tag
+        if: ${{ inputs.dry-run != true }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-tag-${{ inputs.sdk }}
+          path: ${{ runner.temp }}/release.bundle
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Publish to NPM
         if: ${{ inputs.dry-run != true }}
         run: npm publish "$PACKAGE_TARBALL" --provenance ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
@@ -146,6 +183,12 @@ jobs:
         if: ${{ inputs.dry-run == true }}
         run: npm publish "$PACKAGE_TARBALL" --dry-run ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
 
-      - name: Tag release
-        if: ${{ inputs.dry-run != true }}
-        run: xmtp-release tag-release --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}" --ignore-if-exists
+  push-tag:
+    needs: [publish, check-push-permissions]
+    if: ${{ inputs.dry-run != true }}
+    uses: ./.github/workflows/push-release-tag.yml
+    with:
+      sdk: ${{ inputs.sdk }}
+      version: ${{ inputs.version }}
+      source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
+    secrets: inherit

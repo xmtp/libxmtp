@@ -19,8 +19,13 @@ WORKFLOW = ROOT / ".github/workflows/push-release-tag.yml"
 
 def script(name, workflow=WORKFLOW):
     text = workflow.read_text().split("      - name: " + name + "\n", 1)[1]
-    text = text.split("      - ", 1)[0]
-    return dedent(text.split("        run: |\n", 1)[1])
+    text = text.split("        run: |\n", 1)[1]
+    lines = []
+    for line in text.splitlines():
+        if line.strip() and not line.startswith("          "):
+            break
+        lines.append(line)
+    return dedent("\n".join(lines))
 
 
 class ReleasePushTest(unittest.TestCase):
@@ -103,8 +108,147 @@ class ReleasePushTest(unittest.TestCase):
                 capture_output=True,
             )
 
+    def test_production_version_scripts_keep_requested_ref_classification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "bin"
+            binary.mkdir()
+            tools = ROOT / "dev/release-tools"
+            wrapper = binary / "xmtp-release"
+            wrapper.write_text(
+                '#!/usr/bin/env bash\nexec "'
+                + str(tools / "node_modules/.bin/tsx")
+                + '" --tsconfig "'
+                + str(tools / "tsconfig.json")
+                + '" "'
+                + str(tools / "src/cli.ts")
+                + '" "$@"\n'
+            )
+            wrapper.chmod(0o755)
+            for path in [
+                "sdks/node/package.json",
+                "sdks/browser/package.json",
+                "sdks/agent/package.json",
+                "apps/cli/package.json",
+            ]:
+                manifest = root / path
+                manifest.parent.mkdir(parents=True, exist_ok=True)
+                manifest.write_text('{"version":"8.0.0"}\n')
+            (root / "sdks/android").mkdir(parents=True)
+            (root / "sdks/android/gradle.properties").write_text("version=8.0.0\n")
+            (root / "sdks/ios").mkdir(parents=True)
+            (root / "sdks/ios/XMTP.podspec").write_text('spec.version = "8.0.0"\n')
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("GIT_")
+            }
+            env.update(
+                GIT_CONFIG_NOSYSTEM="1",
+                GIT_CONFIG_GLOBAL=os.devnull,
+                PATH=str(binary) + os.pathsep + env["PATH"],
+            )
+
+            def git(*args):
+                return subprocess.run(
+                    ["git", *args],
+                    cwd=root,
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+
+            git("init", "--initial-branch=pinned")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.com")
+            git(
+                "-c",
+                "commit.gpgSign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "pinned source",
+            )
+            source = git("rev-parse", "HEAD")
+            short = git("rev-parse", "--short=7", "HEAD")
+            timestamp = "20260102030405"
+            for sdk in [
+                "android",
+                "ios",
+                "node-sdk",
+                "browser-sdk",
+                "agent-sdk",
+                "cli",
+            ]:
+                workflow = ROOT / f".github/workflows/release-{sdk}.yml"
+                version_step = (
+                    workflow.read_text()
+                    .split("      - name: Compute version\n", 1)[1]
+                    .split("      - ", 1)[0]
+                )
+                ref_expression = re.search(r"(?m)^\s+REF: (.+)$", version_step).group(1)
+                for requested, release_type in [
+                    ("main", "dev"),
+                    ("refs/heads/main", "dev"),
+                    ("release/8.0.0", "rc"),
+                ]:
+                    with self.subTest(
+                        sdk=sdk, requested=requested, release_type=release_type
+                    ):
+                        values = {
+                            "inputs.ref": requested,
+                            "inputs.ref || github.ref": requested,
+                            "needs.check-push-permissions.outputs.source-sha": source,
+                            "inputs.release-type": release_type,
+                            "inputs.rc-number": "1",
+                            "inputs.pending-version": "8.0.0",
+                            "inputs.pending-kind": "patch",
+                        }
+
+                        def expand(text):
+                            return re.sub(
+                                r"\$\{\{\s*(.*?)\s*\}\}",
+                                lambda match: values[match.group(1)],
+                                text,
+                            )
+
+                        output = root / "version-output"
+                        output.write_text("")
+                        subprocess.run(
+                            [
+                                "bash",
+                                "-euc",
+                                expand(script("Compute version", workflow)),
+                            ],
+                            cwd=root,
+                            env=dict(
+                                env,
+                                REF=expand(ref_expression),
+                                TIMESTAMP=timestamp,
+                                RELEASE_TYPE=release_type,
+                                RC_NUMBER="1",
+                                PENDING_VERSION="8.0.0",
+                                PENDING_KIND="patch",
+                                GITHUB_OUTPUT=str(output),
+                            ),
+                            check=True,
+                            capture_output=True,
+                        )
+                        actual = next(
+                            line.removeprefix("version=")
+                            for line in output.read_text().splitlines()
+                            if line.startswith("version=")
+                        )
+                        expected = (
+                            f"8.0.0-pre.{timestamp}.dev.{short}"
+                            if release_type == "dev"
+                            else "8.0.0-rc1"
+                        )
+                        self.assertEqual(actual, expected)
+
     def test_bundle_push_retains_commit_without_persisting_token(self):
-        for sdk in ["ios", "android"]:
+        for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
             with self.subTest(sdk=sdk):
                 self.bundle_push(sdk)
 
@@ -263,7 +407,7 @@ class ReleasePushTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
 
     def test_rejects_a_release_commit_that_changes_workflows(self):
-        for sdk in ["ios", "android"]:
+        for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
             with self.subTest(sdk=sdk), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 temporary = root / "runner"
@@ -364,7 +508,7 @@ class ReleasePushTest(unittest.TestCase):
                 source = "${{ needs.check-push-permissions.outputs.source-sha }}"
                 self.assertIn("source-sha: " + source, mobile)
                 self.assertNotIn("source-sha: ${{ github.sha }}", mobile)
-                self.assertIn("REF: " + source, mobile)
+                self.assertIn("REF: ${{ inputs.ref }}", mobile)
                 self.assertIn("ref: " + source, mobile)
                 for body in re.split(
                     r"(?m)^  [a-z][a-z0-9-]*:\n", mobile.split("jobs:\n", 1)[1]
@@ -382,6 +526,211 @@ class ReleasePushTest(unittest.TestCase):
         ios = (ROOT / ".github/workflows/release-ios.yml").read_text()
         self.assertIn("needs: [prepare-release, push-tag, check-push-permissions]", ios)
         self.assertIn("name: ios-release-bundle", ios)
+
+    def test_npm_source_job_only_creates_local_tags(self):
+        npm = ROOT / ".github/workflows/npm-publish.yml"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "bin"
+            binary.mkdir()
+            runner = root / "runner"
+            runner.mkdir()
+            tools = ROOT / "dev/release-tools"
+            wrapper = binary / "xmtp-release"
+            wrapper.write_text(
+                '#!/usr/bin/env bash\nexec "'
+                + str(tools / "node_modules/.bin/tsx")
+                + '" --tsconfig "'
+                + str(tools / "tsconfig.json")
+                + '" "'
+                + str(tools / "src/cli.ts")
+                + '" "$@"\n'
+            )
+            wrapper.chmod(0o755)
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("GIT_")
+            }
+            env.update(
+                GIT_CONFIG_NOSYSTEM="1",
+                GIT_CONFIG_GLOBAL=os.devnull,
+                PATH=str(binary) + os.pathsep + env["PATH"],
+                RUNNER_TEMP=str(runner),
+            )
+
+            def git(*args):
+                return subprocess.run(
+                    ["git", *args],
+                    cwd=root,
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+
+            git("init", "--initial-branch=main")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.com")
+            git("config", "tag.gpgSign", "false")
+            git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "source")
+            previous_source = git("rev-parse", "HEAD")
+            git(
+                "-c",
+                "commit.gpgSign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "selected",
+            )
+            source = git("rev-parse", "HEAD")
+            git("remote", "add", "origin", str(root / "missing-remote"))
+            for sdk in ["node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+                with self.subTest(sdk=sdk):
+                    subprocess.run(
+                        ["bash", "-euc", script("Prepare release tag", npm)],
+                        cwd=root,
+                        env=dict(env, SDK=sdk, VERSION="1.2.3", SOURCE_SHA=source),
+                        check=True,
+                        capture_output=True,
+                    )
+                    self.assertEqual(
+                        git("bundle", "list-heads", str(runner / "release.bundle")),
+                        f"{source} refs/tags/{sdk}-1.2.3",
+                    )
+                    tag = f"{sdk}-1.2.3"
+                    # Retries may use either tag type at the selected source.
+                    for annotated in [False, True]:
+                        with self.subTest(annotated=annotated):
+                            if annotated:
+                                git("tag", "--delete", tag)
+                                git("tag", "-a", tag, "-m", "release", source)
+                            subprocess.run(
+                                ["bash", "-euc", script("Prepare release tag", npm)],
+                                cwd=root,
+                                env=dict(
+                                    env, SDK=sdk, VERSION="1.2.3", SOURCE_SHA=source
+                                ),
+                                check=True,
+                                capture_output=True,
+                            )
+                            self.assertEqual(
+                                git("rev-parse", f"{tag}^{{commit}}"), source
+                            )
+                            (runner / "release.bundle").unlink()
+                            git("tag", "--delete", tag)
+                            arguments = ["tag", tag, previous_source]
+                            if annotated:
+                                arguments = [
+                                    "tag",
+                                    "-a",
+                                    tag,
+                                    "-m",
+                                    "old release",
+                                    previous_source,
+                                ]
+                            git(*arguments)
+                            result = subprocess.run(
+                                ["bash", "-euc", script("Prepare release tag", npm)],
+                                cwd=root,
+                                env=dict(
+                                    env, SDK=sdk, VERSION="1.2.3", SOURCE_SHA=source
+                                ),
+                                capture_output=True,
+                                text=True,
+                            )
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertIn("Release tag does not match", result.stdout)
+                            self.assertFalse((runner / "release.bundle").exists())
+                            git("tag", "--delete", tag)
+                            git("tag", tag, source)
+
+                    # Check moved HEAD with a fresh tag and a matching retry tag.
+                    git(
+                        "-c",
+                        "commit.gpgSign=false",
+                        "commit",
+                        "--allow-empty",
+                        "-m",
+                        "moved",
+                    )
+                    for version in ["1.2.3", "1.2.4"]:
+                        with self.subTest(moved_head_version=version):
+                            (runner / "release.bundle").unlink(missing_ok=True)
+                            result = subprocess.run(
+                                ["bash", "-euc", script("Prepare release tag", npm)],
+                                cwd=root,
+                                env=dict(
+                                    env, SDK=sdk, VERSION=version, SOURCE_SHA=source
+                                ),
+                                capture_output=True,
+                                text=True,
+                            )
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertIn("selected source commit", result.stdout)
+                            self.assertFalse((runner / "release.bundle").exists())
+                    git("reset", "--hard", source)
+
+    def test_npm_dry_run_and_publish_keep_tokens_isolated(self):
+        npm = (ROOT / ".github/workflows/npm-publish.yml").read_text()
+        preflight = (ROOT / ".github/workflows/check-release-push.yml").read_text()
+        self.assertNotIn("GH_APP_PK", npm)
+        self.assertNotIn("RELEASE_TOKEN", npm)
+        self.assertIn("contents: read", npm)
+        self.assertIn("ref: ${{ inputs.ref || github.ref }}", npm)
+        self.assertIn("dry-run: ${{ inputs.dry-run }}", npm)
+        self.assertIn(
+            "source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}", npm
+        )
+        verify = preflight.split("      - name: Verify release App permissions\n", 1)[1]
+        self.assertIn("if: ${{ inputs.dry-run != true }}", verify)
+        prepare = npm.split("      - name: Prepare release tag\n", 1)[1].split(
+            "      - ", 1
+        )[0]
+        self.assertIn(
+            "SOURCE_SHA: ${{ needs.check-push-permissions.outputs.source-sha }}",
+            prepare,
+        )
+        for name in ["Prepare release tag", "Store release tag"]:
+            step = npm.split("      - name: " + name + "\n", 1)[1].split("      - ", 1)[
+                0
+            ]
+            self.assertIn("if: ${{ inputs.dry-run != true }}", step)
+            self.assertLess(
+                npm.index("- name: " + name), npm.index("- name: Publish to NPM")
+            )
+        push = npm.split("  push-tag:\n", 1)[1]
+        self.assertIn("if: ${{ inputs.dry-run != true }}", push)
+        self.assertIn("needs: [publish, check-push-permissions]", push)
+        self.assertIn("uses: ./.github/workflows/push-release-tag.yml", push)
+
+    def test_npm_callers_fix_source_before_setup_and_build(self):
+        source = "${{ needs.check-push-permissions.outputs.source-sha }}"
+        for name in ["node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+            with self.subTest(caller=name):
+                text = (ROOT / f".github/workflows/release-{name}.yml").read_text()
+                jobs = re.split(
+                    r"(?m)^  ([a-z][a-z0-9-]*):\n", text.split("jobs:\n", 1)[1]
+                )
+                bodies = dict(zip(jobs[1::2], jobs[2::2]))
+                preflight = bodies["check-push-permissions"]
+                self.assertIn(
+                    "uses: ./.github/workflows/check-release-push.yml", preflight
+                )
+                self.assertIn("dry-run: ${{ inputs.dry-run }}", preflight)
+                for job in ["setup", "build", "publish"]:
+                    body = bodies[job]
+                    self.assertRegex(
+                        body, r"needs: \[[^\n]*check-push-permissions[^\n]*\]"
+                    )
+                    self.assertIn("ref: " + source, body)
+                    self.assertNotIn("ref: ${{ inputs.ref", body)
+                requested = (
+                    "${{ inputs.ref || github.ref }}"
+                    if name in ["agent-sdk", "cli"]
+                    else "${{ inputs.ref }}"
+                )
+                self.assertIn("REF: " + requested, bodies["setup"])
 
 
 if __name__ == "__main__":
