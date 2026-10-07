@@ -18,6 +18,12 @@ const MAX_MESSAGE_ROW_BYTES: i64 = 64 * 1024 * 1024;
 const ELIGIBLE_MESSAGES: &str = "FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL";
 
 #[derive(QueryableByName)]
+struct GroupId {
+    #[diesel(sql_type = Binary)]
+    id: Vec<u8>,
+}
+
+#[derive(QueryableByName)]
 struct Group {
     #[diesel(sql_type = Binary)]
     id: Vec<u8>,
@@ -141,12 +147,14 @@ pub(crate) fn export(
     }
     let mut after = Vec::new();
     loop {
-        let page = diesel::sql_query("SELECT * FROM groups WHERE conversation_type IN (1, 2) AND membership_state IN (1, 2, 3, 5) AND id > ? ORDER BY id LIMIT ?")
-            .bind::<Binary, _>(&after).bind::<BigInt, _>(GROUP_PAGE).load::<Group>(conn)?;
+        let page = diesel::sql_query("SELECT id FROM groups WHERE conversation_type IN (1, 2) AND membership_state IN (1, 2, 3, 5) AND id > ? ORDER BY id LIMIT ?")
+            .bind::<Binary, _>(&after).bind::<BigInt, _>(GROUP_PAGE).load::<GroupId>(conn)?;
         if page.is_empty() {
             break;
         }
-        for group in page {
+        for id in page {
+            let group = diesel::sql_query("SELECT id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id, sequence_id, rotated_at_ns, conversation_type, dm_id, last_message_ns, message_disappear_from_ns, message_disappear_in_ns, paused_for_version FROM groups WHERE id = ?")
+                .bind::<Binary, _>(&id.id).get_result::<Group>(conn)?;
             if group.id.len() != 16
                 || !matches!(group.membership_state, 1..=5)
                 || !matches!(group.conversation_type, 1 | 2)
@@ -207,13 +215,15 @@ pub(crate) fn export(
     if oversized.count != 0 {
         return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
     }
-    let query = format!("SELECT m.* {ELIGIBLE_MESSAGES} ORDER BY m.id");
+    let query = format!(
+        "SELECT m.id, m.group_id, m.decrypted_message_bytes, m.sent_at_ns, m.sender_installation_id, m.sender_inbox_id, m.delivery_status, m.content_type, m.version_major, m.version_minor, m.authority_id, m.reference_id, m.originator_id, m.sequence_id {ELIGIBLE_MESSAGES} ORDER BY m.id"
+    );
     let messages = diesel::sql_query(query).load_iter::<MessageRow, DefaultLoadingMode>(conn)?;
     for message in messages {
         emit(Element::GroupMessage(message?.into_save()?))?;
         report.message_count += 1;
     }
-    for consent in diesel::sql_query("SELECT * FROM consent_records ORDER BY entity_type, entity")
+    for consent in diesel::sql_query("SELECT entity_type, state, entity, consented_at_ns FROM consent_records ORDER BY entity_type, entity")
         .load_iter::<Consent, DefaultLoadingMode>(conn)?
     {
         let consent = consent?;
