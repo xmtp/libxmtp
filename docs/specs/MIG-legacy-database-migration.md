@@ -97,6 +97,11 @@ migrate. Conversion cannot prove that this history was always non-disappearing.
 A null value added by a legacy schema migration also remains eligible. A
 conversation can remain in the archive when no message qualifies.
 
+On 2026-10-06, the migration owner approved this null-expiry retention choice
+in the [migration plan](https://plan.ref.tools/1hYl5TruynqXmFkp) to keep available
+legacy history even when expiry information was lost. This decision is settled
+for implementation. The specification as a whole remains a draft.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | MIG-005 | Optional metadata degrades independently | When optional legacy metadata cannot be decoded, the converter MUST retain the group and eligible messages and omit only unavailable metadata; unreadable required records MUST fail preparation. | A damaged optional field must not remove readable history. |
