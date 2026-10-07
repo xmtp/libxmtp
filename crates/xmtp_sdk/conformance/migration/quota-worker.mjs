@@ -20,7 +20,7 @@ FileSystemFileHandle.prototype.createSyncAccessHandle = async function (
       };
     }
     if (fault === "flush") handle.flush = fail;
-    if (fault === "close" || fault === "commit-close") {
+    if (["close", "commit-close", "record-close"].includes(fault)) {
       const close = handle.close.bind(handle);
       let calls = 0;
       handle.close = function () {
