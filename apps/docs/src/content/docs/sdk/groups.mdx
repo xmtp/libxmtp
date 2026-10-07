@@ -2,6 +2,8 @@
 title: Groups
 ---
 
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
 Robust group chat permissions are key to providing users with a friendly and safe group chat experience.
 
 ## Understand the group permissions system
@@ -164,7 +166,8 @@ The following examples run with an existing `group`. The operator must publish
 `GROUP_CATEGORY` and `USER_PRONOUNS` as shown in the backend guide. The group
 must have registered them, and the caller must be an admin to set the category.
 
-#### Kotlin
+<Tabs syncKey="sdk">
+<TabItem label="Kotlin">
 
 ```kotlin
 val category = checkNotNull(group.metadataField("GROUP_CATEGORY")).field
@@ -187,7 +190,8 @@ val profiles = group.userData(listOf(displayName, pronouns), null)
 group.updateUserData(listOf(UserFieldUpdate(pronouns, null)))
 ```
 
-#### Swift
+</TabItem>
+<TabItem label="Swift">
 
 ```swift
 if let category = try await group.metadataField(name: "GROUP_CATEGORY")?.field {
@@ -212,6 +216,9 @@ if let pronouns = try await group.metadataField(name: "USER_PRONOUNS")?.field {
     ])
 }
 ```
+
+</TabItem>
+</Tabs>
 
 `userData(fields, inboxIds)` returns a map from inbox ID to present field and
 value records. Omit the filters with `undefined` on Browser and Node,

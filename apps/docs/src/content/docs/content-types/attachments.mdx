@@ -2,6 +2,8 @@
 title: Support attachments in your app built with XMTP
 ---
 
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
 Use the remote attachment, multiple remote attachments, or attachment content type to support attachments in your app.
 
 - Use the [remote attachment content type](#support-remote-attachments) to send one encrypted file through storage.
@@ -43,7 +45,8 @@ a byte source already holds the file in application memory.
 The following examples use an existing `client` and `group`. The path must name
 a readable file in the application's filesystem.
 
-#### Kotlin
+<Tabs syncKey="sdk">
+<TabItem label="Kotlin">
 
 ```kotlin
 val attachments = client.attachments()
@@ -61,7 +64,8 @@ group.send(RemoteAttachmentCodec(), remote)
 pending.upload()
 ```
 
-#### Swift
+</TabItem>
+<TabItem label="Swift">
 
 ```swift
 let attachments = client.attachments()
@@ -76,6 +80,9 @@ if attachments.offered() {
     try await pending.upload()
 }
 ```
+
+</TabItem>
+</Tabs>
 
 For an in-memory file, use `AttachmentSource.Bytes(bytes, filename, mimeType)`
 on Kotlin or `.bytes(bytes:filename:mimeType:)` on Swift. Browser path sources
@@ -93,6 +100,9 @@ to be available first.
 Decode the received content with `RemoteAttachmentCodec` to get a
 `RemoteAttachment`. Pass that record to `download`:
 
+<Tabs syncKey="sdk">
+<TabItem label="Kotlin">
+
 ```kotlin
 val downloaded = client.attachments().download(remote)
 val path = downloaded.path
@@ -100,12 +110,18 @@ val mimeType = downloaded.mimeType
 val filename = downloaded.filename
 ```
 
+</TabItem>
+<TabItem label="Swift">
+
 ```swift
 let downloaded = try await client.attachments().download(remote: remote)
 let path = downloaded.path
 let mimeType = downloaded.mimeType
 let filename = downloaded.filename
 ```
+
+</TabItem>
+</Tabs>
 
 `DownloadedAttachment.path` names a file with the original content bytes, not
 the encoded envelope or ciphertext. The returned MIME type and filename come
