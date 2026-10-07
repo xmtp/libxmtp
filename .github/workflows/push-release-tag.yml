@@ -33,7 +33,7 @@ jobs:
           GIT_CONFIG_GLOBAL: /dev/null
         run: |
           set -euo pipefail
-          case "$SDK" in ios|android) ;; *) exit 1 ;; esac
+          case "$SDK" in ios|android|node-sdk|browser-sdk|agent-sdk|cli) ;; *) exit 1 ;; esac
           if ! [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::Expected source commit must be a full SHA"
             exit 1
@@ -46,7 +46,7 @@ jobs:
           TAG_SHA=$(git --git-dir="$RUNNER_TEMP/release-push.git" rev-parse "$TAG_REF^{commit}")
           if [ "$TAG_SHA" != "$SOURCE_SHA" ]; then
             if [ "$SDK" != ios ]; then
-              echo "::error::Android tag does not match the workflow source commit"
+              echo "::error::$SDK tag does not match the selected source commit"
               exit 1
             fi
             PARENTS=$(git --git-dir="$RUNNER_TEMP/release-push.git" rev-list --parents -n 1 "$TAG_SHA")

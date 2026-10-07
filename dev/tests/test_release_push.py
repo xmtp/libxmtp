@@ -104,7 +104,7 @@ class ReleasePushTest(unittest.TestCase):
             )
 
     def test_bundle_push_retains_commit_without_persisting_token(self):
-        for sdk in ["ios", "android"]:
+        for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
             with self.subTest(sdk=sdk):
                 self.bundle_push(sdk)
 
@@ -263,7 +263,7 @@ class ReleasePushTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
 
     def test_rejects_a_release_commit_that_changes_workflows(self):
-        for sdk in ["ios", "android"]:
+        for sdk in ["ios", "android", "node-sdk", "browser-sdk", "agent-sdk", "cli"]:
             with self.subTest(sdk=sdk), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 temporary = root / "runner"
@@ -382,6 +382,95 @@ class ReleasePushTest(unittest.TestCase):
         ios = (ROOT / ".github/workflows/release-ios.yml").read_text()
         self.assertIn("needs: [prepare-release, push-tag, check-push-permissions]", ios)
         self.assertIn("name: ios-release-bundle", ios)
+
+    def test_npm_source_job_only_creates_local_tags(self):
+        npm = ROOT / ".github/workflows/npm-publish.yml"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "bin"
+            binary.mkdir()
+            runner = root / "runner"
+            runner.mkdir()
+            tools = ROOT / "dev/release-tools"
+            wrapper = binary / "xmtp-release"
+            wrapper.write_text(
+                '#!/usr/bin/env bash\nexec "'
+                + str(tools / "node_modules/.bin/tsx")
+                + '" --tsconfig "'
+                + str(tools / "tsconfig.json")
+                + '" "'
+                + str(tools / "src/cli.ts")
+                + '" "$@"\n'
+            )
+            wrapper.chmod(0o755)
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("GIT_")
+            }
+            env.update(
+                GIT_CONFIG_NOSYSTEM="1",
+                GIT_CONFIG_GLOBAL=os.devnull,
+                PATH=str(binary) + os.pathsep + env["PATH"],
+                RUNNER_TEMP=str(runner),
+            )
+
+            def git(*args):
+                return subprocess.run(
+                    ["git", *args],
+                    cwd=root,
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+
+            git("init", "--initial-branch=main")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.com")
+            git("config", "tag.gpgSign", "false")
+            git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "source")
+            source = git("rev-parse", "HEAD")
+            git("remote", "add", "origin", str(root / "missing-remote"))
+            for sdk in ["node-sdk", "browser-sdk", "agent-sdk", "cli"]:
+                with self.subTest(sdk=sdk):
+                    subprocess.run(
+                        ["bash", "-euc", script("Prepare release tag", npm)],
+                        cwd=root,
+                        env=dict(env, SDK=sdk, VERSION="1.2.3"),
+                        check=True,
+                        capture_output=True,
+                    )
+                    self.assertEqual(
+                        git("bundle", "list-heads", str(runner / "release.bundle")),
+                        f"{source} refs/tags/{sdk}-1.2.3",
+                    )
+
+    def test_npm_dry_run_and_publish_keep_tokens_isolated(self):
+        npm = (ROOT / ".github/workflows/npm-publish.yml").read_text()
+        preflight = (ROOT / ".github/workflows/check-release-push.yml").read_text()
+        self.assertNotIn("GH_APP_PK", npm)
+        self.assertNotIn("RELEASE_TOKEN", npm)
+        self.assertIn("contents: read", npm)
+        self.assertIn("ref: ${{ inputs.ref || github.ref }}", npm)
+        self.assertIn("dry-run: ${{ inputs.dry-run }}", npm)
+        self.assertIn(
+            "source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}", npm
+        )
+        verify = preflight.split("      - name: Verify release App permissions\n", 1)[1]
+        self.assertIn("if: ${{ inputs.dry-run != true }}", verify)
+        for name in ["Prepare release tag", "Store release tag"]:
+            step = npm.split("      - name: " + name + "\n", 1)[1].split("      - ", 1)[
+                0
+            ]
+            self.assertIn("if: ${{ inputs.dry-run != true }}", step)
+            self.assertLess(
+                npm.index("- name: " + name), npm.index("- name: Publish to NPM")
+            )
+        push = npm.split("  push-tag:\n", 1)[1]
+        self.assertIn("if: ${{ inputs.dry-run != true }}", push)
+        self.assertIn("needs: [publish, check-push-permissions]", push)
+        self.assertIn("uses: ./.github/workflows/push-release-tag.yml", push)
 
 
 if __name__ == "__main__":

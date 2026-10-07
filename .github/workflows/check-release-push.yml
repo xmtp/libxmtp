@@ -6,6 +6,11 @@ on:
       ref:
         required: true
         type: string
+      dry-run:
+        description: Resolve the source without creating an App token
+        required: false
+        type: boolean
+        default: false
     outputs:
       source-sha:
         description: Commit of the requested release ref
@@ -29,6 +34,7 @@ jobs:
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Verify release App permissions
+        if: ${{ inputs.dry-run != true }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
