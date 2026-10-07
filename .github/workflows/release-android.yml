@@ -33,6 +33,8 @@ on:
 jobs:
   check-push-permissions:
     uses: ./.github/workflows/check-release-push.yml
+    with:
+      ref: ${{ inputs.ref }}
     secrets: inherit
 
   publish:
@@ -43,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           fetch-depth: 0
       - uses: ./.github/actions/setup-release-tools
       - uses: ./.github/actions/setup-nix
@@ -57,7 +59,7 @@ jobs:
       - name: Compute version
         id: version
         env:
-          REF: ${{ inputs.ref }}
+          REF: ${{ needs.check-push-permissions.outputs.source-sha }}
           TIMESTAMP: ${{ inputs.timestamp }}
         run: |
           if [ "${{ inputs.release-type }}" = "rc" ]; then
@@ -130,10 +132,10 @@ jobs:
           retention-days: 1
 
   push-tag:
-    needs: [publish]
+    needs: [publish, check-push-permissions]
     uses: ./.github/workflows/push-release-tag.yml
     with:
       sdk: android
       version: ${{ needs.publish.outputs.version }}
-      source-sha: ${{ github.sha }}
+      source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
     secrets: inherit

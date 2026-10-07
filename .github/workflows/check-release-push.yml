@@ -2,14 +2,39 @@ name: Check release push permissions
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      dry-run:
+        description: Resolve the source without creating an App token
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      source-sha:
+        description: Commit of the requested release ref
+        value: ${{ jobs.verify.outputs.source-sha }}
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    outputs:
+      source-sha: ${{ steps.source.outputs.sha }}
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Resolve release source
+        id: source
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Verify release App permissions
+        if: ${{ inputs.dry-run != true }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}

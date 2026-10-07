@@ -34,9 +34,12 @@ on:
 jobs:
   check-push-permissions:
     uses: ./.github/workflows/check-release-push.yml
+    with:
+      ref: ${{ inputs.ref }}
     secrets: inherit
 
   build-and-package:
+    needs: [check-push-permissions]
     runs-on: warp-macos-15-arm64-12x
     permissions:
       contents: write
@@ -48,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: ./.github/actions/setup-release-tools
       - uses: ./.github/actions/setup-nix
         with:
@@ -57,7 +60,7 @@ jobs:
       - name: Compute version
         id: version
         env:
-          REF: ${{ inputs.ref }}
+          REF: ${{ needs.check-push-permissions.outputs.source-sha }}
           TIMESTAMP: ${{ inputs.timestamp }}
         run: |
           BASE=$(xmtp-release compute-version --sdk ios --release-type final)
@@ -129,7 +132,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
           fetch-depth: 0
       - uses: ./.github/actions/setup-release-tools
       - name: Update Package.swift and podspec
@@ -205,16 +208,16 @@ jobs:
           retention-days: 1
 
   push-tag:
-    needs: [prepare-release]
+    needs: [prepare-release, check-push-permissions]
     uses: ./.github/workflows/push-release-tag.yml
     with:
       sdk: ios
       version: ${{ needs.prepare-release.outputs.version }}
-      source-sha: ${{ github.sha }}
+      source-sha: ${{ needs.check-push-permissions.outputs.source-sha }}
     secrets: inherit
 
   publish:
-    needs: [prepare-release, push-tag]
+    needs: [prepare-release, push-tag, check-push-permissions]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -223,7 +226,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.check-push-permissions.outputs.source-sha }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: ios-release-bundle
