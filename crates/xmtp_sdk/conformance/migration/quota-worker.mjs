@@ -1,22 +1,34 @@
-// Fail a real OPFS write after it writes bytes to the private output.
+// Inject normal failures at private-file creation, writing, flush, or publication.
 const pending = [];
 self.onmessage = (event) => pending.push(event);
+const fault = new URL(import.meta.url).searchParams.get("fault") ?? "write";
+const fail = () => {
+  throw new DOMException("Injected storage failure", "QuotaExceededError");
+};
 const open = FileSystemFileHandle.prototype.createSyncAccessHandle;
 FileSystemFileHandle.prototype.createSyncAccessHandle = async function (
   ...args
 ) {
+  if (this.name.startsWith("archive-") && fault === "open") fail();
   const handle = await open.apply(this, args);
   if (this.name.startsWith("archive-")) {
-    const write = handle.write.bind(handle);
-    handle.write = function (bytes, options) {
-      write(bytes, options);
-      throw new DOMException(
-        "Injected storage quota failure",
-        "QuotaExceededError",
-      );
-    };
+    if (fault === "write") {
+      const write = handle.write.bind(handle);
+      handle.write = function (bytes, options) {
+        write(bytes, options);
+        fail();
+      };
+    }
+    if (fault === "flush") handle.flush = fail;
   }
   return handle;
+};
+const put = IDBObjectStore.prototype.put;
+IDBObjectStore.prototype.put = function (...args) {
+  const request = put.apply(this, args);
+  if (fault === "publish" && this.name === "published")
+    this.transaction.abort();
+  return request;
 };
 await import("/target/sdk-packages/browser/typescript-wasm/worker-entry.gen.js");
 self.onmessage = null;

@@ -119,7 +119,7 @@ fn working_copy(
             Err(e) => return Err(input(e)),
         }
     }
-    let directory = tempfile::tempdir().map_err(input)?;
+    let directory = tempfile::tempdir().map_err(output)?;
     for (suffix, mut file) in files {
         live(cancel).map_err(output)?;
         // Shared memory is coordination state, not committed database content.
@@ -127,11 +127,11 @@ fn working_copy(
             continue;
         }
         let mut target = fs::File::create(sidecar(&directory.path().join("source.db3"), suffix))
-            .map_err(input)?;
+            .map_err(output)?;
         if *suffix == ".sqlcipher_salt" {
             let bytes = read_salt(&mut file)?;
             live(cancel).map_err(output)?;
-            target.write_all(&bytes).map_err(input)?;
+            target.write_all(&bytes).map_err(output)?;
         } else {
             copy_source(&mut file, &mut target, cancel)?;
         }
@@ -210,7 +210,7 @@ fn copy_source(
             return Ok(());
         }
         live(cancel).map_err(output)?;
-        target.write_all(&bytes[..count]).map_err(input)?;
+        target.write_all(&bytes[..count]).map_err(output)?;
     }
 }
 

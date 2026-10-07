@@ -19,6 +19,8 @@ extern "C" {
     fn flush_output(output: &JsValue) -> Result<(), JsValue>;
     #[wasm_bindgen(catch, js_name = abortMigrationOutput)]
     fn abort_output(output: &JsValue) -> Result<(), JsValue>;
+    #[wasm_bindgen(catch, js_name = discardMigrationOutput)]
+    async fn discard_output(output: &JsValue) -> Result<(), JsValue>;
     #[wasm_bindgen(catch, js_name = commitMigrationOutput)]
     async fn commit_output(output: &JsValue) -> Result<(), JsValue>;
 }
@@ -92,13 +94,23 @@ pub(crate) async fn prepare(
     drop(bytes);
     crate::migrations::apply(&mut conn)?;
     let mut sink = Output(begin_output(&args.output_path).await.map_err(output)?);
-    let mut writer = xmtp_archive::exporter::ElementWriter::new(&args.archive_key, &mut sink)?;
-    let report = crate::records::export(&mut conn, args.output_path.clone(), |element| {
-        writer.write(element).map_err(Into::into)
-    })?;
-    writer.finish()?;
+    let result = (|| {
+        let mut writer = xmtp_archive::exporter::ElementWriter::new(&args.archive_key, &mut sink)?;
+        let report = crate::records::export(&mut conn, args.output_path.clone(), |element| {
+            writer.write(element).map_err(Into::into)
+        })?;
+        writer.finish()?;
+        Ok::<_, MigrationError>(report)
+    })();
     drop(conn);
     xmtp_db::database::pause_sqlite_if_idle();
+    let report = match result {
+        Ok(report) => report,
+        Err(error) => {
+            discard_output(&sink.0).await.map_err(output)?;
+            return Err(error);
+        }
+    };
     commit_output(&sink.0).await.map_err(output)?;
     Ok(report)
 }

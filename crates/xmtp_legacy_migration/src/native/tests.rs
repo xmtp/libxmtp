@@ -679,3 +679,69 @@ async fn dropped_call_stops_source_copy_and_removes_partial_copy() {
     assert!(!partial_exists);
     assert_eq!(fs::read(&output_path)?, b"completed archive");
 }
+
+// verifies: MIG-002, MIG-003, MIG-004
+#[xmtp_common::test(unwrap_try = true)]
+fn temporary_copy_failures_keep_source_errors_separate() {
+    const PROBE_SOURCE: &str = "XMTP_MIGRATION_TEMP_ERROR_SOURCE";
+    if let Some(source) = std::env::var_os(PROBE_SOURCE) {
+        let source = PathBuf::from(source);
+        let output = source.parent().unwrap().join("history.xmtp");
+        let result = working_copy(&source, &output, &CancellationToken::new());
+        assert!(
+            matches!(result, Err(MigrationError::Output(_))),
+            "temporary directory failure: {result:?}"
+        );
+        return;
+    }
+    struct Failure;
+    impl Read for Failure {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("injected source read failure"))
+        }
+    }
+    impl Write for Failure {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("injected destination write failure"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let token = CancellationToken::new();
+    assert!(matches!(
+        copy_source(Failure, io::sink(), &token),
+        Err(MigrationError::InvalidInput(_))
+    ));
+    let mut failures = vec![];
+    let result = copy_source(b"source bytes".as_slice(), Failure, &token);
+    if !matches!(result, Err(MigrationError::Output(_))) {
+        failures.push(format!("temporary write: {result:?}"));
+    }
+    #[cfg(unix)]
+    {
+        let (directory, args) = fixture("stable.db3");
+        let before = source_bytes(&args);
+        fs::write(&args.output_path, b"completed archive")?;
+        let invalid_temp = directory.path().join("not-a-directory");
+        fs::write(&invalid_temp, b"file")?;
+        let status = Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "native::tests::temporary_copy_failures_keep_source_errors_separate",
+                "--nocapture",
+            ])
+            .env(PROBE_SOURCE, &args.database_path)
+            .env("TMPDIR", &invalid_temp)
+            .status()?;
+        if !status.success() {
+            failures.push("temporary directory failure had the wrong category".into());
+        }
+        assert_eq!(source_bytes(&args), before);
+        assert_eq!(fs::read(&args.output_path)?, b"completed archive");
+    }
+    assert!(
+        failures.is_empty(),
+        "wrong temporary-storage failure category: {failures:?}"
+    );
+}

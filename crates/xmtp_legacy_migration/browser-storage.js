@@ -29,7 +29,6 @@ async function record(path, name, output) {
           transaction.error ??
             new DOMException("Archive publication was aborted", "AbortError"),
         );
-      transaction.onerror = () => reject(transaction.error);
     });
   } finally {
     db.close();
@@ -61,7 +60,13 @@ export async function beginMigrationOutput(path) {
     await cleanup(folder, previous);
     const name = `archive-${crypto.randomUUID()}`;
     const file = await folder.getFileHandle(name, { create: true });
-    const handle = await file.createSyncAccessHandle();
+    let handle;
+    try {
+      handle = await file.createSyncAccessHandle();
+    } catch (error) {
+      await folder.removeEntry(name);
+      throw error;
+    }
     let release;
     const released = new Promise((done) => {
       release = done;
@@ -75,6 +80,7 @@ export async function beginMigrationOutput(path) {
       offset: 0,
       aborted: false,
       committing: false,
+      discarding: false,
     });
     await released;
   }).catch(reject);
@@ -102,7 +108,19 @@ export function abortMigrationOutput(output) {
       output.transaction?.abort();
     } catch {}
     // A commit owns the lock until its transaction completes or aborts.
-    if (!output.committing) output.release();
+    if (!output.committing && !output.discarding) output.release();
+  }
+}
+// Normal failures remove private output before they settle. A terminated worker
+// still leaves cleanup to the next access.
+export async function discardMigrationOutput(output) {
+  output.discarding = true;
+  try {
+    abortMigrationOutput(output);
+    await output.folder.removeEntry(output.name);
+  } finally {
+    output.discarding = false;
+    output.release();
   }
 }
 export async function commitMigrationOutput(output) {
@@ -119,11 +137,7 @@ export async function commitMigrationOutput(output) {
       console.warn("Cannot remove an old migration object", error);
     }
   } catch (error) {
-    try {
-      output.handle?.close();
-    } catch {}
-    output.handle = undefined;
-    await output.folder.removeEntry(output.name);
+    await discardMigrationOutput(output);
     throw error;
   } finally {
     output.committing = false;

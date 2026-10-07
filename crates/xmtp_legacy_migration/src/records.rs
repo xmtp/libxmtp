@@ -176,6 +176,8 @@ pub(crate) fn export(
             report.group_count += 1;
         }
     }
+    // Keep NULL expiry as unknown. Current group settings do not establish a
+    // historical message expiry (MIG-006; ARCH-009 gap waiver).
     let unknown_kind = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE m.expire_at_ns IS NULL AND m.kind IS NULL AND (g.id IS NULL OR (g.conversation_type IN (1,2) AND g.membership_state IN (1,2,3,5)))")
         .get_result::<Count>(conn)?;
     if unknown_kind.count != 0 {
