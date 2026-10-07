@@ -47,6 +47,9 @@ a byte source already holds the file in application memory.
 The following examples use an existing `client` and `group`. The path must name
 a readable file in the application's filesystem. Browser paths name OPFS entries.
 
+{/* Repeated SDK examples have less search weight than guide text. */}
+
+<div data-pagefind-weight="0.5">
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
@@ -99,6 +102,7 @@ if attachments.offered() {
 
 </TabItem>
 </Tabs>
+</div>
 
 For an in-memory file, use `AttachmentSource.Bytes(bytes, filename, mimeType)`
 on Kotlin or `.bytes(bytes:filename:mimeType:)` on Swift. Browser path sources
@@ -116,6 +120,9 @@ to be available first.
 Decode the received content with `RemoteAttachmentCodec` to get a
 `RemoteAttachment`. Pass that record to `download`:
 
+{/* Repeated SDK examples have less search weight than guide text. */}
+
+<div data-pagefind-weight="0.5">
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
@@ -152,6 +159,7 @@ let filename = downloaded.filename
 
 </TabItem>
 </Tabs>
+</div>
 
 `DownloadedAttachment.path` names a file with the original content bytes, not
 the encoded envelope or ciphertext. The returned MIME type and filename come

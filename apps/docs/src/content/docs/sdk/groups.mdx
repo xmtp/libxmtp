@@ -167,6 +167,9 @@ The following examples run with an existing `group`. The operator must publish
 `GROUP_CATEGORY` and `USER_PRONOUNS` as shown in the backend guide. The group
 must have registered them, and the caller must be an admin to set the category.
 
+{/* Repeated SDK examples have less search weight than guide text. */}
+
+<div data-pagefind-weight="0.5">
 <Tabs syncKey="sdk">
 <TabItem label="Browser">
 
@@ -234,6 +237,7 @@ if let pronouns = try await group.metadataField(name: "USER_PRONOUNS")?.field {
 
 </TabItem>
 </Tabs>
+</div>
 
 `userData(fields, inboxIds)` returns a map from inbox ID to present field and
 value records. Omit the filters with `undefined` on Browser and Node,
