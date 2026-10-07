@@ -33,7 +33,9 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/crates/xmtp_sdk/conformance/migration/browser.html`,
   );
   const fixture = [
-    ...(await readFile("crates/xmtp_legacy_migration/fixtures/stable.db3")),
+    ...(await readFile(
+      "crates/xmtp_legacy_migration/fixtures/consent-states.db3",
+    )),
   ];
   const result = await page.evaluate(
     async ({ fixture, currentSdk }) => {
@@ -79,14 +81,26 @@ try {
       check(
         report.groupCount === 2n &&
           report.messageCount === 3n &&
-          report.consentCount === 1n,
+          report.consentCount === 3n,
         "report counts lost their bigint values",
       );
       const archive = await migration.readMigrationArchive(report.archivePath);
       const records = JSON.parse(
         await fixtureCall({ operation: "inspect", bytes: archive, key }),
       );
-      check(records.length === 6, "wrong archive element count");
+      check(records.length === 8, "wrong archive element count");
+      const consents = records.filter((record) => record.kind === "consent");
+      check(
+        consents.length === 3 &&
+          consents.every(
+            (record, index) =>
+              record.entity ===
+                (index + 2).toString(16).padStart(2, "0").repeat(32) &&
+              record.state === index + 1 &&
+              record.consentedAtNs === "1700000000000000009",
+          ),
+        "legacy consent states changed in the archive",
+      );
       const messages = records.filter((record) => record.kind === "message");
       check(
         messages.length === 3 &&
@@ -240,6 +254,19 @@ try {
           );
           await client.archives.importFromBytes(latest, key);
           await client.archives.importFromBytes(latest, key);
+          for (const [prefix, state] of [
+            ["02", "unknown"],
+            ["03", "allowed"],
+            ["04", "denied"],
+          ]) {
+            check(
+              (await client.preferences.consentState({
+                kind: "inbox",
+                inboxId: prefix.repeat(32),
+              })) === state,
+              `imported consent state changed for ${prefix}`,
+            );
+          }
           const dms = await client.conversations.listDms({
             includeDuplicateDms: true,
           });
@@ -263,9 +290,9 @@ try {
     },
     { fixture, currentSdk: process.argv.includes("--current-sdk") },
   );
-  assert.deepEqual(result.counts, ["2", "3", "1"]);
+  assert.deepEqual(result.counts, ["2", "3", "3"]);
   console.log(
-    "Browser package: OPFS worker export, exact source name, source preservation, standard archive decoding, bigint precision, metadata, typed errors, and immediate worker replacement passed",
+    "Browser package: OPFS worker export, exact source name, source preservation, standard archive decoding, bigint precision, metadata, all consent states, typed errors, and immediate worker replacement passed",
   );
 } finally {
   await browser.close();

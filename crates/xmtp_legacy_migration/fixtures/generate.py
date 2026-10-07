@@ -170,6 +170,18 @@ def encrypted_writer():
     os._exit(0)  # Keep committed WAL after the fixture writer exits.
 
 
+def consent_states_fixture():
+    destination = HERE / "consent-states.db3"
+    destination.unlink(missing_ok=True)
+    shutil.copyfile(HERE / "stable.db3", destination)
+    with sqlite3.connect(destination) as conn:
+        conn.execute("DELETE FROM consent_records")
+        conn.executemany(
+            "INSERT INTO consent_records(entity_type,state,entity,consented_at_ns) VALUES(2,?,?,1700000000000000009)",
+            [(state, f"{state + 2:02x}" * 32) for state in range(3)],
+        )
+
+
 def main():
     for name in [
         "stable.db3",
@@ -186,6 +198,7 @@ def main():
         populate(conn)
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.execute("PRAGMA journal_mode=DELETE")
+    consent_states_fixture()
     paths = migrations()
     expiry = next(
         i for i, p in enumerate(paths) if "ADD COLUMN expire_at_ns" in p.read_text()
@@ -214,6 +227,7 @@ def main():
         "message_bytes_hex": CONTENT.hex(),
         "consent_inbox": PEER,
         "stable_counts": [2, 3, 1],
+        "consent_states": {"02" * 32: [0, 1], "03" * 32: [1, 2], "04" * 32: [2, 3]},
         "early_counts": [2, 5, 1],
         "encrypted_counts": [2, 4, 1],
         "wal_message_id": "09" * 32,

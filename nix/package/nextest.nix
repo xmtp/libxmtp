@@ -16,6 +16,7 @@ let
     inherit root;
     fileset = unions [
       xmtp.filesets.libraries
+      (root + /crates/xmtp_legacy_migration/fixtures)
       # db snapshots
       (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
       (fileFilter (file: file.hasExt "json") (root + /crates))

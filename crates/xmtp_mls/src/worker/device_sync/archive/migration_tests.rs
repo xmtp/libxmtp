@@ -5,6 +5,7 @@ use diesel::prelude::*;
 use futures::TryStreamExt;
 use xmtp_db::{
     ConnectionExt,
+    consent_record::{ConsentState, ConsentType, QueryConsentRecord},
     group::{GroupMembershipState, StoredGroup},
     group_message::StoredGroupMessage,
     schema::{group_messages, groups},
@@ -14,7 +15,7 @@ use xmtp_legacy_migration::{PrepareMigrationArchiveArgs, prepare_migration_archi
 const KEY: [u8; 32] = [7; 32];
 const DM: &str = "a06859a4aebe75c970b8875698fbeddb";
 
-// verifies: MIG-001, MIG-003, MIG-005, MIG-006, ARCH-007, ARCH-010
+// verifies: MIG-001, MIG-003, MIG-005, MIG-006, ARCH-007, ARCH-010, CONS-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() {
     let directory = tempfile::tempdir()?;
@@ -22,7 +23,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
     std::fs::copy(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../xmtp_legacy_migration/fixtures/stable.db3"
+            "/../xmtp_legacy_migration/fixtures/consent-states.db3"
         ),
         &source,
     )?;
@@ -40,7 +41,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
             report.message_count,
             report.consent_count
         ),
-        (2, 3, 1)
+        (2, 3, 3)
     );
     for populated in [false, true] {
         tester!(destination, disable_workers);
@@ -76,6 +77,18 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
                     .load(conn)
             })?;
             assert_eq!(restored.len(), 2);
+            for (prefix, state) in [
+                ("02", ConsentState::Unknown),
+                ("03", ConsentState::Allowed),
+                ("04", ConsentState::Denied),
+            ] {
+                let consent = destination
+                    .db()
+                    .get_consent_record(prefix.repeat(32), ConsentType::InboxId)?
+                    .expect("imported consent record");
+                assert_eq!(consent.state, state);
+                assert_eq!(consent.consented_at_ns, 1700000000000000009);
+            }
             let dm = restored
                 .iter()
                 .find(|g| hex::encode(g.id) == DM)

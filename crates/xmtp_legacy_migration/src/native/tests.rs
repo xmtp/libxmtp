@@ -133,7 +133,7 @@ async fn stable_history_metadata_and_exclusions() {
             panic!("missing consent")
         };
         assert_eq!(consent.entity, PEER);
-        assert_eq!(consent.state, 1);
+        assert_eq!(consent.state, 2);
         assert_eq!(consent.consented_at_ns, 1700000000000000009);
     }
 }
@@ -368,5 +368,60 @@ async fn legacy_migration_timestamps_do_not_remove_null_expiry_history() {
             (2, 3, 1)
         );
         assert_eq!(source_bytes(&args), before);
+    }
+}
+
+// verifies: MIG-003, CONS-002
+#[xmtp_common::test(unwrap_try = true)]
+async fn consent_states_match_the_archive_wire_contract() {
+    use xmtp_proto::xmtp::device_sync::consent_backup::ConsentStateSave;
+
+    let (_directory, args) = fixture("consent-states.db3");
+    let before = source_bytes(&args);
+    let report = prepare_migration_archive(args.clone()).await?;
+    assert_eq!(report.consent_count, 3);
+    assert_eq!(source_bytes(&args), before);
+    let consents: Vec<_> = elements(&report.archive_path)
+        .await
+        .into_iter()
+        .filter_map(|element| match element {
+            Element::Consent(consent) => Some(consent),
+            _ => None,
+        })
+        .collect();
+    for (consent, (prefix, state, wire)) in consents.iter().zip([
+        ("02", ConsentStateSave::Unknown, 1),
+        ("03", ConsentStateSave::Allowed, 2),
+        ("04", ConsentStateSave::Denied, 3),
+    ]) {
+        assert_eq!(consent.entity, prefix.repeat(32));
+        assert_eq!(consent.entity_type, 2);
+        assert_eq!(consent.state, wire);
+        assert_eq!(consent.state(), state);
+        assert_eq!(consent.consented_at_ns, 1700000000000000009);
+    }
+    assert_eq!(consents.len(), 3);
+}
+
+// verifies: MIG-002, MIG-005
+#[xmtp_common::test(unwrap_try = true)]
+async fn oversized_optional_context_keeps_history_and_source() {
+    let (_directory, args) = fixture("stable.db3");
+    let mut bytes = include_bytes!("../../fixtures/appdata-context.bincode").to_vec();
+    bytes.resize(1024 * 1024 + 1, 0);
+    let mut conn = SqliteConnection::establish(&args.database_path)?;
+    diesel::sql_query("UPDATE openmls_key_value SET value_bytes = ?")
+        .bind::<diesel::sql_types::Binary, _>(bytes)
+        .execute(&mut conn)?;
+    drop(conn);
+    let before = source_bytes(&args);
+    let report = prepare_migration_archive(args.clone()).await?;
+    assert_eq!((report.group_count, report.message_count), (2, 3));
+    assert_eq!(source_bytes(&args), before);
+    for record in elements(&report.archive_path).await {
+        if let Element::Group(group) = record {
+            assert!(group.metadata.is_none());
+            assert!(group.mutable_metadata.is_none());
+        }
     }
 }
