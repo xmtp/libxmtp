@@ -21,6 +21,7 @@ jobs:
     outputs:
       workspace: ${{ steps.filter.outputs.workspace }}
       sdk: ${{ steps.filter.outputs.sdk }}
+      sdk_swift: ${{ steps.filter.outputs.sdk_swift }}
       backend_ci: ${{ steps.filter.outputs.backend_ci }}
       browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
       wasm: ${{ steps.filter.outputs.wasm }}
@@ -98,7 +99,24 @@ jobs:
               - '.github/workflows/test-native-backend.yml'
               - 'crates/**'
               - 'apps/xmtp_sdk_bindgen/**'
+              # Proofs and checks that moved out of crates/xmtp_sdk/conformance.
               - 'sdks/browser/test/platform/**'
+              # The code under test: an edit to it must run the moved proofs.
+              - 'sdks/ios/Sources/**'
+              - 'sdks/android/library/src/main/**'
+              - 'Package.swift'
+              - 'sdks/ios/ios.just'
+              - 'sdks/ios/dev/**'
+              - 'sdks/ios/script/check-consumer.sh'
+              - 'sdks/ios/Tests/Consumer/**'
+              - 'sdks/ios/Tests/XmtpSdkTests/ReaderTeardownTests.swift'
+              - 'sdks/ios/Tests/XmtpSdkTests/ListenerGateTests.swift'
+              - 'sdks/ios/Tests/XmtpSdkTests/RuntimeFakes.swift'
+              - 'sdks/ios/Tests/XmtpSdkTests/LiveBackend.swift'
+              - 'sdks/android/android.just'
+              - 'sdks/android/dev/check-consumers'
+              - 'sdks/android/library/build.gradle'
+              - 'sdks/android/library/src/test/negative/**'
               - 'apps/backend/**'
               - 'proto/**'
               - 'Cargo.toml'
@@ -121,6 +139,39 @@ jobs:
               - '.github/actions/setup-js/**'
               - '.github/workflows/test-sdk.yml'
               - '.github/workflows/build-sdk-node-platforms.yml'
+            sdk_swift:
+              - 'dev/worktree-env'
+              - 'dev/docker/load-env'
+              - 'dev/agent-run'
+              - 'dev/check-apple-toolchain'
+              - 'nix/**'
+              - 'dev/nix-shell'
+              - 'justfile'
+              - '.github/actions/setup-nix/**'
+              - 'dev/backend/**'
+              - 'dev/docker/s3/**'
+              - 'nix/package/backend-ci.nix'
+              - 'nix/package/backend.nix'
+              - 'apps/backend/backend.just'
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-native-backend.yml'
+              - 'crates/xmtp_sdk/**'
+              - 'apps/xmtp_sdk_bindgen/**'
+              - '.github/workflows/test-sdk.yml'
+              # Proofs and checks that moved out of crates/xmtp_sdk/conformance,
+              # and the Swift code they test.
+              - 'sdks/ios/Sources/**'
+              - 'Package.swift'
+              - 'sdks/ios/ios.just'
+              - 'sdks/ios/dev/**'
+              - 'sdks/ios/script/check-consumer.sh'
+              - 'sdks/ios/Tests/Consumer/**'
+              - 'sdks/ios/Tests/XmtpSdkTests/ReaderTeardownTests.swift'
+              - 'sdks/ios/Tests/XmtpSdkTests/ListenerGateTests.swift'
+              - 'sdks/ios/Tests/XmtpSdkTests/RuntimeFakes.swift'
+              - 'sdks/ios/Tests/XmtpSdkTests/LiveBackend.swift'
             browser_sdk:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -351,6 +402,8 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.sdk == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/self-hosted')
     uses: ./.github/workflows/test-sdk.yml
+    with:
+      run_swift: ${{ needs.detect-changes.outputs.sdk_swift == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/self-hosted') }}
     secrets: inherit
 
   test-keepalive-probe:

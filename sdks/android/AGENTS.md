@@ -86,7 +86,8 @@ Host JVM checks do not prove an Android AAR loads.
 with the tests. `check-consumers` adds one at a time to the unit test sources
 (the `xmtpNegativeConsumer` Gradle property) and checks that the compile fails
 with the expected diagnostics: typed IDs, typed content, Group and Dm types,
-and typed codec values.
+and typed codec values. The required `test-sdk.yml` workflow runs it in its
+Android staging job.
 
 Instrumentation has no foreground Activity. Its fixtures disable
 `AndroidStreamLifecycle.enabled`, resume native streams, and restore the flag.
