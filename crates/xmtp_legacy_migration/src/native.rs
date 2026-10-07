@@ -278,7 +278,7 @@ fn run(
         &directory.path().join("source.db3"),
         args.database_key.as_deref(),
     )?;
-    crate::migrations::apply(&mut conn)?;
+    crate::migrations::apply(&mut conn, || live(cancel).map_err(output))?;
     write_output(output_path, cancel, |sink| {
         let mut writer = xmtp_archive::exporter::ElementWriter::new(&args.archive_key, sink)?;
         let report = crate::records::export(&mut conn, args.output_path.clone(), |element| {

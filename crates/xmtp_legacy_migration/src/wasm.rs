@@ -92,7 +92,8 @@ pub(crate) async fn prepare(
     conn.deserialize_database_from_buffer(&bytes)?;
     // SQLite owns a copy after deserialization.
     drop(bytes);
-    crate::migrations::apply(&mut conn)?;
+    // Browser cancellation terminates the worker.
+    crate::migrations::apply(&mut conn, || Ok(()))?;
     let mut sink = Output(begin_output(&args.output_path).await.map_err(output)?);
     let result = (|| {
         let mut writer = xmtp_archive::exporter::ElementWriter::new(&args.archive_key, &mut sink)?;
