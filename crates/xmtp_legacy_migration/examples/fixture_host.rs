@@ -32,6 +32,29 @@ mod browser {
         xmtp_db::export_opfs_database(&path).await.map_err(error)
     }
     #[wasm_bindgen]
+    pub async fn inspect_archive_sizes(bytes: Vec<u8>, key: Vec<u8>) -> Result<String, JsValue> {
+        let mut importer =
+            xmtp_archive::ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(bytes))), &key)
+                .await
+                .map_err(error)?;
+        let mut values = vec![];
+        while let Some(element) = importer.try_next().await.map_err(error)? {
+            if let Some(Element::GroupMessage(message)) = element.element {
+                values.push(serde_json::json!({
+                    "id": hex::encode(message.id),
+                    "contentLength": message.decrypted_message_bytes.len(),
+                    "contentIsZero": message.decrypted_message_bytes.iter().all(|byte| *byte == 0),
+                    "installationLength": message.sender_installation_id.len(),
+                    "senderInboxId": message.sender_inbox_id,
+                    "authorityId": message.authority_id,
+                    "referenceLength": message.reference_id.map(|value| value.len()),
+                }));
+            }
+        }
+        serde_json::to_string(&values).map_err(error)
+    }
+
+    #[wasm_bindgen]
     pub async fn inspect_archive(bytes: Vec<u8>, key: Vec<u8>) -> Result<String, JsValue> {
         let importer =
             xmtp_archive::ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(bytes))), &key)

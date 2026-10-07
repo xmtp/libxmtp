@@ -101,3 +101,10 @@ conversation can remain in the archive when no message qualifies.
 | --- | --- | --- | --- |
 | MIG-005 | Optional metadata degrades independently | When optional legacy metadata cannot be decoded, the converter MUST retain the group and eligible messages and omit only unavailable metadata; unreadable required records MUST fail preparation. | A damaged optional field must not remove readable history. |
 | MIG-006 | Exclude recorded message expiry | When preparing an archive, the converter MUST exclude every otherwise eligible message whose stored `expire_at_ns` value is non-null. A null value, including one added by a legacy schema migration, MUST NOT cause exclusion by itself. | Keep available history while excluding every recorded disappearing deadline. |
+| MIG-007 | Bounded stored-message reads | Before loading the retained variable fields of each otherwise eligible stored-message row, the converter MUST validate their combined byte length in SQL against a fixed 64 MiB budget. A row at the limit MUST remain supported. A row over the limit MUST fail the whole preparation with a typed record error, preserve source and previous output, and leave no incomplete output. | A large stored message must not cause an unbounded allocation or silent loss of history. |
+
+The retained variable fields are the message ID, group ID, content bytes,
+sender installation ID, sender inbox ID, authority ID, and optional reference
+ID. Count TEXT as bytes, not characters. An absent optional field contributes
+zero bytes. This is a per-row limit, not a database or archive size limit.
+Conversion does not skip an oversized eligible message.

@@ -802,3 +802,5 @@ async fn invalid_message_kinds_fail_without_publishing() {
         "unsupported kinds silently removed history: {failures:?}"
     );
 }
+
+mod message_sizes;

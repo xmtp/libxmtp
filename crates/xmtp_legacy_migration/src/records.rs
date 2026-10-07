@@ -14,6 +14,8 @@ use xmtp_proto::xmtp::{
 };
 
 const GROUP_PAGE: i64 = 64;
+const MAX_MESSAGE_ROW_BYTES: i64 = 64 * 1024 * 1024;
+const ELIGIBLE_MESSAGES: &str = "FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL";
 
 #[derive(QueryableByName)]
 struct Group {
@@ -115,7 +117,7 @@ fn invalid(reason: &'static str) -> MigrationError {
     MigrationError::RecordRead(RecordError::Invalid(reason))
 }
 
-// implements: MIG-001, MIG-006
+// implements: MIG-001, MIG-006, MIG-007
 pub(crate) fn export(
     conn: &mut SqliteConnection,
     archive_path: String,
@@ -188,8 +190,25 @@ pub(crate) fn export(
     if orphan.count != 0 {
         return Err(invalid("message has no required group"));
     }
-    let messages = diesel::sql_query("SELECT m.* FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL ORDER BY m.id")
-            .load_iter::<MessageRow, DefaultLoadingMode>(conn)?;
+    // Count every retained variable field before Diesel or Prost loads it.
+    // CAST counts TEXT bytes, including embedded NULs, rather than characters.
+    let oversized = diesel::sql_query(format!(
+        "SELECT EXISTS(SELECT 1 {ELIGIBLE_MESSAGES} AND \
+         COALESCE(length(CAST(m.id AS BLOB)), 0) + \
+         COALESCE(length(CAST(m.group_id AS BLOB)), 0) + \
+         COALESCE(length(CAST(m.decrypted_message_bytes AS BLOB)), 0) + \
+         COALESCE(length(CAST(m.sender_installation_id AS BLOB)), 0) + \
+         COALESCE(length(CAST(m.sender_inbox_id AS BLOB)), 0) + \
+         COALESCE(length(CAST(m.authority_id AS BLOB)), 0) + \
+         COALESCE(length(CAST(m.reference_id AS BLOB)), 0) > ?) AS count"
+    ))
+    .bind::<BigInt, _>(MAX_MESSAGE_ROW_BYTES)
+    .get_result::<Count>(conn)?;
+    if oversized.count != 0 {
+        return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
+    }
+    let query = format!("SELECT m.* {ELIGIBLE_MESSAGES} ORDER BY m.id");
+    let messages = diesel::sql_query(query).load_iter::<MessageRow, DefaultLoadingMode>(conn)?;
     for message in messages {
         emit(Element::GroupMessage(message?.into_save()?))?;
         report.message_count += 1;
