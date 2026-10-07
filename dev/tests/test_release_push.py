@@ -17,13 +17,92 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/push-release-tag.yml"
 
 
-def script(name):
-    text = WORKFLOW.read_text().split("      - name: " + name + "\n", 1)[1]
+def script(name, workflow=WORKFLOW):
+    text = workflow.read_text().split("      - name: " + name + "\n", 1)[1]
     text = text.split("      - ", 1)[0]
     return dedent(text.split("        run: |\n", 1)[1])
 
 
 class ReleasePushTest(unittest.TestCase):
+    def test_selected_source_is_fixed_before_sdk_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("GIT_")
+            }
+            env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+            def git(*args):
+                return subprocess.run(
+                    ["git", *args],
+                    cwd=root,
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+
+            git("init", "--initial-branch=caller")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.com")
+            git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "caller")
+            caller_sha = git("rev-parse", "HEAD")
+            git("switch", "-c", "release")
+            git(
+                "-c",
+                "commit.gpgSign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "selected",
+            )
+            selected_sha = git("rev-parse", "HEAD")
+            output = root / "source-output"
+            subprocess.run(
+                [
+                    "bash",
+                    "-euc",
+                    script(
+                        "Resolve release source",
+                        ROOT / ".github/workflows/check-release-push.yml",
+                    ),
+                ],
+                cwd=root,
+                env=dict(env, GITHUB_SHA=caller_sha, GITHUB_OUTPUT=str(output)),
+                check=True,
+            )
+            snapshot = output.read_text().strip().removeprefix("sha=")
+            self.assertEqual(snapshot, selected_sha)
+            self.assertNotEqual(snapshot, caller_sha)
+            # A later branch update must not change the saved source commit.
+            git("-c", "commit.gpgSign=false", "commit", "--allow-empty", "-m", "later")
+            self.assertNotEqual(git("rev-parse", "release"), snapshot)
+            git("checkout", "--detach", snapshot)
+            git("-c", "tag.gpgSign=false", "tag", "android-1.2.3")
+            temporary = root / "runner"
+            (temporary / "release-tag").mkdir(parents=True)
+            git(
+                "bundle",
+                "create",
+                str(temporary / "release-tag/release.bundle"),
+                "refs/tags/android-1.2.3",
+            )
+            subprocess.run(
+                ["bash", "-euc", script("Import release tag")],
+                cwd=root,
+                env=dict(
+                    env,
+                    SOURCE_SHA=snapshot,
+                    SDK="android",
+                    VERSION="1.2.3",
+                    RUNNER_TEMP=str(temporary),
+                ),
+                check=True,
+                capture_output=True,
+            )
+
     def test_bundle_push_retains_commit_without_persisting_token(self):
         for sdk in ["ios", "android"]:
             with self.subTest(sdk=sdk):
@@ -263,8 +342,15 @@ class ReleasePushTest(unittest.TestCase):
         self.assertIn("permission-workflows: write", text)
         self.assertNotRegex(text, re.compile(r"^\s+owner:", re.MULTILINE))
         preflight = (ROOT / ".github/workflows/check-release-push.yml").read_text()
-        self.assertNotIn("checkout@", preflight)
-        self.assertNotIn("run:", preflight)
+        self.assertRegex(preflight, r"uses: actions/checkout@[0-9a-f]{40}(?:\s|$)")
+        self.assertIn("persist-credentials: false", preflight)
+        self.assertIn("ref: ${{ inputs.ref }}", preflight)
+        self.assertNotIn("uses: ./", preflight)
+        self.assertNotIn("xmtp-release", preflight)
+        self.assertLess(
+            preflight.index("- name: Resolve release source"),
+            preflight.index("- name: Verify release App permissions"),
+        )
         self.assertIn("permission-contents: write", preflight)
         self.assertIn("permission-workflows: write", preflight)
         for sdk in ["android", "ios"]:
@@ -275,7 +361,18 @@ class ReleasePushTest(unittest.TestCase):
                 self.assertIn("fetch-depth: 0", mobile)
                 self.assertIn(f"name: release-tag-{sdk}", mobile)
                 self.assertIn("uses: ./.github/workflows/push-release-tag.yml", mobile)
-                self.assertIn("source-sha: ${{ github.sha }}", mobile)
+                source = "${{ needs.check-push-permissions.outputs.source-sha }}"
+                self.assertIn("source-sha: " + source, mobile)
+                self.assertNotIn("source-sha: ${{ github.sha }}", mobile)
+                self.assertIn("REF: " + source, mobile)
+                self.assertIn("ref: " + source, mobile)
+                for body in re.split(
+                    r"(?m)^  [a-z][a-z0-9-]*:\n", mobile.split("jobs:\n", 1)[1]
+                ):
+                    if source in body:
+                        self.assertRegex(
+                            body, r"needs: \[[^\n]*check-push-permissions[^\n]*\]"
+                        )
                 self.assertIn(
                     "uses: ./.github/workflows/check-release-push.yml", mobile
                 )
@@ -283,7 +380,7 @@ class ReleasePushTest(unittest.TestCase):
                     mobile, r"needs: \[[^\n]*check-push-permissions[^\n]*\]"
                 )
         ios = (ROOT / ".github/workflows/release-ios.yml").read_text()
-        self.assertIn("needs: [prepare-release, push-tag]", ios)
+        self.assertIn("needs: [prepare-release, push-tag, check-push-permissions]", ios)
         self.assertIn("name: ios-release-bundle", ios)
 
 
