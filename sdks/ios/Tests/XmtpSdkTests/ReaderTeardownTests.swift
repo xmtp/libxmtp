@@ -82,9 +82,12 @@ private func awaitEnd(
 
 /// The Swift reader stream (`runtime/streams/Readers.swift`) releases its reader
 /// before iteration ends, ends a reader that opens late, and stops its state
-/// monitor at Closed. The tests open streams through `makeSDKMessageStream`,
-/// the function that every `SDKClient.messages` form uses, so a test can hold
-/// the reader that the stream opens.
+/// monitor at Closed. The message tests open streams through
+/// `makeSDKMessageStream`, so a test can hold the reader that the stream opens.
+/// The public message streams (`Group.streamMessages`, `Dm.streamMessages` and
+/// `Conversations.streamAllMessages` in `runtime/streams/StreamMethods.swift`)
+/// first get their owner from `ClientRegistry` and then call the same
+/// function. `StreamOwnerTests` covers that owner lookup.
 final class ReaderTeardownTests: XCTestCase {
 	private func fakeOwner() -> SDKClient {
 		makeSDKClient(FakeClient(noHandle: Client.NoHandle()))
@@ -97,7 +100,7 @@ final class ReaderTeardownTests: XCTestCase {
 	func testAppErrorEndsTheReaderWithoutAcknowledgingTheItem() async throws {
 		try await withLiveClients(1) { clients in
 			let owner = clients[0]
-			let group = try await owner.conversations().createGroup(members: [InboxId](), options: nil)
+			let group = try await owner.conversations.createGroup(members: [InboxId](), options: nil)
 			let heldId = try await group.sendText(text: "held by the app", options: nil)
 			let opened = Shared<MessageReader?>(nil)
 			let reasons = Shared<[SDKStreamCloseReason]>([])
@@ -203,7 +206,7 @@ final class ReaderTeardownTests: XCTestCase {
 	func testCloseWaitsForALateOpenToEndItsReader() async throws {
 		try await withLiveClients(1) { clients in
 			let owner = clients[0]
-			let group = try await owner.conversations().createGroup(members: [InboxId](), options: nil)
+			let group = try await owner.conversations.createGroup(members: [InboxId](), options: nil)
 			let opened = Shared<MessageReader?>(nil)
 			let gate = LateOpenGate()
 			let closes = Shared(0)
@@ -253,7 +256,7 @@ final class ReaderTeardownTests: XCTestCase {
 	func testIterationEndsAfterTheReaderIsReleased() async throws {
 		try await withLiveClients(1) { clients in
 			let owner = clients[0]
-			let scope = try await owner.conversations().createGroup(members: [InboxId](), options: nil)
+			let scope = try await owner.conversations.createGroup(members: [InboxId](), options: nil)
 			func slowEndStream(read: @escaping @Sendable () async throws -> Message?) -> SDKMessageStream {
 				makeSDKMessageStream(open: {
 					let reader = try await scope.messageReader(options: nil)
@@ -305,9 +308,9 @@ final class ReaderTeardownTests: XCTestCase {
 		try await withLiveClients(1) { clients in
 			let owner = clients[0]
 			let opened = Shared(false)
-			let stream = try await owner.conversationStream(onConnectionStateChange: { _, _ in
+			let stream = try await owner.conversations.stream(options: .init(onConnectionStateChange: { _, _ in
 				opened.update { $0 = true }
-			})
+			}))
 			let iterator = stream.makeAsyncIterator()
 			let pending = Task { try await iterator.next() }
 			defer { pending.cancel() }
@@ -315,7 +318,7 @@ final class ReaderTeardownTests: XCTestCase {
 			guard isOpen else {
 				return XCTFail("The conversation reader did not open")
 			}
-			let group = try await owner.conversations().createGroup(members: [InboxId](), options: nil)
+			let group = try await owner.conversations.createGroup(members: [InboxId](), options: nil)
 			let delivered = try await within(seconds: 10) { try await pending.value }
 			guard case let .group(received)?? = delivered else {
 				return XCTFail("The conversation stream did not deliver the group before the deadline")
