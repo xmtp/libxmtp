@@ -152,12 +152,16 @@ jobs:
         env:
           SDK: ${{ inputs.sdk }}
           VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ needs.check-push-permissions.outputs.source-sha }}
         run: |
+          if [ "$(git rev-parse HEAD)" != "$SOURCE_SHA" ]; then
+            echo "::error::Release HEAD does not match the selected source commit"
+            exit 1
+          fi
           xmtp-release tag-release --sdk "$SDK" --version "$VERSION" --no-push --ignore-if-exists
           tag_ref="refs/tags/${SDK}-${VERSION}"
           tag_sha=$(git rev-parse "$tag_ref^{commit}")
-          source_sha=$(git rev-parse HEAD)
-          if [ "$tag_sha" != "$source_sha" ]; then
+          if [ "$tag_sha" != "$SOURCE_SHA" ]; then
             echo "::error::Release tag does not match the selected source commit"
             exit 1
           fi

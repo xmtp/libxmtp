@@ -590,7 +590,7 @@ class ReleasePushTest(unittest.TestCase):
                     subprocess.run(
                         ["bash", "-euc", script("Prepare release tag", npm)],
                         cwd=root,
-                        env=dict(env, SDK=sdk, VERSION="1.2.3"),
+                        env=dict(env, SDK=sdk, VERSION="1.2.3", SOURCE_SHA=source),
                         check=True,
                         capture_output=True,
                     )
@@ -608,7 +608,9 @@ class ReleasePushTest(unittest.TestCase):
                             subprocess.run(
                                 ["bash", "-euc", script("Prepare release tag", npm)],
                                 cwd=root,
-                                env=dict(env, SDK=sdk, VERSION="1.2.3"),
+                                env=dict(
+                                    env, SDK=sdk, VERSION="1.2.3", SOURCE_SHA=source
+                                ),
                                 check=True,
                                 capture_output=True,
                             )
@@ -631,7 +633,9 @@ class ReleasePushTest(unittest.TestCase):
                             result = subprocess.run(
                                 ["bash", "-euc", script("Prepare release tag", npm)],
                                 cwd=root,
-                                env=dict(env, SDK=sdk, VERSION="1.2.3"),
+                                env=dict(
+                                    env, SDK=sdk, VERSION="1.2.3", SOURCE_SHA=source
+                                ),
                                 capture_output=True,
                                 text=True,
                             )
@@ -640,6 +644,32 @@ class ReleasePushTest(unittest.TestCase):
                             self.assertFalse((runner / "release.bundle").exists())
                             git("tag", "--delete", tag)
                             git("tag", tag, source)
+
+                    # Check moved HEAD with a fresh tag and a matching retry tag.
+                    git(
+                        "-c",
+                        "commit.gpgSign=false",
+                        "commit",
+                        "--allow-empty",
+                        "-m",
+                        "moved",
+                    )
+                    for version in ["1.2.3", "1.2.4"]:
+                        with self.subTest(moved_head_version=version):
+                            (runner / "release.bundle").unlink(missing_ok=True)
+                            result = subprocess.run(
+                                ["bash", "-euc", script("Prepare release tag", npm)],
+                                cwd=root,
+                                env=dict(
+                                    env, SDK=sdk, VERSION=version, SOURCE_SHA=source
+                                ),
+                                capture_output=True,
+                                text=True,
+                            )
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertIn("selected source commit", result.stdout)
+                            self.assertFalse((runner / "release.bundle").exists())
+                    git("reset", "--hard", source)
 
     def test_npm_dry_run_and_publish_keep_tokens_isolated(self):
         npm = (ROOT / ".github/workflows/npm-publish.yml").read_text()
@@ -654,6 +684,13 @@ class ReleasePushTest(unittest.TestCase):
         )
         verify = preflight.split("      - name: Verify release App permissions\n", 1)[1]
         self.assertIn("if: ${{ inputs.dry-run != true }}", verify)
+        prepare = npm.split("      - name: Prepare release tag\n", 1)[1].split(
+            "      - ", 1
+        )[0]
+        self.assertIn(
+            "SOURCE_SHA: ${{ needs.check-push-permissions.outputs.source-sha }}",
+            prepare,
+        )
         for name in ["Prepare release tag", "Store release tag"]:
             step = npm.split("      - name: " + name + "\n", 1)[1].split("      - ", 1)[
                 0
