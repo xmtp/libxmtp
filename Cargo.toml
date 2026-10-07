@@ -6,7 +6,14 @@ members = [
   "crates/*",
 ]
 
-exclude = ["apps/cli", "apps/docs", "apps/web-chat"]
+exclude = [
+  # Not a crate. It guards ignored Gradle output (.gradle/, build/) that a
+  # checkout can keep after the retired apps/android example was deleted.
+  "apps/android",
+  "apps/cli",
+  "apps/docs",
+  "apps/web-chat",
+]
 
 # Default build and test members. Portable crates do not inherit the client workspace hack.
 default-members = [
