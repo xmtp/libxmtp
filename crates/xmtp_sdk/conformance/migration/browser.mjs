@@ -151,31 +151,49 @@ try {
       );
       const NativeWorker = globalThis.Worker;
       let outputFailure;
+      let fault;
       globalThis.Worker = class extends NativeWorker {
         constructor(url, options) {
           super(
             new URL(url, location.href).pathname.endsWith(
               "/worker-entry.gen.js",
             )
-              ? new URL("./quota-worker.mjs", location.href)
+              ? new URL("./quota-worker.mjs?fault=" + fault, location.href)
               : url,
             options,
           );
         }
       };
       try {
-        for (const outputPath of [args.outputPath, "failed-new-output.xmtp"]) {
-          outputFailure = undefined;
-          try {
-            await migration.prepareMigrationArchive({ ...args, outputPath });
-          } catch (error) {
-            outputFailure = error;
+        for (fault of ["open", "write", "flush", "publish"]) {
+          for (const outputPath of [
+            args.outputPath,
+            "failed-new-output.xmtp",
+          ]) {
+            outputFailure = undefined;
+            try {
+              await migration.prepareMigrationArchive({ ...args, outputPath });
+            } catch (error) {
+              outputFailure = error;
+            }
+            check(
+              outputFailure !== undefined &&
+                outputFailure instanceof migration.XmtpError.MigrationOutput,
+              fault + " failure lost its typed tag",
+            );
+            const root = await navigator.storage.getDirectory();
+            const archives = await root.getDirectoryHandle(
+              "xmtp-migration-archives",
+            );
+            const folder = await archives.getDirectoryHandle(
+              encodeURIComponent(outputPath),
+            );
+            check(
+              (await Array.fromAsync(folder.keys())).length ===
+                (outputPath === args.outputPath ? 1 : 0),
+              fault + " failure settled before removing its private output",
+            );
           }
-          check(
-            outputFailure !== undefined &&
-              outputFailure instanceof migration.XmtpError.MigrationOutput,
-            "OPFS write failure lost its typed tag",
-          );
         }
       } finally {
         globalThis.Worker = NativeWorker;
