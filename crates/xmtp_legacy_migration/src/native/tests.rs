@@ -745,3 +745,60 @@ fn temporary_copy_failures_keep_source_errors_separate() {
         "wrong temporary-storage failure category: {failures:?}"
     );
 }
+
+// verifies: MIG-002, MIG-004, MIG-006
+#[xmtp_common::test(unwrap_try = true)]
+async fn invalid_message_kinds_fail_without_publishing() {
+    let mut failures = vec![];
+    for kind in [-1, 0, 3, 99] {
+        for orphan in [false, true] {
+            for previous in [false, true] {
+                let (_directory, args) = fixture("stable.db3");
+                let group = if orphan {
+                    format!(", group_id=x'{}'", "ff".repeat(16))
+                } else {
+                    String::new()
+                };
+                edit(
+                    &args,
+                    &format!(
+                        "UPDATE group_messages SET kind={kind}{group} WHERE id=x'{}';",
+                        "01".repeat(32)
+                    ),
+                );
+                let before = source_bytes(&args);
+                if previous {
+                    fs::write(&args.output_path, b"completed archive")?;
+                }
+                let result = prepare_migration_archive(args.clone()).await;
+                if !matches!(result, Err(MigrationError::RecordRead(_))) {
+                    failures.push(format!(
+                        "kind={kind}, orphan={orphan}, previous={previous}: {result:?}"
+                    ));
+                } else if previous {
+                    assert_eq!(fs::read(&args.output_path)?, b"completed archive");
+                } else {
+                    assert!(!Path::new(&args.output_path).exists());
+                }
+                assert_eq!(source_bytes(&args), before);
+            }
+        }
+    }
+    // Membership changes are known records that migration must exclude.
+    let (_directory, args) = fixture("stable.db3");
+    edit(
+        &args,
+        &format!(
+            "UPDATE group_messages SET kind=2 WHERE id=x'{}';",
+            "01".repeat(32)
+        ),
+    );
+    let before = source_bytes(&args);
+    let report = prepare_migration_archive(args.clone()).await?;
+    assert_eq!(report.message_count, 2);
+    assert_eq!(source_bytes(&args), before);
+    assert!(
+        failures.is_empty(),
+        "unsupported kinds silently removed history: {failures:?}"
+    );
+}
