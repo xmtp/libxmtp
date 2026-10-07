@@ -3,6 +3,7 @@
 from pathlib import Path
 import os
 import json
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -78,6 +79,40 @@ class RecipeTests(unittest.TestCase):
                 self.assertNotIn("--jobs", commands)
                 self.assertNotIn("--num-workers", commands)
 
+    def test_seam_proofs_run_once_across_ci_jobs(self):
+        # test-sdk.yml runs `test-seams`; test-ios.yml runs `test skip-seams`.
+        # The two must name the same tests, or a proof runs twice or never.
+        def swift_test_args(*recipe):
+            result = subprocess.run(
+                ["just", "--dry-run", "ios", *recipe],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            command = next(
+                line
+                for line in (result.stdout + result.stderr).splitlines()
+                if "swift test" in line
+            )
+            return shlex.split(command.split("swift test", 1)[1])
+
+        selected = swift_test_args("test-seams")
+        skipped = swift_test_args("test", "skip-seams")
+        self.assertEqual(selected[0], "--filter")
+        self.assertEqual(skipped[-2], "--skip")
+        self.assertEqual(selected[1], skipped[-1])
+        self.assertNotIn("--skip", swift_test_args("test"))
+        for test_case in ("ReaderTeardownTests", "ListenerGateTests"):
+            self.assertRegex(f"XmtpSdkTests.{test_case}/testA", selected[1])
+        rejected = subprocess.run(
+            ["just", "--dry-run", "ios", "test", "skip"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+
     def test_docs_create_output_parent_in_fresh_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             checkout = Path(directory)
@@ -110,7 +145,7 @@ class RecipeTests(unittest.TestCase):
 
     def test_tests_use_repository_backend_helpers(self):
         prefix = f"{ROOT}/dev/worktree-env && . {ROOT}/dev/docker/load-env && "
-        for recipe in ("test", "test-simulator"):
+        for recipe in ("test", "test-seams", "test-simulator"):
             with self.subTest(recipe=recipe):
                 result = subprocess.run(
                     ["just", "--dry-run", "ios", recipe],

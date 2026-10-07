@@ -42,8 +42,63 @@ private actor Registration {
 	}
 }
 
-/// Client close stops each listener callback, also for a registration that is
-/// pending at close or that starts after close.
+/// A task executor that keeps each job until the test releases it. The
+/// generated callback trampoline starts one unstructured task for each native
+/// `onEvent` call. A task that prefers this executor is in the same state: the
+/// native call has started, and the runtime's `onEvent` has not run yet.
+@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)
+private final class HeldStartExecutor: TaskExecutor, @unchecked Sendable {
+	private let lock = NSLock()
+	private let queue = DispatchQueue(label: "ListenerGateTests.HeldStartExecutor")
+	private var heldJobs: [UnownedJob] = []
+	private var holding = true
+	private var heldWaiter: CheckedContinuation<Void, Never>?
+
+	func enqueue(_ job: consuming ExecutorJob) {
+		let job = UnownedJob(job)
+		lock.lock()
+		guard holding else {
+			lock.unlock()
+			run(job)
+			return
+		}
+		heldJobs.append(job)
+		let waiter = heldWaiter
+		heldWaiter = nil
+		lock.unlock()
+		waiter?.resume()
+	}
+
+	/// Returns when the first job is held.
+	func waitUntilHeld() async {
+		await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+			lock.lock()
+			if heldJobs.isEmpty {
+				heldWaiter = continuation
+				lock.unlock()
+			} else {
+				lock.unlock()
+				continuation.resume()
+			}
+		}
+	}
+
+	func release() {
+		lock.lock()
+		holding = false
+		let jobs = heldJobs
+		heldJobs = []
+		lock.unlock()
+		jobs.forEach(run)
+	}
+
+	private func run(_ job: UnownedJob) {
+		queue.async { job.runSynchronously(on: self.asUnownedTaskExecutor()) }
+	}
+}
+
+/// Client close and `stopListener` stop each listener callback, also for a
+/// registration that is pending at close or that starts after close.
 final class ListenerGateTests: XCTestCase {
 	private let filter = EventFilter(kinds: [.conversationForkDetected])
 	private let event = ClientEvent.conversationForkDetected(conversationForkDetected: GroupRef(groupId: Data([1])))
@@ -85,6 +140,54 @@ final class ListenerGateTests: XCTestCase {
 
 		let callbacks = await registration.callbackCount()
 		XCTAssertEqual(callbacks, 0, "A listener started after client close ran its callback")
+	}
+
+	/// A native call that has started but has not passed the start gate when
+	/// `stopListener` returns does not run the callback. The call is held
+	/// right before the runtime's `onEvent`, whose first step is the gate. Stop
+	/// and client close return while the call is held.
+	// verifies: EVENT-053
+	func testCallbackHeldAtItsStartDoesNotRunAfterStop() async throws {
+		guard #available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *) else {
+			throw XCTSkip("Task executor preference needs macOS 15 or iOS 18")
+		}
+		let registration = Registration()
+		let client = makeClient(registration, hold: false)
+		let id = try await client.startListener(filter) { _ in await registration.callback() }
+		let listener = await registration.registeredListener()
+		try await listener.onEvent(event: event)
+		let beforeStop = await registration.callbackCount()
+
+		let stopExecutor = HeldStartExecutor()
+		let heldAtStop = heldCall(listener, on: stopExecutor)
+		await stopExecutor.waitUntilHeld()
+		await client.stopListener(id)
+		stopExecutor.release()
+		try await heldAtStop.value
+		let afterHeldCall = await registration.callbackCount()
+
+		try await listener.onEvent(event: event)
+		let afterStop = await registration.callbackCount()
+
+		let endExecutor = HeldStartExecutor()
+		let heldAtEnd = heldCall(listener, on: endExecutor)
+		await endExecutor.waitUntilHeld()
+		try await client.end()
+		endExecutor.release()
+		try await heldAtEnd.value
+		let afterEnd = await registration.callbackCount()
+
+		XCTAssertEqual(beforeStop, 1, "The running listener did not run the callback")
+		XCTAssertEqual(afterHeldCall, 1, "A callback held at its start ran after stopListener returned")
+		XCTAssertEqual(afterStop, 1, "A callback started after stopListener returned")
+		XCTAssertEqual(afterEnd, 1, "A callback held across client close ran")
+	}
+
+	/// Starts a native call whose task is held before `onEvent` runs.
+	@available(macOS 15.0, iOS 18.0, tvOS 18.0, watchOS 11.0, *)
+	private func heldCall(_ listener: EventListener, on executor: HeldStartExecutor) -> Task<Void, Error> {
+		let event = event
+		return Task(executorPreference: executor) { try await listener.onEvent(event: event) }
 	}
 
 	func testClosedRegistryStopsRegisteredGate() {

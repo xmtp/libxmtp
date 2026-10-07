@@ -110,6 +110,14 @@ android {
             jniLibs.srcDirs += [System.getenv("XMTP_SDK_ANDROID_JNI_DIR") ?: "${projectDir.parentFile}/.build/bindings/jniLibs"]
             assets.srcDirs += ["${buildDir}/generated/contract"]
         }
+        // `dev/check-consumers` adds one negative consumer to the unit test
+        // sources. That compile must fail.
+        def negativeConsumer = findProperty("xmtpNegativeConsumer")
+        if (negativeConsumer) {
+            test {
+                java.srcDirs += [file(negativeConsumer)]
+            }
+        }
     }
 }
 

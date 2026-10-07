@@ -300,7 +300,7 @@ class PackagingTests(
                         shutil.rmtree(output)
 
     def test_bridge_fixture_builds_use_rust_shell(self):
-        source = Path(__file__).with_name("run-bridge-conformance").read_text()
+        source = Path(__file__).with_name("run-browser-platform-tests").read_text()
         names = ("prepare-bridge-panic-fixture", "prepare-pure-codec-fixture")
         commands = [
             line

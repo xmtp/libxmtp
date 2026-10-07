@@ -81,7 +81,6 @@ let
     (root + /apps/xmtp_sdk_bindgen/templates)
     (root + /apps/xmtp_sdk_bindgen/src/swift_event_fixture.swift)
     (root + /apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.ts)
-    (root + /crates/xmtp_sdk/src/client/event_conformance.rs)
   ];
   mkCompileSource =
     rust: inputs:

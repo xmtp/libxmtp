@@ -424,7 +424,7 @@ describe("generated bridge value conformance", () => {
   it("loads the real WASM bridge in worker_threads", () => {
     const output = execFileSync(
       "sdks/node/node_modules/.bin/tsx",
-      ["crates/xmtp_sdk/conformance/browser/bridge.real.mts"],
+      ["sdks/browser/test/platform/bridge.real.mts"],
       {
         cwd: process.cwd(),
         env: {
@@ -441,7 +441,7 @@ describe("generated bridge value conformance", () => {
   it("round trips value kinds through the initialized WASM worker", () => {
     const output = execFileSync(
       "sdks/node/node_modules/.bin/tsx",
-      ["crates/xmtp_sdk/conformance/browser/bridge.values.real.mts"],
+      ["sdks/browser/test/platform/bridge.values.real.mts"],
       {
         cwd: process.cwd(),
         env: { ...process.env, NODE_OPTIONS: "--preserve-symlinks" },

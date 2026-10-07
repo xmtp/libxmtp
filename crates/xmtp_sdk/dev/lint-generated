@@ -24,7 +24,6 @@ crates/xmtp_sdk/dev/check-conformance-exports "$generated"
 crates/xmtp_sdk/dev/check-encoded-content-shape "$generated"
 python3 crates/xmtp_sdk/dev/check-storage-path-async "$generated"
 crates/xmtp_sdk/dev/check-message-lifts "$generated"
-node crates/xmtp_sdk/dev/test-pure-wasm.mjs
 node crates/xmtp_sdk/dev/check-pure-wasm.mjs
 # Any @xmtp-name is marker text, unless it starts a package path (@xmtp-org/pkg).
 if rg -n '@xmtp-[a-z][a-z0-9-]*([^a-z0-9/-]|$)' "$generated" --glob '*.swift' --glob '*.kt' --glob '*.ts'; then
@@ -72,5 +71,5 @@ node crates/xmtp_sdk/dev/check-bridge-casts.mjs
 node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-pure/"*.gen.ts "$generated/typescript-pure/index.ts"
 sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions "$generated/typescript-pure/index.ts"
 node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --allowImportingTsExtensions \
-  crates/xmtp_sdk/conformance/browser/suite.worker.ts crates/xmtp_sdk/conformance/browser/attachment-lifetime.chromium.ts \
-  crates/xmtp_sdk/conformance/browser/storage.layout.chromium.ts
+  sdks/browser/test/platform/suite.worker.ts sdks/browser/test/platform/attachment-lifetime.chromium.ts \
+  sdks/browser/test/platform/storage.layout.chromium.ts

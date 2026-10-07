@@ -32,9 +32,24 @@ lint:
 format:
     swiftformat .
 
+# The seam proofs: reader teardown and the listener gate. The required Swift
+# job in test-sdk.yml runs them with `test-seams`. test-ios.yml runs
+# `test skip-seams`, so one CI run does not run them twice on macOS.
+_seam_tests := "'XmtpSdkTests\\.(ReaderTeardownTests|ListenerGateTests)'"
+
 # Run Swift tests on macOS. XMTP_BACKEND_URL selects the backend.
-test:
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q
+# `skip-seams` leaves out the tests that `test-seams` runs.
+test mode="all":
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q {{ if mode == "skip-seams" { "--skip " + _seam_tests } else if mode == "all" { "" } else { error("mode must be all or skip-seams") } }}
+
+# Run only the seam proofs on macOS. XMTP_BACKEND_URL selects the backend.
+test-seams:
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --filter {{ _seam_tests }}
+
+# Run the consumer in Tests/Consumer as a bare executable, then check that the
+# negative consumers in Tests/Consumer/Negative do not compile.
+check-consumer:
+    ./dev/bindings && ./script/check-consumer.sh
 
 # Build iOS native bindings (xcframework)
 build:

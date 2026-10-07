@@ -367,7 +367,7 @@ def render(args):
         verify(record)
     generator = selected["bindgen"]["generator"]
     # Node and Browser staging trusts sdk-contract.json and has no later source
-    # check. Mobile preflight and Swift conformance staging check it themselves.
+    # check. Mobile preflight checks it itself.
     if {"node", "browser"} & set(args.targets):
         if generator != source_hash(True):
             raise ValueError("generator mismatch; run build first")

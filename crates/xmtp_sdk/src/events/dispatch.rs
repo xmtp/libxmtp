@@ -88,15 +88,6 @@ impl ListenerRegistry {
         self.state.lock().listeners.len()
     }
 
-    #[cfg(feature = "conformance")]
-    pub(crate) fn conformance_queue_counts(&self, id: ListenerId) -> Option<(usize, usize, u64)> {
-        self.state
-            .lock()
-            .listeners
-            .get(&id.0)
-            .map(|control| control.subscription.conformance_queue_counts())
-    }
-
     pub(crate) fn start(
         &self,
         subscription: Subscription<InternalEvent>,

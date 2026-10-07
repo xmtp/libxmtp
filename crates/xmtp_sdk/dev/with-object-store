@@ -8,7 +8,7 @@ root="$(cd "$(dirname "$0")/../../.." && pwd)"
 # The transfer relay uses the repository schema to change a grant URL.
 export SDK_PROTOC="${SDK_PROTOC:-$(NIX_DEVSHELL=rust dev/nix-shell 'command -v protoc')}"
 output="$(mktemp)"
-node "$root/crates/xmtp_sdk/conformance/ts/object-store.mjs" "${SDK_OBJECT_STORE_PORT:-0}" >"$output" &
+node "$root/sdks/browser/test/platform/object-store/object-store.mjs" "${SDK_OBJECT_STORE_PORT:-0}" >"$output" &
 store=$!
 trap 'kill "$store" 2>/dev/null || true; rm -f "$output"' EXIT
 SDK_FIXTURE_URL=

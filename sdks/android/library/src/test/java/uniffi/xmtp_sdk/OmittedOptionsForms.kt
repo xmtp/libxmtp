@@ -4,8 +4,8 @@ package uniffi.xmtp_sdk
 // (ConformanceSupport.kt and ConsumerPositive.kt). Nothing calls them. They
 // must compile against the generated API: the omitted `options` arguments
 // (Rust `default(options = None)`), exhaustive Group/Dm narrowing, typed IDs
-// and the received-content shapes. The compile-fail forms stay in
-// crates/xmtp_sdk/conformance/kotlin/negative.
+// and the received-content shapes. The compile-fail forms are in
+// library/src/test/negative (`just android check-consumers`).
 
 @Suppress("unused")
 internal suspend fun consumeOmittedSendOptions(

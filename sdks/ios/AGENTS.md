@@ -10,9 +10,12 @@ Run these commands from the repository root.
 dev/nix-shell 'just ios build'          # Generate Swift and build the native XCFramework.
 dev/nix-shell 'just ios check'          # Build the Swift package.
 dev/nix-shell 'just ios check-examples' # Build both example apps for the simulator.
+dev/nix-shell 'just ios check-consumer' # Bare-executable consumer and negative consumers.
 dev/nix-shell 'just ios lint'
 dev/nix-shell 'just ios format'
 dev/nix-shell 'just ios test'           # Test the installed macOS package.
+dev/nix-shell 'just ios test skip-seams' # The same, without the seam proofs.
+dev/nix-shell 'just ios test-seams'     # Only ReaderTeardownTests and ListenerGateTests.
 dev/nix-shell 'just ios test-simulator "platform=iOS Simulator,name=iPhone 17"'
 dev/nix-shell 'just ios docs'
 NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XmtpSdkTests.RecordCodecTests/testRemoteAttachmentLength'
@@ -25,6 +28,14 @@ same Ruby runtime as CocoaPods. It checks source selection, invalid receipts,
 and simulator exclusions. It does not install or download a pod.
 
 The recipe test checks the real Just commands without compiling the SDK.
+
+`check-consumer` stages a consumer package of the root package under
+`target/sdk-ios-consumer`. It runs `Tests/Consumer/main.swift` as a bare
+executable: without a bundle identifier, default storage fails with
+`StorageLocationRequired`. Then it compiles each file in
+`Tests/Consumer/Negative` and checks that the compile fails with the expected
+diagnostics. The negative consumers check typed IDs, typed codec values, and
+`Sendable` codec values. They are not part of the test target.
 
 `RuntimeFakes.swift` in `Tests/XmtpSdkTests` replaces the generated Rust-backed
 objects with fakes, so a test can run the Swift runtime without a backend. The
@@ -56,6 +67,10 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
   itself; a second `end()` returns without an error.
 - CI runs the test, example, and simulator recipes through `just backend ci`.
   This starts disposable native PostgreSQL, S3, and backend services.
+- The required Swift job in `test-sdk.yml` runs `test-seams` and
+  `check-consumer`. `test-ios.yml` does not gate merge. It runs
+  `test skip-seams`, so its macOS run does not repeat the seam proofs.
+  `test-simulator` still runs every test on the simulator.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
 - Example builds select `arm64` to match the shipped simulator library.
 - Swift builds and tests use their default worker counts.

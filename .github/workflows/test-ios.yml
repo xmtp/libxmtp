@@ -28,7 +28,9 @@ jobs:
       - name: Build and test
         env:
           NIX_DEVSHELL: ios
-        run: dev/nix-shell 'just backend ci bash -c "just ios test && just ios check-examples && just ios test-simulator"'
+        # The required Swift job in test-sdk.yml runs the seam proofs on
+        # macOS and the consumer checks.
+        run: dev/nix-shell 'just backend ci bash -c "just ios test skip-seams && just ios check-examples && just ios test-simulator"'
       - name: Retain native service logs
         if: always()
         uses: actions/upload-artifact@v4
