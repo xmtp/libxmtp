@@ -16,6 +16,8 @@ use xmtp_proto::xmtp::{
     mls::message_contents::{GroupMetadataV1, GroupMutableMetadataV1},
 };
 
+// Wire IDs are pinned to 6a8e9697 (legacy metadata) and cc878025 (AppData).
+// Keep these IDs when current protocol definitions change. See fixtures/README.md.
 const MUTABLE_METADATA_EXTENSION: u16 = 0xff00;
 const COMPONENT_REGISTRY: u16 = 0x8000;
 const CREATOR: u16 = 0xbffe;
@@ -62,14 +64,15 @@ pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<Mut
     if let Some(extension) = extensions.app_data_dictionary() {
         let dict = extension.dictionary();
         if dict.get(&COMPONENT_REGISTRY).is_some() {
-            immutable =
-                dict.get(&CREATOR)
-                    .and_then(|bytes| match InboxId::tls_deserialize_exact(bytes) {
-                        Ok(id) => Some(ImmutableMetadataSave {
-                            creator_inbox_id: hex::encode(id.as_bytes()),
-                        }),
-                        Err(_) => None,
-                    });
+            immutable = dict
+                .get(&CREATOR)
+                .and_then(|bytes| match InboxId::tls_deserialize_exact(bytes) {
+                    Ok(id) => Some(ImmutableMetadataSave {
+                        creator_inbox_id: hex::encode(id.as_bytes()),
+                    }),
+                    Err(_) => None,
+                })
+                .or(immutable);
             let mut result = GroupMutableMetadata::new(Default::default(), vec![], vec![]);
             let errors = merge_dict_into_mutable_metadata_lossy(&mut result, extensions);
             if !errors.is_empty() {
@@ -217,6 +220,61 @@ mod tests {
         prost::encoding::encode_varint(bytes.len() as u64, &mut encoded);
         encoded.extend_from_slice(bytes);
         encoded
+    }
+
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn unavailable_appdata_creator_keeps_legacy_creator() {
+        use openmls::extensions::{AppDataDictionaryExtension, Extension, Metadata};
+        let context: super::GroupContext =
+            bincode::deserialize(include_bytes!("../fixtures/appdata-context.bincode"))?;
+        let original = context
+            .extensions()
+            .app_data_dictionary()
+            .unwrap()
+            .dictionary();
+        let valid = original.get(&super::CREATOR).unwrap().to_vec();
+        let mut failures = vec![];
+        for (preferred, expected) in [(None, "02"), (Some(vec![0xff]), "02"), (Some(valid), "01")] {
+            let mut dictionary = original.clone();
+            dictionary.remove(&super::CREATOR);
+            if let Some(bytes) = preferred {
+                dictionary.insert(super::CREATOR, bytes);
+            }
+            let mut extensions = context.extensions().clone();
+            extensions.add_or_replace(Extension::ImmutableMetadata(Metadata::new(
+                super::GroupMetadataV1 {
+                    creator_inbox_id: "02".repeat(32),
+                    ..Default::default()
+                }
+                .encode_to_vec(),
+            )))?;
+            extensions.add_or_replace(Extension::AppDataDictionary(
+                AppDataDictionaryExtension::new(dictionary),
+            ))?;
+            let bytes = bincode::serialize(&(
+                context.protocol_version(),
+                context.ciphersuite(),
+                context.group_id(),
+                context.epoch(),
+                context.tree_hash(),
+                context.confirmed_transcript_hash(),
+                extensions,
+            ))?;
+            let (immutable, mutable) = super::decode(&bytes);
+            if immutable
+                .as_ref()
+                .map(|value| value.creator_inbox_id.as_str())
+                != Some(expected.repeat(32).as_str())
+            {
+                failures.push(format!("expected {expected}, got {immutable:?}"));
+            }
+            assert_eq!(mutable.unwrap().attributes["group_name"], "AppData Group");
+        }
+        assert!(
+            failures.is_empty(),
+            "available legacy creator was discarded: {failures:?}"
+        );
     }
 
     // verifies: MIG-005

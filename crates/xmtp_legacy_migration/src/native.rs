@@ -3,7 +3,7 @@ use crate::{InputError, MigrationError, MigrationReport, PrepareMigrationArchive
 use diesel::{connection::SimpleConnection, prelude::*};
 use std::{
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
 };
 use tokio_util::sync::CancellationToken;
@@ -57,7 +57,12 @@ async fn offload<T: Send + 'static>(
 /// Copy under the caller-closed precondition. Do not open source files through
 /// SQLite: its final close can checkpoint WAL and change source bytes.
 // implements: MIG-002
-fn working_copy(source: &Path, destination: &Path) -> Result<tempfile::TempDir, MigrationError> {
+fn working_copy(
+    source: &Path,
+    destination: &Path,
+    cancel: &CancellationToken,
+) -> Result<tempfile::TempDir, MigrationError> {
+    live(cancel).map_err(output)?;
     let source = source.canonicalize().map_err(input)?;
     if !source.is_file() {
         return Err(MigrationError::invalid("source is not a database file"));
@@ -79,6 +84,7 @@ fn working_copy(source: &Path, destination: &Path) -> Result<tempfile::TempDir, 
     };
     let mut files = Vec::new();
     for suffix in SIDECARS {
+        live(cancel).map_err(output)?;
         let path = sidecar(&source, suffix);
         if target == path {
             return Err(MigrationError::invalid("output aliases source storage"));
@@ -95,6 +101,9 @@ fn working_copy(source: &Path, destination: &Path) -> Result<tempfile::TempDir, 
         }
         match open_regular_source(&path) {
             Ok(file) => {
+                if *suffix == ".sqlcipher_salt" {
+                    check_salt_size(&file)?;
+                }
                 if target == path.canonicalize().map_err(input)? || same_file(&file, destination)? {
                     return Err(MigrationError::invalid("output aliases source storage"));
                 }
@@ -112,13 +121,20 @@ fn working_copy(source: &Path, destination: &Path) -> Result<tempfile::TempDir, 
     }
     let directory = tempfile::tempdir().map_err(input)?;
     for (suffix, mut file) in files {
+        live(cancel).map_err(output)?;
         // Shared memory is coordination state, not committed database content.
         if *suffix == "-shm" {
             continue;
         }
         let mut target = fs::File::create(sidecar(&directory.path().join("source.db3"), suffix))
             .map_err(input)?;
-        io::copy(&mut file, &mut target).map_err(input)?;
+        if *suffix == ".sqlcipher_salt" {
+            let bytes = read_salt(&mut file)?;
+            live(cancel).map_err(output)?;
+            target.write_all(&bytes).map_err(input)?;
+        } else {
+            copy_source(&mut file, &mut target, cancel)?;
+        }
     }
     Ok(directory)
 }
@@ -181,6 +197,44 @@ fn check_locks(
     Ok(())
 }
 
+fn copy_source(
+    mut source: impl Read,
+    mut target: impl Write,
+    cancel: &CancellationToken,
+) -> Result<(), MigrationError> {
+    let mut bytes = [0; 64 * 1024];
+    loop {
+        live(cancel).map_err(output)?;
+        let count = source.read(&mut bytes).map_err(input)?;
+        if count == 0 {
+            return Ok(());
+        }
+        live(cancel).map_err(output)?;
+        target.write_all(&bytes[..count]).map_err(input)?;
+    }
+}
+
+fn check_salt_size(file: &fs::File) -> Result<(), MigrationError> {
+    if file.metadata().map_err(input)?.len() != (SALT_BYTES * 2) as u64 {
+        return Err(MigrationError::invalid(
+            "SQLCipher salt must contain 32 hexadecimal bytes",
+        ));
+    }
+    Ok(())
+}
+
+fn read_salt(mut source: impl Read) -> Result<[u8; SALT_BYTES * 2], MigrationError> {
+    let mut bytes = [0; SALT_BYTES * 2];
+    source.read_exact(&mut bytes).map_err(input)?;
+    // The file can grow after its metadata was checked. Read at most one extra byte.
+    if source.read(&mut [0]).map_err(input)? != 0 {
+        return Err(MigrationError::invalid(
+            "SQLCipher salt must contain 32 hexadecimal bytes",
+        ));
+    }
+    Ok(bytes)
+}
+
 fn open_copy(path: &Path, key: Option<&[u8]>) -> Result<SqliteConnection, MigrationError> {
     let path_text = path
         .to_str()
@@ -191,7 +245,9 @@ fn open_copy(path: &Path, key: Option<&[u8]>) -> Result<SqliteConnection, Migrat
             .map_err(input)?;
         let salt = sidecar(path, ".sqlcipher_salt");
         if salt.exists() {
-            let salt = hex::decode(fs::read(salt).map_err(input)?).map_err(input)?;
+            let salt = open_regular_source(&salt).map_err(input)?;
+            check_salt_size(&salt)?;
+            let salt = hex::decode(read_salt(salt)?).map_err(input)?;
             if salt.len() != SALT_BYTES {
                 return Err(MigrationError::invalid(
                     "SQLCipher salt must contain 16 bytes",
@@ -216,7 +272,7 @@ fn run(
     cancel: &CancellationToken,
 ) -> Result<MigrationReport, MigrationError> {
     let output_path = Path::new(&args.output_path);
-    let directory = working_copy(Path::new(&args.database_path), output_path)?;
+    let directory = working_copy(Path::new(&args.database_path), output_path, cancel)?;
     live(cancel).map_err(output)?;
     let mut conn = open_copy(
         &directory.path().join("source.db3"),

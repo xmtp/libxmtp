@@ -447,7 +447,7 @@ fn special_source_files_are_rejected_without_blocking() {
         } else {
             let output = path.parent().unwrap().join("history.xmtp");
             assert!(matches!(
-                working_copy(&path, &output),
+                working_copy(&path, &output, &CancellationToken::new()),
                 Err(MigrationError::InvalidInput(_))
             ));
         }
@@ -511,4 +511,171 @@ fn special_source_files_are_rejected_without_blocking() {
         failures.is_empty(),
         "special source was accepted or blocked: {failures:?}"
     );
+}
+
+// verifies: MIG-002, MIG-003, MIG-004
+#[xmtp_common::test(unwrap_try = true)]
+fn salt_sidecar_size_is_checked_before_copying() {
+    for size in [0, 31, 32, 33, 1024 * 1024] {
+        let (_directory, args) = fixture("encrypted.db3");
+        let source = Path::new(&args.database_path);
+        let salt = sidecar(source, ".sqlcipher_salt");
+        fs::write(&salt, vec![b'2'; size])?;
+        let before = source_bytes(&args);
+        fs::write(&args.output_path, b"completed archive")?;
+        let result = working_copy(
+            source,
+            Path::new(&args.output_path),
+            &CancellationToken::new(),
+        );
+        if size == 32 {
+            let copy = result?;
+            assert_eq!(
+                fs::read(sidecar(&copy.path().join("source.db3"), ".sqlcipher_salt"))?,
+                before[".sqlcipher_salt"]
+            );
+        } else {
+            assert!(
+                matches!(result, Err(MigrationError::InvalidInput(_))),
+                "accepted {size} salt bytes"
+            );
+        }
+        assert_eq!(source_bytes(&args), before);
+        assert_eq!(fs::read(&args.output_path)?, b"completed archive");
+    }
+}
+
+// verifies: MIG-003
+#[xmtp_common::test(unwrap_try = true)]
+fn salt_reads_are_bounded_even_if_the_file_grows() {
+    struct Measured {
+        remaining: usize,
+        read: usize,
+        largest_request: usize,
+    }
+    impl Read for Measured {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            self.largest_request = self.largest_request.max(output.len());
+            let count = output.len().min(self.remaining);
+            output[..count].fill(b'2');
+            self.remaining -= count;
+            self.read += count;
+            Ok(count)
+        }
+    }
+    for size in [0, 31, 32, 33, 1024 * 1024] {
+        let mut source = Measured {
+            remaining: size,
+            read: 0,
+            largest_request: 0,
+        };
+        let result = read_salt(&mut source);
+        if size == 32 {
+            assert_eq!(result?, [b'2'; 32]);
+        } else {
+            assert!(matches!(result, Err(MigrationError::InvalidInput(_))));
+        }
+        assert!(source.read <= 33, "read {} salt bytes", source.read);
+        assert!(
+            source.largest_request <= 32,
+            "requested {} salt bytes",
+            source.largest_request
+        );
+    }
+}
+
+// verifies: MIG-002, MIG-004, MIG-005
+#[xmtp_common::test(unwrap_try = true)]
+async fn null_eligibility_fields_fail_without_publishing() {
+    let mut failures = vec![];
+    for (table, field, id) in [
+        ("groups", "conversation_type", GROUP.to_owned()),
+        ("groups", "membership_state", GROUP.to_owned()),
+        ("group_messages", "kind", "01".repeat(32)),
+    ] {
+        let (_directory, args) = fixture("stable.db3");
+        // Rebuild this corrupt table without NOT NULL constraints.
+        edit(
+            &args,
+            &format!(
+                "DROP TRIGGER IF EXISTS msg_inserted; DROP VIEW IF EXISTS conversation_list; CREATE TABLE nullable_copy AS SELECT * FROM {table}; DROP TABLE {table}; ALTER TABLE nullable_copy RENAME TO {table}; UPDATE {table} SET {field}=NULL WHERE id=x'{id}';"
+            ),
+        );
+        let before = source_bytes(&args);
+        fs::write(&args.output_path, b"completed archive")?;
+        let result = prepare_migration_archive(args.clone()).await;
+        if !matches!(result, Err(MigrationError::RecordRead(_))) {
+            failures.push(format!("{table}.{field}: {result:?}"));
+        } else {
+            assert_eq!(fs::read(&args.output_path)?, b"completed archive");
+        }
+        assert_eq!(source_bytes(&args), before);
+    }
+    assert!(
+        failures.is_empty(),
+        "unknown eligibility silently removed history: {failures:?}"
+    );
+}
+
+// verifies: MIG-002, MIG-004
+#[xmtp_common::test(unwrap_try = true)]
+async fn dropped_call_stops_source_copy_and_removes_partial_copy() {
+    struct GatedWriter {
+        file: fs::File,
+        entered: Option<tokio::sync::oneshot::Sender<()>>,
+        gate: std::sync::mpsc::Receiver<()>,
+    }
+    impl Write for GatedWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let count = self.file.write(bytes)?;
+            if let Some(entered) = self.entered.take() {
+                entered.send(()).unwrap();
+                self.gate.recv().unwrap();
+            }
+            Ok(count)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.file.flush()
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    let output_path = directory.path().join("history.xmtp");
+    fs::write(&output_path, b"completed archive")?;
+    let source = vec![0x55; 1024 * 1024];
+    let (entered, ready) = tokio::sync::oneshot::channel();
+    let (release, gate) = std::sync::mpsc::channel();
+    let (finished, done) = tokio::sync::oneshot::channel();
+    let mut future = Box::pin(offload(move |cancel| {
+        let temporary = tempfile::tempdir().map_err(input)?;
+        let copied = temporary.path().join("source.db3");
+        let file = fs::File::create(&copied).map_err(input)?;
+        let result = copy_source(
+            source.as_slice(),
+            GatedWriter {
+                file,
+                entered: Some(entered),
+                gate,
+            },
+            cancel,
+        );
+        let count = fs::metadata(&copied).map_err(input)?.len();
+        let partial = temporary.path().to_owned();
+        drop(temporary);
+        finished
+            .send((result.is_err(), count, partial.exists()))
+            .unwrap();
+        result
+    }));
+    assert!(futures::poll!(future.as_mut()).is_pending());
+    ready.await?;
+    drop(future);
+    release.send(())?;
+    let (failed, copied, partial_exists) = done.await?;
+    assert!(failed, "cancelled source copy completed");
+    assert!(
+        copied <= 64 * 1024,
+        "copied {copied} bytes after cancellation"
+    );
+    assert!(!partial_exists);
+    assert_eq!(fs::read(&output_path)?, b"completed archive");
 }
