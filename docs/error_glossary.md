@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**35 error types** across **9 crates** with **406 total error codes**.
+**36 error types** across **10 crates** with **412 total error codes**.
 
 ## xmtp_api
 
@@ -323,6 +323,23 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `VerifierError::MissingBlock` | Missing block. The chain did not return a block at or below its reported head. Retryable. |
 | `VerifierError::InvalidHash` | Invalid hash. Hash has invalid length or format. Not retryable. |
 | `VerifierError::Other` | Other error. Unclassified verifier error. May be retryable. |
+
+## xmtp_legacy_migration
+
+### MigrationError <sub>enum</sub>
+
+<small>`crates/xmtp_legacy_migration/src/lib.rs`</small>
+
+Stable failure categories. Inner causes remain available to Rust callers.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `MigrationError::InvalidInput` | The path, key, or source cannot be used. Not retryable without correction. |
+| `MigrationError::SourceBusy` | Another process holds a source lock. Retry after closing that process. |
+| `MigrationError::UnsupportedSchema` | The migration history is outside the supported range. Not retryable. |
+| `MigrationError::Migration` | A pinned database migration failed. Not retryable without correction. |
+| `MigrationError::RecordRead` | A required record could not be read. Not retryable without correction. |
+| `MigrationError::Output` | The archive could not be completed. Retry after correcting the output. |
 
 ## xmtp_mls
 

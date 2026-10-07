@@ -49,7 +49,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
             let message = group
                 .send_message(b"destination history", Default::default())
                 .await?;
-            Some((group.group_id.clone(), message))
+            Some((group.group_id, message))
         } else {
             None
         };
@@ -78,7 +78,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
             assert_eq!(restored.len(), 2);
             let dm = restored
                 .iter()
-                .find(|g| hex::encode(&g.id) == DM)
+                .find(|g| hex::encode(g.id) == DM)
                 .expect("original DM id");
             assert!(
                 dm.dm_id
