@@ -12,7 +12,7 @@ FileSystemFileHandle.prototype.createSyncAccessHandle = async function (
   if (this.name.startsWith("archive-") && fault === "open") fail();
   const handle = await open.apply(this, args);
   if (this.name.startsWith("archive-")) {
-    if (fault === "write") {
+    if (fault === "write" || fault === "close") {
       const write = handle.write.bind(handle);
       handle.write = function (bytes, options) {
         write(bytes, options);
@@ -20,6 +20,20 @@ FileSystemFileHandle.prototype.createSyncAccessHandle = async function (
       };
     }
     if (fault === "flush") handle.flush = fail;
+    if (fault === "close" || fault === "commit-close") {
+      const close = handle.close.bind(handle);
+      let calls = 0;
+      handle.close = function () {
+        close();
+        calls += 1;
+        throw new DOMException(
+          fault === "commit-close" && calls === 1
+            ? "Injected commit close failure"
+            : "Injected close failure",
+          "UnknownError",
+        );
+      };
+    }
   }
   return handle;
 };

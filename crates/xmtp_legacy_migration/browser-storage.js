@@ -64,7 +64,9 @@ export async function beginMigrationOutput(path) {
     try {
       handle = await file.createSyncAccessHandle();
     } catch (error) {
-      await folder.removeEntry(name);
+      try {
+        await folder.removeEntry(name);
+      } catch {}
       throw error;
     }
     let release;
@@ -116,8 +118,11 @@ export function abortMigrationOutput(output) {
 export async function discardMigrationOutput(output) {
   output.discarding = true;
   try {
-    abortMigrationOutput(output);
-    await output.folder.removeEntry(output.name);
+    try {
+      abortMigrationOutput(output);
+    } finally {
+      await output.folder.removeEntry(output.name);
+    }
   } finally {
     output.discarding = false;
     output.release();
@@ -137,7 +142,9 @@ export async function commitMigrationOutput(output) {
       console.warn("Cannot remove an old migration object", error);
     }
   } catch (error) {
-    await discardMigrationOutput(output);
+    try {
+      await discardMigrationOutput(output);
+    } catch {}
     throw error;
   } finally {
     output.committing = false;

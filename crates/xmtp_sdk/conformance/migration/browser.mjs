@@ -165,7 +165,14 @@ try {
         }
       };
       try {
-        for (fault of ["open", "write", "flush", "publish"]) {
+        for (fault of [
+          "open",
+          "write",
+          "flush",
+          "publish",
+          "close",
+          "commit-close",
+        ]) {
           for (const outputPath of [
             args.outputPath,
             "failed-new-output.xmtp",
@@ -193,6 +200,16 @@ try {
                 (outputPath === args.outputPath ? 1 : 0),
               fault + " failure settled before removing its private output",
             );
+            if (fault === "close" || fault === "commit-close") {
+              check(
+                String(outputFailure).includes(
+                  fault === "close"
+                    ? "Injected storage failure"
+                    : "Injected commit close failure",
+                ) && !String(outputFailure).includes("Injected close failure"),
+                "cleanup replaced the original write failure",
+              );
+            }
           }
         }
       } finally {
