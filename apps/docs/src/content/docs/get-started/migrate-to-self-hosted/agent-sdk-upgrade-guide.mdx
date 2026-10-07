@@ -1,0 +1,212 @@
+---
+title: Agent SDK Upgrade Guide
+description: Update Agent SDK calls, options, and results for a self-hosted backend.
+---
+
+Start with [Migrate to a self-hosted backend](/get-started/migrate-to-self-hosted/)
+for the backend, database, history, and push steps. This guide lists changes
+from [`main` at `cc878025da`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247)
+to [`self-hosted` at `610175f3b3`](https://github.com/xmtp/libxmtp/tree/610175f3b3108e7d8c6b8b01df6d99296a6e08b2).
+A call can keep its name and still have different parameters, results, or
+behavior. The **Before** examples use the old SDK. The **After** examples use
+the new SDK.
+
+The package stays `@xmtp/agent-sdk`. Its source moved from `sdks/js/agent-sdk` to `sdks/agent`. The minimum Node.js version changed from 22 to 22.12.0.
+
+The Agent SDK re-exports the Node SDK. Apply the [Node SDK Upgrade Guide](/get-started/migrate-to-self-hosted/node-sdk-upgrade-guide/) to `agent.client`, `ctx.client`, and `ctx.conversation`. The Agent changes below cover the additional Agent API.
+
+## Install the recommended version
+
+Use SDK **8.0.0-rc1** with backend **8.0.0-rc1**. Run this command from your app
+directory to save the exact SDK version:
+
+```sh
+npm install --save-exact @xmtp/agent-sdk@8.0.0-rc1
+```
+
+See [Install the XMTP SDK](/get-started/install/) for platform requirements.
+
+## Create and configure an agent
+
+`Agent.create(signer, options)` now requires options with an explicit `backend` and `storage`. An environment name no longer selects a public network. Replace `apiUrl` or `gatewayHost` with `backend.url`, including its scheme. Put `appVersion` under `backend`. Supply backend authentication through `backend.credentials`.
+
+| Old option                           | New option or action                                                                           |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `env`                                | `storage.label`; this is a directory label only                                                |
+| `dbPath: string`                     | `storage.location: { dbPath, attachmentsDir }`                                                 |
+| `dbPath: (inboxId) => path`          | Compute an explicit location, or use `storage.location: { directory }`                         |
+| `dbPath: null`                       | `storage.location: "inMemory"`                                                                 |
+| `dbEncryptionKey`                    | `storage.encryptionKey`, as 32 bytes                                                           |
+| `disableDeviceSync: true`            | `deviceSync: false`                                                                            |
+| `disableAutoRegister: true`          | `registration: { auto: false }`                                                                |
+| `nonce`                              | `registration.nonce`; set `1n` explicitly when preserving the old default inbox derivation     |
+| `minDbPoolSize`, `maxDbPoolSize`     | `storage.pool.min`, `storage.pool.max`                                                         |
+| `useSingleConnection`                | `storage.singleConnection`                                                                     |
+| `workerConfig`                       | `workers`, with a default interval and per-worker interval records                             |
+| `historySyncUrl`                     | Removed; the backend supplies device-sync configuration                                        |
+| `waitForRegistrationVisible`         | Removed; no registration quorum option                                                         |
+| `unstableChangeCallbacks.appData`    | Removed from creation options; use the client event API                                        |
+| `stdoutLoggingLevel`                 | Removed; no separate stdout level                                                              |
+| `otelEndpoint`, `resourceAttributes` | `initLogging({ otel: { endpoint, serviceName }, resourceAttributes })`; attributes use a `Map` |
+| `loggingLevel`, `structuredLogging`  | Call `initLogging({ level, structured })`                                                      |
+| `codecs`                             | Still supported; use the Node SDK codec interface with `.type`                                 |
+
+Agent creation still sets device sync off by default. It sets `backend.appVersion` to `agent-sdk/<version>` when the caller supplies URL options without an app version. Other Node options are now grouped under `forkRecovery`, `workers`, `handlers`, and `attachments`. `allowOffline` permits startup from an existing store when the backend is unavailable.
+
+Before:
+
+```text title="Before (main cc878025da)"
+import { Agent, createSigner, createUser } from "@xmtp/agent-sdk";
+const agent = await Agent.create(createSigner(createUser()), {
+  env: "production",
+  dbPath: (inboxId) => `./agent-data/xmtp-${inboxId}.db3`,
+  disableDeviceSync: true,
+});
+```
+
+After:
+
+```ts source="migration-agent.ts" region="create"
+
+```
+
+`createUser(key?, chain?)` keeps its arguments. Its key type is now `Hex` from viem. `createIdentifier(user)` returns `{ identifier, kind: "ethereum" }` instead of `{ identifier, identifierKind: IdentifierKind.Ethereum }`. `createSigner(user)` creates the new signer interface: async `identity()`, async `kind()`, and `sign({ text })`, which returns `{ kind: "ecdsa", value }`. Replace custom signers that use `type`, `getIdentifier()`, or `signMessage()`.
+
+## Environment variables and stored databases
+
+Before you call `createFromEnv()`, set `XMTP_WALLET_KEY` to a hex private key
+with a `0x` prefix. This variable is required. For an encrypted database, set
+`XMTP_DB_ENCRYPTION_KEY` to the stored 32-byte key as 64 hex characters, with
+or without `0x`. This variable is optional. Keep the same key across restarts.
+These setup requirements apply before and after the upgrade.
+
+| Variable                 | Change                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------ |
+| `XMTP_BACKEND_URL`       | Required unless options supply `backend`; overrides a URL in options                 |
+| `XMTP_GATEWAY_HOST`      | No longer read; use `XMTP_BACKEND_URL`                                               |
+| `XMTP_ENV`               | Any safe directory label; no network selection                                       |
+| `XMTP_DB_DIRECTORY`      | Storage root; creates a missing directory with mode `0700` where supported           |
+| `XMTP_FORCE_DEBUG_LEVEL` | Still read; sets structured logging through `initLogging`; invalid values use `warn` |
+
+Load `.env` into `process.env` before the call. `createFromEnv()` does not read `.env` itself. Its options are now `Partial<AgentCreateOptions>`. Caller-supplied `storage` overrides the directory variable and skips the legacy database search. `storage.encryptionKey`, when supplied, overrides `XMTP_DB_ENCRYPTION_KEY`.
+
+```ts source="migration-agent.ts" region="env"
+
+```
+
+A new store uses `./xmtp` or `XMTP_DB_DIRECTORY` as its root. A non-empty `XMTP_ENV` adds a label directory. The store contains `{root}/{label}/{deployment}/{inbox-id}/xmtp.db3` and a sibling `attachments` directory. The label component is omitted when empty. Preserve the whole storage root, its deployment record, and the same encryption key across restarts.
+
+`createFromEnv()` can select one matching legacy database filename. This supports only a database already in the current format; it cannot open or convert a pre-transition database from `main`. Keep the old database as a backup and choose new storage for migration. With `XMTP_DB_DIRECTORY`, it checks `xmtp-<inbox-id>.db3`. Without that variable, it checks the working directory for `xmtp-<env>-<inbox-id>.db3`. `XMTP_ENV` limits that second search when set. It matches the signer, including the old default nonce `1n`; files for other inboxes do not prevent startup. More than one matching legacy file, or both a legacy and current store for that inbox, causes an error. Pass `storage.location: { dbPath, attachmentsDir }` to select the intended database. This selection does not move the file.
+
+## Message contexts and filters
+
+The context classes and most method names remain. Their underlying `client` is now the non-generic Node `Client`. Their `message` is the new `Message` with tagged content.
+
+| Old code or type                                 | New code or type                                                                      |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Text from `ctx.message.content`                  | Text from `ctx.content`, after `ctx.isText()` or in a `text` listener                 |
+| Assign `ctx.message.content`                     | Assign `ctx.content`; the SDK message stays unchanged                                 |
+| `DecodedMessage<T>`                              | `Message`; inspect `message.content.kind`                                             |
+| `ctx.isAllowed`, `ctx.isDenied`, `ctx.isUnknown` | `await ctx.isAllowed()`, `await ctx.isDenied()`, `await ctx.isUnknown()`              |
+| Synchronous conversation consent access          | `await ctx.consentState()` returns `"allowed"`, `"denied"`, or `"unknown"`            |
+| `filter.isGroupAdmin(...)`                       | `await filter.isGroupAdminAsync(...)`                                                 |
+| `filter.isGroupSuperAdmin(...)`                  | `await filter.isGroupSuperAdminAsync(...)`                                            |
+| `usesCodec` matches `codec.contentType`          | It matches `codec.type`: authority, type name, and major version                      |
+| Read-receipt payload                             | `ctx.content` is `undefined`                                                          |
+| `Reply` / `EnrichedReply` payload                | Tagged reply record: `kind`, `referenceId`, `body`; enrichment stays on `ctx.message` |
+| Reaction enums                                   | String values, such as schema `"unicode"`                                             |
+
+`getClientAddress()`, `agent.address`, and `getSenderAddress()` keep their names. The first two read `client.identity.identifier`. The sender helper reads the first identity from `client.inboxStates([senderInboxId], false)`.
+
+`filter.hasContent` now accepts built-in read receipts. It rejects unknown content and custom content without a decoded `value`. `filter.usesCodec` requires decoded content and matches the new codec record.
+
+Before:
+
+```text title="Before (main cc878025da)"
+agent.on("text", async (ctx) => {
+  console.log(ctx.message.content);
+  if (ctx.isAllowed) await ctx.sendTextReply("Received");
+});
+agent.use(async (ctx, next) => {
+  if (!filter.isGroupAdmin(ctx.conversation, ctx.message)) return;
+  await next();
+});
+```
+
+After:
+
+```ts source="migration-agent.ts" region="messages"
+
+```
+
+```ts source="migration-agent.ts" region="middleware"
+
+```
+
+Read decoded content from `ctx.content` after a context type guard narrows its type.
+
+`sendReaction(content, schema?)`, `sendTextReply(text)`, and `sendMarkdownReply(markdown)` keep their arguments. They now send with `shouldPush: false`. Use the underlying conversation send methods when the app needs another push option.
+
+## Conversations and attachments
+
+The Agent helpers `createDmWithAddress`, `createGroupWithAddresses`, `addMembersWithAddresses`, and `getConversationContext` keep their names. They now call Node `createDm`, `createGroup`, `addMembers`, and `getById`. The Node option and result shapes changed. Do not pass old `Group<T>` or `Dm<T>` types. Ethereum addresses use viem `Hex`.
+
+```ts source="migration-agent.ts" region="conversations"
+
+```
+
+| Old attachment API                             | New attachment API                                                                              |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `ctx.sendRemoteAttachment(file, upload)`       | Same call; `upload` is now optional                                                             |
+| `createRemoteAttachmentFromFile(file, upload)` | `createRemoteAttachmentFromFile(client, file, upload?)`                                         |
+| `downloadRemoteAttachment(remote)`             | `downloadRemoteAttachment(client, remote)`                                                      |
+| Callback receives `EncryptedAttachment`        | Callback receives `HostedAttachment`: encryption keys, encrypted `payload`, optional `filename` |
+| `createRemoteAttachment(encrypted, url)`       | Same name; input is `HostedAttachment`, with Rust-generated encryption keys                     |
+
+Without a callback, file creation uses the client's configured backend attachment service and awaits upload. With a callback, the SDK encrypts the encoded attachment through Rust and passes the ciphertext to app-owned hosting. Download uses the client's attachment service for URL checks, decryption, digest checks, and local storage. It returns file content, MIME type, and filename. It no longer performs a direct unverified `fetch` in the Agent utility.
+
+Before:
+
+```text
+const remote = await createRemoteAttachmentFromFile(file, upload);
+await conversation.sendRemoteAttachment(remote);
+const downloaded = await downloadRemoteAttachment(remote);
+```
+
+After, with backend attachment hosting:
+
+```ts source="migration-agent.ts" region="attachments"
+
+```
+
+## Streams, events, and error middleware
+
+`start()` and `stop()` keep their names. `start()` now opens native conversation and message readers without a separate conversation sync. The `start` event reports local reader readiness; the backend can be offline. Conversation events exclude groups already stored locally and include a pending Welcome when it first discovers its group.
+
+`AgentStreamingOptions` and `StreamAllMessagesOptions<T>` now use Node `StreamOptions`: `signal`, `onClose`, and `onConnectionStateChange`. Remove old retry settings, `disableSync`, `onFail`, and `onRestart`. Agent `start()` does not expose a message selection, replay cursor, or `onValue` option.
+
+Core owns network recovery with a finite budget. When a terminal error ends a reader, the Agent closes both readers before it calls error middleware. The old Agent could restart its streams automatically after a handled streaming error. The new Agent requires an explicit `agent.start()` to open a new generation, even when error middleware calls `next()`. A second `start()` while running has no effect. `stop()` ends both readers and permits a later start on the same client.
+
+The event names remain: `actions`, `attachment`, `conversation`, `group-update`, `dm`, `group`, `inline-attachment`, `intent`, `leave-request`, `markdown`, `message`, `multi-attachment`, `reaction`, `read-receipt`, `reply`, `start`, `stop`, `text`, `transaction-reference`, `unhandledError`, `unknownMessage`, and `wallet-send-calls`. Their contexts use the new Node content records. `unknownMessage` now includes unknown content and custom content without a built-in event. The old Agent skipped messages whose decoded content was absent.
+
+Message middleware still runs in registration order. Normal `return` stops the middleware chain and accepts the message without events. `next()` continues to the content event and then `message`. The Agent skips its own inbox. It now waits for async message and conversation listeners. Await all work that must finish before delivery acceptance. A task that runs without `await` does not delay acceptance.
+
+Error middleware still uses `agent.errors.use()`. `next()` handles the error and resumes processing when possible. `next(error)` or a thrown error passes that error to the next handler. Returning without `next()` stops the reader without accepting the failed message. An unhandled message failure has the same effect. A new default reader can deliver the failed message again. Make external actions safe when delivery repeats. Error contexts always have `client`; `message` and `conversation` can be absent.
+
+```ts source="migration-agent.ts" region="lifecycle"
+
+```
+
+## Other exported helpers
+
+`CommandRouter` keeps its constructor, `command`, `default`, `handle`, `middleware`, and `commandList` API. Command arguments now replace `ctx.content`. They do not replace `ctx.message.content`.
+
+`ActionWizard` keeps its builder, session, and handler APIs. Its prompts now disable push. Its handlers read tagged intent content and `ctx.content`. `ActionWizardCompleteHandler` and `ActionWizardCancelHandler` are now exported types.
+
+`PerformanceMonitor`, its config, and `HealthReport` keep their API and behavior. Its health timer does not keep the process alive. Empty event-loop samples produce zero delay.
+
+`createERC20TransferCalls` and `createNativeTransferCalls` add `metadata.extra: new Map()` to the wallet-call records they return.
+
+`logDetails`, `getInstallationInfo`, `getTestUrl`, `getValidLogLevels`, and `parseLogLevel` remain. Log levels are lower-case strings instead of enum values. `InstallationInfo` is now exported. Its fields remain `totalInstallations`, `installationId`, `mostRecentInstallationId`, and `isMostRecent`. Installation details use `id` and `createdAt.ns` from the Node records. `getTestUrl` no longer includes an environment segment. Use a test client configured for the same self-hosted backend when you test delivery.
+
+`EventHandlerMap` is now exported. Node `Client`, `Group`, and `Dm` no longer take a decoded-content generic. Agent context type parameters remain, but the SDK message is always the tagged Node `Message`.

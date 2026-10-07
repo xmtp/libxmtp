@@ -66,10 +66,11 @@ shows threaded replies. Logs include the request ID and reply ID. Group update
 receipts also include `groupUpdated`, with membership and metadata field changes.
 A group rename records `group_name`, its old value, and its new value.
 
-The current `self-hosted` SDK has no `streamAllMessages` method. Its all-message
-API is `MessageStream.open(client, {})`. The scripts use that API and await
-`ready()`. They do not sync or replace a reader for each message or new group.
-Successful loop iterations allow the SDK to acknowledge the previous item.
+The scripts call `client.conversations.streamAllMessages()` and await
+`ready()` for the local reader to open. Readiness does not prove that the backend
+is online or catch-up is complete. The scripts do not sync or replace a reader
+for each message or new group. The next read acknowledges the previous item
+after the loop finishes processing it.
 
 Bot state and JSON logs stay under `target/smoke-check/`, separated by backend
 origin and bot. A restart against the same backend uses the same inbox ID.
@@ -103,16 +104,16 @@ Run these checks. Wait for each expected reply before sending the next trigger.
 Use a bounded wait, such as 15 seconds. On failure, save the visible state and
 bot logs. Diagnose the failure; do not report a pass from startup alone.
 
-| Check | Browser action | Required result |
-| --- | --- | --- |
-| Ping DM | Create a DM with the ping inbox ID. Send `ping` three times. | One `pong` reply for each request, from the ping bot. |
-| Ping exact match | Send `hello`, `Ping`, and `ping?`, then `ping`. | Only the last request gets a reply. |
-| Bleep DM | Create a DM with the bleep inbox ID. Send `bleep` three times. | One `bloop` reply for each request, from the bleep bot. |
-| Group membership | Create a named group. Add both inbox IDs through the Members section. | The browser account and both bots are members. |
-| Group delivery | Send `ping`, `bleep`, `ping`, and `bleep`. | Each trigger gets one reply from the correct bot. |
-| Group name change | Open Manage Conversation > Metadata. Change Name to a distinct value, such as `Renamed smoke test`, and save. Check the header and sidebar, then send `ping` and `bleep`. | Both bots log a `received` record for the same group with `contentKind: "groupUpdated"`. Its `groupUpdated.metadataFieldChanges` contains `fieldName: "group_name"`, the original name as `oldValue`, and the new name as `newValue`. Neither bot replies to the update. Both still reply to their text triggers. |
-| Group exact match | Send `hello`, `Ping`, `Bleep`, `ping?`, and `bleep?`, then `ping` and `bleep`. | Only the last two messages get replies. |
-| Bot-to-bot receipt | Read both bots' group logs. | The ping bot receives the bleep bot's `bloop` reply IDs. The bleep bot receives the ping bot's `pong` reply IDs. Neither responds to those replies. |
+| Check              | Browser action                                                                                                                                                            | Required result                                                                                                                                                                                                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ping DM            | Create a DM with the ping inbox ID. Send `ping` three times.                                                                                                              | One `pong` reply for each request, from the ping bot.                                                                                                                                                                                                                                                             |
+| Ping exact match   | Send `hello`, `Ping`, and `ping?`, then `ping`.                                                                                                                           | Only the last request gets a reply.                                                                                                                                                                                                                                                                               |
+| Bleep DM           | Create a DM with the bleep inbox ID. Send `bleep` three times.                                                                                                            | One `bloop` reply for each request, from the bleep bot.                                                                                                                                                                                                                                                           |
+| Group membership   | Create a named group. Add both inbox IDs through the Members section.                                                                                                     | The browser account and both bots are members.                                                                                                                                                                                                                                                                    |
+| Group delivery     | Send `ping`, `bleep`, `ping`, and `bleep`.                                                                                                                                | Each trigger gets one reply from the correct bot.                                                                                                                                                                                                                                                                 |
+| Group name change  | Open Manage Conversation > Metadata. Change Name to a distinct value, such as `Renamed smoke test`, and save. Check the header and sidebar, then send `ping` and `bleep`. | Both bots log a `received` record for the same group with `contentKind: "groupUpdated"`. Its `groupUpdated.metadataFieldChanges` contains `fieldName: "group_name"`, the original name as `oldValue`, and the new name as `newValue`. Neither bot replies to the update. Both still reply to their text triggers. |
+| Group exact match  | Send `hello`, `Ping`, `Bleep`, `ping?`, and `bleep?`, then `ping` and `bleep`.                                                                                            | Only the last two messages get replies.                                                                                                                                                                                                                                                                           |
+| Bot-to-bot receipt | Read both bots' group logs.                                                                                                                                               | The ping bot receives the bleep bot's `bloop` reply IDs. The bleep bot receives the ping bot's `pong` reply IDs. Neither responds to those replies.                                                                                                                                                               |
 
 Check sender IDs and request/reply IDs in the JSON logs. The later valid trigger
 is a marker: its reply shows that the bot processed preceding ignored messages.

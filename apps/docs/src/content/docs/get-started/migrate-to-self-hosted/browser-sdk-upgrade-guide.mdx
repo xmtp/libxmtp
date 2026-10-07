@@ -1,0 +1,685 @@
+---
+title: Browser SDK Upgrade Guide
+description: Update Browser SDK calls, options, and results for a self-hosted backend.
+---
+
+Start with [Migrate to a self-hosted backend](/get-started/migrate-to-self-hosted/)
+for the backend, database, history, and push steps. This guide lists changes
+from [`main` at `cc878025da`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247)
+to [`self-hosted` at `610175f3b3`](https://github.com/xmtp/libxmtp/tree/610175f3b3108e7d8c6b8b01df6d99296a6e08b2).
+A call can keep its name and still have different parameters, results, or
+behavior. The **Before** examples use the old SDK. The **After** examples use
+the new SDK.
+
+The package name stays `@xmtp/browser-sdk`. The self-hosted SDK uses ESM and generated public bindings. Its source moved from `sdks/js/browser-sdk` to `sdks/browser`. Remove imports from `@xmtp/wasm-bindings` and private package paths. Import client types from `@xmtp/browser-sdk`. Import standalone codecs and pure helpers from `@xmtp/browser-sdk/pure`.
+
+## Install the recommended version
+
+Use SDK **8.0.0-rc1** with backend **8.0.0-rc1**. Run this command from your app
+directory to save the exact SDK version:
+
+```sh
+npm install --save-exact @xmtp/browser-sdk@8.0.0-rc1
+```
+
+See [Install the XMTP SDK](/get-started/install/) for platform requirements.
+
+## Create a client and adapt the signer
+
+The old signer used `type`, `getIdentifier()`, and `signMessage()`. The new signer uses asynchronous `identity()`, `kind()`, and `sign(request)`. The signature result names its kind. Replace `Identifier.identifierKind` with `PublicIdentity.kind`.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import { Client, IdentifierKind, type Signer } from "@xmtp/browser-sdk";
+
+async function createClient(
+  address: string,
+  signText: (text: string) => Promise<Uint8Array>,
+) {
+  const signer: Signer = {
+    type: "EOA",
+    getIdentifier: () => ({
+      identifier: address,
+      identifierKind: IdentifierKind.Ethereum,
+    }),
+    signMessage: signText,
+  };
+  return Client.create(signer, { env: "dev", appVersion: "chat/1.0" });
+}
+```
+
+New signer:
+
+```ts source="migration-browser.ts" region="signer"
+
+```
+
+New client:
+
+```ts source="migration-browser.ts" region="create"
+
+```
+
+Use an explicit backend URL. `env`, `apiUrl`, and `gatewayHost` no longer select the network. The Browser SDK also requires `storage`. `Client.create(signer, options)` can establish an identity. `Client.build(identity, options, inboxId?)` opens a stored identity. An empty database fails with `IdentityNotFound` when opened with `build`.
+
+For a smart contract wallet, return `{ kind: "scw", chainId, blockNumber }` from `kind()`. Return `{ kind: "scw", bytes, address, chainId, blockNumber }` from `sign()`. The optional block number and the chain ID use `bigint`. The new signer also supports the `passkey` kind. Remove `createEOASigner`, `createSCWSigner`, and `toSafeSigner` calls. Supply the new signer interface, or use `generateLocalSigner()` or `localSignerFromPrivateKey()` for an app-owned local key.
+
+| Old client option                                         | Self-hosted option or action                                                                                                                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `env`, `apiUrl`, `gatewayHost`                            | `backend: { url }`. There is no environment-to-URL lookup.                                                                                                                      |
+| `backend: Backend`                                        | `backend: BackendSource`, with a connected `Backend` or `{ url, appVersion?, credentials? }`. `Backend.connect(options)` replaces `createBackend(options)` and the old builder. |
+| `appVersion`                                              | `backend.appVersion` when using backend options.                                                                                                                                |
+| `dbPath: undefined`                                       | `storage: { location: "default" }`. The new default layout differs.                                                                                                             |
+| `dbPath: null`                                            | `storage: { location: "inMemory" }`.                                                                                                                                            |
+| `dbPath: string`                                          | `storage: { location: { dbPath, attachmentsDir } }`. Both OPFS entry paths are required.                                                                                        |
+| `dbEncryptionKey`                                         | Removed from the Browser API. Browser storage has no SDK database encryption key. The new SDK rejects `storage.encryptionKey` with `StorageLocation`; it does not ignore it.    |
+| `disableDeviceSync`                                       | `deviceSync`, with the opposite sense. The default is `true`.                                                                                                                   |
+| `disableAutoRegister`                                     | `registration: { auto: false }`. The default is automatic registration.                                                                                                         |
+| Old client default inbox nonce `1n`                       | New default is `0n`. Set `registration: { nonce: 1n }` to preserve the old derived inbox ID. This does not transfer the old backend identity.                                   |
+| `waitForRegistrationVisible`                              | Removed. There is no old node quorum option.                                                                                                                                    |
+| `historySyncUrl`                                          | Removed. There is no archive-server URL option.                                                                                                                                 |
+| `workerConfig`                                            | `workers`, with `defaultIntervalNs` and per-worker `intervals` records.                                                                                                         |
+| `codecs`                                                  | Still per client, with the new public `ContentCodec` interface.                                                                                                                 |
+| `loggingLevel`, `structuredLogging`, `performanceLogging` | Use the public logging configuration and `setLogSink()`. These are no longer client options.                                                                                    |
+| No equivalent                                             | `allowOffline`, `forkRecovery`, `handlers`, and attachment limits in `attachments`.                                                                                             |
+
+## Reopen an OPFS database after migration
+
+The new SDK cannot open a pre-transition database. First create a new database on the target backend with `Client.create`. The examples below compare the reopen APIs; the new example requires a database already created by the new SDK. Old `client.close()` is synchronous. The new shutdown is `await client.end()`. Do not open two clients on one database at the same time.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import { Client, type Identifier } from "@xmtp/browser-sdk";
+
+async function reopen(identity: Identifier, oldDbPath: string) {
+  const client = await Client.build(identity, { dbPath: oldDbPath });
+  client.close();
+}
+```
+
+New explicit storage:
+
+```ts source="migration-browser.ts" region="reopen"
+
+```
+
+Use the new database's actual OPFS entry name for `dbPath` and its attachment directory. Browser paths name OPFS entries; they are not host filesystem paths. The old default was `xmtp-{env}-{inboxId}.db3`. The new default uses the `xmtp-sdk` OPFS pool and a deployment/inbox layout. A default location does not move or convert an old database.
+
+With default or directory storage, offline startup needs the saved backend deployment mapping and the saved inbox ID passed to `build`. Explicit paths do not need that path lookup. `allowOffline: true` permits startup from stored state. It does not prove that the backend used later is compatible.
+
+`Storage.admin()` replaces `Opfs.create()`. It opens an independent lease on the package storage worker. Await `admin.end()` after use. There is no separate `init()` call.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import { Opfs } from "@xmtp/browser-sdk";
+
+async function exportDatabase(path: string) {
+  const opfs = await Opfs.create();
+  try {
+    return await opfs.exportDb(path);
+  } finally {
+    opfs.close();
+  }
+}
+```
+
+New storage administration:
+
+```ts source="migration-browser.ts" region="storage-admin"
+
+```
+
+| Old storage member                      | Self-hosted member                                                                                                                                  |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `new Opfs()`, `Opfs.create()`, `init()` | `await Storage.admin()`. Direct construction and initialization are removed.                                                                        |
+| `close()`                               | `await admin.end()`.                                                                                                                                |
+| No client storage object                | `client.storage.path()` and `client.storage.reconnect()`. `storage.delete()` is excluded in Browser; use the admin lease for closed database files. |
+
+End each client that owns a database before import, restore, or replacement. Whole-database import rotates the delivery cursor identity. Archive import adds records and preserves that identity. Database export and archive export are different operations.
+
+## Create, find, and list conversations
+
+`Conversation` is now a TypeScript union of `Group | Dm`. It is no longer a base class that an app constructs. Narrow it with `instanceof Group` or the `kind` property. Group and DM methods remain on their objects.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import {
+  ConversationType,
+  IdentifierKind,
+  type Client,
+} from "@xmtp/browser-sdk";
+
+async function createConversations(client: Client, address: string) {
+  const peer = { identifier: address, identifierKind: IdentifierKind.Ethereum };
+  const dm = await client.conversations.createDmWithIdentifier(peer);
+  const group = await client.conversations.createGroupWithIdentifiers([peer], {
+    groupName: "Team",
+  });
+  const listed = await client.conversations.list({
+    conversationType: ConversationType.Group,
+    limit: 20n,
+  });
+  return { dm, group, listed };
+}
+```
+
+New API:
+
+```ts source="migration-browser.ts" region="conversations"
+
+```
+
+Pass either inbox IDs or public identities to `createGroup`, `createDm`, `addMembers`, and `removeMembers`. A member list must use one form throughout. A mixed list fails with `InvalidArgument` before a call reaches the backend. An empty member list uses the inbox-ID route.
+
+| Old `Conversations` member                                     | Self-hosted member or action                                                                                                                                        |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getConversationById(id)`                                      | `getById(id)`. A missing conversation is `undefined`.                                                                                                               |
+| `fetchDmByIdentifier(identifier)`                              | `getDmByIdentity(identity)`.                                                                                                                                        |
+| `createGroupWithIdentifiers(identifiers, options)`             | `createGroup(identities, options)`.                                                                                                                                 |
+| `createDmWithIdentifier(identifier, options)`                  | `createDm(identity, options)`.                                                                                                                                      |
+| `createGroup(inboxIds, options)`, `createDm(inboxId, options)` | Same names, with the inbox/identity union inputs.                                                                                                                   |
+| `createGroupOptimistic(options)`                               | Same name, with new group options.                                                                                                                                  |
+| `list(options)`, `listGroups(options)`, `listDms(options)`     | Same names. `listGroups` and `listDms` require the options position; pass `undefined` for defaults. Results are public conversation objects; use new query options. |
+| `syncAll(consentStates?)`                                      | Call `syncAll(consentStates)` with an array or explicit `undefined`. It returns the new `GroupSyncSummary`.                                                         |
+| `topic`                                                        | Removed from the collection. A conversation still has `topic`.                                                                                                      |
+| All `stream*` methods                                          | Use `ConversationStream`, `MessageStream`, or client events. See the stream table below.                                                                            |
+
+| Old conversation option                         | Self-hosted option                                                                                  |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `CreateGroupOptions.groupName`                  | `name`.                                                                                             |
+| `groupImageUrlSquare`                           | `imageUrl`.                                                                                         |
+| `groupDescription`                              | `description`.                                                                                      |
+| `permissions`, `customPermissionPolicySet`      | `permissions: { kind: "allMembers" }`, `{ kind: "adminOnly" }`, or `{ kind: "custom", policySet }`. |
+| `messageDisappearingSettings: { fromNs, inNs }` | `disappearing: { from: Timestamp, retentionNs: bigint }`. This also applies to DM creation.         |
+| `ListConversationsOptions.conversationType`     | `kind: "group" \| "dm"`.                                                                            |
+| `createdBeforeNs`, `createdAfterNs`             | `createdBefore`, `createdAfter`, with `Timestamp` values.                                           |
+| `limit` as an `i64`/`bigint`                    | `limit` as a `u32`/`number`.                                                                        |
+| `ListConversationsOrderBy` enum                 | `orderBy: "createdAt" \| "lastActivity"`.                                                           |
+| `consentStates`                                 | Consent values are `"allowed"`, `"denied"`, and `"unknown"`.                                        |
+| No equivalent                                   | `lastActivityBefore` and `lastActivityAfter`, with `Timestamp` values.                              |
+
+The same required-position rule applies to `lastActivityAt(contentTypes)`,
+`userData(fields, inboxIds)`, and `catchUpToLive(timeoutMs)`. Pass `undefined`
+for a default value instead of omitting that argument.
+
+In `PermissionPolicySet`, rename `addMemberPolicy`, `removeMemberPolicy`,
+`addAdminPolicy`, and `removeAdminPolicy` to `addMember`, `removeMember`,
+`addAdmin`, and `removeAdmin`. Rename `updateGroupNamePolicy`,
+`updateGroupDescriptionPolicy`, `updateGroupImageUrlSquarePolicy`,
+`updateMessageDisappearingPolicy`, and `updateAppDataPolicy` to `updateName`,
+`updateDescription`, `updateImage`, `updateDisappearing`, and `updateAppData`.
+Use the new string policy values in each field.
+
+## Read group and DM state
+
+The new API reads mutable values with `await group.state()` or `await dm.state()`. A group returns `GroupState`, with common state under `common`. A DM returns `ConversationState` directly. Read state again after an update when the app needs current values.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import type { Group } from "@xmtp/browser-sdk";
+
+async function updateGroup(group: Group) {
+  const name = group.name;
+  const active = await group.isActive();
+  await group.updateAppData("updated");
+  await group.updateMessageDisappearingSettings(
+    1_000_000_000n,
+    86_400_000_000_000n,
+  );
+  await group.removeMessageDisappearingSettings();
+  return { name, active };
+}
+```
+
+New API:
+
+```ts source="migration-browser.ts" region="state"
+
+```
+
+| Old conversation or group member                                      | Self-hosted member or value                                                                                                                                                    |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`, `topic`, `addedByInboxId`                                       | Readonly properties. An unknown `addedByInboxId` is `null`.                                                                                                                    |
+| `createdAtNs`, `createdAt`                                            | `createdAt: Timestamp`; read `.ns` or `.date`.                                                                                                                                 |
+| `metadata.creatorInboxId`, `metadata.conversationType`                | `creatorInboxId` and `kind` properties. An unknown creator is `null`. `isCreator` is also available. The old `metadata` record is removed.                                     |
+| `isActive()`, `consentState()`, `pausedForVersion()`                  | Values in common state: `isActive`, `consentState`, `pausedForVersion`.                                                                                                        |
+| `messageDisappearingSettings()`, `isMessageDisappearingEnabled()`     | Common state values `disappearingSettings` and `isDisappearingEnabled`.                                                                                                        |
+| `updateMessageDisappearingSettings(fromNs, inNs)`                     | `updateDisappearingSettings({ from: new Timestamp(fromNs), retentionNs: inNs })`.                                                                                              |
+| `removeMessageDisappearingSettings()`                                 | `updateDisappearingSettings(undefined)`.                                                                                                                                       |
+| `updateConsentState(state)`                                           | Same name, with string consent values.                                                                                                                                         |
+| `name`, `imageUrl`, `description`, `appData`, `admins`, `superAdmins` | Values in `await group.state()`.                                                                                                                                               |
+| `permissions()`                                                       | `(await group.state()).permissions`. DM state has no permission-policy getter.                                                                                                 |
+| `isPendingRemoval()`                                                  | `(await group.state()).membershipState === "pendingRemove"`.                                                                                                                   |
+| `updateAppData(value)`                                                | `updateAppData(value, expected)`. Pass `undefined` for an unconditional update, or the last state value for a compare-and-set update.                                          |
+| `updatePermission(type, policy, metadataField?)`                      | Use `updatePermission(kind, policy, metadataField)` with `PermissionUpdateKind`, new policy strings, and `MetadataFieldKind`. Pass `undefined` when no metadata field applies. |
+| `addMembersByIdentifiers`, `removeMembersByIdentifiers`               | `addMembers(identities)`, `removeMembers(identities)`.                                                                                                                         |
+| `removeMembers(inboxIds)`                                             | `removeMembers(inboxIdsOrIdentities)`. A member list must use one input form throughout.                                                                                       |
+| `addMembers(inboxIds)`                                                | Same name. Returns `MembershipResult` with `added`, `removed`, and `failedInstallationIds`.                                                                                    |
+| `members()`                                                           | Same name; returns `Member[]`, with `identities` instead of `accountIdentifiers`. The old `installationIds` field is absent.                                                   |
+| `lastMessage()`, `debugInfo()`                                        | Same names; results use the new message and diagnostic types.                                                                                                                  |
+| `lastReadTimes()`                                                     | Same name; map values are `Timestamp`, not nanosecond integers.                                                                                                                |
+| `processStreamedMessage(envelopeBytes)`                               | Removed. Use the SDK reader and message query APIs.                                                                                                                            |
+| `Dm.peerInboxId()`                                                    | Returns `Promise<string \| null>` instead of `Promise<string>`. An unknown peer is `null`.                                                                                     |
+
+## Send and read messages
+
+The standard send method names remain. All sends use `SendOptions`. The `optimistic` option remains available. `prepareMessage()` stores an unpublished message and queues optimistic publication. It does not keep an app draft private until a later publish call. `idempotencyKey` remains available on the new send options. Compression is optional and uses `"deflate"` or `"gzip"`. If a send fails with `PublishedButUnconfirmed`, call `conversation.sync()` before deciding what to do next. Do not immediately send the content again.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import type { Conversation } from "@xmtp/browser-sdk";
+
+async function sendMessages(conversation: Conversation) {
+  const id = await conversation.sendText("Hello");
+  await conversation.sendMarkdown("**Hello**");
+  await conversation.sendReadReceipt();
+  const pending = await conversation.sendText("Send later", {
+    optimistic: true,
+  });
+  await conversation.publishMessages();
+  return { id, pending };
+}
+```
+
+New standard sends:
+
+```ts source="migration-browser.ts" region="send"
+
+```
+
+New prepare and publish:
+
+```ts source="migration-browser.ts" region="optimistic"
+
+```
+
+| Old message operation                                                          | Self-hosted operation                                                                                                                                               |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `send(encoded, SendMessageOpts)`                                               | `send(encoded, SendOptions)` or `send(codec, value, SendOptions)`.                                                                                                  |
+| `sendText`, `sendMarkdown`, `sendReadReceipt`                                  | Same names, with `SendOptions`.                                                                                                                                     |
+| `sendAttachment`, `sendRemoteAttachment`, `sendMultiRemoteAttachment`          | Same names, with public content records and `SendOptions`.                                                                                                          |
+| `sendTransactionReference`, `sendWalletSendCalls`, `sendActions`, `sendIntent` | Same names, with public content records and `SendOptions`.                                                                                                          |
+| `sendReaction(reaction, options)`                                              | `sendReaction(reference, referenceInboxId, reaction, options?)`. The new `Reaction` contains `action`, `schema`, and `content`; target IDs are separate arguments.  |
+| `sendReply(reply, options)`                                                    | `sendReply(reference, referenceInboxId, encoded, options?)`. `message.reply(text)` is also available.                                                               |
+| `send*(..., { optimistic: true })`                                             | Still supported in `SendOptions`. Alternatively, use `prepareMessage(encoded)` or `prepareMessage(codec, value)`, then `publishMessage(id)` or `publishMessages()`. |
+| `messages(options)`                                                            | Returns public `Message[]` with the new query options.                                                                                                              |
+| `countMessages(options)`                                                       | Returns `bigint`. Pass `undefined` for the required options argument when no filter is needed.                                                                      |
+| No message actions                                                             | `Message.refresh()`, `delete()`, `deleteLocally()`, `react()`, `reply()`, `parent()`, `conversation()`, and `client()`. Collection actions are also available.      |
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import { SortDirection, type Conversation } from "@xmtp/browser-sdk";
+
+async function history(conversation: Conversation) {
+  const first = await conversation.messages({
+    limit: 20n,
+    direction: SortDirection.Descending,
+  });
+  const last = first.at(-1);
+  return last
+    ? conversation.messages({
+        limit: 20n,
+        direction: SortDirection.Descending,
+        sentBeforeNs: last.sentAtNs,
+      })
+    : [];
+}
+```
+
+New timestamp query:
+
+```ts source="migration-browser.ts" region="history"
+
+```
+
+Replace `sentBeforeNs`, `sentAfterNs`, `insertedBeforeNs`, and `insertedAfterNs` with `sentBefore`, `sentAfter`, `insertedBefore`, and `insertedAfter`. Use `Timestamp` values. Use `number` for a `u32` limit. `direction`, `sortBy`, `deliveryStatus`, and message `kind` use string values. `contentTypes` and `excludeContentTypes` take `ContentTypeId[]`. The old `ContentType.Custom` wildcard is removed. Keep `excludeSenderInboxIds` when needed.
+
+A sent-time cutoff is not a unique pagination cursor. Messages can have the same timestamp. Use a history snapshot and its delivery cursor for a history/live boundary.
+
+## Replace `DecodedMessage` and content guards
+
+`DecodedMessage<ContentTypes>` is replaced by `Message`. Its `content` is a tagged union. Check `message.content.kind` before reading a variant. The SDK does not use the old generic content union or the exported `isText`, `isReply`, and related guard helpers.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import { isText, type DecodedMessage } from "@xmtp/browser-sdk";
+
+function display(message: DecodedMessage) {
+  return isText(message) ? (message.content ?? "") : (message.fallback ?? "");
+}
+```
+
+New content handling:
+
+```ts source="migration-browser.ts" region="content"
+
+```
+
+| Old `DecodedMessage` field                                          | Self-hosted `Message` field                                                                                                                                   |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sentAt: Date`, `sentAtNs: bigint`                                  | `sentAt: Timestamp`; use `.date` or `.ns`.                                                                                                                    |
+| `expiresAt`, `expiresAtNs`                                          | Optional `expiresAt: Timestamp`. `insertedAt` is also available.                                                                                              |
+| `kind`, `deliveryStatus` numeric enums                              | String union values.                                                                                                                                          |
+| `contentType` always present                                        | Optional `contentType`. A malformed envelope can have no type.                                                                                                |
+| `content: ContentTypes \| undefined`                                | `MessageContent`, with `kind` and variant fields. Custom content has optional `value` and `error`. Unknown content has typed `error`.                         |
+| `numReplies`                                                        | `replyCount: bigint`.                                                                                                                                         |
+| `reactions: DecodedMessage<Reaction>[]`                             | `ReactionMessage[]`, with IDs, sender IDs, `Timestamp`, and `reaction`.                                                                                       |
+| Reply `content.referenceId`, `content.content`, `content.inReplyTo` | Reply content has `referenceId` and `body`. The message has optional `inReplyTo`, `inReplyToContent`, and `replyContent`. `parent()` fetches the full parent. |
+| No equivalent                                                       | Exact `rawBytes`, optional `encoded`, `topic`, and `deliveryCursor`.                                                                                          |
+
+Unknown or failed content does not stop delivery of later messages. Preserve `rawBytes`. Do not replace absent encoded content or a missing type with invented empty values. `CodecNotFound`, `CodecDecodeFailed`, and `MalformedEnvelope` are separate failure codes.
+
+New reply and reaction actions:
+
+```ts source="migration-browser.ts" region="actions"
+
+```
+
+`message.delete()` publishes a typed deletion action and returns its message ID. `message.deleteLocally()` removes only the local record. `DeleteMessageCodec` remains available in the pure entry for a typed delete content value. The old deleted-message stream is replaced by client events.
+
+## Replace streams and save delivery progress
+
+Use `MessageStream` for durable message delivery. Use `ConversationStream` for joined or created conversations. Both implement asynchronous iteration. They open without an awaited static factory call. Client events use `await client.events(filter)`.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import type { Client } from "@xmtp/browser-sdk";
+
+async function receive(client: Client) {
+  const stream = await client.conversations.streamAllMessages();
+  try {
+    for await (const message of stream) console.log(message.id);
+  } finally {
+    await stream.end();
+  }
+}
+```
+
+New durable delivery:
+
+```ts source="migration-browser.ts" region="stream"
+
+```
+
+| Old stream call                                             | Self-hosted call                                                                                                                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversation.stream()`                                     | `group.streamMessages()` or `dm.streamMessages()`.                                                                                                      |
+| `conversations.streamAllMessages()`                         | `conversations.streamAllMessages(options?)`.                                                                                                            |
+| `streamAllGroupMessages()`                                  | `conversations.streamAllMessages({ conversationKind: "group" })`.                                                                                       |
+| `streamAllDmMessages()`                                     | `conversations.streamAllMessages({ conversationKind: "dm" })`.                                                                                          |
+| `conversations.stream()`                                    | `conversations.stream(options?)`.                                                                                                                       |
+| `streamGroups()`, `streamDms()`                             | `conversations.stream({ conversationKind: "group" })` or `{ conversationKind: "dm" }`.                                                                  |
+| `streamMessageDeletions()`, `streamDeletedMessages()`       | `client.events({ kinds: ["message.deleted"] })`. Read the typed event payload.                                                                          |
+| `preferences.streamConsent()`                               | `client.events({ kinds: ["consent.changed"] })`.                                                                                                        |
+| `preferences.streamPreferences()`                           | Client events for the required changes, such as `hmac_keys.updated`. There is no `UserPreferenceUpdate[]` stream.                                       |
+| `AsyncStreamProxy.next()`, `return()`, `end()`              | Use `for await` and `await stream.end()`. `return()` also closes.                                                                                       |
+| `StreamOptions.onValue`                                     | `stream.onValue(async message => { ... })` as a separate consumer mode. Do not also iterate that stream.                                                |
+| `onEnd`, `onError`, `onFail`, `onRestart`, `onRetry`        | `onClose(reason)` and `onConnectionStateChange(previous, current)`. A failed close includes the error.                                                  |
+| `retryAttempts`, `retryDelay`, `retryOnFail`, `disableSync` | Removed from the generated stream options. Core handles retryable message-stream network faults. Call `sync()` explicitly when a snapshot needs a sync. |
+| No equivalent                                               | `signal: AbortSignal` for cancellation; `from: DeliveryCursor` for replay.                                                                              |
+
+The all-conversation message reader defaults to allowed and unknown consent. An explicit consent list replaces that default. An empty list selects no messages. A named group or DM reader has no consent filter. The selection remains fixed for the life of a reader.
+
+One default message reader owns delivery progress for a database. Another default reader fails with `ConsumerOwned`, even when it selects a different group. A reader with `from` is an independent replay/live reader. It does not change default delivery progress.
+
+The next iterator request acknowledges the previous message. Await app work before the next request. A successful `onValue` callback return acknowledges the delivered message. Loop exit, cancellation, `return()`, and `end()` do not acknowledge the last yielded message. Save a cursor only after successful app work. Deduplicate repeat work by message ID when needed.
+
+Use `messageHistorySnapshot(limit, selection)` when a history query and live delivery need one boundary. The example reads up to 100 retained messages, then starts replay strictly after the snapshot cursor. Choose the history limit for the app. This is a local retained-history snapshot; it is not a request for all historical backend messages.
+
+```ts source="migration-browser.ts" region="snapshot"
+
+```
+
+Keep a cursor unchanged. A cursor belongs to one database. Treat `InvalidCursor`, `ForeignCursor`, and `ConsumerOwned` as separate errors. Use `beginningDeliveryCursor()` when replay must start at the first retained delivery.
+
+New conversation stream:
+
+```ts source="migration-browser.ts" region="conversation-stream"
+
+```
+
+## Move consent and identity calls
+
+Old consent records used `entityType`, `entity`, and numeric enum values. New consent records use `{ entity: { kind, ... }, state }`. A consent entity is an inbox or a conversation.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import {
+  ConsentEntityType,
+  ConsentState,
+  type Client,
+} from "@xmtp/browser-sdk";
+
+async function allow(client: Client, conversationId: string) {
+  await client.preferences.setConsentStates([
+    {
+      entityType: ConsentEntityType.ConversationId,
+      entity: conversationId,
+      state: ConsentState.Allowed,
+    },
+  ]);
+  return client.preferences.getConsentState(
+    ConsentEntityType.ConversationId,
+    conversationId,
+  );
+}
+```
+
+New consent and events:
+
+```ts source="migration-browser.ts" region="consent"
+
+```
+
+| Old client or preference member                                                                                               | Self-hosted member                                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preferences.setConsentStates(records)`                                                                                       | Same names; use new records.                                                                                                                                           |
+| `preferences.getConsentState(type, entity)`                                                                                   | `preferences.consentState(entity)`.                                                                                                                                    |
+| `preferences.inboxState()`, `fetchInboxState()`                                                                               | `client.inboxState(false)` or `client.inboxState(true)`. The boolean selects network refresh.                                                                          |
+| `preferences.getInboxStates(ids)`, `fetchInboxStates(ids)`                                                                    | `client.inboxStates(ids, false)` or `client.inboxStates(ids, true)`.                                                                                                   |
+| Static `Client.fetchInboxStates(ids, backendOrEnv?, gatewayHost?)`                                                            | `Client.inboxStates(ids, backend)`.                                                                                                                                    |
+| `fetchInboxIdByIdentifier(identifier)`                                                                                        | `client.inboxIdFor(identity)`.                                                                                                                                         |
+| `getInboxIdForIdentifier(backend, identifier)`                                                                                | `Client.inboxIdFor(identity, backend)`. It resolves an association or derives the nonce-zero inbox ID when none is registered. Use `canMessage` to check registration. |
+| `syncAllDeviceSyncGroups()`                                                                                                   | `GroupSyncSummary` now has `eligible` and `synced` fields instead of `numEligible` and `numSynced`.                                                                    |
+| `canMessage(identifiers)`, static `Client.canMessage(...)`                                                                    | Same method name with `PublicIdentity[]`. The static form requires a backend. Keys include `ethereum:` or `passkey:`.                                                  |
+| `fetchLatestInboxUpdatesCount(ids)`                                                                                           | `client.latestInboxUpdatesCount(ids, refreshFromNetwork)`. Pass the required boolean to select a network refresh.                                                      |
+| Static `Client.fetchLatestInboxUpdatesCount(...)`                                                                             | Root `latestInboxUpdatesCount(ids, backend)`.                                                                                                                          |
+| `fetchOwnInboxUpdatesCount()`                                                                                                 | `client.ownInboxUpdatesCount(refreshFromNetwork)`. Pass the required boolean. Counts now use `bigint`.                                                                 |
+| `fetchKeyPackageStatuses(ids)`                                                                                                | `client.keyPackageStatuses(ids)`. The static `Client.keyPackageStatuses(ids, backend)` is also available.                                                              |
+| `accountIdentifier`                                                                                                           | `identity: PublicIdentity`.                                                                                                                                            |
+| `inboxId`, `installationId`, `installationIdBytes`, `libxmtpVersion`, `appVersion`, `conversations`, `preferences`, `options` | Readonly properties. `appVersion` can be absent. `options` omits credential secrets.                                                                                   |
+| `signer`, `isReady`, `env`                                                                                                    | Removed. Retain the app signer when it is needed. Await client creation/build before use.                                                                              |
+| Public constructor, `init(identifier)`                                                                                        | Removed. Use `Client.create` or `Client.build`.                                                                                                                        |
+| `close()`                                                                                                                     | `await client.end()`.                                                                                                                                                  |
+| Instance `verifySignedWithPublicKey(text, signature, publicKey)`                                                              | Static `Client.verifySignedWithPublicKey(text, signature, publicKey)`.                                                                                                 |
+
+New identity queries and signature request:
+
+```ts source="migration-browser.ts" region="identity"
+
+```
+
+The new signature workflow returns `SignatureRequest` objects. It does not return a text/request-ID pair. Read `signatureText()`, call `sign(signer)` or `addSignature(signature)`, then apply the request. An optional request can be `undefined` when no update is needed.
+
+| Old account method                                                                         | Self-hosted method                                                        |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `unsafe_createInboxSignatureText()`                                                        | `unsafeCreateInboxSignatureRequest()`.                                    |
+| `unsafe_addAccountSignatureText(identity, allowInboxReassign)`                             | `unsafeAddAccountSignatureRequest(identity, allowInboxReassign)`.         |
+| `unsafe_removeAccountSignatureText(identity)`                                              | `unsafeRemoveAccountSignatureRequest(identity)`.                          |
+| `unsafe_revokeInstallationsSignatureText(byteIds)`                                         | `unsafeRevokeInstallationsSignatureRequest(stringIds)`.                   |
+| `unsafe_revokeAllOtherInstallationsSignatureText()`                                        | `unsafeRevokeAllOtherInstallationsSignatureRequest()`.                    |
+| `unsafe_changeRecoveryIdentifierSignatureText(identity)`                                   | `unsafeChangeRecoveryIdentifierSignatureRequest(identity)`.               |
+| `unsafe_applySignatureRequest(safeSigner, requestId)`                                      | `unsafeApplySignatureRequest(request)`, after signing the request.        |
+| `unsafe_addAccount(signer, allowInboxReassign)`                                            | `unsafeAddAccount(signer, allowInboxReassign)`.                           |
+| `removeAccount(identity)`                                                                  | `removeAccount(recoverySigner, identity)`.                                |
+| `revokeInstallations(byteIds)`                                                             | `revokeInstallations(signer, stringIds)`.                                 |
+| `revokeAllOtherInstallations()`                                                            | `revokeAllOtherInstallations(signer)`.                                    |
+| `changeRecoveryIdentifier(identity)`                                                       | `changeRecoveryIdentifier(signer, identity)`.                             |
+| Static `Client.revokeInstallations(signer, inboxId, byteIds, backendOrEnv?, gatewayHost?)` | Static `Client.revokeInstallations(signer, inboxId, stringIds, backend)`. |
+
+`InstallationId` is a validated hex string. Keep `installationIdBytes` only when an operation explicitly needs bytes. `InboxState.identities` and its recovery identity use `PublicIdentity`. Installation timestamps use `Timestamp`, and sequence/count values use `bigint`.
+
+## Move archives and diagnostics
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import type { Client } from "@xmtp/browser-sdk";
+
+async function backup(client: Client, key: Uint8Array) {
+  const bytes = await client.createArchive(key);
+  const metadata = await client.archiveMetadata(bytes, key);
+  await client.importArchive(bytes, key);
+  return metadata;
+}
+```
+
+New archive export and import:
+
+```ts source="migration-browser.ts" region="archives"
+
+```
+
+| Old member                                                                          | Self-hosted member or action                                                                                                                                                    |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `client.createArchive(key, options)`                                                | `client.archives.exportToBytes(key, options)`. Pass `undefined` for the required options argument when using defaults.                                                          |
+| `client.importArchive(bytes, key)`                                                  | `client.archives.importFromBytes(bytes, key)`.                                                                                                                                  |
+| `client.archiveMetadata(bytes, key)`                                                | `client.archives.metadataFromBytes(bytes, key)`.                                                                                                                                |
+| `ArchiveOptions.startNs`, `endNs`                                                   | `start`, `end`, with `Timestamp` values.                                                                                                                                        |
+| `BackupElementSelectionOption`                                                      | `elements: ["messages", "consent"]` or a chosen subset.                                                                                                                         |
+| `ArchiveMetadata.exportedAtNs`, `startNs`, `endNs`                                  | `exportedAt`, `start`, `end`, with `Timestamp` values.                                                                                                                          |
+| `sendSyncRequest`, `sendSyncArchive`, `processSyncArchive`, `listAvailableArchives` | Removed. There is no replacement API for the old archive-server and PIN workflow. Keep ordinary `deviceSync` and `syncAllDeviceSyncGroups` separate from archive import/export. |
+| `debugInformation.apiStatistics()`                                                  | `diagnostics.apiStatistics()`.                                                                                                                                                  |
+| `debugInformation.apiIdentityStatistics()`                                          | `diagnostics.identityStatistics()`.                                                                                                                                             |
+| `debugInformation.apiAggregateStatistics()`                                         | `diagnostics.aggregateStatistics()`.                                                                                                                                            |
+| `debugInformation.clearAllStatistics()`                                             | `diagnostics.clearStatistics()`.                                                                                                                                                |
+
+Browser archive APIs use bytes. Native filesystem archive methods are excluded. Use a 32-byte archive encryption key. Store the key separately from the archive. Archive options default to messages and consent when `elements` is absent.
+
+## Update result records and enum imports
+
+The new package exports string unions for enums. Use values such as `"allowed"`, `"descending"`, `"published"`, `"application"`, `"admin"`, and `"superAdmin"`. Do not keep numeric enum values from the old bindings.
+
+| Old public type or result                                                                  | Self-hosted type or result                                                                                                                    |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ConversationType`, `GroupMessageKind`                                                     | `ConversationKind` and `MessageKind`.                                                                                                         |
+| `SortDirection`, `ListConversationsOrderBy`                                                | `MessageOrder` and `ConversationOrder`.                                                                                                       |
+| `GroupMembershipState`, `GroupPermissionsOptions`                                          | `MembershipState` and `GroupPermissionMode`. State permissions use `GroupPolicyType`.                                                         |
+| `Identifier`, `IdentifierKind`                                                             | `PublicIdentity`, `PublicIdentityKind`.                                                                                                       |
+| `GroupMember`                                                                              | `Member`; account identities are in `identities`.                                                                                             |
+| `MessageDisappearingSettings`                                                              | `DisappearingSettings`.                                                                                                                       |
+| `SendOpts`, `SendMessageOpts`                                                              | `SendOptions`.                                                                                                                                |
+| `Consent`, `ConsentEntityType`                                                             | `ConsentRecord` and tagged `ConsentEntity`.                                                                                                   |
+| `PermissionUpdateType`, `MetadataField`                                                    | `PermissionUpdateKind`, `MetadataFieldKind`.                                                                                                  |
+| `BackupElementSelectionOption`, `Lifetime`                                                 | `ArchiveElement`, `KeyPackageLifetime`.                                                                                                       |
+| `InboxState.accountIdentifiers`, `recoveryIdentifier`                                      | `identities`, `recoveryIdentity`. `creationSignatureKind` is also available.                                                                  |
+| `Installation.bytes`, `clientTimestampNs`                                                  | `Installation.id` identifies the installation; optional `createdAt` is a `Timestamp`. There is no installation `bytes` field.                 |
+| `GroupSyncSummary.numEligible`, `numSynced`                                                | `eligible`, `synced`, both `bigint`.                                                                                                          |
+| `GroupUpdated` inbox arrays of `{ inboxId }`                                               | Inbox-ID string arrays with the same field names.                                                                                             |
+| `ConversationDebugInfo.cursor` array of `{ originatorId, sequenceId }`                     | Array of `bigint` cursor values.                                                                                                              |
+| `ApiStats` per-operation counters                                                          | `publish`, `query`, `queryNewest`, `subscribe`, and `subscribeStatic`, all `bigint`.                                                          |
+| `IdentityStats.publishIdentityUpdate`, `getInboxIds`, `verifySmartContractWalletSignature` | `getInboxIds` and `verifySmartContractWalletSignatures`, both `bigint`. The old publish counter is absent.                                    |
+| `LogOptions`                                                                               | `LoggingOptions`, passed to `initLogging()`.                                                                                                  |
+| `WorkerConfigOptions`, `WorkerIntervalOverride`                                            | `WorkerOptions`, with `WorkerInterval` records. Each record can set `intervalNs`, `jitterNs`, and `enabled`.                                  |
+| `Intent.metadata` object                                                                   | `metadataJson?: string`; serialize and validate the JSON explicitly.                                                                          |
+| `Actions.expiresAtNs`, `Action.expiresAtNs`                                                | Optional `expiresAt: Timestamp`.                                                                                                              |
+| `WalletCall.metadata` object                                                               | `WalletCallMetadata` with `description`, `transactionType`, and `extra: Map<string, string>`. `WalletSendCalls.capabilities` is also a `Map`. |
+| `DeletedMessage.deletedBy` enum and separate `adminInboxId`                                | Tagged `deletedBy`: `{ kind: "sender" }` or `{ kind: "admin", inboxId }`.                                                                     |
+
+`ActionStyle`, `ConsentState`, `DeliveryStatus`, `PermissionLevel`, `PermissionPolicy`, `ReactionAction`, `ReactionSchema`, `LogLevel`, and `WorkerKind` remain type names with string values. The new worker kinds include configuration refresh, HMAC epochs, and attachment cleanup. Check the new type when a switch must cover every variant.
+
+## Replace codec and helper exports
+
+The old `encode*` and `contentType*` root helpers initialized WASM and returned promises. Use standalone standard codecs in `/pure`. Call `await initPureWasm()` before constructing or using a standalone standard codec. Encoding and decoding are synchronous after initialization.
+
+| Old export family                                                                                                                                                                                                                                            | Self-hosted form                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `encodeText`, `contentTypeText`                                                                                                                                                                                                                              | `TextCodec.encode(value)` and `TextCodec.type`.                                                                                                                                       |
+| `encodeMarkdown`, `contentTypeMarkdown`                                                                                                                                                                                                                      | `MarkdownCodec`.                                                                                                                                                                      |
+| `encodeReadReceipt`, `contentTypeReadReceipt`                                                                                                                                                                                                                | `ReadReceiptCodec`.                                                                                                                                                                   |
+| `encodeReaction`, `contentTypeReaction`                                                                                                                                                                                                                      | `ReactionV2Codec`; its typed value carries the target ID and the reaction. Legacy reaction v1 needs an app codec.                                                                     |
+| `encodeAttachment`, `contentTypeAttachment`                                                                                                                                                                                                                  | `AttachmentCodec`.                                                                                                                                                                    |
+| `encodeRemoteAttachment`, `contentTypeRemoteAttachment`                                                                                                                                                                                                      | `RemoteAttachmentCodec`.                                                                                                                                                              |
+| `encodeMultiRemoteAttachment`, `contentTypeMultiRemoteAttachment`                                                                                                                                                                                            | `MultiRemoteAttachmentCodec`.                                                                                                                                                         |
+| `encodeTransactionReference`, `contentTypeTransactionReference`                                                                                                                                                                                              | `TransactionReferenceCodec`.                                                                                                                                                          |
+| `encodeWalletSendCalls`, `contentTypeWalletSendCalls`                                                                                                                                                                                                        | `WalletSendCallsCodec`.                                                                                                                                                               |
+| `encodeActions`, `contentTypeActions`                                                                                                                                                                                                                        | `ActionsCodec`.                                                                                                                                                                       |
+| `encodeIntent`, `contentTypeIntent`                                                                                                                                                                                                                          | `IntentCodec`.                                                                                                                                                                        |
+| `contentTypeReply`, `contentTypeGroupUpdated`, `contentTypeLeaveRequest`                                                                                                                                                                                     | `ReplyCodec`, `GroupUpdatedCodec`, and `LeaveRequestCodec`.                                                                                                                           |
+| `encryptAttachment`, `decryptAttachment`                                                                                                                                                                                                                     | Public `encryptEncodedContent` and `decryptEncodedContent` for encrypted content, or `client.attachments` for managed transfers. The old attachment result shape does not apply.      |
+| `generateInboxId(identifier, nonce?)`                                                                                                                                                                                                                        | Pure `generateInboxId(identity, nonce?)`, after `initPureWasm()`. Nonces remain `bigint`; the default changes from `1n` to `0n`. Pass `1n` explicitly to preserve the old derivation. |
+| `metadataFieldName`, `MetadataField`                                                                                                                                                                                                                         | `MetadataFieldKind` for permission updates; metadata descriptors and field APIs for app data.                                                                                         |
+| `SafeConversation`, `toSafeConversation`                                                                                                                                                                                                                     | Removed. Public `Group` and `Dm` are the supported objects.                                                                                                                           |
+| `HmacKeys`, `LastReadTimes`                                                                                                                                                                                                                                  | Use the method result types. HMAC keys are maps/lists of `HmacKey`; read-time values are `Timestamp`.                                                                                 |
+| `isText`, `isMarkdown`, `isReply`, `isTextReply`, `isReaction`, `isAttachment`, `isRemoteAttachment`, `isMultiRemoteAttachment`, `isTransactionReference`, `isGroupUpdated`, `isReadReceipt`, `isLeaveRequest`, `isWalletSendCalls`, `isIntent`, `isActions` | Narrow `message.content.kind`, then read that variant.                                                                                                                                |
+| `ApiUrls`, `HistorySyncUrls`, `XmtpEnv`, `NetworkOptions`, `DeviceSyncOptions`, `OtherOptions`, `ContentOptions`                                                                                                                                             | Removed legacy configuration exports. Use `BackendOptions` and `ClientOptions`.                                                                                                       |
+| `EOASigner`, `SCWSigner`, `SafeSigner`, `BuiltInContentTypes`, `ExtractCodecContentTypes`, `EnrichedReply`                                                                                                                                                   | Removed. Use `Signer`, `PublicIdentity`, `MessageContent`, and `MessageBody`.                                                                                                         |
+
+Replace the old codec `contentType` property with `type`. A custom codec now exposes `type`, synchronous `encode`, synchronous `decode`, and optional `fallback`/`shouldPush` hooks. Import `ContentCodec`, `EncodedContent`, and `ContentTypeId` from the Browser SDK root. `EncodedContent.type` is required. `parameters` changes from `Record<string, string>` to `Map<string, string>`. The old envelope `compression` field is removed; use `SendOptions.compression`. Register codecs in `ClientOptions.codecs`. Use the typed `conversation.send(codec, value)` overload to send a custom value.
+
+Old API on main:
+
+```text title="Before (main cc878025da)"
+import type { ContentCodec } from "@xmtp/content-type-primitives";
+import type { EncodedContent } from "@xmtp/wasm-bindings";
+import type { Conversation } from "@xmtp/browser-sdk";
+
+const noteCodec: ContentCodec<string> = {
+  contentType: {
+    authorityId: "example.com",
+    typeId: "note",
+    versionMajor: 1,
+    versionMinor: 0,
+  },
+  encode(value: string): EncodedContent {
+    return {
+      type: this.contentType,
+      parameters: {},
+      content: new TextEncoder().encode(value),
+    };
+  },
+  decode(encoded: EncodedContent) {
+    return new TextDecoder().decode(encoded.content);
+  },
+  fallback: (value) => value,
+  shouldPush: () => true,
+};
+
+async function sendNote(conversation: Conversation) {
+  return conversation.send(noteCodec.encode("A typed note"));
+}
+```
+
+New API:
+
+```ts source="migration-browser.ts" region="codec"
+
+```
+
+Catalogue content types have defined push defaults. Read receipts, reactions, group updates, deletion, and leave requests default to no push. An explicit `SendOptions.shouldPush` wins. A custom codec's hook does not replace the default for a catalogue type.
+
+An encrypted-content helper result uses `{ ciphertext, keys }`. The keys record has `secret`, `salt`, `nonce`, `digest`, and `length`. `encryptEncodedContent` accepts serialized envelope bytes. `decryptEncodedContent` returns serialized envelope bytes. These are not the old attachment helper records.
+
+The new attachment API adds `client.attachments` for upload, download, status, and deletion. Browser path sources refer to OPFS. Byte sources copy the caller's bytes at the Browser boundary. Transfer failures preserve a typed attachment cause; the SDK does not add automatic transfer retries.
+
+The new API also adds backend configuration reads, credentials, catch-up state, metadata field descriptors and values, user data, client events, and message actions. These have no direct old Browser method to rename.
+
+## Handle typed errors
+
+The old exported error classes (`ClientNotInitializedError`, `SignerUnavailableError`, `InboxReassignError`, `AccountAlreadyAssociatedError`, `GroupNotFoundError`, `StreamNotFoundError`, `StreamFailedError`, `StreamInvalidRetryAttemptsError`, `OpfsNotInitializedError`, and `OpfsInitializationError`) are removed. Catch the new `XmtpError` base or a public typed subclass. Read `details.code`, `category`, `retryable`, and `message`. Do not classify a failure by display text.
+
+```ts source="migration-browser.ts" region="errors"
+
+```
+
+Keep a default case for codes added later. An unknown failure must remain a failure. Message and attachment actions fail with `ClientClosed` after the owning client ends.

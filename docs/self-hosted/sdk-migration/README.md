@@ -151,7 +151,7 @@ kind selects only that kind. A named Group/Dm reader has no consent filter.
 The selection is fixed for the reader's life. The final handoff check uses
 current conversation state. New matching conversations are included.
 
-Use `MessageReaderOptions` with `conversationKind`, `consentStates`, and `from`.
+Use `MessageStreamOptions` with `conversationKind`, `consentStates`, and `from`.
 Swift uses `nil`, Kotlin uses `null`, and TypeScript uses `undefined` for an
 absent option. Their explicit empty lists are `[]`, `emptyList()`, and `[]`.
 Do not use a truthiness check that replaces an empty list with defaults.

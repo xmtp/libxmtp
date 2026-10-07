@@ -53,21 +53,21 @@ Do not use
 ## Durable message delivery
 
 - Message iterators acknowledge the previous item only when the app requests the next item. `return` and `end` do not acknowledge it.
-- Supplying `onValue` selects callback mode and starts consumption. Successful callback return acknowledges delivery. Do not also iterate that stream.
-- Core owns message-stream network recovery. Message streams do not accept `retryAttempts`, `retryDelay`, `retryOnFail`, `onRetry`, or `disableSync`. They accept but do not use `onFail` and `onRestart`. Retry controls still apply to notification streams. Callback or acknowledgement failure stops message delivery; it does not restart the callback.
-- Node notification streams open without a separate pre-sync, and Node `StreamOptions` has no `disableSync` field. Call an explicit `sync()` method when the app needs a current snapshot. Browser retains its own notification `disableSync` option.
+- Calling `await stream.onValue(callback)` selects callback mode and starts consumption. A successful callback return permits the next read to acknowledge delivery. Do not also iterate that stream.
+- Core owns network recovery for message and conversation streams. Public stream options do not accept `retryAttempts`, `retryDelay`, `retryOnFail`, `onRetry`, `onFail`, `onRestart`, or `disableSync`. Callback or acknowledgement failure stops message delivery; it does not restart the callback.
+- Conversation streams open without a separate pre-sync. Call an explicit `sync()` method when the app needs a current snapshot. Browser and Node lifecycle options are `signal`, `onClose`, and `onConnectionStateChange`.
 - Storage errors end message streams after the operation's normal retry policy. Enrichment must preserve the storage cause. A replacement may repeat an app callback whose acknowledgement failed.
-- Close and fence a failed reader before `onError` runs. Preserve the original error if cleanup fails. The caller can repair storage and open another stream on the same client.
+- Close and fence a failed reader before `onClose` reports a failed reason. Preserve the original error if cleanup fails. The caller can repair storage and open another stream on the same client.
 - Use `from` with a `DeliveryCursor` for replay. Replay does not change default delivery progress.
 - Use `beginningDeliveryCursor` for the first retained item, or the cursor from `messageHistorySnapshot` for history plus live delivery.
 - Catch-up state does not depend on application acknowledgement. Keep typed
   stream failure details and all topic obligations when reporting errors.
 
-The pure delivery-boundary tests do not need a backend or generated bindings:
+The host reader tests use fake readers from the staged Node package. They need
+the generated package but do not need a backend. The recipe stages the package:
 
 ```bash
-NIX_DEVSHELL=js-node dev/nix-shell 'pnpm --filter @xmtp/node-sdk exec vitest run test/MessageStream.test.ts test/streamFailure.test.ts'
-NIX_DEVSHELL=js-node dev/nix-shell 'pnpm --filter @xmtp/browser-sdk exec vitest run test/MessageStream.test.ts test/WorkerBridge.test.ts test/streamFailure.test.ts --browser.enabled=false'
+dev/nix-shell 'just js test-node-sdk-ci test/streamRuntime.test.ts'
 ```
 
 ## Agent stream lifecycle
