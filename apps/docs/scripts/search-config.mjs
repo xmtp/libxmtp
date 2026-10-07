@@ -8,5 +8,6 @@ export const searchRanking = {
   termFrequency: 0.1,
   termSaturation: 2,
   termSimilarity: 9,
-  metaWeights: { title: 0, guideTitle: 20 },
+  // Keep guide title matches above repeated terms in longer guide bodies.
+  metaWeights: { title: 0, guideTitle: 100 },
 };
