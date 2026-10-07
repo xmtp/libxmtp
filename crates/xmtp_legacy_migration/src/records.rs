@@ -101,6 +101,16 @@ struct Count {
     count: i64,
 }
 
+fn context_blob(conn: &mut SqliteConnection, id: &[u8]) -> Result<Option<Blob>, MigrationError> {
+    Ok(diesel::sql_query(
+        "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = 1 AND typeof(value_bytes) = 'blob' AND length(value_bytes) <= ?",
+    )
+    .bind::<Binary, _>(crate::metadata::context_key(id))
+    .bind::<BigInt, _>(crate::metadata::MAX_CONTEXT_BYTES as i64)
+    .get_result::<Blob>(conn)
+    .optional()?)
+}
+
 fn invalid(reason: &'static str) -> MigrationError {
     MigrationError::RecordRead(RecordError::Invalid(reason))
 }
@@ -142,12 +152,7 @@ pub(crate) fn export(
                 return Err(invalid("invalid required group identity or enum"));
             }
             after = group.id.clone();
-            let blob = diesel::sql_query(
-                "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = 1",
-            )
-            .bind::<Binary, _>(crate::metadata::context_key(&group.id))
-            .get_result::<Blob>(conn)
-            .optional()?;
+            let blob = context_blob(conn, &group.id)?;
             let (metadata, mutable_metadata) = blob
                 .map(|blob| crate::metadata::decode(&blob.value_bytes))
                 .unwrap_or_default();
@@ -263,5 +268,40 @@ fn legacy_content_type(value: i32) -> &'static str {
         15 => "multiRemoteStaticAttachment",
         16 => "deleteMessage",
         _ => "unknown",
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn oversized_context_is_not_loaded() {
+        let mut conn = SqliteConnection::establish(":memory:")?;
+        diesel::sql_query(
+            "CREATE TABLE openmls_key_value (key_bytes BLOB, version INTEGER, value_bytes BLOB)",
+        )
+        .execute(&mut conn)?;
+        let id = [1u8; 16];
+        for size in [
+            crate::metadata::MAX_CONTEXT_BYTES,
+            crate::metadata::MAX_CONTEXT_BYTES + 1,
+        ] {
+            diesel::sql_query("DELETE FROM openmls_key_value").execute(&mut conn)?;
+            diesel::sql_query("INSERT INTO openmls_key_value VALUES (?, 1, zeroblob(?))")
+                .bind::<Binary, _>(crate::metadata::context_key(&id))
+                .bind::<BigInt, _>(size as i64)
+                .execute(&mut conn)?;
+            let result = context_blob(&mut conn, &id)?;
+            if size <= crate::metadata::MAX_CONTEXT_BYTES {
+                assert_eq!(result.unwrap().value_bytes.len(), size);
+            } else {
+                assert!(
+                    result.is_none(),
+                    "oversized context reached the Rust row decoder"
+                );
+            }
+        }
     }
 }
