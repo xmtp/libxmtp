@@ -9,14 +9,17 @@ function openRecords() {
     request.onerror = () => reject(request.error);
   });
 }
-async function record(path, name) {
+async function record(path, name, output) {
   const db = await openRecords();
   try {
+    if (output?.aborted)
+      throw new DOMException("Archive write was aborted", "AbortError");
     return await new Promise((resolve, reject) => {
       const transaction = db.transaction(
         "published",
         name === undefined ? "readonly" : "readwrite",
       );
+      if (output) output.transaction = transaction;
       const store = transaction.objectStore("published");
       const request =
         name === undefined ? store.get(path) : store.put(name, path);
@@ -44,36 +47,88 @@ async function cleanup(folder, published) {
 }
 const lock = (path, operation) =>
   navigator.locks.request(`xmtp:migration-output:${path}`, operation);
-export async function writeMigrationOutput(path, bytes) {
-  return lock(path, async () => {
+// Hold the output lock from private-file creation through publication or abort.
+export async function beginMigrationOutput(path) {
+  let resolve;
+  let reject;
+  const ready = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  void lock(path, async () => {
     const folder = await directory(path, true);
     const previous = await record(path);
     await cleanup(folder, previous);
-    const name = crypto.randomUUID();
+    const name = `archive-${crypto.randomUUID()}`;
     const file = await folder.getFileHandle(name, { create: true });
-    let stream;
+    const handle = await file.createSyncAccessHandle();
+    let release;
+    const released = new Promise((done) => {
+      release = done;
+    });
+    resolve({
+      path,
+      folder,
+      name,
+      handle,
+      release,
+      offset: 0,
+      aborted: false,
+      committing: false,
+    });
+    await released;
+  }).catch(reject);
+  return ready;
+}
+export function writeMigrationChunk(output, bytes) {
+  if (output.aborted || !output.handle)
+    throw new DOMException("Archive write was closed", "InvalidStateError");
+  const written = output.handle.write(bytes, { at: output.offset });
+  if (!written && bytes.length)
+    throw new DOMException("Archive write made no progress", "OperationError");
+  output.offset += written;
+  return written;
+}
+export function flushMigrationOutput(output) {
+  output.handle.flush();
+}
+export function abortMigrationOutput(output) {
+  output.aborted = true;
+  try {
+    output.handle?.close();
+  } finally {
+    output.handle = undefined;
     try {
-      stream = await file.createWritable();
-      await stream.write(bytes);
-      await stream.close();
-      // Transaction completion is the publication point.
-      await record(path, name);
-    } catch (error) {
-      if (stream) {
-        try {
-          await stream.abort();
-        } catch {}
-      }
-      await folder.removeEntry(name);
-      throw error;
-    }
-    // A cleanup error cannot undo a completed publication. The next access retries.
+      output.transaction?.abort();
+    } catch {}
+    // A commit owns the lock until its transaction completes or aborts.
+    if (!output.committing) output.release();
+  }
+}
+export async function commitMigrationOutput(output) {
+  output.committing = true;
+  try {
+    output.handle.flush();
+    output.handle.close();
+    output.handle = undefined;
+    // Transaction completion is the publication point.
+    await record(output.path, output.name, output);
     try {
-      await cleanup(folder, name);
+      await cleanup(output.folder, output.name);
     } catch (error) {
       console.warn("Cannot remove an old migration object", error);
     }
-  });
+  } catch (error) {
+    try {
+      output.handle?.close();
+    } catch {}
+    output.handle = undefined;
+    await output.folder.removeEntry(output.name);
+    throw error;
+  } finally {
+    output.committing = false;
+    output.release();
+  }
 }
 export async function readMigrationOutput(path) {
   return lock(path, async () => {

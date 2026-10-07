@@ -49,15 +49,9 @@ pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<Mut
         Err(_) => return (None, None),
     };
     let extensions = context.extensions();
-    let mut immutable =
-        extensions.immutable_metadata().and_then(|e| {
-            match GroupMetadataV1::decode(e.metadata().as_slice()) {
-                Ok(value) if !value.creator_inbox_id.is_empty() => Some(ImmutableMetadataSave {
-                    creator_inbox_id: value.creator_inbox_id,
-                }),
-                _ => None,
-            }
-        });
+    let mut immutable = extensions
+        .immutable_metadata()
+        .and_then(|e| decode_legacy_immutable(e.metadata().as_slice()));
     let mut mutable = extensions.iter().find_map(|ext| {
         if let Extension::Unknown(MUTABLE_METADATA_EXTENSION, UnknownExtension(bytes)) = ext {
             decode_legacy_mutable(bytes)
@@ -92,6 +86,25 @@ pub(crate) fn decode(bytes: &[u8]) -> (Option<ImmutableMetadataSave>, Option<Mut
         }
     }
     (immutable, mutable)
+}
+
+fn decode_legacy_immutable(bytes: &[u8]) -> Option<ImmutableMetadataSave> {
+    if let Ok(value) = GroupMetadataV1::decode(bytes) {
+        return (!value.creator_inbox_id.is_empty()).then_some(ImmutableMetadataSave {
+            creator_inbox_id: value.creator_inbox_id,
+        });
+    }
+    let mut creator = None;
+    protobuf_fields(bytes, |tag, raw, _| {
+        if tag == 3 {
+            creator = GroupMetadataV1::decode(raw).ok().and_then(|value| {
+                (!value.creator_inbox_id.is_empty()).then_some(ImmutableMetadataSave {
+                    creator_inbox_id: value.creator_inbox_id,
+                })
+            });
+        }
+    });
+    creator
 }
 
 /// Keep the normal decoder for valid metadata. Recover fields only when Prost
@@ -204,6 +217,26 @@ mod tests {
         prost::encoding::encode_varint(bytes.len() as u64, &mut encoded);
         encoded.extend_from_slice(bytes);
         encoded
+    }
+
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn malformed_unrelated_immutable_field_keeps_creator() {
+        let creator = field(3, b"known creator");
+        let invalid_account = field(2, &[0xff]);
+        for bytes in [
+            [creator.clone(), invalid_account.clone()].concat(),
+            [invalid_account, creator.clone()].concat(),
+            [creator.clone(), vec![0x22, 0x7f, 0x01]].concat(),
+        ] {
+            assert!(super::GroupMetadataV1::decode(bytes.as_slice()).is_err());
+            let result = super::decode_legacy_immutable(&bytes).unwrap();
+            assert_eq!(result.creator_inbox_id, "known creator");
+        }
+        for invalid in [field(3, &[0xff]), field(3, &[])] {
+            let bytes = [creator.clone(), invalid].concat();
+            assert!(super::decode_legacy_immutable(&bytes).is_none());
+        }
     }
 
     // verifies: MIG-005
