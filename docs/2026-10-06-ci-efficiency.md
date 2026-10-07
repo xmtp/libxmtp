@@ -427,11 +427,12 @@ and use a controlled trial config. The three non-incremental arms isolate the
 compiler-cache effect; the original arm detects losses from removing Cargo's
 incremental reuse. Keep debug, panic, assertion, optimization, and feature flags
 unchanged. Use the same pinned source/toolchain and 16-vCPU runner class.
-Record five cold samples and ten warm samples per arm.
-Warm samples use fresh Cargo target directories, including a second checkout,
-so Cargo freshness cannot be mistaken for a compiler-cache hit. Include cache
-setup, restore, prefetch, and upload in allocated cost. Add a remote-hit case
-after the writer path is verified. Stop the sample timer only after teardown.
+The original assessment proposed five cold and ten warm samples per arm.
+That large campaign is not an active delivery requirement. Use existing results
+and small controls with a declared question and stop condition. A compiler-hit
+control clears its owned Cargo output so freshness cannot replace hit evidence.
+Include cache setup, restore, prefetch, upload, and teardown in allocated cost.
+Keep remote persistence UNVERIFIED until a distinct bounded proof passes.
 
 Inspect hit/miss/passthrough reports by expensive compiler unit, not only hit
 counts. Compare unchanged input, one ordinary Rust edit, a generator edit, and
@@ -450,20 +451,21 @@ does not prove cache equivalence. Verification builds are outside the speed
 sample because they deliberately compile hits again.
 [Configuration and verification](https://ninja.kunobi.com/docs/kache/getting-started/configuration).
 
-Adopt Kache only if the complete producer median time and allocated cost beat
-the best of the three control arms, with no missing checks, invalid product, new
-failure, or content mismatch. It cannot by itself remove ten minutes of serial
-recovery waits. No Kache binary was installed and no libxmtp Kache benchmark
-was run during this assessment; savings are a hypothesis to test.
+The user approved pinned Kache for CI and local development. Correctness checks
+and the declared cache scope still apply. The real Darwin linked-output
+verification failed; those invocations now bypass Kache. Safe explicit library
+invocations retain caching. Linux SDK compilation and installed loads passed.
+These proofs do not qualify a complete producer median or remote persistence.
+Keep broad timing and cost savings UNVERIFIED.
 
 ## Requirements and proofs
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| P1 | Complete lint target | When a PR revision completes, CI MUST record creation-to-required-Lint time; the median across the fixed benchmark sample defined below MUST be less than 180s. | A fast step can hide slow setup and queues. |
-| P2 | Complete test target | When a PR revision completes, CI MUST record creation-to-required-Test time; the median across that fixed benchmark sample MUST be less than 360s. | Producers and transfers are part of Test. |
+| P1 | Complete lint target | When a PR revision completes, CI MUST record creation-to-required-Lint time. The target median is less than 180s. Small controls MUST NOT be presented as a qualified median. | A fast step can hide slow setup and queues. |
+| P2 | Complete test target | When a PR revision completes, CI MUST record creation-to-required-Test time. The target median is less than 360s. Small controls MUST NOT be presented as a qualified median. | Producers and transfers are part of Test. |
 | P3 | Full push cost | When a push triggers CI, measurement MUST sum allocated core-minutes for all automatic workflows and attempts, including cancelled work; the new median MUST be at most 50% of the matched baseline median. | Deferred or cancelled work still costs resources. |
-| P4 | Preserve required checks | When an input selects an in-scope check in the old graph, the new graph MUST execute that check with the same rules, cases, targets, features, and build semantics, unless a reviewed dependency proof establishes unchanged inputs. Recovery requires manual invocation and is excluded from normal PR and post-merge runs. Pure Rust PR changes can omit language SDK host checks under P17. A failed run may stop sibling checks under P16; a successful run MUST complete all selected checks. | Recovery delays detection; failure cancellation reduces additional results on failed runs. |
+| P4 | Preserve required checks | When an input selects an in-scope check, CI MUST keep its rules, cases, targets, features, and build semantics. Recovery requires manual invocation under P7. P17 permits language SDK host checks to be omitted for pure Rust PR changes. P18 and P19 gate full docs and native platform work by their inputs. A failed run may stop sibling checks under P16; a successful run MUST complete all selected checks. | Keep required coverage while applying the approved input boundaries. |
 | P5 | Exact shared products | When a consumer starts, it MUST verify the selected source, generator, compiler context, target, profile, features, instrumentation, runtime, and artifact bytes. | A valid old contract is still stale code. |
 | P6 | Fail closed | If detection, selection, a selected producer, or a selected check fails, skips unexpectedly, or is cancelled, the required gate MUST fail. | The current aggregate can pass after detector failure. |
 | P7 | Manual recovery partition | When a user invokes the dedicated recovery workflow, CI MUST select all eight current recovery cases exactly once in isolated stacks with unchanged assertions and deadlines. Normal PR and post-merge runs MUST omit this matrix. P16 may stop sibling rows after a failure; that partial run MUST NOT pass. | Retain the tests while accepting detection only after manual invocation. |
@@ -471,45 +473,29 @@ was run during this assessment; savings are a hypothesis to test.
 | P9 | Enforce product cache trust | When CI handles PR products, it MUST keep them outside trusted release caches, enforce a non-PR write boundary for the new product caches, and preserve the current sticky-disk restriction without adding PR write tokens. | Untrusted products must not become trusted release inputs. |
 | P10 | Current docs inputs | When docs are composed, CI MUST validate examples and references against current products and use a newly generated valid site stamp. | Reused site output can hide source or API changes. |
 | P11 | Complete input selection | When a code, generator, dependency, runtime, fixture, service, compiler, or workflow input changes, the selector MUST select all checks that consume that input and their producers; an unknown input or invalid selection result MUST select the full check set or fail the gate. | The old path filters already miss some build inputs. |
-| P12 | Complete stable benchmark | When a frozen revision is benchmarked, old and candidate CI MUST each complete all selected checks successfully without replacing or omitting that revision; candidate first-attempt failures and test-level retries MUST NOT exceed the old counts across the fixed sample. | Fast surviving runs can hide more failures and manual retries. |
+| P12 | Bound performance controls | Before a performance control starts, its question, source, profiles, selected checks, cache state, and stop condition MUST be declared. Reports MUST retain failures, retries, cancellations, setup, transfers, and cleanup. Delivery MUST NOT require or launch a fixed PR/push benchmark campaign. Small controls and existing runs MUST NOT qualify the broad P1–P3 targets by themselves. | Answer a specific question without an expensive campaign or false savings claim. |
 | P13 | Use Kache in CI and local development | CI and the default local development environment MUST use pinned Kache and remove functional sccache integration. Cold and warm builds, hidden inputs, executable outputs, profile guards, and persistence MUST pass correctness checks before PR submission. P1 to P3 still govern complete time and cost claims. | The user approved adoption; cache hits alone cannot prove valid outputs or full-run savings. |
-| P14 | One complete merge | When this CI change is delivered, the implementation MUST use one PR targeting `self-hosted` and one merge after prototype and integrated acceptance proofs pass. | Separate dependent merges can leave an incomplete CI graph. |
+| P14 | One complete merge | Delivery MUST use one PR targeting `self-hosted`. Current required gates, selected coverage, input correctness, and local docs checks MUST pass. A fresh Astra adversarial review of all final changes MUST complete before the PR is opened. The PR MUST NOT merge automatically. The revoked fixed benchmark campaign is not a delivery condition. | Submit one complete reviewed change with current functional proof. |
 | P15 | Stop proved experiments | When a prototype has saved the evidence for its declared result, or has exposed a failure that makes remaining work unable to answer its question, the coordinator MUST cancel unnecessary remaining prototype work. | Extra runtime adds cost without new evidence. |
 | P16 | Stop sibling checks after failure | When a selected non-optional target fails, the Lint and Test suite matrices and their child matrices MUST use `fail-fast: true` to cancel queued and running sibling targets. This policy MUST NOT use a cancellation API or add a write token. Cancelled selected work MUST NOT pass the required gate or produce a complete coverage claim. | Stop failed-run work while keeping successful-run checks and the current token boundary. |
 | P17 | Gate language SDK checks | On a normal PR with only pure Rust changes, CI MUST keep Rust workspace, WASM, Rust SDK, and Rust docs checks while omitting language SDK host tests, source lint, and generated checks. SDK facade, bindgen, shared binding, language, dependency, runtime, service, build, and unknown inputs MUST select their affected checks. Selected post-merge runs MUST run the language suites. | Save PR work while accepting delayed language-boundary detection for pure Rust changes. |
+| P18 | Gate full docs | Full docs site builds MUST run for documentation, example, and public API inputs. Other PR changes MUST retain their applicable source and Rust documentation checks. Known private and test inputs can omit full site work; unknown API or generator inputs MUST select the conservative full route. | Avoid rebuilding the full site for changes that do not affect its content or public API. |
+| P19 | Gate native platform work | Native packaging, ABI, simulator, and minimum-OS checks MUST run for their specific platform, public binding, generator, dependency, compiler, and build inputs. Language unit and consumer checks MUST remain selected for broader affected SDK changes. Checks still need their minimal native prerequisites. Unknown inputs MUST retain full coverage. | Keep broad unit and consumer coverage without running every platform build for each SDK change. |
 
-Proofs for P1–P3: select the latest 30 distinct completed PR revisions with
-verified base `self-hosted` and the latest 30 completed base push revisions
-available at benchmark start. Freeze their changed files and order before
-running candidates. Replay their change classes against the pinned old and
-candidate workflow graphs. Record the checkout and workflow versions used.
-Establish the baseline after the conformance migration is available. Both
-graphs exclude the retired jobs and include their relevant SDK-specific test
-owners. Verify that owner inventory before collecting pairs. Do not use the
-bookkeeping cost subtraction above as a measured post-migration baseline.
-For wall-time acceptance require a successful old/candidate pair for every
-frozen revision. Do not remove or replace failed or slow cases after outcomes
-are known. Include elapsed time from the first workflow creation through the
-successful required gate after any rerun. Keep failures, cancellations, and
-all attempts in the stability and cost reports. A revision that cannot pass
-blocks acceptance until its cause is resolved. Preserve current automatic
-retry limits and fuzz behavior.
-Use the same fixed weights for prose, JS-only, backend, Rust core,
-SDK/generator, and lock/toolchain classes. Derive weights from those changed
-files before running candidates.
-Report overall and per-class medians, p90, cancellations, retry rates, and
-cache hit rates. Include no-op/empty Test selections separately and report a
-second median for revisions with at least one selected test suite. A candidate
-cannot pass P4 by turning a formerly selected test revision into a no-op.
-No slow class is excluded from the overall median. Measure cold
-and warm inputs. Record actual runner CPU capacity for unknown labels before
-claiming P3. Only actual hosted old/candidate runs on the same source snapshots
-can prove timing acceptance. Local selector replay and lower-bound history
-estimates cannot. Follow with the next 30 completed live PR/push revisions to
-check that the measured change mix and stability hold after rollout. A rise
-in first-attempt failures or test-level retries above the paired old counts
-blocks adoption. A new reproducible consumer, isolation, or artifact failure
-also blocks adoption, even if the medians meet their targets.
+Proofs for P1–P3 use existing completed runs and small controls that answer a
+declared question. The user revoked the fixed 30-PR plus 30-push campaign.
+That campaign is not a delivery or merge condition. Do not start a substitute
+campaign or change the declared sample after outcomes are known.
+Record actual source, graph, event, check, profile, cache, and runner identities.
+Include every attempt and all queue, setup, transfer, and cleanup costs.
+Preserve current retry limits, fuzz behavior, and selected test coverage.
+Report no-op selections separately. An omitted selected check is not a saving.
+Keep the broad time and cost targets UNVERIFIED until representative evidence
+supports them. One pair, a subset run, local replay, and bookkeeping cost
+subtraction cannot qualify those targets. Use real post-merge observations to
+check stability and cost. Do not create a scheduled campaign or monitor without
+a user request. Known consumer, isolation, cache content, or coverage failures
+still block delivery, even when a small timing control is fast.
 
 Assign one class per revision in this order: lock/toolchain/build setup;
 SDK source or generator; shared Rust Core/API/storage; backend-only; JS-only;
@@ -958,8 +944,9 @@ bound. The run failed, and it is not a matched acceptance pair. It does not
 prove the Test or cost targets. Final timing, cost, coverage, and stability
 acceptance remain open.
 
-The benchmark graph tools are integrated. They bind each original application
-tree to real old and candidate overlay checkouts. They reject changed runtime
-or dependency bytes. No hosted acceptance sample has started. Current SDK owner
-inventories, actual PR merge trees, native execution reports, and automatic
-deployment-build scope still need proof before the fixed sample can start.
+The history and graph verification tools retain source, runtime, dependency,
+profile, and allocation guards. They can inspect saved runs and small declared
+controls. The fixed campaign generators and unused manual preparation workflow
+were removed after the user revoked that campaign. No hosted acceptance sample
+started. Existing feasibility results do not qualify the broad timing or cost
+targets.

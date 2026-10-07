@@ -33,6 +33,9 @@ CHECKS = (
     "test_bindings",
     "test_ios",
     "test_android",
+    "test_ios_platform",
+    "test_android_platform",
+    "test_android_consumers",
     "test_keepalive",
     "test_xdbg",
     "test_sdk_staging",
@@ -141,6 +144,39 @@ def select(paths, event="pull_request", verified=False, fork=False):
             "docs_rust",
         )
 
+    def ios(native=False, public=False):
+        enable("lint_ios", "test_ios", "test_swift_seams")
+        if native:
+            enable("check_bindings_ios", "test_ios_platform")
+        if public:
+            enable("docs_swift", "docs_site")
+
+    def android(native=False, public=False):
+        enable("lint_android", "test_android", "test_android_consumers")
+        if native:
+            enable(
+                "check_bindings_android", "test_android_platform", "test_sdk_staging"
+            )
+        if public:
+            enable("docs_kotlin", "docs_site")
+
+    def core_push():
+        # Postmerge checks retain language units and consumers. Native packaging
+        # and the docs site need their own inputs.
+        rust()
+        ios()
+        android()
+        enable(
+            "lint_js",
+            "check_types",
+            "check_sdk",
+            "test_node",
+            "test_browser",
+            "test_agent",
+            "test_bridge_runtime",
+            "test_browser_platform",
+        )
+
     # Narrowing requires the same graph and a successful ancestor. Core Rust
     # pushes retain language boundary checks; unrelated prose remains narrow.
     if not verified or event == "workflow_dispatch":
@@ -193,7 +229,7 @@ def select(paths, event="pull_request", verified=False, fork=False):
             ):
                 full()
             elif pure_rust_source(name):
-                full() if event == "push" else rust()
+                core_push() if event == "push" else rust()
             elif name.startswith(
                 (
                     "crates/",
@@ -213,36 +249,58 @@ def select(paths, event="pull_request", verified=False, fork=False):
                     "lint_js",
                     "lint_config",
                 )
-            elif name in (
-                "sdks/ios/ios.just",
-                "sdks/ios/script/check-consumer.sh",
-            ) or name.startswith("sdks/ios/dev/"):
-                enable(
-                    "lint_ios",
-                    "test_ios",
-                    "check_bindings_ios",
-                    "test_swift_seams",
-                    "docs_swift",
-                )
-            elif name in (
-                "sdks/android/android.just",
-                "sdks/android/dev/check-consumers",
-            ):
-                enable(
-                    "lint_android",
-                    "test_android",
-                    "check_bindings_android",
-                    "test_sdk_staging",
-                    "docs_kotlin",
-                )
+            elif name == "sdks/ios/script/check-consumer.sh":
+                ios()
+            elif name == "sdks/android/dev/check-consumers":
+                android()
+            elif name == "sdks/ios/ios.just" or name.startswith("sdks/ios/dev/"):
+                ios(native=True, public=True)
+            elif name == "sdks/android/android.just":
+                android(native=True, public=True)
             elif name.startswith(("sdks/node/", "apps/cli/")) and name.endswith(
                 (".ts", ".tsx", ".js", ".mjs")
             ):
-                enable("lint_js", "check_types", "test_node", "test_agent", "docs_site")
+                enable("lint_js", "check_types", "test_node", "test_agent")
+                if name.startswith(
+                    (
+                        "sdks/node/src/",
+                        "sdks/node/type-tests/publicSurface",
+                        "sdks/node/examples/",
+                        "sdks/node/scripts/",
+                    )
+                ):
+                    enable("docs_site")
+                elif not name.startswith(
+                    (
+                        "sdks/node/test/",
+                        "sdks/node/type-tests/",
+                        "apps/cli/src/",
+                        "apps/cli/test/",
+                    )
+                ) and name not in (
+                    "sdks/node/vitest.config.ts",
+                    "sdks/node/vitest.setup.ts",
+                ):
+                    full()
             elif name.startswith("sdks/agent/") and name.endswith(
                 (".ts", ".tsx", ".js", ".mjs")
             ):
-                enable("lint_js", "check_types", "test_agent", "docs_site")
+                enable("lint_js", "check_types", "test_agent")
+                # The Agent entry point exports these source owners. Test files
+                # and the test-only utility are separate inputs.
+                if (
+                    name.startswith("sdks/agent/src/")
+                    and not name.endswith((".test.ts", ".test.tsx"))
+                    and name != "sdks/agent/src/util/test.ts"
+                ):
+                    enable("docs_site")
+                elif not name.startswith(
+                    ("sdks/agent/src/", "sdks/agent/test/")
+                ) and name not in (
+                    "sdks/agent/vitest.config.ts",
+                    "sdks/agent/vitest.setup.ts",
+                ):
+                    full()
             elif name.startswith(("sdks/browser/", "apps/web-chat/")) and name.endswith(
                 (".ts", ".tsx", ".js", ".mjs")
             ):
@@ -252,30 +310,51 @@ def select(paths, event="pull_request", verified=False, fork=False):
                     "test_browser",
                     "test_bridge_runtime",
                     "test_browser_platform",
-                    "docs_site",
                 )
+                if name.startswith(
+                    (
+                        "sdks/browser/src/",
+                        "sdks/browser/type-tests/publicSurface",
+                        "sdks/browser/examples/",
+                    )
+                ):
+                    enable("docs_site")
+                elif not name.startswith(
+                    (
+                        "sdks/browser/test/",
+                        "sdks/browser/type-tests/",
+                        "apps/web-chat/src/",
+                        "apps/web-chat/test/",
+                    )
+                ):
+                    full()
             elif (
                 name.startswith("sdks/ios/")
                 and name.endswith(".swift")
                 or name == "Package.swift"
             ):
-                enable(
-                    "lint_ios",
-                    "test_ios",
-                    "check_bindings_ios",
-                    "test_swift_seams",
-                    "docs_swift",
-                )
+                if name.startswith("sdks/ios/Tests/"):
+                    ios()
+                    if name == "sdks/ios/Tests/XmtpSdkTests/AppleLifecycleTests.swift":
+                        enable("test_ios_platform")
+                else:
+                    # Sources contain public Swift declarations. No AST claim
+                    # narrows them to private implementation files.
+                    ios(native=True, public=True)
             elif name.startswith("sdks/android/") and name.endswith(
                 (".kt", ".kts", ".java", ".gradle", ".xml")
             ):
-                enable(
-                    "lint_android",
-                    "test_android",
-                    "check_bindings_android",
-                    "test_sdk_staging",
-                    "docs_kotlin",
-                )
+                if name.startswith("sdks/android/library/src/test/"):
+                    android()
+                elif name.startswith("sdks/android/library/src/androidTest/"):
+                    android()
+                    enable("test_android_platform")
+                else:
+                    android(native=True, public=True)
+            elif name.startswith(("sdks/ios/example/", "sdks/ios/XMTPiOSExample/")):
+                ios(native=True, public=True)
+            elif name.startswith("sdks/android/example/"):
+                android(native=True, public=True)
             elif name.startswith(("docs/specs/", "docs/schemas/")) or (
                 name.startswith(("docs/", "apps/docs/"))
                 and name.endswith((".toml", ".json", ".yaml", ".yml"))
@@ -304,8 +383,6 @@ def select(paths, event="pull_request", verified=False, fork=False):
     checks["test_bindings"] = (
         checks["check_bindings_ios"] or checks["check_bindings_android"]
     )
-    if checks["docs_swift"] or checks["docs_kotlin"]:
-        enable("docs_site")
     if checks["check_types"] or checks["check_sdk"] or checks["docs_site"]:
         enable("sdk_node", "sdk_browser")
     if checks["test_node"] or checks["test_agent"]:
@@ -331,7 +408,12 @@ def select(paths, event="pull_request", verified=False, fork=False):
     ):
         enable("backend_products")
     if fork:
-        for name in ("test_ios", "test_native_backend", "test_swift_seams"):
+        for name in (
+            "test_ios",
+            "test_ios_platform",
+            "test_native_backend",
+            "test_swift_seams",
+        ):
             checks[name] = False
     checks["source_lint"] = any(checks[name] for name in SOURCE_SUITES)
     checks["tests"] = any(checks[name] for name in TEST_SUITES)

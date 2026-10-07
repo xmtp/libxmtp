@@ -66,8 +66,11 @@ jobs:
     secrets: inherit
   test-ios:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_ios
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_ios || fromJSON(needs.detect-changes.outputs.selection).checks.test_ios_platform
     uses: ./.github/workflows/test-ios.yml
+    with:
+      run-unit: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_ios }}
+      run-platform: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_ios_platform }}
     secrets: inherit
   test-swift-seams:
     needs: detect-changes
@@ -78,8 +81,12 @@ jobs:
     secrets: inherit
   test-android:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_android
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_android || fromJSON(needs.detect-changes.outputs.selection).checks.test_android_consumers || fromJSON(needs.detect-changes.outputs.selection).checks.test_android_platform
     uses: ./.github/workflows/test-android.yml
+    with:
+      run-unit: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_android }}
+      run-consumers: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_android_consumers }}
+      run-platform: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_android_platform }}
     secrets: inherit
   sdk-node:
     needs: detect-changes
@@ -188,7 +195,7 @@ jobs:
           DOCS_SITE: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.docs_site }}
         run: |
           python3 -B dev/ci/check-gate.py --selection "$CI_SELECTION" --needs "$CI_NEEDS" \
-            --mapping '{"sdk_node":"sdk-node","sdk_browser":"sdk-browser","backend_products":"backend-products","check_rust":"check-rust","check_types":"check-types","check_sdk":"check-sdk","check_sdk_unit":"check-sdk-unit","tests":"tests","docs_site":"docs","test_ios":"test-ios","test_android":"test-android","test_swift_seams":"test-swift-seams"}'
+            --mapping '{"sdk_node":"sdk-node","sdk_browser":"sdk-browser","backend_products":"backend-products","check_rust":"check-rust","check_types":"check-types","check_sdk":"check-sdk","check_sdk_unit":"check-sdk-unit","tests":"tests","docs_site":"docs","test_ios":"test-ios","test_ios_platform":"test-ios","test_android":"test-android","test_android_consumers":"test-android","test_android_platform":"test-android","test_swift_seams":"test-swift-seams"}'
           if [[ "$DOCS_SITE" == true ]]; then
             python3 -B dev/ci/check-gate.py --selection "$CI_SELECTION" --needs "$CI_NEEDS" --mapping '{"docs_rust":"docs"}'
           else

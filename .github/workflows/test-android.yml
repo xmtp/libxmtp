@@ -2,9 +2,22 @@ name: Test Android
 
 on:
   workflow_call:
+    inputs:
+      run-unit:
+        type: boolean
+        default: true
+      run-consumers:
+        type: boolean
+        default: true
+      run-platform:
+        type: boolean
+        default: true
+permissions:
+  contents: read
 
 jobs:
   min-sdk-smoke:
+    if: inputs.run-platform
     name: JNI, public client, and timestamp smoke (API 23)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
@@ -48,6 +61,7 @@ jobs:
           include-hidden-files: true
 
   unit-tests:
+    if: inputs.run-unit || inputs.run-consumers
     name: Unit Tests (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
@@ -66,11 +80,18 @@ jobs:
           NIX_DEVSHELL: android
         run: dev/nix-shell 'just backend up'
       - name: Run unit tests
+        if: inputs.run-unit
         env:
           NIX_DEVSHELL: android
         run: dev/nix-shell 'just android test'
+      - name: Check Kotlin consumers
+        if: inputs.run-consumers
+        env:
+          NIX_DEVSHELL: android
+        run: dev/nix-shell 'just android check-consumers'
 
   integration-tests:
+    if: inputs.run-platform
     name: Integration Tests (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     # Job budget leaves headroom for setup/backend before the suite step (#4044).
@@ -114,3 +135,22 @@ jobs:
             sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
             ${{ runner.temp }}/android-emulator-startup/
           include-hidden-files: true
+
+  results:
+    name: Require selected Android checks
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 1
+    if: always()
+    needs: [unit-tests, min-sdk-smoke, integration-tests]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require each selected Android result
+        env:
+          RUN_UNIT: ${{ inputs.run-unit }}
+          RUN_CONSUMERS: ${{ inputs.run-consumers }}
+          RUN_PLATFORM: ${{ inputs.run-platform }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          selection="$(printf '{"schema_version":1,"checks":{"unit":%s,"consumers":%s,"minimum":%s,"integration":%s}}' "$RUN_UNIT" "$RUN_CONSUMERS" "$RUN_PLATFORM" "$RUN_PLATFORM")"
+          python3 -B dev/ci/check-gate.py --selection "$selection" --needs "$CI_NEEDS" --detector '' \
+            --mapping '{"unit":"unit-tests","consumers":"unit-tests","minimum":"min-sdk-smoke","integration":"integration-tests"}'

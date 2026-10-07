@@ -9,6 +9,8 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+import tempfile
+import itertools
 
 import yaml
 
@@ -308,12 +310,21 @@ class RequiredCIGateTests(unittest.TestCase):
                 "docs_site": "docs",
                 "docs_rust": "docs-rust-reference",
                 "test_ios": "test-ios",
+                "test_ios_platform": "test-ios",
                 "test_android": "test-android",
+                "test_android_consumers": "test-android",
+                "test_android_platform": "test-android",
                 "test_swift_seams": "test-swift-seams",
             },
         }
         for job, mapping in jobs.items():
-            mobile = [key for key in mapping if key.endswith(("_ios", "_android"))]
+            mobile = [
+                key
+                for key in mapping
+                if key.startswith(
+                    ("lint_ios", "lint_android", "test_ios", "test_android")
+                )
+            ]
             for key in mobile:
                 checks = dict.fromkeys(mapping, False)
                 checks[key] = True
@@ -341,7 +352,10 @@ class RequiredCIGateTests(unittest.TestCase):
             "docs_site",
             "docs_rust",
             "test_ios",
+            "test_ios_platform",
             "test_android",
+            "test_android_consumers",
+            "test_android_platform",
             "test_swift_seams",
         ]
         for site in (False, True):
@@ -496,7 +510,10 @@ class SDKOwnerRoutingTests(unittest.TestCase):
             "docs_site",
             "docs_rust",
             "test_ios",
+            "test_ios_platform",
             "test_android",
+            "test_android_consumers",
+            "test_android_platform",
             "test_swift_seams",
         ]
         checks = dict.fromkeys(mapping_keys, False)
@@ -517,23 +534,250 @@ class SDKOwnerRoutingTests(unittest.TestCase):
         ]
         self.assertTrue(
             any(
-                "just ios test skip-seams && just ios check-examples && just ios test-simulator"
-                in command
+                "just ios test skip-seams && just ios check-examples" in command
                 for command in commands
             )
         )
 
-    def test_android_staging_retains_new_consumer_owner(self):
-        steps = self.workflow("test-sdk-staging.yml")["jobs"]["android-stage"]["steps"]
-        commands = [step["run"] for step in steps if "run" in step]
-        self.assertEqual(commands[-1], "dev/nix-shell 'just android check-consumers'")
-        self.assertLess(
-            commands.index("dev/nix-shell 'just sdk mobile-stage android'"),
-            len(commands) - 1,
+    def test_android_broad_unit_job_retains_consumer_owner(self):
+        steps = self.workflow("test-android.yml")["jobs"]["unit-tests"]["steps"]
+        consumer_step = next(
+            step for step in steps if step.get("name") == "Check Kotlin consumers"
+        )
+        self.assertEqual(
+            consumer_step["run"], "dev/nix-shell 'just android check-consumers'"
+        )
+        self.assertEqual(consumer_step["if"], "inputs.run-consumers")
+        staging = self.workflow("test-sdk-staging.yml")["jobs"]["android-stage"][
+            "steps"
+        ]
+        self.assertFalse(
+            any("check-consumers" in step.get("run", "") for step in staging)
         )
         consumer = (ROOT / "sdks/android/dev/check-consumers").read_text()
         self.assertIn("ConsumerNegative.kt", consumer)
         self.assertIn("CodecTypeNegative.kt", consumer)
+
+
+class MobilePlatformSplitTests(unittest.TestCase):
+    def workflow(self, name):
+        return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+
+    def active(self, expression, flags):
+        for key, value in flags.items():
+            expression = expression.replace("inputs." + key, repr(value))
+        expression = expression.replace("&&", " and ").replace("||", " or ")
+        tree = ast.parse(expression, mode="eval")
+        allowed = (ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.Constant)
+        self.assertTrue(all(isinstance(node, allowed) for node in ast.walk(tree)))
+        return eval(
+            compile(tree, "mobile input condition", "eval"), {"__builtins__": {}}
+        )
+
+    def run_commands(self, commands):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            (work / "dev").mkdir()
+            (work / "bin").mkdir()
+            shell = work / "dev/nix-shell"
+            shell.write_text('#!/usr/bin/env bash\nexec bash -euc "$1"\n')
+            shell.chmod(0o755)
+            just = work / "bin/just"
+            just.write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$RECEIPT"\nif [[ "$1 $2" == "backend ci" ]]; then shift 2; exec "$@"; fi\n'
+            )
+            just.chmod(0o755)
+            receipt = work / "receipt"
+            env = dict(
+                os.environ,
+                PATH=str(work / "bin") + ":" + os.environ["PATH"],
+                RECEIPT=str(receipt),
+            )
+            env.pop("BASH_ENV", None)
+            for command in commands:
+                actual = subprocess.run(
+                    ["bash", "-euc", command],
+                    cwd=work,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(actual.returncode, 0, actual.stderr)
+            return receipt.read_text().splitlines() if receipt.exists() else []
+
+    def test_ios_actual_commands_split_units_examples_and_simulator(self):
+        data = self.workflow("test-ios.yml")
+        inputs = data.get("on", data.get(True))["workflow_call"]["inputs"]
+        self.assertEqual(set(inputs), {"run-unit", "run-platform"})
+        self.assertTrue(all(item["default"] is True for item in inputs.values()))
+        job = data["jobs"]["tests"]
+        self.assertEqual(job["if"], "inputs.run-unit || inputs.run-platform")
+        steps = {
+            step.get("name"): step
+            for step in job["steps"]
+            if step.get("name", "").startswith("Run iOS")
+        }
+        self.assertEqual(
+            set(steps), {"Run iOS unit tests and examples", "Run iOS simulator tests"}
+        )
+        for unit, platform in itertools.product((False, True), repeat=2):
+            flags = {"run-unit": unit, "run-platform": platform}
+            commands = [
+                step["run"] for step in steps.values() if self.active(step["if"], flags)
+            ]
+            receipt = self.run_commands(commands)
+            owners = [line for line in receipt if line.startswith("ios ")]
+            expected = (
+                ["ios test skip-seams", "ios check-examples"] if unit else []
+            ) + (["ios test-simulator"] if platform else [])
+            self.assertEqual(owners, expected)
+            self.assertEqual(self.active(job["if"], flags), unit or platform)
+
+    def test_android_actual_commands_keep_units_consumers_and_both_platform_jobs(self):
+        data = self.workflow("test-android.yml")
+        inputs = data.get("on", data.get(True))["workflow_call"]["inputs"]
+        self.assertEqual(set(inputs), {"run-unit", "run-consumers", "run-platform"})
+        self.assertTrue(all(item["default"] is True for item in inputs.values()))
+        jobs = data["jobs"]
+        self.assertEqual(jobs["min-sdk-smoke"]["timeout-minutes"], 45)
+        self.assertEqual(jobs["integration-tests"]["timeout-minutes"], 45)
+        integration = next(
+            step
+            for step in jobs["integration-tests"]["steps"]
+            if step.get("name") == "Run integration tests"
+        )
+        self.assertEqual(integration["timeout-minutes"], 30)
+        for unit, consumers, platform in itertools.product((False, True), repeat=3):
+            flags = {
+                "run-unit": unit,
+                "run-consumers": consumers,
+                "run-platform": platform,
+            }
+            active = {
+                name
+                for name, job in jobs.items()
+                if name != "results" and self.active(job["if"], flags)
+            }
+            self.assertEqual(
+                active,
+                ({"unit-tests"} if unit or consumers else set())
+                | ({"min-sdk-smoke", "integration-tests"} if platform else set()),
+            )
+            commands = [
+                step["run"]
+                for name, job in jobs.items()
+                if name in active
+                for step in job["steps"]
+                if step.get("name")
+                in (
+                    "Run unit tests",
+                    "Check Kotlin consumers",
+                    "Run the minimum SDK smoke",
+                    "Run integration tests",
+                )
+                and ("if" not in step or self.active(step["if"], flags))
+            ]
+            receipt = self.run_commands(commands)
+            expected = (
+                (["android test-min-sdk"] if platform else [])
+                + (["android test"] if unit else [])
+                + (["android check-consumers"] if consumers else [])
+                + (["android test-integration"] if platform else [])
+            )
+            self.assertEqual(receipt, expected)
+        self.assertEqual(
+            jobs["unit-tests"]["if"], "inputs.run-unit || inputs.run-consumers"
+        )
+        self.assertEqual(jobs["min-sdk-smoke"]["if"], "inputs.run-platform")
+        self.assertEqual(jobs["integration-tests"]["if"], "inputs.run-platform")
+
+    def test_actual_android_gate_requires_each_selected_child_status(self):
+        job = self.workflow("test-android.yml")["jobs"]["results"]
+        self.assertEqual(job["if"], "always()")
+        self.assertEqual(
+            set(job["needs"]), {"unit-tests", "min-sdk-smoke", "integration-tests"}
+        )
+        step = next(step for step in job["steps"] if "run" in step)
+        for flags in (
+            (False, False, False),
+            (True, False, False),
+            (False, True, False),
+            (False, False, True),
+            (True, True, True),
+        ):
+            active = ({"unit-tests"} if flags[0] or flags[1] else set()) | (
+                {"min-sdk-smoke", "integration-tests"} if flags[2] else set()
+            )
+            baseline = {
+                name: {"result": "success" if name in active else "skipped"}
+                for name in job["needs"]
+            }
+            for child in active:
+                for status in ("success", "failure", "cancelled", "skipped", None):
+                    needs = dict(baseline, **{child: {"result": status}})
+                    env = dict(
+                        os.environ,
+                        RUN_UNIT=str(flags[0]).lower(),
+                        RUN_CONSUMERS=str(flags[1]).lower(),
+                        RUN_PLATFORM=str(flags[2]).lower(),
+                        CI_NEEDS=json.dumps(needs),
+                    )
+                    actual = subprocess.run(
+                        ["bash", "-euc", step["run"]],
+                        cwd=ROOT,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        actual.returncode == 0, status == "success", actual.stderr
+                    )
+
+    def test_top_mobile_routes_pass_each_flag_and_gate_the_same_result(self):
+        ci = self.workflow("ci.yml")["jobs"]
+        for name, mapping in (
+            ("test-ios", {"run-unit": "test_ios", "run-platform": "test_ios_platform"}),
+            (
+                "test-android",
+                {
+                    "run-unit": "test_android",
+                    "run-consumers": "test_android_consumers",
+                    "run-platform": "test_android_platform",
+                },
+            ),
+        ):
+            route = ci[name]
+            self.assertEqual(route["needs"], "detect-changes")
+            self.assertEqual(set(route["with"]), set(mapping))
+            for values in itertools.product((False, True), repeat=len(mapping)):
+                selections = dict(zip(mapping.values(), values))
+                expression = route["if"]
+                for flag, value in sorted(
+                    selections.items(), key=lambda item: -len(item[0])
+                ):
+                    expression = expression.replace(
+                        "fromJSON(needs.detect-changes.outputs.selection).checks."
+                        + flag,
+                        repr(value),
+                    )
+                self.assertEqual(self.active(expression, {}), any(values))
+            for argument, flag in mapping.items():
+                self.assertIn("checks." + flag, route["if"])
+                self.assertEqual(
+                    route["with"][argument],
+                    "${{ fromJSON(needs.detect-changes.outputs.selection).checks."
+                    + flag
+                    + " }}",
+                )
+        steps = self.workflow("test-sdk-staging.yml")["jobs"]["android-stage"]["steps"]
+        commands = [step["run"] for step in steps if "run" in step]
+        for command in (
+            "just sdk build kotlin --profile release",
+            "just sdk render kotlin --profile release",
+            "just sdk mobile-build android",
+            "just sdk mobile-stage android",
+        ):
+            self.assertIn("dev/nix-shell '" + command + "'", commands)
 
 
 if __name__ == "__main__":

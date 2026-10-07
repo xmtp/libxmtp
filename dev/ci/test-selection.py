@@ -181,6 +181,9 @@ class SelectionTests(unittest.TestCase):
                     "test_bindings",
                     "test_ios",
                     "test_android",
+                    "test_ios_platform",
+                    "test_android_platform",
+                    "test_android_consumers",
                     "test_sdk_staging",
                     "test_bridge_runtime",
                     "test_browser_platform",
@@ -296,13 +299,22 @@ class SelectionTests(unittest.TestCase):
                 )
                 fork = selector.select([path], verified=True, fork=True)["checks"]
                 self.assertFalse(fork["test_swift_seams"])
-                self.assertTrue(fork["check_bindings_ios"])
+                self.assertEqual(
+                    fork["check_bindings_ios"],
+                    path
+                    not in (
+                        "sdks/ios/script/check-consumer.sh",
+                        "sdks/ios/Tests/Consumer/main.swift",
+                        "sdks/ios/Tests/XmtpSdkTests/ReaderTeardownTests.swift",
+                        "sdks/ios/Tests/XmtpSdkTests/RuntimeFakes.swift",
+                    ),
+                )
         self.assertEqual(
             selector.TEST_SUITES[-2:], ("test_bridge_runtime", "test_browser_platform")
         )
         self.assertEqual(len(selector.TEST_SUITES), 14)
 
-    def test_android_consumer_helpers_keep_staging_route(self):
+    def test_android_consumers_have_a_broad_route_without_all_abi_packaging(self):
         for path in (
             "sdks/android/android.just",
             "sdks/android/dev/check-consumers",
@@ -311,21 +323,179 @@ class SelectionTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 checks = self.selected(path)
-                self.assertTrue(checks["test_sdk_staging"])
-                self.assertTrue(checks["check_bindings_android"])
+                self.assertTrue(checks["test_android_consumers"])
+                native = path in (
+                    "sdks/android/android.just",
+                    "sdks/android/library/build.gradle",
+                )
+                self.assertEqual(checks["test_sdk_staging"], native)
+                self.assertEqual(checks["check_bindings_android"], native)
                 self.assertFalse(checks["test_swift_seams"])
 
     def test_core_push_is_broad_but_prose_push_remains_narrow(self):
         core = selector.select(
             ["crates/xmtp_mls/src/lib.rs"], event="push", verified=True
         )["checks"]
-        self.assertTrue(all(core.values()))
+        for name in (
+            "test_node",
+            "test_browser",
+            "test_agent",
+            "test_ios",
+            "test_android",
+            "test_android_consumers",
+            "test_swift_seams",
+            "check_sdk_unit",
+            "docs_rust",
+        ):
+            self.assertTrue(core[name], name)
+        for name in (
+            "test_ios_platform",
+            "test_android_platform",
+            "test_sdk_staging",
+            "test_bindings",
+            "docs_site",
+            "docs_swift",
+            "docs_kotlin",
+        ):
+            self.assertFalse(core[name], name)
         prose = selector.select(["docs/guide.md"], event="push", verified=True)[
             "checks"
         ]
         self.assertTrue(prose["docs_site"])
         self.assertFalse(prose["test_node"])
         self.assertFalse(prose["test_workspace"])
+
+    def test_known_language_test_inputs_keep_units_and_consumers_without_site_or_abi(
+        self,
+    ):
+        cases = {
+            "sdks/node/test/auth.test.ts": ("test_node", "test_agent"),
+            "sdks/browser/test/public-sdk.test.ts": ("test_browser",),
+            "sdks/agent/src/core/Agent.test.ts": ("test_agent",),
+            "sdks/agent/src/util/test.ts": ("test_agent",),
+            "sdks/ios/Tests/Consumer/main.swift": ("test_ios", "test_swift_seams"),
+            "sdks/ios/Tests/XmtpSdkTests/RuntimeFakes.swift": (
+                "test_ios",
+                "test_swift_seams",
+            ),
+            "sdks/android/library/src/test/java/uniffi/xmtp_sdk/TypedErrorTest.kt": (
+                "test_android",
+                "test_android_consumers",
+            ),
+            "sdks/android/library/src/test/negative/ConsumerNegative.kt": (
+                "test_android",
+                "test_android_consumers",
+            ),
+        }
+        for path, selected in cases.items():
+            for event in ("pull_request", "push"):
+                with self.subTest(path=path, event=event):
+                    self.assertTrue(
+                        (Path(__file__).resolve().parents[2] / path).is_file(), path
+                    )
+                    checks = selector.select([path], verified=True, event=event)[
+                        "checks"
+                    ]
+                    for name in (
+                        "docs_site",
+                        "docs_swift",
+                        "docs_kotlin",
+                        "test_ios_platform",
+                        "test_android_platform",
+                        "check_bindings_ios",
+                        "check_bindings_android",
+                        "test_sdk_staging",
+                    ):
+                        self.assertFalse(checks[name], name)
+                    for name in selected:
+                        self.assertTrue(checks[name], name)
+                    self.assertTrue(
+                        checks["lint_js"]
+                        if path.endswith(".ts")
+                        else checks["lint_ios"]
+                        if path.endswith(".swift")
+                        else checks["lint_android"]
+                    )
+
+    def test_public_api_and_docs_inputs_keep_site_and_native_surface_checks(self):
+        cases = {
+            "sdks/agent/src/core/Agent.ts": (),
+            "sdks/node/type-tests/publicSurface.ts": (),
+            "sdks/browser/type-tests/publicSurface.ts": (),
+            "docs/specs/README.md": (),
+            "apps/docs/src/content/docs/get-started/quickstart.mdx": (),
+            "sdks/agent/src/demo/main.ts": (),
+            "sdks/ios/Sources/XmtpSdk/runtime/streams/StreamMethods.swift": (
+                "test_ios_platform",
+                "check_bindings_ios",
+                "docs_swift",
+            ),
+            "sdks/android/library/src/main/java/uniffi/xmtp_sdk/AndroidClient.kt": (
+                "test_android_platform",
+                "check_bindings_android",
+                "test_sdk_staging",
+                "docs_kotlin",
+            ),
+            "crates/xmtp_sdk/src/lib.rs": (
+                "test_ios_platform",
+                "test_android_platform",
+                "test_sdk_staging",
+            ),
+            "apps/xmtp_sdk_bindgen/src/public_projection/objects.rs": (
+                "test_ios_platform",
+                "test_android_platform",
+                "test_sdk_staging",
+            ),
+        }
+        for path, native in cases.items():
+            with self.subTest(path=path):
+                checks = self.selected(path)
+                self.assertTrue(
+                    (Path(__file__).resolve().parents[2] / path).is_file(), path
+                )
+                self.assertTrue(checks["docs_site"])
+                self.assertTrue(checks["sdk_node"])
+                self.assertTrue(checks["sdk_browser"])
+                for name in native:
+                    self.assertTrue(checks[name], name)
+
+    def test_platform_test_and_manifest_inputs_select_the_exact_native_owner(self):
+        cases = {
+            "sdks/ios/Tests/XmtpSdkTests/AppleLifecycleTests.swift": (
+                "test_ios_platform",
+                "test_android_platform",
+            ),
+            "sdks/android/library/src/androidTest/java/uniffi/xmtp_sdk/AndroidPackageTest.kt": (
+                "test_android_platform",
+                "test_ios_platform",
+            ),
+            "sdks/android/library/src/main/AndroidManifest.xml": (
+                "test_android_platform",
+                "test_ios_platform",
+            ),
+            "Package.swift": ("test_ios_platform", "test_android_platform"),
+        }
+        for path, (positive, negative) in cases.items():
+            with self.subTest(path=path):
+                checks = self.selected(path)
+                self.assertTrue(checks[positive])
+                self.assertFalse(checks[negative])
+
+    def test_new_sdk_build_and_source_owners_still_fail_closed(self):
+        for path in (
+            "sdks/node/new-public-api.ts",
+            "sdks/browser/new-build-hook.ts",
+            "sdks/agent/new-generator.mjs",
+            "sdks/ios/new-input.data",
+            "sdks/android/new-input.data",
+            "apps/cli/tsdown.config.ts",
+            "Cargo.lock",
+            ".cargo/config",
+            "rust-toolchain.toml",
+            "flake.lock",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(all(self.selected(path).values()))
 
     def test_cli_emits_exact_selected_suite_arrays_and_empty_arrays(self):
         root = Path(__file__).resolve().parents[2]

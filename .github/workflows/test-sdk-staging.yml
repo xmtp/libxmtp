@@ -43,5 +43,3 @@ jobs:
           path: |
             target/sdk-packages/android/xmtp-sdk.aar
             target/sdk-packages/android/sdk-contract.json
-      - name: Check Kotlin consumers
-        run: dev/nix-shell 'just android check-consumers'

@@ -74,10 +74,13 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
   itself; a second `end()` returns without an error.
 - CI runs the test, example, and simulator recipes through `just backend ci`.
   This starts disposable native PostgreSQL, S3, and backend services.
-- The required Swift job in `test-sdk.yml` runs `test-seams` and
-  `check-consumer`. `test-ios.yml` does not gate merge. It runs
-  `test skip-seams`, so its macOS run does not repeat the seam proofs.
-  `test-simulator` still runs every test on the simulator.
+- The required Swift job in `test-swift-seams.yml` runs `test-seams` and
+  `check-consumer`. The required `test-ios.yml` job runs `test skip-seams`
+  and checks examples for broad Swift inputs. Specific native inputs also
+  select `test-simulator`, which still runs every test on the simulator.
+  Direct reusable calls keep both unit and simulator checks by default.
+  Unit, seam, consumer, and example checks retain their matched fast native
+  framework. Conditional simulator checks do not remove that prerequisite.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
 - Example builds select `arm64` to match the shipped simulator library.
 - Swift builds and tests use their default worker counts.

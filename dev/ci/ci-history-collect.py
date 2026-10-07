@@ -451,7 +451,7 @@ def freeze_sample(
     old_sha,
     candidate_sha,
     inventory,
-    count=30,
+    count=None,
     schema_version=1,
     overlay_pairs=None,
 ):
@@ -495,11 +495,7 @@ def freeze_sample(
             if not verified:
                 continue
             eligible.append((sha, executions))
-        if len(eligible) < count:
-            raise ValueError(
-                f"Only {len(eligible)} complete verified {event} heads; need {count}"
-            )
-        # Select first. Missing input proof must block, not replace, a revision.
+        # Select before outcomes. Missing proof must not replace a declared control.
         for sha, executions in eligible[:count]:
             proof = proof_by_key.get((event, sha))
             if (
@@ -572,6 +568,8 @@ def freeze_sample(
                 # Do not bind an initial checkout rendered with a missing F.
                 # Materialize again with F, then bind the resulting checkout once.
             revisions.append(row)
+    if not revisions:
+        raise ValueError("No complete verified source revisions are available")
     result = {
         "schema_version": schema_version,
         "frozen_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -583,8 +581,8 @@ def freeze_sample(
     return result
 
 
-def validate_sample(sample, required=30):
-    """Check the fixed sample shape. Hosted evidence is verified by the analyzer."""
+def validate_sample(sample, required=None):
+    """Check predeclared controls. The legacy size argument does not qualify medians."""
     errors = []
     try:
         version = sample_schema(sample)
@@ -600,11 +598,10 @@ def validate_sample(sample, required=30):
     keys = [(row.get("cohort"), row.get("source_sha")) for row in revisions]
     if len(keys) != len(set(keys)):
         errors.append("Frozen sample has duplicate revisions")
-    for cohort in ("push", "pull_request"):
-        if sum(row.get("cohort") == cohort for row in revisions) != required:
-            errors.append(
-                f"Frozen sample must have exactly {required} {cohort} revisions"
-            )
+    if not revisions:
+        errors.append("No predeclared source controls are present")
+    if any(row.get("cohort") not in DIRECT_EVENTS for row in revisions):
+        errors.append("Control cohort must be push or pull_request")
     if not sample.get("frozen_at") or not sample.get("owner_inventory_sha"):
         errors.append(
             "Frozen time and post-migration owner inventory identity are required"

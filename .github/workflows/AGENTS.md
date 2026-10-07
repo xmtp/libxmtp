@@ -34,8 +34,13 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 - Selected iOS and Android lint and test jobs gate `Lint` and `Test`.
   The Swift seam job runs `just ios test-seams` and `just ios check-consumer`
   without a Linux product dependency. Keep the upstream same-repository PR
-  rule. `test-ios` runs `just ios test skip-seams`; the required seam job owns
-  those proofs. Android staging also runs `just android check-consumers`.
+  rule. `test-ios` runs `just ios test skip-seams` and example checks for broad
+  Swift inputs. Specific native inputs add simulator checks. The required seam
+  job owns the seam proofs. Android unit and consumer checks stay broad.
+  The Android unit job runs `just android check-consumers` even when AAR staging
+  is not selected. Specific native inputs select both emulator jobs and all-ABI
+  packaging. Direct reusable calls default to all checks. Each selected Android
+  child result must succeed; selected skipped or missing work cannot pass.
   The SDK runtime matrix keeps bridge runtime and Browser platform proofs in
   separate rows. The platform job builds the exact debug panic and release
   pure fixtures. Do not replace them with the public default SDK product.

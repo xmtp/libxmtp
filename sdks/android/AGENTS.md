@@ -94,8 +94,12 @@ Host JVM checks do not prove an Android AAR loads.
 with the tests. `check-consumers` adds one at a time to the unit test sources
 (the `xmtpNegativeConsumer` Gradle property) and checks that the compile fails
 with the expected diagnostics: typed IDs, typed content, Group and Dm types,
-and typed codec values. The required `test-sdk.yml` workflow runs it in its
-Android staging job.
+and typed codec values. The required `test-android.yml` unit job runs these
+consumers for broad Kotlin inputs, including when AAR staging is not selected.
+Specific native inputs select API 23 smoke, API 34 integration, and all-ABI
+AAR staging. Direct reusable calls keep unit, consumer, and platform checks
+by default. Host JVM tests retain the matched host library and fast JNI
+bindings. They do not replace the selected emulator or all-ABI proofs.
 
 Instrumentation has no foreground Activity. Its fixtures disable
 `AndroidStreamLifecycle.enabled`, resume native streams, and restore the flag.

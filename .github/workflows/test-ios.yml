@@ -2,12 +2,20 @@ name: Test iOS
 
 on:
   workflow_call:
+    inputs:
+      run-unit:
+        type: boolean
+        default: true
+      run-platform:
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
   tests:
+    if: inputs.run-unit || inputs.run-platform
     runs-on: warp-macos-15-arm64-6x
     name: Tests (iOS)
     timeout-minutes: 45
@@ -25,12 +33,17 @@ jobs:
         env:
           NIX_DEVSHELL: ios
         run: dev/nix-shell 'bash dev/check-apple-toolchain'
-      - name: Build and test
+      - name: Run iOS unit tests and examples
+        if: inputs.run-unit
         env:
           NIX_DEVSHELL: ios
-        # The required Swift job in test-sdk.yml runs the seam proofs on
-        # macOS and the consumer checks.
-        run: dev/nix-shell 'just backend ci bash -c "just ios test skip-seams && just ios check-examples && just ios test-simulator"'
+        # The separate Swift job owns the seam and consumer proofs.
+        run: dev/nix-shell 'just backend ci bash -c "just ios test skip-seams && just ios check-examples"'
+      - name: Run iOS simulator tests
+        if: inputs.run-platform
+        env:
+          NIX_DEVSHELL: ios
+        run: dev/nix-shell 'just backend ci just ios test-simulator'
       - name: Retain native service logs
         if: always()
         uses: actions/upload-artifact@v4
