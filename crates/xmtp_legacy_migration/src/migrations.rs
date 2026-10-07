@@ -318,9 +318,14 @@ pub(crate) fn validate(conn: &mut SqliteConnection) -> Result<usize, MigrationEr
     Ok(versions.len())
 }
 
-pub(crate) fn apply(conn: &mut SqliteConnection) -> Result<(), MigrationError> {
+pub(crate) fn apply(
+    conn: &mut SqliteConnection,
+    mut check_cancelled: impl FnMut() -> Result<(), MigrationError>,
+) -> Result<(), MigrationError> {
+    check_cancelled()?;
     let applied = validate(conn)?;
     for (version, sql) in &MIGRATIONS[applied..] {
+        check_cancelled()?;
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
             conn.batch_execute(sql)?;
             diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES (?)")
@@ -330,7 +335,7 @@ pub(crate) fn apply(conn: &mut SqliteConnection) -> Result<(), MigrationError> {
         })
         .map_err(MigrationError::migration)?;
     }
-    Ok(())
+    check_cancelled()
 }
 
 #[cfg(test)]
@@ -348,7 +353,7 @@ mod tests {
                     .bind::<Text, _>(version)
                     .execute(&mut conn)?;
             }
-            apply(&mut conn)?;
+            apply(&mut conn, || Ok(()))?;
             assert_eq!(validate(&mut conn)?, MIGRATIONS.len(), "prefix {prefix}");
         }
     }
