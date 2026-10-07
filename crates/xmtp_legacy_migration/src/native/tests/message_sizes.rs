@@ -19,7 +19,7 @@ fn sized_message(
     );
 }
 
-fn entries(path: &Path) -> Vec<std::ffi::OsString> {
+pub(super) fn entries(path: &Path) -> Vec<std::ffi::OsString> {
     let mut names = fs::read_dir(path)
         .unwrap()
         .map(|entry| entry.unwrap().file_name())

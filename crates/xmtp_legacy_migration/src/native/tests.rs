@@ -803,4 +803,5 @@ async fn invalid_message_kinds_fail_without_publishing() {
     );
 }
 
+mod group_consent_sizes;
 mod message_sizes;

@@ -55,6 +55,43 @@ mod browser {
     }
 
     #[wasm_bindgen]
+    pub async fn inspect_archive_record_sizes(
+        bytes: Vec<u8>,
+        key: Vec<u8>,
+    ) -> Result<String, JsValue> {
+        let mut importer =
+            xmtp_archive::ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(bytes))), &key)
+                .await
+                .map_err(error)?;
+        let mut values = vec![];
+        while let Some(element) = importer.try_next().await.map_err(error)? {
+            values.push(match element.element {
+                Some(Element::Group(group)) => serde_json::json!({
+                    "kind": "group",
+                    "id": hex::encode(group.id),
+                    "addedByBytes": group.added_by_inbox_id.len(),
+                    "addedByIsExpected": group.added_by_inbox_id == "é",
+                    "dmBytes": group.dm_id.as_ref().map(|value| value.len()),
+                    "dmIsExpected": group.dm_id.as_deref() == Some("d"),
+                    "pauseBytes": group.paused_for_version.as_ref().map(|value| value.len()),
+                    "pauseIsExpected": group.paused_for_version.as_ref().is_some_and(|value| value.bytes().all(|byte| byte == b'p')),
+                }),
+                Some(Element::Consent(consent)) => serde_json::json!({
+                    "kind": "consent",
+                    "entityType": consent.entity_type,
+                    "entityBytes": consent.entity.len(),
+                    "entityIsExpected": consent.entity.bytes().all(|byte| byte == b'c'),
+                    "state": consent.state,
+                    "consentedAtNs": consent.consented_at_ns.to_string(),
+                }),
+                Some(Element::GroupMessage(_)) => serde_json::json!({"kind": "message"}),
+                _ => serde_json::json!({"kind": "other"}),
+            });
+        }
+        serde_json::to_string(&values).map_err(error)
+    }
+
+    #[wasm_bindgen]
     pub async fn inspect_archive(bytes: Vec<u8>, key: Vec<u8>) -> Result<String, JsValue> {
         let importer =
             xmtp_archive::ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(bytes))), &key)
