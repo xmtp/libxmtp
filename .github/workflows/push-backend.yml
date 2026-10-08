@@ -2,7 +2,8 @@ name: Publish backend image
 
 on:
   push:
-  pull_request:
+    branches: [main, self-hosted]
+    tags: ['**']
   workflow_call:
     inputs:
       ref:
@@ -112,7 +113,7 @@ jobs:
           nix-disk: ${{ matrix.nix-disk }}
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
+          kache: "false"
       - uses: taiki-e/install-action@just
         if: steps.image.outputs.exists != 'true'
       - name: Build image

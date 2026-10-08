@@ -3,6 +3,8 @@ on:
   workflow_call:
 permissions:
   contents: read
+env:
+  NIX_DEVSHELL: rust
 jobs:
   native:
     name: Native backend contract

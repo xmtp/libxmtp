@@ -3,6 +3,7 @@
   darwin,
   xmtp-pnpm,
   nodejs_26,
+  python311,
   pkg-config,
   lib,
   mkShell,
@@ -15,6 +16,7 @@ mkShell {
   buildInputs = [
     xmtp-pnpm
     nodejs_26
+    python311
   ]
   ++ lib.optionals stdenv.isDarwin [ darwin.cctools ];
 }

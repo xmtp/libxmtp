@@ -48,6 +48,8 @@ jobs:
       base-version: ${{ steps.version.outputs.base-version }}
       artifact-url: ${{ steps.release.outputs.artifact-url }}
       checksum: ${{ steps.checksum.outputs.checksum }}
+    env:
+      NIX_DEVSHELL: ios
     steps:
       - uses: actions/checkout@v6
         with:

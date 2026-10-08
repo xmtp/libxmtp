@@ -17,11 +17,10 @@ XMTP_RECOVERY_BACKEND_BINARY="$(realpath result/bin/xmtp-backend)" dev/nix-shell
 The drain cases then start a separate backend process on private ports. They
 use the worktree database and leave the shared backend running. Without the
 binary path, those cases test TCP EOF. Neither mode proves a rolling deployment
-through an external load balancer. CI builds the binary and runs this matrix in
-its own job; the ordinary shards exclude this file. Run these tests one process
-at a time.
-
-### Recovery budget tests
+through an external load balancer. The manual recovery workflow runs the whole
+eight-case suite with its existing assertions and deadlines. Normal PR and
+post-merge jobs omit it. Run local recovery tests with
+`dev/nix-shell 'just js test-node-sdk-ci test/streamRecovery.test.ts'`.
 
 The two "recovery budget" tests in `streamRecovery.test.ts` wait for the real
 Core outage budget two times each. Together they take about 18 minutes. CI
@@ -68,6 +67,9 @@ The public recovery matrix checks exact reply IDs, message order, membership,
 epoch, and processed cursors. It does not expose or compare MLS authenticators.
 Core tests and the chaos inspector cover that separate check. Keep the real
 90-second wire-silence bound when setting blackhole test deadlines.
+CI runs this matrix only through the manual recovery workflow. Normal PR and
+post-merge runs omit it and keep the other selected Node SDK and CLI tests.
+Recovery regressions can remain undetected until the manual workflow runs.
 
 ## Package build
 

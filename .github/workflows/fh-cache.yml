@@ -27,6 +27,8 @@ jobs:
           disk-key: fh-cache
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Check source formatting
+        run: nix fmt -- --fail-on-change
       - name: Install omnix
         run: nix profile install nixpkgs#omnix
       - name: Build all flake outputs
@@ -34,7 +36,6 @@ jobs:
       - name: Pin outputs to cachix
         # if: github.ref_name == 'main'
         run: |
-          BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
           SYSTEM=$(jq -r '.systems[0]' om.json)
           jq -r --arg prefix "$BRANCH_NAME" --arg sys "$SYSTEM" \
             '.result.omnix.build.byName | to_entries[] | "\($prefix)-\($sys)-\(.key) \(.value)"' \
@@ -43,4 +44,5 @@ jobs:
               cachix pin xmtp "$pin_name" "$store_path"
             done
         env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}

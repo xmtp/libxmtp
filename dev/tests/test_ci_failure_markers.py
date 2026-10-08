@@ -52,6 +52,15 @@ class FailureMarkers(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             return result.stdout.splitlines()
 
+    def test_product_receipts_and_missing_commands_keep_the_cause(self):
+        messages = [
+            "Reference cache failed: Reference inputs changed during the build",
+            "SDK product failed: Current source does not match",
+            "Swift documentation failed: Swift documentation changed checkout inputs",
+            "dev/js/sdk-package: line 13: python3.11: command not found",
+        ]
+        self.assertEqual(self.filtered("\n".join(messages) + "\n"), sorted(messages))
+
     def test_plain_timeout_and_failure_keep_test_names(self):
         self.assertEqual(
             self.filtered(
@@ -61,6 +70,10 @@ class FailureMarkers(unittest.TestCase):
             ),
             ["FAIL [0.1s] sdk::reader_end", "TIMEOUT [120.003s] sdk::held_callback"],
         )
+
+    def test_browser_launch_keeps_the_missing_executable_cause(self):
+        message = "apps/docs typecheck:prepared: browserType.launch: Executable doesn't exist at /runner/cache/chromium/headless_shell"
+        self.assertEqual(self.filtered(message + "\n"), [message])
 
     def test_timestamp_ansi_and_nix_prefix_keep_test_names(self):
         self.assertEqual(

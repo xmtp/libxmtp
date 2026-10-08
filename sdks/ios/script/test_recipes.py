@@ -79,8 +79,8 @@ class RecipeTests(unittest.TestCase):
                 self.assertNotIn("--jobs", commands)
                 self.assertNotIn("--num-workers", commands)
 
-    def test_seam_proofs_run_once_across_ci_jobs(self):
-        # test-sdk.yml runs `test-seams`; test-ios.yml runs `test skip-seams`.
+    def test_lifecycle_checks_run_once_across_ci_jobs(self):
+        # The Swift lifecycle job selects these tests; the iOS job skips them.
         # The two must name the same tests, or a proof runs twice or never.
         def swift_test_args(*recipe):
             result = subprocess.run(
@@ -97,9 +97,12 @@ class RecipeTests(unittest.TestCase):
             )
             return shlex.split(command.split("swift test", 1)[1])
 
-        selected = swift_test_args("test-seams")
-        skipped = swift_test_args("test", "skip-seams")
+        selected = swift_test_args("test-lifecycle")
+        skipped = swift_test_args("test", "skip-lifecycle")
         self.assertEqual(selected[0], "--filter")
+        self.assertEqual(
+            selected[1], r"XmtpSdkTests\.(ReaderTeardownTests|ListenerGateTests)"
+        )
         self.assertEqual(skipped[-2], "--skip")
         self.assertEqual(selected[1], skipped[-1])
         self.assertNotIn("--skip", swift_test_args("test"))
@@ -145,7 +148,7 @@ class RecipeTests(unittest.TestCase):
 
     def test_tests_use_repository_backend_helpers(self):
         prefix = f"{ROOT}/dev/worktree-env && . {ROOT}/dev/docker/load-env && "
-        for recipe in ("test", "test-seams", "test-simulator"):
+        for recipe in ("test", "test-lifecycle", "test-simulator"):
             with self.subTest(recipe=recipe):
                 result = subprocess.run(
                     ["just", "--dry-run", "ios", recipe],

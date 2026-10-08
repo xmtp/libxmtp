@@ -84,7 +84,7 @@ mkShell (
       shellCommon.rustBase.buildInputs
       ++ [
         just
-        python311
+        (python311.withPackages (packages: [ packages.pyyaml ]))
         uv
         # Combined toolchain (wasm + android + iOS targets)
         rust-toolchain
@@ -133,37 +133,39 @@ mkShell (
         swiftlint
       ];
 
-    shellHook = lib.optionalString isDarwin ''
-      # --- iOS cross-compilation env setup ---
-      # Unset SDKROOT so xcrun can discover the right SDK per target at build time.
-      unset SDKROOT
+    shellHook =
+      shellCommon.compilerCacheHook
+      + lib.optionalString isDarwin ''
+        # --- iOS cross-compilation env setup ---
+        # Unset SDKROOT so xcrun can discover the right SDK per target at build time.
+        unset SDKROOT
 
-      # Dynamically resolve Xcode path and set all cross-compilation env vars.
-      ${iosEnv.envSetupAll}
+        # Dynamically resolve Xcode path and set all cross-compilation env vars.
+        ${iosEnv.envSetupAll}
 
-      # Version validation — check that Xcode is recent enough for Swift 6.1 (Package Traits).
-      XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -1 | awk '{print $2}')
-      if [[ -n "$XCODE_VERSION" ]]; then
-        MAJOR=$(echo "$XCODE_VERSION" | cut -d. -f1)
-        if [[ "$MAJOR" -lt 16 ]]; then
-          echo "WARNING: Xcode $XCODE_VERSION detected. Xcode 16+ required for Swift 6.1 (Package Traits)." >&2
+        # Version validation — check that Xcode is recent enough for Swift 6.1 (Package Traits).
+        XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -1 | awk '{print $2}')
+        if [[ -n "$XCODE_VERSION" ]]; then
+          MAJOR=$(echo "$XCODE_VERSION" | cut -d. -f1)
+          if [[ "$MAJOR" -lt 16 ]]; then
+            echo "WARNING: Xcode $XCODE_VERSION detected. Xcode 16+ required for Swift 6.1 (Package Traits)." >&2
+          fi
         fi
-      fi
 
-      # Wrap `swift` to sanitize Nix compiler flags that conflict with SPM.
-      # The local shell's large package set injects many -isystem/-L paths into
-      # NIX_CFLAGS_COMPILE and NIX_LDFLAGS via Nix's cc-wrapper. Swift Package
-      # Manager should use the Xcode toolchain exclusively, not Nix's paths.
-      swift() {
-        env \
-          -u NIX_CFLAGS_COMPILE \
-          -u NIX_CFLAGS_COMPILE_FOR_BUILD \
-          -u NIX_LDFLAGS \
-          -u NIX_LDFLAGS_FOR_BUILD \
-          -u LD_LIBRARY_PATH \
-          command swift "$@"
-      }
-    '';
+        # Wrap `swift` to sanitize Nix compiler flags that conflict with SPM.
+        # The local shell's large package set injects many -isystem/-L paths into
+        # NIX_CFLAGS_COMPILE and NIX_LDFLAGS via Nix's cc-wrapper. Swift Package
+        # Manager should use the Xcode toolchain exclusively, not Nix's paths.
+        swift() {
+          env \
+            -u NIX_CFLAGS_COMPILE \
+            -u NIX_CFLAGS_COMPILE_FOR_BUILD \
+            -u NIX_LDFLAGS \
+            -u NIX_LDFLAGS_FOR_BUILD \
+            -u LD_LIBRARY_PATH \
+            command swift "$@"
+        }
+      '';
   }
   // lib.optionalAttrs androidEnv.hasEmulator {
     EMULATOR = "${androidEnv.emulator}";

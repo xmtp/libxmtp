@@ -1,0 +1,39 @@
+name: Check Rust compiler lint
+on:
+  workflow_call:
+jobs:
+  native:
+    name: Check (native all-feature Clippy)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    env:
+      NIX_DEVSHELL: rust
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          github-token: ${{ github.token }}
+          kache: "true"
+      - uses: taiki-e/install-action@just
+      - name: Run native all-feature Clippy
+        run: dev/nix-shell 'dev/agent-run cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings'
+      - name: Run SDK generator Clippy
+        # The generator is not a default workspace member.
+        run: dev/nix-shell 'dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings'
+  wasm:
+    name: Check (WASM Clippy)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    env:
+      NIX_DEVSHELL: wasm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - name: Run WASM Clippy
+        run: just wasm lint

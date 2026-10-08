@@ -1,0 +1,53 @@
+name: Test SDK runtime and platform proofs
+'on':
+  workflow_call:
+    inputs:
+      target:
+        type: string
+        required: true
+permissions:
+  contents: read
+env:
+  NIX_DEVSHELL: js
+  SQLX_OFFLINE: 'true'
+jobs:
+  proof:
+    name: Test (SDK ${{ inputs.target }})
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@v6
+    - name: Check proof target
+      env:
+        SDK_PROOF_TARGET: ${{ inputs.target }}
+      run: 'case "$SDK_PROOF_TARGET" in bridge|browser) ;; *) echo ''Invalid SDK proof target'' >&2; exit 1 ;; esac
+
+        '
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: rust
+        docker-builder: 'true'
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    - uses: taiki-e/install-action@just
+    - uses: ./.github/actions/setup-js
+    - name: Generate local SDK products
+      env:
+        NIX_DEVSHELL: rust
+      run: dev/nix-shell 'just sdk generate node,browser'
+    - name: Start local backend
+      run: dev/nix-shell 'just backend up'
+    - name: Bridge runtime unit tests
+      if: inputs.target == 'bridge'
+      run: dev/nix-shell 'just sdk test-bridge'
+    - name: Browser platform proofs
+      if: inputs.target == 'browser'
+      run: dev/nix-shell 'just sdk test-browser'
+    - name: Dump Docker logs on failure
+      if: failure()
+      timeout-minutes: 2
+      uses: jwalton/gh-docker-logs@v2
+    - name: Stop test services
+      if: always()
+      timeout-minutes: 2
+      run: dev/nix-shell 'just backend down'

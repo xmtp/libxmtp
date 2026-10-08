@@ -33,11 +33,9 @@ clone, so CI, are slot 0.
   `DockerUrls::anvil()`; Toxiproxy: `xmtp_common::toxiproxy()` (the upstream
   `TOXIPROXY` static hardcodes its port). Scripts and SDK tests:
   `XMTP_BACKEND_URL`, `DATABASE_URL`.
-- **Share the compile cache.** Each worktree has its own `target/`. When
-  several build at once, `source dev/sccache-env` in each Nix shell. It unsets
-  `CARGO_INCREMENTAL` to keep Cargo's local incremental defaults and caches
-  eligible non-incremental dependencies. The default cache cap is 10 GiB.
-  A running sccache server keeps its cache settings; check `just cache-stats`.
+- **Share the compile cache.** Each worktree has its own `target/`. Rust-capable
+  Nix shells enable Kache. They keep Cargo's local incremental defaults and
+  cache eligible non-incremental dependencies. The local default cap is 50 GiB.
   Do not share a mutable `target/` directory across worktrees. See
   `docs/nix-setup.md` for cache limits and how to disable the wrapper.
 - **The stash stack is shared** across worktrees. Never bare `git stash` /

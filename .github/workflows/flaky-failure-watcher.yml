@@ -5,6 +5,7 @@ on:
     # NOTE: workflow_run requires explicit names — no wildcards.
     # When adding a new workflow that runs on main, add it here too.
     workflows:
+      - "CI"
       # Test orchestrator (covers test-workspace, test-node, test-wasm, etc.)
       - "Test"
       # Lint orchestrator (covers lint-workspace, lint-node, lint-config, etc.)

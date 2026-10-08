@@ -48,6 +48,7 @@ let
     # is broken/uncached on Linux in current nixpkgs.
     swiftformat = host.callPackage ./packages/swiftformat.nix { };
     rtk = host.callPackage ./packages/rtk.nix { };
+    kache = host.callPackage ./packages/kache.nix { };
     xmtp-pnpm = host.callPackage ./packages/pnpm.nix { };
     xmtp = {
       filesets = host.callPackage ./filesets.nix { };

@@ -22,10 +22,10 @@ inputs:
   cachix-auth-token:
     description: "Cachix auth token for xmtp cache"
     required: false
-  sccache:
-    description: "Enable sccache with GitHub Actions cache backend"
+  kache:
+    description: "Enable pinned Kache for Cargo commands outside Nix derivations"
     required: false
-    default: "false"
+    default: "true"
   gradle-disk:
     description: "Mount the shared repo-wide sticky disk at ~/.gradle (Linux); enable in jobs that run Gradle"
     required: false
@@ -142,12 +142,45 @@ runs:
       if: ${{ inputs.cachix-auth-token == '' }}
       with:
         name: xmtp
-    - name: Setup sccache
-      if: ${{ inputs.sccache == 'true' }}
-      uses: mozilla-actions/sccache-action@v0.0.9
-    - name: Configure sccache env
-      if: ${{ inputs.sccache == 'true' }}
+    - name: Compiler cache write policy
+      if: ${{ inputs.kache == 'true' }}
+      id: compiler-cache-policy
+      run: bash dev/kache-ci-policy
+      shell: bash
+    - name: Setup Kache
+      if: ${{ inputs.kache == 'true' }}
+      uses: kunobi-ninja/kache-action@1a33fb2ff51be23eb9e87abeae6edb65be78f71c
+      with:
+        version: v1.0.0
+        cache-executables: "true"
+        pr-comment: "false"
+        github-cache: "true"
+        save-cache: ${{ steps.compiler-cache-policy.outputs.cache-write }}
+        cache-key-prefix: libxmtp-${{ inputs.disk-key || github.job }}
+        max-size: 10GiB
+    - name: Configure Kache compiler environment
+      if: ${{ inputs.kache == 'true' }}
       run: |
-        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-        echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+        # Use the immutable Nix wrapper; keep the action's cache and runtime.
+        : "${KACHE_CACHE_DIR:?Kache action did not configure storage}"
+        : "${KACHE_RUNTIME_DIR:?Kache action did not configure a private runtime}"
+        cache_package=$(nix build --no-link --print-out-paths .#kache)
+        export PATH="$cache_package/bin:$PATH"
+        echo "$cache_package/bin" >> "$GITHUB_PATH"
+        if [[ -x "$cache_package/bin/xmtp-kache" ]]; then
+          export RUSTC_WRAPPER="$cache_package/bin/xmtp-kache"
+        else
+          export RUSTC_WRAPPER="$cache_package/bin/kache"
+        fi
+        export XMTP_KACHE=1
+        source dev/kache-env
+        for key in XMTP_KACHE XMTP_KACHE_WRAPPER RUSTC_WRAPPER KACHE_CACHE_DIR KACHE_MAX_SIZE KACHE_CACHE_EXECUTABLES KACHE_KEY_ENV_VARS KACHE_BUILD_SCRIPT_CACHE KACHE_CACHE_CC_LINKS CARGO_INCREMENTAL KACHE_ADAPTIVE_INCREMENTAL KACHE_PRESERVE_INCREMENTAL; do
+          printf '%s=%s\n' "$key" "${!key}" >> "$GITHUB_ENV"
+        done
+      shell: bash
+    - name: Disable outer compiler cache
+      if: ${{ inputs.kache != 'true' }}
+      run: |
+        echo 'XMTP_KACHE=0' >> "$GITHUB_ENV"
+        echo 'RUSTC_WRAPPER=' >> "$GITHUB_ENV"
       shell: bash

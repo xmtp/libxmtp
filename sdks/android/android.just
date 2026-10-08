@@ -54,6 +54,16 @@ check-consumers: build
 docs: build
   ./gradlew -p . :library:dokkaGeneratePublicationHtml
 
+# Generate the reference from current release Kotlin sources without JNI.
+docs-generated:
+  env -u LD_LIBRARY_PATH nix build "{{ root }}#xmtp-sdk-generated-kotlin" --out-link "{{ root }}/sdks/android/.build/docs-generated"
+  generated="{{ root }}/sdks/android/.build/docs-generated"; \
+    empty_jni="$(mktemp -d)"; \
+    trap 'rm -rf "$empty_jni"' EXIT; \
+    test -s "$generated/kotlin/sdk-contract.json"; \
+    XMTP_SDK_GENERATED_DIR="$generated" XMTP_SDK_ANDROID_JNI_DIR="$empty_jni" \
+      ./gradlew -p . :library:dokkaGeneratePublicationHtml --dependency-verification=strict --no-daemon
+
 # Build native bindings
 build:
   ./dev/bindings

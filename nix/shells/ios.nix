@@ -12,12 +12,14 @@
   lib,
   pkg-config,
   protobuf,
+  python311,
   just,
   mkShell,
   openssl,
   sqlite,
   zstd,
   xmtp,
+  kache,
   swiftformat,
   swiftlint,
   ...
@@ -47,10 +49,12 @@ mkShell {
     just
   ];
   buildInputs = [
+    kache
     rust-ios-toolchain
     zstd
     openssl
     sqlite
+    python311
     # Swift code formatting/linting tools for the iOS SDK development
     swiftformat
     swiftlint
@@ -59,7 +63,7 @@ mkShell {
     darwin.cctools
   ];
 
-  shellHook = ''
+  shellHook = xmtp.shellCommon.compilerCacheHook + ''
     export XMTP_DEV_SHELL="ios"
 
     # Unset SDKROOT so xcrun can discover the right SDK per target at build time.

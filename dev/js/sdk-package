@@ -12,7 +12,7 @@ cd "$ROOT"
 # Normal source callers build matched inputs before staging. Explicit generated
 # inputs are checked by the stager and keep the build/render reuse path.
 if [[ -z "${XMTP_SDK_GENERATED_DIR:-}" ]]; then
-  NIX_DEVSHELL=default "$ROOT/dev/nix-shell" "just sdk generate $target"
+  NIX_DEVSHELL=rust "$ROOT/dev/nix-shell" "just sdk generate $target"
 fi
 node crates/xmtp_sdk/dev/stage-package.mjs "$target" --public
 

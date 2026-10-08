@@ -7,6 +7,7 @@
   geckodriver,
   xmtp-pnpm,
   nodejs_26,
+  python311,
   watchexec,
   pkg-config,
   playwright-driver,
@@ -32,6 +33,7 @@ mkShell {
     playwright-driver.browsers
     xmtp-pnpm
     nodejs_26
+    python311
     watchexec
   ]
   ++ lib.optionals stdenv.isDarwin [

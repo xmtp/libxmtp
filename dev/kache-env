@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Set the compiler cache for this shell without changing global Cargo files.
+# Nix sources this helper in Rust-capable shells. CI supplies its own wrapper.
+
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  echo 'dev/kache-env must be sourced inside a Nix shell' >&2
+  exit 1
+fi
+
+if [[ "${XMTP_KACHE:-}" == 0 || ( -n "${CI:-}" && "${XMTP_KACHE:-}" != 1 ) ]]; then
+  if [[ "${RUSTC_WRAPPER:-}" == "${XMTP_KACHE_WRAPPER:-}" && -n "${XMTP_KACHE_WRAPPER:-}" ]]; then
+    unset RUSTC_WRAPPER XMTP_KACHE_WRAPPER
+  fi
+  return 0
+fi
+
+if ! command -v kache >/dev/null 2>&1; then
+  echo 'kache not found. Enter a Rust-capable Nix shell.' >&2
+  return 1
+fi
+
+# Keep the official action's wrapper and private store/runtime in CI.
+if [[ -z "${CI:-}" || -z "${RUSTC_WRAPPER:-}" ]]; then
+  RUSTC_WRAPPER="$(command -v xmtp-kache || command -v kache)"
+fi
+export RUSTC_WRAPPER
+export XMTP_KACHE_WRAPPER="$RUSTC_WRAPPER"
+export KACHE_CACHE_DIR="${KACHE_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/kache}"
+export KACHE_MAX_SIZE="${KACHE_MAX_SIZE:-50GiB}"
+export KACHE_CACHE_EXECUTABLES=1
+export KACHE_BUILD_SCRIPT_CACHE=0
+export KACHE_CACHE_CC_LINKS=0
+
+# Proc macros read these values without emitting rustc env-dep records.
+case ",${KACHE_KEY_ENV_VARS:-}," in *,CI,*) ;; *) KACHE_KEY_ENV_VARS="${KACHE_KEY_ENV_VARS:+$KACHE_KEY_ENV_VARS,}CI" ;; esac
+case ",${KACHE_KEY_ENV_VARS:-}," in *,XMTP_TEST_LOGGING,*) ;; *) KACHE_KEY_ENV_VARS="${KACHE_KEY_ENV_VARS:+$KACHE_KEY_ENV_VARS,}XMTP_TEST_LOGGING" ;; esac
+export KACHE_KEY_ENV_VARS
+
+if [[ -n "${CI:-}" ]]; then
+  export CARGO_INCREMENTAL=0
+  export KACHE_ADAPTIVE_INCREMENTAL=0
+  export KACHE_PRESERVE_INCREMENTAL=0
+fi

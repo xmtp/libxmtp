@@ -29,7 +29,15 @@ dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
 dev/nix-shell 'just android docs'
+dev/nix-shell 'just android docs-generated'
 ```
+
+`docs` keeps the full native preparation path. CI uses `docs-generated` for
+the reference build. It selects the current release-profile
+`xmtp-sdk-generated-kotlin` output and gives Dokka its Kotlin, runtime, Android,
+and contract files. It uses a new empty JNI directory for each run. A hosted
+comparison verified that its reference output matches the full path byte for
+byte. JNI, AAR, JVM, and emulator checks stay in the build and test recipes.
 
 The Android floor is API 23. Generated timestamps use `java.time.Instant`. Keep
 core library desugaring on in the library and app consumers, with pinned
@@ -86,8 +94,12 @@ Host JVM checks do not prove an Android AAR loads.
 with the tests. `check-consumers` adds one at a time to the unit test sources
 (the `xmtpNegativeConsumer` Gradle property) and checks that the compile fails
 with the expected diagnostics: typed IDs, typed content, Group and Dm types,
-and typed codec values. The required `test-sdk.yml` workflow runs it in its
-Android staging job.
+and typed codec values. The required `test-android.yml` unit job runs these
+consumers for broad Kotlin inputs, including when AAR staging is not selected.
+Specific native inputs select API 23 smoke, API 34 integration, and all-ABI
+AAR staging. Direct reusable calls keep unit, consumer, and platform checks
+by default. Host JVM tests retain the matched host library and fast JNI
+bindings. They do not replace the selected emulator or all-ABI proofs.
 
 Instrumentation has no foreground Activity. Its fixtures disable
 `AndroidStreamLifecycle.enabled`, resume native streams, and restore the flag.

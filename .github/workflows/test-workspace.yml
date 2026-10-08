@@ -1,6 +1,8 @@
 name: Test Workspace
 on:
   workflow_call:
+env:
+  NIX_DEVSHELL: rust
 jobs:
   test:
     name: Test (Rust Workspace)
@@ -18,7 +20,7 @@ jobs:
           docker-builder: "true"
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
+          kache: "false"
       - uses: taiki-e/install-action@just
       - name: Check ephemeral backend build boundaries
         run: dev/check-ephemeral-backend

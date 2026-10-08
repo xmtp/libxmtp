@@ -18,6 +18,8 @@ env:
 
 jobs:
   run-ignored:
+    env:
+      NIX_DEVSHELL: rust
     name: Ignored Tests (${{ matrix.name }})
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 90
@@ -41,7 +43,7 @@ jobs:
           docker-builder: "true"
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "false"
+          kache: "false"
 
       - uses: taiki-e/install-action@just
 

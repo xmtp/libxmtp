@@ -32,19 +32,19 @@ lint:
 format:
     swiftformat .
 
-# The seam proofs: reader teardown and the listener gate. The required Swift
-# job in test-sdk.yml runs them with `test-seams`. test-ios.yml runs
-# `test skip-seams`, so one CI run does not run them twice on macOS.
-_seam_tests := "'XmtpSdkTests\\.(ReaderTeardownTests|ListenerGateTests)'"
+# Lifecycle checks: reader teardown and the listener gate. The Swift job in
+# test-swift-lifecycle.yml runs them with `test-lifecycle`. test-ios.yml runs
+# `test skip-lifecycle`, so one CI run does not run them twice on macOS.
+_lifecycle_tests := "'XmtpSdkTests\\.(ReaderTeardownTests|ListenerGateTests)'"
 
 # Run Swift tests on macOS. XMTP_BACKEND_URL selects the backend.
-# `skip-seams` leaves out the tests that `test-seams` runs.
+# `skip-lifecycle` leaves out the tests that `test-lifecycle` runs.
 test mode="all":
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q {{ if mode == "skip-seams" { "--skip " + _seam_tests } else if mode == "all" { "" } else { error("mode must be all or skip-seams") } }}
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q {{ if mode == "skip-lifecycle" { "--skip " + _lifecycle_tests } else if mode == "all" { "" } else { error("mode must be all or skip-lifecycle") } }}
 
-# Run only the seam proofs on macOS. XMTP_BACKEND_URL selects the backend.
-test-seams:
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --filter {{ _seam_tests }}
+# Run only the lifecycle checks on macOS. XMTP_BACKEND_URL selects the backend.
+test-lifecycle:
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --filter {{ _lifecycle_tests }}
 
 # Run the consumer in Tests/Consumer as a bare executable, then check that the
 # negative consumers in Tests/Consumer/Negative do not compile.

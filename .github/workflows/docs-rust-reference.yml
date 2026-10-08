@@ -1,0 +1,29 @@
+name: Rust reference and error glossary
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  rust:
+    name: Rust reference and error glossary
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    env:
+      NIX_DEVSHELL: rust
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          github-token: ${{ github.token }}
+      - name: Generate error glossary
+        run: dev/nix-shell 'dev/gen-error-glossary'
+      - name: Reject stale glossary
+        run: git diff --exit-code -- docs/error_glossary.md
+      - name: Build Rust reference
+        run: dev/nix-shell 'cargo doc --locked --no-deps'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs-rust
+          path: target/doc
+          if-no-files-found: error

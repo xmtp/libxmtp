@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# GitHub cache consumers restore entries. Only trusted branch pushes save them.
+set -euo pipefail
+write=false
+if [[ "${GITHUB_ACTIONS:-}" == true && "${GITHUB_EVENT_NAME:-}" == push && "${GITHUB_REF_TYPE:-}" == branch ]]; then
+  case "${GITHUB_REF:-}" in
+    refs/heads/main|refs/heads/self-hosted) write=true ;;
+  esac
+fi
+printf 'cache-write=%s\n' "$write" >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"

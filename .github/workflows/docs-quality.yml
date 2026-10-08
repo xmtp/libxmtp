@@ -1,13 +1,8 @@
 name: Docs Quality
-
-on:
-  pull_request:
-  push:
-    branches: [main, self-hosted]
-
+'on':
+  workflow_call: null
 permissions:
   contents: read
-
 jobs:
   quality:
     name: Docs lint, format, and tests
@@ -16,15 +11,15 @@ jobs:
     env:
       NIX_DEVSHELL: docs
     steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: web
-          github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@just
-      - uses: ./.github/actions/setup-js
-      - run: just docs test
-      - name: Lint repository Markdown
-        run: just lint-markdown
-      - name: Check documentation source
-        run: dev/nix-shell 'cd apps/docs && node scripts/check-site.mjs'
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: web
+        github-token: ${{ github.token }}
+    - uses: taiki-e/install-action@just
+    - uses: ./.github/actions/setup-js
+    - run: just docs test
+    - name: Lint repository Markdown
+      run: just lint-markdown
+    - name: Check documentation source
+      run: dev/nix-shell 'cd apps/docs && node scripts/check-site.mjs'

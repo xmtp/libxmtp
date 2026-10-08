@@ -1,0 +1,44 @@
+name: Check SDK products
+'on':
+  workflow_call: {}
+jobs:
+  generated:
+    name: Check (generated SDK products)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 90
+    env:
+      NIX_DEVSHELL: rust
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: web
+        github-token: ${{ github.token }}
+    - uses: taiki-e/install-action@just
+    - uses: ./.github/actions/setup-js
+      env:
+        NIX_DEVSHELL: js
+    - name: Check native Nix inputs
+      env:
+        NIX_DEVSHELL: rust
+      run: dev/nix-shell 'just sdk check-native-nix'
+    - name: Check package scripts
+      env:
+        NIX_DEVSHELL: rust
+      run: dev/nix-shell 'just sdk check-package-scripts'
+    - name: Generate local SDK products
+      run: dev/nix-shell 'just sdk generate'
+    - name: Check local clean SDK generation
+      run: dev/nix-shell 'just sdk check-clean-generate'
+    - name: Check generated SDK bindings and runtime
+      env:
+        NIX_DEVSHELL: rust
+      run: dev/nix-shell 'just sdk lint'
+    - name: Local installed Node ESM package smoke
+      run: dev/nix-shell 'just sdk package-smoke node'
+    - name: Local installed Browser pure and worker package smoke
+      env:
+        NIX_DEVSHELL: js
+      run: dev/nix-shell 'just sdk package-smoke browser'

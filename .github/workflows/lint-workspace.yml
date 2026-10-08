@@ -15,7 +15,7 @@ jobs:
           disk-key: rust
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          sccache: "true"
+          kache: "true"
       - uses: taiki-e/install-action@just
       - name: Lint Rust workspace
-        run: just lint-rust
+        run: just lint-rust-source

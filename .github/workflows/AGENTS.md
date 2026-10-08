@@ -20,19 +20,49 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 - Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
 
-- The iOS jobs and the Swift job in `test-sdk.yml` use disposable native
+- The iOS jobs and `test-swift-lifecycle.yml` use disposable native
   services through `dev/nix-shell 'just backend ci COMMAND'`. Each job creates
   its own database and S3 bucket. Failed-job-only reruns do not need a
   deployment job.
-- Keep the Swift job filters (`ios`, `ios_direct`, `sdk_swift`) current when
+- Keep the `ci.yml` selector's Swift and native input routes current when
   native setup inputs change.
   `test-native-backend.yml` checks wrapper cleanup and the real S3 contract.
   It also checks the owned loopback listeners and metrics endpoint. Backend
   source and build-input changes select this job, and it gates aggregate
   `Test`. The native acceptance job has no cache-write token.
   Service logs are retained for 7 days.
-- `test-sdk.yml` gates aggregate `Test`; `test-ios` and `test-android` do not.
-  The Swift seam proofs (`just ios test-seams`) and the Swift and Kotlin
-  consumer checks run in `test-sdk.yml`. The `sdk` and `sdk_swift` filters
-  list their paths under `sdks/`. `test-ios` runs `just ios test skip-seams`,
-  so its macOS run does not repeat the seam proofs.
+- Selected iOS and Android jobs gate aggregate `Test` in `ci.yml`.
+  `test-swift-lifecycle.yml` owns the Swift lifecycle checks (`just ios test-lifecycle`)
+  and Swift consumer checks. `test-android.yml` owns Kotlin consumer checks.
+  `test-ios` runs `just ios test skip-lifecycle`, so it does not repeat the lifecycle.
+
+## CI selection
+
+`ci.yml` owns required Lint and Test. Its pinned dorny filters use PR changed
+files or the push event's before SHA. Unavailable or capped detection and
+unknown or shared build inputs select all checks. Inline path groups define
+the scope; fixed boolean decisions drive the selected job lists and gates.
+The static source and runtime routers use fail-fast matrices and require the
+selected child result. Selected skipped, failed, cancelled, or missing jobs
+cannot pass. Direct reusable calls default to all checks.
+
+Explicit draft PRs run only path-selected source checks and docs quality.
+Their aggregates are named `Draft lint` and `Draft checks`; they do not produce
+the merge check names `Lint` and `Test`. Ready transitions restore normal
+selection. Missing draft state, pushes, and manual runs use the normal policy.
+Draft Cargo-Deny checks run for Cargo lock/manifests, deny configuration, or
+scanner workflow changes. Ready PRs keep all four Cargo-Deny checks.
+
+Source lint does not generate SDK products or run compiler checks. Test owns
+full types, full lint, Clippy, SDK and runtime checks. Pure Rust PRs omit host
+language checks; post-merge runs retain language units and consumers. Platform
+packaging uses native inputs. Full docs use docs, examples, and public API inputs.
+The standalone Rust reference keeps rustdoc and glossary checks for Rust changes.
+Automatic PR backend image checks use amd64; two-architecture publication runs
+only on main, self-hosted, tag pushes, or reusable calls.
+
+All CI commands select a targeted Nix shell. Full root Nix warming still builds
+all outputs and dependencies, including the default developer shell. Kache is
+the default compiler wrapper; its Darwin helper bypasses linked outputs.
+Recovery runs only through the manual workflow. Windows installed-package
+smoke remains a manual owner in `test-sdk.yml`.

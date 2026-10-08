@@ -84,8 +84,19 @@ lint-rust:
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
 
+# Source checks do not compile Rust or generate SDK products.
+lint-rust-source:
+    cargo fmt --check
+    cargo hakari generate --diff
+    cargo hakari manage-deps --dry-run
+
+lint-js-source:
+    pnpm lint:source
+    node --test dev/js/test-lint-source.mjs
+
 # Config linting: TOML, Nix, and shell scripts.
 lint-config: lint-treefmt
+    python3.11 -B dev/agents/test_kache_env.py
     python3.11 dev/tests/test_android_release.py
     python3.11 dev/tests/test_release_push.py
     python3.11 dev/tests/test_android_clock.py
@@ -159,9 +170,9 @@ worktree:
 
 # --- DISK ---
 
-# Show sccache hit rates and cache size.
+# Show compiler cache hits, misses, and store size.
 cache-stats:
-    sccache --show-stats
+    kache stats
 
 # Free space, and the target/ and incremental/ size of each worktree.
 [script("bash")]

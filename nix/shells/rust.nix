@@ -32,11 +32,13 @@ mkShell {
 
   # A nested Rust shell must not keep the local/iOS shell's Xcode overrides.
   # Use Nix's compiler wrapper with Nix's SDK and library search paths.
-  shellHook = lib.optionalString isDarwin ''
-    export CC_aarch64_apple_darwin="${stdenv.cc}/bin/cc"
-    export CXX_aarch64_apple_darwin="${stdenv.cc}/bin/c++"
-    export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="${stdenv.cc}/bin/cc"
-  '';
+  shellHook =
+    shellCommon.compilerCacheHook
+    + lib.optionalString isDarwin ''
+      export CC_aarch64_apple_darwin="${stdenv.cc}/bin/cc"
+      export CXX_aarch64_apple_darwin="${stdenv.cc}/bin/c++"
+      export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="${stdenv.cc}/bin/cc"
+    '';
 
   inherit (shellCommon.rustBase) hardeningDisable nativeBuildInputs LD_LIBRARY_PATH;
   inherit (shellCommon.rustBase.env)
@@ -65,7 +67,7 @@ mkShell {
       xmtp-pnpm
       nodejs_26
       rust-analyzer
-      python311
+      (python311.withPackages (packages: [ packages.pyyaml ]))
       uv
     ]
     ++ shellCommon.wasmTools

@@ -13,6 +13,8 @@ jobs:
     name: Node pair (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    env:
+      NIX_DEVSHELL: rust
     strategy:
       fail-fast: false
       matrix:
@@ -95,9 +97,11 @@ jobs:
           python crates/xmtp_sdk/dev/sdk-artifacts.py build --targets node --profile release --rust-target x86_64-pc-windows-msvc --skip-bindgen --artifacts target/sdk-node-windows
           # The Rust cache can restore this temporary checkout.
           rm -rf target/sdk-node-runtime-source
-          git clone https://github.com/neekolas/uniffi-bindgen-react-native.git target/sdk-node-runtime-source
+          git init target/sdk-node-runtime-source
+          git -C target/sdk-node-runtime-source remote add origin https://github.com/neekolas/uniffi-bindgen-react-native.git
           fork_rev=$(node -p 'require("fs").readFileSync("Cargo.toml", "utf8").match(/\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/)[1]')
-          git -C target/sdk-node-runtime-source checkout "$fork_rev"
+          git -C target/sdk-node-runtime-source fetch --no-tags --depth=1 origin "$fork_rev"
+          git -C target/sdk-node-runtime-source checkout --detach "$fork_rev"
           cargo build --manifest-path target/sdk-node-runtime-source/Cargo.toml --locked --release -p uniffi-runtime-napi --lib --target x86_64-pc-windows-msvc
           FORK_REV="$fork_rev" python - <<'PY'
           import hashlib, json, os
@@ -119,6 +123,8 @@ jobs:
     needs: [unix, windows]
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: rust
     steps:
       - uses: actions/checkout@v6
         with:
@@ -145,6 +151,8 @@ jobs:
           XMTP_SDK_GENERATED_DIR: target/sdk-generated
         run: dev/nix-shell 'bash dev/js/sdk-package node'
       - name: Check installed aggregate Node ESM package
+        env:
+          NIX_DEVSHELL: js-node
         run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs node'
       - uses: actions/upload-artifact@v7
         with:
