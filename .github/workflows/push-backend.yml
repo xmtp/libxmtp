@@ -2,7 +2,8 @@ name: Publish backend image
 
 on:
   push:
-  pull_request:
+    branches: [main, self-hosted]
+    tags: ['**']
   workflow_call:
     inputs:
       ref:

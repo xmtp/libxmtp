@@ -396,6 +396,40 @@ class SelectionTests(unittest.TestCase):
             "github.event_name == 'workflow_dispatch'",
         )
 
+    def test_backend_publisher_keeps_release_paths_without_pr_duplicates(self):
+        publisher = workflow("push-backend.yml")
+        self.assertEqual(set(publisher["on"]), {"push", "workflow_call"})
+        self.assertEqual(
+            publisher["on"]["push"],
+            {"branches": ["main", "self-hosted"], "tags": ["**"]},
+        )
+        matrix = publisher["jobs"]["publish"]["strategy"]["matrix"]["include"]
+        self.assertEqual({row["arch"] for row in matrix}, {"amd64", "arm64"})
+        release = workflow("release-backend.yml")["jobs"]["build"]
+        self.assertEqual(release["uses"], "./.github/workflows/push-backend.yml")
+        self.assertIs(release["with"]["release-build"], True)
+        manifest = publisher["jobs"]["manifest"]
+        self.assertIn("publish", manifest["needs"])
+        command = next(
+            step["run"]
+            for step in manifest["steps"]
+            if step.get("name") == "Publish commit manifest"
+        )
+        self.assertIn('"$AMD64_IMAGE" "$ARM64_IMAGE"', command.splitlines()[0])
+        expression = workflow("test-backend.yml")["jobs"]["backend-image"]["strategy"][
+            "matrix"
+        ]["arch"]
+        expression = expression.removeprefix("${{ fromJSON(").removesuffix(") }}")
+        expression = expression.replace("github.event_name", "event")
+        expression = expression.replace("&&", " and ").replace("||", " or ")
+        for event, expected in (
+            ("pull_request", ["amd64"]),
+            ("push", ["amd64"]),
+            ("workflow_dispatch", ["amd64", "arm64"]),
+        ):
+            arches = eval(expression, {"__builtins__": {}}, {"event": event})
+            self.assertEqual(json.loads(arches), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

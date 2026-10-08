@@ -49,6 +49,8 @@ full types, full lint, Clippy, SDK and runtime checks. Pure Rust PRs omit host
 language checks; post-merge runs retain language units and consumers. Platform
 packaging uses native inputs. Full docs use docs, examples, and public API inputs.
 The standalone Rust reference keeps rustdoc and glossary checks for Rust changes.
+Automatic PR backend image checks use amd64; two-architecture publication runs
+only on main, self-hosted, tag pushes, or reusable calls.
 
 All CI commands select a targeted Nix shell. Full root Nix warming still builds
 all outputs and dependencies, including the default developer shell. Kache is
