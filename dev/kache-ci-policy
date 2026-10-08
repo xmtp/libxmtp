@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# GitHub cache consumers restore entries. Only trusted branch pushes save them.
+# Only opted-in S3 jobs on trusted protected branch pushes may upload.
 set -euo pipefail
 write=false
-if [[ "${GITHUB_ACTIONS:-}" == true && "${GITHUB_EVENT_NAME:-}" == push && "${GITHUB_REF_TYPE:-}" == branch ]]; then
+if [[ "${KACHE_CI_BACKEND:-}" == s3 && "${KACHE_CI_READONLY:-true}" == false && "${GITHUB_ACTIONS:-}" == true && "${GITHUB_EVENT_NAME:-}" == push && "${GITHUB_REF_TYPE:-}" == branch && "${GITHUB_REF_PROTECTED:-}" == true ]]; then
   case "${GITHUB_REF:-}" in
     refs/heads/main|refs/heads/self-hosted) write=true ;;
   esac
 fi
 printf 'cache-write=%s\n' "$write" >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  printf 'Kache remote writes: %s.\n' "$write" >> "$GITHUB_STEP_SUMMARY"
+fi
