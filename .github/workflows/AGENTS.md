@@ -36,6 +36,10 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   and Swift consumer checks. `test-android.yml` owns Kotlin consumer checks.
   `test-ios` runs `just ios test skip-lifecycle`, so it does not repeat the lifecycle.
 
+- Migration uses the normal SDK test targets. Browser platform proofs include
+  migration. The Swift lifecycle workflow runs the focused migration test.
+  Android unit tests include the migration test.
+
 ## CI selection
 
 `ci.yml` owns required Lint and Test. Its pinned dorny filters use PR changed

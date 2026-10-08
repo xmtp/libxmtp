@@ -50,7 +50,7 @@ jobs:
             - '**/{Cargo.toml,build.rs,package.json}'
             - '**/*.{nix,toml,lock,gradle,kts}'
           rust: &rust
-            - 'crates/{xmtp_api,xmtp_api_grpc,xmtp_archive,xmtp_attachments,xmtp_common,xmtp_content_types,xmtp_cryptography,xmtp_db,xmtp_events,xmtp_id,xmtp_logging,xmtp_macro,xmtp_mls,xmtp_mls_common,xmtp_mls_validation,xmtp_proto,xmtp_user_preferences,xmtp-workspace-hack}/{src,tests,benches,examples}/**/*.rs'
+            - 'crates/{xmtp_api,xmtp_api_grpc,xmtp_archive,xmtp_attachments,xmtp_common,xmtp_content_types,xmtp_cryptography,xmtp_db,xmtp_events,xmtp_id,xmtp_logging,xmtp_macro,xmtp_legacy_migration,xmtp_mls,xmtp_mls_common,xmtp_mls_validation,xmtp_proto,xmtp_user_preferences,xmtp-workspace-hack}/{src,tests,benches,examples}/**/*.rs'
           swift: &swift
             - 'sdks/ios/**/*.swift'
           swift_public:

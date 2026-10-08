@@ -27,6 +27,8 @@ jobs:
       # test-ios.yml skips these tests in its macOS run (`test skip-lifecycle`).
       - name: Swift lifecycle checks
         run: dev/nix-shell 'just backend ci just ios test-lifecycle'
+      - name: Swift migration test
+        run: dev/nix-shell 'just ios test-migration'
       - name: Check Swift consumers
         run: dev/nix-shell 'just ios check-consumer'
       - name: Retain native service logs
