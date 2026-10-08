@@ -19,6 +19,9 @@ Keep Python child processes on `sys.executable`. Run
   Android dependency-input cases use `dev/sdk-packaging-android-inputs.py`,
   which the main packaging suite loads as inherited test methods.
   Both packaging suites share the fixture in `dev/packaging_test_base.py`.
+  Artifact compiler-input cases use `dev/artifact_compiler_input_tests.py`
+  as inherited methods. `dev/artifact_test_modules.py` loads their shared
+  production modules. The same artifact test command runs all cases.
 - `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
   the checkout source identity with the generated and native Nix source filters.
   It does not compile a product.

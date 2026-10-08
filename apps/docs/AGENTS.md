@@ -30,6 +30,14 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `dev/nix-shell 'just docs check'`: check source links and the composed artifact.
 - `dev/nix-shell 'just docs check-external'`: check external URLs with Lychee.
 
+Run the accessibility baseline with
+`NIX_DEVSHELL=docs dev/nix-shell 'node apps/docs/scripts/check-lighthouse.mjs'`.
+On macOS, this check uses the headless shell from the installed Playwright
+browser revision. Run `dev/nix-shell 'just docs browsers'` if it is missing.
+`CHROME_PATH` selects an explicit browser on every platform. Linux keeps its
+Nix browser selection. The accessibility limits and audit categories are the
+same for both platforms.
+
 `just docs build` and `just docs check-examples` select each SDK product from its
 source manifest, then run its package tasks with the pnpm dependency graph. Do not
 add a separate SDK build before either command.

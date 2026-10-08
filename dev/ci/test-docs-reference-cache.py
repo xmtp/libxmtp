@@ -578,6 +578,89 @@ class ReferenceCacheTests(unittest.TestCase):
         }
         self.assertTrue(self.identity()["cacheEligible"])
 
+    def linux_link_environment(self):
+        store = "/nix/store/" + "a" * 32 + "-compiler"
+        linker = "/nix/store/" + "b" * 32 + "-mold/bin/mold"
+        self.environment["flags"] = {
+            "CC": store + "/bin/clang",
+            "NIX_BINTOOLS": store + "/bintools",
+            "NIX_CFLAGS_LINK": " -fuse-ld=mold",
+            "NIX_LDFLAGS": f"-rpath {store}/lib -L{store}/lib",
+        }
+        self.environment["toolInputs"] = {
+            "CC": {"path": store + "/bin/clang", "sha256": "compiler bytes"},
+            "NIX_BINTOOLS": {"path": linker, "sha256": "linker bytes"},
+        }
+
+    def test_linux_mold_and_store_rpath_allow_exact_reference_reuse(self):
+        self.linux_link_environment()
+        alpha = self.identity()
+        self.assertTrue(alpha["cacheEligible"])
+        cache.stamp(self.output, alpha, alpha)
+        cache.verify(self.output, alpha)
+        self.environment["toolInputs"]["NIX_BINTOOLS"]["sha256"] = "changed linker"
+        beta = self.identity()
+        self.assertNotEqual(alpha["key"], beta["key"])
+        with self.assertRaises(ValueError):
+            cache.verify(self.output, beta)
+
+    def test_linux_link_flags_reject_external_and_unreviewed_forms(self):
+        for name, value in (
+            ("NIX_LDFLAGS", "-rpath /tmp/library/lib"),
+            ("NIX_LDFLAGS", "-rpath relative/lib"),
+            ("NIX_LDFLAGS", "-rpath"),
+            ("NIX_LDFLAGS", '-rpath "'),
+            ("NIX_LDFLAGS", "@/tmp/link-response"),
+            ("NIX_LDFLAGS", "-T /tmp/link-script"),
+            ("NIX_LDFLAGS", "-rpath /nix/store/" + "a" * 32 + "-library/../../tmp/lib"),
+            ("NIX_LDFLAGS", "-rpath /nix/store/" + "a" * 32 + "-library/share"),
+            ("NIX_CFLAGS_LINK", "-fuse-ld=lld"),
+            ("NIX_CFLAGS_LINK", '-fuse-ld=mold "'),
+            ("NIX_CFLAGS_LINK", "-fuse-ld=mold -T /tmp/link-script"),
+        ):
+            with self.subTest(name=name, value=value):
+                self.linux_link_environment()
+                self.environment["flags"][name] = value
+                self.assertFalse(self.identity()["cacheEligible"])
+
+    def test_mold_requires_immutable_compiler_and_linker_records(self):
+        for name, field, value in (
+            ("CC", "path", "/tmp/compiler"),
+            ("NIX_BINTOOLS", "path", "/tmp/mold"),
+            ("NIX_BINTOOLS", "path", "/nix/store/" + "b" * 32 + "-tool/bin/ld"),
+            ("CC", "sha256", None),
+            ("NIX_BINTOOLS", "sha256", None),
+        ):
+            with self.subTest(name=name, field=field):
+                self.linux_link_environment()
+                self.environment["toolInputs"][name][field] = value
+                self.assertFalse(self.identity()["cacheEligible"])
+
+    def test_actual_selected_linker_bytes_change_reference_identity(self):
+        tools = self.root / "mutable-bintools/bin"
+        tools.mkdir(parents=True)
+        linker = tools / "ld.mold"
+        linker.write_text("Alpha linker")
+        self.environment["flags"] = {
+            "NIX_BINTOOLS": str(tools.parent),
+            "NIX_CFLAGS_LINK": " -fuse-ld=mold",
+        }
+        self.environment["toolInputs"] = cache.compiler_tool_inputs(
+            self.environment["flags"]
+        )
+        alpha = copy.deepcopy(self.identity())
+        self.assertFalse(alpha["cacheEligible"])
+        linker.write_text("Beta linker")
+        self.environment["toolInputs"] = cache.compiler_tool_inputs(
+            self.environment["flags"]
+        )
+        beta = self.identity()
+        self.assertNotEqual(alpha["key"], beta["key"])
+        self.assertNotEqual(
+            alpha["environment"]["toolInputs"]["NIX_BINTOOLS"]["sha256"],
+            beta["environment"]["toolInputs"]["NIX_BINTOOLS"]["sha256"],
+        )
+
     def test_mismatch_diagnostics_report_paths_and_redact_flags(self):
         state = self.root / "output/state.json"
         secret = "DIAGNOSTIC_PRIVATE_SENTINEL"

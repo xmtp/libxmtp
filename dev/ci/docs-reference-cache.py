@@ -44,9 +44,9 @@ INCLUDE_NAME = re.compile(r"\binclude_(?:str|bytes)\b")
 # Review compiler readers before updating these digests. A changed reader can
 # add ignored or external inputs that a complete Git tree does not cover.
 REVIEWED_READERS = {
-    "rust": "60f32dca727497cd9143ec3c6890dca203ae1e3ede46e999215ffe1ac7ab426e",
-    "kotlin": "36ce8e0f0c971cfcc97473a74851c42b1ecaf455f5c53e338998bebdc8decd92",
-    "swift": "6387e0ee2418ca5d4b02088dc710178a40ea7009d24ffd17017304a63afb6927",
+    "rust": "20bd14eca9457f78a0bd60744c38cba80bcda4d0e2d41235e7573eea12812165",
+    "kotlin": "3ae606a1e8d5f1190d215fcfe237f382f4994d1fc1aa5bd926667479449b482d",
+    "swift": "dd15cd92903762340cf775b0e3a2058aa779cba497e0bfe4ffaa83a85a05fd8f",
 }
 
 JS_FAMILIES = ("sdks/node/", "sdks/browser/", "sdks/agent/")
@@ -365,6 +365,7 @@ def tool_identity(kind, root):
             "NIX_CFLAGS_LINK",
             "NIX_LDFLAGS",
             "NIX_CC",
+            "NIX_BINTOOLS",
         )
         or name.startswith(
             (
@@ -417,6 +418,13 @@ def is_tool_flag(name):
     )
 
 
+def mold_link_selected(value):
+    try:
+        return shlex.split(value) == ["-fuse-ld=mold"]
+    except ValueError:
+        return False
+
+
 def compiler_tool_inputs(flags):
     records = {}
     for name, value in flags.items():
@@ -430,6 +438,14 @@ def compiler_tool_inputs(flags):
         records[name] = {"path": str(executable)}
         if executable.is_file():
             records[name]["sha256"] = digest(executable.read_bytes())
+    if flags.get("NIX_BINTOOLS"):
+        name = (
+            "ld.mold" if mold_link_selected(flags.get("NIX_CFLAGS_LINK", "")) else "ld"
+        )
+        executable = (Path(flags["NIX_BINTOOLS"]) / "bin" / name).resolve()
+        records["NIX_BINTOOLS"] = {"path": str(executable)}
+        if executable.is_file():
+            records["NIX_BINTOOLS"]["sha256"] = digest(executable.read_bytes())
     return records
 
 
@@ -473,6 +489,22 @@ def flag_contract(kind, environment):
                 continue
         if name == "NIX_CC" and is_nix_path(value):
             continue
+        if name == "NIX_BINTOOLS":
+            record = tools.get(name, {})
+            if (
+                is_nix_path(value)
+                and record.get("sha256")
+                and is_nix_path(record.get("path", ""))
+            ):
+                continue
+        if name == "NIX_CFLAGS_LINK" and mold_link_selected(value):
+            compiler = tools.get("CC", {})
+            linker = tools.get("NIX_BINTOOLS", {})
+            if all(
+                record.get("sha256") and is_nix_path(record.get("path", ""))
+                for record in (compiler, linker)
+            ) and Path(linker["path"]).name in ("mold", "ld.mold"):
+                continue
         if name in (
             "NIX_CFLAGS_COMPILE",
             "NIX_CFLAGS_LINK",
@@ -507,11 +539,26 @@ def flag_contract(kind, environment):
 
 
 def pinned_nix_flags(value):
-    words = shlex.split(value)
+    try:
+        words = shlex.split(value)
+    except ValueError:
+        return False
     index = 0
     while index < len(words):
         word = words[index]
-        if word in (
+        if word == "-rpath":
+            index += 1
+            if (
+                index >= len(words)
+                or re.fullmatch(
+                    r"/nix/store/[0-9abcdfghijklmnpqrsvwxyz]{32}-[^/]+(?:/[^/]+)*/lib(?:32|64)?",
+                    words[index],
+                )
+                is None
+                or not is_nix_path(words[index])
+            ):
+                return False
+        elif word in (
             "-I",
             "-L",
             "-F",
