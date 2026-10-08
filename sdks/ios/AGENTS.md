@@ -91,4 +91,4 @@ public records and typed errors. Do not add a second host cursor or content rule
 
 `dev/nix-shell 'just ios test-migration'` runs `LegacyMigrationTests` on macOS.
 It uses the pinned encrypted database and WAL in the internal converter crate.
-The required Swift job runs this test through the normal XCTest target.
+The required iOS unit job includes this test in the normal XCTest target.

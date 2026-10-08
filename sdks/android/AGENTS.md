@@ -129,4 +129,4 @@ generated reader options for scopes, filters, and replay. Keep typed errors and
 
 `dev/nix-shell 'just android test-migration'` runs `LegacyMigrationTest` in the
 normal JVM target with matched bindings and the host library. Gradle supplies
-the pinned legacy fixture directory. The required staging job runs this test.
+the pinned legacy fixture directory. The required Android unit job includes this test.

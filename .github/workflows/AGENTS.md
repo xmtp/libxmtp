@@ -37,8 +37,8 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   `test-ios` runs `just ios test skip-lifecycle`, so it does not repeat the lifecycle.
 
 - Migration uses the normal SDK test targets. Browser platform proofs include
-  migration. The Swift lifecycle workflow runs the focused migration test.
-  Android unit tests include the migration test.
+  migration. The iOS and Android unit jobs include their
+  migration tests.
 
 ## CI selection
 
