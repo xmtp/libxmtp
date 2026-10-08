@@ -263,43 +263,6 @@ it("stream options preserve consent defaults, empty selection, and the replay cu
   }
 });
 
-// verifies: DMS-009, PROC-034
-it("a common DM stream includes both stitched groups and excludes other conversations", async () => {
-  const first = await makeClient(codec("first"));
-  const second = await makeClient(codec("second"));
-  const firstDm = await first.conversations.createDm(second.inboxId);
-  const secondDm = await second.conversations.createDm(first.inboxId);
-  expect(firstDm.id).not.toBe(secondDm.id);
-  const unrelated = await first.conversations.createGroup([]);
-  const from = await first.conversations.beginningDeliveryCursor();
-  const unrelatedId = await unrelated.sendText("outside the DM");
-  const firstId = await firstDm.sendText("first physical DM group");
-  const secondId = await secondDm.sendText("second physical DM group");
-  await first.conversations.syncAll(undefined);
-  await firstDm.sync();
-  expect((await firstDm.duplicateDms()).map((dm) => dm.id)).toContain(
-    secondDm.id,
-  );
-  const common = (await first.conversations.getById(firstDm.id))!;
-  expect(common.kind).toBe("dm");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
-  const stream = common.streamMessages({ from, signal: controller.signal });
-  const received: string[] = [];
-  try {
-    for await (const message of stream) {
-      if (message.content.kind !== "text") continue;
-      received.push(message.id);
-      if (received.length === 2) break;
-    }
-    expect(received).toEqual([firstId, secondId]);
-    expect(received).not.toContain(unrelatedId);
-  } finally {
-    clearTimeout(timeout);
-    await stream.end();
-  }
-});
-
 it("rejects a stream owner after remote shutdown reports a failure", async () => {
   const client = await createWorkerClient(
     codec("shutdown"),

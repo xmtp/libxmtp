@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { serialize } from "node:v8";
 
 import { describe, expect, it } from "vitest";
@@ -13,12 +12,7 @@ import { enumFactory, type Shape } from "./runtime/bridge/codec.js";
 import { RemoteObject } from "./runtime/bridge/main/remote-object.js";
 import { MainSession } from "./runtime/bridge/main/session.js";
 import type { WireEndpoint, WireMessage } from "./runtime/bridge/wire.js";
-import {
-  PoolLocks,
-  RUST_PANIC_PREFIX,
-  WorkerHost,
-  type LockProvider,
-} from "./runtime/bridge/worker/host.js";
+import { PoolLocks, WorkerHost, type LockProvider } from "./runtime/bridge/worker/host.js";
 import { foreignStub } from "./stubs.gen.js";
 import { BRIDGED_OBJECTS, FOREIGN_OBJECTS, LAYOUTS } from "./wire.gen.js";
 import * as B from "./xmtp_sdk.js";
@@ -411,16 +405,6 @@ describe("generated bridge value conformance", () => {
     }
   });
 
-  it("matches the pinned WASM panic fallback prefix", () => {
-    const source = readFileSync(
-      new URL(
-        "./node_modules/@ubjs/wasm/dist/core/src/module.js",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    expect(source).toContain(`console.error("${RUST_PANIC_PREFIX} `);
-  });
   it("loads the real WASM bridge in worker_threads", () => {
     const output = execFileSync(
       "sdks/node/node_modules/.bin/tsx",

@@ -259,19 +259,12 @@ describe("Client", () => {
     }
   });
 
-  it("rejects operations after the client ends", async () => {
+  it("rejects operations after end and resolves a second end", async () => {
     const client = await createClient(createSigner().signer);
     await client.end();
     await expect(client.conversations.list()).rejects.toBeInstanceOf(
       XmtpError.ClientClosed,
     );
-  });
-
-  it("should close the client idempotently", async () => {
-    const { signer } = createSigner();
-    const client = await createClient(signer);
-    await client.end();
-    // a second call must resolve without throwing
     await expect(client.end()).resolves.not.toThrow();
   });
 });

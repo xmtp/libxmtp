@@ -7,38 +7,41 @@ import {
 } from "../../helpers.js";
 
 describe("conversation permissions", () => {
-  it("gets permissions for a group", async () => {
+  it("reads the policy set by each group permission flag", async () => {
     const creator = await createRegisteredIdentity();
     const member = await createRegisteredIdentity();
 
-    const groupResult = await runWithIdentity(creator, [
-      "conversations",
-      "create-group",
-      member.address,
-      "--json",
-    ]);
-    const group = parseJsonOutput<{ id: string }>(groupResult.stdout);
+    for (const [flag, policyType] of [
+      ["admin-only", "adminOnly"],
+      ["all-members", "allMembers"],
+    ] as const) {
+      const groupResult = await runWithIdentity(creator, [
+        "conversations",
+        "create-group",
+        member.address,
+        "--permissions",
+        flag,
+        "--json",
+      ]);
+      expect(groupResult.exitCode).toBe(0);
+      const group = parseJsonOutput<{ id: string }>(groupResult.stdout);
 
-    const result = await runWithIdentity(creator, [
-      "conversation",
-      "permissions",
-      group.id,
-      "--json",
-    ]);
+      const result = await runWithIdentity(creator, [
+        "conversation",
+        "permissions",
+        group.id,
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(0);
 
-    expect(result.exitCode).toBe(0);
-
-    const output = parseJsonOutput<{
-      conversationId: string;
-      permissions: {
-        policyType: number;
-        policySet: unknown;
-      };
-    }>(result.stdout);
-
-    expect(output.conversationId).toBe(group.id);
-    expect(output.permissions).toBeDefined();
-    expect(output.permissions.policyType).toBeDefined();
+      const output = parseJsonOutput<{
+        conversationId: string;
+        permissions: { policyType: string; policySet: unknown };
+      }>(result.stdout);
+      expect(output.conversationId).toBe(group.id);
+      expect(output.permissions.policyType).toBe(policyType);
+      expect(output.permissions.policySet).toBeDefined();
+    }
   });
 
   it("fails for DM conversation", async () => {

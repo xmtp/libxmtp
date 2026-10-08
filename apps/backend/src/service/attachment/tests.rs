@@ -77,13 +77,22 @@ async fn offer_published_iff_configured() -> TestResult {
         .get_configuration(api::GetConfigurationRequest {})
         .await?
         .into_inner();
-    let offer = published.attachments.expect("configured offer");
+    let offer = published.attachments.as_ref().expect("configured offer");
     assert_eq!(offer.base_url, attachment_config().base_url);
     assert_eq!(offer.max_upload_bytes, 1024);
     assert_eq!(offer.retention_seconds, 3600);
-    let wire = String::from_utf8_lossy(&offer.encode_to_vec()).into_owned();
-    assert!(!wire.contains("xmtps3secret"));
-    assert!(!wire.contains("xmtps3"));
+    let wire = String::from_utf8_lossy(&published.encode_to_vec()).into_owned();
+    for secret in [
+        "xmtps3secret",
+        "xmtps3",
+        "access_key_id",
+        "secret_access_key",
+        "endpoint",
+        "bucket",
+        "key_prefix",
+    ] {
+        assert!(!wire.contains(secret), "published secret field: {secret}");
+    }
     configured.stop().await
 }
 
@@ -104,30 +113,6 @@ async fn retention_published() -> TestResult {
         .attachments
         .expect("offer");
     assert_eq!(offer.retention_seconds, 0);
-    server.stop().await
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-// verifies: ATCH-006
-async fn no_storage_secrets_published() -> TestResult {
-    let server = TestServer::new(|config| config.attachments = Some(attachment_config())).await?;
-    let response = server
-        .configuration()
-        .get_configuration(api::GetConfigurationRequest {})
-        .await?
-        .into_inner();
-    let json = String::from_utf8_lossy(&response.encode_to_vec()).into_owned();
-    for secret in [
-        "xmtps3secret",
-        "xmtps3",
-        "access_key_id",
-        "secret_access_key",
-        "endpoint",
-        "bucket",
-        "key_prefix",
-    ] {
-        assert!(!json.contains(secret), "published secret field: {secret}");
-    }
     server.stop().await
 }
 
