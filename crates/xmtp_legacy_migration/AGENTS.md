@@ -22,3 +22,9 @@ bounded group IDs, then load one admitted group row at a time.
 
 Bound migration-history row count and version byte length in SQL before loading
 version strings. Keep the load query limited to the pinned migration count.
+
+Check sidecars beside both supplied and resolved source paths. Reject distinct
+files for one suffix; do not combine ambiguous source histories.
+
+Browser preparation uses a private OPFS working copy. Never export the complete
+source into a Vec or deserialize a second full copy in WASM memory.

@@ -68,6 +68,9 @@ pub enum InputError {
     #[cfg(target_arch = "wasm32")]
     #[error(transparent)]
     Storage(#[from] xmtp_db::StorageError),
+    #[cfg(target_arch = "wasm32")]
+    #[error(transparent)]
+    WorkingCopy(#[from] xmtp_db::database::OpfsWorkingCopyError),
 }
 
 /// Output failures retain their typed platform causes.
@@ -78,6 +81,9 @@ pub enum OutputError {
     #[cfg(target_arch = "wasm32")]
     #[error("browser archive output failed: {value:?}")]
     Browser { value: wasm_bindgen::JsValue },
+    #[cfg(target_arch = "wasm32")]
+    #[error(transparent)]
+    WorkingCopy(#[from] xmtp_db::database::OpfsWorkingCopyError),
 }
 
 /// Required row failures are distinct from optional metadata decode failures.

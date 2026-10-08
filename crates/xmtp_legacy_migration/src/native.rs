@@ -63,6 +63,7 @@ fn working_copy(
     cancel: &CancellationToken,
 ) -> Result<tempfile::TempDir, MigrationError> {
     live(cancel).map_err(output)?;
+    let supplied_source = source;
     let source = source.canonicalize().map_err(input)?;
     if !source.is_file() {
         return Err(MigrationError::invalid("source is not a database file"));
@@ -84,39 +85,57 @@ fn working_copy(
     };
     let mut files = Vec::new();
     for suffix in SIDECARS {
-        live(cancel).map_err(output)?;
-        let path = sidecar(&source, suffix);
-        if target == path {
-            return Err(MigrationError::invalid("output aliases source storage"));
-        }
-        match fs::metadata(&path) {
-            Ok(metadata) if metadata.is_file() => (),
-            Ok(_) => {
+        let mut selected = None;
+        let mut paths = vec![sidecar(supplied_source, suffix), sidecar(&source, suffix)];
+        paths.dedup();
+        for path in paths {
+            live(cancel).map_err(output)?;
+            if target == path {
+                return Err(MigrationError::invalid("output aliases source storage"));
+            }
+            match fs::metadata(&path) {
+                Ok(metadata) if metadata.is_file() => (),
+                Ok(_) => {
+                    return Err(MigrationError::invalid(
+                        "source storage is not a regular file",
+                    ));
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound && !suffix.is_empty() => {
+                    continue;
+                }
+                Err(error) => return Err(input(error)),
+            }
+            let file = match open_regular_source(&path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound && !suffix.is_empty() => {
+                    continue;
+                }
+                Err(error) => return Err(input(error)),
+            };
+            if target == path.canonicalize().map_err(input)? || same_file(&file, destination)? {
+                return Err(MigrationError::invalid("output aliases source storage"));
+            }
+            if let Some(previous) = &selected {
+                if same_file(previous, &path)? {
+                    continue;
+                }
                 return Err(MigrationError::invalid(
-                    "source storage is not a regular file",
+                    "source paths have conflicting sidecars",
                 ));
             }
-            Err(e) if e.kind() == io::ErrorKind::NotFound && !suffix.is_empty() => continue,
-            Err(e) => return Err(input(e)),
-        }
-        match open_regular_source(&path) {
-            Ok(file) => {
-                if *suffix == ".sqlcipher_salt" {
-                    check_salt_size(&file)?;
-                }
-                if target == path.canonicalize().map_err(input)? || same_file(&file, destination)? {
-                    return Err(MigrationError::invalid("output aliases source storage"));
-                }
-                if suffix.is_empty() {
-                    check_locks(&file, 0x4000_0000, 512)?;
-                }
-                if *suffix == "-shm" {
-                    check_locks(&file, 120, 8)?;
-                }
-                files.push((suffix, file));
+            if *suffix == ".sqlcipher_salt" {
+                check_salt_size(&file)?;
             }
-            Err(e) if e.kind() == io::ErrorKind::NotFound && !suffix.is_empty() => (),
-            Err(e) => return Err(input(e)),
+            if suffix.is_empty() {
+                check_locks(&file, 0x4000_0000, 512)?;
+            }
+            if *suffix == "-shm" {
+                check_locks(&file, 120, 8)?;
+            }
+            selected = Some(file);
+        }
+        if let Some(file) = selected {
+            files.push((suffix, file));
         }
     }
     let directory = tempfile::tempdir().map_err(output)?;

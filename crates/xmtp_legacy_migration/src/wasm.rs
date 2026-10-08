@@ -1,9 +1,9 @@
-//! Browser conversion owns a separate worker and SQL engine. Only the closed
-//! source export uses the shared OPFS pool; migrations run in memory.
+//! Browser conversion owns a separate worker and SQL engine. The closed
+//! source is copied in chunks; migrations run on a private OPFS working copy.
 use crate::{
     InputError, MigrationError, MigrationReport, OutputError, PrepareMigrationArchiveArgs,
 };
-use diesel::{Connection, SqliteConnection};
+use diesel::{Connection, SqliteConnection, connection::SimpleConnection};
 use std::io::{self, Write};
 use wasm_bindgen::prelude::*;
 
@@ -61,7 +61,18 @@ fn storage(error: xmtp_db::StorageError) -> MigrationError {
     }
 }
 
-/// Export the exact OPFS source name before opening a separate in-memory copy.
+fn working_error(error: xmtp_db::database::OpfsWorkingCopyError) -> MigrationError {
+    use xmtp_db::database::OpfsWorkingCopyError;
+    match error {
+        OpfsWorkingCopyError::Source(source) => storage(source),
+        error @ (OpfsWorkingCopyError::Output(_) | OpfsWorkingCopyError::OutputIo(_)) => {
+            MigrationError::Output(OutputError::WorkingCopy(error))
+        }
+        error => MigrationError::InvalidInput(InputError::WorkingCopy(error)),
+    }
+}
+
+/// Copy raw OPFS bytes to a private, disk-backed VFS before running SQLite.
 pub(crate) async fn prepare(
     args: PrepareMigrationArchiveArgs,
 ) -> Result<MigrationReport, MigrationError> {
@@ -78,20 +89,14 @@ pub(crate) async fn prepare(
             "output must name a separate archive",
         ));
     }
-    let mut bytes = xmtp_db::export_opfs_database(&args.database_path)
+    let working = xmtp_db::database::OpfsWorkingCopy::new(&args.database_path)
         .await
-        .map_err(storage)?;
-    if bytes.len() < 100 || !bytes.starts_with(b"SQLite format 3\0") {
-        return Err(MigrationError::invalid("source is not a SQLite database"));
-    }
-    // The closed pool export has no separate WAL. Match its import contract.
-    bytes[18] = 1;
-    bytes[19] = 1;
-    let mut conn = SqliteConnection::establish(":memory:")
+        .map_err(working_error)?;
+    let mut conn = SqliteConnection::establish(&working.database_uri())
         .map_err(|error| MigrationError::InvalidInput(InputError::Database(error)))?;
-    conn.deserialize_database_from_buffer(&bytes)?;
-    // SQLite owns a copy after deserialization.
-    drop(bytes);
+    conn.batch_execute(
+        "PRAGMA journal_mode=DELETE; PRAGMA cache_size=-2048; PRAGMA temp_store=FILE;",
+    )?;
     // Browser cancellation terminates the worker.
     crate::migrations::apply(&mut conn, || Ok(()))?;
     let mut sink = Output(begin_output(&args.output_path).await.map_err(output)?);
@@ -104,6 +109,7 @@ pub(crate) async fn prepare(
         Ok::<_, MigrationError>(report)
     })();
     drop(conn);
+    let cleanup = working.finish().map_err(working_error);
     xmtp_db::database::pause_sqlite_if_idle();
     let report = match result {
         Ok(report) => report,
@@ -113,6 +119,10 @@ pub(crate) async fn prepare(
             return Err(error);
         }
     };
+    if let Err(error) = cleanup {
+        let _ = discard_output(&sink.0).await;
+        return Err(error);
+    }
     commit_output(&sink.0).await.map_err(output)?;
     Ok(report)
 }

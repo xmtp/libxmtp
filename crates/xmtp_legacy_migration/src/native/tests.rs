@@ -720,6 +720,67 @@ async fn null_eligibility_fields_fail_without_publishing() {
     );
 }
 
+// verifies: MIG-001, MIG-002, MIG-004
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn source_symlinks_preserve_wal_and_salt() {
+    for supplied_sidecars in [false, true] {
+        let (directory, original) = fixture("encrypted.db3");
+        let aliases = directory.path().join("aliases");
+        fs::create_dir(&aliases)?;
+        let supplied = aliases.join("legacy.db3");
+        std::os::unix::fs::symlink(&original.database_path, &supplied)?;
+        if supplied_sidecars {
+            for suffix in SIDECARS.iter().filter(|suffix| !suffix.is_empty()) {
+                let from = sidecar(Path::new(&original.database_path), suffix);
+                if from.exists() {
+                    fs::rename(from, sidecar(&supplied, suffix))?;
+                }
+            }
+        }
+        let mut args = original.clone();
+        args.database_path = supplied.to_str().unwrap().to_owned();
+        let before_original = source_bytes(&original);
+        let before_supplied = source_bytes(&args);
+        let report = prepare_migration_archive(args.clone()).await?;
+        assert_eq!(
+            (
+                report.group_count,
+                report.message_count,
+                report.consent_count
+            ),
+            (2, 4, 1)
+        );
+        let records = elements(&report.archive_path).await;
+        assert!(records.iter().any(
+            |record| matches!(record, Element::GroupMessage(message) if message.id == vec![9; 32])
+        ));
+        assert_eq!(source_bytes(&original), before_original);
+        assert_eq!(source_bytes(&args), before_supplied);
+    }
+    let (directory, original) = fixture("encrypted.db3");
+    let supplied = directory.path().join("alias.db3");
+    std::os::unix::fs::symlink(&original.database_path, &supplied)?;
+    fs::copy(
+        sidecar(Path::new(&original.database_path), "-wal"),
+        sidecar(&supplied, "-wal"),
+    )?;
+    let mut args = original.clone();
+    args.database_path = supplied.to_str().unwrap().to_owned();
+    fs::write(&args.output_path, b"completed archive")?;
+    let before_original = source_bytes(&original);
+    let before_supplied = source_bytes(&args);
+    let before_entries = entries(directory.path());
+    assert!(matches!(
+        prepare_migration_archive(args.clone()).await,
+        Err(MigrationError::InvalidInput(_))
+    ));
+    assert_eq!(source_bytes(&original), before_original);
+    assert_eq!(source_bytes(&args), before_supplied);
+    assert_eq!(fs::read(&args.output_path)?, b"completed archive");
+    assert_eq!(entries(directory.path()), before_entries);
+}
+
 // verifies: MIG-004
 #[xmtp_common::test(unwrap_try = true)]
 async fn dropped_call_stops_source_copy() {
