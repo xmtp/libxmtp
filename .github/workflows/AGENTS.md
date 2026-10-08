@@ -55,6 +55,10 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   workflow. Do not include them in normal test suites or generated CI suites.
   `benchmark-example-android.yml` owns the manual Messenger benchmark.
 
+- Migration uses the normal SDK test targets. Browser platform proofs include
+  migration. The Swift lifecycle workflow runs the focused migration test.
+  Android unit tests include the migration test.
+
 ## CI selection
 
 `.github/ci-suites.yml` declares every CI suite: its workflow, `path_filters` (globs, Cargo
