@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Build and stage the new mobile SDK without changing the old SDK packages."""
 
 import argparse
@@ -208,7 +208,7 @@ def main():
             )
             run(
                 [
-                    sys.executable,
+                    "python3",
                     "crates/xmtp_sdk/dev/sdk-artifacts.py",
                     "build",
                     "--targets",

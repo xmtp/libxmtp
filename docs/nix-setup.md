@@ -136,90 +136,23 @@ nix flake show
 - **Omnix for CI orchestration** — the `.envrc` integrates with
   [omnix](https://omnix.page) for CI workflow management
 
-## Shared build cache (Kache)
+## Compiler cache
 
-Each Git worktree keeps its own `target/` directory. Kache 1.0.0 can reuse
-compiler output across worktrees. It does not replace `target/` or remove old
-build output. Keep each worktree's Cargo build lock and target directory.
+The Rust, local, WASM, Android, and iOS shells enable pinned Kache by default.
+CI uses the same helper through `setup-nix`. Nix derivations keep their own
+Nix/Crane caches. Each worktree keeps its own Cargo target directory.
 
-The `rust`, `default`, `wasm`, `android`, and `ios` Nix shells enable Kache when
-they start. They source `dev/kache-env` and select the pinned Kache binary as
-`RUSTC_WRAPPER`. You do not need to source the helper yourself.
+The helper preserves local compiler flags and profiles. CI sets
+`CARGO_INCREMENTAL=0` and disables adaptive and preserved incremental policies.
+On Darwin, only explicit library compiles are cached. Linked outputs, tests,
+proc macros, static libraries, and unknown forms go directly to rustc with
+unchanged arguments. Output verification remains enabled.
 
-```bash
-dev/nix-shell 'just check crate xmtp_common'
-dev/nix-shell 'just cache-stats'
-```
+Run `dev/nix-shell 'just cache-stats'` to inspect hits and misses. To opt out,
+use `XMTP_KACHE=0 dev/nix-shell 'just check'`. The default store is
+`${XDG_CACHE_HOME:-$HOME/.cache}/kache`, with a 10 GiB limit. Existing nonempty
+`KACHE_CACHE_DIR` and `KACHE_MAX_SIZE` values are kept.
 
-### Local incremental builds
-
-The helper keeps local compiler flags, features, profiles, and any explicit
-`CARGO_INCREMENTAL` value. Cargo uses its profile defaults when that value is
-unset. The WASM test profile and `just wasm check` still disable incremental
-builds to limit the size of WASM build data.
-
-On Linux, Kache can cache executable output. On Darwin, the wrapper caches only
-`rlib` and `lib` compiles. It passes binaries, dynamic libraries, proc macros,
-tests, static libraries, and unknown compile forms to rustc without caching
-them. Compiler arguments stay unchanged. The helper disables build-script caching and C/C++ link caching.
-It adds `CI` and `XMTP_TEST_LOGGING` to the cache key because our proc macros read
-those values without rustc environment dependency records.
-Different source, compilers, flags, features, profiles, and keyed environment
-values can produce different cache entries. Use `dev/nix-shell 'just cache-stats'`
-to measure reuse. Do not assume that a cache hit proves a workspace speedup.
-
-To start a fresh shell without Kache, set `XMTP_KACHE=0` before shell entry:
-
-```bash
-XMTP_KACHE=0 dev/nix-shell 'just check crate xmtp_common'
-```
-
-To disable the wrapper in an active shell, run `unset RUSTC_WRAPPER`. Set
-`XMTP_KACHE=0` as well if later shell entries must keep it disabled. Existing
-build output stays in place.
-
-### Cache size
-
-The helper defaults to `${XDG_CACHE_HOME:-$HOME/.cache}/kache` with a 10 GiB
-limit. Set `KACHE_CACHE_DIR` or `KACHE_MAX_SIZE` before shell entry to use a
-different directory or limit. The helper keeps nonempty explicit values.
-This store is shared across worktrees. Its limit does not limit any worktree's
-`target/` directory.
-
-```bash
-dev/nix-shell 'just cache-stats'
-dev/nix-shell 'just disk'
-dev/nix-shell 'just clean-incremental'
-dev/nix-shell 'just clean-incremental 30'
-dev/nix-shell 'just clean-incremental --minutes 30'
-```
-
-The cleanup commands remove incremental directories unused for 14 days by
-default, or for the selected number of days or minutes. During a long run with
-several worktrees, you can run a disk guard in a background shell:
-
-```bash
-while dev/nix-shell 'just clean-incremental --minutes 30' && df -h .; do sleep 600; done
-```
-
-### CI and releases
-
-Direct Cargo CI jobs use the official Kache action through the default
-`kache: true` input of `.github/actions/setup-nix`. The action keeps its own
-store and runtime. The compiler wrapper comes from the immutable Nix Kache
-package, so exact source and compiler checks can bind it. CI sets `CARGO_INCREMENTAL=0`,
-`KACHE_ADAPTIVE_INCREMENTAL=0`, and `KACHE_PRESERVE_INCREMENTAL=0`. These CI
-settings do not change local profile defaults.
-
-The reusable Rust reference job sets `kache: "false"` and keeps
-`CARGO_INCREMENTAL=0`. Its exact cache can restore the complete reference output
-without recompilation. Unknown compiler wrappers remain ineligible for that
-cache. Other direct Cargo jobs keep Kache enabled by default.
-
-CI can restore cached output in all contexts. It saves output only on branch
-pushes to `main` or `self-hosted`. Pull requests, tags, manual runs, and other
-branches cannot save output. Kache uses the GitHub Actions cache. It does not
-need S3 or new secrets.
-
-`nix build` derivations, releases, `.#validation`, and `.#nextest` use Nix and
-Crane caching. They do not use the outer shell's Kache wrapper.
+CI cache writes are limited to trusted pushes on main or self-hosted. Other
+contexts can restore the cache. Keep credentials out of source and derivations.
+Compiler cache hits do not qualify a whole-workflow time or cost target.

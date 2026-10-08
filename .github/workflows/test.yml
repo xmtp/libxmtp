@@ -1,45 +1,36 @@
 name: Test execution
-on:
+'on':
   workflow_call:
     inputs:
-      selection:
-        type: string
-        required: true
       suites:
         type: string
-        default: ''
-      prepared-products:
+        default: '["test_native_backend","test_validation","test_backend","test_workspace","test_keepalive","test_wasm","test_node","test_agent","test_xdbg","test_browser","test_bindings","test_sdk_staging","test_bridge_runtime","test_browser_platform"]'
+      run-bindings-ios:
         type: boolean
-        default: false
+        default: true
+      run-bindings-android:
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
   suites:
-    if: fromJSON(inputs.selection).checks.test_native_backend || fromJSON(inputs.selection).checks.test_validation || fromJSON(inputs.selection).checks.test_backend || fromJSON(inputs.selection).checks.test_workspace || fromJSON(inputs.selection).checks.test_keepalive || fromJSON(inputs.selection).checks.test_wasm || fromJSON(inputs.selection).checks.test_node || fromJSON(inputs.selection).checks.test_agent || fromJSON(inputs.selection).checks.test_xdbg || fromJSON(inputs.selection).checks.test_browser || fromJSON(inputs.selection).checks.test_bindings || fromJSON(inputs.selection).checks.test_sdk_staging || fromJSON(inputs.selection).checks.test_bridge_runtime || fromJSON(inputs.selection).checks.test_browser_platform
     strategy:
       fail-fast: true
       matrix:
-        suite: ${{ inputs.suites != '' && fromJSON(inputs.suites) || fromJSON(format('["none"{0}{1}{2}{3}{4}{5}{6}{7}{8}{9}{10}{11}{12}{13}]', fromJSON(inputs.selection).checks.test_native_backend && ',"test_native_backend"' || '', fromJSON(inputs.selection).checks.test_validation && ',"test_validation"' || '', fromJSON(inputs.selection).checks.test_backend && ',"test_backend"' || '', fromJSON(inputs.selection).checks.test_workspace && ',"test_workspace"' || '', fromJSON(inputs.selection).checks.test_keepalive && ',"test_keepalive"' || '', fromJSON(inputs.selection).checks.test_wasm && ',"test_wasm"' || '', fromJSON(inputs.selection).checks.test_node && ',"test_node"' || '', fromJSON(inputs.selection).checks.test_agent && ',"test_agent"' || '', fromJSON(inputs.selection).checks.test_xdbg && ',"test_xdbg"' || '', fromJSON(inputs.selection).checks.test_browser && ',"test_browser"' || '', fromJSON(inputs.selection).checks.test_bindings && ',"test_bindings"' || '', fromJSON(inputs.selection).checks.test_sdk_staging && ',"test_sdk_staging"' || '', fromJSON(inputs.selection).checks.test_bridge_runtime && ',"test_bridge_runtime"' || '', fromJSON(inputs.selection).checks.test_browser_platform && ',"test_browser_platform"' || '')) }}
-        exclude:
-          - suite: none
+        suite: ${{ fromJSON(inputs.suites) }}
     uses: ./.github/workflows/test-target.yml
     with:
       suite: ${{ matrix.suite }}
-      selection: ${{ inputs.selection }}
-      prepared-products: ${{ inputs.prepared-products }}
+      run-bindings-ios: ${{ inputs.run-bindings-ios }}
+      run-bindings-android: ${{ inputs.run-bindings-android }}
     secrets: inherit
   results:
     name: Test execution results
-    runs-on: blacksmith-4vcpu-ubuntu-2404
     if: always()
     needs: suites
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - name: Require complete selected suite results
-        env:
-          CI_SELECTION: ${{ inputs.selection }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-          CI_SUITES: ${{ inputs.suites }}
-        run: >-
-          python3 -B dev/ci/suite-gate.py --kind tests
-          --selection "$CI_SELECTION" --needs "$CI_NEEDS" --suites "$CI_SUITES"
+    - env:
+        PASSED: ${{ needs.suites.result == 'success' }}
+      run: test "$PASSED" = true

@@ -1,10 +1,6 @@
 name: Check Rust SDK unit tests
-on:
-  workflow_call:
-    inputs:
-      prepared-products:
-        type: boolean
-        default: false
+'on':
+  workflow_call: {}
 permissions:
   contents: read
 jobs:
@@ -14,30 +10,20 @@ jobs:
     timeout-minutes: 90
     env:
       NIX_DEVSHELL: rust
-      SQLX_OFFLINE: "true"
+      SQLX_OFFLINE: 'true'
     steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: rust
-          kache: "true"
-          docker-builder: "true"
-          github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@just
-      - name: Restore backend product
-        if: inputs.prepared-products
-        uses: ./.github/actions/backend-product
-        with:
-          artifact-name: ci-backend
-          allow-earlier-attempt: true
-      - name: Start prepared backend
-        if: inputs.prepared-products
-        run: dev/nix-shell 'just backend up-prepared'
-      - name: Start local backend
-        if: ${{ !inputs.prepared-products }}
-        run: dev/nix-shell 'just backend up'
-      - name: Run SDK crate tests with the existing debug test profile
-        run: dev/nix-shell 'just test crate xmtp_sdk'
-      - name: Dump Docker logs on failure
-        if: failure()
-        uses: jwalton/gh-docker-logs@v2
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: rust
+        kache: 'true'
+        docker-builder: 'true'
+        github-token: ${{ github.token }}
+    - uses: taiki-e/install-action@just
+    - name: Start local backend
+      run: dev/nix-shell 'just backend up'
+    - name: Run SDK crate tests with the existing debug test profile
+      run: dev/nix-shell 'just test crate xmtp_sdk'
+    - name: Dump Docker logs on failure
+      if: failure()
+      uses: jwalton/gh-docker-logs@v2

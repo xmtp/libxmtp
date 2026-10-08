@@ -54,8 +54,6 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",
-    "lint:prepared": "oxlint .",
-    "typecheck:prepared": "tsc",
     "test": "vitest run",
     "test:debug": "vitest run --inspect-brk --no-file-parallelism",
     "typecheck": "tsc"

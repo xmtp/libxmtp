@@ -51,8 +51,6 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",
-    "lint:prepared": "oxlint .",
-    "typecheck:prepared": "tsc --noEmit",
     "manifest": "oclif manifest",
     "prepack": "pnpm build && pnpm manifest",
     "start": "tsx bin/run.js",

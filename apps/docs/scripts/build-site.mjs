@@ -12,11 +12,7 @@ await buildSite({
       cwd: join(repositoryRoot, "apps/docs"),
       stdio: "inherit",
     };
-    const examplesTask =
-      process.env.XMTP_SDK_PREPARED_PRODUCTS === "1"
-        ? "check:examples:prepared"
-        : "check:examples";
-    execFileSync("pnpm", [examplesTask], options);
+    execFileSync("pnpm", ["check:examples"], options);
     execFileSync("pnpm", ["exec", "astro", "build"], options);
   },
 });

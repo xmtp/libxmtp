@@ -1,41 +1,28 @@
 name: Lint source
-on:
+'on':
   workflow_call:
     inputs:
-      selection:
-        type: string
-        required: true
       suites:
         type: string
-        default: ''
+        default: '["lint_workspace","lint_js","lint_config","lint_proto"]'
 permissions:
   contents: read
 jobs:
   suites:
-    if: fromJSON(inputs.selection).checks.lint_workspace || fromJSON(inputs.selection).checks.lint_js || fromJSON(inputs.selection).checks.lint_config || fromJSON(inputs.selection).checks.lint_proto
     strategy:
       fail-fast: true
       matrix:
-        suite: ${{ inputs.suites != '' && fromJSON(inputs.suites) || fromJSON(format('["none"{0}{1}{2}{3}]', fromJSON(inputs.selection).checks.lint_workspace && ',"lint_workspace"' || '', fromJSON(inputs.selection).checks.lint_js && ',"lint_js"' || '', fromJSON(inputs.selection).checks.lint_config && ',"lint_config"' || '', fromJSON(inputs.selection).checks.lint_proto && ',"lint_proto"' || '')) }}
-        exclude:
-          - suite: none
+        suite: ${{ fromJSON(inputs.suites) }}
     uses: ./.github/workflows/lint-target.yml
     with:
       suite: ${{ matrix.suite }}
-      selection: ${{ inputs.selection }}
     secrets: inherit
   results:
     name: Source lint results
-    runs-on: blacksmith-4vcpu-ubuntu-2404
     if: always()
     needs: suites
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - name: Require complete selected suite results
-        env:
-          CI_SELECTION: ${{ inputs.selection }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-          CI_SUITES: ${{ inputs.suites }}
-        run: >-
-          python3 -B dev/ci/suite-gate.py --kind source
-          --selection "$CI_SELECTION" --needs "$CI_NEEDS" --suites "$CI_SUITES"
+    - env:
+        PASSED: ${{ needs.suites.result == 'success' }}
+      run: test "$PASSED" = true

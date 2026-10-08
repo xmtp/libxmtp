@@ -28,7 +28,7 @@ class PackagingTestBase:
         self.root = Path(self.temporary.name).resolve()
         (self.root / "crates/xmtp_sdk").mkdir(parents=True)
         (self.root / "apps/xmtp_sdk_bindgen").mkdir(parents=True)
-        (self.root / "Cargo.toml").write_text("[workspace]\nmembers=[]\n")
+        (self.root / "Cargo.toml").write_text("fixture manifest")
         (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("template")
         self.config = self.root / "crates/xmtp_sdk/uniffi.toml"
         self.config.write_text("fixture configuration")

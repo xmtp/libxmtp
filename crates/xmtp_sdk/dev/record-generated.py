@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Record bindings with the same provenance schema as the CLI renderer."""
 
 import argparse

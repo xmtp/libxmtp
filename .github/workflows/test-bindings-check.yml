@@ -1,5 +1,5 @@
 name: Test Native SDK Check
-on:
+'on':
   workflow_call:
     inputs:
       run-ios:
@@ -10,46 +10,56 @@ on:
         default: true
 jobs:
   check-swift:
-    if: ${{ inputs.run-ios }}
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 30
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         target:
-          - aarch64-apple-darwin
+        - aarch64-apple-darwin
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: android
-          github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          kache: "true"
-      - name: Check native SDK compile
-        env:
-          NIX_DEVSHELL: ios
-        run: dev/nix-shell 'dev/agent-run cargo check --locked -p xmtp_sdk --target ${{ matrix.target }}'
-
+    - name: Checkout
+      uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: android
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache: 'true'
+    - name: Check native SDK compile
+      env:
+        NIX_DEVSHELL: ios
+      run: dev/nix-shell 'dev/agent-run cargo check --locked -p xmtp_sdk --target ${{ matrix.target }}'
+    if: inputs.run-ios
   check-android:
-    if: ${{ inputs.run-android }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     env:
       NIX_DEVSHELL: android
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: android
-          gradle-disk: "true"
-          github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          kache: "true"
-      - uses: taiki-e/install-action@just
-      - name: Start backend
-        run: dev/nix-shell 'just backend up'
-      - name: Check Android SDK compile
-        run: dev/nix-shell 'just android check'
+    - name: Checkout
+      uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: android
+        gradle-disk: 'true'
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache: 'true'
+    - uses: taiki-e/install-action@just
+    - name: Start backend
+      run: dev/nix-shell 'just backend up'
+    - name: Check Android SDK compile
+      run: dev/nix-shell 'just android check'
+    if: inputs.run-android
+  result:
+    if: always()
+    needs:
+    - check-swift
+    - check-android
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+    - env:
+        PASSED: ${{ (!inputs.run-ios || needs.check-swift.result == 'success') && (!inputs.run-android || needs.check-android.result
+          == 'success') }}
+      run: test "$PASSED" = true

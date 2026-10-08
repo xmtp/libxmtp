@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Check native build context: source fingerprint, compiler inputs, and deployment floors."""
 
 import json

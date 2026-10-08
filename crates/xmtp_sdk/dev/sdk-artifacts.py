@@ -1,26 +1,19 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Build each artifact once, then render only the selected targets."""
 
 import argparse
 from contextlib import contextmanager
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
-import shlex
 import subprocess
 import sys
 import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
-input_spec = importlib.util.spec_from_file_location(
-    "sdk_build_inputs", Path(__file__).with_name("sdk-build-inputs.py")
-)
-inputs = importlib.util.module_from_spec(input_spec)
-input_spec.loader.exec_module(inputs)
 TARGETS = ("swift", "kotlin", "node", "browser")
 # Live data embedded by the SDK dependency graph through include_str!.
 COMPILE_INPUTS = (
@@ -80,21 +73,17 @@ def source_hash(generator=False):
                     "flake.lock",
                     "rust-toolchain.toml",
                     ".cargo/config.toml",
-                    ".cargo/config",
                     "crates/xmtp_sdk/uniffi.toml",
                 )
             )
         if keep:
             selected.append((name, digest(path)))
-    if not generator:
-        embedded, _, _ = inputs.declared_inputs(ROOT)
-        selected += list(embedded.items())
     return hashlib.sha256(json.dumps(sorted(selected)).encode()).hexdigest()
 
 
 def compiler_host():
     """Read the host triple from the selected artifact compiler."""
-    compiler = inputs.compiler(ROOT)
+    compiler = os.environ.get("RUSTC") or os.environ.get("CARGO_BUILD_RUSTC") or "rustc"
     identity = subprocess.check_output([compiler, "-vV"], cwd=ROOT).decode()
     for line in identity.splitlines():
         if line.startswith("host: "):
@@ -102,54 +91,11 @@ def compiler_host():
     raise ValueError("Artifact compiler identity has no host triple")
 
 
-def native_tool_alias(name):
-    if name in (
-        "CC_FORCE_DISABLE",
-        "CC_SHELL_ESCAPED_FLAGS",
-        "CC_KNOWN_WRAPPER_CUSTOM",
-    ):
-        return False
-    return any(
-        name == tool
-        or name.startswith(tool + "_")
-        or name in ("HOST_" + tool, "TARGET_" + tool)
-        for tool in ("CC", "CXX", "AR", "RANLIB", "NVCC")
-    )
-
-
-def native_tools_supported():
-    if os.environ.get("CROSS_COMPILE"):
-        return False
-    _, config = inputs.cargo_config(ROOT)
-    # Cargo can inject a tool into build scripts. Relative and forced tool
-    # selection need a separate lookup contract before raw reuse is allowed.
-    if any(
-        key in config.get("build", {})
-        for key in ("rustc", "rustc-wrapper", "rustc-workspace-wrapper")
-    ):
-        return False
-    if any(
-        native_tool_alias(name)
-        or name
-        in ("RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CROSS_COMPILE")
-        or name.startswith("CARGO_BUILD_RUSTC")
-        for name in config.get("env", {})
-    ):
-        return False
-    for name, value in os.environ.items():
-        if native_tool_alias(name):
-            words = shlex.split(value)
-            if (
-                not words
-                or not Path(shutil.which(words[0]) or ROOT / words[0]).is_file()
-            ):
-                return False
-    return True
-
-
 def build_context():
     """Include the compiler and target flags in the artifact cache key."""
-    compiler_path = inputs.compiler(ROOT)
+    compiler_path = (
+        os.environ.get("RUSTC") or os.environ.get("CARGO_BUILD_RUSTC") or "rustc"
+    )
     compiler = subprocess.check_output([compiler_path, "-vV"], cwd=ROOT).decode()
     executable = Path(shutil.which(compiler_path) or ROOT / compiler_path)
     compiler_bytes = digest(executable.resolve()) if executable.is_file() else None
@@ -160,7 +106,6 @@ def build_context():
         in (
             "RUSTFLAGS",
             "CARGO_ENCODED_RUSTFLAGS",
-            "CARGO_BUILD_RUSTFLAGS",
             "SDKROOT",
             "MACOSX_DEPLOYMENT_TARGET",
             "RUSTC",
@@ -172,70 +117,12 @@ def build_context():
             "CFLAGS",
             "CXXFLAGS",
             "LDFLAGS",
-            "ARFLAGS",
-            "CXXSTDLIB",
-            "CC_SHELL_ESCAPED_FLAGS",
-            "CRATE_CC_NO_DEFAULTS",
-            "CC_FORCE_DISABLE",
-            "CC_KNOWN_WRAPPER_CUSTOM",
-            "CROSS_COMPILE",
-            "RUSTC_LINKER",
-            "WASM_MUSL_SYSROOT",
-            "WASI_SYSROOT",
-            "PAUTHTEST_SYSROOT",
-            "PAUTHTEST_RESOURCE_DIR",
             "PERL",
             "RANLIBFLAGS",
             "TARGET_RANLIB",
             "TARGET_RANLIBFLAGS",
             "HOST_RANLIB",
             "HOST_RANLIBFLAGS",
-            "VERGEN_GIT_SHA",
-            "CI",
-            "XMTP_TEST_LOGGING",
-            "CARGO_INCREMENTAL",
-            "KACHE_ADAPTIVE_INCREMENTAL",
-            "KACHE_PRESERVE_INCREMENTAL",
-            "KACHE_KEY_ENV_VARS",
-            "KACHE_BASE_DIR",
-            "KACHE_CACHE_EXECUTABLES",
-            "KACHE_BUILD_SCRIPT_CACHE",
-            "KACHE_CACHE_CC_LINKS",
-            "CARGO_BUILD_TARGET",
-            "RUSTC_WRAPPER",
-            "RUSTC_WORKSPACE_WRAPPER",
-            "CARGO_BUILD_RUSTC_WRAPPER",
-            "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
-            "PROTOC",
-            "PROTOC_INCLUDE",
-            "LIBCLANG_PATH",
-            "BINDGEN_EXTRA_CLANG_ARGS",
-            "PKG_CONFIG_PATH",
-            "PKG_CONFIG_LIBDIR",
-            "PKG_CONFIG_SYSROOT_DIR",
-            "CPATH",
-            "C_INCLUDE_PATH",
-            "CPLUS_INCLUDE_PATH",
-            "LIBRARY_PATH",
-            "LD",
-            "RUSTC_BOOTSTRAP",
-            "NIX_DONT_SET_RPATH",
-            "NIX_ENFORCE_PURITY",
-            "NIX_IGNORE_LD_THROUGH_GCC",
-        )
-        or name.startswith(
-            (
-                "CARGO_PROFILE_",
-                "NIX_CFLAGS_",
-                "NIX_LDFLAGS",
-                "NIX_CC",
-                "NIX_BINTOOLS",
-                "NIX_CXXSTDLIB",
-                "NIX_HARDENING",
-                "PKG_CONFIG_",
-                "BINDGEN_",
-                "DEP_",
-            )
         )
         or name.startswith(
             (
@@ -243,42 +130,14 @@ def build_context():
                 "CC_",
                 "CXX_",
                 "CFLAGS_",
-                "CXXFLAGS_",
-                "CXXSTDLIB_",
                 "AR_",
-                "ARFLAGS_",
                 "RANLIB_",
                 "RANLIBFLAGS_",
-                "NVCC",
                 "OPENSSL_",
             )
         )
         or "_OPENSSL_" in name
-        or name
-        in tuple(
-            prefix + tool
-            for prefix in ("HOST_", "TARGET_")
-            for tool in (
-                "CC",
-                "CXX",
-                "CFLAGS",
-                "CXXFLAGS",
-                "AR",
-                "ARFLAGS",
-                "RANLIB",
-                "RANLIBFLAGS",
-                "CXXSTDLIB",
-                "NVCC",
-            )
-        )
         or name.endswith("_DEPLOYMENT_TARGET")
-    }
-    keyed_cache_environment = {
-        name: os.environ.get(name)
-        for name in (
-            part.strip() for part in os.environ.get("KACHE_KEY_ENV_VARS", "").split(",")
-        )
-        if name
     }
     archive_indexes = {}
     for name, value in flags.items():
@@ -296,51 +155,9 @@ def build_context():
                     probe.stderr.decode(errors="replace"),
                 ]
             archive_indexes[name] = identity
-    tool_bytes = {}
-    # cc can select a default compiler from PATH when no alias is set. Bind
-    # those tools too; a wrapper's additional compiler token also has bytes.
-    tools = {
-        "default:" + name: name
-        for name in ("cc", "clang", "gcc", "c++", "clang++", "g++", "ar", "ranlib")
-    }
-    for name, value in flags.items():
-        if name in (
-            "CC",
-            "CXX",
-            "AR",
-            "LD",
-            "PROTOC",
-            "RUSTC_WRAPPER",
-            "RUSTC_WORKSPACE_WRAPPER",
-            "CARGO_BUILD_RUSTC_WRAPPER",
-            "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
-        ) or native_tool_alias(name):
-            tools[name] = value
-    for name, value in tools.items():
-        words = shlex.split(value)
-        tool_bytes[name] = []
-        for word in words:
-            selected = shutil.which(word)
-            tool = Path(selected or ROOT / word)
-            if tool.is_file():
-                tool_bytes[name].append([str(tool.resolve()), digest(tool.resolve())])
-    cargo, _ = inputs.cargo_config(ROOT)
-    _, declared_environment, workspace_path = inputs.declared_inputs(ROOT)
     return hashlib.sha256(
         json.dumps(
-            [
-                compiler,
-                compiler_bytes,
-                flags,
-                keyed_cache_environment,
-                archive_indexes,
-                tool_bytes,
-                cargo,
-                inputs.compiler_flags(ROOT),
-                declared_environment,
-                workspace_path,
-            ],
-            sort_keys=True,
+            [compiler, compiler_bytes, flags, archive_indexes], sort_keys=True
         ).encode()
     ).hexdigest()
 
@@ -360,42 +177,13 @@ def targets(value):
 
 
 def required(names):
-    return (
-        (["native"] if set(names) - {"browser"} else [])
-        + ["bindgen"]
-        + (["wasm", "pure"] if "browser" in names else [])
-    )
+    return ["native", "bindgen"] + (["wasm", "pure"] if "browser" in names else [])
 
 
 def verify(record):
     for path, expected in record["files"].items():
         if not Path(path).is_file() or digest(Path(path)) != expected:
             raise ValueError(f"artifact mismatch: {path}")
-
-
-def reuse(record, key, directory, expected):
-    """Reuse matching role bytes from this checkout's restored cache."""
-    if not record or record["key"] != key:
-        return None
-    for name, value in expected.items():
-        if record.get(name) != value:
-            raise ValueError(f"artifact context mismatch: {name}")
-    names = [Path(path).name for path in record["files"]]
-    if (
-        not names
-        or len(set(names)) != len(names)
-        or any(name in ("", ".", "..") for name in names)
-    ):
-        raise ValueError("artifact cache file names mismatch")
-    current = {
-        **record,
-        "files": {
-            str(directory / name): checksum
-            for name, checksum in zip(names, record["files"].values())
-        },
-    }
-    verify(current)
-    return current
 
 
 def build(args):
@@ -408,20 +196,9 @@ def build(args):
     index = (
         json.loads(index_file.read_text()) if index_file.exists() else {"artifacts": {}}
     )
-    index["execution"] = []
     rust_source = source_hash()
     generator = source_hash(True)
     context = build_context()
-    compiler = subprocess.check_output(
-        [inputs.compiler(ROOT), "-vV"], cwd=ROOT
-    ).decode()
-    # Custom cross-prefix lookup is outside the reviewed native tool contract.
-    # Compile in a fresh owned directory instead of reusing raw role bytes.
-    cacheable = inputs.cache_contract_supported(ROOT) and native_tools_supported()
-    compile_root = output / "build" / context
-    if not cacheable:
-        compile_root.mkdir(parents=True, exist_ok=True)
-        compile_root = Path(tempfile.mkdtemp(prefix="unproved-", dir=compile_root))
     for kind in required(args.targets):
         if kind == "bindgen" and args.skip_bindgen:
             continue
@@ -435,7 +212,6 @@ def build(args):
             json.dumps(
                 [
                     kind,
-                    "role-receipt-v2",
                     context,
                     profile,
                     features,
@@ -446,49 +222,24 @@ def build(args):
                 ]
             ).encode()
         ).hexdigest()
-        expected = {
-            "source": rust_source,
-            "profile": profile,
-            "features": features,
-            "target": args.rust_target if kind == "native" else "",
-            "buildContextHash": context,
-            "compilerIdentity": compiler,
-        }
-        if kind == "bindgen":
-            expected["generator"] = generator
-        if cacheable and kind == "bindgen" and args.reuse_bindgen:
+        if kind == "bindgen" and args.reuse_bindgen:
             shared = args.reuse_bindgen / "artifacts.json"
             if shared.exists():
-                cached = reuse(
-                    json.loads(shared.read_text())["artifacts"].get("bindgen"),
-                    key,
-                    args.reuse_bindgen.resolve() / kind,
-                    expected,
+                shared_record = json.loads(shared.read_text())["artifacts"].get(
+                    "bindgen"
                 )
-                if cached:
-                    index["execution"].append(
-                        {"role": kind, "action": "reuse-shared", "key": key}
-                    )
-                    index["artifacts"][kind] = cached
+                if shared_record and shared_record["key"] == key:
+                    verify(shared_record)
+                    index["artifacts"][kind] = shared_record
                     index_file.write_text(json.dumps(index, indent=2) + "\n")
                     print(f"SDK reuse shared bindgen {key}", flush=True)
                     continue
-        cached = (
-            reuse(index["artifacts"].get(kind), key, output / kind, expected)
-            if cacheable
-            else None
-        )
-        if cached:
-            index["execution"].append({"role": kind, "action": "reuse", "key": key})
-            index["artifacts"][kind] = cached
-            index_file.write_text(json.dumps(index, indent=2) + "\n")
+        cached = index["artifacts"].get(kind)
+        if cached and cached["key"] == key:
+            verify(cached)
             print(f"SDK reuse {kind} {key}", flush=True)
             continue
-        # Cargo writes each role in sequence. Compatible host dependencies share
-        # one directory; each role still has its own receipt and saved bytes.
-        cargo_target = compile_root / (
-            "host" if kind in ("native", "bindgen") else "wasm"
-        )
+        cargo_target = output / "build" / kind
         command = [
             "cargo",
             "build",
@@ -513,7 +264,6 @@ def build(args):
             env["OPENSSL_NO_VENDOR"] = "0"
             env["OPENSSL_STATIC"] = "1"
         started = time.monotonic()
-        index["execution"].append({"role": kind, "action": "build", "key": key})
         run(command, env=env)
         folder = (
             cargo_target
@@ -563,24 +313,6 @@ def build(args):
             "source": rust_source,
             "generator": generator,
             "target": args.rust_target if kind == "native" else "",
-            "buildContextHash": context,
-            "instrumentation": (
-                "coverage"
-                if "instrument-coverage"
-                in (
-                    os.environ.get("RUSTFLAGS", "")
-                    + os.environ.get("CARGO_ENCODED_RUSTFLAGS", "")
-                )
-                else "none"
-            ),
-            "compilerFlags": inputs.compiler_flags(ROOT),
-            "debugProfileValid": inputs.debug_profile_valid(ROOT),
-            "profileOverrides": {
-                name: value
-                for name, value in os.environ.items()
-                if name.startswith("CARGO_PROFILE_")
-            },
-            "compilerIdentity": compiler,
         }
         index_file.write_text(json.dumps(index, indent=2) + "\n")
         print(f"SDK built {kind} {key}", flush=True)
@@ -657,14 +389,10 @@ def render(args):
         ).encode()
     ).hexdigest()
     binary = next(iter(selected["bindgen"]["files"]))
-    native = (
-        next(
-            path
-            for path in selected["native"]["files"]
-            if Path(path).suffix not in (".a", ".lib")
-        )
-        if "native" in selected
-        else None
+    native = next(
+        path
+        for path in selected["native"]["files"]
+        if Path(path).suffix != ".a" and Path(path).suffix != ".lib"
     )
     destination = args.out.resolve()
     destination.mkdir(parents=True, exist_ok=True)

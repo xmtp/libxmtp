@@ -9,8 +9,6 @@
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
     "lint:source": "node dev/js/lint-source.mjs",
-    "lint:prepared": "pnpm -r run lint:prepared",
-    "typecheck:prepared": "pnpm -r run typecheck:prepared",
     "test": "pnpm -r --filter './sdks/*' --filter './apps/*' --filter './dev/*' run test"
   },
   "devDependencies": {

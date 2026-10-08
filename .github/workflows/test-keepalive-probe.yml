@@ -1,6 +1,8 @@
 name: Test keepalive-probe
 on:
   workflow_call:
+env:
+  NIX_DEVSHELL: rust
 jobs:
   check:
     name: Check (keepalive-probe)

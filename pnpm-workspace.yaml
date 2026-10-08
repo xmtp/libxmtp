@@ -20,15 +20,6 @@ tasks:
   lint:
     # Published-type probes read this package's output as well as dependencies.
     dependsOn: ["build"]
-  # These checks consume products that CI has already validated and restored.
-  lint:prepared:
-    dependsOn: []
-  typecheck:prepared:
-    dependsOn: []
-  check:examples:prepared:
-    dependsOn: []
-  build:prepared:
-    dependsOn: []
   format:
     dependsOn: []
   format:check:

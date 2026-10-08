@@ -37,13 +37,6 @@ executable: without a bundle identifier, default storage fails with
 diagnostics. The negative consumers check typed IDs, typed codec values, and
 `Sendable` codec values. They are not part of the test target.
 
-`just ios docs` builds the current host release product and checks its source,
-generator, file receipts, and framework. It runs DocC in a temporary SwiftPM
-view with the current package, handwritten sources, tests, and generated
-bindings. It keeps checkout sources and `Package.resolved` unchanged. The
-reference output keeps the requested path. CI records the resolved view inputs
-in `$RUNNER_TEMP/docs-swift-inputs.json`.
-
 `RuntimeFakes.swift` in `Tests/XmtpSdkTests` replaces the generated Rust-backed
 objects with fakes, so a test can run the Swift runtime without a backend. The
 listener gate, reader iterator and event iterator tests use it. These tests and
@@ -74,13 +67,10 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
   itself; a second `end()` returns without an error.
 - CI runs the test, example, and simulator recipes through `just backend ci`.
   This starts disposable native PostgreSQL, S3, and backend services.
-- The required Swift job in `test-swift-seams.yml` runs `test-seams` and
-  `check-consumer`. The required `test-ios.yml` job runs `test skip-seams`
-  and checks examples for broad Swift inputs. Specific native inputs also
-  select `test-simulator`, which still runs every test on the simulator.
-  Direct reusable calls keep both unit and simulator checks by default.
-  Unit, seam, consumer, and example checks retain their matched fast native
-  framework. Conditional simulator checks do not remove that prerequisite.
+- The required Swift job in `test-sdk.yml` runs `test-seams` and
+  `check-consumer`. `test-ios.yml` does not gate merge. It runs
+  `test skip-seams`, so its macOS run does not repeat the seam proofs.
+  `test-simulator` still runs every test on the simulator.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
 - Example builds select `arm64` to match the shipped simulator library.
 - Swift builds and tests use their default worker counts.

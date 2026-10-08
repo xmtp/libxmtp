@@ -16,9 +16,7 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `just docs browsers`: install Chromium on macOS. Linux uses the Nix browser.
 - `just docs dev`: start the local site.
 - `just docs build`: build the site.
-- `just docs build-prepared`: build the site from validated restored SDK products.
 - `just docs check-examples`: check source examples against the built local SDKs.
-- `just docs check-examples-prepared`: check examples with restored SDK products.
 - `just docs check-agent-docs`: check all reachable public Agent SDK declarations for TSDoc.
 - `just docs lint`: lint the site code and Markdown.
 - `just docs format-check`: check formatting.
@@ -30,22 +28,9 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `dev/nix-shell 'just docs check'`: check source links and the composed artifact.
 - `dev/nix-shell 'just docs check-external'`: check external URLs with Lychee.
 
-Run the accessibility baseline with
-`NIX_DEVSHELL=docs dev/nix-shell 'node apps/docs/scripts/check-lighthouse.mjs'`.
-On macOS, this check uses the headless shell from the installed Playwright
-browser revision. Run `dev/nix-shell 'just docs browsers'` if it is missing.
-`CHROME_PATH` selects an explicit browser on every platform. Linux keeps its
-Nix browser selection. The accessibility limits and audit categories are the
-same for both platforms.
-
 `just docs build` and `just docs check-examples` select each SDK product from its
 source manifest, then run its package tasks with the pnpm dependency graph. Do not
 add a separate SDK build before either command.
-
-CI uses the prepared commands after it validates and restores complete products.
-These commands do not generate or stage the Rust SDK again. The site command
-still checks examples and Twoslash, generates references, and writes its real
-freshness stamp. Use ordinary commands for local product generation.
 
 ## Build and check scripts
 

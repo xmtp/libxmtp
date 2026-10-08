@@ -15,8 +15,6 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",
-    "lint:prepared": "oxlint .",
-    "typecheck:prepared": "tsc",
     "test": "vitest run",
     "typecheck": "tsc"
   },

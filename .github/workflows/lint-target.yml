@@ -1,30 +1,27 @@
 name: Source lint target
-on:
+'on':
   workflow_call:
     inputs:
       suite:
-        type: string
-        required: true
-      selection:
         type: string
         required: true
 permissions:
   contents: read
 jobs:
   lint_workspace:
-    if: inputs.suite == 'lint_workspace' && fromJSON(inputs.selection).checks.lint_workspace
+    if: inputs.suite == 'lint_workspace'
     uses: ./.github/workflows/lint-workspace.yml
     secrets: inherit
   lint_js:
-    if: inputs.suite == 'lint_js' && fromJSON(inputs.selection).checks.lint_js
+    if: inputs.suite == 'lint_js'
     uses: ./.github/workflows/lint-js.yml
     secrets: inherit
   lint_config:
-    if: inputs.suite == 'lint_config' && fromJSON(inputs.selection).checks.lint_config
+    if: inputs.suite == 'lint_config'
     uses: ./.github/workflows/lint-config.yml
     secrets: inherit
   lint_proto:
-    if: inputs.suite == 'lint_proto' && fromJSON(inputs.selection).checks.lint_proto
+    if: inputs.suite == 'lint_proto'
     uses: ./.github/workflows/lint-proto.yml
     secrets: inherit
   result:
@@ -32,14 +29,14 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 1
     if: always()
-    needs: [lint_workspace, lint_js, lint_config, lint_proto]
+    needs:
+    - lint_workspace
+    - lint_js
+    - lint_config
+    - lint_proto
     steps:
-      - uses: actions/checkout@v6
-      - name: Require the selected literal workflow
-        env:
-          CI_SELECTION: ${{ inputs.selection }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-          CI_SUITE: ${{ inputs.suite }}
-        run: >-
-          python3 -B dev/ci/suite-gate.py --kind source
-          --selection "$CI_SELECTION" --needs "$CI_NEEDS" --row "$CI_SUITE"
+    - env:
+        PASSED: ${{ (inputs.suite == 'lint_workspace' && needs.lint_workspace.result == 'success') || (inputs.suite == 'lint_js' &&
+          needs.lint_js.result == 'success') || (inputs.suite == 'lint_config' && needs.lint_config.result == 'success') || (inputs.suite
+          == 'lint_proto' && needs.lint_proto.result == 'success') }}
+      run: test "$PASSED" = true

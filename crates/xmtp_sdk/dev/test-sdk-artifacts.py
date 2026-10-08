@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Check artifact reuse, render input checks, toolchain inputs, and stale output cleanup."""
 
 import argparse
@@ -8,16 +8,24 @@ import os
 import re
 from pathlib import Path
 import subprocess
-import shutil
 import tempfile
 from unittest.mock import patch
 import unittest
 
-from artifact_compiler_input_tests import CompilerInputTests
-from artifact_test_modules import artifacts, mobile
+spec = importlib.util.spec_from_file_location(
+    "artifacts", Path(__file__).with_name("sdk-artifacts.py")
+)
+artifacts = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(artifacts)
+
+mobile_spec = importlib.util.spec_from_file_location(
+    "mobile", Path(__file__).with_name("mobile-package.py")
+)
+mobile = importlib.util.module_from_spec(mobile_spec)
+mobile_spec.loader.exec_module(mobile)
 
 
-class ArtifactTests(CompilerInputTests, unittest.TestCase):
+class ArtifactTests(unittest.TestCase):
     def test_android_targets_vendor_openssl_with_inherited_host_libraries(self):
         host = {
             "ANDROID_NDK_HOME": "/fixture/ndk",
@@ -211,6 +219,32 @@ class ArtifactTests(CompilerInputTests, unittest.TestCase):
             )
             self.assertEqual(dict(os.environ), inputs)
 
+    def test_compiler_host_uses_artifact_compiler_selection(self):
+        for inputs, expected in (
+            ({}, "rustc"),
+            ({"CARGO_BUILD_RUSTC": "/build/rustc"}, "/build/rustc"),
+            (
+                {"RUSTC": "/selected/rustc", "CARGO_BUILD_RUSTC": "/build/rustc"},
+                "/selected/rustc",
+            ),
+        ):
+            with (
+                self.subTest(inputs=tuple(inputs)),
+                patch.dict(os.environ, inputs, clear=True),
+                patch.object(
+                    artifacts.subprocess,
+                    "check_output",
+                    return_value=b"rustc fixture\nhost: aarch64-apple-darwin\n",
+                ) as query,
+            ):
+                self.assertEqual(artifacts.compiler_host(), "aarch64-apple-darwin")
+                query.assert_called_once_with([expected, "-vV"], cwd=artifacts.ROOT)
+        with patch.object(
+            artifacts.subprocess, "check_output", return_value=b"rustc fixture\n"
+        ):
+            with self.assertRaisesRegex(ValueError, "no host triple"):
+                artifacts.compiler_host()
+
     def test_android_archive_index_uses_target_tool_and_keeps_caller_inputs(self):
         host = {
             "ANDROID_NDK_HOME": "/fixture/ndk",
@@ -259,6 +293,39 @@ class ArtifactTests(CompilerInputTests, unittest.TestCase):
                         | ({override: "/caller/llvm-ranlib"} if override else {}),
                         "Parent environment changed",
                     )
+
+    def test_archive_index_inputs_change_artifact_cache_context(self):
+        names = (
+            "RANLIB",
+            "RANLIBFLAGS",
+            "TARGET_RANLIB",
+            "TARGET_RANLIBFLAGS",
+            "HOST_RANLIB",
+            "HOST_RANLIBFLAGS",
+        ) + tuple(
+            prefix + target
+            for prefix in ("RANLIB_", "RANLIBFLAGS_")
+            for triple in mobile.ANDROID.values()
+            for target in (triple, triple.replace("-", "_"))
+        )
+        names += tuple(
+            "AARCH64_APPLE_DARWIN_OPENSSL_" + key for key in ("LIB_DIR", "INCLUDE_DIR")
+        )
+        self.context_patch.stop()
+        try:
+            with patch.object(
+                artifacts.subprocess, "check_output", return_value=b"fixture rustc"
+            ):
+                for name in names:
+                    with (
+                        self.subTest(input=name),
+                        patch.dict(os.environ, {}, clear=True),
+                    ):
+                        before = artifacts.build_context()
+                        os.environ[name] = "caller-selected input"
+                        self.assertNotEqual(artifacts.build_context(), before)
+        finally:
+            self.context_patch.start()
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -327,159 +394,6 @@ class ArtifactTests(CompilerInputTests, unittest.TestCase):
         self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
         self.assertFalse((self.args.out / "typescript-wasm").exists())
 
-    def test_browser_build_and_render_need_no_native_product(self):
-        self.args.targets = ("browser",)
-        artifacts.build(self.args)
-        artifacts.render(self.args)
-        self.assertFalse((self.args.artifacts / "native").exists())
-        self.assertEqual(len(self.cargo_environments), 3)
-        for tree in ("typescript-wasm", "typescript-pure"):
-            self.assertTrue((self.args.out / tree / "index.ts").is_file())
-            record = json.loads(
-                (self.args.out / tree / "sdk-contract.json").read_text()
-            )
-            self.assertEqual(record["artifact"]["profile"], "debug")
-        self.assertFalse((self.args.out / "typescript-napi").exists())
-
-    def test_sequential_host_builds_share_dependencies_and_keep_role_bytes(self):
-        artifacts.build(self.args)
-        self.assertEqual(
-            self.cargo_environments[0]["CARGO_TARGET_DIR"],
-            self.cargo_environments[1]["CARGO_TARGET_DIR"],
-        )
-        record = json.loads((self.args.artifacts / "artifacts.json").read_text())[
-            "artifacts"
-        ]
-        for role in ("native", "bindgen"):
-            artifacts.verify(record[role])
-            self.assertEqual(record[role]["profile"], "debug")
-            self.assertEqual(record[role]["features"], "")
-        artifacts.render(self.args)
-        self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
-
-    def restored_checkout(self):
-        first = self.root / "first-checkout"
-        inputs = {
-            "Cargo.toml": "[workspace]\nmembers=[]\n",
-            "crates/fixture/src/lib.rs": "pub fn fixture() {}\n",
-            "apps/xmtp_sdk_bindgen/runtime/ts/fixture.ts": "export const marker='first';\n",
-            "sdks/node/test.ts": "export const marker='sdk';\n",
-        }
-        for name, body in inputs.items():
-            path = first / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(body)
-        subprocess.run(["git", "init", "-q", str(first)], check=True)
-        self.hash_patch.stop()
-        self.args.artifacts = first / "target/sdk-artifacts"
-        with patch.object(artifacts, "ROOT", first):
-            artifacts.build(self.args)
-        second = self.root / "fresh-checkout"
-        shutil.copytree(first, second)
-        for name in inputs:
-            path = second / name
-            os.utime(path, (path.stat().st_atime, path.stat().st_mtime + 600))
-        shutil.rmtree(first)
-        self.args.artifacts = second / "target/sdk-artifacts"
-        self.args.out = second / "target/sdk-generated"
-        self.calls.clear()
-        self.cargo_environments.clear()
-        return second
-
-    def test_restored_content_skips_cargo_despite_new_checkout_mtimes_and_sdk_ts(self):
-        with patch.object(artifacts, "build_context", return_value="b" * 64):
-            checkout = self.restored_checkout()
-            (checkout / "sdks/node/test.ts").write_text(
-                "export const changed='typescript';\n"
-            )
-            with patch.object(artifacts, "ROOT", checkout):
-                artifacts.build(self.args)
-                self.assertEqual(self.cargo_environments, [])
-                artifacts.render(self.args)
-            record = json.loads((self.args.artifacts / "artifacts.json").read_text())[
-                "artifacts"
-            ]
-            for role in ("native", "bindgen"):
-                artifacts.verify(record[role])
-                self.assertTrue(
-                    all(str(checkout) in path for path in record[role]["files"])
-                )
-                self.assertEqual(record[role]["profile"], "debug")
-                self.assertEqual(record[role]["features"], "")
-            self.assertTrue((self.args.out / "typescript-napi/index.ts").is_file())
-
-    def test_restored_cache_rebuilds_changed_rust_content(self):
-        with patch.object(artifacts, "build_context", return_value="b" * 64):
-            checkout = self.restored_checkout()
-            (checkout / "crates/fixture/src/lib.rs").write_text(
-                "pub fn changed_rust() {}\n"
-            )
-            with patch.object(artifacts, "ROOT", checkout):
-                artifacts.build(self.args)
-            self.assertEqual(len(self.cargo_environments), 2)
-            self.assertTrue(all("cargo" in command for command in self.calls))
-
-    def test_generator_only_cache_reuses_library_and_passes_current_source_preflight(
-        self,
-    ):
-        self.args.targets = ("swift", "kotlin", "node")
-        product_spec = importlib.util.spec_from_file_location(
-            "sdk_products", artifacts.ROOT / "dev/ci/sdk-products.py"
-        )
-        products = importlib.util.module_from_spec(product_spec)
-        product_spec.loader.exec_module(products)
-        with patch.object(artifacts, "build_context", return_value="b" * 64):
-            checkout = self.restored_checkout()
-            native = json.loads((self.args.artifacts / "artifacts.json").read_text())[
-                "artifacts"
-            ]["native"]
-            runtime = checkout / "apps/xmtp_sdk_bindgen/runtime/ts/fixture.ts"
-            runtime.write_text("export const changed='generator';\n")
-            with patch.object(artifacts, "ROOT", checkout):
-                artifacts.build(self.args)
-                self.assertEqual(len(self.cargo_environments), 1)
-                self.assertIn("xmtp-sdk-bindgen", self.calls[0])
-                artifacts.render(self.args)
-            with patch.object(products.artifacts, "ROOT", checkout):
-                records = products.check_generated(self.args.out, "node")
-            actual = records[0]["artifact"]
-            self.assertEqual(
-                {key: value for key, value in actual.items() if key != "files"},
-                {key: value for key, value in native.items() if key != "files"},
-            )
-            self.assertEqual(
-                list(actual["files"].values()), list(native["files"].values())
-            )
-            self.assertNotEqual(actual["generator"], records[0]["generator"])
-            with patch.object(products.artifacts, "ROOT", checkout):
-                self.assertEqual(
-                    records[0]["generator"], products.artifacts.source_hash(True)
-                )
-
-    def test_restored_cache_rejects_current_role_bytes_and_context_tampering(self):
-        with patch.object(artifacts, "build_context", return_value="b" * 64):
-            checkout = self.restored_checkout()
-            index = self.args.artifacts / "artifacts.json"
-            record = json.loads(index.read_text())
-            library = next(
-                (self.args.artifacts / "native").glob("*.dylib"),
-                next((self.args.artifacts / "native").glob("*.so"), None),
-            )
-            before = library.read_bytes()
-            library.write_bytes(b"changed restored role bytes")
-            with patch.object(artifacts, "ROOT", checkout):
-                with self.assertRaisesRegex(ValueError, "artifact mismatch"):
-                    artifacts.build(self.args)
-            library.write_bytes(before)
-            record["artifacts"]["native"]["features"] = "conformance"
-            index.write_text(json.dumps(record))
-            with patch.object(artifacts, "ROOT", checkout):
-                with self.assertRaisesRegex(
-                    ValueError, "artifact context mismatch: features"
-                ):
-                    artifacts.build(self.args)
-            self.assertEqual(self.cargo_environments, [])
-
     def test_windows_build_invokes_cargo_without_the_posix_wrapper(self):
         self.args.skip_bindgen = True
         self.args.rust_target = "x86_64-pc-windows-msvc"
@@ -526,6 +440,12 @@ class ArtifactTests(CompilerInputTests, unittest.TestCase):
                 "CARGO_BUILD_JOBS" in environment,
                 "Unset Cargo job count must remain unset",
             )
+
+    def test_compiler_change_rebuilds_artifacts(self):
+        artifacts.build(self.args)
+        with patch.object(artifacts, "build_context", return_value="changed-compiler"):
+            artifacts.build(self.args)
+        self.assertEqual(len(self.calls), 4)
 
     def test_bindgen_is_reused_across_default_and_conformance_artifacts(self):
         artifacts.build(self.args)

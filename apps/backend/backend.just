@@ -74,14 +74,6 @@ up *services: image
     docker load --input {{ root }}/result-backend-image
     {{ root }}/dev/docker/up {{ services }}
 
-# Start this checkout's stack with a verified CI backend product.
-[script("bash")]
-up-prepared *services:
-    set -euo pipefail
-    test "${XMTP_CI_BACKEND_PREPARED:-}" = 1 || { echo 'backend product is not prepared' >&2; exit 1; }
-    python3 {{ root }}/dev/ci/backend-products.py verify-prepared --manifest "${XMTP_CI_BACKEND_MANIFEST:?backend manifest is required}" >/dev/null
-    exec {{ root }}/dev/docker/up {{ services }}
-
 down:
     {{ root }}/dev/docker/down
 

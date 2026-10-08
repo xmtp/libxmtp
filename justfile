@@ -94,14 +94,6 @@ lint-js-source:
     pnpm lint:source
     node --test dev/js/test-lint-source.mjs
 
-# CI restores and validates both complete SDK products before this recipe.
-# Build only the handwritten JS packages whose declarations checks consume.
-check-js-prepared:
-    pnpm --filter @xmtp/agent-sdk exec tsdown
-    pnpm --filter @xmtp/cli exec tsdown
-    pnpm typecheck:prepared
-    pnpm lint:prepared
-
 # Config linting: TOML, Nix, and shell scripts.
 lint-config: lint-treefmt
     python3.11 -B dev/agents/test_kache_env.py
@@ -111,20 +103,6 @@ lint-config: lint-treefmt
     python3.11 dev/tests/test_android_emulator_start.py
     python3.11 nix/lib/test-android-emulator-platform.py
     python3.11 -B dev/ci/test-selection.py
-    python3.11 -B dev/ci/test-suite-gate.py
-    python3.11 -B dev/ci/test-recovery-partition.py
-    python3.11 -B dev/ci/test_backend_products.py
-    python3.11 -B dev/ci/test-docs-reference-cache.py
-    python3.11 -B dev/ci/test-nix-output-selection.py
-    python3.11 -B dev/ci/check-targeted-shells.py
-    python3.11 -B dev/ci/test-targeted-shells.py
-    python3.11 -B dev/ci/test-prepared-sdk-lint.py
-    python3.11 -B dev/ci/test-kache-diagnostics.py
-    python3.11 -B dev/ci/benchmark-test.py
-
-# Transport fixtures need Node and remain in the required SDK checks.
-check-sdk-product-transport:
-    python3.11 -B dev/ci/test-sdk-products.py
 
 lint-toml:
     taplo format --check --diff

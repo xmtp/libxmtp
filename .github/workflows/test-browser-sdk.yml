@@ -1,21 +1,17 @@
 name: Test Browser SDK
 on:
   workflow_call:
-    inputs:
-      prepared-products:
-        type: boolean
-        default: false
 env:
   NIX_DEVSHELL: js
 jobs:
   test:
     name: Test (browser-sdk) shard ${{ matrix.shard }}
-    runs-on: ${{ inputs.prepared-products && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     strategy:
       fail-fast: true
       matrix:
-        shard: ${{ fromJSON(inputs.prepared-products && '[1]' || '[1, 2, 3, 4]') }}
+        shard: [1, 2, 3, 4]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -24,34 +20,13 @@ jobs:
           disk-key: web
           docker-builder: "true"
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ !inputs.prepared-products && secrets.CACHIX_AUTH_TOKEN || '' }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - name: Restore prepared SDK product
-        if: inputs.prepared-products
-        uses: ./.github/actions/sdk-product
-        with:
-          target: browser
-          artifact-name: ci-sdk-browser
-      - name: Restore prepared backend product
-        if: inputs.prepared-products
-        id: backend-product
-        uses: ./.github/actions/backend-product
-        with:
-          artifact-name: ci-backend
-          allow-earlier-attempt: "true"
-      - name: Start prepared backend
-        if: inputs.prepared-products
-        run: dev/nix-shell 'just backend up-prepared'
       - name: Start backend
-        if: ${{ !inputs.prepared-products }}
         run: just backend up
       - name: Run browser-sdk tests (shard ${{ matrix.shard }}/4)
-        if: ${{ !inputs.prepared-products }}
-        run: dev/nix-shell 'just js test-browser-sdk-ci --shard ${{ matrix.shard }}/4'
-      - name: Run all browser-sdk tests with prepared products
-        if: inputs.prepared-products
-        run: dev/nix-shell 'just js test-browser-sdk-prepared'
+        run: just js test-browser-sdk-ci --shard ${{ matrix.shard }}/4
       - name: Check web-chat
         if: matrix.shard == 1
         run: just web-chat check

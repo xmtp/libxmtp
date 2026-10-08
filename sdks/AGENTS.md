@@ -24,17 +24,6 @@ just js lint                            # oxlint
 just js test                            # needs `just backend up`
 ```
 
-Prepared CI consumers use
-`dev/nix-shell 'just js test-node-sdk-prepared'`,
-`dev/nix-shell 'just js test-browser-sdk-prepared'`, and
-`dev/nix-shell 'just js test-agent-sdk-prepared'`.
-The restore action must verify the current product and set
-`XMTP_SDK_PREPARED_PRODUCTS=1` first. The recovery command is
-`dev/nix-shell 'just js test-node-sdk-recovery-prepared 1'` (or 2 through 8).
-It checks the full collected matrix before it runs one case. Each group must
-own one case. It requires the real backend binary and saves test IDs and
-results under `target/recovery-results`.
-
 ## Shared SDK rules
 
 - Require an explicit `backend` for client creation. Do not select a URL from `env`.

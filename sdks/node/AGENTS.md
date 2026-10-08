@@ -17,13 +17,10 @@ XMTP_RECOVERY_BACKEND_BINARY="$(realpath result/bin/xmtp-backend)" dev/nix-shell
 The drain cases then start a separate backend process on private ports. They
 use the worktree database and leave the shared backend running. Without the
 binary path, those cases test TCP EOF. Neither mode proves a rolling deployment
-through an external load balancer. The `Manual public SDK recovery` workflow
-runs only on `workflow_dispatch`. It builds current Node and backend products,
-runs all eight cases in isolated stacks, and stops each stack. Normal CI omits
-this matrix; the ordinary shards exclude this file. Run local recovery tests
-one process at a time.
-
-### Recovery budget tests
+through an external load balancer. The manual recovery workflow runs the whole
+eight-case suite with its existing assertions and deadlines. Normal PR and
+post-merge jobs omit it. Run local recovery tests with
+`dev/nix-shell 'just js test-node-sdk-ci test/streamRecovery.test.ts'`.
 
 The two "recovery budget" tests in `streamRecovery.test.ts` wait for the real
 Core outage budget two times each. Together they take about 18 minutes. CI

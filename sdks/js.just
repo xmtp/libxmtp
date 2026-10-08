@@ -70,22 +70,3 @@ test-browser-sdk-ci *args="": build-browser-sdk
 test-agent-sdk-ci *args="": build-node-sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run build
     {{ _env }} && pnpm --filter @xmtp/agent-sdk run test {{ args }}
-
-# Prepared CI products are verified by the restore action before these commands.
-# These recipes run tests without staging or compiling the SDK again.
-test-node-sdk-prepared *args="":
-    test "${XMTP_SDK_PREPARED_PRODUCTS:-}" = 1
-    {{ _env }} && pnpm --filter @xmtp/node-sdk run test {{ args }}
-
-test-browser-sdk-prepared *args="":
-    test "${XMTP_SDK_PREPARED_PRODUCTS:-}" = 1
-    {{ _env }} && pnpm --filter @xmtp/browser-sdk run test {{ args }}
-
-test-agent-sdk-prepared *args="":
-    test "${XMTP_SDK_PREPARED_PRODUCTS:-}" = 1
-    cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run build
-    {{ _env }} && pnpm --filter @xmtp/agent-sdk run test {{ args }}
-
-test-node-sdk-recovery-prepared group:
-    test "${XMTP_SDK_PREPARED_PRODUCTS:-}" = 1
-    {{ _env }} && python3 {{ root }}/dev/ci/recovery-partition.py run --group {{ group }}

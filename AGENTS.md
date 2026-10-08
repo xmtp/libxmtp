@@ -38,8 +38,6 @@ just test workspace -p <name> <args> # focused nextest options and filters
 just lint                    # Rust, config, Markdown, and proto
 dev/nix-shell 'just lint-js-source' # source Oxlint without generated SDK products
 dev/nix-shell 'just lint-rust-source' # Rust format and manifests, without Clippy
-dev/nix-shell 'just check-js-prepared' # full JS checks with restored SDK products
-dev/nix-shell 'just check-sdk-product-transport' # SDK transport fixtures, with Node
 just backend up              # shared services
 just backend status          # worktree ports and URLs
 just outline <paths...>      # declarations and line ranges

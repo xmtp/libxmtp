@@ -3,5 +3,5 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 # Use build and render separately when a job needs several target sets.
-python3.11 crates/xmtp_sdk/dev/sdk-artifacts.py build "$@"
-python3.11 crates/xmtp_sdk/dev/sdk-artifacts.py render "$@"
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py build "$@"
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py render "$@"

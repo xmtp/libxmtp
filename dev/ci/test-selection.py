@@ -1,967 +1,298 @@
 #!/usr/bin/env python3
-"""Exercise CI input selection and failure gates with independent cases."""
+"""Check retained selection boundaries and the actual workflow result gates."""
 
 import importlib.util
 import json
 import os
-import re
-import shutil
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
+import re
+import subprocess
+import tempfile
 import unittest
+from unittest.mock import patch
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location(
+    "selection", Path(__file__).with_name("select-checks.py")
+)
+selection = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(selection)
 
 
-def module(name, file):
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(file))
-    value = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(value)
+def workflow(name):
+    value = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+    if True in value:
+        value["on"] = value.pop(True)
     return value
 
 
-selector = module("selector", "select-checks.py")
-gate = module("gate", "check-gate.py")
+def passed(expression, checks=None, results=None, inputs=None, event="pull_request"):
+    text = expression.removeprefix("${{").removesuffix("}}").strip()
+    text = re.sub(
+        r"fromJSON\(needs.detect-changes.outputs.selection\).checks.([a-z_]+)",
+        lambda m: "checks.get(" + repr(m[1]) + ")",
+        text,
+    )
+    text = re.sub(
+        r"needs.([a-z_-]+).result", lambda m: "results.get(" + repr(m[1]) + ")", text
+    )
+    text = re.sub(
+        r"inputs.([a-z_-]+)", lambda m: "inputs.get(" + repr(m[1]) + ")", text
+    )
+    text = text.replace("github.event_name", "event").replace("github.ref", "ref")
+    text = text.replace("&&", " and ").replace("||", " or ")
+    text = re.sub(r"!(?!=)", " not ", text)
+    return bool(
+        eval(
+            text,
+            {"__builtins__": {}},
+            {
+                "checks": checks or {},
+                "results": results or {},
+                "inputs": inputs or {},
+                "event": event,
+                "ref": "refs/heads/self-hosted",
+            },
+        )
+    )
 
 
 class SelectionTests(unittest.TestCase):
-    def selected(self, path):
-        return selector.select([path], verified=True)["checks"]
-
-    def test_generator_selects_both_public_families_and_native_checks(self):
-        checks = self.selected("apps/xmtp_sdk_bindgen/templates/bridge/index.ts")
-        for name in (
-            "sdk_node",
-            "sdk_browser",
-            "test_node",
-            "test_browser",
-            "test_agent",
-            "test_bindings",
-            "check_types",
+    def test_pure_rust_pr_keeps_rust_and_omits_hosts(self):
+        checks = selection.select(["crates/xmtp_mls/src/lib.rs"])["checks"]
+        expected = {
+            "lint_workspace",
             "check_rust",
-        ):
-            self.assertTrue(checks[name], name)
-
-    def test_shared_inputs_select_every_build_family(self):
-        for path in (
-            "Cargo.lock",
-            "rust-toolchain.toml",
-            ".cargo/config.toml",
-            "nix/lib/sdk-sources.nix",
-            ".github/actions/setup-nix/action.yml",
-            "pnpm-workspace.yaml",
-            ".config/nextest.toml",
-        ):
-            with self.subTest(path=path):
-                checks = self.selected(path)
-                self.assertTrue(all(checks.values()))
-
-    def test_core_and_service_changes_select_runtime_checks(self):
-        for path in (
-            "proto/message.proto",
-            "apps/backend/migrations/new.sql",
-            "dev/docker/compose.yml",
-        ):
-            with self.subTest(path=path):
-                checks = self.selected(path)
-                for name in (
-                    "test_workspace",
-                    "test_backend",
-                    "test_native_backend",
-                    "test_node",
-                    "test_browser",
-                    "test_agent",
-                    "backend_products",
-                ):
-                    self.assertTrue(checks[name], name)
-
-    def test_prose_reuses_products_without_selecting_runtime_tests(self):
-        checks = self.selected("docs/self-hosted/client-guide.md")
-        for name in ("docs_quality", "docs_site", "sdk_node", "sdk_browser"):
-            self.assertTrue(checks[name], name)
-        for name in ("test_node", "test_browser", "test_workspace"):
-            self.assertFalse(checks[name], name)
-
-    def test_owned_package_manifests_keep_full_checks(self):
-        for path in (
-            "crates/xmtp_sdk/Cargo.toml",
-            "apps/backend/Cargo.toml",
-        ):
-            with self.subTest(path=path):
-                self.assertTrue(all(self.selected(path).values()))
-
-    def test_source_owners_keep_tree_format_readers(self):
-        for path in (
-            "sdks/ios/Sources/Client.swift",
-            "sdks/node/type-tests/publicSurface.ts",
-            "sdks/browser/src/Client.ts",
-        ):
-            with self.subTest(path=path):
-                self.assertTrue(self.selected(path)["lint_config"])
-        self.assertFalse(self.selected("crates/xmtp_mls/src/lib.rs")["lint_config"])
-
-    def test_unverified_advanced_or_stacked_base_selects_all(self):
-        checks = selector.select(["docs/guide.md"], verified=False)["checks"]
-        self.assertTrue(all(checks.values()))
-        union = selector.select(
-            ["crates/xmtp_mls/src/lib.rs", "docs/guide.md"], verified=True
-        )["checks"]
-        self.assertFalse(union["test_node"])
-        self.assertTrue(union["check_sdk_unit"])
-        self.assertTrue(union["test_workspace"])
-
-    def test_unknown_input_and_native_fork_policy(self):
-        checks = self.selected("new-provider/source.custom")
-        self.assertTrue(all(checks.values()))
-        fork = selector.select([], fork=True)["checks"]
-        self.assertFalse(fork["test_ios"])
-        self.assertFalse(fork["test_native_backend"])
-        self.assertTrue(fork["test_node"])
-
-    def test_changed_deleted_and_renamed_paths_use_same_rules(self):
-        for path in (
-            "sdks/node/test/deleted.test.ts",
-            "sdks/browser/test/renamed.test.ts",
-        ):
-            self.assertTrue(
-                self.selected(path)[
-                    "test_node" if path.startswith("sdks/node/") else "test_browser"
-                ]
-            )
-        for path in ("/absolute", "../escape", ""):
-            with self.assertRaises(ValueError):
-                self.selected(path)
-
-    def test_unknown_toml_nix_and_hakari_select_full_consumers(self):
-        for path in (
-            ".config/hakari.toml",
-            "new-provider/build-inputs.toml",
-            "new-provider/build-inputs.nix",
-            "sdks/node/build-inputs.nix",
-        ):
-            with self.subTest(path=path):
-                self.assertTrue(all(self.selected(path).values()))
-
-    def test_handwritten_sdk_sources_keep_runtime_without_generated_or_rust_units(self):
-        for path in ("sdks/node/src/index.ts", "sdks/browser/src/index.ts"):
-            with self.subTest(path=path):
-                checks = self.selected(path)
-                self.assertFalse(checks["check_sdk"])
-                self.assertFalse(checks["check_sdk_unit"])
-        for path in ("crates/xmtp_sdk/src/lib.rs", "apps/backend/src/main.rs"):
-            self.assertTrue(self.selected(path)["check_sdk_unit"])
-
-    def test_pure_rust_pr_retains_rust_tests_without_language_consumers(self):
-        for path in (
-            "crates/xmtp_mls/src/lib.rs",
-            "crates/xmtp_db/tests/store.rs",
-            "apps/keepalive-probe/src/main.rs",
-        ):
-            with self.subTest(path=path):
-                checks = self.selected(path)
-                for name in (
-                    "lint_workspace",
-                    "check_rust",
-                    "test_workspace",
-                    "test_wasm",
-                    "check_sdk_unit",
-                    "backend_products",
-                    "docs_rust",
-                ):
-                    self.assertTrue(checks[name], name)
-                for name in (
-                    "lint_js",
-                    "lint_ios",
-                    "lint_android",
-                    "check_types",
-                    "check_sdk",
-                    "test_node",
-                    "test_browser",
-                    "test_agent",
-                    "test_bindings",
-                    "test_ios",
-                    "test_android",
-                    "test_ios_platform",
-                    "test_android_platform",
-                    "test_android_consumers",
-                    "test_sdk_staging",
-                    "test_bridge_runtime",
-                    "test_browser_platform",
-                    "test_swift_seams",
-                    "sdk_node",
-                    "sdk_browser",
-                    "docs_site",
-                    "docs_swift",
-                    "docs_kotlin",
-                ):
-                    self.assertFalse(checks[name], name)
-
-    def test_owned_language_sources_select_only_their_runtime_flags(self):
-        cases = {
-            "sdks/node/src/Client.ts": {"test_node", "test_agent"},
-            "sdks/agent/src/Client.ts": {"test_agent"},
-            "sdks/browser/src/Client.ts": {"test_browser"},
-            "sdks/ios/Sources/Client.swift": {"test_ios", "test_bindings"},
-            "sdks/android/library/src/Client.kt": {
-                "test_android",
-                "test_bindings",
-                "test_sdk_staging",
-            },
-        }
-        names = {
-            "test_node",
-            "test_browser",
-            "test_agent",
-            "test_ios",
-            "test_android",
-            "test_bindings",
-            "test_sdk_staging",
-        }
-        for path, expected in cases.items():
-            with self.subTest(path=path):
-                checks = self.selected(path)
-                self.assertEqual({name for name in names if checks[name]}, expected)
-                self.assertFalse(checks["check_sdk_unit"])
-                self.assertFalse(checks["check_sdk"])
-                self.assertEqual(
-                    checks["check_bindings_ios"], path.startswith("sdks/ios/")
-                )
-                self.assertEqual(
-                    checks["check_bindings_android"], path.startswith("sdks/android/")
-                )
-
-    def test_shared_sdk_and_unproved_readers_select_all_languages(self):
-        for path in (
-            "crates/xmtp_sdk/src/lib.rs",
-            "crates/xmtp_configuration/src/lib.rs",
-            "apps/xmtp_sdk_bindgen/runtime/ts/index.ts",
-            "bindings/shared.rs",
-            "crates/xmtp_db/build.rs",
-            "crates/xmtp_db/data/embedded.bin",
-            "crates/new-owner/src/lib.rs",
-            "sdks/node/runtime/custom.js",
-            "sdks/node/package.json",
-            "docs/specs/PROC-message-processing.md",
-            "docs/schemas/runtime.json",
-            "apps/docs/settings.yaml",
-        ):
-            with self.subTest(path=path):
-                self.assertTrue(all(self.selected(path).values()))
-
-    def test_active_browser_platform_owners_select_both_linux_routes_and_lint(self):
-        for path in (
-            "sdks/browser/test/platform/bridge.real.mts",
-            "sdks/browser/test/platform/bridge.chromium.html",
-            "sdks/browser/test/platform/object-store/object-store.mjs",
-            "sdks/browser/test/platform/suite.worker.ts",
-            "sdks/browser/test/platform/attachment-lifetime.chromium.ts",
-            "sdks/browser/test/platform/storage.layout.chromium.ts",
-        ):
-            with self.subTest(path=path):
-                checks = self.selected(path)
-                for name in (
-                    "test_bridge_runtime",
-                    "test_browser_platform",
-                    "check_sdk",
-                    "sdk_node",
-                    "sdk_browser",
-                    "backend_products",
-                ):
-                    self.assertTrue(checks[name], name)
-                for name in (
-                    "test_swift_seams",
-                    "test_ios",
-                    "test_android",
-                    "test_node",
-                ):
-                    self.assertFalse(checks[name], name)
-        shared = self.selected("apps/xmtp_sdk_bindgen/runtime-tests/ts/bridge.test.ts")
-        self.assertTrue(shared["test_swift_seams"])
-        self.assertTrue(shared["test_bridge_runtime"])
-        self.assertTrue(shared["test_browser_platform"])
-
-    def test_swift_seam_owners_and_fork_policy(self):
-        for path in (
-            "sdks/ios/Sources/XmtpSdk/runtime/streams/StreamMethods.swift",
-            "Package.swift",
-            "sdks/ios/ios.just",
-            "sdks/ios/script/check-consumer.sh",
-            "sdks/ios/dev/bindings",
-            "sdks/ios/Tests/Consumer/main.swift",
-            "sdks/ios/Tests/XmtpSdkTests/ReaderTeardownTests.swift",
-            "sdks/ios/Tests/XmtpSdkTests/RuntimeFakes.swift",
-        ):
-            with self.subTest(path=path):
-                selected = selector.select([path], verified=True)
-                self.assertTrue(selected["checks"]["test_swift_seams"])
-                self.assertNotIn(
-                    "test_swift_seams", selector.suites(selected, selector.TEST_SUITES)
-                )
-                fork = selector.select([path], verified=True, fork=True)["checks"]
-                self.assertFalse(fork["test_swift_seams"])
-                self.assertEqual(
-                    fork["check_bindings_ios"],
-                    path
-                    not in (
-                        "sdks/ios/script/check-consumer.sh",
-                        "sdks/ios/Tests/Consumer/main.swift",
-                        "sdks/ios/Tests/XmtpSdkTests/ReaderTeardownTests.swift",
-                        "sdks/ios/Tests/XmtpSdkTests/RuntimeFakes.swift",
-                    ),
-                )
-        self.assertEqual(
-            selector.TEST_SUITES[-2:], ("test_bridge_runtime", "test_browser_platform")
-        )
-        self.assertEqual(len(selector.TEST_SUITES), 14)
-
-    def test_android_consumers_have_a_broad_route_without_all_abi_packaging(self):
-        for path in (
-            "sdks/android/android.just",
-            "sdks/android/dev/check-consumers",
-            "sdks/android/library/build.gradle",
-            "sdks/android/library/src/test/negative/ConsumerNegative.kt",
-        ):
-            with self.subTest(path=path):
-                checks = self.selected(path)
-                self.assertTrue(checks["test_android_consumers"])
-                native = path in (
-                    "sdks/android/android.just",
-                    "sdks/android/library/build.gradle",
-                )
-                self.assertEqual(checks["test_sdk_staging"], native)
-                self.assertEqual(checks["check_bindings_android"], native)
-                self.assertFalse(checks["test_swift_seams"])
-
-    def test_core_push_is_broad_but_prose_push_remains_narrow(self):
-        core = selector.select(
-            ["crates/xmtp_mls/src/lib.rs"], event="push", verified=True
-        )["checks"]
-        for name in (
-            "test_node",
-            "test_browser",
-            "test_agent",
-            "test_ios",
-            "test_android",
-            "test_android_consumers",
-            "test_swift_seams",
+            "test_workspace",
+            "test_wasm",
+            "test_backend",
+            "test_native_backend",
+            "test_validation",
+            "test_keepalive",
+            "test_xdbg",
             "check_sdk_unit",
             "docs_rust",
+            "docs_quality",
+        }
+        self.assertEqual({name for name in selection.CHECKS if checks[name]}, expected)
+
+    def test_core_push_keeps_units_and_consumers_without_platform_packages(self):
+        checks = selection.select(["crates/xmtp_mls/src/lib.rs"], "push")["checks"]
+        for name in (
+            "test_ios",
+            "test_swift_seams",
+            "test_android",
+            "test_android_consumers",
+            "test_node",
+            "test_browser",
+            "test_agent",
+            "check_sdk",
         ):
-            self.assertTrue(core[name], name)
+            self.assertTrue(checks[name], name)
         for name in (
             "test_ios_platform",
             "test_android_platform",
             "test_sdk_staging",
-            "test_bindings",
             "docs_site",
-            "docs_swift",
-            "docs_kotlin",
         ):
-            self.assertFalse(core[name], name)
-        prose = selector.select(["docs/guide.md"], event="push", verified=True)[
-            "checks"
-        ]
-        self.assertTrue(prose["docs_site"])
-        self.assertFalse(prose["test_node"])
-        self.assertFalse(prose["test_workspace"])
+            self.assertFalse(checks[name], name)
 
-    def test_known_language_test_inputs_keep_units_and_consumers_without_site_or_abi(
-        self,
-    ):
-        cases = {
-            "sdks/node/test/auth.test.ts": ("test_node", "test_agent"),
-            "sdks/browser/test/public-sdk.test.ts": ("test_browser",),
-            "sdks/agent/src/core/Agent.test.ts": ("test_agent",),
-            "sdks/agent/src/util/test.ts": ("test_agent",),
-            "sdks/ios/Tests/Consumer/main.swift": ("test_ios", "test_swift_seams"),
-            "sdks/ios/Tests/XmtpSdkTests/RuntimeFakes.swift": (
-                "test_ios",
-                "test_swift_seams",
-            ),
-            "sdks/android/library/src/test/java/uniffi/xmtp_sdk/TypedErrorTest.kt": (
-                "test_android",
-                "test_android_consumers",
-            ),
-            "sdks/android/library/src/test/negative/ConsumerNegative.kt": (
-                "test_android",
-                "test_android_consumers",
-            ),
-        }
-        for path, selected in cases.items():
-            for event in ("pull_request", "push"):
-                with self.subTest(path=path, event=event):
-                    self.assertTrue(
-                        (Path(__file__).resolve().parents[2] / path).is_file(), path
-                    )
-                    checks = selector.select([path], verified=True, event=event)[
-                        "checks"
-                    ]
-                    for name in (
-                        "docs_site",
-                        "docs_swift",
-                        "docs_kotlin",
-                        "test_ios_platform",
-                        "test_android_platform",
-                        "check_bindings_ios",
-                        "check_bindings_android",
-                        "test_sdk_staging",
-                    ):
-                        self.assertFalse(checks[name], name)
-                    for name in selected:
-                        self.assertTrue(checks[name], name)
-                    self.assertTrue(
-                        checks["lint_js"]
-                        if path.endswith(".ts")
-                        else checks["lint_ios"]
-                        if path.endswith(".swift")
-                        else checks["lint_android"]
-                    )
-
-    def test_public_api_and_docs_inputs_keep_site_and_native_surface_checks(self):
-        cases = {
-            "sdks/agent/src/core/Agent.ts": (),
-            "sdks/node/type-tests/publicSurface.ts": (),
-            "sdks/browser/type-tests/publicSurface.ts": (),
-            "docs/specs/README.md": (),
-            "apps/docs/src/content/docs/get-started/quickstart.mdx": (),
-            "sdks/agent/src/demo/main.ts": (),
-            "sdks/ios/Sources/XmtpSdk/runtime/streams/StreamMethods.swift": (
-                "test_ios_platform",
-                "check_bindings_ios",
-                "docs_swift",
-            ),
-            "sdks/android/library/src/main/java/uniffi/xmtp_sdk/AndroidClient.kt": (
-                "test_android_platform",
-                "check_bindings_android",
-                "test_sdk_staging",
-                "docs_kotlin",
-            ),
-            "crates/xmtp_sdk/src/lib.rs": (
-                "test_ios_platform",
-                "test_android_platform",
-                "test_sdk_staging",
-            ),
-            "apps/xmtp_sdk_bindgen/src/public_projection/objects.rs": (
-                "test_ios_platform",
-                "test_android_platform",
-                "test_sdk_staging",
-            ),
-        }
-        for path, native in cases.items():
-            with self.subTest(path=path):
-                checks = self.selected(path)
-                self.assertTrue(
-                    (Path(__file__).resolve().parents[2] / path).is_file(), path
-                )
-                self.assertTrue(checks["docs_site"])
-                self.assertTrue(checks["sdk_node"])
-                self.assertTrue(checks["sdk_browser"])
-                for name in native:
-                    self.assertTrue(checks[name], name)
-
-    def test_platform_test_and_manifest_inputs_select_the_exact_native_owner(self):
-        cases = {
-            "sdks/ios/Tests/XmtpSdkTests/AppleLifecycleTests.swift": (
-                "test_ios_platform",
-                "test_android_platform",
-            ),
-            "sdks/android/library/src/androidTest/java/uniffi/xmtp_sdk/AndroidPackageTest.kt": (
-                "test_android_platform",
-                "test_ios_platform",
-            ),
-            "sdks/android/library/src/main/AndroidManifest.xml": (
-                "test_android_platform",
-                "test_ios_platform",
-            ),
-            "Package.swift": ("test_ios_platform", "test_android_platform"),
-        }
-        for path, (positive, negative) in cases.items():
-            with self.subTest(path=path):
-                checks = self.selected(path)
-                self.assertTrue(checks[positive])
-                self.assertFalse(checks[negative])
-
-    def test_new_sdk_build_and_source_owners_still_fail_closed(self):
+    def test_build_dependency_generator_service_and_unknown_inputs_run_all(self):
         for path in (
-            "sdks/node/new-public-api.ts",
-            "sdks/browser/new-build-hook.ts",
-            "sdks/agent/new-generator.mjs",
-            "sdks/ios/new-input.data",
-            "sdks/android/new-input.data",
-            "apps/cli/tsdown.config.ts",
             "Cargo.lock",
-            ".cargo/config",
-            "rust-toolchain.toml",
-            "flake.lock",
+            ".config/hakari.toml",
+            "nix/new.nix",
+            "apps/new/Cargo.toml",
+            "apps/backend/src/main.rs",
+            "apps/xmtp_sdk_bindgen/src/lib.rs",
+            "crates/xmtp_sdk/src/lib.rs",
+            "crates/new/src/lib.rs",
+            ".github/workflows/test.yml",
+            "dev/new-helper",
+            "unknown",
         ):
             with self.subTest(path=path):
-                self.assertTrue(all(self.selected(path).values()))
+                self.assertTrue(
+                    all(
+                        selection.select([path])["checks"][name]
+                        for name in selection.CHECKS
+                    )
+                )
 
-    def test_cli_emits_exact_selected_suite_arrays_and_empty_arrays(self):
-        root = Path(__file__).resolve().parents[2]
-        expected_runtime = [
-            "test_native_backend",
-            "test_validation",
-            "test_backend",
-            "test_workspace",
-            "test_keepalive",
-            "test_wasm",
-            "test_xdbg",
-        ]
-        for paths, sources, runtime in (
-            (["crates/xmtp_mls/src/lib.rs"], ["lint_workspace"], expected_runtime),
-            (["docs/guide.md"], [], []),
+    def test_docs_and_native_input_boundaries(self):
+        self.assertTrue(selection.select(["docs/guide.md"])["checks"]["docs_site"])
+        self.assertFalse(
+            selection.select(["sdks/ios/Tests/XmtpSdkTests/ReaderTeardownTests.swift"])[
+                "checks"
+            ]["docs_site"]
+        )
+        for path in (
+            "sdks/ios/Sources/XmtpSdk/Client.swift",
+            "sdks/android/library/src/main/Client.kt",
+            "sdks/node/src/index.ts",
+            "sdks/browser/src/index.ts",
         ):
-            with self.subTest(paths=paths), tempfile.TemporaryDirectory() as tmp:
-                folder = Path(tmp)
-                changed = folder / "paths.json"
-                changed.write_text(json.dumps(paths))
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-B",
-                        str(root / "dev/ci/select-checks.py"),
-                        "--paths-json",
-                        str(changed),
-                        "--verified",
-                        "--event",
-                        "pull_request",
-                        "--source-suites-output",
-                        str(folder / "source.json"),
-                        "--test-suites-output",
-                        str(folder / "runtime.json"),
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                selection = json.loads(result.stdout)
-                self.assertEqual(selection["schema_version"], 1)
-                self.assertEqual(set(selection), {"schema_version", "checks"})
-                self.assertEqual(
-                    json.loads((folder / "source.json").read_text()), sources
-                )
-                self.assertEqual(
-                    json.loads((folder / "runtime.json").read_text()), runtime
-                )
+            self.assertTrue(selection.select([path])["checks"]["docs_site"], path)
+        c = selection.select(["sdks/android/library/src/test/ReaderTest.kt"])["checks"]
+        self.assertTrue(c["test_android_consumers"])
+        self.assertFalse(c["test_android_platform"])
+        c = selection.select(
+            ["sdks/android/library/src/androidTest/AndroidPackageTest.kt"]
+        )["checks"]
+        self.assertTrue(c["test_android_platform"])
 
-
-class WorkflowGateTests(unittest.TestCase):
-    root = Path(__file__).resolve().parents[2]
-
-    def test_actual_test_gate_enforces_selected_docs(self):
-        source = (self.root / ".github/workflows/ci.yml").read_text()
-        test_job = source.split("\n  test:\n", 1)[1]
-        mapping = json.loads(re.search(r"--mapping '(\{[^']+\})'", test_job)[1])
-        self.assertIn("docs_site", mapping)
-        self.assertRegex(test_job, r"needs: \[[^\]]*\bdocs\b")
-        selection = selector.select(["docs/guide.md"], verified=True)
-        needs = {"detect-changes": {"result": "success"}}
-        needs.update(
-            {
-                job: {"result": "success" if selection["checks"][key] else "skipped"}
-                for key, job in mapping.items()
-            }
+    def test_manual_missing_diff_and_fork_policy(self):
+        self.assertTrue(
+            all(selection.select(None)["checks"][n] for n in selection.CHECKS)
         )
-        for result, expected in (
-            ("success", 0),
-            ("failure", 1),
-            ("cancelled", 1),
-            ("skipped", 1),
-        ):
-            with self.subTest(result=result):
-                needs[mapping["docs_site"]]["result"] = result
-                command = [
-                    sys.executable,
-                    "-B",
-                    str(self.root / "dev/ci/check-gate.py"),
-                    "--selection",
-                    json.dumps(selection),
-                    "--needs",
-                    json.dumps(needs),
-                    "--mapping",
-                    json.dumps(mapping),
-                ]
-                actual = subprocess.run(command, capture_output=True)
-                self.assertEqual(actual.returncode, expected, actual.stderr.decode())
-        selection["checks"]["docs_site"] = False
-        actual = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(self.root / "dev/ci/check-gate.py"),
-                "--selection",
-                json.dumps(selection),
-                "--needs",
-                json.dumps(needs),
-                "--mapping",
-                json.dumps(mapping),
-            ],
-            capture_output=True,
-        )
-        self.assertEqual(actual.returncode, 0, actual.stderr.decode())
-
-    def test_selected_rust_sdk_units_use_backend_without_language_products(self):
-        source = (self.root / ".github/workflows/ci.yml").read_text()
-        job = re.split(
-            r"\n  [a-z][a-z-]*:\n",
-            source.split("\n  check-sdk-unit:\n", 1)[1],
-            maxsplit=1,
-        )[0]
-        self.assertIn("backend-products", job)
-        self.assertNotIn("sdk-node", job)
-        self.assertNotIn("sdk-browser", job)
-        self.assertIn("check-sdk-unit.yml", job)
-        workflow = (self.root / ".github/workflows/check-sdk-unit.yml").read_text()
-        self.assertIn("just test crate xmtp_sdk", workflow)
-        self.assertNotIn("sdk-product", workflow)
-        self.assertNotIn("setup-js", workflow)
-        self.assertNotIn("--release", workflow)
-        test_job = source.split("\n  test:\n", 1)[1]
-        mapping = json.loads(re.search(r"--mapping '(\{[^']+\})'", test_job)[1])
-        self.assertEqual(mapping["check_sdk_unit"], "check-sdk-unit")
-        selection = selector.select(["crates/xmtp_mls/src/lib.rs"], verified=True)
-        needs = {
-            "detect-changes": {"result": "success"},
-            "check-sdk-unit": {"result": "failure"},
-        }
-        command = [
-            sys.executable,
-            "-B",
-            str(self.root / "dev/ci/check-gate.py"),
-            "--selection",
-            json.dumps(selection),
-            "--needs",
-            json.dumps(needs),
-            "--mapping",
-            json.dumps({"check_sdk_unit": mapping["check_sdk_unit"]}),
-        ]
-        actual = subprocess.run(command, capture_output=True)
-        self.assertNotEqual(actual.returncode, 0)
-
-    def test_actual_rust_docs_gate_routes_selected_provider(self):
-        source = (
-            (self.root / ".github/workflows/ci.yml")
-            .read_text()
-            .split("\n  test:\n", 1)[1]
-        )
-        maps = [
-            json.loads(item) for item in re.findall(r"--mapping '(\{[^']+\})'", source)
-        ]
-        standalone = next(
-            item for item in maps if item.get("docs_rust") == "docs-rust-reference"
-        )
-        fullsite = next(item for item in maps if item.get("docs_rust") == "docs")
-        self.assertIn("checks.docs_site", source)
-        for mapping, selected_site in ((standalone, False), (fullsite, True)):
-            selection = selector.select(["crates/xmtp_mls/src/lib.rs"], verified=True)
-            selection["checks"]["docs_site"] = selected_site
-            needs = {
-                "detect-changes": {"result": "success"},
-                "docs": {"result": "success" if selected_site else "skipped"},
-                "docs-rust-reference": {
-                    "result": "skipped" if selected_site else "success"
-                },
-            }
-            for status, expected in (
-                ("success", 0),
-                ("failure", 1),
-                ("cancelled", 1),
-                ("skipped", 1),
-            ):
-                needs[mapping["docs_rust"]]["result"] = status
-                actual = subprocess.run(
-                    [
-                        sys.executable,
-                        "-B",
-                        str(self.root / "dev/ci/check-gate.py"),
-                        "--selection",
-                        json.dumps(selection),
-                        "--needs",
-                        json.dumps(needs),
-                        "--mapping",
-                        json.dumps(mapping),
-                    ],
-                    capture_output=True,
-                )
-                self.assertEqual(actual.returncode, expected, actual.stderr.decode())
-
-    def test_quality_gate_and_failure_watcher_follow_actual_workflow(self):
-        source = (self.root / ".github/workflows/ci.yml").read_text()
-        lint_job = source.split("\n  lint:\n", 1)[1].split("\n  test:\n", 1)[0]
-        mapping = json.loads(re.search(r"--mapping '(\{[^']+\})'", lint_job)[1])
-        self.assertEqual(mapping["docs_quality"], "docs-quality")
-        self.assertRegex(lint_job, r"needs: \[[^\]]*docs-quality")
-        workflow_name = re.search(r"^name: (.+)$", source, re.MULTILINE)[1].strip('"')
-        listener = (
-            self.root / ".github/workflows/flaky-failure-watcher.yml"
-        ).read_text()
-        watched = re.findall(r'^      - "([^"\n]+)"$', listener, re.MULTILINE)
-        self.assertIn(workflow_name, watched)
-
-
-class GateTests(unittest.TestCase):
-    def setUp(self):
-        self.selection = {"schema_version": 1, "checks": {"test_node": True}}
-        self.mapping = {"test_node": "node"}
-        self.needs = {
-            "detect-changes": {"result": "success"},
-            "node": {"result": "success"},
-        }
-
-    def test_valid_selected_and_deliberately_unselected(self):
-        gate.check_gate(self.selection, self.needs, self.mapping)
-        self.selection["checks"]["test_node"] = False
-        self.needs["node"]["result"] = "skipped"
-        gate.check_gate(self.selection, self.needs, self.mapping)
-
-    def test_failed_or_cancelled_detector_never_passes(self):
-        self.selection["checks"]["test_node"] = False
-        self.needs["node"]["result"] = "skipped"
-        for result in ("failure", "cancelled", "skipped"):
-            self.needs["detect-changes"]["result"] = result
-            with self.assertRaises(ValueError):
-                gate.check_gate(self.selection, self.needs, self.mapping)
-
-    def test_selected_failure_cancel_skip_or_missing_result_fails(self):
-        for result in ("failure", "cancelled", "skipped", None):
-            self.needs["node"]["result"] = result
-            with self.assertRaises(ValueError):
-                gate.check_gate(self.selection, self.needs, self.mapping)
-
-    def test_malformed_selection_and_unknown_status_fail(self):
-        for value in (None, "false", 0):
-            self.selection["checks"]["test_node"] = value
-            with self.assertRaises(ValueError):
-                gate.check_gate(self.selection, self.needs, self.mapping)
-        self.selection["schema_version"] = 0
-        with self.assertRaises(ValueError):
-            gate.check_gate(self.selection, self.needs, self.mapping)
-
-
-class ShallowHistoryTests(unittest.TestCase):
-    """Run the selector CLI against actual shallow Git repositories."""
-
-    tool = Path(__file__).with_name("select-checks.py").resolve()
-
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.folder = Path(self.temporary.name)
-        self.remote = self.folder / "remote"
-        self.remote.mkdir()
-        self.git(self.remote, "init", "-q", "--initial-branch=main")
-        self.git(self.remote, "config", "user.name", "Fixture")
-        self.git(self.remote, "config", "user.email", "fixture@example.test")
-        self.git(self.remote, "config", "commit.gpgsign", "false")
-        graph = self.remote / "dev/ci/select-checks.py"
-        graph.parent.mkdir(parents=True)
-        graph.write_bytes(self.tool.read_bytes())
-        self.base = self.commit("docs/base.md", "base")
-        tools = self.folder / "tools"
-        tools.mkdir()
-        gh = tools / "gh"
-        gh.write_text(
-            f"#!{sys.executable}\n"
-            "import json, os, sys\n"
-            "sha = sys.argv[2].split('/commits/')[1].split('/')[0]\n"
-            "valid = sha in json.loads(os.environ['FIXTURE_VERIFIED'])\n"
-            "print(json.dumps({'check_runs': [{'id': i, 'name': n, 'app': {'slug': 'github-actions'}, 'status': 'completed', 'conclusion': 'success'} for i, n in enumerate(('Lint','Test'))] if valid else []}))\n"
-        )
-        gh.chmod(0o755)
-        self.env = dict(
-            os.environ,
-            PATH=str(tools) + os.pathsep + os.environ["PATH"],
-            GITHUB_REPOSITORY="fixture/repo",
-        )
-
-    def git(self, root, *args):
-        return (
-            subprocess.check_output(
-                ["git", "-C", str(root), *args], stderr=subprocess.DEVNULL
+        self.assertTrue(
+            all(
+                selection.select([], "workflow_dispatch")["checks"][n]
+                for n in selection.CHECKS
             )
-            .decode()
-            .strip()
         )
+        c = selection.select(None, fork=True)["checks"]
+        for name in (
+            "test_native_backend",
+            "test_ios",
+            "test_ios_platform",
+            "test_swift_seams",
+        ):
+            self.assertFalse(c[name])
+        self.assertTrue(c["test_android_platform"])
 
-    def commit(self, name, text):
-        path = self.remote / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
-        self.git(self.remote, "add", ".")
-        self.git(self.remote, "commit", "-qm", "fixture")
-        return self.git(self.remote, "rev-parse", "HEAD")
+    def test_event_git_diff_and_unavailable_base(self):
+        with tempfile.TemporaryDirectory() as directory:
+            subprocess.run(["git", "init", "-q", directory], check=True)
 
-    def clone(self, depth=2):
-        self.checkout = self.folder / "checkout"
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "--quiet",
-                f"--depth={depth}",
-                self.remote.as_uri(),
-                str(self.checkout),
-            ],
-            check=True,
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-C", directory, *args], text=True
+                ).strip()
+
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "user.name", "Fixture")
+            (Path(directory) / "base").write_text("base")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            (Path(directory) / "changed").write_text("head")
+            git("add", ".")
+            git("commit", "-qm", "head")
+            original = Path.cwd()
+            try:
+                os.chdir(directory)
+                with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push"}):
+                    self.assertEqual(
+                        selection.changed_paths({"before": base}), ["changed"]
+                    )
+                    self.assertIsNone(selection.changed_paths({"before": "0" * 40}))
+                    self.assertIsNone(selection.changed_paths({"before": "f" * 40}))
+                with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "pull_request"}):
+                    self.assertIsNone(selection.changed_paths({}))
+                    feature = git("rev-parse", "HEAD")
+                    git("checkout", "-qb", "base-side", base)
+                    (Path(directory) / "base-change").write_text("base update")
+                    git("add", ".")
+                    git("commit", "-qm", "base update")
+                    git("merge", "--no-ff", "-qm", "PR merge", feature)
+                    self.assertEqual(selection.changed_paths({}), ["changed"])
+            finally:
+                os.chdir(original)
+
+    def test_static_routers_and_matrix_results_reject_skipped_missing_and_failure(self):
+        for filename, names in (
+            ("test.yml", selection.TEST_SUITES),
+            ("lint.yml", selection.SOURCE_SUITES),
+        ):
+            top = workflow(filename)
+            caller = top["on"]["workflow_call"]["inputs"]
+            self.assertEqual(json.loads(caller["suites"]["default"]), list(names))
+            matrix = top["jobs"]["suites"]
+            self.assertIs(matrix["strategy"]["fail-fast"], True)
+            self.assertEqual(
+                matrix["strategy"]["matrix"]["suite"], "${{ fromJSON(inputs.suites) }}"
+            )
+            router = workflow(matrix["uses"].split("/")[-1])
+            result = router["jobs"]["result"]["steps"][0]["env"]["PASSED"]
+            for name in names:
+                self.assertIn(name, router["jobs"])
+                self.assertTrue(
+                    passed(result, results={name: "success"}, inputs={"suite": name})
+                )
+                for status in ("failure", "cancelled", "skipped", None):
+                    self.assertFalse(
+                        passed(result, results={name: status}, inputs={"suite": name})
+                    )
+            self.assertFalse(passed(result, inputs={"suite": "unknown"}))
+            result = top["jobs"]["results"]["steps"][0]["env"]["PASSED"]
+            for status in ("failure", "cancelled", "skipped", None):
+                self.assertFalse(passed(result, results={"suites": status}))
+
+    def test_required_and_mobile_gates_use_selected_success(self):
+        top = workflow("ci.yml")
+        checks = selection.select(None)["checks"]
+        for name in ("lint", "test"):
+            gate = top["jobs"][name]
+            expression = gate["steps"][0]["env"]["PASSED"]
+            results = dict.fromkeys(gate["needs"], "success")
+            self.assertTrue(passed(expression, checks, results))
+            for job in gate["needs"]:
+                for status in ("failure", "cancelled", "skipped", None):
+                    bad = {**results, job: status}
+                    # The full-site route owns Rust references; its standalone job is skipped.
+                    if job == "docs-rust-reference":
+                        continue
+                    self.assertFalse(
+                        passed(expression, checks, bad), (name, job, status)
+                    )
+        expression = workflow("test-android.yml")["jobs"]["results"]["steps"][0]["env"][
+            "PASSED"
+        ]
+        inputs = {"run-unit": True, "run-consumers": True, "run-platform": True}
+        results = dict.fromkeys(
+            ("unit-tests", "min-sdk-smoke", "integration-tests"), "success"
         )
+        self.assertTrue(passed(expression, results=results, inputs=inputs))
+        for job in results:
+            for status in ("failure", "cancelled", "skipped", None):
+                self.assertFalse(
+                    passed(expression, results={**results, job: status}, inputs=inputs)
+                )
+
+    def test_command_jobs_select_small_shells(self):
+        for path in (ROOT / ".github/workflows").glob("*.yml"):
+            value = workflow(path.name)
+            for name, job in value.get("jobs", {}).items():
+                for step in job.get("steps", []):
+                    command = step.get("run", "")
+                    if not re.search(r"(?:dev/nix-shell|\bjust\s)", command):
+                        continue
+                    if job.get("runs-on") == "windows-latest":
+                        continue
+                    shell = {
+                        **value.get("env", {}),
+                        **job.get("env", {}),
+                        **step.get("env", {}),
+                    }.get("NIX_DEVSHELL")
+                    explicit = re.search(
+                        r"(?:--shell\s+|NIX_DEVSHELL=)(rust|js-node|js|ios|android|wasm|docs)",
+                        command,
+                    )
+                    self.assertTrue(shell or explicit, (path.name, name, command))
+                    self.assertNotEqual(shell, "default", (path.name, name))
+
+    def test_recovery_and_windows_stay_manual(self):
         self.assertEqual(
-            self.git(self.checkout, "rev-parse", "--is-shallow-repository"), "true"
+            set(workflow("manual-sdk-recovery.yml")["on"]), {"workflow_dispatch"}
         )
-        return self.git(self.checkout, "rev-parse", "HEAD")
-
-    def selected(self, event="push", before=None, verified=None):
-        payload = {
-            "before": self.base if before is None else before,
-            "pull_request": {"head": {"repo": {"full_name": "fixture/repo"}}},
-        }
-        event_file = self.folder / "event.json"
-        event_file.write_text(json.dumps(payload))
-        env = dict(
-            self.env,
-            GITHUB_EVENT_PATH=str(event_file),
-            FIXTURE_VERIFIED=json.dumps([self.base] if verified is None else verified),
+        self.assertNotIn("recovery", workflow("test-node-sdk.yml")["jobs"])
+        self.assertEqual(
+            workflow("test-sdk.yml")["jobs"]["windows-load"]["if"],
+            "github.event_name == 'workflow_dispatch'",
         )
-        head = self.git(self.checkout, "rev-parse", "HEAD")
-        result = subprocess.run(
-            [sys.executable, "-B", str(self.tool), "--event", event],
-            cwd=self.checkout,
-            env=env,
-            text=True,
-            capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.git(self.checkout, "rev-parse", "HEAD"), head)
-        return json.loads(result.stdout)["checks"], result.stderr
-
-    def assert_prose(self, checks):
-        self.assertTrue(checks["docs_site"])
-        self.assertTrue(checks["sdk_node"])
-        self.assertFalse(checks["test_workspace"])
-        self.assertFalse(checks["test_node"])
-
-    def test_normal_push_depth_two_preserves_before_parent(self):
-        self.commit("docs/guide.md", "guide")
-        self.clone()
-        self.assertEqual(self.git(self.checkout, "rev-parse", "HEAD^1"), self.base)
-        checks, log = self.selected()
-        self.assert_prose(checks)
-        self.assertNotIn("CI history fetched", log)
-
-    def test_batched_push_fetches_exact_base_and_bounded_head_history(self):
-        for i in range(6):
-            self.commit("docs/guide.md", f"guide {i}")
-        head = self.clone()
-        checks, log = self.selected()
-        self.assert_prose(checks)
-        self.assertIn(f"exact {self.base} at depth 1", log)
-        self.assertIn(f"exact {head} at depth 32", log)
-
-    def synthetic_merge(self, base):
-        self.git(self.remote, "checkout", "-qb", "feature", base)
-        feature = self.commit("docs/feature.md", "feature")
-        self.git(self.remote, "checkout", "-q", "main")
-        self.git(self.remote, "merge", "--no-ff", "-qm", "synthetic merge", "feature")
-        return feature
-
-    def test_pr_merge_depth_two_preserves_both_actual_parents(self):
-        feature = self.synthetic_merge(self.base)
-        self.clone()
-        self.assertEqual(self.git(self.checkout, "rev-parse", "HEAD^1"), self.base)
-        self.assertEqual(self.git(self.checkout, "rev-parse", "HEAD^2"), feature)
-        checks, log = self.selected("pull_request")
-        self.assert_prose(checks)
-        self.assertNotIn("CI history fetched", log)
-
-    def test_pr_depth_one_fetches_actual_merge_parent_and_history(self):
-        self.synthetic_merge(self.base)
-        head = self.clone(depth=1)
-        checks, log = self.selected("pull_request")
-        self.assert_prose(checks)
-        self.assertIn(f"exact {self.base} at depth 1", log)
-        self.assertIn(f"exact {head} at depth 32", log)
-
-    def test_advanced_or_stacked_untested_base_keeps_full_core_checks(self):
-        for style in ("advanced", "stacked"):
-            with self.subTest(style=style):
-                if style == "stacked":
-                    self.git(self.remote, "branch", "-D", "feature")
-                    self.git(self.remote, "reset", "--hard", self.base)
-                    self.git(self.remote, "clean", "-fdq")
-                    self.git(self.remote, "checkout", "-qb", "stack-a")
-                self.commit("crates/xmtp_mls/src/lib.rs", "untested core")
-                if style == "stacked":
-                    self.git(self.remote, "branch", "-f", "main", "HEAD")
-                    self.git(self.remote, "checkout", "-q", "main")
-                self.synthetic_merge(self.base)
-                if hasattr(self, "checkout"):
-                    shutil.rmtree(self.checkout)
-                self.clone()
-                checks, _ = self.selected("pull_request", verified=[self.base])
-                self.assertTrue(all(checks.values()))
-
-    def test_unfetchable_missing_before_keeps_full_selection(self):
-        self.commit("docs/guide.md", "guide")
-        self.clone()
-        checks, log = self.selected(before="f" * 40, verified=["f" * 40])
-        self.assertTrue(all(checks.values()))
-        self.assertIn("fetch failed", log)
-
-    def test_missing_origin_history_keeps_full_selection(self):
-        for i in range(4):
-            self.commit("docs/guide.md", str(i))
-        self.clone()
-        self.git(
-            self.checkout,
-            "remote",
-            "set-url",
-            "origin",
-            (self.folder / "missing").as_uri(),
-        )
-        checks, _ = self.selected()
-        self.assertTrue(all(checks.values()))
-
-    def test_present_base_without_shallow_edges_is_not_coverage(self):
-        for i in range(4):
-            self.commit("docs/guide.md", str(i))
-        self.clone(depth=1)
-        self.git(self.checkout, "fetch", "--quiet", "--depth=1", "origin", self.base)
-        self.git(self.checkout, "cat-file", "-e", f"{self.base}^{{commit}}")
-        self.git(
-            self.checkout,
-            "remote",
-            "set-url",
-            "origin",
-            (self.folder / "missing").as_uri(),
-        )
-        checks, _ = self.selected()
-        self.assertTrue(all(checks.values()))
-
-    def test_nonancestor_remote_commit_is_not_coverage(self):
-        self.git(self.remote, "checkout", "--orphan", "unrelated")
-        self.git(self.remote, "rm", "-rf", ".")
-        graph = self.remote / "dev/ci/select-checks.py"
-        graph.parent.mkdir(parents=True, exist_ok=True)
-        graph.write_bytes(self.tool.read_bytes())
-        unrelated = self.commit("docs/unrelated.md", "unrelated")
-        self.git(self.remote, "checkout", "-q", "main")
-        self.commit("docs/guide.md", "guide")
-        self.clone()
-        self.git(self.checkout, "fetch", "--quiet", "--depth=1", "origin", unrelated)
-        checks, _ = self.selected(before=unrelated, verified=[unrelated])
-        self.assertTrue(all(checks.values()))
-
-    def test_changed_ci_graph_keeps_full_selection(self):
-        self.commit("dev/ci/select-checks.py", "changed graph")
-        self.clone()
-        checks, _ = self.selected()
-        self.assertTrue(all(checks.values()))
-
-    def test_pr_head_without_merge_is_not_a_tested_base(self):
-        self.commit("docs/guide.md", "guide")
-        self.clone()
-        checks, _ = self.selected("pull_request")
-        self.assertTrue(all(checks.values()))
 
 
 if __name__ == "__main__":

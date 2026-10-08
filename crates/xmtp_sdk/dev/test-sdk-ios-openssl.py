@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Check iOS target OpenSSL selection and production build forwarding."""
 
 import importlib.util

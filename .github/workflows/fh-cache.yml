@@ -11,30 +11,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      full: ${{ steps.select.outputs.full }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - name: Select warming from the verified workflow ancestor
-        id: select
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 -B dev/ci/select-nix-outputs.py --output "$RUNNER_TEMP/nix-selection.json" --github-output "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nix-output-selection
-          path: ${{ runner.temp }}/nix-selection.json
-          if-no-files-found: error
-          retention-days: 7
   build:
-    needs: detect-changes
     strategy:
       fail-fast: false
       matrix:
@@ -53,13 +30,11 @@ jobs:
       - name: Check source formatting
         run: nix fmt -- --fail-on-change
       - name: Install omnix
-        if: needs.detect-changes.outputs.full == 'true' || runner.os == 'macOS'
         run: nix profile install nixpkgs#omnix
       - name: Build all flake outputs
-        if: needs.detect-changes.outputs.full == 'true' || runner.os == 'macOS'
         run: om ci run --include-all-dependencies --results=om.json -- --keep-going
       - name: Pin outputs to cachix
-        if: needs.detect-changes.outputs.full == 'true' || runner.os == 'macOS'
+        # if: github.ref_name == 'main'
         run: |
           SYSTEM=$(jq -r '.systems[0]' om.json)
           jq -r --arg prefix "$BRANCH_NAME" --arg sys "$SYSTEM" \

@@ -1,285 +1,154 @@
 name: Build and Deploy Docs
-
-on:
-  workflow_call:
-    inputs:
-      prepared-products:
-        type: boolean
-        default: false
-      selection:
-        type: string
-        required: false
-        default: '{}'
-  workflow_dispatch:
-
+'on':
+  workflow_call: null
+  workflow_dispatch: null
 permissions:
   contents: read
-
 concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   rust:
     uses: ./.github/workflows/docs-rust-reference.yml
-
   swift:
     name: Swift reference
-    # Push builds only: this is a from-scratch Rust cross-compile for two Apple
-    # targets and is the whole critical path of the run. DocC itself is a minute.
     if: github.event_name != 'pull_request'
     runs-on: macos-15
     timeout-minutes: 60
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        nix-disk: 'false'
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    - uses: taiki-e/install-action@just
+    - run: just ios docs apps/docs/generated/reference/swift
+    - name: Archive Swift reference
+      env:
+        COPYFILE_DISABLE: '1'
+      run: tar -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
+    - uses: actions/upload-artifact@v7
+      with:
+        name: docs-swift
+        path: ${{ runner.temp }}/docs-swift.tar
+        if-no-files-found: error
     env:
       NIX_DEVSHELL: ios
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          nix-disk: "false"
-          github-token: ${{ github.token }}
-          # macOS has no sticky /nix disk, so Cachix is the only cache this job
-          # has. Without the token it substitutes but never pushes, and the
-          # dependency closure is rebuilt on every run.
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: taiki-e/install-action@just
-      - name: Compute exact swift reference key
-        id: reference-key
-        run: >-
-          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py key
-          --kind swift --state "$RUNNER_TEMP/docs-swift-key.json" --github-output "$GITHUB_OUTPUT"
-      - uses: actions/cache/restore@v5
-        if: steps.reference-key.outputs.cache-eligible == 'true'
-        id: reference-cache
-        with:
-          path: apps/docs/generated/reference/swift
-          key: ${{ steps.reference-key.outputs.key }}
-      - name: Verify restored swift reference
-        if: steps.reference-cache.outputs.cache-hit == 'true'
-        run: >-
-          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py verify
-          --kind swift --state "$RUNNER_TEMP/docs-swift-key.json" --folder apps/docs/generated/reference/swift
-      - run: just ios docs apps/docs/generated/reference/swift
-        if: steps.reference-cache.outputs.cache-hit != 'true'
-      - name: Record current swift reference bytes
-        if: steps.reference-cache.outputs.cache-hit != 'true'
-        run: >-
-          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py stamp
-          --kind swift --state "$RUNNER_TEMP/docs-swift-key.json" --folder apps/docs/generated/reference/swift
-      - name: Retain Swift reference input receipt
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-swift-inputs-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/docs-swift-inputs.json
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Retain failed Swift reference input diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-swift-failure-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/docs-swift-key.json.expected-safe.json
-            ${{ runner.temp }}/docs-swift-key.json.inputs.json
-            ${{ runner.temp }}/docs-swift-key.json.failure-safe.json
-          if-no-files-found: ignore
-          retention-days: 7
-      - uses: actions/cache/save@v5
-        if: >-
-          steps.reference-key.outputs.cache-eligible == 'true'
-          && steps.reference-cache.outputs.cache-hit != 'true'
-          && github.event_name == 'push'
-          && (github.ref == 'refs/heads/self-hosted' || github.ref == 'refs/heads/main')
-        with:
-          path: apps/docs/generated/reference/swift
-          key: ${{ steps.reference-key.outputs.key }}
-      - name: Archive Swift reference
-        # DocC symbol filenames contain colons, which upload-artifact rejects.
-        env:
-          # Keep macOS metadata files out of the published reference.
-          COPYFILE_DISABLE: "1"
-        run: tar --exclude=.ci-reference.json -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
-      - uses: actions/upload-artifact@v7
-        with:
-          name: docs-swift
-          overwrite: true
-          path: ${{ runner.temp }}/docs-swift.tar
-          if-no-files-found: error
-
   kotlin:
     name: Kotlin reference
-    # Push builds only, like swift: the Rust bindings build dominates it and
-    # dokka itself is under a minute.
     if: github.event_name != 'pull_request'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: android
+        gradle-disk: 'true'
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+    - uses: taiki-e/install-action@just
+    - run: just android docs-generated
+    - uses: actions/upload-artifact@v7
+      with:
+        name: docs-kotlin
+        path: sdks/android/library/build/dokka/html
+        if-no-files-found: error
     env:
       NIX_DEVSHELL: android
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: android
-          gradle-disk: "true"
-          github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: taiki-e/install-action@just
-      - name: Compute exact kotlin reference key
-        id: reference-key
-        run: >-
-          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py key
-          --kind kotlin --state "$RUNNER_TEMP/docs-kotlin-key.json" --github-output "$GITHUB_OUTPUT"
-      - uses: actions/cache/restore@v5
-        if: steps.reference-key.outputs.cache-eligible == 'true'
-        id: reference-cache
-        with:
-          path: sdks/android/library/build/dokka/html
-          key: ${{ steps.reference-key.outputs.key }}
-      - name: Verify restored kotlin reference
-        if: steps.reference-cache.outputs.cache-hit == 'true'
-        run: >-
-          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py verify
-          --kind kotlin --state "$RUNNER_TEMP/docs-kotlin-key.json" --folder sdks/android/library/build/dokka/html
-      - run: just android docs-generated
-        if: steps.reference-cache.outputs.cache-hit != 'true'
-      - name: Record current kotlin reference bytes
-        if: steps.reference-cache.outputs.cache-hit != 'true'
-        run: >-
-          dev/nix-shell --command python3.11 -B dev/ci/docs-reference-cache.py stamp
-          --kind kotlin --state "$RUNNER_TEMP/docs-kotlin-key.json" --folder sdks/android/library/build/dokka/html
-      - uses: actions/cache/save@v5
-        if: >-
-          steps.reference-key.outputs.cache-eligible == 'true'
-          && steps.reference-cache.outputs.cache-hit != 'true'
-          && github.event_name == 'push'
-          && (github.ref == 'refs/heads/self-hosted' || github.ref == 'refs/heads/main')
-        with:
-          path: sdks/android/library/build/dokka/html
-          key: ${{ steps.reference-key.outputs.key }}
-      - uses: actions/upload-artifact@v7
-        with:
-          name: docs-kotlin
-          overwrite: true
-          path: sdks/android/library/build/dokka/html
-          if-no-files-found: error
-
   site:
     name: Site and JavaScript references
-    env:
-      NIX_DEVSHELL: js
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          # Keep page update dates without fetching old file contents.
-          filter: blob:none
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: web
-          github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@just
-      - uses: ./.github/actions/setup-js
-      - run: just docs check-agent-docs
-      - uses: ./.github/actions/sdk-product
-        if: inputs.prepared-products
-        with:
-          target: node
-          artifact-name: ci-sdk-node
-      - uses: ./.github/actions/sdk-product
-        if: inputs.prepared-products
-        with:
-          target: browser
-          artifact-name: ci-sdk-browser
-      - name: Build site from current prepared products
-        if: inputs.prepared-products
-        run: just docs build-prepared
-      - name: Build local products and site
-        if: ${{ !inputs.prepared-products }}
-        run: just docs build
-      - uses: actions/upload-artifact@v7
-        with:
-          name: docs-site
-          overwrite: true
-          path: apps/docs/dist
-          if-no-files-found: error
-
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        filter: blob:none
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: web
+        github-token: ${{ github.token }}
+    - uses: taiki-e/install-action@just
+    - uses: ./.github/actions/setup-js
+    - run: just docs check-agent-docs
+    - run: just docs build
+    - uses: actions/upload-artifact@v7
+      with:
+        name: docs-site
+        path: apps/docs/dist
+        if-no-files-found: error
+    env:
+      NIX_DEVSHELL: js
   compose:
     name: Validate the composed site
-    # swift and kotlin are skipped on a pull request, and a skipped need would
-    # otherwise skip this job too. Fail only when a need actually failed.
-    needs: [rust, swift, kotlin, site]
-    if: >-
-      !cancelled()
-      && needs.rust.result == 'success'
-      && needs.site.result == 'success'
-      && needs.swift.result != 'failure'
-      && needs.kotlin.result != 'failure'
+    needs:
+    - rust
+    - swift
+    - kotlin
+    - site
+    if: '!cancelled() && needs.rust.result == ''success'' && needs.site.result == ''success'' && needs.swift.result != ''failure'' &&
+      needs.kotlin.result != ''failure'''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     env:
       NIX_DEVSHELL: docs
-      # Without the native references, check-site.mjs must not demand their
-      # entrypoints and compose.mjs must not demand their directories.
       DOCS_SKIP_NATIVE_REFERENCES: ${{ github.event_name == 'pull_request' && '1' || '' }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-nix
-        with:
-          disk-key: web
-          github-token: ${{ github.token }}
-      - uses: taiki-e/install-action@just
-      - uses: ./.github/actions/setup-js
-      - uses: actions/download-artifact@v8
-        with:
-          name: docs-site
-          path: apps/docs/dist
-      - uses: actions/download-artifact@v8
-        with:
-          name: docs-rust
-          path: apps/docs/generated/reference/rust
-      - uses: actions/download-artifact@v8
-        if: github.event_name != 'pull_request'
-        with:
-          name: docs-swift
-          path: ${{ runner.temp }}/docs-swift
-      - name: Extract Swift reference
-        if: github.event_name != 'pull_request'
-        run: |
-          mkdir -p apps/docs/generated/reference/swift
-          tar -xf "${RUNNER_TEMP}/docs-swift/docs-swift.tar" -C apps/docs/generated/reference/swift
-      - uses: actions/download-artifact@v8
-        if: github.event_name != 'pull_request'
-        with:
-          name: docs-kotlin
-          path: apps/docs/generated/reference/kotlin
-      - name: Compose and check the artifact
-        run: dev/nix-shell 'cd apps/docs && node scripts/compose.mjs && node scripts/check-site.mjs --built'
-      - name: Browser tests
-        run: dev/nix-shell 'cd apps/docs && npm run test:browser'
-      - name: Check accessibility against the production baseline
-        run: dev/nix-shell 'cd apps/docs && node scripts/check-lighthouse.mjs'
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: docs-browser-results-${{ github.run_attempt }}
-          path: |
-            apps/docs/test-results
-            apps/docs/playwright-report
-          if-no-files-found: ignore
-      # Only the deploy job consumes this, and a pull-request artifact would be
-      # missing the native references anyway.
-      - uses: actions/upload-pages-artifact@v4
-        if: github.event_name != 'pull_request'
-        with:
-          path: apps/docs/_site
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: web
+        github-token: ${{ github.token }}
+    - uses: taiki-e/install-action@just
+    - uses: ./.github/actions/setup-js
+    - uses: actions/download-artifact@v8
+      with:
+        name: docs-site
+        path: apps/docs/dist
+    - uses: actions/download-artifact@v8
+      with:
+        name: docs-rust
+        path: apps/docs/generated/reference/rust
+    - uses: actions/download-artifact@v8
+      if: github.event_name != 'pull_request'
+      with:
+        name: docs-swift
+        path: ${{ runner.temp }}/docs-swift
+    - name: Extract Swift reference
+      if: github.event_name != 'pull_request'
+      run: 'mkdir -p apps/docs/generated/reference/swift
 
+        tar -xf "${RUNNER_TEMP}/docs-swift/docs-swift.tar" -C apps/docs/generated/reference/swift
+
+        '
+    - uses: actions/download-artifact@v8
+      if: github.event_name != 'pull_request'
+      with:
+        name: docs-kotlin
+        path: apps/docs/generated/reference/kotlin
+    - name: Compose and check the artifact
+      run: dev/nix-shell 'cd apps/docs && node scripts/compose.mjs && node scripts/check-site.mjs --built'
+    - name: Browser tests
+      run: dev/nix-shell 'cd apps/docs && npm run test:browser'
+    - name: Check accessibility against the production baseline
+      run: dev/nix-shell 'cd apps/docs && node scripts/check-lighthouse.mjs'
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: docs-browser-results
+        path: 'apps/docs/test-results
+
+          apps/docs/playwright-report
+
+          '
+        if-no-files-found: ignore
+    - uses: actions/upload-pages-artifact@v4
+      if: github.event_name != 'pull_request'
+      with:
+        path: apps/docs/_site
   deploy:
-    # self-hosted is where the work happens, so it is what publishes. A push to
-    # main still runs the full build as a signal; GitHub Pages serves one site
-    # per repository, so only one branch can deploy.
     if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted'
     needs: compose
     permissions:
@@ -290,15 +159,27 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
-      - name: Check the published custom domain
-        # Publishing succeeds even when DNS or the TLS certificate is pending.
-        run: |
-          if ! curl --fail --silent --show-error --retry 3 --retry-delay 10 \
-            --connect-timeout 10 --max-time 30 --retry-all-errors \
-            --output /dev/null https://self-hosted-docs.xmtp.to/; then
-            echo "::warning::Pages published, but the custom domain HTTPS check failed. Check DNS and the Pages certificate."
-            echo "Pages published. The custom domain HTTPS check failed; check DNS and the Pages certificate." >> "$GITHUB_STEP_SUMMARY"
-          fi
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v5
+    - name: Check the published custom domain
+      run: "if ! curl --fail --silent --show-error --retry 3 --retry-delay 10 \\\n  --connect-timeout 10 --max-time 30 --retry-all-errors\
+        \ \\\n  --output /dev/null https://self-hosted-docs.xmtp.to/; then\n  echo \"::warning::Pages published, but the custom domain\
+        \ HTTPS check failed. Check DNS and the Pages certificate.\"\n  echo \"Pages published. The custom domain HTTPS check failed;\
+        \ check DNS and the Pages certificate.\" >> \"$GITHUB_STEP_SUMMARY\"\nfi\n"
+  result:
+    if: always()
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs:
+    - rust
+    - swift
+    - kotlin
+    - site
+    - compose
+    - deploy
+    steps:
+    - env:
+        PASSED: ${{ needs.rust.result == 'success' && needs.site.result == 'success' && needs.compose.result == 'success' && (github.event_name
+          == 'pull_request' || (needs.swift.result == 'success' && needs.kotlin.result == 'success')) && (github.event_name != 'push'
+          || github.ref != 'refs/heads/self-hosted' || needs.deploy.result == 'success') }}
+      run: test "$PASSED" = true

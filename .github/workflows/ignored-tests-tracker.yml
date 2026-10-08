@@ -18,9 +18,9 @@ env:
 
 jobs:
   run-ignored:
-    name: Ignored Tests (${{ matrix.name }})
     env:
-      NIX_DEVSHELL: ${{ matrix.dev-shell }}
+      NIX_DEVSHELL: rust
+    name: Ignored Tests (${{ matrix.name }})
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 90
     strategy:
@@ -28,11 +28,9 @@ jobs:
       matrix:
         include:
           - name: native-default
-            dev-shell: rust
             command: just test workspace
             junit: target/nextest/ci/junit.xml
           - name: wasm-default
-            dev-shell: wasm
             command: just wasm test
             junit: target/nextest/ci/junit.xml
     steps:

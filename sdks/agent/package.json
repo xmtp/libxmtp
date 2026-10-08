@@ -69,8 +69,6 @@
     "format:check": "oxfmt --check .",
     "gen:keys": "tsx src/bin/generateKeys.ts",
     "lint": "oxlint .",
-    "lint:prepared": "oxlint .",
-    "typecheck:prepared": "tsc --noEmit",
     "start": "pnpm dev",
     "test": "pnpm typecheck && vitest run --typecheck",
     "test:cov": "vitest run --coverage",

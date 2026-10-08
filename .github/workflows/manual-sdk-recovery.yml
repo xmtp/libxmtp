@@ -1,40 +1,15 @@
 name: Manual public SDK recovery
-on:
-  workflow_dispatch: {}
+'on':
+  workflow_dispatch: null
 permissions:
   contents: read
-concurrency:
-  group: manual-recovery-${{ github.ref }}
-  cancel-in-progress: true
 env:
   NIX_DEVSHELL: js-node
 jobs:
-  sdk-node:
-    uses: ./.github/workflows/build-ci-products.yml
-    with:
-      kind: node
-    secrets: inherit
-  backend-products:
-    uses: ./.github/workflows/build-ci-products.yml
-    with:
-      kind: backend
-    secrets: inherit
   recovery:
-    name: Test (node-sdk) recovery ${{ matrix.group }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    name: Test (node-sdk) recovery
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
-    strategy:
-      fail-fast: true
-      matrix:
-        group:
-        - 1
-        - 2
-        - 3
-        - 4
-        - 5
-        - 6
-        - 7
-        - 8
     steps:
     - name: Checkout
       uses: actions/checkout@v6
@@ -43,39 +18,16 @@ jobs:
         disk-key: web
         docker-builder: 'true'
         github-token: ${{ github.token }}
-        cachix-auth-token: ''
     - uses: taiki-e/install-action@just
     - uses: ./.github/actions/setup-js
-    - name: Restore prepared SDK product
-      uses: ./.github/actions/sdk-product
-      with:
-        target: node
-        artifact-name: ci-sdk-node
-    - name: Restore prepared backend product
-      id: backend-product
-      uses: ./.github/actions/backend-product
-      with:
-        artifact-name: ci-backend
-        allow-earlier-attempt: 'true'
-    - name: Start prepared backend
-      run: dev/nix-shell 'just backend up-prepared'
-    - name: Run isolated recovery partition
+    - name: Start backend
+      run: dev/nix-shell 'just backend up'
+    - name: Build backend for graceful restart
+      run: dev/nix-shell 'just backend build'
+    - name: Run public recovery matrix
       env:
-        XMTP_RECOVERY_BACKEND_BINARY: ${{ steps.backend-product.outputs.binary-path }}
-      run: dev/nix-shell 'just js test-node-sdk-recovery-prepared ${{ matrix.group }}'
-    - name: Save recovery inventory and results
+        XMTP_RECOVERY_BACKEND_BINARY: ${{ github.workspace }}/result/bin/xmtp-backend
+      run: dev/nix-shell 'just js test-node-sdk-ci test/streamRecovery.test.ts'
+    - name: Stop test services
       if: always()
-      timeout-minutes: 2
-      uses: actions/upload-artifact@v7
-      with:
-        name: recovery-${{ matrix.group }}-${{ github.run_attempt }}
-        path: target/recovery-results/${{ matrix.group }}/
-        if-no-files-found: error
-    - name: Stop the isolated backend stack
-      if: always()
-      timeout-minutes: 2
       run: dev/nix-shell 'just backend down'
-    needs:
-    - sdk-node
-    - backend-products
-    if: '!cancelled() && needs.sdk-node.result == ''success'' && needs.backend-products.result == ''success'''

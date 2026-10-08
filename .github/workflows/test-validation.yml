@@ -1,6 +1,8 @@
 name: Test shared MLS validation
 on:
   workflow_call:
+env:
+  NIX_DEVSHELL: rust
 jobs:
   test:
     name: Test (shared MLS validation)
