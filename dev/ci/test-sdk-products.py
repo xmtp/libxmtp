@@ -14,6 +14,8 @@ import tarfile
 import tempfile
 import unittest
 
+from sdk_response_flag_test_cases import ResponseFlagTests
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = "dev/ci/sdk-products.py"
 STAGE = "crates/xmtp_sdk/dev/stage-package.mjs"
@@ -52,7 +54,7 @@ def native_elf(search_path):
     return data
 
 
-class ProductTests(unittest.TestCase):
+class ProductTests(ResponseFlagTests, unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

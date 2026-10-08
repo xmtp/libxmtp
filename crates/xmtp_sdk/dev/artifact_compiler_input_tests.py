@@ -9,6 +9,34 @@ from artifact_test_modules import artifacts, mobile
 
 
 class CompilerInputTests:
+    def test_response_inputs_disable_direct_raw_role_reuse(self):
+        response = self.root / "compiler.args"
+        with patch.dict(os.environ, {"RUSTFLAGS": "@" + str(response)}):
+            self.assertFalse(artifacts.inputs.cache_contract_supported(artifacts.ROOT))
+            for value in ("-Cdebug-assertions=true", "-Cdebug-assertions=false"):
+                response.write_text(value)
+                artifacts.build(self.args)
+        self.assertEqual(len(self.cargo_environments), 4)
+        self.assertNotEqual(
+            self.cargo_environments[0]["CARGO_TARGET_DIR"],
+            self.cargo_environments[2]["CARGO_TARGET_DIR"],
+        )
+        self.assertEqual(
+            self.cargo_environments[0]["CARGO_TARGET_DIR"],
+            self.cargo_environments[1]["CARGO_TARGET_DIR"],
+        )
+
+    def test_literal_at_text_keeps_normal_debug_and_raw_input_support(self):
+        with patch.dict(
+            os.environ, {"CARGO_ENCODED_RUSTFLAGS": '--cfg\x1fprobe="literal @text"'}
+        ):
+            artifacts.inputs.require_debug_profile(artifacts.ROOT)
+            self.assertTrue(artifacts.inputs.rust_flags_supported(artifacts.ROOT))
+            self.assertTrue(artifacts.inputs.cache_contract_supported(artifacts.ROOT))
+        self.assertTrue(
+            artifacts.inputs.debug_flags_valid([["--cfg", 'probe="literal @text"']])
+        )
+
     def test_compiler_host_uses_artifact_compiler_selection(self):
         for inputs, expected in (
             ({}, "rustc"),

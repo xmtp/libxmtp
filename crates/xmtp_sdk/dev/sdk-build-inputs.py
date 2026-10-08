@@ -150,6 +150,8 @@ def declared_inputs(root):
 
 
 def cache_contract_supported(root):
+    if not rust_flags_supported(root):
+        return False
     # Current generated proto bytes come from the hashed proto tree. Other
     # dynamic include paths need a new input contract before raw cache reuse.
     for source in rust_sources(root):
@@ -181,6 +183,9 @@ def tokens(value, encoded=False):
 def debug_flags_valid(values):
     for value in values:
         flags = tokens(value)
+        # rustc expands these files. Their contents are outside this contract.
+        if any(flag.startswith("@") for flag in flags):
+            return False
         options = []
         index = 0
         while index < len(flags):
@@ -245,6 +250,14 @@ def compiler_flags(root):
         if isinstance(settings, dict) and "rustflags" in settings:
             values["cargo-host:" + target] = tokens(settings["rustflags"])
     return values
+
+
+def rust_flags_supported(root):
+    return all(
+        not flag.startswith("@")
+        for value in compiler_flags(root).values()
+        for flag in tokens(value)
+    )
 
 
 def debug_profile_valid(root):
