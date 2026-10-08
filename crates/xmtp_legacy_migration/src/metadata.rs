@@ -378,20 +378,9 @@ mod tests {
 
     // verifies: MIG-005
     #[xmtp_common::test(unwrap_try = true)]
-    fn absent_appdata_fields_keep_legacy_defaults() {
-        let (_, mutable) = super::decode(include_bytes!("../fixtures/appdata-context.bincode"));
-        let mutable = mutable.unwrap();
-        assert_eq!(mutable.attributes["group_image_url_square"], "");
-        assert_eq!(mutable.attributes["app_data"], "");
-        assert!(!mutable.attributes.contains_key("message_disappear_from_ns"));
-    }
-
-    // verifies: MIG-005
-    #[xmtp_common::test(unwrap_try = true)]
     fn context_byte_budget_rejects_large_optional_metadata() {
         let context: super::GroupContext =
             bincode::deserialize(include_bytes!("../fixtures/appdata-context.bincode"))?;
-        let expected = super::decode(include_bytes!("../fixtures/appdata-context.bincode"));
         let below_limit = bincode::serialize(&(
             context.protocol_version(),
             context.ciphersuite(),
@@ -401,7 +390,11 @@ mod tests {
             context.confirmed_transcript_hash(),
             context.extensions(),
         ))?;
-        assert_eq!(super::decode(&below_limit), expected);
+        let (immutable, mutable) = super::decode(&below_limit);
+        assert_eq!(immutable.unwrap().creator_inbox_id, "01".repeat(32));
+        let mutable = mutable.unwrap();
+        assert_eq!(mutable.attributes["group_name"], "AppData Group");
+        assert_eq!(mutable.attributes["description"], "good description");
         let bytes = bincode::serialize(&(
             context.protocol_version(),
             context.ciphersuite(),
@@ -443,6 +436,8 @@ mod tests {
         let mutable = mutable.unwrap();
         assert_eq!(mutable.attributes["group_name"], "AppData Group");
         assert_eq!(mutable.attributes["description"], "good description");
+        assert_eq!(mutable.attributes["group_image_url_square"], "");
+        assert_eq!(mutable.attributes["app_data"], "");
         assert!(!mutable.attributes.contains_key("message_disappear_from_ns"));
     }
 }

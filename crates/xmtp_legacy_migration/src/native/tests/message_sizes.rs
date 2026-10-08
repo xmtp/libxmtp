@@ -19,15 +19,6 @@ fn sized_message(
     );
 }
 
-pub(super) fn entries(path: &Path) -> Vec<std::ffi::OsString> {
-    let mut names = fs::read_dir(path)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name())
-        .collect::<Vec<_>>();
-    names.sort();
-    names
-}
-
 // verifies: MIG-002, MIG-004, MIG-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn oversized_message_rows_fail_without_publishing() {
@@ -40,32 +31,10 @@ async fn oversized_message_rows_fail_without_publishing() {
     ] {
         let (directory, args) = fixture("stable.db3");
         sized_message(&args, content, reference, inbox);
-        let before = source_bytes(&args);
-        for previous in [false, true] {
-            if previous {
-                fs::write(&args.output_path, b"completed archive")?;
-            }
-            let before_entries = entries(directory.path());
-            let result = prepare_migration_archive(args.clone()).await;
-            if !matches!(result, Err(MigrationError::RecordRead(_))) {
-                failures.push(format!("{name}, previous={previous}: {result:?}"));
-                if Path::new(&args.output_path).exists() {
-                    fs::remove_file(&args.output_path)?;
-                }
-            } else {
-                if previous {
-                    assert_eq!(fs::read(&args.output_path)?, b"completed archive");
-                } else {
-                    assert!(!Path::new(&args.output_path).exists());
-                }
-                assert_eq!(
-                    entries(directory.path()),
-                    before_entries,
-                    "private output remains"
-                );
-            }
-            assert_eq!(source_bytes(&args), before);
-        }
+        failures.extend(
+            rejects_without_publishing(&args, directory.path(), name, ExpectedError::RecordRead)
+                .await,
+        );
     }
     assert!(
         failures.is_empty(),

@@ -1,12 +1,10 @@
-import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createReadStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { chromium } from "../../../node_modules/playwright/index.mjs";
-import { createServer } from "../../../node_modules/vite/dist/node/index.js";
+import { createMigrationServer, withMigrationPage } from "./server.mjs";
 
 const limit = 64 * 1024 * 1024;
 const temporary = await mkdtemp(join(tmpdir(), "migration-row-size-"));
@@ -59,72 +57,21 @@ for name, fields in cases.items():
 `,
   temporary,
 ]);
-const server = await createServer({
-  plugins: [
-    {
-      name: "migration-row-fixtures",
-      configureServer(server) {
-        server.middlewares.use((request, response, next) => {
-          const name = request.url?.replace(/^\/row-fixture\//, "");
-          if (!cases.includes(name)) return next();
-          response.setHeader("Content-Type", "application/octet-stream");
-          createReadStream(join(temporary, name + ".db3")).pipe(response);
-        });
-      },
-    },
-  ],
-  root: process.cwd(),
-  configFile: false,
-  cacheDir: "target/migration-message-size-vite",
-  optimizeDeps: { noDiscovery: true },
-  server: {
-    hmr: false,
-    watch: null,
-    host: "127.0.0.1",
-    port: 0,
-    fs: { strict: false },
-    proxy: {
-      "/backend": {
-        target: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:5050",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/backend/, ""),
-      },
-    },
-  },
-});
-await server.listen();
+const server = await createMigrationServer(temporary, cases);
 const browser = await chromium.launch({ headless: true });
 try {
   for (const name of cases) {
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    try {
-      await page.goto(
-        `http://127.0.0.1:${server.httpServer.address().port}/sdks/browser/test/platform/migration/browser.html`,
-      );
-      const result = await page.evaluate(
+    await withMigrationPage(browser, server, async (page) => {
+      await page.evaluate(
         async ({ name, limit }) => {
           const sdk = await import("/target/sdk-packages/browser/entry.js");
-          function check(value, message) {
-            if (!value) throw new Error(message);
-          }
-          async function fixtureCall(data) {
-            const worker = new Worker(
-              new URL("./fixture-worker.mjs", location.href),
-              { type: "module" },
-            );
-            try {
-              return await new Promise((resolve, reject) => {
-                worker.onmessage = ({ data }) =>
-                  data.ok ? resolve(data.value) : reject(Error(data.error));
-                worker.onerror = (error) => reject(Error(error.message));
-                worker.postMessage(data);
-              });
-            } finally {
-              worker.terminate();
-              await new Promise((resolve) => setTimeout(resolve, 25));
-            }
-          }
+          const {
+            check,
+            fixtureCall,
+            exportSourceBytes,
+            assertSourceUnchanged,
+            assertFailedPreparation,
+          } = await import("/sdks/browser/test/platform/migration/support.mjs");
           const source = "/row-size.db3";
           let fixture = new Uint8Array(
             await (await fetch("/row-fixture/" + name)).arrayBuffer(),
@@ -140,10 +87,7 @@ try {
             bytes: fixture,
           });
           fixture = undefined;
-          const before = await fixtureCall({
-            operation: "export",
-            path: source,
-          });
+          const before = await exportSourceBytes(source);
           const key = new Uint8Array(32).fill(7);
           const args = {
             databasePath: source,
@@ -151,76 +95,7 @@ try {
             outputPath: "row-size.xmtp",
           };
           if (!name.includes("boundary")) {
-            const baseline = new Uint8Array(
-              await (
-                await fetch("/crates/xmtp_legacy_migration/fixtures/stable.db3")
-              ).arrayBuffer(),
-            );
-            await fixtureCall({
-              operation: "import",
-              path: "/small.db3",
-              bytes: baseline,
-            });
-            await sdk.prepareMigrationArchive({
-              ...args,
-              databasePath: "/small.db3",
-            });
-            const completed = await sdk.readMigrationArchive(args.outputPath);
-            for (const previous of [false, true]) {
-              const outputPath = previous
-                ? args.outputPath
-                : "new-row-size.xmtp";
-              let failure;
-              try {
-                await sdk.prepareMigrationArchive({ ...args, outputPath });
-              } catch (error) {
-                failure = error;
-              }
-              check(
-                failure instanceof sdk.XmtpError.MigrationRecordRead,
-                name +
-                  ": oversized row did not return MigrationRecordRead (" +
-                  (failure ? String(failure) : "preparation succeeded") +
-                  ")",
-              );
-              // Inspect before another archive call can perform recovery.
-              const root = await navigator.storage.getDirectory();
-              const archives = await root.getDirectoryHandle(
-                "xmtp-migration-archives",
-              );
-              const folder = await archives.getDirectoryHandle(
-                encodeURIComponent(outputPath),
-              );
-              check(
-                (await Array.fromAsync(folder.keys())).length ===
-                  (previous ? 1 : 0),
-                "private output remains after failure",
-              );
-              if (previous) {
-                const preserved = await sdk.readMigrationArchive(outputPath);
-                check(
-                  preserved.length === completed.length &&
-                    preserved.every((byte, i) => byte === completed[i]),
-                  "completed output changed",
-                );
-              } else {
-                let absent = false;
-                try {
-                  await sdk.readMigrationArchive(outputPath);
-                } catch (error) {
-                  absent = error instanceof sdk.XmtpError.MigrationOutput;
-                }
-                check(absent, "failed preparation published a new output");
-              }
-            }
-            const retry = await sdk.prepareMigrationArchive({
-              ...args,
-              databasePath: "/small.db3",
-            });
-            check(
-              retry.messageCount === 3n,
-              "failure did not release storage for retry",
-            );
+            await assertFailedPreparation(sdk, args, name);
           } else {
             for (let attempt = 0; attempt < 2; attempt++) {
               const report = await sdk.prepareMigrationArchive(args);
@@ -278,26 +153,14 @@ try {
               );
             }
           }
-          const after = await fixtureCall({
-            operation: "export",
-            path: source,
-          });
-          check(
-            before.length === after.length &&
-              before.every((byte, index) => byte === after[index]),
-            "source bytes changed",
-          );
-          return { name, sourcePreserved: true };
+          await assertSourceUnchanged(before, source);
         },
         { name, limit },
       );
-      assert.equal(result.sourcePreserved, true);
       console.log(
         `${name}: 64 MiB row budget, source/output preservation, cleanup, and retry passed`,
       );
-    } finally {
-      await context.close();
-    }
+    });
   }
 } finally {
   await browser.close();

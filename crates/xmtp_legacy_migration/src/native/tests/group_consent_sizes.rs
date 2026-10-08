@@ -1,4 +1,4 @@
-use super::{message_sizes::entries, *};
+use super::*;
 
 const LIMIT: usize = 64 * 1024 * 1024;
 const GROUP_ID: &str = "44444444444444444444444444444444";
@@ -11,37 +11,6 @@ fn sized_group(args: &PrepareMigrationArchiveArgs, fields: &str) {
              WHERE id=x'{GROUP_ID}'; UPDATE groups SET {fields} WHERE id=x'{GROUP_ID}';"
         ),
     );
-}
-
-async fn rejects_without_publishing(
-    args: &PrepareMigrationArchiveArgs,
-    directory: &Path,
-    name: &str,
-) -> Vec<String> {
-    let before = source_bytes(args);
-    let mut failures = vec![];
-    for previous in [false, true] {
-        if previous {
-            fs::write(&args.output_path, b"completed archive").unwrap();
-        }
-        let before_entries = entries(directory);
-        let result = prepare_migration_archive(args.clone()).await;
-        if !matches!(result, Err(MigrationError::RecordRead(_))) {
-            failures.push(format!("{name}, previous={previous}: {result:?}"));
-            if Path::new(&args.output_path).exists() {
-                fs::remove_file(&args.output_path).unwrap();
-            }
-        } else {
-            if previous {
-                assert_eq!(fs::read(&args.output_path).unwrap(), b"completed archive");
-            } else {
-                assert!(!Path::new(&args.output_path).exists());
-            }
-            assert_eq!(entries(directory), before_entries, "private output remains");
-        }
-        assert_eq!(source_bytes(args), before);
-    }
-    failures
 }
 
 // verifies: MIG-002, MIG-004, MIG-007
@@ -77,7 +46,10 @@ async fn oversized_group_rows_fail_without_publishing() {
     ] {
         let (directory, args) = fixture("stable.db3");
         sized_group(&args, &fields);
-        failures.extend(rejects_without_publishing(&args, directory.path(), name).await);
+        failures.extend(
+            rejects_without_publishing(&args, directory.path(), name, ExpectedError::RecordRead)
+                .await,
+        );
     }
     assert!(
         failures.is_empty(),
@@ -116,7 +88,10 @@ async fn oversized_consent_rows_fail_without_publishing() {
             &args,
             &format!("UPDATE consent_records SET entity_type={entity_type}, entity={entity}"),
         );
-        failures.extend(rejects_without_publishing(&args, directory.path(), name).await);
+        failures.extend(
+            rejects_without_publishing(&args, directory.path(), name, ExpectedError::RecordRead)
+                .await,
+        );
     }
     assert!(
         failures.is_empty(),

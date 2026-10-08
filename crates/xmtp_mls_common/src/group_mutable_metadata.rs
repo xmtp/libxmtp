@@ -764,14 +764,41 @@ mod tests {
                 AppDataDictionaryExtension::new(dict),
             )])?;
         let mut base = GroupMutableMetadata::new(
-            HashMap::from([("group_name".to_string(), "Stale".to_string())]),
+            HashMap::from([
+                ("group_name".to_string(), "Stale".to_string()),
+                (
+                    MetadataField::CommitLogSigner.as_str().to_string(),
+                    hex::encode([7; 32]),
+                ),
+            ]),
             vec!["stale-admin".to_string()],
             vec![],
         );
         let errors = merge_dict_into_mutable_metadata_lossy(&mut base, &extensions);
-        assert_eq!(errors.len(), 3);
+        let mut components: Vec<_> = errors
+            .into_iter()
+            .map(|error| match error {
+                GroupMutableMetadataError::MalformedComponent {
+                    component_id: Some(id),
+                    ..
+                } => id.as_u16(),
+                error => panic!("unexpected metadata error: {error:?}"),
+            })
+            .collect();
+        components.sort();
+        let mut expected = [
+            ComponentId::GROUP_NAME.as_u16(),
+            ComponentId::ADMIN_LIST.as_u16(),
+            ComponentId::COMMIT_LOG_SIGNER.as_u16(),
+        ];
+        expected.sort();
+        assert_eq!(components, expected);
         assert!(!base.attributes.contains_key("group_name"));
-        assert!(!base.attributes.contains_key("commit_log_signer"));
+        assert!(
+            !base
+                .attributes
+                .contains_key(MetadataField::CommitLogSigner.as_str())
+        );
         assert_eq!(base.attributes["description"], "Readable");
         assert_eq!(base.attributes["group_image_url_square"], "");
         assert_eq!(base.attributes["app_data"], "");

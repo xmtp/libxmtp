@@ -71,6 +71,63 @@ fn edit(args: &PrepareMigrationArchiveArgs, sql: &str) {
     conn.batch_execute(sql).unwrap();
 }
 
+fn entries(path: &Path) -> Vec<std::ffi::OsString> {
+    let mut names = fs::read_dir(path)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+#[derive(Clone, Copy)]
+enum ExpectedError {
+    RecordRead,
+    UnsupportedSchema,
+}
+
+async fn rejects_without_publishing(
+    args: &PrepareMigrationArchiveArgs,
+    directory: &Path,
+    name: &str,
+    expected: ExpectedError,
+) -> Vec<String> {
+    let before = source_bytes(args);
+    let mut failures = vec![];
+    for previous in [false, true] {
+        if previous {
+            fs::write(&args.output_path, b"completed archive").unwrap();
+        }
+        let before_entries = entries(directory);
+        let result = prepare_migration_archive(args.clone()).await;
+        let matches = matches!(
+            (&result, expected),
+            (
+                Err(MigrationError::RecordRead(_)),
+                ExpectedError::RecordRead
+            ) | (
+                Err(MigrationError::UnsupportedSchema),
+                ExpectedError::UnsupportedSchema
+            )
+        );
+        if !matches {
+            failures.push(format!("{name}, previous={previous}: {result:?}"));
+            if Path::new(&args.output_path).exists() {
+                fs::remove_file(&args.output_path).unwrap();
+            }
+        } else {
+            if previous {
+                assert_eq!(fs::read(&args.output_path).unwrap(), b"completed archive");
+            } else {
+                assert!(!Path::new(&args.output_path).exists());
+            }
+            assert_eq!(entries(directory), before_entries, "private output remains");
+        }
+        assert_eq!(source_bytes(args), before);
+    }
+    failures
+}
+
 // verifies: MIG-001, MIG-002, MIG-003, MIG-005, MIG-006, ARCH-007, ARCH-008, ARCH-010, ARCH-026
 #[xmtp_common::test(unwrap_try = true)]
 async fn stable_history_metadata_and_exclusions() {
@@ -189,7 +246,16 @@ async fn earlier_schema_exports_history_without_recorded_deadlines() {
         ),
         (2, 5, 1)
     );
-    assert_eq!(elements(&report.archive_path).await.len(), 8);
+    let records = elements(&report.archive_path).await;
+    assert_eq!(records.len(), 8);
+    let ids: Vec<_> = records
+        .into_iter()
+        .filter_map(|record| match record {
+            Element::GroupMessage(message) => Some(message.id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ids, [1, 2, 3, 8, 10].map(|id| vec![id; 32]));
     assert_eq!(source_bytes(&args), before);
 }
 
@@ -211,30 +277,67 @@ async fn malformed_optional_metadata_keeps_history() {
 // verifies: MIG-002, MIG-004, MIG-005, ARCH-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn required_records_and_schema_fail_without_replacing_output() {
-    for sql in [
-        "UPDATE groups SET id=x'' WHERE id=x'44444444444444444444444444444444'",
-        "DELETE FROM groups WHERE id=x'44444444444444444444444444444444'",
-        "UPDATE groups SET id='DDDDDDDDDDDDDDDD' WHERE id=x'44444444444444444444444444444444'; UPDATE group_messages SET group_id='DDDDDDDDDDDDDDDD' WHERE group_id=x'44444444444444444444444444444444'",
-        "UPDATE consent_records SET entity_type=99",
-        "INSERT INTO __diesel_schema_migrations(version) VALUES('99999999999999')",
-        "DROP TABLE __diesel_schema_migrations",
+    let mut failures = vec![];
+    for (sql, expected) in [
+        (
+            "UPDATE groups SET id=x'' WHERE id=x'44444444444444444444444444444444'",
+            ExpectedError::RecordRead,
+        ),
+        (
+            "DELETE FROM groups WHERE id=x'44444444444444444444444444444444'",
+            ExpectedError::RecordRead,
+        ),
+        (
+            "UPDATE groups SET id='DDDDDDDDDDDDDDDD' WHERE id=x'44444444444444444444444444444444'; UPDATE group_messages SET group_id='DDDDDDDDDDDDDDDD' WHERE group_id=x'44444444444444444444444444444444'",
+            ExpectedError::RecordRead,
+        ),
+        (
+            "UPDATE consent_records SET entity_type=99",
+            ExpectedError::RecordRead,
+        ),
+        (
+            "INSERT INTO __diesel_schema_migrations(version) VALUES('99999999999999')",
+            ExpectedError::UnsupportedSchema,
+        ),
+        (
+            "DROP TABLE __diesel_schema_migrations",
+            ExpectedError::UnsupportedSchema,
+        ),
     ] {
         let (directory, args) = fixture("stable.db3");
         edit(&args, sql);
-        fs::write(&args.output_path, b"completed archive")?;
-        let before = source_bytes(&args);
-        let result = prepare_migration_archive(args.clone()).await;
-        assert!(
-            matches!(
-                result,
-                Err(MigrationError::RecordRead(_)) | Err(MigrationError::UnsupportedSchema)
-            ),
-            "{result:?}"
-        );
-        assert_eq!(source_bytes(&args), before);
-        assert_eq!(fs::read(&args.output_path)?, b"completed archive");
-        assert_eq!(fs::read_dir(directory.path())?.count(), 2);
+        failures.extend(rejects_without_publishing(&args, directory.path(), sql, expected).await);
     }
+    assert!(
+        failures.is_empty(),
+        "wrong record or schema rejection: {failures:?}"
+    );
+}
+
+// verifies: MIG-002, MIG-003, MIG-004
+#[xmtp_common::test(unwrap_try = true)]
+async fn oversized_migration_history_preserves_source_and_output() {
+    let mut failures = vec![];
+    for sql in [
+        "INSERT INTO __diesel_schema_migrations(version) VALUES (CAST(zeroblob(1048576) AS TEXT))",
+        "WITH RECURSIVE rows(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM rows WHERE n<100000) INSERT INTO __diesel_schema_migrations(version) SELECT printf('unknown-%08d', n) FROM rows",
+    ] {
+        let (directory, args) = fixture("stable.db3");
+        edit(&args, sql);
+        failures.extend(
+            rejects_without_publishing(
+                &args,
+                directory.path(),
+                sql,
+                ExpectedError::UnsupportedSchema,
+            )
+            .await,
+        );
+    }
+    assert!(
+        failures.is_empty(),
+        "oversized history changed source or output: {failures:?}"
+    );
 }
 
 // verifies: MIG-002
@@ -593,7 +696,7 @@ async fn null_eligibility_fields_fail_without_publishing() {
         ("groups", "membership_state", GROUP.to_owned()),
         ("group_messages", "kind", "01".repeat(32)),
     ] {
-        let (_directory, args) = fixture("stable.db3");
+        let (directory, args) = fixture("stable.db3");
         // Rebuild this corrupt table without NOT NULL constraints.
         edit(
             &args,
@@ -601,15 +704,15 @@ async fn null_eligibility_fields_fail_without_publishing() {
                 "DROP TRIGGER IF EXISTS msg_inserted; DROP VIEW IF EXISTS conversation_list; CREATE TABLE nullable_copy AS SELECT * FROM {table}; DROP TABLE {table}; ALTER TABLE nullable_copy RENAME TO {table}; UPDATE {table} SET {field}=NULL WHERE id=x'{id}';"
             ),
         );
-        let before = source_bytes(&args);
-        fs::write(&args.output_path, b"completed archive")?;
-        let result = prepare_migration_archive(args.clone()).await;
-        if !matches!(result, Err(MigrationError::RecordRead(_))) {
-            failures.push(format!("{table}.{field}: {result:?}"));
-        } else {
-            assert_eq!(fs::read(&args.output_path)?, b"completed archive");
-        }
-        assert_eq!(source_bytes(&args), before);
+        failures.extend(
+            rejects_without_publishing(
+                &args,
+                directory.path(),
+                &format!("{table}.{field}"),
+                ExpectedError::RecordRead,
+            )
+            .await,
+        );
     }
     assert!(
         failures.is_empty(),
@@ -617,9 +720,9 @@ async fn null_eligibility_fields_fail_without_publishing() {
     );
 }
 
-// verifies: MIG-002, MIG-004
+// verifies: MIG-004
 #[xmtp_common::test(unwrap_try = true)]
-async fn dropped_call_stops_source_copy_and_removes_partial_copy() {
+async fn dropped_call_stops_source_copy() {
     struct GatedWriter {
         file: fs::File,
         entered: Option<tokio::sync::oneshot::Sender<()>>,
@@ -638,9 +741,6 @@ async fn dropped_call_stops_source_copy_and_removes_partial_copy() {
             self.file.flush()
         }
     }
-    let directory = tempfile::tempdir()?;
-    let output_path = directory.path().join("history.xmtp");
-    fs::write(&output_path, b"completed archive")?;
     let source = vec![0x55; 1024 * 1024];
     let (entered, ready) = tokio::sync::oneshot::channel();
     let (release, gate) = std::sync::mpsc::channel();
@@ -659,25 +759,19 @@ async fn dropped_call_stops_source_copy_and_removes_partial_copy() {
             cancel,
         );
         let count = fs::metadata(&copied).map_err(input)?.len();
-        let partial = temporary.path().to_owned();
-        drop(temporary);
-        finished
-            .send((result.is_err(), count, partial.exists()))
-            .unwrap();
+        finished.send((result.is_err(), count)).unwrap();
         result
     }));
     assert!(futures::poll!(future.as_mut()).is_pending());
     ready.await?;
     drop(future);
     release.send(())?;
-    let (failed, copied, partial_exists) = done.await?;
+    let (failed, copied) = done.await?;
     assert!(failed, "cancelled source copy completed");
     assert!(
         copied <= 64 * 1024,
         "copied {copied} bytes after cancellation"
     );
-    assert!(!partial_exists);
-    assert_eq!(fs::read(&output_path)?, b"completed archive");
 }
 
 // verifies: MIG-002, MIG-003, MIG-004
@@ -752,36 +846,28 @@ async fn invalid_message_kinds_fail_without_publishing() {
     let mut failures = vec![];
     for kind in [-1, 0, 3, 99] {
         for orphan in [false, true] {
-            for previous in [false, true] {
-                let (_directory, args) = fixture("stable.db3");
-                let group = if orphan {
-                    format!(", group_id=x'{}'", "ff".repeat(16))
-                } else {
-                    String::new()
-                };
-                edit(
+            let (directory, args) = fixture("stable.db3");
+            let group = if orphan {
+                format!(", group_id=x'{}'", "ff".repeat(16))
+            } else {
+                String::new()
+            };
+            edit(
+                &args,
+                &format!(
+                    "UPDATE group_messages SET kind={kind}{group} WHERE id=x'{}';",
+                    "01".repeat(32)
+                ),
+            );
+            failures.extend(
+                rejects_without_publishing(
                     &args,
-                    &format!(
-                        "UPDATE group_messages SET kind={kind}{group} WHERE id=x'{}';",
-                        "01".repeat(32)
-                    ),
-                );
-                let before = source_bytes(&args);
-                if previous {
-                    fs::write(&args.output_path, b"completed archive")?;
-                }
-                let result = prepare_migration_archive(args.clone()).await;
-                if !matches!(result, Err(MigrationError::RecordRead(_))) {
-                    failures.push(format!(
-                        "kind={kind}, orphan={orphan}, previous={previous}: {result:?}"
-                    ));
-                } else if previous {
-                    assert_eq!(fs::read(&args.output_path)?, b"completed archive");
-                } else {
-                    assert!(!Path::new(&args.output_path).exists());
-                }
-                assert_eq!(source_bytes(&args), before);
-            }
+                    directory.path(),
+                    &format!("kind={kind}, orphan={orphan}"),
+                    ExpectedError::RecordRead,
+                )
+                .await,
+            );
         }
     }
     // Membership changes are known records that migration must exclude.

@@ -9,6 +9,8 @@ import { expect, it } from "vitest";
 it("re-exports migration and typed errors from the normal Node package", () => {
   expect(prepareMigrationArchive).toBe(nodePrepare);
   expect(typeof prepareMigrationArchive).toBe("function");
+  expect(typeof XmtpError.MigrationRecordRead).toBe("function");
+  expect(typeof XmtpError.MigrationOutput).toBe("function");
   expect(XmtpError.MigrationRecordRead).toBe(NodeError.MigrationRecordRead);
   expect(XmtpError.MigrationOutput).toBe(NodeError.MigrationOutput);
 });
