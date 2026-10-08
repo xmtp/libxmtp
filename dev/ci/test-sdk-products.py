@@ -500,7 +500,14 @@ class ProductTests(unittest.TestCase):
         )
         launcher.chmod(0o755)
         output = self.base / "must-not-exist.tar"
-        for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"):
+        for name in (
+            "RUSTFLAGS",
+            "CARGO_ENCODED_RUSTFLAGS",
+            "CARGO_BUILD_RUSTFLAGS",
+            "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS",
+            "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
+            "CARGO_HOST_RUSTFLAGS",
+        ):
             for value in ("n", "no", "off", "false"):
                 for separated in (False, True):
                     separator = "\x1f" if name == "CARGO_ENCODED_RUSTFLAGS" else " "
@@ -550,6 +557,10 @@ class ProductTests(unittest.TestCase):
             '[target."cfg(all())"]\nrustflags=["-C","debug-assertions=off"]\n',
             "[profile.dev]\ndebug-assertions=false\n",
             "[profile.dev.package.xmtp_sdk]\ndebug-assertions=false\n",
+            '[env]\nCARGO_BUILD_RUSTFLAGS="-Cpanic=abort"\n',
+            '[env]\nCARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS={value="-Copt-level=3",force=true}\n',
+            '[env]\nCARGO_PROFILE_DEV_DEBUG_ASSERTIONS="false"\n',
+            '[host]\nrustflags=["-Cpanic=abort"]\n',
         )
         for body in cases:
             (folder / "config").write_text(body)
@@ -565,10 +576,144 @@ class ProductTests(unittest.TestCase):
             self.assertIn("default debug compiler profile", failed.stderr)
             self.assertFalse(marker.exists())
 
+    def test_target_and_build_flags_reject_panic_and_optimization_before_generation(
+        self,
+    ):
+        marker = self.base / "generation-called"
+        launcher = self.repo / "dev/nix-shell"
+        launcher.write_text(
+            "#!/bin/sh\necho generation >> " + str(marker) + "\nexit 99\n"
+        )
+        launcher.chmod(0o755)
+        for name in (
+            "CARGO_BUILD_RUSTFLAGS",
+            "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS",
+            "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
+        ):
+            for flag in (
+                "-Cpanic=abort",
+                "-C opt-level=3",
+                "--codegen=debug-assertions=false",
+                "--codegen panic=abort",
+            ):
+                failed = self.command(
+                    self.repo,
+                    "build",
+                    "--target",
+                    "node",
+                    "--output",
+                    str(self.base / "invalid.tar"),
+                    env={**self.env, name: flag},
+                )
+                self.assertNotEqual(failed.returncode, 0)
+                self.assertIn("default debug compiler profile", failed.stderr)
+                self.assertFalse(marker.exists())
+        for name in (
+            "CARGO_BUILD_RUSTFLAGS",
+            "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
+        ):
+            allowed = self.command(
+                self.repo,
+                "build",
+                "--target",
+                "node",
+                "--output",
+                str(self.base / "normal.tar"),
+                env={**self.env, name: "-Cdebug-assertions=true"},
+            )
+            self.assertTrue(marker.is_file(), allowed.stderr)
+            marker.unlink()
+
+        (self.repo / "Cargo.toml").write_text('[profile.dev]\npanic="abort"\n')
+        failed = self.command(
+            self.repo,
+            "build",
+            "--target",
+            "node",
+            "--output",
+            str(self.base / "invalid.tar"),
+        )
+        self.assertIn("default debug compiler profile", failed.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_encoded_argument_boundaries_at_generation_and_promotion_guards(self):
+        archive = self.stage("node")
+        consumer = self.consumer()
+        arguments = ["--cfg", 'probe="not -Copt-level=3"']
+        for flags, rejected in (
+            (arguments + ["-C", "debug-assertions=false"], True),
+            (arguments, False),
+        ):
+
+            def update(folder, manifest):
+                path = folder / "generated/typescript-napi/sdk-contract.json"
+                receipt = json.loads(path.read_text())
+                receipt["artifact"]["compilerFlags"] = {
+                    "CARGO_ENCODED_RUSTFLAGS": flags
+                }
+                path.write_text(json.dumps(receipt))
+                manifest["files"]["generated/typescript-napi/sdk-contract.json"] = (
+                    digest(path)
+                )
+
+            changed = self.mutate(archive, update)
+            if rejected:
+                self.assert_rejected(
+                    consumer, changed, "node", "debug compiler semantics mismatch"
+                )
+            else:
+                restored = self.command(
+                    consumer, "restore", "--target", "node", "--input", str(changed)
+                )
+                self.assertEqual(restored.returncode, 0, restored.stderr)
+
+        marker = self.base / "generation-called"
+        launcher = self.repo / "dev/nix-shell"
+        launcher.write_text(
+            "#!/bin/sh\necho generation >> " + str(marker) + "\nexit 99\n"
+        )
+        launcher.chmod(0o755)
+        for route in ("environment", "config-env"):
+            for flags, rejected in (
+                (arguments, False),
+                (arguments + ["-C", "debug-assertions=false"], True),
+            ):
+                environment = dict(self.env)
+                encoded = "\x1f".join(flags)
+                if route == "environment":
+                    environment["CARGO_ENCODED_RUSTFLAGS"] = encoded
+                else:
+                    (self.repo / ".cargo").mkdir(exist_ok=True)
+                    (self.repo / ".cargo/config").write_text(
+                        "[env]\nCARGO_ENCODED_RUSTFLAGS=" + json.dumps(encoded) + "\n"
+                    )
+                result = self.command(
+                    self.repo,
+                    "build",
+                    "--target",
+                    "node",
+                    "--output",
+                    str(self.base / "encoded.tar"),
+                    env=environment,
+                )
+                if rejected:
+                    self.assertIn("default debug compiler profile", result.stderr)
+                    self.assertFalse(marker.exists())
+                else:
+                    self.assertTrue(marker.is_file(), result.stderr)
+                    marker.unlink()
+
     def test_false_flags_in_restored_receipts_reject_before_promotion(self):
         archive = self.stage("node")
         consumer = self.consumer()
-        for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"):
+        for name in (
+            "RUSTFLAGS",
+            "CARGO_ENCODED_RUSTFLAGS",
+            "CARGO_BUILD_RUSTFLAGS",
+            "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS",
+            "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
+            "CARGO_HOST_RUSTFLAGS",
+        ):
             for value in ("n", "no", "off", "false"):
                 separator = "\x1f" if name == "CARGO_ENCODED_RUSTFLAGS" else " "
                 flag = "-C" + separator + "debug-assertions=" + value

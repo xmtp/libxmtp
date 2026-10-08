@@ -84,6 +84,9 @@ Rust-only change calls it directly, without Node or Browser product jobs.
 Select one route per run and require its result in the `Test` gate. Both routes
 retain the exact reference key, byte stamp, and `docs-rust` artifact. Keep the
 immutable Nix compiler tools so the exact reference cache can remain eligible.
+This job sets `kache: "false"` because it reuses the complete reference output,
+and custom compiler wrappers are not qualified reference inputs. It keeps
+`CARGO_INCREMENTAL=0`. Other direct Cargo jobs keep the default Kache policy.
 Reference schema 3 pins the policy and native provenance helpers. External
 Cargo configuration, unknown compiler flags, and ignored glossary source files
 disable reuse. Clean supported Rust inputs can reuse references. Kotlin and

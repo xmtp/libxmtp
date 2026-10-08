@@ -107,6 +107,50 @@ def load_attempt(root, run, attempt):
     }
 
 
+def execution_scope(record, fallback_run, job):
+    """Keep physical execution accounting inside one repository, run, and source."""
+    run = record.get("run") or {}
+    repository = run.get("repository") or fallback_run.get("repository") or {}
+    if isinstance(repository, dict):
+        identity = tuple(repository.get(key) for key in ("full_name", "url", "id"))
+        repository = identity if any(identity) else None
+    source = run.get("head_sha") or fallback_run.get("head_sha")
+    return (repository, record["run_id"], source, job.get("head_sha") or source)
+
+
+def carried_execution_key(record, fallback_run, job):
+    """Prove a successful carried execution; its changed job ID is not new work."""
+    scope = execution_scope(record, fallback_run, job)
+    runner_id = job.get("runner_id")
+    runner_name = job.get("runner_name")
+    if (
+        job.get("conclusion") != "success"
+        or not isinstance(runner_id, int)
+        or isinstance(runner_id, bool)
+        or runner_id <= 0
+        or not isinstance(runner_name, str)
+        or not runner_name
+        or not job.get("name")
+        or not scope[0]
+        or not isinstance(scope[2], str)
+        or re.fullmatch(r"[0-9a-f]{40}", scope[2]) is None
+        or scope[2] != scope[3]
+        or job.get("run_id", record["run_id"]) != record["run_id"]
+        or not job.get("started_at")
+        or not job.get("completed_at")
+    ):
+        return None
+    return (
+        "execution",
+        *scope,
+        job["name"],
+        runner_id,
+        runner_name,
+        job["started_at"],
+        job["completed_at"],
+    )
+
+
 def attempt_metrics(record, fallback_run, capacities, snapshot_time, seen_jobs):
     run = record.get("run") or {}
     reasons = []
@@ -116,6 +160,7 @@ def attempt_metrics(record, fallback_run, capacities, snapshot_time, seen_jobs):
     starts = []
     ends = []
     details = []
+    carried = []
     if not record.get("metadata_complete"):
         reasons.append("Missing run-attempt or job metadata")
     if run.get("status", "completed") != "completed" or run.get("conclusion") is None:
@@ -160,18 +205,42 @@ def attempt_metrics(record, fallback_run, capacities, snapshot_time, seen_jobs):
         if elapsed is None:
             continue
         job_id = job.get("id")
+        scope = execution_scope(record, fallback_run, job)
         if job_id is None:
             # Never merge two ID-less jobs. Preserve time but block verified cost.
             reasons.append("Job has no global ID")
-            key = (record["run_id"], record["attempt"], len(details))
+            key = ("idless", *scope, record["attempt"], len(details))
         else:
-            key = job_id
-        owner = seen_jobs.get(key)
-        if owner:
-            if owner[0] != record["run_id"]:
-                reasons.append(f"Job ID {job_id} occurs in different workflows")
+            key = ("job", *scope, job_id)
+        if key in seen_jobs:
             continue
-        seen_jobs[key] = (record["run_id"], record["attempt"])
+        proof_key = (
+            carried_execution_key(record, fallback_run, job)
+            if job_id is not None
+            else None
+        )
+        original = seen_jobs.get(proof_key) if proof_key is not None else None
+        if original is not None:
+            carried.append(
+                {
+                    "job_id": job_id,
+                    "first_job_id": original["job_id"],
+                    "first_attempt": original["attempt"],
+                    "name": job["name"],
+                    "runner_id": job["runner_id"],
+                    "runner_name": job["runner_name"],
+                    "started_at": start,
+                    "completed_at": end,
+                    "source_sha": scope[2],
+                    "reason": "Same successful assigned execution within this run/source",
+                }
+            )
+            seen_jobs[key] = original
+            continue
+        owner = {"job_id": job_id, "attempt": record["attempt"]}
+        seen_jobs[key] = owner
+        if proof_key is not None:
+            seen_jobs[proof_key] = owner
         cores, evidence = capacity(job.get("labels", []), capacities)
         if cores is None:
             unknown += elapsed / 60
@@ -212,6 +281,7 @@ def attempt_metrics(record, fallback_run, capacities, snapshot_time, seen_jobs):
         "unverified_reasons": sorted(set(reasons)),
         "gates": gates,
         "jobs": details,
+        "carried_jobs": carried,
         "first_job_started_at": min(starts) if starts else None,
         "last_job_completed_at": max(ends) if ends else None,
     }
@@ -225,6 +295,8 @@ def run_metrics(root, runs, capacities, collection):
     for run in sorted(
         runs, key=lambda value: (value["id"], value.get("run_attempt", 1))
     ):
+        if not run.get("repository") and collection.get("repo"):
+            run = {**run, "repository": {"full_name": collection["repo"]}}
         samples = []
         for number in range(1, run.get("run_attempt", 1) + 1):
             record = load_attempt(root, run, number)

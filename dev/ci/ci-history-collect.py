@@ -20,6 +20,7 @@ import threading
 import urllib.parse
 
 PRIMARY = {
+    "CI",
     "Lint",
     "Test",
     "Docs Quality",

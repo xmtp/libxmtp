@@ -314,6 +314,21 @@ class ArtifactTests(unittest.TestCase):
             "KACHE_CACHE_EXECUTABLES",
             "KACHE_BUILD_SCRIPT_CACHE",
             "KACHE_CACHE_CC_LINKS",
+            "CARGO_BUILD_RUSTFLAGS",
+            "HOST_CFLAGS",
+            "TARGET_CFLAGS",
+            "HOST_CXXFLAGS",
+            "TARGET_CXXFLAGS",
+            "HOST_CC",
+            "TARGET_CC",
+            "HOST_CXX",
+            "TARGET_CXX",
+            "HOST_AR",
+            "TARGET_AR",
+            "HOST_ARFLAGS",
+            "TARGET_ARFLAGS",
+            "CC_SHELL_ESCAPED_FLAGS",
+            "CRATE_CC_NO_DEFAULTS",
         ) + tuple(
             prefix + target
             for prefix in ("RANLIB_", "RANLIBFLAGS_")
@@ -322,6 +337,11 @@ class ArtifactTests(unittest.TestCase):
         )
         names += tuple(
             "AARCH64_APPLE_DARWIN_OPENSSL_" + key for key in ("LIB_DIR", "INCLUDE_DIR")
+        )
+        names += tuple(
+            variable + "_" + target
+            for variable in ("CC", "CXX", "CFLAGS", "CXXFLAGS", "AR", "ARFLAGS")
+            for target in ("aarch64-apple-darwin", "aarch64_apple_darwin")
         )
         self.context_patch.stop()
         try:
@@ -626,6 +646,71 @@ class ArtifactTests(unittest.TestCase):
             self.cargo_environments[0]["CARGO_TARGET_DIR"],
             self.cargo_environments[1]["CARGO_TARGET_DIR"],
         )
+
+    def test_native_alias_bytes_and_unresolved_tools_invalidate_raw_reuse(self):
+        self.context_patch.stop()
+        compiler = self.root / "compiler"
+        compiler.write_text("#!/bin/sh\nexit 0\n")
+        compiler.chmod(0o755)
+        with patch.dict(os.environ, {"HOST_CC": str(compiler)}):
+            before = artifacts.build_context()
+            compiler.write_text("#!/bin/sh\nexit 1\n")
+            self.assertNotEqual(artifacts.build_context(), before)
+            self.assertTrue(artifacts.native_tools_supported())
+        with patch.dict(os.environ, {"TARGET_CC": str(self.root / "missing-compiler")}):
+            artifacts.build(self.args)
+            first = self.cargo_environments[0]["CARGO_TARGET_DIR"]
+            artifacts.build(self.args)
+            self.assertEqual(len(self.cargo_environments), 4)
+            self.assertNotEqual(first, self.cargo_environments[2]["CARGO_TARGET_DIR"])
+
+    def test_receipt_records_target_build_and_config_flag_routes(self):
+        with patch.dict(
+            os.environ,
+            {
+                "CARGO_BUILD_RUSTFLAGS": "--cfg build_probe",
+                "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS": "--cfg target_probe",
+            },
+        ):
+            artifacts.build(self.args)
+        receipt = json.loads((self.args.artifacts / "artifacts.json").read_text())[
+            "artifacts"
+        ]["native"]
+        self.assertEqual(
+            receipt["compilerFlags"]["CARGO_BUILD_RUSTFLAGS"], ["--cfg", "build_probe"]
+        )
+        self.assertEqual(
+            receipt["compilerFlags"]["CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS"],
+            ["--cfg", "target_probe"],
+        )
+        self.assertIn("cargo-target:cfg(all())", receipt["compilerFlags"])
+        self.assertTrue(receipt["debugProfileValid"])
+
+    def test_config_injected_compiler_lookup_disables_raw_reuse(self):
+        root = self.root / "compiler-config"
+        (root / ".cargo").mkdir(parents=True)
+        for body in (
+            '[build]\nrustc-wrapper="/unproved/wrapper"\n',
+            '[env]\nHOST_CC="/unproved/compiler"\n',
+            '[env]\nCARGO_BUILD_RUSTC_WRAPPER="/unproved/wrapper"\n',
+        ):
+            (root / ".cargo/config.toml").write_text(body)
+            with patch.object(artifacts, "ROOT", root):
+                self.assertFalse(artifacts.native_tools_supported())
+
+    def test_encoded_receipt_keeps_whitespace_inside_one_compiler_argument(self):
+        encoded = '--cfg\x1fprobe="not -Copt-level=3"'
+        with patch.dict(os.environ, {"CARGO_ENCODED_RUSTFLAGS": encoded}):
+            artifacts.inputs.require_debug_profile(artifacts.ROOT)
+            artifacts.build(self.args)
+        receipt = json.loads((self.args.artifacts / "artifacts.json").read_text())[
+            "artifacts"
+        ]["native"]
+        self.assertEqual(
+            receipt["compilerFlags"]["CARGO_ENCODED_RUSTFLAGS"],
+            ["--cfg", 'probe="not -Copt-level=3"'],
+        )
+        self.assertTrue(receipt["debugProfileValid"])
 
     def test_new_literal_data_and_direct_environment_change_raw_keys(self):
         checkout = self.restored_checkout()

@@ -481,6 +481,56 @@ class ReferenceCacheTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not eligible"):
                 cache.verify(self.output, beta)
 
+    def test_all_cargo_rustdoc_environment_routes_reject_external_files(self):
+        for name in (
+            "RUSTDOCFLAGS",
+            "CARGO_ENCODED_RUSTDOCFLAGS",
+            "CARGO_BUILD_RUSTDOCFLAGS",
+            "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTDOCFLAGS",
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                header = Path(directory) / "header.html"
+                header.write_text("Alpha")
+                separator = "\x1f" if name == "CARGO_ENCODED_RUSTDOCFLAGS" else " "
+                flag = separator.join(("--html-in-header", str(header)))
+                with (
+                    patch.dict(os.environ, {name: flag}, clear=True),
+                    patch.object(cache, "probe", return_value={"compiler": "pinned"}),
+                ):
+                    environment = cache.tool_identity("rust", self.root)
+                self.assertIn(name, environment["flags"])
+                self.assertEqual(environment["flags"][name], flag)
+                with patch.object(cache, "tool_identity", return_value=environment):
+                    alpha = cache.identity("rust", self.root)
+                    self.assertFalse(alpha["cacheEligible"])
+                    cache.stamp(self.output, alpha, alpha)
+                    header.write_text("Beta")
+                    with self.assertRaisesRegex(ValueError, "not eligible"):
+                        cache.verify(self.output, cache.identity("rust", self.root))
+
+    def test_unknown_cargo_build_environment_routes_are_not_silent(self):
+        with (
+            patch.dict(
+                os.environ, {"CARGO_BUILD_FUTURE_FILE_OPTION": "/tmp/input"}, clear=True
+            ),
+            patch.object(cache, "probe", return_value={"compiler": "pinned"}),
+        ):
+            environment = cache.tool_identity("rust", self.root)
+        self.assertIn("CARGO_BUILD_FUTURE_FILE_OPTION", environment["flags"])
+        self.assertEqual(
+            environment["flags"]["CARGO_BUILD_FUTURE_FILE_OPTION"], "/tmp/input"
+        )
+        self.assertFalse(cache.flag_contract("rust", environment)["cacheEligible"])
+
+    def test_unknown_wrappers_stay_ineligible(self):
+        for wrapper in (
+            "/tmp/wrapper",
+            "/nix/store/" + "a" * 32 + "-unreviewed/bin/wrapper",
+        ):
+            with self.subTest(wrapper=wrapper):
+                self.environment["flags"] = {"RUSTC_WRAPPER": wrapper}
+                self.assertFalse(self.identity()["cacheEligible"])
+
     def test_custom_sysroot_and_java_agent_flags_are_not_cacheable(self):
         for name, value, kind in (
             ("SDKROOT", "/tmp/mutable-sdk", "rust"),

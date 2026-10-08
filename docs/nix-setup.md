@@ -211,6 +211,11 @@ package, so exact source and compiler checks can bind it. CI sets `CARGO_INCREME
 `KACHE_ADAPTIVE_INCREMENTAL=0`, and `KACHE_PRESERVE_INCREMENTAL=0`. These CI
 settings do not change local profile defaults.
 
+The reusable Rust reference job sets `kache: "false"` and keeps
+`CARGO_INCREMENTAL=0`. Its exact cache can restore the complete reference output
+without recompilation. Unknown compiler wrappers remain ineligible for that
+cache. Other direct Cargo jobs keep Kache enabled by default.
+
 CI can restore cached output in all contexts. It saves output only on branch
 pushes to `main` or `self-hosted`. Pull requests, tags, manual runs, and other
 branches cannot save output. Kache uses the GitHub Actions cache. It does not

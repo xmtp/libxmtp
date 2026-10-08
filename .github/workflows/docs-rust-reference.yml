@@ -13,11 +13,14 @@ jobs:
     timeout-minutes: 45
     env:
       NIX_DEVSHELL: rust
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
           disk-key: rust
+          # Reuse the complete reference; keep unsupported wrappers out of its key.
+          kache: "false"
           github-token: ${{ github.token }}
       - name: Compute exact rust reference key
         id: reference-key

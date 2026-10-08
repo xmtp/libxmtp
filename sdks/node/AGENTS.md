@@ -70,9 +70,9 @@ The public recovery matrix checks exact reply IDs, message order, membership,
 epoch, and processed cursors. It does not expose or compare MLS authenticators.
 Core tests and the chaos inspector cover that separate check. Keep the real
 90-second wire-silence bound when setting blackhole test deadlines.
-CI runs this matrix only on selected pushes to `self-hosted` or `main` after
-merge. PR checks keep the other Node SDK and CLI tests. Recovery regressions
-can reach the base branch before this matrix detects them.
+CI runs this matrix only through the manual recovery workflow. Normal PR and
+post-merge runs omit it and keep the other selected Node SDK and CLI tests.
+Recovery regressions can remain undetected until the manual workflow runs.
 
 ## Package build
 

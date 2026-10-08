@@ -1,15 +1,22 @@
 # CI time and cost reduction
 
 Build SDK products once, then use the same products in each required check.
-Keep fast source checks in `Lint`. Keep compiler checks, type checks, package
-checks, and ordinary test cases in required PR `Test` jobs. Run the eight
-recovery cases in isolated jobs after merge. This policy keeps their assertions
-and deadlines, but detects recovery regressions after they reach the base branch.
+Keep fast source checks in `Lint`. Keep selected compiler, type, unit, and
+consumer checks in required `Test` jobs. Full site builds run for documentation,
+example, and public API inputs. Native packaging, ABI, simulator, and minimum-OS
+checks use their specific inputs; affected language units and consumers remain
+broader. Run the eight recovery cases only through the manual workflow, with
+unchanged assertions and deadlines. Normal PR and post-merge runs omit recovery.
+Its regressions can remain undetected until a user invokes that workflow.
+The fixed PR/push benchmark campaign is revoked. Use completed evidence and
+small controls with a declared question. Broad time and cost targets remain
+UNVERIFIED. Delivery requires current functional checks, current docs proof,
+and the fresh Astra review before one PR to `self-hosted`.
 
 This document records the research, approved plan, and implementation results.
-The investigation branch is `codex/ci-efficiency-investigation`, based on
+The original investigation branch was `codex/ci-efficiency-investigation`, based on
 `self-hosted` commit `9bdea4ee226fbcea4963329a2c28ad4172bd4248`.
-The implementation now changes the CI graph and build transport tools.
+The implementation changes the CI graph and build transport tools.
 The timing and cost targets remain unproved. The branch was rebased on
 `self-hosted` commit `98cb122ececabfc5b2505ea72ff5a73d77dc9207` before integration checks.
 
@@ -132,7 +139,7 @@ are needed.
   selectors also have gaps for some generator, proto, and toolchain inputs.
   The new graph must close these gaps before it narrows any selection.
 
-## Proposed graph
+## Current graph
 
 Use one orchestration workflow for source checks, products, and consumers.
 Keep required check names `Lint` and `Test`. This allows artifacts to be shared
@@ -145,28 +152,31 @@ flowchart LR
   D --> N[Native SDK and bindgen producer]
   D --> W[Worker and pure WASM producer]
   D --> B[Backend image and native binary producer]
-  D --> R[Instrumented Rust test producer]
-  N --> J[Node, CLI, Agent and package checks]
-  W --> C[Browser and web-chat checks]
+  D --> M[Fourteen selected runtime suites]
+  N --> M
+  W --> M
+  B --> M
   N --> T[Typecheck and full type-aware lint]
   W --> T
-  N --> X[Three isolated recovery jobs]
-  B --> X
-  R --> U[Native Rust tests and coverage report]
-  B --> J
-  B --> C
-  J --> TG[Required Test]
-  C --> TG
+  D --> P[Selected native units consumers and platform checks]
+  D --> S[Selected docs and Rust references]
+  M --> TG[Required Test]
+  P --> TG
+  S --> TG
   T --> TG
-  X --> TG
-  U --> TG
   D --> TG
   D --> LG
+  A[Manual recovery dispatch] --> Q[Current Node and backend products]
+  Q --> X[Eight isolated recovery cases]
+  X --> XR[Manual workflow result]
 ```
 
-The diagram omits separate native platform, validation, WASM Rust test,
-backend acceptance, and docs lanes. Keep their existing obligations in the
-required graph. A producer does not need to wait for unrelated products.
+The runtime suite group includes validation, WASM, backend acceptance, bridge,
+Browser platform, and selected native packaging owners. The separate native
+and docs groups use their declared input flags. Manual recovery has its own
+run and does not feed normal PR or post-merge Test. Production Rust execution
+does not use the retired test archive. Producers can run without unrelated
+products.
 
 ### 1. Fast Lint and required compiler checks
 
@@ -323,16 +333,15 @@ affected references before merge. Native references already skip PR runs;
 that existing exclusion is not a new saving. Keep required local docs and
 external-link checks before submission of docs changes.
 
-Separate Android source format from Kotlin type analysis and JNI packaging.
-Keep all ABI, AAR, emulator, minimum-API, native toolchain, and SDK-specific
-checks that currently apply. Prove Android analysis without JNI before using
-that optimization. Moving ABI tests to a nightly run would lose PR coverage.
+Keep broad affected language unit and consumer tests, including their real
+native prerequisites. Select ABI, AAR, emulator, simulator, and minimum-API
+checks from their specific native and public binding inputs under P19. Keep
+their commands and profiles unchanged when selected. No nightly route is added.
 
-Replace blanket `om ci run --include-all-dependencies` warming with trusted
-warming of shared producer inputs. Retain every test/check output that blanket
-warming currently executes in the required test graph or an equivalent
-selected job first. Use per-output input identities to avoid rebuilding
-unchanged languages. Keep deployment output and publication behavior intact.
+Full Nix warming retains all root outputs, all dependencies, and the default
+developer shell. Darwin always runs the complete warming flow. Linux can skip
+only with a verified successful ancestor and unchanged audited input contract.
+Both hosts keep the formatting check. Keep deployment and publication behavior.
 
 Coverage loss: none with exact reuse and equivalent selected checks. Input
 map errors are a risk. Keep broad selection on unknown or cross-cutting inputs.
@@ -342,7 +351,7 @@ Do not count moving work to another push workflow as a per-push saving.
 
 | Option | Benefit | Coverage loss or limit | Decision |
 | --- | --- | --- | --- |
-| Run recovery after merge | Remove the live matrix from PR waits and allocation | Callback, iterator, half-open transport, and graceful restart regressions can merge before this matrix detects them. All eight cases remain after merge. | Adopt per the revised user policy. |
+| Run recovery only manually | Remove the live matrix from normal PR and post-merge work | Callback, iterator, half-open transport, and graceful restart regressions can remain undetected until manual invocation. All eight cases remain. | Adopt per the current user policy. |
 | Run mobile ABI checks only nightly | Large wall and cost reduction | Changed Rust dependencies can break platforms before merge. | Defer. Current required checks remain required. |
 | Move all reference generation after merge | Cheaper docs PRs | Misses interface/example drift before merge. | Reject as default. Reuse exact unchanged references instead. |
 | Use release products in current debug tests | Existing Nix substitution | Changes debug assertions and panic behavior. | Reject as direct replacement. |
@@ -419,14 +428,13 @@ than assuming every native build command uses the Rust wrapper.
 
 ### Qualification and performance proof
 
-Run the real SDK generation path in four arms: current cache-off with its
+The original assessment proposed a four-arm SDK comparison: cache-off with its
 current incremental settings; cache-off with `CARGO_INCREMENTAL=0`; enabled
 sccache with `CARGO_INCREMENTAL=0`; and Kache with `CARGO_INCREMENTAL=0` and
-adaptive/preserved incremental policies disabled. Record the effective settings
-and use a controlled trial config. The three non-incremental arms isolate the
-compiler-cache effect; the original arm detects losses from removing Cargo's
-incremental reuse. Keep debug, panic, assertion, optimization, and feature flags
-unchanged. Use the same pinned source/toolchain and 16-vCPU runner class.
+adaptive/preserved incremental policies disabled. Completed diagnostic controls
+are retained below. This is not a runnable delivery instruction or a new
+campaign. A future bounded control keeps source, toolchain, profiles, features,
+and instrumentation matched and records its effective settings.
 The original assessment proposed five cold and ten warm samples per arm.
 That large campaign is not an active delivery requirement. Use existing results
 and small controls with a declared question and stop condition. A compiler-hit
@@ -505,11 +513,11 @@ outside these classes belongs to build setup and selects all checks.
 
 Proofs for P4 and P7: compare collected test IDs, static rule inventories,
 profiles/features, and planned job sets on the same commit. Each case/rule
-has a named required PR or post-merge owner. Add a recovery case temporarily
+has a named PR, post-merge, or manual owner under the current policy. Add a recovery case temporarily
 and prove the partition guard fails. Check the actual workflow condition for
 PRs, merge queues, feature pushes, and base pushes. Remove that condition and
 prove its event-policy fixture fails. The eight-case matrix keeps its existing
-partition and result guards after merge. Keep current declared skips explicit.
+partition and result guards in its manual route. Keep declared skips explicit.
 
 Proofs for P5, P6, and P9: run real consumer and gate entry points with a stale
 source, changed generator, wrong target/profile/features, missing runtime,
@@ -599,36 +607,34 @@ change a protocol or SDK promise. Keep the tests that prove those promises.
 | Task | Requirements | Files or areas | Proof and dependency |
 | --- | --- | --- | --- |
 | 1. Record baseline and fail closed | P1–P4, P6, P11, P15 | CI measurement and prototype log/checkpoints; Lint/Test detection and aggregates; actual selector and input inventory | Compare saved metadata; run detector/selection failure cases and independent changed-input fixtures; record prototype stop evidence and cancelled cost. No dependency. |
-| 2. Produce and transport exact products | P4, P5, P9, P13 | SDK artifact/record/staging tools; Nix SDK graph; shared producer workflows; optional Kache trial | Existing receipt tests plus real transport/source mutations; affected `nix build --no-link .#<output>`; four-arm compiler-cache trial. Depends on 1. Kache adoption is conditional on P13. |
+| 2. Produce and transport exact products | P4, P5, P9, P13 | SDK artifact/record/staging tools; Nix SDK graph; shared producers; pinned Kache | Actual stale-input and profile rejection, fresh output after native input changes, compiler verification, and current installed consumers. No four-arm campaign. Depends on 1. |
 | 3. Separate fast lint | P1, P4, P6 | pnpm task rules; JS/Rust/WASM lint; required Test consumers | Rule inventory and injected type/Clippy failure; `dev/nix-shell 'just lint-config'`. Depends on 2. |
 | 4. Isolate recovery and short tests | P2, P4, P7 | Node/Browser/Agent workflows; recovery case map | Eight real recovery stacks; test-ID union and failure injection; 4-vCPU runtime benchmark. Depends on 2. |
-| 5. Split Rust execution | P2, P4, P8 | nextest/WASM/backend producers and consumers; SDK-specific check owners | Package/fixture inventory; coverage-line equality; profile checks. Depends on 2. Keep backend process rules. |
-| 6. Reuse docs and platform inputs | P3–P5, P10 | Docs recipes/workflows; language reference inputs; Android analysis | Current API/example failure, stale receipt rejection, docs checks, actual JNI-free analysis check. Depends on 2. |
-| 7. Remove duplicate warming and accept | P1–P4, P9, P12 | Cache-all workflow; trusted cache warming; measurement reports | Inventory every warming check before retirement; full weighted before/after runs with all costs and successful stable pairs for every frozen revision. Depends on 3–6. |
+| 5. Preserve Rust execution | P2, P4, P8 | Existing native, WASM, backend, and SDK test owners | Current package, fixture, profile, and coverage inventories. Retain the baseline production commands and backend process rules. The archive trial is retired. |
+| 6. Gate docs and native platform work | P3–P5, P10, P18, P19 | Docs inputs; native unit/consumer and platform routes | Current API/example checks, stale receipt rejection, actual docs proof, and positive/negative input and gate controls. Keep minimal native prerequisites. Depends on 2. |
+| 7. Retain warming and complete delivery | P1–P4, P9, P12, P14 | Complete root warming; bounded diagnostic tools; final graph and review | Preserve all warming outputs. Use completed runs and declared small controls, retain all costs and failed attempts, and keep broad targets unverified. Current functional gates and Astra closure govern delivery. Depends on 3–6. |
 
-### Prototype campaign
+### Completed experiments and retained proof
 
-Complete these experiments before assembling the full workflow replacement.
-Use experiment commits on `codex/ci-efficiency-investigation`, local harnesses,
-and opt-in hosted runs. No experiment requires a separate PR or merge. Keep
-the current required CI path active while experiments are isolated. If hosted
-PR execution is needed, use the same delivery PR in draft form; do not create
-prototype PRs that become dependencies.
+The initial experiment plan is superseded. The table records completed work
+and its limits. It is not an instruction to restart a campaign, archive trial,
+or four-arm cache comparison. Current delivery follows P14. Only a small
+control with a declared unresolved question can add proof.
 
 | Experiment | Work | Exit evidence |
 | --- | --- | --- |
-| Input selection and gates | Execute the selector and gate entry points with dependency, stacked-base, failure, skip, and cancellation fixtures. | P6/P11 guards pass; unknown inputs cannot silently omit checks. |
-| SDK products and transport | Build a matched debug product once, transport it to a fresh checkout, and run real staging and SDK checks. Test stale source, wrong context, missing runtime, and changed bytes. | P4/P5/P9 pass; complete transfer/setup cost is recorded. |
-| Compiler cache | Run the four-arm Kache comparison with controlled incremental settings, cold/warm targets, and a verified remote writer. | P13 passes, or the final change uses the better existing-cache path. |
-| Recovery and runner size | Run serial recovery and all three isolated groups against the same products; compare 16-vCPU and 4-vCPU consumers. | Same eight cases, assertions, deadlines, and outcomes; complete path fits the measured budget. |
-| Rust coverage transport | Execute the same instrumented tests from a shared archive and merge all profiles. | P8 test IDs and line sets match; missing partitions fail. |
-| Lint and docs separation | Run source-only lint, required type/compiler checks, and a fresh docs build with exact reused declarations. Inject type and API errors. | P4/P10 checks retain their failures; no SDK/site build is hidden inside source lint. |
-| Complete candidate | Assemble the retained experiments into one graph and run the fixed, paired hosted benchmark and trust/failure checks. | P1–P12 pass on the complete candidate; producer waits, transfers, all workflows, retries, and cancelled cost are included. |
+| Input selection and gates | Actual selector and gate entry points covered dependency, base, failure, skip, and cancellation cases. | Retained guards reject missing selected work and keep unknown-input fallback. |
+| SDK products and transport | Real Linux cold products and fresh installed consumers passed. Stale source, context, runtime, and bytes have negative proofs. | Input and profile defects found by Astra still require repair; subset proofs do not qualify medians. |
+| Compiler cache | Matched small controls and real verification were recorded. Kache is adopted with the declared Darwin bypass. | Failed linked-output verification stays recorded. Remote persistence and broad savings remain unverified. |
+| Recovery and runner size | The initial three groups were replaced by the unchanged eight manual single-case jobs. | All eight selected cases passed on current products; setup and cleanup costs remain recorded. |
+| Rust coverage transport | A bounded archive trial compared four selected IDs and line sets. | The archive experiment was removed. Production native and WASM test commands remain unchanged. |
+| Lint and docs separation | Real source/type checks, current site builds, reference builds, and link checks passed. | Each result binds its source. Later source changes need current proof and a valid build stamp. |
+| Complete candidate | Current full runs and bounded failed-job retries cover the selected graph. | Keep every failed attempt and real execution cost. No fixed paired campaign or median qualification is required for delivery. |
 
-Record each experiment's source, workflow version, inputs, commands, results,
-time, allocated cost, and coverage comparison. Reject unsuccessful options
-before the full replacement. Remove throwaway workflows and switches from
-the final diff. Retain useful measurement and regression tools.
+Retain each completed experiment's source, graph, inputs, commands, results,
+time, cost, and coverage limits. Failed and unadopted options remain historical
+evidence. Throwaway workflows and switches are removed; useful measurement
+and regression tools remain.
 
 ### Stop prototype work early
 
@@ -645,10 +651,9 @@ Record the run ID, obtained evidence, cancellation reason, and spent allocation.
 Treat an early-cancelled run as partial evidence, not a complete successful
 suite. Do not remove cancelled cost or failed options from the experiment log.
 Do not cancel timing samples before setup/transfers/teardown finish if their
-complete cost is the question. Full coverage comparisons, fixed acceptance
-pairs, and final required checks must finish to provide their declared proof.
-A known failure in an acceptance run can still stop useless remaining work,
-but that pair remains failed and cannot count as a successful benchmark.
+complete cost is the question. Full coverage comparisons and final required
+checks must finish to provide their declared proof. A known failure in a control can still stop useless
+remaining work, but the failed control cannot count as successful evidence.
 P15 proof is the experiment log and cancellation timestamps compared with
 the recorded checkpoint and stop condition.
 
@@ -656,7 +661,7 @@ the recorded checkpoint and stop condition.
 
 | PR | Tasks | Base | Merge condition |
 | --- | --- | --- | --- |
-| Complete CI efficiency change | 1–7 and P14 | `self-hosted` | Prototype proofs and complete-candidate acceptance pass; fresh independent review is clean. |
+| Complete CI efficiency change | 1–7 and P14 | `self-hosted` | Current required checks and local docs pass; the required Astra review has no open blocking findings. |
 
 There is no PR stack, dependent merge, or partial rollout to `self-hosted`.
 The final PR switches the required CI graph, its producers and consumers,
@@ -674,7 +679,7 @@ part of the plan.
 Use a fresh code review on the complete candidate before marking the one PR
 ready. Review again if later repairs change transport, trust, profiles, or
 coverage. P14 proof is the delivery PR against `self-hosted`, with no required
-unmerged branch dependencies and the prototype/acceptance evidence attached.
+unmerged branch dependencies and the current functional evidence attached.
 Before merge, a failed invariant blocks readiness. After merge, revert the
 complete change if coverage, product guards, or stability regress. Validate
 the pinned old graph as the rollback target; do not rely on partially enabled
@@ -739,7 +744,8 @@ cancellation mainly cuts allocation and delay on failed runs.
 ## Models
 
 Research and implementation: `gpt-6.1-sol`, high effort.
-Fresh plan and code reviewer: `gpt-6.1-sol`, xhigh effort.
+Initial plan reviewer: `gpt-6.1-sol`, xhigh effort.
+Final all-change code reviewer: `gpt-6-astra`, xhigh effort, as requested by the user.
 Optional mechanical work: `gpt-6-luna`, high effort; not used for this study.
 
 ## Execution notes
@@ -756,17 +762,14 @@ This is separate from the targeted shells that execute CI commands. The proposed
 default-shell exclusion was removed after the user clarified this purpose.
 The root lockfile check, all warming outputs, and Darwin full-build guard remain.
 
-The four research lanes are complete. A fresh independent review found gaps
-in selection, cache policy proof, and benchmark stability. The plan was
-revised. The original final review had no remaining findings. The follow-up
-review of the conformance exclusion and Kache trial is also clean. It required
-equal post-migration scope in both benchmark graphs and explicit incremental
-settings in the compiler-cache controls; both revisions are included.
-Delivery now uses one PR and one merge after the prototype campaign. Prototype
-work stops early once its declared evidence is saved. Complete acceptance
-proofs still require complete runs.
-Implementation is in progress. Current-head performance acceptance remains
-open. No delivery PR has been created.
+The four research lanes are complete. Earlier reviews and prototype runs are
+historical evidence. The final Astra review of `7550c335` found six functional
+input, cache, and measurement defects, plus inconsistent guidance. The repair
+batch covers those findings. No delivery PR has been created. The final source must
+include the current `self-hosted` dependency, fixture, fileset, and docs changes.
+New current checks and a scoped independent review must close the findings
+before PR submission. Broad performance targets remain UNVERIFIED; a fixed
+benchmark campaign is not a delivery condition.
 
 The repository ignores `docs/plans`. The retained proposal is
 `docs/2026-10-06-ci-efficiency.md`. Supporting history and compact metrics are
@@ -774,29 +777,35 @@ in `docs/ci-efficiency-evidence/`. Repeatable read-only collection and offline
 analysis tools are in `dev/ci/ci-history-{collect,analyze}.py`. Raw metadata and
 filtered logs remain local under `/tmp/ci-history` and `/tmp/ci-*`.
 
-Repeat the metadata study with authenticated `gh`:
+For a small read-only metadata snapshot, use authenticated `gh`. This does not
+start CI runs or qualify the broad targets:
 
 ```sh
-python3 -B dev/ci/ci-history-collect.py --repo xmtp/libxmtp --base self-hosted --output /tmp/ci-history-new --push-count 60 --pr-count 40 --fetch --request-budget 400
+python3 -B dev/ci/ci-history-collect.py --repo xmtp/libxmtp --base self-hosted --output /tmp/ci-history-new --push-count 2 --pr-count 2 --fetch --request-budget 100
 python3 dev/ci/ci-history-analyze.py --input /tmp/ci-history-new
 ```
 
 Use a new output directory for a new snapshot, or `--refresh` to replace
 saved metadata. The new collector reads all attempts and deduplicates run
-and job IDs. It traces downstream events only from explicit upstream proof.
-Missing attempts, downstream links, capacities, runtime records, or matched
-successful pairs keep acceptance UNVERIFIED. Network reads have a fixed
-request budget. The original history remains a lower bound.
-The current site build and Rust reference build passed locally. Full composed
-site and external-link checks still need a final matching site stamp.
+and proved carried execution identities. It traces downstream events only
+from explicit upstream proof. Missing attempts, downstream links, capacities,
+runtime records, or required control evidence keep diagnostics UNVERIFIED.
+Complete diagnostics do not qualify broad performance targets. Network reads
+have a fixed request budget. The original history remains a lower bound.
+The complete `7550c335` site proof passed locally with a matching stamp. It
+includes Rust references, composition, internal and external links, browser
+checks, and accessibility. One unchanged accessibility retry was required;
+the cause of the first null scores is unproved. Repairs and upstream changes
+require a new matching site proof.
 
 The follow-up cost exclusion is saved separately as
 `docs/ci-efficiency-evidence/2026-10-06-conformance-excluded.json`; the original
 full-workflow metrics remain unchanged. Kache documentation and released
 write-policy source were checked on October 6. The research did not change credentials or branch protection. The approved
-implementation now adds opt-in trials and changes the CI graph.
+implementation changes the CI graph. Completed opt-in trials remain
+historical evidence; their retired workflows are not delivery instructions.
 
-### Implementation checkpoints
+### Historical implementation checkpoints
 
 The shared product trial [37547984925](https://github.com/xmtp/libxmtp/actions/runs/37547984925)
 passed all 12 jobs on commit `e604e9503c`. Node and Browser products loaded in
@@ -941,8 +950,8 @@ The CI run used 2,020.2 known core-minutes. Its automatic backend publication
 build used another 17.333. Assigned runners with unknown CPU counts added
 27.117 runner-minutes. The combined 2,037.533 known core-minutes are a lower
 bound. The run failed, and it is not a matched acceptance pair. It does not
-prove the Test or cost targets. Final timing, cost, coverage, and stability
-acceptance remain open.
+prove the Test or cost targets. That historical run did not establish timing,
+cost, coverage, or stability targets. Current functional closure uses the current candidate checks and review.
 
 The history and graph verification tools retain source, runtime, dependency,
 profile, and allocation guards. They can inspect saved runs and small declared

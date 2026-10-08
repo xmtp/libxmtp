@@ -368,6 +368,7 @@ def tool_identity(kind, root):
         )
         or name.startswith(
             (
+                "CARGO_BUILD_",
                 "CARGO_TARGET_",
                 "CARGO_PROFILE_",
                 "CC_",

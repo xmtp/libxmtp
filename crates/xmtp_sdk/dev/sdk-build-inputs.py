@@ -8,7 +8,7 @@ import re
 import shutil
 import tomllib
 
-FALSE = {"n", "no", "off", "false"}
+FALSE = {"0", "n", "no", "off", "false"}
 INCLUDE = re.compile(r'include_(?:str|bytes)!\s*\(\s*"([^"\n]+)"\s*\)')
 ENV = re.compile(r'(?:option_)?env!\s*\(\s*"([A-Za-z_][A-Za-z_0-9]*)"')
 RERUN_ENV = re.compile(r"cargo:rerun-if-env-changed=([A-Za-z_][A-Za-z_0-9]*)")
@@ -185,17 +185,20 @@ def debug_flags_valid(values):
         index = 0
         while index < len(flags):
             flag = flags[index]
-            if flag == "-C":
+            if flag in ("-C", "--codegen"):
                 index += 1
                 if index < len(flags):
                     options.append(flags[index])
             elif flag.startswith("-C"):
                 options.append(flag[2:])
+            elif flag.startswith("--codegen="):
+                options.append(flag.removeprefix("--codegen="))
             elif "instrument-coverage" in flag:
                 return False
             index += 1
         for option in options:
             name, _, setting = option.partition("=")
+            name = name.replace("_", "-")
             if name == "debug-assertions" and setting.lower() in FALSE:
                 return False
             if name == "panic" and setting == "abort":
@@ -213,16 +216,52 @@ def compiler_flags(root):
             os.environ.get("CARGO_ENCODED_RUSTFLAGS", ""), True
         ),
     }
+    # Check all routes, even if Cargo precedence would mask one. CI products
+    # allow default debug semantics only, not a hidden alternate profile.
+    for name, value in os.environ.items():
+        if (
+            name != "CARGO_ENCODED_RUSTFLAGS"
+            and name.startswith("CARGO_")
+            and name.endswith("_RUSTFLAGS")
+        ):
+            values[name] = tokens(value)
+    for name, value in config.get("env", {}).items():
+        if name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS") or (
+            name.startswith("CARGO_") and name.endswith("_RUSTFLAGS")
+        ):
+            if isinstance(value, dict):
+                value = value["value"]
+            values["cargo-env:" + name] = tokens(
+                value, name == "CARGO_ENCODED_RUSTFLAGS"
+            )
     values["cargo-build"] = tokens(config.get("build", {}).get("rustflags", []))
     for target, settings in config.get("target", {}).items():
         if "rustflags" in settings:
             values["cargo-target:" + target] = tokens(settings["rustflags"])
+    host = config.get("host", {})
+    if "rustflags" in host:
+        values["cargo-host"] = tokens(host["rustflags"])
+    for target, settings in host.items():
+        if isinstance(settings, dict) and "rustflags" in settings:
+            values["cargo-host:" + target] = tokens(settings["rustflags"])
     return values
 
 
 def debug_profile_valid(root):
     _, config = cargo_config(root)
-    profiles = config.get("profile", {}).get("dev", {})
+    if any(name.startswith("CARGO_PROFILE_") for name in os.environ) or any(
+        name.startswith("CARGO_PROFILE_") for name in config.get("env", {})
+    ):
+        return False
+    manifest = root / "Cargo.toml"
+    manifest_profiles = (
+        tomllib.loads(manifest.read_text()).get("profile", {})
+        if manifest.is_file()
+        else {}
+    )
+    profiles = merge(
+        manifest_profiles.get("dev", {}), config.get("profile", {}).get("dev", {})
+    )
     selected = [
         profiles,
         *(value for name, value in profiles.get("package", {}).items() if name != "*"),
@@ -242,7 +281,5 @@ def debug_profile_valid(root):
 
 
 def require_debug_profile(root):
-    if any(
-        name.startswith("CARGO_PROFILE_") for name in os.environ
-    ) or not debug_profile_valid(root):
+    if not debug_profile_valid(root):
         raise ValueError("CI SDK products require the default debug compiler profile")

@@ -102,6 +102,51 @@ def compiler_host():
     raise ValueError("Artifact compiler identity has no host triple")
 
 
+def native_tool_alias(name):
+    if name in (
+        "CC_FORCE_DISABLE",
+        "CC_SHELL_ESCAPED_FLAGS",
+        "CC_KNOWN_WRAPPER_CUSTOM",
+    ):
+        return False
+    return any(
+        name == tool
+        or name.startswith(tool + "_")
+        or name in ("HOST_" + tool, "TARGET_" + tool)
+        for tool in ("CC", "CXX", "AR", "RANLIB", "NVCC")
+    )
+
+
+def native_tools_supported():
+    if os.environ.get("CROSS_COMPILE"):
+        return False
+    _, config = inputs.cargo_config(ROOT)
+    # Cargo can inject a tool into build scripts. Relative and forced tool
+    # selection need a separate lookup contract before raw reuse is allowed.
+    if any(
+        key in config.get("build", {})
+        for key in ("rustc", "rustc-wrapper", "rustc-workspace-wrapper")
+    ):
+        return False
+    if any(
+        native_tool_alias(name)
+        or name
+        in ("RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CROSS_COMPILE")
+        or name.startswith("CARGO_BUILD_RUSTC")
+        for name in config.get("env", {})
+    ):
+        return False
+    for name, value in os.environ.items():
+        if native_tool_alias(name):
+            words = shlex.split(value)
+            if (
+                not words
+                or not Path(shutil.which(words[0]) or ROOT / words[0]).is_file()
+            ):
+                return False
+    return True
+
+
 def build_context():
     """Include the compiler and target flags in the artifact cache key."""
     compiler_path = inputs.compiler(ROOT)
@@ -115,6 +160,7 @@ def build_context():
         in (
             "RUSTFLAGS",
             "CARGO_ENCODED_RUSTFLAGS",
+            "CARGO_BUILD_RUSTFLAGS",
             "SDKROOT",
             "MACOSX_DEPLOYMENT_TARGET",
             "RUSTC",
@@ -126,6 +172,18 @@ def build_context():
             "CFLAGS",
             "CXXFLAGS",
             "LDFLAGS",
+            "ARFLAGS",
+            "CXXSTDLIB",
+            "CC_SHELL_ESCAPED_FLAGS",
+            "CRATE_CC_NO_DEFAULTS",
+            "CC_FORCE_DISABLE",
+            "CC_KNOWN_WRAPPER_CUSTOM",
+            "CROSS_COMPILE",
+            "RUSTC_LINKER",
+            "WASM_MUSL_SYSROOT",
+            "WASI_SYSROOT",
+            "PAUTHTEST_SYSROOT",
+            "PAUTHTEST_RESOURCE_DIR",
             "PERL",
             "RANLIBFLAGS",
             "TARGET_RANLIB",
@@ -185,13 +243,34 @@ def build_context():
                 "CC_",
                 "CXX_",
                 "CFLAGS_",
+                "CXXFLAGS_",
+                "CXXSTDLIB_",
                 "AR_",
+                "ARFLAGS_",
                 "RANLIB_",
                 "RANLIBFLAGS_",
+                "NVCC",
                 "OPENSSL_",
             )
         )
         or "_OPENSSL_" in name
+        or name
+        in tuple(
+            prefix + tool
+            for prefix in ("HOST_", "TARGET_")
+            for tool in (
+                "CC",
+                "CXX",
+                "CFLAGS",
+                "CXXFLAGS",
+                "AR",
+                "ARFLAGS",
+                "RANLIB",
+                "RANLIBFLAGS",
+                "CXXSTDLIB",
+                "NVCC",
+            )
+        )
         or name.endswith("_DEPLOYMENT_TARGET")
     }
     keyed_cache_environment = {
@@ -218,6 +297,12 @@ def build_context():
                 ]
             archive_indexes[name] = identity
     tool_bytes = {}
+    # cc can select a default compiler from PATH when no alias is set. Bind
+    # those tools too; a wrapper's additional compiler token also has bytes.
+    tools = {
+        "default:" + name: name
+        for name in ("cc", "clang", "gcc", "c++", "clang++", "g++", "ar", "ranlib")
+    }
     for name, value in flags.items():
         if name in (
             "CC",
@@ -227,11 +312,18 @@ def build_context():
             "PROTOC",
             "RUSTC_WRAPPER",
             "RUSTC_WORKSPACE_WRAPPER",
-        ) or name.startswith(("CC_", "CXX_", "AR_")):
-            words = shlex.split(value)
-            if words:
-                tool = Path(shutil.which(words[0]) or ROOT / words[0])
-                tool_bytes[name] = digest(tool.resolve()) if tool.is_file() else None
+            "CARGO_BUILD_RUSTC_WRAPPER",
+            "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+        ) or native_tool_alias(name):
+            tools[name] = value
+    for name, value in tools.items():
+        words = shlex.split(value)
+        tool_bytes[name] = []
+        for word in words:
+            selected = shutil.which(word)
+            tool = Path(selected or ROOT / word)
+            if tool.is_file():
+                tool_bytes[name].append([str(tool.resolve()), digest(tool.resolve())])
     cargo, _ = inputs.cargo_config(ROOT)
     _, declared_environment, workspace_path = inputs.declared_inputs(ROOT)
     return hashlib.sha256(
@@ -244,6 +336,7 @@ def build_context():
                 archive_indexes,
                 tool_bytes,
                 cargo,
+                inputs.compiler_flags(ROOT),
                 declared_environment,
                 workspace_path,
             ],
@@ -322,7 +415,9 @@ def build(args):
     compiler = subprocess.check_output(
         [inputs.compiler(ROOT), "-vV"], cwd=ROOT
     ).decode()
-    cacheable = inputs.cache_contract_supported(ROOT)
+    # Custom cross-prefix lookup is outside the reviewed native tool contract.
+    # Compile in a fresh owned directory instead of reusing raw role bytes.
+    cacheable = inputs.cache_contract_supported(ROOT) and native_tools_supported()
     compile_root = output / "build" / context
     if not cacheable:
         compile_root.mkdir(parents=True, exist_ok=True)
@@ -478,12 +573,7 @@ def build(args):
                 )
                 else "none"
             ),
-            "compilerFlags": {
-                "RUSTFLAGS": inputs.tokens(os.environ.get("RUSTFLAGS", "")),
-                "CARGO_ENCODED_RUSTFLAGS": inputs.tokens(
-                    os.environ.get("CARGO_ENCODED_RUSTFLAGS", ""), True
-                ),
-            },
+            "compilerFlags": inputs.compiler_flags(ROOT),
             "debugProfileValid": inputs.debug_profile_valid(ROOT),
             "profileOverrides": {
                 name: value
