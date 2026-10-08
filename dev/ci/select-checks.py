@@ -41,7 +41,7 @@ CHECKS = (
         "test_android",
         "test_android_consumers",
         "test_android_platform",
-        "test_swift_seams",
+        "test_swift_lifecycle",
         "docs_quality",
         "docs_site",
         "docs_rust",
@@ -95,7 +95,7 @@ def select(paths, event="pull_request", fork=False):
         )
 
     def ios(platform=False, public=False):
-        enable("lint_ios", "test_ios", "test_swift_seams")
+        enable("lint_ios", "test_ios", "test_swift_lifecycle")
         if platform:
             enable("test_ios_platform", "check_bindings_ios")
         if public:
@@ -288,7 +288,7 @@ def select(paths, event="pull_request", fork=False):
         for name in (
             "test_ios",
             "test_ios_platform",
-            "test_swift_seams",
+            "test_swift_lifecycle",
             "test_native_backend",
         ):
             checks[name] = False

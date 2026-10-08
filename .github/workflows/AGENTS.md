@@ -32,9 +32,9 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   `Test`. The native acceptance job has no cache-write token.
   Service logs are retained for 7 days.
 - Selected iOS and Android jobs gate aggregate `Test` in `ci.yml`.
-  `test-swift-seams.yml` owns the Swift seam proofs (`just ios test-seams`)
+  `test-swift-lifecycle.yml` owns the Swift lifecycle checks (`just ios test-lifecycle`)
   and Swift consumer checks. `test-android.yml` owns Kotlin consumer checks.
-  `test-ios` runs `just ios test skip-seams`, so it does not repeat the seams.
+  `test-ios` runs `just ios test skip-lifecycle`, so it does not repeat the lifecycle.
 
 ## CI selection
 

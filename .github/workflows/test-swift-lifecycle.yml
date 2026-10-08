@@ -1,11 +1,11 @@
-name: Test Swift seam proofs and consumers
+name: Test Swift lifecycle checks and consumers
 on:
   workflow_call:
 permissions:
   contents: read
 jobs:
   swift:
-    name: Swift seam proofs and consumers
+    name: Swift lifecycle checks and consumers
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 60
@@ -24,9 +24,9 @@ jobs:
       - uses: taiki-e/install-action@just
       - name: Check native Apple toolchain
         run: dev/nix-shell 'bash dev/check-apple-toolchain'
-      # test-ios.yml skips these tests in its macOS run (`test skip-seams`).
-      - name: Swift seam proofs
-        run: dev/nix-shell 'just backend ci just ios test-seams'
+      # test-ios.yml skips these tests in its macOS run (`test skip-lifecycle`).
+      - name: Swift lifecycle checks
+        run: dev/nix-shell 'just backend ci just ios test-lifecycle'
       - name: Check Swift consumers
         run: dev/nix-shell 'just ios check-consumer'
       - name: Retain native service logs

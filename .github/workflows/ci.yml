@@ -68,11 +68,11 @@ jobs:
       run-unit: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_ios }}
       run-platform: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_ios_platform }}
     secrets: inherit
-  test-swift-seams:
+  test-swift-lifecycle:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_swift_seams && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name
+    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_swift_lifecycle && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name
       == github.repository)
-    uses: ./.github/workflows/test-swift-seams.yml
+    uses: ./.github/workflows/test-swift-lifecycle.yml
     secrets: inherit
   test-android:
     needs: detect-changes
@@ -153,7 +153,7 @@ jobs:
     - docs
     - test-ios
     - test-android
-    - test-swift-seams
+    - test-swift-lifecycle
     - docs-rust-reference
     steps:
     - env:
@@ -166,7 +166,7 @@ jobs:
           == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_ios_platform || needs.test-ios.result == 'success')
           && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_android || needs.test-android.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_android_consumers
           || needs.test-android.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_android_platform
-          || needs.test-android.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_swift_seams ||
-          needs.test-swift-seams.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.docs_rust || (fromJSON(needs.detect-changes.outputs.selection).checks.docs_site
+          || needs.test-android.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_swift_lifecycle ||
+          needs.test-swift-lifecycle.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.docs_rust || (fromJSON(needs.detect-changes.outputs.selection).checks.docs_site
           && needs.docs.result == 'success') || needs.docs-rust-reference.result == 'success') }}
       run: test "$PASSED" = true

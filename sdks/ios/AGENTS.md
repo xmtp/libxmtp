@@ -14,8 +14,8 @@ dev/nix-shell 'just ios check-consumer' # Bare-executable consumer and negative 
 dev/nix-shell 'just ios lint'
 dev/nix-shell 'just ios format'
 dev/nix-shell 'just ios test'           # Test the installed macOS package.
-dev/nix-shell 'just ios test skip-seams' # The same, without the seam proofs.
-dev/nix-shell 'just ios test-seams'     # Only ReaderTeardownTests and ListenerGateTests.
+dev/nix-shell 'just ios test skip-lifecycle' # The same, without the lifecycle checks.
+dev/nix-shell 'just ios test-lifecycle'     # Only ReaderTeardownTests and ListenerGateTests.
 dev/nix-shell 'just ios test-simulator "platform=iOS Simulator,name=iPhone 17"'
 dev/nix-shell 'just ios docs'
 NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XmtpSdkTests.RecordCodecTests/testRemoteAttachmentLength'
@@ -67,9 +67,9 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
   itself; a second `end()` returns without an error.
 - CI runs the test, example, and simulator recipes through `just backend ci`.
   This starts disposable native PostgreSQL, S3, and backend services.
-- `test-swift-seams.yml` runs `test-seams` and `check-consumer`.
+- `test-swift-lifecycle.yml` runs `test-lifecycle` and `check-consumer`.
   Selected Swift and iOS jobs gate aggregate `Test` in `ci.yml`. `test-ios.yml` runs
-  `test skip-seams`, so its macOS run does not repeat the seam proofs.
+  `test skip-lifecycle`, so its macOS run does not repeat the lifecycle checks.
   `test-simulator` still runs every test on the simulator.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
 - Example builds select `arm64` to match the shipped simulator library.

@@ -83,7 +83,7 @@ class SelectionTests(unittest.TestCase):
         checks = selection.select(["crates/xmtp_mls/src/lib.rs"], "push")["checks"]
         for name in (
             "test_ios",
-            "test_swift_seams",
+            "test_swift_lifecycle",
             "test_android",
             "test_android_consumers",
             "test_node",
@@ -159,7 +159,7 @@ class SelectionTests(unittest.TestCase):
             "test_native_backend",
             "test_ios",
             "test_ios_platform",
-            "test_swift_seams",
+            "test_swift_lifecycle",
         ):
             self.assertFalse(c[name])
         self.assertTrue(c["test_android_platform"])

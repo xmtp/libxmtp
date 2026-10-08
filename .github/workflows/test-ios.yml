@@ -37,8 +37,8 @@ jobs:
         if: inputs.run-unit
         env:
           NIX_DEVSHELL: ios
-        # The separate Swift job owns the seam and consumer proofs.
-        run: dev/nix-shell 'just backend ci bash -c "just ios test skip-seams && just ios check-examples"'
+        # The separate Swift job owns the lifecycle and consumer proofs.
+        run: dev/nix-shell 'just backend ci bash -c "just ios test skip-lifecycle && just ios check-examples"'
       - name: Run iOS simulator tests
         if: inputs.run-platform
         env:
