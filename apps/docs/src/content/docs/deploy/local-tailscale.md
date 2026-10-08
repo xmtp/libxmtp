@@ -38,6 +38,16 @@ sudo tailscale up
 
 On Mac, install the [standalone Tailscale app](https://tailscale.com/docs/install/mac), open it, and sign in. In the app settings, open [**CLI integration**](https://tailscale.com/docs/reference/tailscale-cli?tab=macos), select **Show me how**, then **Install Now**. This step requires macOS 13 or later and an administrator password. It makes the `tailscale` command available in your terminal. The app can share local ports with Serve; you do not need the separate open source daemon.
 
+If you already installed the command-line package with Homebrew, use its service instead:
+
+```sh
+brew upgrade tailscale
+sudo brew services start tailscale
+sudo tailscale up
+```
+
+Enter your Mac password when prompted. Open the login URL from `tailscale up` and sign in. See [the Homebrew package instructions](https://formulae.brew.sh/formula/tailscale).
+
 Check the host connection:
 
 ```sh
@@ -174,10 +184,14 @@ Use the full `*.ts.net` name. A short host name or a `100.x.y.z` address does no
 If you have [grpc-health-probe](https://github.com/grpc-ecosystem/grpc-health-probe) installed on the remote computer, check the complete native gRPC path:
 
 ```sh
-grpc_health_probe -addr=xmtp-node.tail1234.ts.net:443 -tls
+xmtp_host=xmtp-node.tail1234.ts.net
+grpc_health_probe -addr="$(tailscale ip -4 "$xmtp_host"):443" -tls \
+  -tls-server-name="$xmtp_host" -connect-timeout=15s -rpc-timeout=10s
 ```
 
-Replace the example name with your host name. Expect `SERVING`. Keep certificate verification enabled.
+Set `xmtp_host` to the host name from your Serve URL, without `https://`. Expect `SERVING`. The probe connects to the Tailscale IP and verifies the certificate against the full host name. This also works when the probe's DNS resolver does not use MagicDNS. Keep certificate verification enabled.
+
+The probe allows 15 seconds to connect and 10 seconds for the health request.
 
 Complete the [SDK quickstart](/get-started/quickstart/) with two clients that use this same backend. Send a message and check that it arrives while the recipient's stream remains open. A health check alone does not test browser gRPC-Web or message subscriptions. The API URL does not serve a web page, and the backend has no HTTP `/health` endpoint.
 
