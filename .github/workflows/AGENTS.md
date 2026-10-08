@@ -20,7 +20,7 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 - Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
 
-- The iOS jobs and the Swift job in `test-sdk.yml` use disposable native
+- The iOS jobs and `test-swift-lifecycle.yml` use disposable native
   services through `dev/nix-shell 'just backend ci COMMAND'`. Each job creates
   its own database and S3 bucket. Failed-job-only reruns do not need a
   deployment job.

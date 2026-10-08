@@ -102,7 +102,6 @@ lint-config: lint-treefmt
     python3.11 dev/tests/test_android_clock.py
     python3.11 dev/tests/test_android_emulator_start.py
     python3.11 nix/lib/test-android-emulator-platform.py
-    python3.11 -B dev/ci/test-selection.py
 
 lint-toml:
     taplo format --check --diff

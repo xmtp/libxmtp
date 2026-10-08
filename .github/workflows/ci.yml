@@ -230,11 +230,6 @@ jobs:
           echo "source_suites=$(jq -c '.source_suites' "$RUNNER_TEMP/ci-selection.json")"
           echo "test_suites=$(jq -c '.test_suites' "$RUNNER_TEMP/ci-selection.json")"
         } >> "$GITHUB_OUTPUT"
-    - uses: actions/upload-artifact@v4
-      with:
-        name: ci-selection
-        path: ${{ runner.temp }}/ci-selection.json
-        retention-days: 7
   docs-quality:
     needs: detect-changes
     if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'docs-quality')
