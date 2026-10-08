@@ -316,6 +316,9 @@ class SelectionTests(unittest.TestCase):
             "PASSED"
         ]
         inputs = {"run-unit": True, "run-consumers": True, "run-platform": True}
+        defaults = workflow("test-android.yml")["on"]["workflow_call"]["inputs"]
+        for name in inputs:
+            self.assertIs(defaults[name]["default"], True)
         results = dict.fromkeys(
             ("unit-tests", "min-sdk-smoke", "integration-tests"), "success"
         )

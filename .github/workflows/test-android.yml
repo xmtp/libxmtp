@@ -4,13 +4,13 @@ name: Test Android
     inputs:
       run-unit:
         type: boolean
-        default: 'true'
+        default: true
       run-consumers:
         type: boolean
-        default: 'true'
+        default: true
       run-platform:
         type: boolean
-        default: 'true'
+        default: true
 permissions:
   contents: read
 jobs:
