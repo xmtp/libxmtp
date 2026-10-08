@@ -20,7 +20,7 @@ with (root / "calls.jsonl").open("a") as log:
     log.write(json.dumps([name, sys.argv[1:], os.getenv("NIX_DEVSHELL")]) + "\n")
 if name == "nix-shell":
     assert sys.argv[1:] == ["just sdk generate " + target]
-    assert os.environ["NIX_DEVSHELL"] == "default"
+    assert os.environ["NIX_DEVSHELL"] == "rust"
     if os.getenv("FAIL_PRODUCER"):
         sys.exit(47)
     (root / ("generated-" + target)).write_text("fresh")
