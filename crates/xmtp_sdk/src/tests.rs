@@ -571,6 +571,7 @@ async fn assert_undecodable_standard_read_paths(
     group: &Arc<crate::Group>,
     id: MessageId,
     expected_raw: &[u8],
+    case: &str,
 ) -> Result<(), XmtpError> {
     let stored = client
         .inner
@@ -591,7 +592,7 @@ async fn assert_undecodable_standard_read_paths(
     let outcomes = [("direct", direct), ("by ID", by_id), ("history", history)]
         .into_iter()
         .map(|(path, message)| {
-            let preserved = matches!(message.0.content,
+            let preserved = message.0.id == id && matches!(message.0.content,
                 MessageContent::Unknown { encoded, raw_bytes, .. }
                     if raw_bytes.as_slice() == expected_raw
                         && encoded.as_ref().is_none_or(|value| value.r#type.authority_id == "xmtp.org" && value.r#type.type_id == "text"));
@@ -600,7 +601,7 @@ async fn assert_undecodable_standard_read_paths(
         .collect::<Vec<_>>();
     assert!(
         outcomes.iter().all(|(_, preserved)| *preserved),
-        "failed standard content was not Unknown with raw bytes: {outcomes:?}"
+        "{case}: failed standard content was not Unknown with raw bytes: {outcomes:?}"
     );
     Ok(())
 }
