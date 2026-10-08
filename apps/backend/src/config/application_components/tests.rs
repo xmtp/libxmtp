@@ -31,7 +31,10 @@ fn base(policy: MetadataBasePolicy) -> mls::MetadataPolicy {
 #[xmtp_common::test(unwrap_try = true)]
 fn every_type_and_policy_name_maps_to_its_wire_tag() {
     assert!(
-        load(&[])?.configuration_response(&[]).application_components.is_empty(),
+        load(&[])?
+            .configuration_response(&[])
+            .application_components
+            .is_empty(),
         "an empty catalogue stays empty"
     );
     let groups_only = load(&[entry(0xC000, "groups")])?.configuration_response(&[]);

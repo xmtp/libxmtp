@@ -52,11 +52,17 @@ fn a_prerelease_tag_never_makes_a_client_too_old() {
         ("1.2.3", "1.2.3+build.2", false),
     ] {
         let result = check_minimum_version(&requiring(minimum), &version(client));
-        assert_eq!(
-            matches!(result, Err(ClientError::ClientVersionTooOld { .. })),
-            is_below,
-            "minimum {minimum}, client {client}"
-        );
+        if is_below {
+            assert!(
+                matches!(&result, Err(ClientError::ClientVersionTooOld { .. })),
+                "minimum {minimum}, client {client}: {result:?}"
+            );
+        } else {
+            assert!(
+                result.is_ok(),
+                "minimum {minimum}, client {client}: {result:?}"
+            );
+        }
     }
 }
 
@@ -485,18 +491,36 @@ in_dms = false
         assert_eq!(topic.component_id, 0xC000);
         assert_eq!(topic.name, "topic");
         assert_eq!(topic.component_type, 2);
-        assert_eq!(topic.permissions.insert, Some(xmtp_configuration::MetadataPolicy::Base(1)));
-        assert_eq!(topic.permissions.update, Some(xmtp_configuration::MetadataPolicy::Base(3)));
-        assert_eq!(topic.permissions.delete, Some(xmtp_configuration::MetadataPolicy::Base(2)));
+        assert_eq!(
+            topic.permissions.insert,
+            Some(xmtp_configuration::MetadataPolicy::Base(1))
+        );
+        assert_eq!(
+            topic.permissions.update,
+            Some(xmtp_configuration::MetadataPolicy::Base(3))
+        );
+        assert_eq!(
+            topic.permissions.delete,
+            Some(xmtp_configuration::MetadataPolicy::Base(2))
+        );
         assert!(topic.in_groups);
         assert!(!topic.in_dms);
         let pronouns = &configuration.application_components[1];
         assert_eq!(pronouns.component_id, 0xC001);
         assert_eq!(pronouns.name, "USER_PRONOUNS");
         assert_eq!(pronouns.component_type, 7);
-        assert_eq!(pronouns.permissions.insert, Some(xmtp_configuration::MetadataPolicy::Base(5)));
-        assert_eq!(pronouns.permissions.update, Some(xmtp_configuration::MetadataPolicy::Base(5)));
-        assert_eq!(pronouns.permissions.delete, Some(xmtp_configuration::MetadataPolicy::Base(3)));
+        assert_eq!(
+            pronouns.permissions.insert,
+            Some(xmtp_configuration::MetadataPolicy::Base(5))
+        );
+        assert_eq!(
+            pronouns.permissions.update,
+            Some(xmtp_configuration::MetadataPolicy::Base(5))
+        );
+        assert_eq!(
+            pronouns.permissions.delete,
+            Some(xmtp_configuration::MetadataPolicy::Base(3))
+        );
         assert!(pronouns.in_groups);
         assert!(pronouns.in_dms);
 

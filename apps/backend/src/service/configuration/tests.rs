@@ -112,9 +112,7 @@ async fn disabled_auth_publishes_an_empty_summary() {
     assert_eq!(mls.max_group_members, 250);
     assert_eq!(mls.max_installations_per_inbox, 10);
     assert_eq!(mls.commit_log_enabled, Some(true));
-    let auth = published
-        .auth
-        .expect("auth is published");
+    let auth = published.auth.expect("auth is published");
     assert_eq!(auth, api::AuthConfiguration::default());
     server.stop().await?;
 }
@@ -138,10 +136,15 @@ async fn enabled_auth_publishes_its_admission_settings_without_a_credential() {
         .get_configuration(api::GetConfigurationRequest {})
         .await?
         .into_inner();
-    assert!(!format!("{response:?}").contains(&key.public_key));
-    let published = response
-        .auth
-        .expect("auth is published");
+    let encoded = prost::Message::encode_to_vec(&response);
+    let public_key = key.public_key.as_bytes();
+    assert!(!public_key.is_empty());
+    assert!(
+        !encoded
+            .windows(public_key.len())
+            .any(|bytes| bytes == public_key)
+    );
+    let published = response.auth.expect("auth is published");
     assert!(published.enabled);
     assert_eq!(
         published.keys,

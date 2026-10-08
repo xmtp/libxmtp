@@ -23,7 +23,10 @@ fn event_attachment_diagnostics_hide_signed_urls() {
         core_failed_debug,
         format!("{attachment:?}"),
         format!("{failed:?}"),
-        format!("{:?}", core::ClientEvent::AttachmentDeleted(core_attachment.clone())),
+        format!(
+            "{:?}",
+            core::ClientEvent::AttachmentDeleted(core_attachment.clone())
+        ),
         format!(
             "{:?}",
             ClientEvent::AttachmentUploadFailed {

@@ -987,11 +987,10 @@ mod tests {
                             prop_assert_eq!(mutation, decoded, "mutation kind round trip");
                         }
                         let mut invalid = Vec::new();
-                        let content_len = 1 + key.tls_serialized_len() + value.tls_serialized_len();
+                        let content_len = 1 + key.tls_serialized_len();
                         tls_codec::vlen::write_length(&mut invalid, content_len).unwrap();
                         3u8.tls_serialize(&mut invalid).unwrap();
                         key.tls_serialize(&mut invalid).unwrap();
-                        value.tls_serialize(&mut invalid).unwrap();
                         prop_assert!(TlsMapDelta::<$K, $V>::tls_deserialize_exact(&invalid).is_err(), "invalid mutation tag");
                     }
                 }
