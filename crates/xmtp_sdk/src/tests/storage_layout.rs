@@ -594,8 +594,8 @@ async fn explicit_storage_sends_no_identity_request_to_a_deployment_it_refuses()
 // verifies: CONF-064, CONF-072
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_without_identity_updates_opens_offline_only_for_its_creator() {
-    use xmtp_db::{ConnectionExt, diesel::RunQueryDsl};
     use xmtp_db::prelude::QueryServerConfiguration;
+    use xmtp_db::{ConnectionExt, diesel::RunQueryDsl};
 
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-no-updates");

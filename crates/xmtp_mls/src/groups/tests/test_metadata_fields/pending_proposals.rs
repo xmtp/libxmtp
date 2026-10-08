@@ -153,7 +153,9 @@ async fn test_unchanged_writes_ignore_other_pending_entries() {
     let absent_pending = pending_proposals(&absent_group)?;
     assert!(absent_pending > 0);
     let absent_epoch = absent_group.epoch().await?;
-    absent_group.update_user_data(&[clear(names.clone())]).await?;
+    absent_group
+        .update_user_data(&[clear(names.clone())])
+        .await?;
     assert_eq!(absent_group.epoch().await?, absent_epoch);
     assert_eq!(pending_proposals(&absent_group)?, absent_pending);
     assert_eq!(

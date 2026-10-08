@@ -88,7 +88,10 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
     let mut invalid_text = crate::encode_text("valid".into())?;
     invalid_text.content = vec![0xff, 0xfe];
     let id = group.send(invalid_text, None).await?;
-    let raw = client.inner.message(id.to_bytes()?)?.decrypted_message_bytes;
+    let raw = client
+        .inner
+        .message(id.to_bytes()?)?
+        .decrypted_message_bytes;
     rows.push(("invalid UTF-8 text", id, raw, Expected::Text, false));
 
     let actions: Actions = serde_json::from_str(
@@ -107,7 +110,10 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
     ] {
         let encoded = ActionsCodec::encode(value)?;
         let id = group.send(encoded.try_into()?, None).await?;
-        let raw = client.inner.message(id.to_bytes()?)?.decrypted_message_bytes;
+        let raw = client
+            .inner
+            .message(id.to_bytes()?)?
+            .decrypted_message_bytes;
         rows.push((label, id, raw, Expected::Actions, false));
     }
 
@@ -115,12 +121,15 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
     let stored = client.inner.message(id.to_bytes()?)?;
     let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
     encoded.compression = Some(99);
-    rows.push(("unknown compression", id, encoded.encode_to_vec(), Expected::Text, true));
+    rows.push((
+        "unknown compression",
+        id,
+        encoded.encode_to_vec(),
+        Expected::Text,
+        true,
+    ));
 
-    for (label, empty_authority) in [
-        ("empty outer authority", true),
-        ("empty outer type", false),
-    ] {
+    for (label, empty_authority) in [("empty outer authority", true), ("empty outer type", false)] {
         let id = group.send_text("valid".into(), None).await?;
         let stored = client.inner.message(id.to_bytes()?)?;
         let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
@@ -160,7 +169,10 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
     let mut message_ids = std::collections::HashSet::new();
     for (label, id, raw, expected, rewrite) in rows {
         let id_bytes = id.to_bytes()?;
-        assert!(message_ids.insert(id_bytes.clone()), "{label}: duplicate message ID");
+        assert!(
+            message_ids.insert(id_bytes.clone()),
+            "{label}: duplicate message ID"
+        );
         if rewrite {
             client.inner.context.db().raw_query(|conn| {
                 xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&id_bytes)))
@@ -172,10 +184,8 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
             assert_undecodable_standard_read_paths(&client, &group, id, &raw, label).await?;
             continue;
         }
-        let direct = crate::Message::from_stored(
-            client.inner.message(id_bytes)?,
-            client.client_key(),
-        )?;
+        let direct =
+            crate::Message::from_stored(client.inner.message(id_bytes)?, client.client_key())?;
         let by_id = client
             .conversations()
             .get_message_by_id(id.clone())
@@ -201,7 +211,10 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
                 (Expected::Raw, MessageContent::Unknown { raw_bytes, .. }) => raw_bytes == raw,
                 _ => false,
             };
-            assert!(preserved, "{label}: {path} did not preserve raw bytes or type");
+            assert!(
+                preserved,
+                "{label}: {path} did not preserve raw bytes or type"
+            );
         }
     }
 

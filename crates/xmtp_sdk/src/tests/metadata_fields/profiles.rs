@@ -67,7 +67,10 @@ async fn user_data_keeps_absent_and_empty_filters_apart() {
     assert_eq!(bo_group.metadata_value(field(TOPIC, None)).await?, None);
     assert_eq!(
         bo_group
-            .map_value(names.clone(), FieldKey::InboxId(bo.inbox_id().into_checked()?))
+            .map_value(
+                names.clone(),
+                FieldKey::InboxId(bo.inbox_id().into_checked()?)
+            )
             .await?,
         Some(string("Bo"))
     );
@@ -128,7 +131,10 @@ async fn user_data_keeps_absent_and_empty_filters_apart() {
     let stranger = InboxId::try_from("ab".repeat(32))?;
     assert_eq!(
         group
-            .user_data(None, Some(vec![bo.inbox_id(), stranger.clone(), bo.inbox_id()]))
+            .user_data(
+                None,
+                Some(vec![bo.inbox_id(), stranger.clone(), bo.inbox_id()])
+            )
             .await?,
         HashMap::from([
             (

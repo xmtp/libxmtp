@@ -198,7 +198,9 @@ async fn client_configuration_and_credential_update() {
                 request
                     .headers_ref()
                     .and_then(|headers| headers.get(http::header::AUTHORIZATION)),
-                Some(&http::header::HeaderValue::from_static("Bearer added-later"))
+                Some(&http::header::HeaderValue::from_static(
+                    "Bearer added-later"
+                ))
             );
             self.0.store(true, Ordering::SeqCst);
             Ok(http::Response::new(body))
@@ -276,7 +278,10 @@ async fn client_configuration_and_credential_update() {
         Client::create(crate::generate_local_signer().await, authenticated_options).await?;
     assert_eq!(authenticated.app_version().as_deref(), Some("test/8"));
     let reported = authenticated.options();
-    let Some(BackendSource::Options { options: reported_backend }) = &reported.backend else {
+    let Some(BackendSource::Options {
+        options: reported_backend,
+    }) = &reported.backend
+    else {
         panic!("test uses backend options");
     };
     assert_eq!(reported_backend.app_version.as_deref(), Some("test/8"));

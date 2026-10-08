@@ -130,11 +130,26 @@ async fn test_stream_all_messages_changing_group_list() {
     new_group.add_members(&[caro.inbox_id()]).await.unwrap();
     caro.sync_welcomes().await.unwrap();
     let caro_new_group = caro.group(&new_group.group_id).unwrap();
-    assert_eq!(caro_new_group.consent_state().unwrap(), ConsentState::Unknown);
-    new_group
+    assert_eq!(
+        caro_new_group.consent_state().unwrap(),
+        ConsentState::Unknown
+    );
+    let unknown_message_id = new_group
         .send_message(b"new unknown", SendMessageOpts::default())
         .await
         .unwrap();
+    caro_new_group.sync().await.unwrap();
+    let stored = caro_new_group
+        .find_messages(&MsgQueryArgs::default())
+        .unwrap();
+    assert!(
+        stored.iter().any(|message| {
+            message.id == unknown_message_id
+                && message.kind == GroupMessageKind::Application
+                && message.decrypted_message_bytes == b"new unknown"
+        }),
+        "new Unknown group message did not reach Caro's local history"
+    );
     assert!(
         xmtp_common::time::timeout(Duration::from_secs(2), filtered.next())
             .await
@@ -185,7 +200,10 @@ async fn test_dm_stream_all_messages() {
             .await
             .unwrap();
         second_known_group
-            .send_message("second known GROUP msg".as_bytes(), SendMessageOpts::default())
+            .send_message(
+                "second known GROUP msg".as_bytes(),
+                SendMessageOpts::default(),
+            )
             .await
             .unwrap();
         assert_msg!(stream, "first GROUP msg");
