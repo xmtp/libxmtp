@@ -23,18 +23,20 @@ class LegacyMigrationTest {
                     Files.copy(Path.of(fixture.toString() + suffix), destination)
                     before[suffix] = Files.readAllBytes(destination)
                 }
+                val output = directory.resolve("history.xmtp").toString()
                 val report =
                     prepareMigrationArchive(
                         PrepareMigrationArchiveArgs(
                             databasePath = database.toString(),
                             databaseKey = ByteArray(32) { 0x11 },
                             archiveKey = ByteArray(32) { 7 },
-                            outputPath = directory.resolve("history.xmtp").toString(),
+                            outputPath = output,
                         ),
                     )
                 assertEquals(2uL, report.groupCount)
                 assertEquals(4uL, report.messageCount)
                 assertEquals(1uL, report.consentCount)
+                assertEquals(output, report.archivePath)
                 assertTrue(Files.exists(Path.of(report.archivePath)))
                 for ((suffix, bytes) in before) {
                     assertArrayEquals(bytes, Files.readAllBytes(Path.of(database.toString() + suffix)))

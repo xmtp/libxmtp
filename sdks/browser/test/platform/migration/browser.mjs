@@ -64,27 +64,8 @@ connection.close()
     async ({ fixture, invalidFixture, currentSdk }) => {
       const migration = await import("/target/sdk-packages/browser/entry.js");
       const storagePoolLock = "xmtp:.opfs-libxmtp-metadata";
-      function check(value, message) {
-        if (!value) throw new Error(message);
-      }
-      async function fixtureCall(data) {
-        const worker = new Worker(
-          new URL("./fixture-worker.mjs", location.href),
-          { type: "module" },
-        );
-        try {
-          return await new Promise((resolve, reject) => {
-            worker.onmessage = ({ data }) =>
-              data.ok ? resolve(data.value) : reject(new Error(data.error));
-            worker.onerror = (e) => reject(new Error(e.message));
-            worker.postMessage(data);
-          });
-        } finally {
-          worker.terminate();
-          // A new worker proves that the old OPFS handles are no longer held.
-          await new Promise((resolve) => setTimeout(resolve, 25));
-        }
-      }
+      const { check, fixtureCall } =
+        await import("/sdks/browser/test/platform/migration/support.mjs");
       const source = "/migration-leading-slash.db3";
       await fixtureCall({
         operation: "import",

@@ -89,22 +89,8 @@ connection.close()
         async (bytes) => {
           const fixture = new Uint8Array(bytes);
           const path = "/migration-many-frames.db3";
-          async function fixtureCall(data) {
-            const worker = new Worker(
-              new URL("./fixture-worker.mjs", location.href),
-              { type: "module" },
-            );
-            try {
-              return await new Promise((resolve, reject) => {
-                worker.onmessage = ({ data }) =>
-                  data.ok ? resolve(data.value) : reject(new Error(data.error));
-                worker.onerror = (error) => reject(new Error(error.message));
-                worker.postMessage(data);
-              });
-            } finally {
-              worker.terminate();
-            }
-          }
+          const { fixtureCall } =
+            await import("/sdks/browser/test/platform/migration/support.mjs");
           await fixtureCall({ operation: "import", path, bytes: fixture });
           const NativeWorker = globalThis.Worker;
           globalThis.Worker = class extends NativeWorker {

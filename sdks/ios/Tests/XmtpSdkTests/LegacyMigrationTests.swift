@@ -20,14 +20,16 @@ import XmtpSdk
 				try FileManager.default.copyItem(atPath: source + suffix, toPath: database + suffix)
 				before[suffix] = try Data(contentsOf: URL(fileURLWithPath: database + suffix))
 			}
+			let output = directory.appendingPathComponent("history.xmtp").path
 			let report = try await prepareMigrationArchive(args: PrepareMigrationArchiveArgs(
 				databasePath: database, databaseKey: Data(repeating: 0x11, count: 32),
 				archiveKey: Data(repeating: 7, count: 32),
-				outputPath: directory.appendingPathComponent("history.xmtp").path,
+				outputPath: output,
 			))
 			XCTAssertEqual(report.groupCount, 2)
 			XCTAssertEqual(report.messageCount, 4)
 			XCTAssertEqual(report.consentCount, 1)
+			XCTAssertEqual(report.archivePath, output)
 			XCTAssertTrue(FileManager.default.fileExists(atPath: report.archivePath))
 			for (suffix, bytes) in before {
 				XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: database + suffix)), bytes)

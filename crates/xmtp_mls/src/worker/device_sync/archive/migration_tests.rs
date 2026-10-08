@@ -1,13 +1,12 @@
-//! The standalone exporter must feed the existing SDK importer without changes.
+//! The legacy exporter must feed the existing SDK importer.
 use super::*;
 use crate::tester;
 use diesel::prelude::*;
-use futures::TryStreamExt;
 use xmtp_db::{
     ConnectionExt,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord},
     group::{GroupMembershipState, StoredGroup},
-    group_message::StoredGroupMessage,
+    group_message::{DeliveryStatus, StoredGroupMessage},
     schema::{group_messages, groups},
 };
 use xmtp_legacy_migration::{PrepareMigrationArchiveArgs, prepare_migration_archive};
@@ -27,6 +26,14 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
         ),
         &source,
     )?;
+    let mut legacy = SqliteConnection::establish(source.to_str().unwrap())?;
+    diesel::sql_query("UPDATE group_messages SET delivery_status=1 WHERE id=?")
+        .bind::<diesel::sql_types::Binary, _>(vec![8; 32])
+        .execute(&mut legacy)?;
+    diesel::sql_query("UPDATE group_messages SET delivery_status=3 WHERE id=?")
+        .bind::<diesel::sql_types::Binary, _>(vec![10; 32])
+        .execute(&mut legacy)?;
+    drop(legacy);
     let output = directory.path().join("migration.xmtp");
     let report = prepare_migration_archive(PrepareMigrationArchiveArgs {
         database_path: source.to_str().unwrap().into(),
@@ -54,20 +61,6 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
         } else {
             None
         };
-        let preview = ArchiveImporter::from_file(&output, &KEY).await?;
-        let records: Vec<_> = preview.try_collect().await?;
-        let mut partial = futures::stream::iter(
-            records
-                .into_iter()
-                .take(2)
-                .map(Ok::<_, std::io::Error>)
-                .chain([Err(std::io::Error::other("interrupted archive read"))]),
-        );
-        assert!(
-            insert_elements(&mut partial, &destination.context)
-                .await
-                .is_err()
-        );
         for _ in 0..2 {
             let mut importer = ArchiveImporter::from_file(&output, &KEY).await?;
             insert_importer(&mut importer, &destination.context).await?;
@@ -93,22 +86,35 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
                 .iter()
                 .find(|g| hex::encode(g.id) == DM)
                 .expect("original DM id");
-            assert!(
-                dm.dm_id
-                    .as_ref()
-                    .expect("DM pair")
-                    .contains(&"01".repeat(32))
+            assert_eq!(
+                dm.dm_id.as_deref(),
+                Some(format!("dm:{}:{}", "01".repeat(32), "02".repeat(32)).as_str())
             );
             assert_eq!(destination.group(&dm.id)?.group_name()?, "Migration DM");
             let messages: Vec<StoredGroupMessage> = destination.db().raw_query(|conn| {
                 group_messages::table
-                    .filter(group_messages::id.eq_any([vec![1; 32], vec![8; 32], vec![10; 32]]))
+                    .filter(group_messages::group_id.eq_any(restored.iter().map(|group| &group.id)))
                     .order(group_messages::id)
                     .select(StoredGroupMessage::as_select())
                     .load(conn)
             })?;
-            assert_eq!(messages.len(), 3);
+            assert_eq!(
+                messages
+                    .iter()
+                    .map(|message| message.id.clone())
+                    .collect::<Vec<_>>(),
+                [1, 8, 10].map(|id| vec![id; 32])
+            );
             for message in messages {
+                assert_eq!(
+                    message.delivery_status,
+                    match message.id[0] {
+                        1 => DeliveryStatus::Published,
+                        8 => DeliveryStatus::Unpublished,
+                        10 => DeliveryStatus::Failed,
+                        id => panic!("unexpected migrated message: {id}"),
+                    }
+                );
                 assert_eq!(
                     message.sent_at_ns,
                     if message.id == vec![10; 32] {

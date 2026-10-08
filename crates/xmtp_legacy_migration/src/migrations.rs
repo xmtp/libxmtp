@@ -291,21 +291,45 @@ struct Version {
     version: String,
 }
 
+#[derive(QueryableByName)]
+struct Count {
+    #[diesel(sql_type = BigInt)]
+    count: i64,
+}
+
+// The longest supported legacy migration marker contains 18 ASCII bytes.
+const MAX_VERSION_BYTES: i64 = 18;
+
+/// Check SQL bounds before loading caller-controlled version strings.
+fn version_history(conn: &mut SqliteConnection) -> Result<Vec<Version>, MigrationError> {
+    let rows = diesel::sql_query(
+        "SELECT count(*) AS count FROM (SELECT 1 FROM __diesel_schema_migrations LIMIT ?)",
+    )
+    .bind::<BigInt, _>((MIGRATIONS.len() + 1) as i64)
+    .get_result::<Count>(conn)
+    .map_err(MigrationError::migration)?;
+    if rows.count == 0 || rows.count > MIGRATIONS.len() as i64 {
+        return Err(MigrationError::UnsupportedSchema);
+    }
+    let invalid = diesel::sql_query("SELECT EXISTS(SELECT 1 FROM __diesel_schema_migrations WHERE typeof(version) != 'text' OR length(CAST(version AS BLOB)) > ?) AS count")
+        .bind::<BigInt, _>(MAX_VERSION_BYTES)
+        .get_result::<Count>(conn).map_err(MigrationError::migration)?;
+    if invalid.count != 0 {
+        return Err(MigrationError::UnsupportedSchema);
+    }
+    diesel::sql_query("SELECT version FROM __diesel_schema_migrations ORDER BY version LIMIT ?")
+        .bind::<BigInt, _>(MIGRATIONS.len() as i64)
+        .load::<Version>(conn)
+        .map_err(MigrationError::migration)
+}
+
 /// Rejects unknown and non-prefix histories before applying a known suffix.
 pub(crate) fn validate(conn: &mut SqliteConnection) -> Result<usize, MigrationError> {
-    #[derive(QueryableByName)]
-    struct Count {
-        #[diesel(sql_type = BigInt)]
-        count: i64,
-    }
     if diesel::sql_query("SELECT count(*) AS count FROM sqlite_master WHERE type='table' AND name='__diesel_schema_migrations'")
         .get_result::<Count>(conn).map_err(MigrationError::migration)?.count != 1 {
         return Err(MigrationError::UnsupportedSchema);
     }
-    let versions =
-        diesel::sql_query("SELECT version FROM __diesel_schema_migrations ORDER BY version")
-            .load::<Version>(conn)
-            .map_err(MigrationError::migration)?;
+    let versions = version_history(conn)?;
     if versions.is_empty()
         || versions.len() > MIGRATIONS.len()
         || versions
@@ -341,10 +365,46 @@ pub(crate) fn apply(
 #[cfg(test)]
 mod tests {
     use super::*;
+    // verifies: MIG-003
+    #[xmtp_common::test(unwrap_try = true)]
+    fn history_row_and_value_limits_precede_loading() {
+        let mut conn = SqliteConnection::establish(":memory:")?;
+        conn.batch_execute("CREATE TABLE __diesel_schema_migrations(version TEXT)")?;
+        for sql in [
+            "INSERT INTO __diesel_schema_migrations VALUES (CAST(zeroblob(1048576) AS TEXT))",
+            "INSERT INTO __diesel_schema_migrations VALUES ('xxxxxxxxxxxxxxxxxxx')",
+            "INSERT INTO __diesel_schema_migrations VALUES ('éééééééééééééééééé')",
+            "WITH RECURSIVE rows(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM rows WHERE n<100000) INSERT INTO __diesel_schema_migrations SELECT printf('%018d', n) FROM rows",
+            "INSERT INTO __diesel_schema_migrations VALUES (x'32303234')",
+            "INSERT INTO __diesel_schema_migrations VALUES (NULL)",
+            "SELECT 1",
+        ] {
+            conn.batch_execute("DELETE FROM __diesel_schema_migrations")?;
+            conn.batch_execute(sql)?;
+            assert!(
+                matches!(
+                    version_history(&mut conn),
+                    Err(MigrationError::UnsupportedSchema)
+                ),
+                "history admitted before loading: {sql}"
+            );
+        }
+        for (version, _) in MIGRATIONS {
+            diesel::sql_query("INSERT INTO __diesel_schema_migrations VALUES (?)")
+                .bind::<Text, _>(version)
+                .execute(&mut conn)?;
+        }
+        let versions = version_history(&mut conn)?;
+        assert_eq!(versions.len(), 64);
+        assert_eq!(versions.last().unwrap().version, "202606100000000000");
+    }
+
     // verifies: MIG-002
     #[xmtp_common::test(unwrap_try = true)]
     fn every_known_schema_prefix_reaches_the_pinned_endpoint() {
-        for prefix in 1..=MIGRATIONS.len() {
+        const PINNED_ENDPOINT: usize = 64;
+        assert_eq!(MIGRATIONS.len(), PINNED_ENDPOINT);
+        for prefix in 1..=PINNED_ENDPOINT {
             let mut conn = SqliteConnection::establish(":memory:")?;
             conn.batch_execute("CREATE TABLE __diesel_schema_migrations(version TEXT PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)")?;
             for (version, sql) in &MIGRATIONS[..prefix] {
@@ -354,7 +414,7 @@ mod tests {
                     .execute(&mut conn)?;
             }
             apply(&mut conn, || Ok(()))?;
-            assert_eq!(validate(&mut conn)?, MIGRATIONS.len(), "prefix {prefix}");
+            assert_eq!(validate(&mut conn)?, PINNED_ENDPOINT, "prefix {prefix}");
         }
     }
 }
