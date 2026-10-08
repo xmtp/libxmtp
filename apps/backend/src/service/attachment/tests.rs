@@ -59,6 +59,10 @@ fn request(digest: Vec<u8>, length: u64) -> api::CreateUploadRequest {
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: ATCH-001, ATCH-004, ATCH-006
 async fn offer_published_iff_configured() -> TestResult {
+    const PUBLIC_BASE_URL: &str = "https://public-attachments.example.com/objects";
+    const PRIVATE_ENDPOINT: &str = "https://private-storage.example.com";
+    const PRIVATE_BUCKET: &str = "private-attachment-bucket";
+
     let absent = TestServer::new(|_| {}).await?;
     assert!(
         absent
@@ -70,21 +74,33 @@ async fn offer_published_iff_configured() -> TestResult {
             .is_none()
     );
     absent.stop().await?;
-    let configured =
-        TestServer::new(|config| config.attachments = Some(attachment_config())).await?;
+    let configured = TestServer::new(|config| {
+        let mut attachments = attachment_config();
+        attachments.base_url = PUBLIC_BASE_URL.into();
+        match &mut attachments.target {
+            TargetConfig::S3(s3) => {
+                s3.endpoint = PRIVATE_ENDPOINT.into();
+                s3.bucket = PRIVATE_BUCKET.into();
+            }
+        }
+        config.attachments = Some(attachments);
+    })
+    .await?;
     let published = configured
         .configuration()
         .get_configuration(api::GetConfigurationRequest {})
         .await?
         .into_inner();
     let offer = published.attachments.as_ref().expect("configured offer");
-    assert_eq!(offer.base_url, attachment_config().base_url);
+    assert_eq!(offer.base_url, PUBLIC_BASE_URL);
     assert_eq!(offer.max_upload_bytes, 1024);
     assert_eq!(offer.retention_seconds, 3600);
     let wire = String::from_utf8_lossy(&published.encode_to_vec()).into_owned();
     for secret in [
         "xmtps3secret",
         "xmtps3",
+        PRIVATE_ENDPOINT,
+        PRIVATE_BUCKET,
         "access_key_id",
         "secret_access_key",
         "endpoint",

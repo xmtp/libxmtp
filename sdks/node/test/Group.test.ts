@@ -99,7 +99,9 @@ describe("Group", () => {
     );
 
     // An identity list routes to the generated createGroupWithIdentities call.
-    const identityGroup = await client1.conversations.createGroup([identifier2]);
+    const identityGroup = await client1.conversations.createGroup([
+      identifier2,
+    ]);
     expect(
       (await identityGroup.members()).map((member) => member.inboxId).sort(),
     ).toEqual([client1.inboxId, client2.inboxId].sort());

@@ -15,5 +15,4 @@ describe("client revoke-installations", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("installation-ids");
   });
-
 });

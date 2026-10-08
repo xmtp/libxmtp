@@ -621,7 +621,7 @@ export class WorkerHost {
   private watchRustPanics(): void {
     // The pinned WASM player has no public panic observer. Its private panic
     // hook logs this prefix before a background task can raise an error event.
-    // The Browser panic fixture checks delivery through this hook.
+    // The conformance test checks the pinned player source for this prefix.
     const previous = console.error;
     const logger = (...args: unknown[]): void => {
       previous(...args);
