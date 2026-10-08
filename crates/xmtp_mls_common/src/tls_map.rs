@@ -986,12 +986,19 @@ mod tests {
                             let decoded = TlsMapMutation::<$K, $V>::tls_deserialize_exact(&bytes).unwrap();
                             prop_assert_eq!(mutation, decoded, "mutation kind round trip");
                         }
-                        let mut invalid = Vec::new();
-                        let content_len = 1 + key.tls_serialized_len();
-                        tls_codec::vlen::write_length(&mut invalid, content_len).unwrap();
-                        3u8.tls_serialize(&mut invalid).unwrap();
-                        key.tls_serialize(&mut invalid).unwrap();
-                        prop_assert!(TlsMapDelta::<$K, $V>::tls_deserialize_exact(&invalid).is_err(), "invalid mutation tag");
+                        let key_len = key.tls_serialized_len();
+                        let mut key_only = Vec::new();
+                        tls_codec::vlen::write_length(&mut key_only, 1 + key_len).unwrap();
+                        3u8.tls_serialize(&mut key_only).unwrap();
+                        key.tls_serialize(&mut key_only).unwrap();
+                        prop_assert!(TlsMapDelta::<$K, $V>::tls_deserialize_exact(&key_only).is_err(), "invalid mutation tag with key only");
+
+                        let mut key_and_value = Vec::new();
+                        tls_codec::vlen::write_length(&mut key_and_value, 1 + key_len + value.tls_serialized_len()).unwrap();
+                        3u8.tls_serialize(&mut key_and_value).unwrap();
+                        key.tls_serialize(&mut key_and_value).unwrap();
+                        value.tls_serialize(&mut key_and_value).unwrap();
+                        prop_assert!(TlsMapDelta::<$K, $V>::tls_deserialize_exact(&key_and_value).is_err(), "invalid mutation tag with key and value");
                     }
                 }
             }
