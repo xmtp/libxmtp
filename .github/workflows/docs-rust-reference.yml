@@ -61,6 +61,14 @@ jobs:
         with:
           path: target/doc
           key: ${{ steps.reference-key.outputs.key }}
+      - name: Retain safe Rust reference input receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-rust-inputs-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docs-rust-key.json.expected-safe.json
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@v7
         with:
           name: docs-rust
