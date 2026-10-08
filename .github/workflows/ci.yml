@@ -18,16 +18,24 @@ jobs:
       selection: ${{ steps.select.outputs.selection }}
       source_suites: ${{ steps.select.outputs.source_suites }}
       test_suites: ${{ steps.select.outputs.test_suites }}
+      lint_jobs: ${{ toJSON(fromJSON(steps.select.outputs.selection).lint_jobs) }}
+      test_jobs: ${{ toJSON(fromJSON(steps.select.outputs.selection).test_jobs) }}
     steps:
     - uses: actions/checkout@v6
       with:
         fetch-depth: 2
     - name: Select checks from the event Git diff
       id: select
-      run: "python3 -B dev/ci/select-checks.py --output \"$RUNNER_TEMP/ci-selection.json\" --source-suites-output \"$RUNNER_TEMP/source-suites.json\"\
-        \ --test-suites-output \"$RUNNER_TEMP/test-suites.json\"\n{\n  echo \"selection=$(cat \"$RUNNER_TEMP/ci-selection.json\")\"\n\
-        \  echo \"source_suites=$(cat \"$RUNNER_TEMP/source-suites.json\")\"\n  echo \"test_suites=$(cat \"$RUNNER_TEMP/test-suites.json\"\
-        )\"\n} >> \"$GITHUB_OUTPUT\"\n"
+      run: |
+        python3 -B dev/ci/select-checks.py \
+          --output "$RUNNER_TEMP/ci-selection.json" \
+          --source-suites-output "$RUNNER_TEMP/source-suites.json" \
+          --test-suites-output "$RUNNER_TEMP/test-suites.json"
+        {
+          echo "selection=$(cat "$RUNNER_TEMP/ci-selection.json")"
+          echo "source_suites=$(cat "$RUNNER_TEMP/source-suites.json")"
+          echo "test_suites=$(cat "$RUNNER_TEMP/test-suites.json")"
+        } >> "$GITHUB_OUTPUT"
     - uses: actions/upload-artifact@v4
       with:
         name: ci-selection
@@ -41,28 +49,28 @@ jobs:
         retention-days: 7
   docs-quality:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.docs_quality
+    if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'docs-quality')
     uses: ./.github/workflows/docs-quality.yml
   source-lint:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.source_lint
+    if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'source-lint')
     uses: ./.github/workflows/lint.yml
     with:
       suites: ${{ needs.detect-changes.outputs.source_suites }}
     secrets: inherit
   lint-ios:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.lint_ios
+    if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'lint-ios')
     uses: ./.github/workflows/lint-ios.yml
     secrets: inherit
   lint-android:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.lint_android
+    if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'lint-android')
     uses: ./.github/workflows/lint-android.yml
     secrets: inherit
   test-ios:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_ios || fromJSON(needs.detect-changes.outputs.selection).checks.test_ios_platform
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'test-ios')
     uses: ./.github/workflows/test-ios.yml
     with:
       run-unit: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_ios }}
@@ -70,14 +78,13 @@ jobs:
     secrets: inherit
   test-swift-lifecycle:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_swift_lifecycle && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'test-swift-lifecycle') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name
       == github.repository)
     uses: ./.github/workflows/test-swift-lifecycle.yml
     secrets: inherit
   test-android:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.test_android || fromJSON(needs.detect-changes.outputs.selection).checks.test_android_consumers
-      || fromJSON(needs.detect-changes.outputs.selection).checks.test_android_platform
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'test-android')
     uses: ./.github/workflows/test-android.yml
     with:
       run-unit: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_android }}
@@ -86,23 +93,23 @@ jobs:
     secrets: inherit
   check-rust:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.check_rust
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'check-rust')
     uses: ./.github/workflows/check-rust.yml
   check-types:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.check_types
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'check-types')
     uses: ./.github/workflows/check-types.yml
   check-sdk:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.check_sdk
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'check-sdk')
     uses: ./.github/workflows/check-sdk-products.yml
   check-sdk-unit:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.check_sdk_unit
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'check-sdk-unit')
     uses: ./.github/workflows/check-sdk-unit.yml
   tests:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.tests
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'tests')
     uses: ./.github/workflows/test.yml
     secrets: inherit
     with:
@@ -111,11 +118,11 @@ jobs:
       run-bindings-android: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.check_bindings_android }}
   docs-rust-reference:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.docs_rust && !fromJSON(needs.detect-changes.outputs.selection).checks.docs_site
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'docs-rust-reference')
     uses: ./.github/workflows/docs-rust-reference.yml
   docs:
     needs: detect-changes
-    if: fromJSON(needs.detect-changes.outputs.selection).checks.docs_site
+    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'docs')
     permissions:
       contents: read
       pages: write
@@ -133,12 +140,15 @@ jobs:
     - lint-ios
     - lint-android
     steps:
-    - env:
-        PASSED: ${{ needs.detect-changes.result == 'success' && (!fromJSON(needs.detect-changes.outputs.selection).checks.source_lint
-          || needs.source-lint.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.docs_quality || needs.docs-quality.result
-          == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.lint_ios || needs.lint-ios.result == 'success')
-          && (!fromJSON(needs.detect-changes.outputs.selection).checks.lint_android || needs.lint-android.result == 'success') }}
-      run: test "$PASSED" = true
+    - name: Check selected jobs
+      env:
+        REQUIRED_JOBS: ${{ needs.detect-changes.outputs.lint_jobs }}
+        JOB_RESULTS: ${{ toJSON(needs) }}
+      run: |
+        jq -en \
+          --argjson required "$REQUIRED_JOBS" \
+          --argjson results "$JOB_RESULTS" \
+          '$required | all(.[]; $results[.].result == "success")'
   test:
     name: Test
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -156,17 +166,12 @@ jobs:
     - test-swift-lifecycle
     - docs-rust-reference
     steps:
-    - env:
-        PASSED: ${{ needs.detect-changes.result == 'success' && (!fromJSON(needs.detect-changes.outputs.selection).checks.check_rust
-          || needs.check-rust.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.check_types || needs.check-types.result
-          == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.check_sdk || needs.check-sdk.result == 'success')
-          && (!fromJSON(needs.detect-changes.outputs.selection).checks.check_sdk_unit || needs.check-sdk-unit.result == 'success') &&
-          (!fromJSON(needs.detect-changes.outputs.selection).checks.tests || needs.tests.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.docs_site
-          || needs.docs.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_ios || needs.test-ios.result
-          == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_ios_platform || needs.test-ios.result == 'success')
-          && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_android || needs.test-android.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_android_consumers
-          || needs.test-android.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_android_platform
-          || needs.test-android.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.test_swift_lifecycle ||
-          needs.test-swift-lifecycle.result == 'success') && (!fromJSON(needs.detect-changes.outputs.selection).checks.docs_rust || (fromJSON(needs.detect-changes.outputs.selection).checks.docs_site
-          && needs.docs.result == 'success') || needs.docs-rust-reference.result == 'success') }}
-      run: test "$PASSED" = true
+    - name: Check selected jobs
+      env:
+        REQUIRED_JOBS: ${{ needs.detect-changes.outputs.test_jobs }}
+        JOB_RESULTS: ${{ toJSON(needs) }}
+      run: |
+        jq -en \
+          --argjson required "$REQUIRED_JOBS" \
+          --argjson results "$JOB_RESULTS" \
+          '$required | all(.[]; $results[.].result == "success")'

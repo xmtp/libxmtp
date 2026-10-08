@@ -150,8 +150,9 @@ unchanged arguments. Output verification remains enabled.
 
 Run `dev/nix-shell 'just cache-stats'` to inspect hits and misses. To opt out,
 use `XMTP_KACHE=0 dev/nix-shell 'just check'`. The default store is
-`${XDG_CACHE_HOME:-$HOME/.cache}/kache`, with a 10 GiB limit. Existing nonempty
-`KACHE_CACHE_DIR` and `KACHE_MAX_SIZE` values are kept.
+`${XDG_CACHE_HOME:-$HOME/.cache}/kache`, with a local default limit of 50 GiB.
+The CI action uses a 10 GiB limit. Existing nonempty `KACHE_CACHE_DIR` and
+`KACHE_MAX_SIZE` values are kept.
 
 CI cache writes are limited to trusted pushes on main or self-hosted. Other
 contexts can restore the cache. Keep credentials out of source and derivations.

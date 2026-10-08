@@ -49,7 +49,7 @@ class KacheEnvTests(unittest.TestCase):
         values = self.values()
         self.assertEqual(
             values,
-            [str(self.binary), "unset", "10GiB", "CI,XMTP_TEST_LOGGING", "0", "1"],
+            [str(self.binary), "unset", "50GiB", "CI,XMTP_TEST_LOGGING", "0", "1"],
         )
         for value in ("0", "1"):
             with self.subTest(value=value):
@@ -63,9 +63,10 @@ class KacheEnvTests(unittest.TestCase):
             RUSTC_WRAPPER="/official/kache",
             KACHE_CACHE_DIR="/private/store",
             KACHE_RUNTIME_DIR="/private/runtime",
+            KACHE_MAX_SIZE="10GiB",
             CARGO_INCREMENTAL="1",
         )
-        self.assertEqual(self.values()[:2], ["/official/kache", "0"])
+        self.assertEqual(self.values()[:3], ["/official/kache", "0", "10GiB"])
         result = self.shell(
             'source "$1"; printf "%s\\n" "$KACHE_CACHE_DIR" "$KACHE_RUNTIME_DIR" '
             '"$KACHE_ADAPTIVE_INCREMENTAL" "$KACHE_PRESERVE_INCREMENTAL"'

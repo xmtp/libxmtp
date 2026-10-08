@@ -294,7 +294,33 @@ def select(paths, event="pull_request", fork=False):
             checks[name] = False
     checks["source_lint"] = any(checks[name] for name in SOURCE_SUITES)
     checks["tests"] = any(checks[name] for name in TEST_SUITES)
-    return {"checks": checks}
+    lint_jobs = {
+        "source-lint": checks["source_lint"],
+        "docs-quality": checks["docs_quality"],
+        "lint-ios": checks["lint_ios"],
+        "lint-android": checks["lint_android"],
+    }
+    test_jobs = {
+        "check-rust": checks["check_rust"],
+        "check-types": checks["check_types"],
+        "check-sdk": checks["check_sdk"],
+        "check-sdk-unit": checks["check_sdk_unit"],
+        "tests": checks["tests"],
+        "docs": checks["docs_site"],
+        "test-ios": checks["test_ios"] or checks["test_ios_platform"],
+        "test-android": checks["test_android"]
+        or checks["test_android_consumers"]
+        or checks["test_android_platform"],
+        "test-swift-lifecycle": checks["test_swift_lifecycle"],
+        "docs-rust-reference": checks["docs_rust"] and not checks["docs_site"],
+    }
+    return {
+        "checks": checks,
+        "lint_jobs": ["detect-changes"]
+        + [job for job, run in lint_jobs.items() if run],
+        "test_jobs": ["detect-changes"]
+        + [job for job, run in test_jobs.items() if run],
+    }
 
 
 def changed_paths(event):

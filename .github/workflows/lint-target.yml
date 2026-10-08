@@ -36,7 +36,5 @@ jobs:
     - lint_proto
     steps:
     - env:
-        PASSED: ${{ (inputs.suite == 'lint_workspace' && needs.lint_workspace.result == 'success') || (inputs.suite == 'lint_js' &&
-          needs.lint_js.result == 'success') || (inputs.suite == 'lint_config' && needs.lint_config.result == 'success') || (inputs.suite
-          == 'lint_proto' && needs.lint_proto.result == 'success') }}
+        PASSED: ${{ needs[inputs.suite].result == 'success' }}
       run: test "$PASSED" = true

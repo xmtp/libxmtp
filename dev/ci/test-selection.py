@@ -29,7 +29,15 @@ def workflow(name):
     return value
 
 
-def passed(expression, checks=None, results=None, inputs=None, event="pull_request"):
+def passed(
+    expression,
+    checks=None,
+    results=None,
+    inputs=None,
+    event="pull_request",
+    plan=None,
+    fork=False,
+):
     text = expression.removeprefix("${{").removesuffix("}}").strip()
     text = re.sub(
         r"fromJSON\(needs.detect-changes.outputs.selection\).checks.([a-z_]+)",
@@ -37,12 +45,20 @@ def passed(expression, checks=None, results=None, inputs=None, event="pull_reque
         text,
     )
     text = re.sub(
+        r"contains\(fromJSON\(needs.detect-changes.outputs.(lint_jobs|test_jobs)\), '([^']+)'\)",
+        lambda m: repr(m[2]) + " in plan.get(" + repr(m[1]) + ", [])",
+        text,
+    )
+    text = text.replace("needs[inputs.suite].result", "selected_result")
+    text = re.sub(
         r"needs.([a-z_-]+).result", lambda m: "results.get(" + repr(m[1]) + ")", text
     )
     text = re.sub(
         r"inputs.([a-z_-]+)", lambda m: "inputs.get(" + repr(m[1]) + ")", text
     )
     text = text.replace("github.event_name", "event").replace("github.ref", "ref")
+    text = text.replace("github.event.pull_request.head.repo.full_name", "head_repo")
+    text = text.replace("github.repository", "repository")
     text = text.replace("&&", " and ").replace("||", " or ")
     text = re.sub(r"!(?!=)", " not ", text)
     return bool(
@@ -55,6 +71,10 @@ def passed(expression, checks=None, results=None, inputs=None, event="pull_reque
                 "inputs": inputs or {},
                 "event": event,
                 "ref": "refs/heads/self-hosted",
+                "plan": plan or {},
+                "head_repo": "fork/libxmtp" if fork else "xmtp/libxmtp",
+                "repository": "xmtp/libxmtp",
+                "selected_result": (results or {}).get((inputs or {}).get("suite")),
             },
         )
     )
@@ -315,6 +335,8 @@ class SelectionTests(unittest.TestCase):
                 matrix["strategy"]["matrix"]["suite"], "${{ fromJSON(inputs.suites) }}"
             )
             router = workflow(matrix["uses"].split("/")[-1])
+            self.assertEqual(set(router["jobs"]) - {"result"}, set(names))
+            self.assertEqual(set(router["jobs"]["result"]["needs"]), set(names))
             result = router["jobs"]["result"]["steps"][0]["env"]["PASSED"]
             for name in names:
                 self.assertIn(name, router["jobs"])
@@ -332,21 +354,110 @@ class SelectionTests(unittest.TestCase):
 
     def test_required_and_mobile_gates_use_selected_success(self):
         top = workflow("ci.yml")
-        checks = selection.select(None)["checks"]
+        plan = selection.select(None)
         for name in ("lint", "test"):
             gate = top["jobs"][name]
-            expression = gate["steps"][0]["env"]["PASSED"]
-            results = dict.fromkeys(gate["needs"], "success")
-            self.assertTrue(passed(expression, checks, results))
-            for job in gate["needs"]:
+            step = gate["steps"][0]
+            key = name + "_jobs"
+            required = plan[key]
+            self.assertEqual(
+                step["env"]["REQUIRED_JOBS"],
+                "${{ needs.detect-changes.outputs." + key + " }}",
+            )
+            self.assertEqual(step["env"]["JOB_RESULTS"], "${{ toJSON(needs) }}")
+
+            def run_gate(results, required_json=None):
+                return (
+                    subprocess.run(
+                        ["bash", "-euc", step["run"]],
+                        env={
+                            **os.environ,
+                            "REQUIRED_JOBS": json.dumps(required)
+                            if required_json is None
+                            else required_json,
+                            "JOB_RESULTS": json.dumps(
+                                {
+                                    job: {"result": status}
+                                    for job, status in results.items()
+                                }
+                            ),
+                        },
+                        capture_output=True,
+                        text=True,
+                    ).returncode
+                    == 0
+                )
+
+            results = {
+                job: "success" if job in required else "skipped"
+                for job in gate["needs"]
+            }
+            self.assertTrue(run_gate(results))
+            for job in required:
                 for status in ("failure", "cancelled", "skipped", None):
-                    bad = {**results, job: status}
-                    # The full-site route owns Rust references; its standalone job is skipped.
-                    if job == "docs-rust-reference":
-                        continue
                     self.assertFalse(
-                        passed(expression, checks, bad), (name, job, status)
+                        run_gate({**results, job: status}), (name, job, status)
                     )
+                missing = dict(results)
+                del missing[job]
+                self.assertFalse(run_gate(missing), (name, job, "missing"))
+            self.assertFalse(run_gate(results, ""))
+            self.assertFalse(run_gate(results, '["unknown"]'))
+
+            # Rust-only changes use the standalone reference; the full site owns it otherwise.
+            rust = selection.select(["crates/xmtp_mls/src/lib.rs"])
+            required = rust[key]
+            results = {
+                job: "success" if job in required else "skipped"
+                for job in gate["needs"]
+            }
+            self.assertTrue(run_gate(results))
+            if name == "test":
+                self.assertIn("docs-rust-reference", required)
+                self.assertNotIn("docs", required)
+                self.assertIn("docs", plan[key])
+                self.assertNotIn("docs-rust-reference", plan[key])
+
+    def test_selected_lists_agree_with_caller_scheduling(self):
+        top = workflow("ci.yml")
+        for paths, event, fork in (
+            (None, "workflow_dispatch", False),
+            (None, "pull_request", True),
+            ([], "pull_request", False),
+            (["crates/xmtp_mls/src/lib.rs"], "pull_request", False),
+            (["crates/xmtp_mls/src/lib.rs"], "push", False),
+            (["sdks/ios/Sources/XmtpSdk/Client.swift"], "pull_request", False),
+            (
+                ["sdks/android/library/src/androidTest/AndroidPackageTest.kt"],
+                "pull_request",
+                False,
+            ),
+            (["docs/guide.md"], "pull_request", False),
+        ):
+            plan = selection.select(paths, event, fork)
+            for phase in ("lint", "test"):
+                key = phase + "_jobs"
+                required = plan[key]
+                self.assertEqual(required.count("detect-changes"), 1)
+                self.assertTrue(set(required).issubset(top["jobs"][phase]["needs"]))
+                self.assertEqual(
+                    top["jobs"]["detect-changes"]["outputs"][key],
+                    "${{ toJSON(fromJSON(steps.select.outputs.selection)."
+                    + key
+                    + ") }}",
+                )
+                for job in top["jobs"][phase]["needs"]:
+                    if job == "detect-changes":
+                        continue
+                    expression = top["jobs"][job]["if"]
+                    self.assertIn("outputs." + key, expression)
+                    self.assertEqual(
+                        passed(expression, plan=plan, event=event, fork=fork),
+                        job in required,
+                        (paths, event, fork, job),
+                    )
+
+    def test_mobile_gates_use_selected_success(self):
         expression = workflow("test-android.yml")["jobs"]["results"]["steps"][0]["env"][
             "PASSED"
         ]

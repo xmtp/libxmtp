@@ -35,7 +35,7 @@ clone, so CI, are slot 0.
   `XMTP_BACKEND_URL`, `DATABASE_URL`.
 - **Share the compile cache.** Each worktree has its own `target/`. Rust-capable
   Nix shells enable Kache. They keep Cargo's local incremental defaults and
-  cache eligible non-incremental dependencies. The default cache cap is 10 GiB.
+  cache eligible non-incremental dependencies. The local default cap is 50 GiB.
   Do not share a mutable `target/` directory across worktrees. See
   `docs/nix-setup.md` for cache limits and how to disable the wrapper.
 - **The stash stack is shared** across worktrees. Never bare `git stash` /

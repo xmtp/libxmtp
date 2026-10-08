@@ -40,9 +40,10 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 
 `ci.yml` owns required Lint and Test. Its selector uses the PR merge parent or
 the push event's before SHA. Missing diffs and unknown build inputs select all
-checks. The static source and runtime routers use fail-fast matrices and
-require the selected child result. Selected skipped, failed, cancelled, or
-missing jobs cannot pass. Direct reusable calls default to all checks.
+checks. Selected job lists drive both caller scheduling and the required gates.
+The static source and runtime routers use fail-fast matrices and require the
+selected child result. Selected skipped, failed, cancelled, or missing jobs
+cannot pass. Direct reusable calls default to all checks.
 
 Source lint does not generate SDK products or run compiler checks. Test owns
 full types, full lint, Clippy, SDK and runtime checks. Pure Rust PRs omit host

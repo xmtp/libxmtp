@@ -98,13 +98,5 @@ jobs:
     - test_browser_platform
     steps:
     - env:
-        PASSED: ${{ (inputs.suite == 'test_native_backend' && needs.test_native_backend.result == 'success') || (inputs.suite == 'test_validation'
-          && needs.test_validation.result == 'success') || (inputs.suite == 'test_backend' && needs.test_backend.result == 'success')
-          || (inputs.suite == 'test_workspace' && needs.test_workspace.result == 'success') || (inputs.suite == 'test_keepalive' &&
-          needs.test_keepalive.result == 'success') || (inputs.suite == 'test_wasm' && needs.test_wasm.result == 'success') || (inputs.suite
-          == 'test_node' && needs.test_node.result == 'success') || (inputs.suite == 'test_agent' && needs.test_agent.result == 'success')
-          || (inputs.suite == 'test_xdbg' && needs.test_xdbg.result == 'success') || (inputs.suite == 'test_browser' && needs.test_browser.result
-          == 'success') || (inputs.suite == 'test_bindings' && needs.test_bindings.result == 'success') || (inputs.suite == 'test_sdk_staging'
-          && needs.test_sdk_staging.result == 'success') || (inputs.suite == 'test_bridge_runtime' && needs.test_bridge_runtime.result
-          == 'success') || (inputs.suite == 'test_browser_platform' && needs.test_browser_platform.result == 'success') }}
+        PASSED: ${{ needs[inputs.suite].result == 'success' }}
       run: test "$PASSED" = true
