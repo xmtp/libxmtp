@@ -206,9 +206,11 @@ jobs:
       - name: Build pinned @ubjs runtimes
         shell: bash
         run: |
-          git clone https://github.com/neekolas/uniffi-bindgen-react-native.git ubrn
+          git init ubrn
+          git -C ubrn remote add origin https://github.com/neekolas/uniffi-bindgen-react-native.git
           fork_rev=$(node -p 'require("fs").readFileSync("Cargo.toml", "utf8").match(/\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/)[1]')
-          git -C ubrn checkout "$fork_rev"
+          git -C ubrn fetch --no-tags --depth=1 origin "$fork_rev"
+          git -C ubrn checkout --detach "$fork_rev"
           npm ci --prefix ubrn/typescript --ignore-scripts
           npm run build --prefix ubrn/typescript
           npm ci --prefix ubrn/runtimes/napi --ignore-scripts

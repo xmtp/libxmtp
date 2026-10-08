@@ -38,12 +38,20 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 
 ## CI selection
 
-`ci.yml` owns required Lint and Test. Its selector uses the PR merge parent or
-the push event's before SHA. Missing diffs and unknown build inputs select all
-checks. Selected job lists drive both caller scheduling and the required gates.
+`ci.yml` owns required Lint and Test. Its pinned dorny filters use PR changed
+files or the push event's before SHA. Unavailable or capped detection and
+unknown or shared build inputs select all checks. Inline path groups define
+the scope; fixed boolean decisions drive the selected job lists and gates.
 The static source and runtime routers use fail-fast matrices and require the
 selected child result. Selected skipped, failed, cancelled, or missing jobs
 cannot pass. Direct reusable calls default to all checks.
+
+Explicit draft PRs run only path-selected source checks and docs quality.
+Their aggregates are named `Draft lint` and `Draft checks`; they do not produce
+the merge check names `Lint` and `Test`. Ready transitions restore normal
+selection. Missing draft state, pushes, and manual runs use the normal policy.
+Draft Cargo-Deny checks run for Cargo lock/manifests, deny configuration, or
+scanner workflow changes. Ready PRs keep all four Cargo-Deny checks.
 
 Source lint does not generate SDK products or run compiler checks. Test owns
 full types, full lint, Clippy, SDK and runtime checks. Pure Rust PRs omit host

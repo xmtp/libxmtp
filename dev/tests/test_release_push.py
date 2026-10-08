@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 from textwrap import dedent
 import threading
@@ -29,6 +30,43 @@ def script(name, workflow=WORKFLOW):
 
 
 class ReleasePushTest(unittest.TestCase):
+    def test_merge_pr_uses_api_without_a_checkout(self):
+        text = (ROOT / ".github/workflows/release.yml").read_text()
+        job = text.split("  merge-pr:\n", 1)[1].split("\n  # Nightly", 1)[0]
+        self.assertNotIn("actions/checkout", job)
+        self.assertIn("GH_REPO: ${{ github.repository }}", job)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gh = root / "gh"
+            gh.write_text(
+                f"#!{sys.executable}\n"
+                "import os, pathlib, sys\n"
+                "assert os.environ['GH_REPO'] == 'fixture/repo'\n"
+                "assert not pathlib.Path('.git').exists()\n"
+                "if sys.argv[1:3] == ['pr', 'list']: print('42')\n"
+                "else: assert sys.argv[1:] == ['pr', 'merge', '42', '--squash']\n"
+            )
+            gh.chmod(0o755)
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-euc",
+                    script("Merge release PR", ROOT / ".github/workflows/release.yml"),
+                ],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                    "GH_REPO": "fixture/repo",
+                    "GH_TOKEN": "fixture",
+                    "RELEASE_BRANCH": "refs/heads/release",
+                    "PR_BASE": "self-hosted",
+                },
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_selected_source_is_fixed_before_sdk_commands(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

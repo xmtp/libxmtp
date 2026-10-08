@@ -351,12 +351,10 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
       - name: Merge release PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.ref }}
           PR_BASE: ${{ inputs.pr-base }}
         run: |

@@ -1,25 +1,20 @@
 #!/usr/bin/env python3
 """Check retained selection boundaries and the actual workflow result gates."""
 
-import importlib.util
+from functools import cache
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import tempfile
+import threading
 import unittest
-from unittest.mock import patch
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location(
-    "selection", Path(__file__).with_name("select-checks.py")
-)
-selection = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(selection)
 
 
 def workflow(name):
@@ -37,8 +32,41 @@ def passed(
     event="pull_request",
     plan=None,
     fork=False,
+    draft=None,
+    cancelled=False,
+    dependency=False,
+    matrix_check="licenses",
+    raw=False,
+    path_outputs=None,
+    scope=None,
+    outcome="success",
+    changed_files=0,
 ):
     text = expression.removeprefix("${{").removesuffix("}}").strip()
+    text = re.sub(
+        r"steps.paths.outputs.([a-z_]+_count)\s*(>=|<)\s*(3000|github.event.pull_request.changed_files)",
+        lambda m: (
+            "int(path_outputs.get("
+            + repr(m[1])
+            + ", '0') or '0') "
+            + m[2]
+            + " "
+            + ("3000" if m[3] == "3000" else "changed_files")
+        ),
+        text,
+    )
+    text = re.sub(
+        r"steps.paths.outputs.([a-z_]+)",
+        lambda m: "path_outputs.get(" + repr(m[1]) + ", '')",
+        text,
+    )
+    text = re.sub(
+        r"steps.scope.outputs.([a-z_]+)",
+        lambda m: "scope.get(" + repr(m[1]) + ", '')",
+        text,
+    )
+    text = text.replace("steps.paths.outcome", "outcome")
+    text = text.replace("github.event.pull_request.changed_files", "changed_files")
     text = re.sub(
         r"fromJSON\(needs.detect-changes.outputs.selection\).checks.([a-z_]+)",
         lambda m: "checks.get(" + repr(m[1]) + ")",
@@ -58,26 +86,231 @@ def passed(
     )
     text = text.replace("github.event_name", "event").replace("github.ref", "ref")
     text = text.replace("github.event.pull_request.head.repo.full_name", "head_repo")
+    text = text.replace("github.event.pull_request.draft", "draft")
     text = text.replace("github.repository", "repository")
+    text = text.replace("needs.draft-policy.outputs.run-deny", "run_deny")
+    text = text.replace("matrix.checks", "matrix_check")
+    text = text.replace("cancelled()", "is_cancelled")
     text = text.replace("&&", " and ").replace("||", " or ")
     text = re.sub(r"!(?!=)", " not ", text)
-    return bool(
-        eval(
-            text,
-            {"__builtins__": {}},
-            {
-                "checks": checks or {},
-                "results": results or {},
-                "inputs": inputs or {},
-                "event": event,
-                "ref": "refs/heads/self-hosted",
-                "plan": plan or {},
-                "head_repo": "fork/libxmtp" if fork else "xmtp/libxmtp",
-                "repository": "xmtp/libxmtp",
-                "selected_result": (results or {}).get((inputs or {}).get("suite")),
-            },
+    value = eval(
+        text,
+        {"__builtins__": {}},
+        {
+            "checks": checks or {},
+            "results": results or {},
+            "inputs": inputs or {},
+            "event": event,
+            "ref": "refs/heads/self-hosted",
+            "plan": plan or {},
+            "head_repo": "fork/libxmtp" if fork else "xmtp/libxmtp",
+            "repository": "xmtp/libxmtp",
+            "selected_result": (results or {}).get((inputs or {}).get("suite")),
+            "draft": draft,
+            "is_cancelled": cancelled,
+            "run_deny": "true" if dependency else "false",
+            "matrix_check": matrix_check,
+            "toJSON": json.dumps,
+            "format": lambda pattern, value: pattern.format(value),
+            "path_outputs": path_outputs or {},
+            "scope": scope or {},
+            "outcome": outcome,
+            "changed_files": changed_files or 0,
+            "int": int,
+            "true": True,
+            "false": False,
+        },
+    )
+    return value if raw else bool(value)
+
+
+def action_outputs(
+    filters, rows, api_status=200, git_repo=None, before=None, list_files="none"
+):
+    """Run the pinned compiled action against a local PR-files endpoint."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps(
+                rows if api_status == 200 else {"message": "fixture failure"}
+            ).encode()
+            self.send_response(api_status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        event = root / "event.json"
+        payload = {"pull_request": {"number": 1}}
+        if git_repo:
+            payload = {"before": before, "repository": {"default_branch": "main"}}
+        event.write_text(json.dumps(payload))
+        output = root / "output"
+        output.touch()
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            env = {
+                k: v
+                for k, v in os.environ.items()
+                if not k.startswith(("GITHUB_", "INPUT_", "ACTIONS_"))
+            }
+            env.update(
+                GITHUB_EVENT_NAME="pull_request",
+                GITHUB_EVENT_PATH=str(event),
+                GITHUB_REPOSITORY="fixture/repo",
+                GITHUB_WORKSPACE=str(root),
+                GITHUB_API_URL=f"http://127.0.0.1:{server.server_port}",
+                GITHUB_OUTPUT=str(output),
+                INPUT_FILTERS=filters,
+                INPUT_TOKEN="fixture",
+            )
+            env["INPUT_PREDICATE-QUANTIFIER"] = "some-with-excludes"
+            env["INPUT_LIST-FILES"] = list_files
+            if git_repo:
+                env.update(
+                    GITHUB_EVENT_NAME="push",
+                    GITHUB_WORKSPACE=str(git_repo),
+                    GITHUB_REF="refs/heads/main",
+                    INPUT_BASE="refs/heads/main",
+                    GIT_TRACE="1",
+                )
+                env["GITHUB_SHA"] = subprocess.check_output(
+                    ["git", "-C", str(git_repo), "rev-parse", "HEAD"], text=True
+                ).strip()
+            result = subprocess.run(
+                ["node", os.environ["PATHS_FILTER_ACTION"]],
+                cwd=git_repo or root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        values = {}
+        lines = iter(output.read_text().splitlines())
+        for line in lines:
+            if "<<" in line:
+                key, delimiter = line.split("<<", 1)
+                contents = []
+                for value in lines:
+                    if value == delimiter:
+                        break
+                    contents.append(value)
+                values[key] = "\n".join(contents)
+            elif "=" in line:
+                key, value = line.split("=", 1)
+                values[key] = value
+        if git_repo:
+            values["_git_trace"] = result.stderr + result.stdout
+        return result.returncode, values
+
+
+@cache
+def matched_paths(filters, paths):
+    result, values = action_outputs(
+        filters, [{"filename": p, "status": "modified"} for p in paths]
+    )
+    assert result == 0, values
+    return values
+
+
+class WorkflowSelection:
+    SOURCE_SUITES = tuple(
+        json.loads(
+            workflow("lint.yml")["on"]["workflow_call"]["inputs"]["suites"]["default"]
         )
     )
+    TEST_SUITES = tuple(
+        json.loads(
+            workflow("test.yml")["on"]["workflow_call"]["inputs"]["suites"]["default"]
+        )
+    )
+
+    @property
+    def CHECKS(self):
+        step = next(
+            s
+            for s in workflow("ci.yml")["jobs"]["detect-changes"]["steps"]
+            if s.get("id") == "select"
+        )
+        return tuple(
+            k.removeprefix("CHECK_").lower()
+            for k in step["env"]
+            if k.startswith("CHECK_")
+        ) + ("test_bindings",)
+
+    def select(
+        self,
+        paths,
+        event="pull_request",
+        fork=False,
+        draft=None,
+        outputs=None,
+        outcome=None,
+        changed_files=None,
+    ):
+        steps = workflow("ci.yml")["jobs"]["detect-changes"]["steps"]
+        path_step = next(s for s in steps if s.get("id") == "paths")
+        if outputs is None:
+            outputs = (
+                {}
+                if paths is None
+                else matched_paths(path_step["with"]["filters"], tuple(paths))
+            )
+        outcome = outcome or ("failure" if paths is None else "success")
+        context = dict(
+            event=event,
+            fork=fork,
+            draft=draft,
+            path_outputs=outputs,
+            outcome=outcome,
+            changed_files=len(paths or []) if changed_files is None else changed_files,
+        )
+        scope_step = next(s for s in steps if s.get("id") == "scope")
+        scope = {
+            name.lower(): "true" if passed(expression, **context) else "false"
+            for name, expression in scope_step["env"].items()
+        }
+        select_step = next(s for s in steps if s.get("id") == "select")
+        env = {}
+        for name, expression in select_step["env"].items():
+            value = passed(expression, scope=scope, raw=True, **context)
+            env[name] = (
+                value if isinstance(value, str) else "true" if value else "false"
+            )
+        return json.loads(assembled_plan(select_step["run"], tuple(env.items())))
+
+
+@cache
+def assembled_plan(command, values):
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / "outputs"
+        result = subprocess.run(
+            ["bash", "-euc", command],
+            env={
+                **os.environ,
+                **dict(values),
+                "RUNNER_TEMP": directory,
+                "GITHUB_OUTPUT": str(output),
+            },
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        return (Path(directory) / "ci-selection.json").read_text()
+
+
+selection = WorkflowSelection()
 
 
 class SelectionTests(unittest.TestCase):
@@ -199,127 +432,280 @@ class SelectionTests(unittest.TestCase):
                     self.assertTrue(checks["test_browser_platform"])
                     self.assertFalse(checks["docs_site"])
 
-    def test_missing_pr_repository_metadata_uses_fork_policy(self):
-        for head in ({"repo": None}, {}, {"repo": "unavailable"}, {"repo": {}}):
-            with self.subTest(head=head), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                event = root / "event.json"
-                event.write_text(json.dumps({"pull_request": {"head": head}}))
-                output = root / "selection.json"
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-B",
-                        str(ROOT / "dev/ci/select-checks.py"),
-                        "--output",
-                        str(output),
-                        "--source-suites-output",
-                        str(root / "source.json"),
-                        "--test-suites-output",
-                        str(root / "tests.json"),
-                    ],
-                    cwd=root,
-                    env={
-                        **os.environ,
-                        "GITHUB_EVENT_NAME": "pull_request",
-                        "GITHUB_EVENT_PATH": str(event),
-                        "GITHUB_REPOSITORY": "xmtp/libxmtp",
-                    },
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
+    def test_draft_source_routes_and_full_modes(self):
+        for paths in (
+            ["crates/xmtp_mls/src/lib.rs"],
+            ["sdks/node/src/index.ts"],
+            ["Cargo.toml"],
+            ["proto/foo.proto"],
+            ["docs/guide.md"],
+            ["unknown"],
+            None,
+        ):
+            for fork in (False, True):
+                ready = selection.select(paths, fork=fork)
+                draft = selection.select(paths, fork=fork, draft=True)
+                expected = {
+                    name for name in selection.SOURCE_SUITES if ready["checks"][name]
+                } | {"docs_quality"}
                 self.assertEqual(
-                    json.loads(output.read_text()), selection.select(None, fork=True)
+                    {name for name in selection.CHECKS if draft["checks"][name]},
+                    expected,
                 )
-
-    def test_public_source_rename_keeps_old_path_for_push_and_pr(self):
-        with tempfile.TemporaryDirectory() as directory:
-            subprocess.run(["git", "init", "-q", directory], check=True)
-
-            def git(*args):
-                return subprocess.check_output(
-                    ["git", "-C", directory, *args], text=True
-                ).strip()
-
-            git("config", "user.email", "fixture@example.invalid")
-            git("config", "user.name", "Fixture")
-            old = "sdks/browser/src/codec.ts"
-            new = "sdks/browser/test/codec.ts"
-            source = Path(directory) / old
-            source.parent.mkdir(parents=True)
-            source.write_text("export const codec = 1;\n")
-            git("add", ".")
-            git("commit", "-qm", "public source")
-            base = git("rev-parse", "HEAD")
-            (Path(directory) / new).parent.mkdir(parents=True)
-            git("mv", old, new)
-            git("commit", "-qm", "move public source to test")
-            feature = git("rev-parse", "HEAD")
-            self.assertEqual(
-                git("diff", "--name-status", "--find-renames", base, feature),
-                "R100\t" + old + "\t" + new,
-            )
-            original = Path.cwd()
-            try:
-                os.chdir(directory)
-                for event in ("push", "pull_request"):
-                    if event == "pull_request":
-                        git("checkout", "-qb", "base-side", base)
-                        (Path(directory) / "base-change").write_text("base update")
-                        git("add", ".")
-                        git("commit", "-qm", "base update")
-                        git("merge", "--no-ff", "-qm", "PR merge", feature)
-                    with (
-                        self.subTest(event=event),
-                        patch.dict(os.environ, {"GITHUB_EVENT_NAME": event}),
-                    ):
-                        paths = selection.changed_paths({"before": base})
-                        self.assertEqual(set(paths), {old, new})
-                        checks = selection.select(paths, event)["checks"]
-                        self.assertTrue(checks["docs_site"])
-                        self.assertTrue(checks["test_browser"])
-            finally:
-                os.chdir(original)
-
-    def test_event_git_diff_and_unavailable_base(self):
-        with tempfile.TemporaryDirectory() as directory:
-            subprocess.run(["git", "init", "-q", directory], check=True)
-
-            def git(*args):
-                return subprocess.check_output(
-                    ["git", "-C", directory, *args], text=True
-                ).strip()
-
-            git("config", "user.email", "fixture@example.invalid")
-            git("config", "user.name", "Fixture")
-            (Path(directory) / "base").write_text("base")
-            git("add", ".")
-            git("commit", "-qm", "base")
-            base = git("rev-parse", "HEAD")
-            (Path(directory) / "changed").write_text("head")
-            git("add", ".")
-            git("commit", "-qm", "head")
-            original = Path.cwd()
-            try:
-                os.chdir(directory)
-                with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push"}):
+                self.assertEqual(draft["test_jobs"], ["detect-changes"])
+                self.assertTrue(
+                    set(draft["lint_jobs"])
+                    <= {"detect-changes", "source-lint", "docs-quality"}
+                )
+                for unknown in (None, False, "true", 1):
                     self.assertEqual(
-                        selection.changed_paths({"before": base}), ["changed"]
+                        selection.select(paths, fork=fork, draft=unknown), ready
                     )
-                    self.assertIsNone(selection.changed_paths({"before": "0" * 40}))
-                    self.assertIsNone(selection.changed_paths({"before": "f" * 40}))
-                with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "pull_request"}):
-                    self.assertIsNone(selection.changed_paths({}))
-                    feature = git("rev-parse", "HEAD")
-                    git("checkout", "-qb", "base-side", base)
-                    (Path(directory) / "base-change").write_text("base update")
-                    git("add", ".")
-                    git("commit", "-qm", "base update")
-                    git("merge", "--no-ff", "-qm", "PR merge", feature)
-                    self.assertEqual(selection.changed_paths({}), ["changed"])
-            finally:
-                os.chdir(original)
+                for event in ("push", "workflow_dispatch"):
+                    self.assertEqual(
+                        selection.select(paths, event, draft=True),
+                        selection.select(paths, event),
+                    )
+
+    def test_draft_transitions_and_distinct_names(self):
+        events = {
+            "opened",
+            "synchronize",
+            "reopened",
+            "ready_for_review",
+            "converted_to_draft",
+        }
+        for filename in ("ci.yml", "cargo-deny-checker.yml"):
+            value = workflow(filename)
+            self.assertEqual(set(value["on"]["pull_request"]["types"]), events)
+            self.assertIs(value["concurrency"]["cancel-in-progress"], True)
+        for action, draft in (
+            ("converted_to_draft", True),
+            ("ready_for_review", False),
+        ):
+            for phase, ready_name, draft_name in (
+                ("lint", "Lint", "Draft lint"),
+                ("test", "Test", "Draft checks"),
+            ):
+                self.assertEqual(
+                    passed(
+                        workflow("ci.yml")["jobs"][phase]["name"], draft=draft, raw=True
+                    ),
+                    draft_name if draft else ready_name,
+                    action,
+                )
+        for unknown in (None, "true", 1):
+            self.assertEqual(
+                passed(
+                    workflow("ci.yml")["jobs"]["lint"]["name"], draft=unknown, raw=True
+                ),
+                "Lint",
+            )
+        self.assertEqual(
+            passed(
+                workflow("ci.yml")["jobs"]["test"]["name"],
+                draft=True,
+                event="push",
+                raw=True,
+            ),
+            "Test",
+        )
+
+    def test_public_source_rename_keeps_both_paths(self):
+        step = next(
+            s
+            for s in workflow("ci.yml")["jobs"]["detect-changes"]["steps"]
+            if s.get("id") == "paths"
+        )
+        rows = [
+            {
+                "filename": "sdks/browser/test/codec.ts",
+                "previous_filename": "sdks/browser/src/codec.ts",
+                "status": "renamed",
+            }
+        ]
+        code, values = action_outputs(step["with"]["filters"], rows)
+        self.assertEqual(code, 0)
+        self.assertEqual(values["all_files_count"], "2")
+        for event in ("pull_request", "push"):
+            plan = selection.select([], event, outputs=values, changed_files=1)
+            self.assertTrue(plan["checks"]["docs_site"])
+            self.assertTrue(plan["checks"]["test_browser"])
+
+    def test_bundled_action_fetches_only_missing_push_sha(self):
+        step = next(
+            s
+            for s in workflow("ci.yml")["jobs"]["detect-changes"]["steps"]
+            if s.get("id") == "paths"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+
+            def git(*args, cwd=source):
+                return subprocess.check_output(
+                    ["git", *args], cwd=cwd, text=True
+                ).strip()
+
+            git("init", "-qb", "main")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            path = source / "crates/xmtp_mls/src/lib.rs"
+            path.parent.mkdir(parents=True)
+            for count in range(5):
+                path.write_text(str(count))
+                git("add", ".")
+                git("commit", "-qm", "source update")
+                if count == 0:
+                    before = git("rev-parse", "HEAD")
+            checkout = root / "checkout"
+            git("clone", "--depth=2", source.as_uri(), str(checkout), cwd=root)
+            absent = subprocess.run(
+                ["git", "cat-file", "-e", before], cwd=checkout, capture_output=True
+            )
+            self.assertNotEqual(absent.returncode, 0)
+            code, values = action_outputs(
+                step["with"]["filters"], [], git_repo=checkout, before=before
+            )
+            self.assertEqual(code, 0, values)
+            self.assertEqual(values["rust"], "true")
+            trace = values["_git_trace"]
+            self.assertIn("fetch --depth=1 --no-tags origin " + before, trace)
+            self.assertIn("--no-renames", trace)
+            code, second = action_outputs(
+                step["with"]["filters"], [], git_repo=checkout, before=before
+            )
+            self.assertEqual(code, 0)
+            self.assertNotIn(
+                "fetch --depth=1 --no-tags origin " + before, second["_git_trace"]
+            )
+
+    def test_action_errors_partial_and_capped_lists_force_full(self):
+        step = next(
+            s
+            for s in workflow("ci.yml")["jobs"]["detect-changes"]["steps"]
+            if s.get("id") == "paths"
+        )
+        code, outputs = action_outputs(step["with"]["filters"], [], api_status=401)
+        self.assertNotEqual(code, 0)
+        self.assertTrue(
+            all(
+                selection.select([], outputs=outputs, outcome="failure")["checks"][name]
+                for name in selection.CHECKS
+            )
+        )
+        values = matched_paths(step["with"]["filters"], ("crates/xmtp_mls/src/lib.rs",))
+        for counts in (3000, 2):
+            self.assertTrue(
+                all(
+                    selection.select([], outputs=values, changed_files=counts)[
+                        "checks"
+                    ][name]
+                    for name in selection.CHECKS
+                )
+            )
+        capped = {**values, "all_files_count": "3000", "known_files_count": "3000"}
+        self.assertTrue(selection.select([], outputs=capped)["checks"]["check_sdk"])
+        draft = selection.select([], outputs=capped, draft=True)
+        self.assertEqual(draft["test_jobs"], ["detect-changes"])
+
+    def test_cargo_deny_draft_scope_and_cancelled_policy(self):
+        value = workflow("cargo-deny-checker.yml")
+        policy = value["jobs"]["draft-policy"]
+        paths = next(s for s in policy["steps"] if s.get("id") == "paths")
+        decision = next(s for s in policy["steps"] if s.get("id") == "select")["env"][
+            "RUN_DENY"
+        ]
+        for filename, expected in (
+            ("Cargo.lock", True),
+            ("Cargo.toml", True),
+            ("crates/xmtp_mls/Cargo.toml", True),
+            ("deny.toml", True),
+            (".github/workflows/cargo-deny-checker.yml", True),
+            ("crates/xmtp_mls/src/lib.rs", False),
+            ("docs/guide.md", False),
+        ):
+            code, outputs = action_outputs(
+                paths["with"]["filters"], [{"filename": filename, "status": "modified"}]
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                passed(decision, path_outputs=outputs, changed_files=1),
+                expected,
+                filename,
+            )
+        self.assertTrue(passed(decision, path_outputs={}, outcome="failure"))
+        self.assertTrue(passed(decision, path_outputs={"all_files_count": "3000"}))
+        self.assertEqual(
+            policy["permissions"], {"contents": "read", "pull-requests": "read"}
+        )
+        self.assertNotIn("continue-on-error", policy)
+        matrix = value["jobs"]["cargo-deny"]
+        self.assertEqual(
+            matrix["strategy"]["matrix"]["checks"],
+            ["advisories", "bans", "licenses", "sources"],
+        )
+        self.assertEqual(
+            matrix["continue-on-error"], "${{ matrix.checks == 'advisories' }}"
+        )
+        for event, draft, status, dependency, expected in (
+            ("pull_request", False, "skipped", False, True),
+            ("push", True, "skipped", False, True),
+            ("workflow_dispatch", True, "skipped", False, True),
+            ("pull_request", True, "success", True, True),
+            ("pull_request", True, "success", False, False),
+            ("pull_request", True, "failure", True, False),
+            ("pull_request", True, "skipped", True, False),
+        ):
+            self.assertEqual(
+                passed(
+                    matrix["if"],
+                    event=event,
+                    draft=draft,
+                    results={"draft-policy": status},
+                    dependency=dependency,
+                ),
+                expected,
+            )
+            self.assertFalse(
+                passed(
+                    matrix["if"],
+                    event=event,
+                    draft=draft,
+                    results={"draft-policy": status},
+                    dependency=dependency,
+                    cancelled=True,
+                )
+            )
+        self.assertEqual(passed(matrix["name"], raw=True), "cargo-deny (licenses)")
+        self.assertEqual(
+            passed(matrix["name"], draft=True, raw=True), "Draft cargo-deny (licenses)"
+        )
+
+    def test_windows_dependencies_fetch_exact_sha_with_one_commit(self):
+        for filename, job, target in (
+            (
+                "build-sdk-node-platforms.yml",
+                "windows",
+                "target/sdk-node-runtime-source",
+            ),
+            ("test-sdk.yml", "windows-load", "ubrn"),
+        ):
+            commands = "\n".join(
+                s.get("run", "") for s in workflow(filename)["jobs"][job]["steps"]
+            )
+            self.assertNotIn("git clone", commands)
+            self.assertIn(
+                "git -C " + target + ' fetch --no-tags --depth=1 origin "$fork_rev"',
+                commands,
+            )
+            self.assertIn(
+                "git -C " + target + ' checkout --detach "$fork_rev"', commands
+            )
+            self.assertIn(
+                "https://github.com/neekolas/uniffi-bindgen-react-native.git", commands
+            )
 
     def test_static_routers_and_matrix_results_reject_skipped_missing_and_failure(self):
         for filename, names in (

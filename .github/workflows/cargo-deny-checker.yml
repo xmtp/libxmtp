@@ -4,12 +4,52 @@ on:
     branches:
       - main
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  draft-policy:
+    name: Draft dependency selection
+    if: github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run-deny: ${{ steps.select.outputs.run-deny }}
+    steps:
+      - name: Match draft dependency inputs
+        id: paths
+        continue-on-error: true
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            all_files:
+              - '**'
+            dependencies:
+              - 'Cargo.lock'
+              - '**/Cargo.toml'
+              - 'deny.toml'
+              - '.github/workflows/cargo-deny-checker.yml'
+      - name: Select draft dependency checks
+        id: select
+        env:
+          RUN_DENY: >-
+            ${{ steps.paths.outcome != 'success' || steps.paths.outputs.dependencies == 'true' ||
+            steps.paths.outputs.all_files_count == '' || steps.paths.outputs.all_files_count >= 3000 ||
+            github.event.pull_request.changed_files >= 3000 ||
+            steps.paths.outputs.all_files_count < github.event.pull_request.changed_files }}
+        run: |
+          echo "run-deny=$RUN_DENY" >> "$GITHUB_OUTPUT"
   cargo-deny:
+    name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && format('Draft cargo-deny ({0})', matrix.checks) || format('cargo-deny ({0})', matrix.checks) }}
+    needs: draft-policy
+    if: >-
+      !cancelled() && (github.event_name != 'pull_request' || toJSON(github.event.pull_request.draft) != 'true' ||
+      (needs.draft-policy.result == 'success' && needs.draft-policy.outputs.run-deny == 'true'))
     runs-on: ubuntu-latest
     strategy:
       matrix:

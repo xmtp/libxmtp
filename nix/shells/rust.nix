@@ -15,11 +15,18 @@
   rust-analyzer,
   python311,
   uv,
+  fetchFromGitHub,
   xmtp,
 }:
 let
   inherit (stdenv) isDarwin;
   inherit (xmtp) shellCommon;
+  paths-filter-action = fetchFromGitHub {
+    owner = "dorny";
+    repo = "paths-filter";
+    rev = "ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d";
+    hash = "sha256-R6d6Da8eISwT+CZqO/086JlKFebgwbPegyvSbbNeJVc=";
+  };
   rust-toolchain =
     xmtp.mkNativeToolchain
       [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ]
@@ -29,6 +36,7 @@ mkShell {
   meta.description = "Rust development environment for libXMTP crates and bindings";
 
   XMTP_DEV_SHELL = "rust";
+  PATHS_FILTER_ACTION = "${paths-filter-action}/dist/index.js";
 
   # A nested Rust shell must not keep the local/iOS shell's Xcode overrides.
   # Use Nix's compiler wrapper with Nix's SDK and library search paths.
