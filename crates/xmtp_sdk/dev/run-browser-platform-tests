@@ -21,6 +21,7 @@ if [ "${1:-all}" = all ] || [ "${1:-all}" = migration ]; then
   NIX_DEVSHELL=rust dev/nix-shell 'dev/agent-run cargo build --locked -p xmtp_legacy_migration --example fixture_host --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir target/migration-fixture-host target/wasm32-unknown-unknown/debug/examples/fixture_host.wasm'
   node "$platform/migration/browser.mjs" --current-sdk
   node "$platform/migration/browser-regressions.mjs"
+  node "$platform/migration/working-copy.mjs"
   node "$platform/migration/message-sizes.mjs"
   node "$platform/migration/group-consent-sizes.mjs"
 fi

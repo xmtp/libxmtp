@@ -14,10 +14,12 @@ use web_sys::wasm_bindgen::JsCast;
 use xmtp_common::ErrorCode;
 
 mod restore;
+mod working_copy;
 pub use restore::{
     clear_opfs_databases, delete_opfs_database, export_opfs_database, import_opfs_database,
     list_opfs_databases, opfs_database_count, opfs_database_exists, opfs_pool_capacity,
 };
+pub use working_copy::{OpfsWorkingCopy, OpfsWorkingCopyError};
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum PlatformStorageError {

@@ -56,3 +56,7 @@ Client persistence only. The backend picks its own database layer in spec 002.
 - Browser whole-database restore uses `import_opfs_database`. It validates and rotates an in-memory copy before creating an absent destination. It does not overwrite an existing file. OPFS delete/clear helpers require closed persistent handles and fence old objects against reconnect. Copying database files outside these lifecycle APIs is unsupported.
 - `QueryPreparedEnvelope` stores exact prepared bytes in existing intents. A late reply must compare its original prepared bytes before it updates the attempt.
 - Key retirement follows confirmed backend publication order through `record_key_package_publication`, not local key creation order.
+
+- Legacy browser migration uses OpfsWorkingCopy under the shared lifecycle guard.
+  It reads source VFS bytes in 64 KiB chunks and opens SQLite only on a private
+  OPFS copy. The private VFS is cleared on initialization and after conversion.
