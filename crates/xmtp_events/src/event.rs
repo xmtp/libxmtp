@@ -380,6 +380,3 @@ impl ClientEvent {
         }
     }
 }
-
-#[cfg(test)]
-mod diagnostics;

@@ -176,6 +176,7 @@ fn commit_log_matrix_rejects_malformed_data_and_wrong_id_lengths() {
 async fn key_package_admission_accepts_the_existing_credential_shape() {
     let twenty_years = 20 * 365 * 24 * 60 * 60;
     for fixture in [
+        key_package_envelope("", KeyPackageOptions::default()),
         key_package_envelope("not-a-hex-inbox", KeyPackageOptions::default()),
         minimal_key_package_envelope(
             "minimal-capabilities",

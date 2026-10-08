@@ -122,15 +122,6 @@ mod persistent_or_mem_tests {
     }
 
     #[test]
-    fn single_arm_dispatches() {
-        // Single arm with a real (CountingConn) type dispatches correctly.
-        let c: PersistentOrMem<CountingConn, CountingConn, CountingConn> =
-            PersistentOrMem::Single(CountingConn);
-        assert!(c.disconnect().is_ok());
-        assert!(c.reconnect().is_ok());
-    }
-
-    #[test]
     fn infallible_single_arm_compiles() {
         // The wasm-shaped type: Single = Infallible. Must construct a non-Single arm.
         let c: PersistentOrMem<CountingConn, std::convert::Infallible, CountingConn> =

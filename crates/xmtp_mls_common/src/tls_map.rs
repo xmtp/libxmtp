@@ -672,7 +672,7 @@ mod tests {
 
     /// Generates the core property-based test suite for a given K, V type pair.
     /// Every type combination that implements the TLS traits must pass all of these.
-    /// `$n` is the max number of entries to generate (must stay <= key space, e.g. 256 for u8).
+    /// `$n` bounds generated pairs. Counts above the key space test duplicate keys.
     macro_rules! tls_map_tests {
         ($mod_name:ident, $K:ty, $V:ty, $n:expr, $mutate_v:expr) => {
             mod $mod_name {
@@ -681,23 +681,37 @@ mod tests {
                 proptest! {
                     #[test]
                     fn round_trip(
-                        pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 0..$n)
+                        pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 0..$n),
+                        single_key in any::<$K>(),
+                        single_value in any::<$V>(),
                     ) {
-                        let map = build_map(pairs.into_iter());
+                        let map = build_map(pairs.clone().into_iter());
                         let bytes = map.tls_serialize_detached().expect("round trip serialization should succeed");
+                        prop_assert_eq!(bytes.len(), map.tls_serialized_len(), "serialized size");
                         let deserialized =
                             TlsMap::<$K, $V>::tls_deserialize_exact(&bytes).expect("round trip deserialization should succeed");
                         prop_assert_eq!(map, deserialized);
-                    }
 
-                    #[test]
-                    fn deterministic(
-                        pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 0..$n)
-                    ) {
-                        let map = build_map(pairs.into_iter());
-                        let a = map.tls_serialize_detached().unwrap();
-                        let b = map.tls_serialize_detached().unwrap();
-                        prop_assert_eq!(a, b);
+                        let from_pairs = TlsMap::from_pairs(pairs.clone());
+                        let collected = pairs.clone().into_iter().collect::<TlsMap<$K, $V>>();
+                        let mut set_map = TlsMap::new();
+                        for (key, value) in pairs {
+                            set_map.set(key, value);
+                        }
+                        let canonical = from_pairs.tls_serialize_detached().unwrap();
+                        prop_assert_eq!(&canonical, &collected.tls_serialize_detached().unwrap(), "collect encoding");
+                        prop_assert_eq!(&canonical, &set_map.tls_serialize_detached().unwrap(), "set encoding");
+
+                        let mut single = TlsMap::<$K, $V>::new();
+                        single.insert(single_key, single_value).unwrap();
+                        let single_bytes = single.tls_serialize_detached().unwrap();
+                        prop_assert_eq!(single_bytes.len(), single.tls_serialized_len(), "single-entry size");
+                        prop_assert_eq!(
+                            single,
+                            TlsMap::<$K, $V>::tls_deserialize_exact(&single_bytes).unwrap(),
+                            "single-entry round trip"
+                        );
+                        prop_assert_eq!(TlsMap::<$K, $V>::new().tls_serialize_detached().unwrap(), vec![0], "empty encoding");
                     }
 
                     #[test]
@@ -720,36 +734,58 @@ mod tests {
                     fn keys_always_sorted(
                         pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 0..$n)
                     ) {
+                        let expected: std::collections::HashMap<$K, $V> = pairs.clone().into_iter().collect();
                         let map = build_map(pairs.into_iter());
                         let keys: Vec<&$K> = map.keys().collect();
                         for w in keys.array_windows::<2>() {
                             prop_assert!(w[0] < w[1]);
                         }
+                        let borrowed: Vec<_> = map.iter().collect();
+                        prop_assert_eq!(borrowed.len(), map.len(), "borrowed pairs");
+                        for (key, value) in &borrowed {
+                            prop_assert_eq!(expected.get(*key), Some(*value), "borrowed pair value");
+                        }
+                        prop_assert_eq!(map.values().collect::<Vec<_>>(), borrowed.iter().map(|(_, v)| *v).collect::<Vec<_>>(), "borrowed values");
+                        let owned: Vec<_> = map.clone().into_iter().collect();
+                        for w in owned.array_windows::<2>() {
+                            prop_assert!(w[0].0 < w[1].0, "owned order");
+                        }
+                        prop_assert_eq!(owned.len(), borrowed.len(), "owned pairs");
+                        for ((key, value), (borrowed_key, borrowed_value)) in owned.iter().zip(&borrowed) {
+                            prop_assert_eq!(key, *borrowed_key, "owned key");
+                            prop_assert_eq!(value, *borrowed_value, "owned value");
+                        }
+                        let mut one = TlsMap::<$K, $V>::new();
+                        let key = <$K>::default();
+                        let value = <$V>::default();
+                        one.set(key.clone(), value.clone());
+                        prop_assert_eq!(one.iter().collect::<Vec<_>>(), vec![(&key, &value)], "one borrowed pair");
+                        prop_assert_eq!(one.values().collect::<Vec<_>>(), vec![&value], "one borrowed value");
                     }
 
                     #[test]
                     fn get_returns_inserted(
                         pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 1..$n)
                     ) {
-                        let map = build_map(pairs.clone().into_iter());
+                        let mut map = build_map(pairs.clone().into_iter());
                         let expected: std::collections::HashMap<$K, $V> = pairs
                             .into_iter()
                             .collect();
                         prop_assert_eq!(map.len(), expected.len());
                         for (k, v) in &expected {
                             prop_assert_eq!(map.get(k), Some(v));
+                            let changed = ($mutate_v)(v.clone());
+                            prop_assert!(matches!(map.insert(k.clone(), changed), Err(TlsMapError::KeyExists)), "duplicate insert");
                         }
-                    }
-
-                    #[test]
-                    fn insert_duplicate_fails(pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 1..$n)) {
-                        let mut map = build_map(pairs.clone().into_iter());
-                        for (k, v) in pairs {
-                            let v2 = ($mutate_v)(v);
-                            prop_assert!(matches!(
-                                map.insert(k, v2),
-                                Err(TlsMapError::KeyExists)
-                            ));
+                        let mut removed = map.clone();
+                        for (k, v) in &expected {
+                            prop_assert_eq!(&removed.remove(k).unwrap(), v, "remove returns value");
+                        }
+                        prop_assert!(removed.is_empty(), "all keys removed");
+                        if let Some((key, value)) = expected.iter().next() {
+                            let changed = ($mutate_v)(value.clone());
+                            *map.get_mut(key).unwrap() = changed.clone();
+                            prop_assert_eq!(map.get(key), Some(&changed), "mutable get");
                         }
                     }
 
@@ -769,44 +805,6 @@ mod tests {
                     }
 
                     #[test]
-                    fn remove_returns_value(pairs in proptest::collection::hash_map(any::<$K>(), any::<$V>(), 2..$n)) {
-                        let mut map = build_map(pairs.clone().into_iter());
-                        for (k, v) in pairs {
-                            prop_assert_eq!(map.remove(&k).unwrap(), v);
-                        }
-                        prop_assert!(map.is_empty());
-                    }
-
-                    #[test]
-                    fn serialized_size_matches_trait(
-                        pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 0..$n)
-                    ) {
-                        let map = build_map(pairs.into_iter());
-                        let bytes = map.tls_serialize_detached().unwrap();
-                        prop_assert_eq!(bytes.len(), map.tls_serialized_len());
-                    }
-
-                    #[test]
-                    fn from_pairs_and_collect_and_set_equivalent(
-                        pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 0..$n)
-                    ) {
-                        let map_a = TlsMap::from_pairs(pairs.clone());
-                        let map_b = pairs.clone().into_iter().collect::<TlsMap<$K, $V>>();
-                        let mut map_c = TlsMap::new();
-                        for (k, v) in pairs {
-                            map_c.set(k, v);
-                        }
-                        prop_assert_eq!(
-                            map_a.tls_serialize_detached().unwrap(),
-                            map_b.tls_serialize_detached().unwrap()
-                        );
-                        prop_assert_eq!(
-                            map_a.tls_serialize_detached().unwrap(),
-                            map_c.tls_serialize_detached().unwrap()
-                        );
-                    }
-
-                    #[test]
                     // verifies: META-013
                     fn delta_rollback_on_failure(
                         pairs in proptest::collection::vec(
@@ -816,33 +814,17 @@ mod tests {
                     ) {
                         let mut map = build_map(pairs.into_iter());
                         let _ = map.remove(&bad_key);
+                        prop_assume!(!map.is_empty());
+                        let (known_key, old_value) = map.iter().next().unwrap();
+                        let known_key = known_key.clone();
+                        let changed_value = ($mutate_v)(old_value.clone());
                         let snapshot = map.clone();
 
-                        let delta = TlsMapDelta::new().update(bad_key, <$V>::default());
+                        let delta = TlsMapDelta::new()
+                            .update(known_key, changed_value)
+                            .update(bad_key, <$V>::default());
                         prop_assert!(map.apply_delta(delta).is_err());
                         prop_assert_eq!(map, snapshot);
-                    }
-
-                    #[test]
-                    fn into_iter_sorted(
-                        pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 0..$n)
-                    ) {
-                        let map = build_map(pairs.into_iter());
-                        let collected: Vec<($K, $V)> = map.into_iter().collect();
-                        for w in collected.array_windows::<2>() {
-                            prop_assert!(w[0].0 < w[1].0);
-                        }
-                    }
-
-                    /// Verify single-entry round-trip and wire size.
-                    #[test]
-                    fn single_entry_round_trip(key in any::<$K>(), value in any::<$V>()) {
-                        let mut map = TlsMap::<$K, $V>::new();
-                        map.insert(key, value).unwrap();
-                        let bytes = map.tls_serialize_detached().unwrap();
-                        prop_assert_eq!(bytes.len(), map.tls_serialized_len());
-                        let deserialized = TlsMap::<$K, $V>::tls_deserialize_exact(&bytes).unwrap();
-                        prop_assert_eq!(map, deserialized);
                     }
 
                     /// Reject bytes where two entries are serialized in descending key order.
@@ -888,19 +870,6 @@ mod tests {
                         bytes.extend_from_slice(&content);
 
                         prop_assert!(TlsMap::<$K, $V>::tls_deserialize_exact(&bytes).is_err());
-                    }
-
-                    /// Mutation (Insert/Update/Delete) round-trips through serialization.
-                    #[test]
-                    fn mutation_round_trip(key in any::<$K>(), value in any::<$V>(), tag in 0u8..3) {
-                        let mutation = match tag {
-                            0 => TlsMapMutation::Insert { key, value },
-                            1 => TlsMapMutation::Update { key, value },
-                            _ => TlsMapMutation::Delete { key },
-                        };
-                        let bytes = mutation.tls_serialize_detached().unwrap();
-                        let rt = TlsMapMutation::<$K, $V>::tls_deserialize_exact(&bytes).unwrap();
-                        prop_assert_eq!(mutation, rt);
                     }
 
                     /// Insert new keys, update some existing keys, update+delete others.
@@ -965,6 +934,11 @@ mod tests {
                             ),
                             1..10
                         ),
+                        reverse_entries in proptest::collection::hash_map(
+                            any::<$K>(),
+                            proptest::collection::hash_map(any::<u64>(), any::<$V>(), 0..20),
+                            1..std::cmp::min($n, 10)
+                        ),
                     ) {
                         let outer: TlsMap<u64, TlsMap<$K, $V>> = entries
                             .into_iter()
@@ -972,27 +946,15 @@ mod tests {
                             .collect();
                         let bytes = outer.tls_serialize_detached().unwrap();
                         let deserialized = TlsMap::<u64, TlsMap<$K, $V>>::tls_deserialize_exact(&bytes).unwrap();
-                        prop_assert_eq!(outer, deserialized);
-                    }
+                        prop_assert_eq!(outer, deserialized, "u64 outer keys");
 
-                    /// Nested map with parameterized outer key, known inner key type.
-                    #[test]
-                    fn nested_map_reverse_round_trip(
-                        entries in proptest::collection::hash_map(
-                            any::<$K>(),
-                            proptest::collection::hash_map(
-                                any::<u64>(), any::<$V>(), 0..20
-                            ),
-                            1..std::cmp::min($n, 10)
-                        ),
-                    ) {
-                        let outer: TlsMap<$K, TlsMap<u64, $V>> = entries
+                        let reverse_outer: TlsMap<$K, TlsMap<u64, $V>> = reverse_entries
                             .into_iter()
                             .map(|(k, inner)| (k, inner.into_iter().collect()))
                             .collect();
-                        let bytes = outer.tls_serialize_detached().unwrap();
-                        let deserialized = TlsMap::<$K, TlsMap<u64, $V>>::tls_deserialize_exact(&bytes).unwrap();
-                        prop_assert_eq!(outer, deserialized);
+                        let reverse_bytes = reverse_outer.tls_serialize_detached().unwrap();
+                        let reverse_result = TlsMap::<$K, TlsMap<u64, $V>>::tls_deserialize_exact(&reverse_bytes).unwrap();
+                        prop_assert_eq!(reverse_outer, reverse_result, "parameterized outer keys");
                     }
 
                     /// Delta (list of mutations) round-trips through serialization.
@@ -1000,7 +962,9 @@ mod tests {
                     fn delta_round_trip(
                         mutations in proptest::collection::vec(
                             (any::<$K>(), any::<$V>(), 0u8..3), 0..20
-                        )
+                        ),
+                        key in any::<$K>(),
+                        value in any::<$V>(),
                     ) {
                         let mut delta = TlsMapDelta::new();
                         for (key, value, tag) in mutations {
@@ -1013,130 +977,23 @@ mod tests {
                         let bytes = delta.tls_serialize_detached().unwrap();
                         let rt = TlsMapDelta::<$K, $V>::tls_deserialize_exact(&bytes).unwrap();
                         prop_assert_eq!(delta, rt);
+                        for mutation in [
+                            TlsMapMutation::Insert { key: key.clone(), value: value.clone() },
+                            TlsMapMutation::Update { key: key.clone(), value: value.clone() },
+                            TlsMapMutation::Delete { key: key.clone() },
+                        ] {
+                            let bytes = mutation.tls_serialize_detached().unwrap();
+                            let decoded = TlsMapMutation::<$K, $V>::tls_deserialize_exact(&bytes).unwrap();
+                            prop_assert_eq!(mutation, decoded, "mutation kind round trip");
+                        }
+                        let mut invalid = Vec::new();
+                        let content_len = 1 + key.tls_serialized_len() + value.tls_serialized_len();
+                        tls_codec::vlen::write_length(&mut invalid, content_len).unwrap();
+                        3u8.tls_serialize(&mut invalid).unwrap();
+                        key.tls_serialize(&mut invalid).unwrap();
+                        value.tls_serialize(&mut invalid).unwrap();
+                        prop_assert!(TlsMapDelta::<$K, $V>::tls_deserialize_exact(&invalid).is_err(), "invalid mutation tag");
                     }
-                }
-
-                /// Verify that empty maps serialize to a single byte with value 0.
-                #[test]
-                fn empty_map_serializes_to_zero_length_prefix() {
-                    let map = TlsMap::<$K, $V>::new();
-                    assert_eq!(map.tls_serialize_detached().unwrap(), vec![0]);
-                }
-
-                #[test]
-                fn debug_format() {
-                    let key = <$K>::default();
-                    let value = <$V>::default();
-                    let entry = TlsMapEntry::<$K, $V> {
-                        key: key.clone(),
-                        value: value.clone(),
-                    };
-                    let expected = format!("{{ key: {:?}, value: {:?} }}", key, value);
-                    assert_eq!(format!("{:?}", entry), expected);
-                }
-
-                #[test]
-                fn get_mut_modifies_value() {
-                    let mut map = TlsMap::<$K, $V>::new();
-                    let key = <$K>::default();
-                    let value = <$V>::default();
-                    map.insert(key.clone(), value).unwrap();
-                    let v = map.get_mut(&key).unwrap();
-                    *v = ($mutate_v)(v.clone());
-                    assert_ne!(map.get(&key), Some(&<$V>::default()));
-                }
-
-                #[test]
-                fn iter_yields_all_pairs() {
-                    let mut map = TlsMap::<$K, $V>::new();
-                    map.set(<$K>::default(), <$V>::default());
-                    let pairs: Vec<_> = map.iter().collect();
-                    assert_eq!(pairs.len(), 1);
-                    assert_eq!(pairs[0], (&<$K>::default(), &<$V>::default()));
-                }
-
-                #[test]
-                fn values_yields_all_values() {
-                    let mut map = TlsMap::<$K, $V>::new();
-                    map.set(<$K>::default(), <$V>::default());
-                    let vals: Vec<_> = map.values().collect();
-                    assert_eq!(vals, vec![&<$V>::default()]);
-                }
-
-                #[test]
-                fn default_creates_empty() {
-                    let map = TlsMap::<$K, $V>::default();
-                    assert!(map.is_empty());
-                    let delta = TlsMapDelta::<$K, $V>::default();
-                    assert!(delta.mutations.is_empty());
-                }
-
-                #[test]
-                fn rejects_invalid_mutation_tag() {
-                    let mut bytes = Vec::new();
-                    let tag_byte = 3u8; // invalid tag
-                    let key = <$K>::default();
-                    let value = <$V>::default();
-                    let content_len = 1 + key.tls_serialized_len() + value.tls_serialized_len();
-                    tls_codec::vlen::write_length(&mut bytes, content_len).unwrap();
-                    tag_byte.tls_serialize(&mut bytes).unwrap();
-                    key.tls_serialize(&mut bytes).unwrap();
-                    value.tls_serialize(&mut bytes).unwrap();
-                    assert!(TlsMapDelta::<$K, $V>::tls_deserialize_exact(&bytes).is_err());
-                }
-
-                /// Deserializing a map with descending keys must fail.
-                #[test]
-                fn rejects_unsorted_deterministic() {
-                    // Serialize a valid 2-entry map, then re-encode entries in reverse order
-                    // Build two entries: key_hi > key_lo, serialize hi first (wrong order)
-                    let key_lo = <$K>::default();
-                    let key_hi = {
-                        // Serialize default key, bump last byte to get a larger key
-                        let mut kb = key_lo.tls_serialize_detached().unwrap();
-                        *kb.last_mut().unwrap() = kb.last().unwrap().wrapping_add(1);
-                        kb
-                    };
-                    let val = <$V>::default().tls_serialize_detached().unwrap();
-                    // content = [key_hi, val, key_lo, val] — descending order
-                    let mut content = Vec::new();
-                    content.extend_from_slice(&key_hi);
-                    content.extend_from_slice(&val);
-                    content.extend_from_slice(&key_lo.tls_serialize_detached().unwrap());
-                    content.extend_from_slice(&val);
-                    let mut bytes = Vec::new();
-                    tls_codec::vlen::write_length(&mut bytes, content.len()).unwrap();
-                    bytes.extend_from_slice(&content);
-                    let result = TlsMap::<$K, $V>::tls_deserialize_exact(&bytes);
-                    assert!(result.is_err(), "should reject unsorted entries");
-                }
-
-                /// Deserializing a map with duplicate keys must fail.
-                #[test]
-                fn rejects_duplicates_deterministic() {
-                    let key = <$K>::default();
-                    let v1 = <$V>::default();
-                    let v2 = ($mutate_v)(<$V>::default());
-                    let mut content = Vec::new();
-                    key.tls_serialize(&mut content).unwrap();
-                    v1.tls_serialize(&mut content).unwrap();
-                    key.tls_serialize(&mut content).unwrap();
-                    v2.tls_serialize(&mut content).unwrap();
-                    let mut bytes = Vec::new();
-                    tls_codec::vlen::write_length(&mut bytes, content.len()).unwrap();
-                    bytes.extend_from_slice(&content);
-                    let result = TlsMap::<$K, $V>::tls_deserialize_exact(&bytes);
-                    assert!(result.is_err(), "should reject duplicate keys");
-                }
-
-                /// Appending extra bytes to a valid map must fail with tls_deserialize_exact.
-                #[test]
-                fn rejects_trailing_bytes() {
-                    let mut map = TlsMap::<$K, $V>::new();
-                    map.set(<$K>::default(), <$V>::default());
-                    let mut bytes = map.tls_serialize_detached().unwrap();
-                    bytes.push(0xFF);
-                    assert!(TlsMap::<$K, $V>::tls_deserialize_exact(&bytes).is_err());
                 }
             }
         };
