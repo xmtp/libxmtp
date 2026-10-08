@@ -24,18 +24,17 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   services through `dev/nix-shell 'just backend ci COMMAND'`. Each job creates
   its own database and S3 bucket. Failed-job-only reruns do not need a
   deployment job.
-- Keep the Swift job filters (`ios`, `ios_direct`, `sdk_swift`) current when
+- Keep the `ci.yml` selector's Swift and native input routes current when
   native setup inputs change.
   `test-native-backend.yml` checks wrapper cleanup and the real S3 contract.
   It also checks the owned loopback listeners and metrics endpoint. Backend
   source and build-input changes select this job, and it gates aggregate
   `Test`. The native acceptance job has no cache-write token.
   Service logs are retained for 7 days.
-- `test-sdk.yml` gates aggregate `Test`; `test-ios` and `test-android` do not.
-  The Swift seam proofs (`just ios test-seams`) and the Swift and Kotlin
-  consumer checks run in `test-sdk.yml`. The `sdk` and `sdk_swift` filters
-  list their paths under `sdks/`. `test-ios` runs `just ios test skip-seams`,
-  so its macOS run does not repeat the seam proofs.
+- Selected iOS and Android jobs gate aggregate `Test` in `ci.yml`.
+  `test-swift-seams.yml` owns the Swift seam proofs (`just ios test-seams`)
+  and Swift consumer checks. `test-android.yml` owns Kotlin consumer checks.
+  `test-ios` runs `just ios test skip-seams`, so it does not repeat the seams.
 
 ## CI selection
 

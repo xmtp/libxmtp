@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -177,6 +178,40 @@ class SelectionTests(unittest.TestCase):
                     self.assertTrue(checks["check_sdk"])
                     self.assertTrue(checks["test_browser_platform"])
                     self.assertFalse(checks["docs_site"])
+
+    def test_missing_pr_repository_metadata_uses_fork_policy(self):
+        for head in ({"repo": None}, {}, {"repo": "unavailable"}, {"repo": {}}):
+            with self.subTest(head=head), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                event = root / "event.json"
+                event.write_text(json.dumps({"pull_request": {"head": head}}))
+                output = root / "selection.json"
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-B",
+                        str(ROOT / "dev/ci/select-checks.py"),
+                        "--output",
+                        str(output),
+                        "--source-suites-output",
+                        str(root / "source.json"),
+                        "--test-suites-output",
+                        str(root / "tests.json"),
+                    ],
+                    cwd=root,
+                    env={
+                        **os.environ,
+                        "GITHUB_EVENT_NAME": "pull_request",
+                        "GITHUB_EVENT_PATH": str(event),
+                        "GITHUB_REPOSITORY": "xmtp/libxmtp",
+                    },
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    json.loads(output.read_text()), selection.select(None, fork=True)
+                )
 
     def test_public_source_rename_keeps_old_path_for_push_and_pr(self):
         with tempfile.TemporaryDirectory() as directory:

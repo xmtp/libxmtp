@@ -332,10 +332,10 @@ def main():
     parser.add_argument("--test-suites-output", required=True)
     args = parser.parse_args()
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-    fork = (
-        os.environ.get("GITHUB_EVENT_NAME") == "pull_request"
-        and event["pull_request"]["head"]["repo"]["full_name"]
-        != os.environ["GITHUB_REPOSITORY"]
+    repository = event.get("pull_request", {}).get("head", {}).get("repo")
+    fork = os.environ.get("GITHUB_EVENT_NAME") == "pull_request" and (
+        not isinstance(repository, dict)
+        or repository.get("full_name") != os.environ["GITHUB_REPOSITORY"]
     )
     result = select(changed_paths(event), os.environ.get("GITHUB_EVENT_NAME"), fork)
     for filename, value in (
