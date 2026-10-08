@@ -233,6 +233,8 @@ def select(paths, event="pull_request", fork=False):
                     "test_bridge_runtime",
                     "test_browser_platform",
                 )
+                if name.startswith("sdks/browser/test/platform/"):
+                    enable("check_sdk")
                 if name.startswith(
                     (
                         "sdks/browser/src/",
@@ -315,7 +317,7 @@ def changed_paths(event):
             if len(parents) != 2:
                 return None
         data = subprocess.check_output(
-            ["git", "diff", "--name-only", "-z", base, "HEAD"],
+            ["git", "diff", "--no-renames", "--name-only", "-z", base, "HEAD"],
             stderr=subprocess.DEVNULL,
         )
         return list(filter(None, data.decode().split("\0")))

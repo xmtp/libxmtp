@@ -163,6 +163,70 @@ class SelectionTests(unittest.TestCase):
             self.assertFalse(c[name])
         self.assertTrue(c["test_android_platform"])
 
+    def test_browser_platform_keeps_explicit_generated_type_checks(self):
+        for event in ("pull_request", "push"):
+            for filename in (
+                "suite.worker.ts",
+                "attachment-lifetime.chromium.ts",
+                "storage.layout.chromium.ts",
+            ):
+                with self.subTest(event=event, filename=filename):
+                    checks = selection.select(
+                        ["sdks/browser/test/platform/" + filename], event
+                    )["checks"]
+                    self.assertTrue(checks["check_sdk"])
+                    self.assertTrue(checks["test_browser_platform"])
+                    self.assertFalse(checks["docs_site"])
+
+    def test_public_source_rename_keeps_old_path_for_push_and_pr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            subprocess.run(["git", "init", "-q", directory], check=True)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-C", directory, *args], text=True
+                ).strip()
+
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "user.name", "Fixture")
+            old = "sdks/browser/src/codec.ts"
+            new = "sdks/browser/test/codec.ts"
+            source = Path(directory) / old
+            source.parent.mkdir(parents=True)
+            source.write_text("export const codec = 1;\n")
+            git("add", ".")
+            git("commit", "-qm", "public source")
+            base = git("rev-parse", "HEAD")
+            (Path(directory) / new).parent.mkdir(parents=True)
+            git("mv", old, new)
+            git("commit", "-qm", "move public source to test")
+            feature = git("rev-parse", "HEAD")
+            self.assertEqual(
+                git("diff", "--name-status", "--find-renames", base, feature),
+                "R100\t" + old + "\t" + new,
+            )
+            original = Path.cwd()
+            try:
+                os.chdir(directory)
+                for event in ("push", "pull_request"):
+                    if event == "pull_request":
+                        git("checkout", "-qb", "base-side", base)
+                        (Path(directory) / "base-change").write_text("base update")
+                        git("add", ".")
+                        git("commit", "-qm", "base update")
+                        git("merge", "--no-ff", "-qm", "PR merge", feature)
+                    with (
+                        self.subTest(event=event),
+                        patch.dict(os.environ, {"GITHUB_EVENT_NAME": event}),
+                    ):
+                        paths = selection.changed_paths({"before": base})
+                        self.assertEqual(set(paths), {old, new})
+                        checks = selection.select(paths, event)["checks"]
+                        self.assertTrue(checks["docs_site"])
+                        self.assertTrue(checks["test_browser"])
+            finally:
+                os.chdir(original)
+
     def test_event_git_diff_and_unavailable_base(self):
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(["git", "init", "-q", directory], check=True)
