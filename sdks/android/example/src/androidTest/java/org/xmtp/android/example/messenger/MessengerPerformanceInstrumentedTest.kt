@@ -150,6 +150,7 @@ class MessengerPerformanceInstrumentedTest {
                             .streamAllMessages(
                                 MessageStreamOptions(consentStates = listOf(ConsentState.ALLOWED)),
                             ).collect {
+                                if (it.standardContent() !is MessageContent.Text) return@collect
                                 received += 1
                                 if (received == total) drained.complete(Unit)
                                 if (received % 4096 == 0) {
@@ -241,7 +242,7 @@ class MessengerPerformanceInstrumentedTest {
                             store.put("performance", it)
                             val productionHandler = session.onMessage
                             session.onMessage = { owner, message ->
-                                if (message.content is MessageContent.Text) replayRows.incrementAndGet()
+                                if (message.standardContent() is MessageContent.Text) replayRows.incrementAndGet()
                                 replayHandling.incrementAndGet()
                                 try {
                                     productionHandler(owner, message)

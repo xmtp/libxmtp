@@ -29,11 +29,15 @@ The unread selection includes the sender's incoming texts.
 
 The sender queues at most 256 optimistic texts before `publishMessages()`.
 Fixture preparation uses public Welcome and group sync calls. It also drains
-fixture messages through the public sequential Flow before normal AppSession
+fixture texts through the public sequential Flow before normal AppSession
 restore. The test observes the complete production app callback after reopen.
 It waits for a quiet callback interval outside timing, accepts at most one tail
 replay, and records that count. The count must stay unchanged through all
-measurements. A seed backlog or later replay fails the gate. The measured
+measurements. A seed backlog or later replay fails the gate. Text selection reads the public
+`SDKMessageContent.Standard.value` wrapper through the same selector as the app
+row mapper. A generated-message JVM regression rejects the old direct-content
+check. This is type-selection proof; the full device drain is still unrun.
+The measured
 reads do not call sync. The newest 100 texts in the large group use separate
 publication calls. A backend batch can assign equal sent timestamps, so these
 calls establish two ordinary 50-row pages for the main timing gate.
