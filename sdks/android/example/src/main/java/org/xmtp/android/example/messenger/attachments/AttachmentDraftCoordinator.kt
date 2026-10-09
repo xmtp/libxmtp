@@ -94,9 +94,10 @@ class AttachmentDraftCoordinator(
     suspend fun send(draftId: String, conversation: Conversation, reconcile: suspend (Message) -> Unit) {
         checkCurrent()
         processMutex.withLock { check(running.add(operationId(draftId))) { "This file action is already running" } }
-        var draft = preferences.drafts(key.profileId).single { it.draftId == draftId }
+        var draft = SendDraftRef(draftId, "")
         var remote: RemoteAttachment? = null
         try {
+            draft = preferences.drafts(key.profileId).single { it.draftId == draftId }
             require(!draftNeedsReview(draft)) { "Review the unknown send outcome in the chat" }
             require(draft.conversationKey == conversation.id()) { "The draft belongs to another chat" }
             draft.acceptedMessageId?.let { id ->
@@ -135,7 +136,9 @@ class AttachmentDraftCoordinator(
             if (current != null) update(card(current, remote, if (draftNeedsReview(current)) "Review send outcome" else "Failed", unavailable = error.isExpiredDraft(), error = error.attachmentLabel()))
             throw error
         } finally {
-            processMutex.withLock { running.remove(operationId(draftId)); queueing.remove(operationId(draftId)) }
+            withContext(NonCancellable) {
+                processMutex.withLock { running.remove(operationId(draftId)); queueing.remove(operationId(draftId)) }
+            }
         }
     }
 

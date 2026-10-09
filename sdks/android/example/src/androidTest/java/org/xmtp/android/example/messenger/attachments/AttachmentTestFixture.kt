@@ -21,10 +21,10 @@ internal class AttachmentTestFixture {
     private val signer = generateLocalSigner()
     private lateinit var options: ClientOptions
 
-    suspend fun start(age: ULong = 86400uL) {
+    suspend fun start(age: ULong = 86400uL, backend: String = BuildConfig.XMTP_BACKEND_URL) {
         paths.database.parentFile!!.mkdirs()
         paths.attachments.mkdirs()
-        options = ClientOptions(backend = BackendSource.Options(BackendOptions(url = BuildConfig.XMTP_BACKEND_URL)), storage = StorageOptions(location = StorageLocation.Explicit(paths.database.absolutePath, paths.attachments.absolutePath)), deviceSync = false, attachments = AttachmentOptions(maxPendingAgeSeconds = age, allowPrivateNetwork = true))
+        options = ClientOptions(backend = BackendSource.Options(BackendOptions(url = backend)), storage = StorageOptions(location = StorageLocation.Explicit(paths.database.absolutePath, paths.attachments.absolutePath)), deviceSync = false, attachments = AttachmentOptions(maxPendingAgeSeconds = age, allowPrivateNetwork = true))
         client = SDKClient.create(context, signer, options)
         group = Conversation.Group(client.conversations.createGroup(emptyList<InboxId>(), CreateGroupOptions(name = "File proof")))
     }
