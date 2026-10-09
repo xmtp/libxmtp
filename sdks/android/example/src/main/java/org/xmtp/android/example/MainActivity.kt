@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.xmtp.android.example.messenger.MessengerViewModel
+import org.xmtp.android.example.messenger.ReactionPickerHost
 import org.xmtp.android.example.shared.MessengerScreens
 
 class MainActivity : ComponentActivity() {
@@ -14,7 +15,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MessengerScreens(model.state.collectAsStateWithLifecycle().value, model::dispatch)
+            val state = model.state.collectAsStateWithLifecycle().value
+            ReactionPickerHost(state, model::dispatch) { action -> MessengerScreens(state, action) }
         }
     }
 

@@ -83,6 +83,7 @@ data class MessengerState(
     val screen: Screen =
         Screen.START,
     val backend: String = "",
+    val credentialsRequiredFor: String? = null,
     val inbox: String = "",
     val busy: Boolean = false,
     val error: String? = null,
@@ -111,7 +112,10 @@ sealed interface MessengerAction {
     data class Connect(
         val backend: String,
         val credential: String,
-        val allowPrivateNetwork: Boolean,
+    ) : MessengerAction
+
+    data class InspectBackend(
+        val backend: String,
     ) : MessengerAction
 
     data class Navigate(

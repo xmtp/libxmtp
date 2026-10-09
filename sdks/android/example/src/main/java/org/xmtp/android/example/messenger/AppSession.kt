@@ -127,7 +127,7 @@ class AppSession(
                     connect(
                         it.backend,
                         null,
-                        it.allowPrivateNetwork,
+                        localAttachmentNetwork(it.backend),
                     )
                 }
         }
