@@ -6,6 +6,6 @@ import java.net.URI
 internal fun localAttachmentNetwork(backend: String): Boolean =
     runCatching {
         val uri = URI(backend.trim())
-        uri.scheme in setOf("http", "https") &&
-            uri.host?.lowercase() in setOf("localhost", "127.0.0.1", "::1", "[::1]", "10.0.2.2")
+        uri.scheme?.lowercase() in setOf("http", "https") &&
+            uri.host?.lowercase() in localDevelopmentHosts
     }.getOrDefault(false)

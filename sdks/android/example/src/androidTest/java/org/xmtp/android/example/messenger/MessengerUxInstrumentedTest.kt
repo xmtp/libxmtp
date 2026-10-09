@@ -134,6 +134,30 @@ class MessengerUxInstrumentedTest {
             AndroidStreamLifecycle.enabled = true
         }
 
+    @Test fun remoteHttpConfigurationIsRejectedBeforeThePublicSdkProbe() =
+        runBlocking {
+            try {
+                model.session.signOut()
+                until("start") { model.state.value.screen == Screen.START }
+                val remote = "http://probe.example.test"
+                val finished = CompletableDeferred<Unit>()
+                var queries = 0
+                model.inspectBackend = {
+                    queries += 1
+                    error("Remote HTTP reached the SDK configuration probe")
+                }
+                model.onBackendProbeFinished = { _, url -> if (url == remote) finished.complete(Unit) }
+                model.dispatch(MessengerAction.InspectBackend(remote))
+                withTimeout(30_000) { finished.await() }
+                assertEquals(0, queries)
+                assertNull(model.state.value.credentialsRequiredFor)
+                compose.onNodeWithText("Credential").assertDoesNotExist()
+                println("TRANSPORT_PROOF stage=remote-configuration-rejected-before-sdk-probe")
+            } finally {
+                cleanup()
+            }
+        }
+
     @Test fun credentialsUsePublishedAuthConfigurationAndIgnoreAnEarlierUrl() =
         runBlocking<Unit> {
             val release = CompletableDeferred<Unit>()

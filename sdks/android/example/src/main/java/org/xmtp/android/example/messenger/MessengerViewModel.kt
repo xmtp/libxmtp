@@ -284,7 +284,7 @@ class MessengerViewModel(
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     delay(300)
-                    val configuration = inspectBackend(url)
+                    val configuration = inspectBackend(validatedBackendUrl(url))
                     synchronized(screenLock) {
                         if (attempt == backendProbeCounter.get() && token == screenGeneration &&
                             ui.value.screen == Screen.START && selectedBackend == url
@@ -304,6 +304,7 @@ class MessengerViewModel(
             }
     }
 
+    internal var beforeGroupWrite: suspend (MessengerAction, Int) -> Unit = { _, _ -> }
     internal var beforeQueuedAction: suspend (MessengerAction) -> Unit = {}
     internal var onQueuedActionFinished: (MessengerAction) -> Unit = {}
     internal var actionMessageRead: suspend (ActiveSession, String) -> Message? = { owner, id ->
@@ -1674,11 +1675,23 @@ class MessengerViewModel(
         val token = origin.token
         val chat = origin.chat ?: return
         requireOrigin(origin)
+        var writeIndex = 0
+
+        suspend fun admitWrite() {
+            beforeGroupWrite(action, writeIndex)
+            if (writeIndex == 0) {
+                requireOrigin(origin)
+            } else if (!session.accepts(owner.key)) {
+                throw CancellationException("Session changed during group action")
+            }
+            writeIndex += 1
+        }
         try {
             if (action is MessengerAction.SetDisappearing) {
                 require(
                     action.seconds >= 0,
                 )
+                admitWrite()
                 chat
                     .updateDisappearingSettings(
                         if (action.seconds == 0L) {
@@ -1705,11 +1718,12 @@ class MessengerViewModel(
                 when (action) {
                     is MessengerAction.UpdateGroup,
                     -> {
+                        admitWrite()
                         group
                             .updateName(
                                 action.name,
                             )
-                        requireOrigin(origin)
+                        admitWrite()
                         group
                             .updateDescription(
                                 action.description,
@@ -1718,6 +1732,7 @@ class MessengerViewModel(
 
                     is MessengerAction.AddMember,
                     -> {
+                        admitWrite()
                         group
                             .addMembers(
                                 listOf(
@@ -1728,6 +1743,7 @@ class MessengerViewModel(
 
                     is MessengerAction.RemoveMember,
                     -> {
+                        admitWrite()
                         group
                             .removeMembers(
                                 listOf(
@@ -1738,6 +1754,7 @@ class MessengerViewModel(
 
                     is MessengerAction.SetAdmin,
                     -> {
+                        admitWrite()
                         if (action.admin) {
                             group
                                 .addAdmin(
@@ -1753,6 +1770,7 @@ class MessengerViewModel(
 
                     MessengerAction.RequestRemoval,
                     -> {
+                        admitWrite()
                         group
                             .requestRemoval()
                     }
@@ -1762,7 +1780,7 @@ class MessengerViewModel(
                         applyStandardPreset(
                             group,
                             action.adminOnly,
-                            beforeWrite = { requireOrigin(origin) },
+                            beforeWrite = { admitWrite() },
                         )
                     }
 

@@ -52,6 +52,7 @@ class MessengerReviewInstrumentedTest {
             model.writeConsent = { chat, value -> chat.updateConsentState(value) }
             model.onConsentFinished = {}
             model.beforeQueuedAction = {}
+            model.beforeGroupWrite = { _, _ -> }
             model.onQueuedActionFinished = {}
             model.actionMessageRead = { owner, id -> owner.client.conversations.getMessageById(id) }
             model.sends.messageRead = { client, id -> client.conversations.getMessageById(id) }
@@ -70,6 +71,73 @@ class MessengerReviewInstrumentedTest {
         model.dispatch(MessengerAction.OpenConversation(id))
         until("open $id") { model.state.value.conversationId == id && model.state.value.screen == Screen.TIMELINE }
     }
+
+    @Test fun admittedGroupWritesFinishOnOriginAfterNavigation() =
+        runBlocking {
+            val releases = mutableListOf<CompletableDeferred<Unit>>()
+            try {
+                val owner = connect()
+                val a =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Origin", description = "Original"),
+                    )
+                val b =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Other", description = "Other description"),
+                    )
+                val actions =
+                    listOf(
+                        MessengerAction.UpdateGroup("Completed name", "Completed description"),
+                        MessengerAction.SetPreset(true),
+                    )
+                for (action in actions) {
+                    openChat(a.id())
+                    val entered = CompletableDeferred<Unit>()
+                    val release = CompletableDeferred<Unit>().also(releases::add)
+                    val finished = CompletableDeferred<Unit>()
+                    model.beforeGroupWrite = { current, index ->
+                        if (current == action && index == 1) {
+                            entered.complete(Unit)
+                            release.await()
+                        }
+                    }
+                    model.onQueuedActionFinished = { current -> if (current == action) finished.complete(Unit) }
+                    model.dispatch(action)
+                    withTimeout(30_000) { entered.await() }
+                    if (action is MessengerAction.UpdateGroup) {
+                        assertEquals("Completed name", a.state().name)
+                        assertEquals("Original", a.state().description)
+                    } else {
+                        assertNotEquals(GroupPolicyType.ALL_MEMBERS, a.state().permissions.policyType)
+                    }
+                    println("GROUP_ACTION_PROOF stage=first-native-write-committed action=$action")
+                    openChat(b.id())
+                    model.dispatch(MessengerAction.Navigate(Screen.CONVERSATION_SETTINGS))
+                    until("other settings") { model.state.value.settings.title == "Other" }
+                    release.complete(Unit)
+                    withTimeout(30_000) { finished.await() }
+                    if (action is MessengerAction.UpdateGroup) {
+                        assertEquals("Completed name", a.state().name)
+                        assertEquals("Completed description", a.state().description)
+                    } else {
+                        assertEquals(GroupPolicyType.ADMIN_ONLY, a.state().permissions.policyType)
+                    }
+                    assertEquals("Other", b.state().name)
+                    assertEquals("Other description", b.state().description)
+                    assertEquals(GroupPolicyType.ALL_MEMBERS, b.state().permissions.policyType)
+                    assertEquals(b.id(), model.state.value.conversationId)
+                    assertEquals("Other", model.state.value.settings.title)
+                    assertEquals(Screen.CONVERSATION_SETTINGS, model.state.value.screen)
+                    assertNull(model.state.value.error)
+                    println("GROUP_ACTION_PROOF stage=remaining-native-writes-finished-on-origin action=$action")
+                }
+            } finally {
+                releases.forEach { it.complete(Unit) }
+                cleanup()
+            }
+        }
 
     @Test fun queuedActionsCannotMutateEitherChatAfterSwitch() =
         runBlocking {

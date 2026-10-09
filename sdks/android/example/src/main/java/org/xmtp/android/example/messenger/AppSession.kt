@@ -8,7 +8,6 @@ import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.example.exampleStorageLocation
 import uniffi.xmtp_sdk.*
 import java.io.File
-import java.net.URI
 import java.security.SecureRandom
 import java.util.UUID
 
@@ -58,6 +57,7 @@ class AppSession(
     private var conversationJob: Job? = null
     private var stopping: ActiveSession? = null
     private var opening: ActiveSession? = null
+    internal var beforeClientBuild: (String) -> Unit = {}
     internal var beforeOpeningListener: suspend (ActiveSession) -> Unit = {}
     var onMessage: suspend (
         ActiveSession,
@@ -138,21 +138,7 @@ class AppSession(
         credential: String?,
         allowPrivateNetwork: Boolean,
     ) {
-        val url =
-            backend
-                .trim()
-                .trimEnd('/')
-        val uri = URI(url)
-        require(
-            uri
-                .scheme in
-                listOf(
-                    "http",
-                    "https",
-                ) && uri.host != null,
-        ) {
-            "Use an HTTP or HTTPS backend URL"
-        }
+        val url = validatedBackendUrl(backend)
         val openingGeneration =
             fence
                 .reserve()
@@ -307,6 +293,7 @@ class AppSession(
                     attachments = AttachmentOptions(allowPrivateNetwork = allowPrivateNetwork),
                 )
             val signer = localSignerFromPrivateKey(wallet)
+            beforeClientBuild(url)
             val client =
                 if (saved.inboxId != null && saved.identity != null) {
                     SDKClient
