@@ -1,12 +1,21 @@
 name: Check Rust SDK unit tests
 'on':
-  workflow_call: {}
+  workflow_call:
+    secrets:
+      KACHE_S3_ACCESS_KEY_ID:
+        description: "Optional compiler cache reader access key ID"
+        required: false
+      KACHE_S3_SECRET_ACCESS_KEY:
+        description: "Optional compiler cache reader secret access key"
+        required: false
 permissions:
   contents: read
 jobs:
   unit:
     name: Test (SDK crate debug)
     runs-on: blacksmith-16vcpu-ubuntu-2404
+    environment:
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
     timeout-minutes: 90
     env:
       NIX_DEVSHELL: rust
@@ -19,6 +28,13 @@ jobs:
         kache: 'true'
         docker-builder: 'true'
         github-token: ${{ github.token }}
+        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+        kache-scope: sdk-unit
+        kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - name: Start local backend
       run: dev/nix-shell 'just backend up'

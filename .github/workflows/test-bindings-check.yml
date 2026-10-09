@@ -42,6 +42,8 @@ jobs:
     if: inputs.run-ios
   check-android:
     runs-on: blacksmith-16vcpu-ubuntu-2404
+    environment:
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
     timeout-minutes: 30
     env:
       NIX_DEVSHELL: android
@@ -55,6 +57,13 @@ jobs:
         github-token: ${{ github.token }}
         cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
         kache: 'true'
+        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+        kache-scope: bindings-check-android
+        kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - name: Start backend
       run: dev/nix-shell 'just backend up'

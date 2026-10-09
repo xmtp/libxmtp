@@ -1,6 +1,13 @@
 name: Test native backend
 on:
   workflow_call:
+    secrets:
+      KACHE_S3_ACCESS_KEY_ID:
+        description: "Optional compiler cache reader access key ID"
+        required: false
+      KACHE_S3_SECRET_ACCESS_KEY:
+        description: "Optional compiler cache reader secret access key"
+        required: false
 permissions:
   contents: read
 env:
@@ -18,6 +25,13 @@ jobs:
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
+          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+          kache-scope: native-backend-acceptance
+          kache-readonly: "true"
       - uses: taiki-e/install-action@just
       - name: Check wrapper processes
         run: dev/nix-shell 'shellcheck dev/backend/ci && python3.11 dev/backend/check-ci.py'

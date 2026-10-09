@@ -18,6 +18,8 @@ jobs:
     if: inputs.run-platform
     name: JNI, public client, and timestamp smoke (API 23)
     runs-on: blacksmith-16vcpu-ubuntu-2404
+    environment:
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v6
@@ -28,6 +30,13 @@ jobs:
         docker-builder: 'true'
         github-token: ${{ github.token }}
         cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+        kache-scope: android-min-sdk
+        kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:
@@ -69,6 +78,8 @@ jobs:
     if: inputs.run-unit || inputs.run-consumers
     name: Unit Tests (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
+    environment:
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
     timeout-minutes: 30
     steps:
     - uses: actions/checkout@v6
@@ -79,6 +90,13 @@ jobs:
         docker-builder: 'true'
         github-token: ${{ github.token }}
         cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+        kache-scope: android-unit
+        kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:
@@ -98,6 +116,8 @@ jobs:
     if: inputs.run-platform
     name: Integration Tests (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
+    environment:
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v6
@@ -108,6 +128,13 @@ jobs:
         docker-builder: 'true'
         github-token: ${{ github.token }}
         cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+        kache-scope: android-integration
+        kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - name: Start backend
       env:
