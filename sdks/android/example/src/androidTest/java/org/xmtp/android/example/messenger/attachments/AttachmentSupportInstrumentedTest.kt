@@ -3,7 +3,6 @@ package org.xmtp.android.example.messenger.attachments
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Intent
-import android.content.IntentFilter
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -67,11 +66,15 @@ class AttachmentSupportInstrumentedTest {
                     "Supply the owned unsupported backend fixture"
                 }
             val monitor =
-                instrumentation.addMonitor(
-                    IntentFilter(Intent.ACTION_OPEN_DOCUMENT),
-                    Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null),
-                    true,
-                )
+                object : Instrumentation.ActivityMonitor() {
+                    override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? =
+                        if (intent.action == Intent.ACTION_OPEN_DOCUMENT) {
+                            Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+                        } else {
+                            null
+                        }
+                }
+            instrumentation.addMonitor(monitor)
             val sender = AttachmentTestFixture()
             try {
                 val group = connect(backend)
