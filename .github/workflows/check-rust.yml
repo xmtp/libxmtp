@@ -37,6 +37,19 @@ jobs:
       - name: Run SDK generator Clippy
         # The generator is not a default workspace member.
         run: dev/nix-shell 'dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings'
+      - name: Record compiler cache report
+        if: ${{ always() && env.XMTP_KACHE == '1' }}
+        continue-on-error: true
+        run: dev/nix-shell --shell rust --command kache stats --format json --redact --since 1h --output "$RUNNER_TEMP/kache-native-clippy.json"
+      - name: Retain compiler cache report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: kache-native-clippy-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ runner.temp }}/kache-native-clippy.json
+          if-no-files-found: ignore
+          retention-days: 7
   wasm:
     name: Check (WASM Clippy)
     runs-on: blacksmith-16vcpu-ubuntu-2404

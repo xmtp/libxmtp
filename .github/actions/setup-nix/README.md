@@ -75,6 +75,17 @@ Repeat on Linux and macOS. A changed source must compile. A missing or
 unavailable entry must also compile normally. Prove that reader credentials
 cannot upload and pull request jobs cannot obtain the writer keys.
 
+The pilot workflows retain redacted JSON cache reports for seven days as
+`kache-native-clippy-<OS>-<ARCH>` and
+`kache-bindings-check-<TARGET>-<OS>-<ARCH>`. The report covers the job's compiler
+activity before the Kache action's final post step. Use it with the action's
+final job summary to compare hits, misses, and remote transfers. A first
+writer run can be cold. A later reader run must reuse matching entries before
+the wider routing change is accepted.
+Report collection and artifact service errors do not change the compiler
+job's result. If a report is missing, cache-reuse acceptance still needs its
+evidence before the wider routing PR can proceed.
+
 Keep the other callers local-only until these checks pass. Then route their
 reader or writer settings in a separate PR with a stable scope for each build
 variant. Do not use commit IDs or run IDs in the scope.

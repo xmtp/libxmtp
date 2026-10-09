@@ -39,6 +39,19 @@ jobs:
       env:
         NIX_DEVSHELL: ios
       run: dev/nix-shell 'dev/agent-run cargo check --locked -p xmtp_sdk --target ${{ matrix.target }}'
+    - name: Record compiler cache report
+      if: ${{ always() && env.XMTP_KACHE == '1' }}
+      continue-on-error: true
+      run: dev/nix-shell --shell rust --command kache stats --format json --redact --since 1h --output "$RUNNER_TEMP/kache-bindings-check.json"
+    - name: Retain compiler cache report
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@v4
+      with:
+        name: kache-bindings-check-${{ matrix.target }}-${{ runner.os }}-${{ runner.arch }}
+        path: ${{ runner.temp }}/kache-bindings-check.json
+        if-no-files-found: ignore
+        retention-days: 7
     if: inputs.run-ios
   check-android:
     runs-on: blacksmith-16vcpu-ubuntu-2404

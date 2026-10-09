@@ -97,6 +97,13 @@ Existing deployment jobs retain their environments and use reader access when
 added later. Tags, dispatches, and jobs that build a selected ref cannot write.
 Keep the native backend acceptance job free of cache writer keys.
 
+The two pilot workflows retain redacted JSON Kache reports for seven days.
+Keep their compiler commands and scopes unchanged when checking reader reuse.
+Reports are recorded before the Kache action's post step; its final summary
+includes later transfers. Failed setup skips report collection, and missing
+reports or report-service errors do not change the compiler result. A missing
+report leaves cache-reuse acceptance incomplete even when the build passes.
+
 `just lint-config` tests CI selection, result gates, summaries, the backend
 selector, and write policy without keys, a compiler daemon, or cloud access.
 See the setup action's README for settings.
