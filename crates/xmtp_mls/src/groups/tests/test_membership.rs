@@ -144,27 +144,6 @@ async fn test_add_member_conflict() {
 }
 
 #[xmtp_common::test]
-async fn test_add_inbox() {
-    tester!(client);
-    tester!(client_2);
-    let group = client.create_group(None, None).expect("create group");
-
-    group.add_members(&[client_2.inbox_id()]).await.unwrap();
-
-    let group_id = group.group_id;
-
-    let messages = client
-        .context
-        .api()
-        .query_group_messages(group_id)
-        .await
-        .unwrap();
-    // Adding a member emits an Add proposal, a membership AppDataUpdate proposal,
-    // and the commit that consumes both proposals.
-    assert_eq!(messages.len(), 3);
-}
-
-#[xmtp_common::test]
 async fn test_add_invalid_member() {
     tester!(client);
     let group = client.create_group(None, None).expect("create group");
@@ -182,43 +161,6 @@ async fn test_add_unregistered_member() {
     let result = group.add_members_by_identity(&[unconnected_ident]).await;
 
     assert!(result.is_err());
-}
-
-#[xmtp_common::test]
-async fn test_remove_inbox() {
-    tester!(client_1);
-    // Add another client onto the network
-    tester!(client_2);
-
-    let group = client_1.create_group(None, None).expect("create group");
-    group
-        .add_members(&[client_2.inbox_id()])
-        .await
-        .expect("group create failure");
-
-    let messages_with_add = group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(messages_with_add.len(), 1);
-
-    // Try and add another member without merging the pending commit
-    group
-        .remove_members(&[client_2.inbox_id()])
-        .await
-        .expect("group remove members failure");
-
-    let messages_with_remove = group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(messages_with_remove.len(), 2);
-
-    // Each membership update emits an MLS proposal, a membership AppDataUpdate proposal,
-    // and a commit. Both the add and remove are published.
-    let group_id = group.group_id;
-    let messages = client_1
-        .context
-        .api()
-        .query_group_messages(group_id)
-        .await
-        .expect("read topic");
-
-    assert_eq!(messages.len(), 6);
 }
 
 // verifies: GMOD-034

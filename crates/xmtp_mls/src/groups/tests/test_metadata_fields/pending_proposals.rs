@@ -130,76 +130,79 @@ async fn test_clears_carried_out_by_pending_removals_commit_them() {
     assert_eq!(bo_group.map_value(&names, &FieldKey::InboxId(own))?, None);
 }
 
-/// Each public no-op keeps another member's entry pending. A committed
-/// rewrite and an absent clear make no commit, alone or in one batch.
+/// An absent clear and two committed-value rewrites keep Bo's proposal pending.
 // verifies: META-073
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_unchanged_writes_ignore_other_pending_entries_absent_clear() {
-    unchanged_writes_ignore_other_pending_entries(false, true, false).await?;
-}
-
-// verifies: META-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_unchanged_writes_ignore_other_pending_entries_committed_rewrite() {
-    unchanged_writes_ignore_other_pending_entries(true, false, false).await?;
-}
-
-// verifies: META-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_unchanged_writes_ignore_other_pending_entries_mixed_batch() {
-    unchanged_writes_ignore_other_pending_entries(true, false, true).await?;
-}
-
-async fn unchanged_writes_ignore_other_pending_entries(
-    committed_name: bool,
-    clear_name: bool,
-    clear_nickname: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_unchanged_writes_ignore_other_pending_entries() {
     tester!(alix, configured: |c| c.application_components = catalogue());
     tester!(bo);
-    let group = alix
+
+    // Keep this group separate. Committing a name here could consume Bo's proposal.
+    let absent_group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    let bo_group = bo
+    let bo_absent_group = bo
         .wait_for_welcomes()
         .await?
         .pop()
         .expect("Bo group welcome");
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
-    if committed_name {
-        group.update_user_data(&[set(names.clone(), "Al")]).await?;
-    }
-    bo_group.sync().await?;
-    publish_proposals(&bo_group, inbox(&bo), display_name("Bo")).await?;
-    group.sync().await?;
-    let pending = pending_proposals(&group)?;
-    assert!(pending > 0);
-    let epoch = group.epoch().await?;
-
-    let mut writes = vec![if clear_name {
-        clear(names.clone())
-    } else {
-        set(names.clone(), "Al")
-    }];
-    if clear_nickname {
-        writes.push(clear(nickname()));
-    }
-    group.update_user_data(&writes).await?;
-    assert_eq!(group.epoch().await?, epoch);
-    assert_eq!(pending_proposals(&group)?, pending);
+    bo_absent_group.sync().await?;
+    publish_proposals(&bo_absent_group, inbox(&bo), display_name("Bo")).await?;
+    absent_group.sync().await?;
+    let absent_pending = pending_proposals(&absent_group)?;
+    assert!(absent_pending > 0);
+    let absent_epoch = absent_group.epoch().await?;
+    absent_group
+        .update_user_data(&[clear(names.clone())])
+        .await?;
+    assert_eq!(absent_group.epoch().await?, absent_epoch);
+    assert_eq!(pending_proposals(&absent_group)?, absent_pending);
     assert_eq!(
-        group.map_value(&names, &FieldKey::InboxId(inbox(&bo)))?,
+        absent_group.map_value(&names, &FieldKey::InboxId(inbox(&bo)))?,
         None
     );
     assert_eq!(
-        group.map_value(&names, &FieldKey::InboxId(inbox(&alix)))?,
-        committed_name.then(|| string("Al"))
+        absent_group.map_value(&names, &FieldKey::InboxId(inbox(&alix)))?,
+        None
     );
-    assert_eq!(group.metadata_value(&nickname())?, None);
-    if !committed_name {
-        assert_eq!(group.metadata_value(&names)?, None);
+    assert_eq!(absent_group.metadata_value(&nickname())?, None);
+    assert_eq!(absent_group.metadata_value(&names)?, None);
+
+    let committed_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_committed_group = bo
+        .wait_for_welcomes()
+        .await?
+        .pop()
+        .expect("Bo second group welcome");
+    committed_group
+        .update_user_data(&[set(names.clone(), "Al")])
+        .await?;
+    bo_committed_group.sync().await?;
+    publish_proposals(&bo_committed_group, inbox(&bo), display_name("Bo")).await?;
+    committed_group.sync().await?;
+    let committed_pending = pending_proposals(&committed_group)?;
+    assert!(committed_pending > 0);
+    let committed_epoch = committed_group.epoch().await?;
+    for writes in [
+        vec![set(names.clone(), "Al")],
+        vec![set(names.clone(), "Al"), clear(nickname())],
+    ] {
+        committed_group.update_user_data(&writes).await?;
+        assert_eq!(committed_group.epoch().await?, committed_epoch);
+        assert_eq!(pending_proposals(&committed_group)?, committed_pending);
+        assert_eq!(
+            committed_group.map_value(&names, &FieldKey::InboxId(inbox(&bo)))?,
+            None
+        );
+        assert_eq!(
+            committed_group.map_value(&names, &FieldKey::InboxId(inbox(&alix)))?,
+            Some(string("Al"))
+        );
+        assert_eq!(committed_group.metadata_value(&nickname())?, None);
     }
-    Ok(())
 }
 
 /// A queued write whose pending proposal another member commits first is
