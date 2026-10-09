@@ -32,7 +32,6 @@ class AttachmentFiles(private val context: Context, private val key: SessionKey,
     suspend fun preview(messageId: String): Bitmap? = withContext(Dispatchers.IO) {
         checkCurrent()
         val downloaded = checkNotNull(verified[messageId]) { "Download the file first" }
-        if (downloaded.mimeType?.startsWith("image/") != true) return@withContext null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(downloaded.path, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
