@@ -109,6 +109,143 @@ class NotificationControllerInstrumentedTest {
         }
     }
 
+    private suspend fun privacyWriteAlreadyPending(kind: String) {
+        AndroidStreamLifecycle.enabled = false
+        resumeStreams()
+        val session = AppSession(context)
+        val controller = controller(session)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var mutation: Deferred<Unit>? = null
+        var posts = 0
+        controller.postNotification = { _, _, _ ->
+            posts += 1
+            true
+        }
+        try {
+            session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+            val owner = checkNotNull(session.active.value)
+            enabled(session, controller)
+            val group = owner.client.conversations.createGroup(emptyList())
+            group.updateConsentState(ConsentState.ALLOWED)
+            assertEquals(ConsentState.ALLOWED, group.state().common.consentState)
+            val prefs = NotificationPreferences(context)
+            assertTrue("Real app opt-in baseline", prefs.enabled(owner.key.profileId))
+            assertFalse("Real unmuted baseline", prefs.muted(owner.key.profileId, group.id()))
+            controller.beforePrivacyWrite = {
+                entered.complete(Unit)
+                release.await()
+            }
+            mutation =
+                owner.work.async {
+                    when (kind) {
+                        "app" -> controller.setEnabled(owner, false)
+                        "conversation" -> controller.setConversationEnabled(owner, Conversation.Group(group), false)
+                        else -> controller.withPrivacyMutation(owner) { group.updateConsentState(ConsentState.DENIED) }
+                    }
+                    Unit
+                }
+            stage(session, "privacy write pending $kind") { entered.await() }
+            assertTrue("Opt-in is still old before DataStore commit", prefs.enabled(owner.key.profileId))
+            assertFalse("Mute is still old before SDK/DataStore commit", prefs.muted(owner.key.profileId, group.id()))
+            assertFalse(
+                "An already-pending $kind mutation must reject a new snapshot",
+                controller.receive(payload(0, group.id())),
+            )
+            assertEquals(0, posts)
+            release.complete(Unit)
+            stage(session, "privacy write committed $kind") { mutation.await() }
+            when (kind) {
+                "app" -> assertFalse(prefs.enabled(owner.key.profileId))
+                "conversation" -> assertTrue(prefs.muted(owner.key.profileId, group.id()))
+                else -> assertEquals(ConsentState.DENIED, group.state().common.consentState)
+            }
+        } finally {
+            release.complete(Unit)
+            withContext(NonCancellable) {
+                mutation?.cancelAndJoin()
+                controller.beforePrivacyWrite = {}
+                cleanup(session, controller)
+                AndroidStreamLifecycle.enabled = true
+            }
+        }
+    }
+
+    @Test fun alreadyPendingAppOptOutRejectsNewPushSnapshot() = runBlocking { privacyWriteAlreadyPending("app") }
+
+    @Test fun alreadyPendingConversationMuteRejectsNewPushSnapshot() =
+        runBlocking {
+            privacyWriteAlreadyPending("conversation")
+        }
+
+    @Test fun alreadyPendingOwnedConsentWriteRejectsNewPushSnapshot() =
+        runBlocking {
+            privacyWriteAlreadyPending(
+                "sdk",
+            )
+        }
+
+    @Test fun callerCancellationKeepsAcceptedPrivacyWritePendingUntilCommit() =
+        runBlocking {
+            AndroidStreamLifecycle.enabled = false
+            resumeStreams()
+            val session = AppSession(context)
+            val controller = controller(session)
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            var mutation: Deferred<Unit>? = null
+            var posts = 0
+            controller.postNotification = { _, _, _ ->
+                posts += 1
+                true
+            }
+            try {
+                session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+                val owner = checkNotNull(session.active.value)
+                enabled(session, controller)
+                val group = owner.client.conversations.createGroup(emptyList())
+                val prefs = NotificationPreferences(context)
+                controller.beforePrivacyWrite = {
+                    entered.complete(Unit)
+                    release.await()
+                }
+                mutation = owner.work.async { controller.setEnabled(owner, false) }
+                stage(session, "accepted privacy write paused") { entered.await() }
+                mutation.cancel()
+                assertNull(
+                    "Cancellation must not finish an accepted write early",
+                    withTimeoutOrNull(500) {
+                        mutation.join()
+                        "completed"
+                    },
+                )
+                assertTrue(prefs.enabled(owner.key.profileId))
+                assertFalse(
+                    "Pending cancellation blocks push",
+                    controller.receive(payload(0, group.id())),
+                )
+                assertEquals(0, posts)
+                release.complete(Unit)
+                stage(session, "cancelled write completes") { mutation.join() }
+                assertFalse("Opt-out commits before pending clears", prefs.enabled(owner.key.profileId))
+                controller.beforePrivacyWrite = {}
+                owner.work.async { controller.setEnabled(owner, true) }.await()
+                assertTrue(
+                    "Pending token clears after cancellation",
+                    controller.receive(payload(0, group.id(), "2")),
+                )
+                assertEquals(1, posts)
+            } finally {
+                release.complete(Unit)
+                withContext(NonCancellable) {
+                    mutation?.cancelAndJoin()
+                    controller.beforePrivacyWrite = {}
+                    cleanup(session, controller)
+                    AndroidStreamLifecycle.enabled = true
+                }
+            }
+        }
+
     private suspend fun finalPrivacyChange(kind: String) {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()

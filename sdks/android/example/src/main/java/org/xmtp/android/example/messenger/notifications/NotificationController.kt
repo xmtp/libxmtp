@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.ActiveSession
@@ -32,6 +34,7 @@ import org.xmtp.android.example.messenger.SessionKey
 import org.xmtp.android.example.messenger.conversationState
 import org.xmtp.android.example.messenger.logicalConversationKey
 import uniffi.xmtp_sdk.*
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class NotificationController(
@@ -44,6 +47,7 @@ class NotificationController(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val registration = Mutex()
     private val privacyRevision = AtomicLong()
+    private val pendingPrivacyWrites = AtomicInteger()
     private var registeredOwner: SessionKey? = null
     private var registeredToken: String? = null
 
@@ -210,6 +214,7 @@ class NotificationController(
     ): Boolean {
         beforeFinalAdmission()
         val active = owner(owner) ?: return false
+        if (pendingPrivacyWrites.get() != 0) return false
         val revision = privacyRevision.get()
         if (!enabled(owner)) return false
         if (envelope.kind == PushKind.GROUP) {
@@ -220,7 +225,7 @@ class NotificationController(
         }
         if (!permission()) return false
         return session.withCurrent(active.key) {
-            if (privacyRevision.get() != revision) return@withCurrent false
+            if (pendingPrivacyWrites.get() != 0 || privacyRevision.get() != revision) return@withCurrent false
             val manager = context.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
                 NotificationChannel(
@@ -379,21 +384,72 @@ class NotificationController(
         reconcile(owner)
     }
 
+    internal var beforePrivacyWrite: suspend (String) -> Unit = {}
+
+    private fun beginPrivacyWrite() {
+        pendingPrivacyWrites.incrementAndGet()
+        privacyRevision.incrementAndGet()
+    }
+
+    private fun endPrivacyWrite() {
+        privacyRevision.incrementAndGet()
+        pendingPrivacyWrites.decrementAndGet()
+    }
+
+    internal suspend fun <T> withPrivacyMutation(
+        owner: ActiveSession,
+        block: suspend () -> T,
+    ): T? {
+        if (session.withCurrent(owner.key) {
+                beginPrivacyWrite()
+                true
+            } != true
+        ) {
+            return null
+        }
+        return try {
+            withContext(NonCancellable) {
+                beforePrivacyWrite("sdk")
+                block()
+            }
+        } finally {
+            endPrivacyWrite()
+        }
+    }
+
     suspend fun setEnabled(
         owner: ActiveSession,
         enabled: Boolean,
     ) {
-        if (!configured || !session.accepts(owner.key)) return
-        session.withCurrent(owner.key) { privacyRevision.incrementAndGet() }
-        if (!preferences.setEnabled(owner.key.profileId, enabled) { change -> session.admit(owner.key, change) }) return
-        if (!session.accepts(owner.key)) return
-        if (enabled && !permission() && Build.VERSION.SDK_INT >= 33) {
-            session.withCurrent(owner.key) {
-                enabledState.value = true
-                requestState.value += 1
-            }
+        if (!configured || session.withCurrent(owner.key) {
+                beginPrivacyWrite()
+                true
+            } != true
+        ) {
+            return
         }
-        refresh(owner)
+        try {
+            withContext(NonCancellable) {
+                beforePrivacyWrite("app")
+                if (!preferences.setEnabled(
+                        owner.key.profileId,
+                        enabled,
+                    ) { change -> session.admit(owner.key, change) }
+                ) {
+                    return@withContext
+                }
+                if (!session.accepts(owner.key)) return@withContext
+                if (enabled && !permission() && Build.VERSION.SDK_INT >= 33) {
+                    session.withCurrent(owner.key) {
+                        enabledState.value = true
+                        requestState.value += 1
+                    }
+                }
+            }
+            refresh(owner)
+        } finally {
+            endPrivacyWrite()
+        }
     }
 
     internal var beforeConversationPreferenceLookup: suspend (ActiveSession, Conversation) -> Unit = { _, _ -> }
@@ -408,12 +464,21 @@ class NotificationController(
         if (!configured || !admit {}) return
         beforeConversationPreferenceLookup(owner, conversation)
         val key = logicalConversationKey(conversation, owner.client.inboxId())
-        if (!admit { privacyRevision.incrementAndGet() }) return
-        beforeConversationNotificationWrite(conversation)
-        conversation.setNotifications(if (enabled) NotificationOverride.ENABLED else NotificationOverride.DISABLED)
-        if (!session.accepts(owner.key)) return
-        if (!preferences.setMuted(owner.key.profileId, key, !enabled, admit)) return
-        reconcile(owner)
+        if (!admit { beginPrivacyWrite() }) return
+        try {
+            withContext(NonCancellable) {
+                beforePrivacyWrite("conversation")
+                beforeConversationNotificationWrite(conversation)
+                conversation.setNotifications(
+                    if (enabled) NotificationOverride.ENABLED else NotificationOverride.DISABLED,
+                )
+                if (!session.accepts(owner.key)) return@withContext
+                if (!preferences.setMuted(owner.key.profileId, key, !enabled, admit)) return@withContext
+            }
+            reconcile(owner)
+        } finally {
+            endPrivacyWrite()
+        }
     }
 
     private suspend fun reconcile(owner: ActiveSession) =
