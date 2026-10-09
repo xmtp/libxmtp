@@ -9,6 +9,8 @@ import org.xmtp.android.example.messenger.*
 import uniffi.xmtp_sdk.*
 
 internal class AttachmentTestFixture {
+    private val previousLifecycle = AndroidStreamLifecycle.enabled
+    init { AndroidStreamLifecycle.enabled = false }
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val profile = BackendProfile(UUID.randomUUID().toString(), BuildConfig.XMTP_BACKEND_URL, allowPrivateNetwork = true)
     val key = SessionKey(profile.id, 1)
@@ -23,6 +25,7 @@ internal class AttachmentTestFixture {
     private lateinit var options: ClientOptions
 
     suspend fun start(age: ULong = 86400uL, backend: String = BuildConfig.XMTP_BACKEND_URL) {
+        resumeStreams()
         paths.database.parentFile!!.mkdirs()
         paths.attachments.mkdirs()
         options = ClientOptions(backend = BackendSource.Options(BackendOptions(url = backend)), storage = StorageOptions(location = StorageLocation.Explicit(paths.database.absolutePath, paths.attachments.absolutePath)), deviceSync = false, attachments = AttachmentOptions(maxPendingAgeSeconds = age, allowPrivateNetwork = true))
@@ -39,11 +42,13 @@ internal class AttachmentTestFixture {
         group = checkNotNull(client.conversations.getById(group.id()))
     }
     suspend fun close() = withContext(NonCancellable) {
-        current = false
-        endClient()
-        paths.root.deleteRecursively()
-        AttachmentFiles.profileDirectory(context, profile.id).deleteRecursively()
-        preferences.removeProfile(profile.id)
+        try {
+            current = false
+            endClient()
+            paths.root.deleteRecursively()
+            AttachmentFiles.profileDirectory(context, profile.id).deleteRecursively()
+            preferences.removeProfile(profile.id)
+        } finally { AndroidStreamLifecycle.enabled = previousLifecycle }
     }
     suspend fun endClient() {
         if (::client.isInitialized && !clientEnded) {
