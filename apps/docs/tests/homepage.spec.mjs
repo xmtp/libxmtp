@@ -129,13 +129,41 @@ test("homepage layout and agent tabs work with keyboard input", async ({
   await expect(page.locator("example-transcript .message:visible")).toHaveCount(
     6,
   );
-  for (const width of [320, 390, 768, 1440]) {
+  await page.evaluate(() => document.fonts.ready);
+  const network = page.locator(".network");
+  for (const width of [320, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+    const issues = await network.evaluate((element) => {
+      const panel = element.getBoundingClientRect();
+      const nodes = [...element.querySelectorAll(".group-agent, .center")];
+      const failures = [];
+      nodes.forEach((node, index) => {
+        const box = node.getBoundingClientRect();
+        if (box.left < panel.left || box.right > panel.right) {
+          failures.push(`Node exceeds panel: ${node.textContent}`);
+        }
+        for (const other of nodes.slice(index + 1)) {
+          const next = other.getBoundingClientRect();
+          if (
+            box.left < next.right &&
+            box.right > next.left &&
+            box.top < next.bottom &&
+            box.bottom > next.top
+          ) {
+            failures.push(
+              `Nodes overlap: ${node.textContent} / ${other.textContent}`,
+            );
+          }
+        }
+      });
+      return failures;
+    });
+    expect(issues, `${width}px agent diagram`).toEqual([]);
   }
 });
 
