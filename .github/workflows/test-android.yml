@@ -107,6 +107,11 @@ jobs:
       env:
         NIX_DEVSHELL: android
       run: dev/nix-shell 'just android example-test'
+    - name: Check Messenger build variants
+      if: inputs.run-unit
+      env:
+        NIX_DEVSHELL: android
+      run: dev/nix-shell 'just android example-check'
   integration-tests:
     name: Integration Tests (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404

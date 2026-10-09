@@ -12,6 +12,7 @@ Run these commands from the repository root:
 
 ```sh
 dev/nix-shell 'just android assemble'
+dev/nix-shell 'just android example-check'
 dev/nix-shell 'just android example-test'
 dev/nix-shell 'just backend up'
 dev/nix-shell 'just backend status'
