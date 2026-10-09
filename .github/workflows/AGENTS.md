@@ -46,7 +46,9 @@ files or the push event's before SHA. `.github/ci-paths.yml` names filters after
 checks. `dev/ci-select` reads Dorny's `changes` output and builds one plan for
 scheduling and result gates. PRs with more than 3,000 changed files, unavailable
 detection, unknown paths, and shared inputs select all checks. The PR file total
-comes from event metadata or the PR API. Rename-expanded path counts do not
+comes from event metadata or the PR API in a pinned action step before checkout.
+The selector receives no token, and checkout does not store credentials.
+Rename-expanded path counts do not
 select full validation. Empty diffs are valid.
 The job summary lists matched filters, full-run reasons, shared and unknown
 paths, policy exclusions, selected checks, and required jobs. Lists show up to
@@ -99,4 +101,6 @@ Keep the native backend acceptance job free of cache writer keys.
 
 `just lint-config` tests CI selection, result gates, summaries, the backend
 selector, and write policy without keys, a compiler daemon, or cloud access.
+Its path fixtures run the same Dorny bundle as the workflow. Nix provides the
+bundle with a fixed content hash in the default and Rust shells.
 See the setup action's README for settings.

@@ -14,6 +14,7 @@
   nodejs_26,
   rust-analyzer,
   python311,
+  ci-path-filter-bundle,
   uv,
   xmtp,
 }:
@@ -29,6 +30,7 @@ mkShell {
   meta.description = "Rust development environment for libXMTP crates and bindings";
 
   XMTP_DEV_SHELL = "rust";
+  CI_PATH_FILTER_BUNDLE = "${ci-path-filter-bundle}";
 
   # A nested Rust shell must not keep the local/iOS shell's Xcode overrides.
   # Use Nix's compiler wrapper with Nix's SDK and library search paths.

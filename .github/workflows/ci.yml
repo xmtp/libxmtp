@@ -25,9 +25,36 @@ jobs:
       lint_jobs: ${{ toJSON(fromJSON(steps.select.outputs.selection).lint_jobs) }}
       test_jobs: ${{ toJSON(fromJSON(steps.select.outputs.selection).test_jobs) }}
     steps:
+    - name: Read PR file total
+      id: pr
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          if (Number.isInteger(pr.changed_files) && pr.changed_files >= 0) {
+            core.setOutput('changed_files', pr.changed_files);
+            return;
+          }
+          try {
+            const { data } = await github.rest.pulls.get({
+              ...context.repo, pull_number: pr.number,
+              request: { timeout: 20000 }
+            });
+            if (data.head?.sha !== pr.head.sha) {
+              core.setOutput('error', 'The PR head changed after this event.');
+            } else if (!Number.isInteger(data.changed_files) || data.changed_files < 0) {
+              core.setOutput('error', 'The PR changed-file total is unavailable.');
+            } else {
+              core.setOutput('changed_files', data.changed_files);
+            }
+          } catch {
+            core.setOutput('error', 'Could not read PR metadata from the API.');
+          }
     - uses: actions/checkout@v6
       with:
         fetch-depth: 2
+        persist-credentials: false
     - name: Match changed paths
       id: paths
       if: github.event_name != 'workflow_dispatch'
@@ -43,7 +70,8 @@ jobs:
       id: select
       env:
         PATHS_OUTCOME: ${{ steps.paths.outcome }}
-        GITHUB_TOKEN: ${{ github.token }}
+        PR_CHANGED_FILES: ${{ steps.pr.outputs.changed_files }}
+        PR_METADATA_ERROR: ${{ steps.pr.outputs.error }}
       # JSON encoding keeps quotes and line breaks in file paths inside data.
       # Use standard input so large file lists do not exceed environment limits.
       run: |

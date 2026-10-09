@@ -10,7 +10,6 @@ import re
 import subprocess
 import tempfile
 import unittest
-from unittest import mock
 
 import yaml
 
@@ -259,34 +258,63 @@ class SelectionTests(unittest.TestCase):
 
 
 class MetadataTests(unittest.TestCase):
+    def metadata(self, payload, current=None):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+        step = next(
+            s
+            for s in workflow["jobs"]["detect-changes"]["steps"]
+            if s.get("id") == "pr"
+        )
+        runner = """
+const fs = require('node:fs');
+const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+const outputs = {}; let calls = 0; let params;
+const github = {rest:{pulls:{get:async p => {calls++;params=p;return {data:input.current};}}}};
+const context = {payload:input.payload,repo:{owner:'xmtp',repo:'libxmtp'}};
+const core = {setOutput:(key,value)=>{outputs[key]=String(value);}};
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+(async()=>{await new AsyncFunction('github','context','core',input.script)(github,context,core);
+ console.log(JSON.stringify({outputs,calls,params}));})().catch(e=>{console.error(e);process.exit(1);});
+"""
+        run = subprocess.run(
+            ["node", "-e", runner],
+            input=json.dumps(
+                {
+                    "script": step["with"]["script"],
+                    "payload": payload,
+                    "current": current,
+                }
+            ),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
     def test_event_total_does_not_require_an_api_call(self):
-        with mock.patch.object(
-            SELECTOR, "urlopen", side_effect=AssertionError("Unexpected API call")
-        ):
-            self.assertEqual(SELECTOR.pr_changed_files(event(), {}), (1, None))
+        result = self.metadata(event())
+        self.assertEqual(result["calls"], 0)
+        self.assertEqual(result["outputs"], {"changed_files": "1"})
 
     def test_api_total_is_checked_against_the_event_head(self):
         payload = event()
         del payload["pull_request"]["changed_files"]
-        env = {
-            "GITHUB_API_URL": "https://api.github.com",
-            "GITHUB_REPOSITORY": "xmtp/libxmtp",
-            "GITHUB_TOKEN": "test-token",
-        }
         for head, total, expected in [
-            ("event-head", 3001, (3001, None)),
-            ("new-head", 1, (None, "The PR head changed after this event.")),
+            ("event-head", 3001, {"changed_files": "3001"}),
+            ("new-head", 1, {"error": "The PR head changed after this event."}),
+            (
+                "event-head",
+                "13",
+                {"error": "The PR changed-file total is unavailable."},
+            ),
         ]:
-            with self.subTest(head=head):
-                response = mock.MagicMock()
-                response.__enter__.return_value.read.return_value = json.dumps(
-                    {"head": {"sha": head}, "changed_files": total}
+            with self.subTest(head=head, total=total):
+                result = self.metadata(
+                    payload, {"head": {"sha": head}, "changed_files": total}
                 )
-                with mock.patch.object(
-                    SELECTOR, "urlopen", return_value=response
-                ) as fetch:
-                    self.assertEqual(SELECTOR.pr_changed_files(payload, env), expected)
-                self.assertEqual(fetch.call_args.kwargs["timeout"], 20)
+                self.assertEqual(result["outputs"], expected)
+                self.assertEqual(result["calls"], 1)
+                self.assertEqual(result["params"]["request"]["timeout"], 20000)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -304,6 +332,13 @@ class WorkflowTests(unittest.TestCase):
             for s in workflow["jobs"]["detect-changes"]["steps"]
             if s.get("id") == "select"
         )
+        self.assertNotIn("GITHUB_TOKEN", step["env"])
+        checkout = next(
+            s
+            for s in workflow["jobs"]["detect-changes"]["steps"]
+            if s.get("uses", "").startswith("actions/checkout@")
+        )
+        self.assertIs(checkout["with"]["persist-credentials"], False)
         path = 'docs/quote"\nCI_PATH_DATA\n$(touch injected)\n<script>.md'
         data = outputs(["docs_site"], paths=[path])
         script = re.sub(
@@ -318,6 +353,8 @@ class WorkflowTests(unittest.TestCase):
                 "GITHUB_EVENT_PATH": str(temp / "event.json"),
                 "GITHUB_EVENT_NAME": "pull_request",
                 "PATHS_OUTCOME": "success",
+                "PR_CHANGED_FILES": "1",
+                "PR_METADATA_ERROR": "",
                 "GITHUB_OUTPUT": str(temp / "outputs"),
                 "GITHUB_STEP_SUMMARY": str(temp / "summary"),
             }
