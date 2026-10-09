@@ -19,7 +19,23 @@ class AttachmentPublicationInstrumentedTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
-    private suspend fun until(check: suspend () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
+    private suspend fun until(
+        stage: String,
+        check: suspend () -> Boolean,
+    ) {
+        try {
+            withTimeout(30_000) { while (!check()) delay(20) }
+        } catch (failure: TimeoutCancellationException) {
+            val state = model.state.value
+            val owner = model.session.active.value
+            val drafts = owner?.let { model.session.preferences.drafts(it.key.profileId) }.orEmpty()
+            println(
+                "PUBLICATION_WAIT_DIAGNOSTIC stage=$stage screen=${state.screen} support=${state.features.attachments}",
+            )
+            println("PUBLICATION_WAIT_DIAGNOSTIC draft-phases=${drafts.map { it.phase }}")
+            throw failure
+        }
+    }
 
     @Test fun actualRecoveryCardRetriesOnlyItsAcceptedMessageId() =
         runBlocking<Unit> {
@@ -32,7 +48,10 @@ class AttachmentPublicationInstrumentedTest {
                 session.signOut()
                 session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
                 val owner = checkNotNull(session.active.value)
-                until { model.state.value.inbox == owner.client.inboxId() && model.state.value.features.attachments }
+                until("availability") {
+                    model.state.value.inbox == owner.client.inboxId() &&
+                        model.state.value.features.attachments
+                }
                 model.foreground(false)
                 session.onInvalidated = {}
                 val chat =
@@ -59,7 +78,7 @@ class AttachmentPublicationInstrumentedTest {
                         .deliveryStatus,
                 )
                 model.dispatch(MessengerAction.Navigate(Screen.DRAFTS))
-                until { model.state.value.screen == Screen.DRAFTS }
+                until("drafts-screen") { model.state.value.screen == Screen.DRAFTS }
                 model.featureRefresh(owner, null)
                 compose.onNodeWithText("Retry publication").assertIsDisplayed().performClick()
                 var published = false
@@ -74,7 +93,7 @@ class AttachmentPublicationInstrumentedTest {
                     delay(50)
                 }
                 assertTrue("The recovery action publishes the stored MessageId", published)
-                until { session.preferences.drafts(owner.key.profileId).isEmpty() }
+                until("reference-cleanup") { session.preferences.drafts(owner.key.profileId).isEmpty() }
                 assertEquals(listOf(id), chat.messages(null).map { it.id })
                 assertEquals(Screen.DRAFTS, model.state.value.screen)
                 compose.onNodeWithText("Retry publication").assertDoesNotExist()
