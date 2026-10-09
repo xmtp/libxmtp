@@ -163,6 +163,7 @@ class MetadataNavigationInstrumentedTest {
 
                 model.dispatch(MessengerAction.Navigate(Screen.CONVERSATION_SETTINGS))
                 until { model.state.value.screen == Screen.CONVERSATION_SETTINGS && !model.state.value.busy }
+                group.updateUserData(listOf(UserFieldUpdate(ref(0x800c), FieldValue.String("Old name"))))
                 compose.onNodeWithText("My fields").performScrollTo().performClick()
                 until {
                     !model.metadataState.value.busy &&
@@ -171,6 +172,12 @@ class MetadataNavigationInstrumentedTest {
                 }
                 compose.onNodeWithTag("metadata-fields").performScrollToNode(hasTestTag("metadata-value-49158"))
                 compose.onNodeWithTag("metadata-value-49158").performTextReplacement("UI own note")
+                group.updateUserData(listOf(UserFieldUpdate(ref(0x800c), FieldValue.String("New name"))))
+                until {
+                    model.metadataState.value.fields
+                        .any { it.scalar == "New name" }
+                }
+                compose.onNodeWithTag("metadata-value-49158").assertTextContains("UI own note")
                 androidx.test.espresso.Espresso
                     .closeSoftKeyboard()
                 compose.onNodeWithText("Save changed fields").performScrollTo().performClick()
@@ -185,6 +192,16 @@ class MetadataNavigationInstrumentedTest {
                     other
                         .userData(
                             listOf(ref(0xc006)),
+                            listOf(owner.client.inboxId()),
+                        ).getValue(owner.client.inboxId())
+                        .single()
+                        .value,
+                )
+                assertEquals(
+                    FieldValue.String("New name"),
+                    other
+                        .userData(
+                            listOf(ref(0x800c)),
                             listOf(owner.client.inboxId()),
                         ).getValue(owner.client.inboxId())
                         .single()

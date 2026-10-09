@@ -17,12 +17,10 @@ fun MetadataScreen(
     action: (MetadataEdit) -> Unit,
 ) {
     val fields = state.fields.filter { it.userField == own }
-    val ownValues =
-        remember(fields) {
-            mutableStateMapOf<FieldUiId, String?>().apply {
-                fields.filter { it.editable }.forEach { put(it.id, if (it.present) it.scalar else null) }
-            }
-        }
+    var draft by remember(own) { mutableStateOf(OwnFieldDraft()) }
+    val currentDraft = draft.merge(fields)
+    SideEffect { draft = currentDraft }
+    val ownValues = currentDraft.values
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 20.dp).testTag("metadata-fields"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -57,7 +55,7 @@ fun MetadataScreen(
                 } else if (own) {
                     OutlinedTextField(
                         ownValues[field.id] ?: "",
-                        { ownValues[field.id] = it },
+                        { draft = currentDraft.change(field.id, it) },
                         label = {
                             Text(
                                 if (field.shape ==
@@ -77,12 +75,12 @@ fun MetadataScreen(
                     )
                     Row {
                         TextButton(
-                            { ownValues[field.id] = "" },
+                            { draft = currentDraft.change(field.id, "") },
                             Modifier.heightIn(min = 48.dp),
                             enabled = !state.busy,
                         ) { Text("Set empty") }
                         TextButton(
-                            { ownValues[field.id] = null },
+                            { draft = currentDraft.change(field.id, null) },
                             Modifier.heightIn(min = 48.dp),
                             enabled = !state.busy,
                         ) { Text("Clear") }
@@ -97,7 +95,7 @@ fun MetadataScreen(
         if (own) {
             item {
                 Button(
-                    { action(MetadataEdit.Own(ownValues.toMap())) },
+                    { action(currentDraft.edit()) },
                     Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     enabled =
                         !state.busy && fields.any { it.editable },

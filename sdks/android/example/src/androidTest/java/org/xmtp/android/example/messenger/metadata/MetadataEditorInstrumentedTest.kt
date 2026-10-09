@@ -207,6 +207,20 @@ class MetadataEditorInstrumentedTest {
         source.sync()
         editor.refresh()
         edit(MetadataEdit.Own(mapOf(id(0xc006) to "Alix", id(0xc007) to "00ff")))
+        val displayed = OwnFieldDraft().merge(editor.state.value.fields)
+        val dirty = displayed.change(id(0xc007), "80").edit()
+        source.updateUserData(listOf(UserFieldUpdate(ref(0xc006), FieldValue.String("New Alix"))))
+        edit(dirty)
+        val concurrent = peer.userData(listOf(ref(0xc006), ref(0xc007)), listOf(own)).getValue(own)
+        assertEquals(
+            FieldValue.String("New Alix"),
+            concurrent.single { it.field.componentId == 0xc006.toUShort() }.value,
+        )
+        assertArrayEquals(
+            byteArrayOf(-128),
+            (concurrent.single { it.field.componentId == 0xc007.toUShort() }.value as FieldValue.Bytes).v1,
+        )
+        edit(MetadataEdit.Own(mapOf(id(0xc006) to "Alix", id(0xc007) to "00ff")))
         val readback = peer.userData(listOf(ref(0xc006), ref(0xc007)), listOf(own, other))
         val values = readback.getValue(own).associate { it.field.componentId to it.value }
         assertEquals(FieldValue.String("Alix"), values[0xc006.toUShort()])

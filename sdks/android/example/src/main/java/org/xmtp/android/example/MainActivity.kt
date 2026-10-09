@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.runtime.key
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.xmtp.android.example.messenger.MessengerViewModel
 import org.xmtp.android.example.messenger.ReactionPickerHost
@@ -33,11 +34,13 @@ class MainActivity : ComponentActivity() {
                         }
 
                         Screen.GROUP_FIELDS, Screen.MY_FIELDS -> {
-                            MetadataScreen(
-                                model.metadataState.collectAsStateWithLifecycle().value,
-                                screen == Screen.MY_FIELDS,
-                                model::editMetadata,
-                            )
+                            key(model.screenToken()) {
+                                MetadataScreen(
+                                    model.metadataState.collectAsStateWithLifecycle().value,
+                                    screen == Screen.MY_FIELDS,
+                                    model::editMetadata,
+                                )
+                            }
                         }
 
                         else -> {
