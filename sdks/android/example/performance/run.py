@@ -114,6 +114,7 @@ def execute(output, label, backend):
         "-p",
         str(ANDROID),
         ":example:connectedDebugAndroidTest",
+        "-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true",
         "--dependency-verification=strict",
         "--no-daemon",
         f"-Pandroid.testInstrumentationRunnerArguments.class={TEST_CLASS}",

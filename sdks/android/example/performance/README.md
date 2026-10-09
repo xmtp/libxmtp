@@ -40,7 +40,9 @@ calls establish two ordinary 50-row pages for the main timing gate.
 
 The test checks the backend and each group's raw selected count and the full conversation
 count before it measures. The workload stays in the test app between the
-green, broken, and restored runs. Keys use the app's encrypted secret store.
+green, broken, and restored runs. Each Gradle invocation sets
+`android.injected.androidTest.leaveApksInstalledAfterRun=true`. This preserves
+the app, result, database and Keystore records across the three passes. Keys use the app's encrypted secret store.
 The owned emulator scope removes the device files when it ends.
 
 ## Measurements and failure control

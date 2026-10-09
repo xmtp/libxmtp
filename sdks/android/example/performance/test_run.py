@@ -1,10 +1,12 @@
 """Check that incomplete or slow device results cannot satisfy the gate."""
 
 import copy
+import json
+import subprocess
 import unittest
 from pathlib import Path
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import run
 from run import validate
 
@@ -113,6 +115,45 @@ class PerformanceGateTest(unittest.TestCase):
                 report = copy.deepcopy(result())
                 report[metric] = value
                 validate(report)
+
+
+class DeviceInvocationTest(unittest.TestCase):
+    def test_every_pass_retains_the_installed_app_for_result_and_dataset_reuse(self):
+        invocations = []
+
+        def execute_process(arguments, **options):
+            if arguments[0] != "adb":
+                invocations.append(arguments)
+            return subprocess.CompletedProcess(
+                arguments, 0, stdout=json.dumps(result())
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            logcat = MagicMock(stdout=iter(()))
+            with (
+                patch.dict(run.os.environ, {"ANDROID_SERIAL": "emulator-5560"}),
+                patch.object(run, "ANDROID", output / "android"),
+                patch.object(run.subprocess, "run", side_effect=execute_process),
+                patch.object(run.subprocess, "Popen", return_value=logcat),
+                patch.object(run, "result_failures", return_value=[]),
+            ):
+                for label in ("green", "red-cache", "restored"):
+                    code, report, failures = run.execute(
+                        output, label, "http://fixture"
+                    )
+                    self.assertEqual(0, code)
+                    self.assertEqual("fixture-1", report["workloadId"])
+                    self.assertEqual([], failures)
+
+            self.assertEqual(3, len(invocations))
+            for invocation in invocations:
+                self.assertIn(":example:connectedDebugAndroidTest", invocation)
+                self.assertIn(
+                    "-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true",
+                    invocation,
+                    "UTP otherwise removes the app, result, database and Keystore records",
+                )
 
 
 class CacheFailureControlTest(unittest.TestCase):
