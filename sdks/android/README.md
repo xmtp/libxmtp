@@ -92,3 +92,52 @@ receives one `Closed` reason. Normal completion and cancellation also receive
 one `Closed` reason.
 Close clients and readers in `NonCancellable` teardown. See [development rules](AGENTS.md) for build
 and test commands. The [example](example) uses the same public API.
+
+## Messenger files
+
+The Messenger example sends one file per message. Select a file in a chat,
+then use **Send file**. The app copies the URI into private storage in chunks
+of at most 64 KiB. It checks the server upload limit from the actual bytes.
+The SDK applies its final limit, which also includes encrypted content overhead.
+Upload finishes before the app queues the message. **Delivered** means SDK
+publication.
+
+**Settings → Draft recovery** shows retained file drafts. The SDK age limit is
+24 hours by default. A retained Complete upload can resume through its encrypted
+full descriptor. An expired or missing record shows **Draft expired or
+unavailable**. Select a file again to make a new draft. A send interrupted before
+its accepted message ID was saved requires **View chat** or **Discard**. The
+original message may already exist. Recovery never sends it again automatically.
+Publication retries use the saved message ID.
+
+Before queue admission, **Discard** stops native upload work and removes its
+local files. Cancelling the coroutine that waits for an upload does not stop
+native transfer. Discarding an unknown or accepted send reference removes the
+app draft. Message deletion remains a separate chat action.
+
+Use **Download** to obtain an SDK-verified local file. Image previews use a
+sampled local bitmap. **Open** copies that file into the selected profile's
+private export directory and grants read access to that file URI. **Save**
+copies it through the system-selected destination URI. The FileProvider exposes
+only `messenger-exports/`. Sign out revokes export grants and clears exports.
+Local account reset also revokes grants during cold recovery and removes the
+selected profile's owned files.
+
+For local object-store tests, start the backend and read the worktree routes:
+
+```bash
+dev/nix-shell 'just backend up'
+dev/nix-shell 'just backend status'
+dev/nix-shell 'just android example-test'
+dev/nix-shell 'just android example-test-integration'
+```
+
+The installed app tests use the owned emulator scope. The recipe forwards the
+advertised S3 port with `adb reverse`, so signed loopback attachment URLs work.
+Enable **Allow local attachment network** for this local fixture. The backend
+route can use the emulator gateway; attachment URLs still follow the SDK URL
+rules. The interruption tests receive proxy routes from the worktree environment,
+hold only their named toxic, and restore the proxy on exit. Run proxy tests alone
+when a stack is shared. To use an existing stack from another checkout, source
+that checkout's `dev/docker/load-env` before the recipe. Caller values take
+precedence over generated worktree defaults.

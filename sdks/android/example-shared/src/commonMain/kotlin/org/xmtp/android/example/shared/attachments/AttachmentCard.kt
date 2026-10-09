@@ -11,7 +11,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun AttachmentCard(state: AttachmentCardState, conversationId: String, action: (AttachmentAction) -> Unit) {
+fun AttachmentCard(
+    state: AttachmentCardState,
+    conversationId: String,
+    action: (AttachmentAction) -> Unit,
+) {
     Column {
         Text(state.filename)
         Text(state.status)
@@ -20,15 +24,41 @@ fun AttachmentCard(state: AttachmentCardState, conversationId: String, action: (
         if (state.unknownOutcome) Text("The original message may already be in the chat.")
         if (state.unavailable) Text("Draft expired or unavailable. Select a file again to make a new draft.")
         Row {
-            if (state.canSend) TextButton(onClick = { action(AttachmentAction.Send(state.id)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Send file") }
-            if (state.acceptedMessageId != null) TextButton(onClick = { action(AttachmentAction.ViewChat(conversationId)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("View chat / Retry publication") }
-            if (state.canDownload) TextButton(onClick = { action(AttachmentAction.Download(state.id)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Download") }
-            if (state.canOpen) {
-                TextButton(onClick = { action(AttachmentAction.Open(state.id)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open") }
-                TextButton(onClick = { action(AttachmentAction.Save(state.id)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Save") }
+            if (state.canSend) {
+                TextButton(onClick = {
+                    action(AttachmentAction.Send(state.id))
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Send file") }
             }
-            if (state.unknownOutcome) TextButton(onClick = { action(AttachmentAction.ViewChat(conversationId)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("View chat") }
-            if (state.canDiscard) TextButton(onClick = { action(AttachmentAction.Discard(state.id)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Discard") }
+            if (state.acceptedMessageId !=
+                null
+            ) {
+                TextButton(onClick = {
+                    action(AttachmentAction.ViewChat(conversationId))
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("View chat / Retry publication") }
+            }
+            if (state.canDownload) {
+                TextButton(onClick = {
+                    action(AttachmentAction.Download(state.id))
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Download") }
+            }
+            if (state.canOpen) {
+                TextButton(onClick = {
+                    action(AttachmentAction.Open(state.id))
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open") }
+                TextButton(onClick = {
+                    action(AttachmentAction.Save(state.id))
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Save") }
+            }
+            if (state.unknownOutcome) {
+                TextButton(onClick = {
+                    action(AttachmentAction.ViewChat(conversationId))
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("View chat") }
+            }
+            if (state.canDiscard) {
+                TextButton(onClick = {
+                    action(AttachmentAction.Discard(state.id))
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Discard") }
+            }
         }
     }
 }
