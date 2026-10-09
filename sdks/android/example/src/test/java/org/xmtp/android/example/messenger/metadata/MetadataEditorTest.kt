@@ -32,6 +32,7 @@ class MetadataEditorTest {
         var descriptorRead: (() -> Unit)? = null
         var denied: Exception? = null
         var afterWrite: (() -> Unit)? = null
+        var afterUserWrite: ((List<UserFieldUpdate>) -> Unit)? = null
 
         override suspend fun metadataFields(): List<MetadataFieldDescriptor> {
             descriptorRead?.invoke()
@@ -77,6 +78,7 @@ class MetadataEditorTest {
 
         override suspend fun updateUserData(values: List<UserFieldUpdate>) {
             userWrites += values
+            afterUserWrite?.invoke(values)
         }
     }
 
@@ -201,6 +203,113 @@ class MetadataEditorTest {
                     .scalar,
             )
         }
+
+    @Test fun staleUntouchedOwnValueCannotOverwriteConcurrentUpdate() =
+        runBlocking {
+            val group = RecordingGroup()
+            val stringShape = MetadataComponentType.Map(MetadataKeyType.INBOX_ID, MetadataScalarType.STRING)
+            val byteShape = MetadataComponentType.Map(MetadataKeyType.INBOX_ID, MetadataScalarType.BYTES)
+            val first = descriptor(0xc006, stringShape, true)
+            val second = descriptor(0xc007, byteShape, true)
+            val firstId = FieldUiId(first.field.componentId)
+            val secondId = FieldUiId(second.field.componentId)
+            group.fields = listOf(first, second)
+            group.users =
+                mapOf(
+                    own to
+                        listOf(
+                            UserFieldValue(first.field, FieldValue.String("old")),
+                            UserFieldValue(second.field, FieldValue.Bytes(byteArrayOf(1))),
+                        ),
+                )
+            val controller = MetadataEditorController(Conversation.Group(group), own, { true })
+            controller.refresh()
+            val displayed = OwnFieldDraft().merge(controller.state.value.fields)
+            val submitted = displayed.change(secondId, "02").edit()
+            group.descriptorRead = {
+                group.descriptorRead = null
+                group.users =
+                    mapOf(
+                        own to
+                            listOf(
+                                UserFieldValue(first.field, FieldValue.String("new")),
+                                UserFieldValue(second.field, FieldValue.Bytes(byteArrayOf(1))),
+                            ),
+                    )
+            }
+            group.afterUserWrite = { changes ->
+                val committed =
+                    group.users
+                        .getValue(own)
+                        .associateBy { it.field.componentId }
+                        .toMutableMap()
+                for (change in changes) {
+                    if (change.value == null) {
+                        committed.remove(change.field.componentId)
+                    } else {
+                        committed[change.field.componentId] = UserFieldValue(change.field, checkNotNull(change.value))
+                    }
+                }
+                group.users = group.users + (own to committed.values.toList())
+            }
+            controller.edit(submitted)
+            assertNull(controller.failure)
+            val saved = group.users.getValue(own).associate { it.field.componentId to it.value }
+            assertEquals(FieldValue.String("new"), saved[firstId.componentId])
+            assertEquals(listOf(second.field.componentId), group.userWrites.single().map { it.field.componentId })
+            assertArrayEquals(byteArrayOf(2), (saved[secondId.componentId] as FieldValue.Bytes).v1)
+
+            group.descriptorRead = null
+            val refreshed = OwnFieldDraft().merge(controller.state.value.fields)
+            val next = refreshed.change(secondId, "03").edit()
+            group.users =
+                mapOf(
+                    own to
+                        listOf(
+                            UserFieldValue(first.field, FieldValue.String("new")),
+                            UserFieldValue(second.field, FieldValue.Bytes(byteArrayOf(3))),
+                        ),
+                )
+            controller.edit(next)
+            assertNull(controller.failure)
+            assertEquals(1, group.userWrites.size)
+        }
+
+    @Test fun ownDraftRefreshKeepsDirtyInputsAndMergesUntouchedValues() {
+        val first =
+            FieldUi(
+                FieldUiId(0xc006.toUShort()),
+                "A",
+                FieldShape.USER_STRING,
+                "Own",
+                true,
+                scalar = "old",
+                userField = true,
+            )
+        val second =
+            FieldUi(
+                FieldUiId(0xc007.toUShort()),
+                "B",
+                FieldShape.USER_BYTES,
+                "Own",
+                true,
+                scalar = "01",
+                userField = true,
+            )
+        val displayed = OwnFieldDraft().merge(listOf(first, second))
+        val dirty = displayed.change(second.id, "02")
+        val fresh = dirty.merge(listOf(first.copy(scalar = "new"), second))
+        assertEquals("new", fresh.values[first.id])
+        assertEquals("02", fresh.values[second.id])
+        assertEquals(mapOf(second.id to "02"), fresh.edit().values)
+        val committed = fresh.merge(listOf(first.copy(scalar = "new"), second.copy(scalar = "02")))
+        assertTrue(committed.edit().values.isEmpty())
+
+        val clear = displayed.change(first.id, null)
+        assertEquals(mapOf(first.id to null), clear.merge(listOf(first, second)).edit().values)
+        val empty = displayed.change(first.id, "")
+        assertEquals(mapOf(first.id to ""), empty.merge(listOf(first, second)).edit().values)
+    }
 
     @Test fun changedTypeOrPolicyRejectsStaleFormAndRefreshes() =
         runBlocking {

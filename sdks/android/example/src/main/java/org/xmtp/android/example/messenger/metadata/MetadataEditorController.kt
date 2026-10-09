@@ -29,7 +29,8 @@ class MetadataEditorController(
 
     suspend fun refresh() = mutex.withLock { perform { reload() } }
 
-    suspend fun edit(edit: MetadataEdit) =
+    suspend fun edit(request: MetadataEdit) {
+        val edit = if (request is MetadataEdit.Own) request.copy(values = request.values.toMap()) else request
         mutex.withLock {
             perform {
                 if (edit == MetadataEdit.Refresh) {
@@ -89,6 +90,7 @@ class MetadataEditorController(
                 reload()
             }
         }
+    }
 
     private fun descriptor(id: FieldUiId) = descriptors.getValue(id.componentId)
 

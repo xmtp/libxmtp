@@ -52,9 +52,43 @@ sealed interface MetadataEdit {
         val value: String = "",
     ) : MetadataEdit
 
+    /** Values changed from the displayed baseline. */
     data class Own(
         val values: Map<FieldUiId, String?>,
     ) : MetadataEdit
 
     data object Refresh : MetadataEdit
+}
+
+/** Keep unsaved own values while fresh data changes untouched fields. */
+data class OwnFieldDraft(
+    private val baseline: Map<FieldUiId, String?> = emptyMap(),
+    val values: Map<FieldUiId, String?> = emptyMap(),
+) {
+    fun change(
+        id: FieldUiId,
+        value: String?,
+    ) = copy(values = values + (id to value))
+
+    fun edit() = MetadataEdit.Own(values.filter { (id, value) -> value != baseline[id] })
+
+    fun merge(fields: List<FieldUi>): OwnFieldDraft {
+        val fresh =
+            fields.filter { it.userField && it.editable }.associate {
+                it.id to if (it.present) it.scalar else null
+            }
+        val nextBaseline = mutableMapOf<FieldUiId, String?>()
+        val nextValues = mutableMapOf<FieldUiId, String?>()
+        for ((id, committed) in fresh) {
+            val dirty = id in baseline && values[id] != baseline[id]
+            if (dirty && values[id] != committed) {
+                nextBaseline[id] = baseline[id]
+                nextValues[id] = values[id]
+            } else {
+                nextBaseline[id] = committed
+                nextValues[id] = committed
+            }
+        }
+        return OwnFieldDraft(nextBaseline, nextValues)
+    }
 }
