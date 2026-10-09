@@ -83,6 +83,20 @@ class NotificationControllerInstrumentedTest {
         owner.work.async { controller.setEnabled(owner, true) }.await()
     }
 
+    private suspend fun <T> stage(
+        session: AppSession,
+        name: String,
+        block: suspend () -> T,
+    ): T =
+        try {
+            withTimeout(30_000) { block() }
+        } catch (error: TimeoutCancellationException) {
+            throw AssertionError(
+                "Stage: $name; connection=${session.connection.value}; reader=${session.readerError.value}",
+                error,
+            )
+        }
+
     private suspend fun cleanup(
         session: AppSession,
         controller: NotificationController? = null,
@@ -352,9 +366,12 @@ class NotificationControllerInstrumentedTest {
                 probe = null
                 reopened.restore()
                 assertSame(cold, reopened.active.value)
-                withTimeout(30_000) { reopened.connection.first { it.contains("Connected") } }
+                println("PUSH_RESTORE_ADOPT stage=same-owner-reader-start")
+                stage(reopened, "foreground reader connected") {
+                    reopened.connection.first { it == ConnectionState.CONNECTED.toString() }
+                }
                 val failure =
-                    withTimeout(30_000) {
+                    stage(reopened, "foreground owns default reader") {
                         runCatching {
                             cold.client.conversations
                                 .streamAllMessages()
@@ -375,8 +392,8 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
-            val controller = controller(session, Transport(false))
+            var session = AppSession(context)
+            var controller = controller(session, Transport(false))
             val notificationPreferences = NotificationPreferences(context)
             var failedOwner: ActiveSession? = null
             try {
@@ -403,6 +420,9 @@ class NotificationControllerInstrumentedTest {
                 session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
                 session.signOut()
                 session.preferences.setSignedIn(true)
+                controller.close()
+                session = AppSession(context)
+                controller = controller(session, Transport(false))
                 session.beforeOpeningListener = { owner ->
                     failedOwner = owner
                     error("Push listener failure")

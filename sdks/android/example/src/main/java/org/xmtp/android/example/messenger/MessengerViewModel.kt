@@ -136,7 +136,9 @@ class MessengerViewModel(
                             }
                         }
                     } else {
-                        ui.update { currentUi -> currentUi.copy(notificationStatus = status, notificationsEnabled = false) }
+                        ui.update { currentUi ->
+                            currentUi.copy(notificationStatus = status, notificationsEnabled = false)
+                        }
                     }
                 }
         }
