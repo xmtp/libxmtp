@@ -10,6 +10,7 @@ import org.xmtp.android.example.messenger.ReactionPickerHost
 import org.xmtp.android.example.messenger.attachments.AttachmentHost
 import org.xmtp.android.example.shared.MessengerScreens
 import org.xmtp.android.example.shared.Screen
+import org.xmtp.android.example.shared.metadata.MetadataScreen
 
 class MainActivity : ComponentActivity() {
     private val model: MessengerViewModel by viewModels()
@@ -22,13 +23,31 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state = model.state.collectAsStateWithLifecycle().value
             ReactionPickerHost(state, model::dispatch) { action ->
-                MessengerScreens(
-                    state,
-                    action,
-                    extraScreen = { screen -> if (screen == Screen.DRAFTS) attachments.Recovery() },
-                    composerExtra = { attachments.Composer() },
-                    messageExtra = { row -> attachments.Message(row) },
-                )
+            MessengerScreens(
+                state,
+                action,
+                extraScreen = { screen ->
+                    when (screen) {
+                        Screen.DRAFTS -> {
+                            attachments.Recovery()
+                        }
+
+                        Screen.GROUP_FIELDS, Screen.MY_FIELDS -> {
+                            MetadataScreen(
+                                model.metadataState.collectAsStateWithLifecycle().value,
+                                screen == Screen.MY_FIELDS,
+                                model::editMetadata,
+                            )
+                        }
+
+                        else -> {
+                            Unit
+                        }
+                    }
+                },
+                composerExtra = { attachments.Composer() },
+                messageExtra = { row -> attachments.Message(row) },
+            )
             }
         }
     }

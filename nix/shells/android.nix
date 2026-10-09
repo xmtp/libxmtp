@@ -4,6 +4,8 @@
   stdenv,
   git,
   python311,
+  postgresql_18,
+  grpc-health-probe,
   kotlin,
   ktlint,
   jdk17,
@@ -61,6 +63,8 @@ mkShell (
         jdk17
         gnused
         python311
+        postgresql_18
+        grpc-health-probe
         # in-shell nix eval spawns git (fetchGit); system git crashes against the nix-store libs in LD_LIBRARY_PATH
         git
       ]
