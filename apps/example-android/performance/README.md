@@ -125,9 +125,9 @@ they do not permit a smaller measured workload.
 Run from the repository root. The host gate needs no device or backend:
 
 ```sh
-dev/nix-shell 'just android example-performance-check'
+dev/nix-shell 'just example-android performance-check'
 # Linux x86_64 with KVM and local worktree services:
-dev/nix-shell 'just android example-performance'
+dev/nix-shell 'just example-android performance'
 ```
 
 The Android recipe stages matched bindings and starts an owned disposable

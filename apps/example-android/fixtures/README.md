@@ -17,9 +17,9 @@ Run from the repository root:
 
 ```sh
 dev/nix-shell 'just backend up'
-dev/nix-shell 'just android metadata-fixture-test'
-dev/nix-shell 'just android metadata-fixture-smoke'
-dev/nix-shell 'just android example-test-integration'
+dev/nix-shell 'just example-android metadata-fixture-test'
+dev/nix-shell 'just example-android metadata-fixture-smoke'
+dev/nix-shell 'just example-android test-integration'
 ```
 
 The integration recipe stages the current backend and Android SDK. The Android
@@ -53,7 +53,7 @@ Other connection settings stay the same. This uses the
 Select the metadata test with:
 
 ```sh
-dev/nix-shell 'just android example-test-integration -Pandroid.testInstrumentationRunnerArguments.class=org.xmtp.android.example.messenger.metadata.MetadataEditorInstrumentedTest'
+dev/nix-shell 'just example-android test-integration -Pandroid.testInstrumentationRunnerArguments.class=org.xmtp.android.example.messenger.metadata.MetadataEditorInstrumentedTest'
 ```
 
 The test requires all twelve published catalogue entries before it creates new
@@ -75,7 +75,7 @@ current conversation. Empty values and absent values are different.
 Run local ownership checks with:
 
 ```sh
-dev/nix-shell 'just android metadata-fixture-test'
+dev/nix-shell 'just example-android metadata-fixture-test'
 ```
 
 These checks use process stubs. They prove teardown and exit status behavior.

@@ -348,18 +348,18 @@ class CacheFailureControlTest(unittest.TestCase):
     def test_stale_named_xml_cannot_approve_an_unrelated_current_failure(self):
         actual = (
             run.ANDROID
-            / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
+            / "app/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
         ).read_text()
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             android = output / "android"
             source = (
                 android
-                / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
+                / "app/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
             )
             source.parent.mkdir(parents=True)
             source.write_text(actual)
-            connected = android / "example/build/outputs/androidTest-results/connected"
+            connected = android / "app/build/outputs/androidTest-results/connected"
             snapshot = output / "red-cache-connected"
 
             def xml(folder, name, failure):
@@ -430,7 +430,7 @@ class CacheFailureControlTest(unittest.TestCase):
     def test_requires_the_actual_published_cache_class(self):
         actual = (
             run.ANDROID
-            / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
+            / "app/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
         ).read_text()
         unrelated = actual.replace(
             "class SDKTranscriptCache<", "class UnrelatedTranscriptCache<"
@@ -442,7 +442,7 @@ class CacheFailureControlTest(unittest.TestCase):
     def test_restores_production_source_after_interruption(self):
         production = (
             run.ANDROID
-            / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
+            / "app/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
         )
         original = production.read_text()
         with tempfile.TemporaryDirectory() as directory:
@@ -463,7 +463,7 @@ class CacheFailureControlTest(unittest.TestCase):
     ):
         production = (
             run.ANDROID
-            / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
+            / "app/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
         )
         original = production.read_text()
         for failure, workload_id, restored_id, accepted in (

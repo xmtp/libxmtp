@@ -91,7 +91,7 @@ If the collector throws, its exception propagates to the caller and `onClose`
 receives one `Closed` reason. Normal completion and cancellation also receive
 one `Closed` reason.
 Close clients and readers in `NonCancellable` teardown. See [development rules](AGENTS.md) for build
-and test commands. The [example](example) uses the same public API.
+and test commands. The [example](../../apps/example-android) uses the same public API.
 
 ## Messenger files
 
@@ -128,8 +128,8 @@ For local object-store tests, start the backend and read the worktree routes:
 ```bash
 dev/nix-shell 'just backend up'
 dev/nix-shell 'just backend status'
-dev/nix-shell 'just android example-test'
-dev/nix-shell 'just android example-test-integration'
+dev/nix-shell 'just example-android test'
+dev/nix-shell 'just example-android test-integration'
 ```
 
 The installed app tests use the owned emulator scope. The recipe forwards the
