@@ -57,6 +57,8 @@ class AppSession(
     private var messageJob: Job? = null
     private var conversationJob: Job? = null
     private var stopping: ActiveSession? = null
+    private var opening: ActiveSession? = null
+    internal var beforeOpeningListener: suspend (ActiveSession) -> Unit = {}
     var onMessage: suspend (
         ActiveSession,
         Message,
@@ -325,78 +327,69 @@ class AppSession(
                             options,
                         )
                 }
-            if (!accepts(key)) {
-                withContext(NonCancellable) {
-                    client
-                        .end()
-                }
-                return
-            }
-            val opened =
-                saved
-                    .copy(
-                        inboxId =
-                            client
-                                .inboxId(),
-                        identity =
-                            client
-                                .identity()
-                                .identifier,
-                    )
-            val owner =
-                ActiveSession(
-                    key,
-                    opened,
-                    paths,
-                    client,
-                )
-            // Register events before exposing the session for initial local reads.
-            client
-                .startListener(
-                    EventFilter(
-                        kinds =
-                            EventKind.entries,
-                    ),
-                ) { event ->
-                    if (accepts(key)) {
-                        try {
-                            onEvent(
-                                owner,
-                                event,
-                            )
-                            onInvalidated(owner)
-                        } catch (error: Throwable) {
-                            if (error is CancellationException) throw error
-                            if (accepts(key)) {
-                                errorState.value =
-                                    error
-                                        .toString()
+            val pending = ActiveSession(key, saved, paths, client)
+            opening = pending
+            var published = false
+            try {
+                if (!accepts(key)) return
+                val opened =
+                    saved
+                        .copy(
+                            inboxId =
+                                client
+                                    .inboxId(),
+                            identity =
+                                client
+                                    .identity()
+                                    .identifier,
+                        )
+                val owner = pending.copy(profile = opened)
+                opening = owner
+                beforeOpeningListener(owner)
+                // Register events before exposing the session for initial local reads.
+                client
+                    .startListener(
+                        EventFilter(
+                            kinds =
+                                EventKind.entries,
+                        ),
+                    ) { event ->
+                        if (accepts(key)) {
+                            try {
+                                onEvent(
+                                    owner,
+                                    event,
+                                )
+                                onInvalidated(owner)
+                            } catch (error: Throwable) {
+                                if (error is CancellationException) throw error
+                                if (accepts(key)) {
+                                    errorState.value =
+                                        error
+                                            .toString()
+                                }
                             }
                         }
                     }
-                }
-            if (!accepts(key)) {
-                withContext(NonCancellable) {
-                    client
-                        .end()
-                }
-                return
-            }
-            val committed =
-                preferences.commitSession(opened) { change ->
-                    withCurrent(key) {
-                        change()
+                if (!accepts(key)) return
+                val committed =
+                    preferences.commitSession(opened) { change ->
+                        withCurrent(key) {
+                            change()
+                            true
+                        } == true
+                    }
+                published =
+                    committed && withCurrent(key) {
+                        activeState.value = owner
+                        errorState.value = null
+                        startReaders(owner)
                         true
                     } == true
-                }
-            val published =
-                committed && withCurrent(key) {
-                    activeState.value = owner
-                    errorState.value = null
-                    startReaders(owner)
-                    true
-                } == true
-            if (!published) withContext(NonCancellable) { client.end() }
+                if (published) opening = null
+            } finally {
+                if (!published) withContext(NonCancellable) { closeCurrent() }
+            }
         }
     }
 
@@ -507,8 +500,9 @@ class AppSession(
         conversationJob?.cancelAndJoin()
         conversationJob = null
         val owner =
-            activeState.value ?: stopping
+            activeState.value ?: stopping ?: opening
         stopping = owner
+        opening = null
         activeState.value = null
         if (owner != null) {
             withContext(NonCancellable) {
@@ -585,7 +579,7 @@ class AppSession(
                 preferences
                     .saveReset(record)
                 val storage =
-                    activeState.value
+                    (activeState.value ?: stopping)
                         ?.takeIf {
                             it.profile.id ==
                                 profile.id

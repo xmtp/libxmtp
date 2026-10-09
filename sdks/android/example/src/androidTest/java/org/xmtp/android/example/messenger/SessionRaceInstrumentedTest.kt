@@ -55,6 +55,98 @@ class SessionRaceInstrumentedTest {
             }
         }
 
+    @Test fun listenerFailureEndsUnpublishedNativeOwner() = openingFailure(false, false)
+
+    @Test fun listenerCancellationEndsUnpublishedNativeOwner() = openingFailure(false, true)
+
+    @Test fun persistenceFailureEndsUnpublishedNativeOwner() = openingFailure(true, false)
+
+    @Test fun persistenceCancellationEndsUnpublishedNativeOwner() = openingFailure(true, true)
+
+    private fun openingFailure(
+        atCommit: Boolean,
+        cancel: Boolean,
+    ) = runBlocking {
+        AndroidStreamLifecycle.enabled = false
+        resumeStreams()
+        val session = AppSession(context)
+        session.signOut()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val result = CompletableDeferred<Throwable?>()
+        var held: ActiveSession? = null
+        var work: Job? = null
+        var closeCount = 0
+        session.beforeEnd = { closeCount += 1 }
+
+        suspend fun fault() {
+            entered.complete(Unit)
+            if (cancel) release.await() else error("Opening fault")
+        }
+        session.beforeOpeningListener = { owner ->
+            held = owner
+            work = owner.work.launch { awaitCancellation() }
+            if (!atCommit) fault()
+        }
+        session.preferences.beforeSessionCommit = { if (atCommit) fault() }
+        val attempt =
+            launch(Dispatchers.IO) {
+                try {
+                    session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+                    result.complete(null)
+                } catch (error: Throwable) {
+                    result.complete(error)
+                }
+            }
+        try {
+            withTimeout(30_000) { entered.await() }
+            if (cancel) attempt.cancel()
+            withTimeout(30_000) { attempt.join() }
+            assertNotNull(result.await())
+            val owner = checkNotNull(held)
+            assertNull(session.active.value)
+            assertFalse(session.preferences.signedIn())
+            val failure = runCatching { owner.client.conversations.listGroups(null) }.exceptionOrNull()
+            assertTrue("Native owner must be closed: $failure", failure is XmtpException.ClientClosed)
+            assertTrue(checkNotNull(work).isCompleted)
+            assertEquals(1, closeCount)
+            println(
+                "OPENING_PROOF stage=${if (atCommit) "persistence" else "listener"}-${if (cancel) "cancel" else "failure"}-native-client-closed",
+            )
+            assertTrue(owner.paths.database.exists())
+            session.deleteAccount()
+            assertFalse(owner.paths.database.exists())
+            assertNull(session.preferences.reset())
+            assertEquals(1, closeCount)
+            println("OPENING_PROOF stage=closed-owner-storage-reset")
+        } finally {
+            release.complete(Unit)
+            session.beforeOpeningListener = {}
+            session.preferences.beforeSessionCommit = {}
+            withContext(NonCancellable) {
+                attempt.cancelAndJoin()
+                held
+                    ?.work
+                    ?.coroutineContext
+                    ?.get(Job)
+                    ?.cancelAndJoin()
+                held?.client?.let { client ->
+                    if (runCatching {
+                            client.conversations.listGroups(
+                                null,
+                            )
+                        }.exceptionOrNull() !is XmtpException.ClientClosed
+                    ) {
+                        client.end()
+                    }
+                }
+                session.signOut()
+                if (session.preferences.active() != null) session.deleteAccount()
+            }
+            AndroidStreamLifecycle.enabled = true
+        }
+    }
+
     @Test fun invalidationDuringCallbackDoesNotAcknowledgeWhileUnregisterIsBlocked() =
         runBlocking {
             AndroidStreamLifecycle.enabled = false

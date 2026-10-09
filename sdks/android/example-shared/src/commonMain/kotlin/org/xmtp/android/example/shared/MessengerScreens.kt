@@ -867,7 +867,7 @@ fun MessengerScreens(
     var selected by remember(
         state.conversationId,
     ) {
-        mutableStateOf<MessageRow?>(null)
+        mutableStateOf<String?>(null)
     }
     var emoji by remember {
         mutableStateOf("👍")
@@ -1026,7 +1026,7 @@ fun MessengerScreens(
                                     16.dp,
                                 ),
                             ).clickable {
-                                selected = row
+                                selected = row.id
                             }.padding(
                                 12.dp,
                             ),
@@ -1185,7 +1185,7 @@ fun MessengerScreens(
             }
         }
     }
-    selected?.let { row ->
+    state.messages.firstOrNull { it.id == selected }?.let { row ->
         AlertDialog(
             onDismissRequest = {
                 selected = null
