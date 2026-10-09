@@ -19,6 +19,10 @@ class SendCoordinator(
         }
     },
 ) {
+    internal var messageRead: suspend (SDKClient, MessageId) -> Message? = { client, id ->
+        client.conversations.getMessageById(id)
+    }
+
     private val activeDrafts =
         ConcurrentHashMap.newKeySet<String>()
 
@@ -38,10 +42,12 @@ class SendCoordinator(
                 conversation
                     .id(),
             ),
+        admission: () -> Boolean = { true },
         reconcile: suspend (Message) -> Unit,
         send: suspend () -> MessageId,
     ): MessageId {
         check(accepts(key))
+        if (!admission()) throw kotlinx.coroutines.CancellationException("Action scope changed")
         check(
             activeDrafts
                 .add(
@@ -63,6 +69,10 @@ class SendCoordinator(
                         admit = { change -> admit(key, change) },
                     )
             if (!prepared) throw kotlinx.coroutines.CancellationException("Session changed before queue admission")
+            if (!accepts(key) || !admission()) {
+                preferences.removeDraft(key.profileId, draft.draftId, admit = { change -> admit(key, change) })
+                throw kotlinx.coroutines.CancellationException("Action scope changed before send")
+            }
             val id = send()
             // Acceptance belongs to this profile even when navigation cancels the caller.
             withContext(NonCancellable) {
@@ -91,7 +101,8 @@ class SendCoordinator(
                 client,
                 conversation,
                 id,
-                reconcile,
+                admission = admission,
+                reconcile = reconcile,
             )
             return id
         } finally {
@@ -107,12 +118,18 @@ class SendCoordinator(
         client: SDKClient,
         conversation: Conversation,
         id: MessageId,
+        admission: () -> Boolean = { true },
         reconcile: suspend (Message) -> Unit,
     ) {
         check(accepts(key))
-        val current =
-            client.conversations
-                .getMessageById(id) ?: error("Stored message is unavailable")
+        if (!admission()) throw kotlinx.coroutines.CancellationException("Action scope changed")
+        val current = messageRead(client, id) ?: error("Stored message is unavailable")
+        if (!accepts(key) ||
+            !admission()
+        ) {
+            throw kotlinx.coroutines.CancellationException("Action scope changed before publication")
+        }
+        require(current.conversationId == conversation.id()) { "Message belongs to another conversation" }
         if (current.deliveryStatus !=
             DeliveryStatus.PUBLISHED
         ) {

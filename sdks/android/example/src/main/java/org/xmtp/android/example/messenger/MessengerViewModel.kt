@@ -304,6 +304,12 @@ class MessengerViewModel(
             }
     }
 
+    internal var beforeQueuedAction: suspend (MessengerAction) -> Unit = {}
+    internal var onQueuedActionFinished: (MessengerAction) -> Unit = {}
+    internal var actionMessageRead: suspend (ActiveSession, String) -> Message? = { owner, id ->
+        owner.client.conversations.getMessageById(id)
+    }
+
     fun dispatch(action: MessengerAction) {
         if (action is MessengerAction.InspectBackend) {
             inspect(action.backend)
@@ -335,13 +341,18 @@ class MessengerViewModel(
                     )
             return
         }
-        val requestedToken =
-            if (action is MessengerAction.OpenConversation) {
-                synchronized(screenLock) {
-                    screenCounter.incrementAndGet()
-                }
-            } else {
-                screenGeneration
+        val origin =
+            synchronized(screenLock) {
+                ActionOrigin(
+                    session.active.value,
+                    conversation,
+                    ui.value.replyTo,
+                    if (action is MessengerAction.OpenConversation) {
+                        screenCounter.incrementAndGet()
+                    } else {
+                        screenGeneration
+                    },
+                )
             }
         val actionScope =
             if (action is MessengerAction
@@ -354,7 +365,7 @@ class MessengerViewModel(
             ) {
                 viewModelScope
             } else {
-                session.active.value?.work ?: viewModelScope
+                origin.owner?.work ?: viewModelScope
             }
         val replacesSession =
             action is MessengerAction
@@ -376,10 +387,10 @@ class MessengerViewModel(
             .launch(
                 Dispatchers.IO,
             ) {
-                val owner =
-                    session.active.value
-                val token = requestedToken
+                val owner = origin.owner
+                val token = origin.token
                 try {
+                    beforeQueuedAction(action)
                     when (action) {
                         is MessengerAction.Connect,
                         -> {
@@ -444,6 +455,7 @@ class MessengerViewModel(
                             ) {
                                 return@launch
                             }
+                            if (action !is MessengerAction.OpenConversation && !valid(owner, token)) return@launch
                             when (action) {
                                 is MessengerAction.InspectBackend -> {
                                     Unit
@@ -543,14 +555,23 @@ class MessengerViewModel(
 
                                 is MessengerAction.SendText,
                                 -> {
-                                    val chat = conversation ?: return@launch
+                                    val chat = origin.chat ?: return@launch
+                                    requireOrigin(origin)
                                     val reply =
-                                        ui.value.replyTo
+                                        origin.replyId?.let { id ->
+                                            actionMessageRead(owner, id).also { parent ->
+                                                requireOrigin(origin)
+                                                require(
+                                                    parent != null && parent.conversationId == chat.id(),
+                                                ) { "Reply parent unavailable" }
+                                            }
+                                        }
                                     sends
                                         .queue(
                                             owner.key,
                                             owner.client,
                                             chat,
+                                            admission = { acceptsOrigin(origin) },
                                             reconcile = {
                                                 merge(
                                                     owner,
@@ -559,11 +580,9 @@ class MessengerViewModel(
                                                 )
                                             },
                                         ) {
+                                            requireOrigin(origin)
                                             if (reply != null) {
-                                                (
-                                                    owner.client.conversations
-                                                        .getMessageById(reply) ?: error("Reply parent unavailable")
-                                                ).reply(
+                                                reply.reply(
                                                     action.text,
                                                     SendOptions(optimistic = true),
                                                 )
@@ -578,7 +597,7 @@ class MessengerViewModel(
                                     if (valid(
                                             owner,
                                             token,
-                                        )
+                                        ) && ui.value.replyTo == origin.replyId
                                     ) {
                                         ui.value =
                                             ui.value
@@ -591,36 +610,33 @@ class MessengerViewModel(
 
                                 is MessengerAction.RetrySend,
                                 -> {
-                                    conversation?.let {
-                                        sends
-                                            .retry(
-                                                owner.key,
-                                                owner.client,
-                                                it,
-                                                action.messageId,
-                                            ) { message ->
-                                                merge(
-                                                    owner,
-                                                    token,
-                                                    message,
-                                                )
-                                            }
-                                    }
+                                    val chat = origin.chat ?: return@launch
+                                    requireOrigin(origin)
+                                    sends.retry(
+                                        owner.key,
+                                        owner.client,
+                                        chat,
+                                        action.messageId,
+                                        admission = { acceptsOrigin(origin) },
+                                    ) { message -> merge(owner, token, message) }
                                 }
 
                                 is MessengerAction.React,
                                 -> {
+                                    val chat = origin.chat ?: return@launch
+                                    requireOrigin(origin)
                                     val message =
-                                        owner.client.conversations
-                                            .getMessageById(
-                                                action.messageId,
-                                            ) ?: error("Message unavailable")
-                                    val chat = conversation ?: return@launch
+                                        actionMessageRead(owner, action.messageId) ?: error("Message unavailable")
+                                    requireOrigin(origin)
+                                    require(
+                                        message.conversationId == chat.id(),
+                                    ) { "Message belongs to another conversation" }
                                     sends
                                         .queue(
                                             owner.key,
                                             owner.client,
                                             chat,
+                                            admission = { acceptsOrigin(origin) },
                                             reconcile = {
                                                 merge(
                                                     owner,
@@ -629,6 +645,7 @@ class MessengerViewModel(
                                                 )
                                             },
                                         ) {
+                                            requireOrigin(origin)
                                             message
                                                 .react(
                                                     Reaction(
@@ -654,9 +671,15 @@ class MessengerViewModel(
 
                                 is MessengerAction.DeleteMessage,
                                 -> {
-                                    conversation?.deleteMessage(
-                                        action.messageId,
-                                    )
+                                    val chat = origin.chat ?: return@launch
+                                    requireOrigin(origin)
+                                    val message =
+                                        actionMessageRead(owner, action.messageId) ?: error("Message unavailable")
+                                    requireOrigin(origin)
+                                    require(
+                                        message.conversationId == chat.id(),
+                                    ) { "Message belongs to another conversation" }
+                                    chat.deleteMessage(action.messageId)
                                     projection.withLock {
                                         refreshTimeline(
                                             owner,
@@ -668,8 +691,9 @@ class MessengerViewModel(
 
                                 is MessengerAction.Consent,
                                 -> {
-                                    val chat = conversation ?: return@launch
+                                    val chat = origin.chat ?: return@launch
                                     try {
+                                        requireOrigin(origin)
                                         writeConsent(
                                             chat,
                                             if (action.allowed) ConsentState.ALLOWED else ConsentState.DENIED,
@@ -726,11 +750,7 @@ class MessengerViewModel(
                                 }
 
                                 else -> {
-                                    mutateGroup(
-                                        owner,
-                                        token,
-                                        action,
-                                    )
+                                    mutateGroup(origin, action)
                                 }
                             }
                         }
@@ -746,6 +766,7 @@ class MessengerViewModel(
                         showError(error)
                     }
                 } finally {
+                    onQueuedActionFinished(action)
                     if (operationToken ==
                         sessionActionCounter
                             .get() && (
@@ -1577,6 +1598,7 @@ class MessengerViewModel(
         ) {
             "Too many members for this backend"
         }
+        if (!valid(owner, token)) return
         val chat =
             if (action.group) {
                 Conversation
@@ -1627,12 +1649,31 @@ class MessengerViewModel(
         }
     }
 
+    private data class ActionOrigin(
+        val owner: ActiveSession?,
+        val chat: Conversation?,
+        val replyId: String?,
+        val token: Long,
+    )
+
+    private fun acceptsOrigin(origin: ActionOrigin): Boolean =
+        synchronized(screenLock) {
+            val owner = origin.owner ?: return@synchronized false
+            valid(owner, origin.token) && origin.chat?.id() == conversation?.id()
+        }
+
+    private fun requireOrigin(origin: ActionOrigin) {
+        if (!acceptsOrigin(origin)) throw CancellationException("Action scope changed")
+    }
+
     private suspend fun mutateGroup(
-        owner: ActiveSession,
-        token: Long,
+        origin: ActionOrigin,
         action: MessengerAction,
     ) {
-        val chat = conversation ?: return
+        val owner = origin.owner ?: return
+        val token = origin.token
+        val chat = origin.chat ?: return
+        requireOrigin(origin)
         try {
             if (action is MessengerAction.SetDisappearing) {
                 require(
@@ -1668,6 +1709,7 @@ class MessengerViewModel(
                             .updateName(
                                 action.name,
                             )
+                        requireOrigin(origin)
                         group
                             .updateDescription(
                                 action.description,
@@ -1720,6 +1762,7 @@ class MessengerViewModel(
                         applyStandardPreset(
                             group,
                             action.adminOnly,
+                            beforeWrite = { requireOrigin(origin) },
                         )
                     }
 
