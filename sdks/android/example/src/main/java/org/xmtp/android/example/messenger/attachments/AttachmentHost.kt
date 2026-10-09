@@ -42,7 +42,7 @@ class AttachmentHost(
     private val previousRefresh = model.featureRefresh
     private val previousEnd = session.beforeEnd
     internal var beforeDownloadRefresh: suspend () -> Unit = {}
-    internal var beforeSupportAdmission: suspend (Boolean) -> Unit = {}
+    internal var beforeSupportAdmission: suspend (Boolean, Long) -> Unit = { _, _ -> }
     private val pick =
         activity.registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             val request = pickerRequest.also { pickerRequest = null }
@@ -170,7 +170,7 @@ class AttachmentHost(
             files = AttachmentFiles(context, active.key, active.client, session::accepts)
         }
         val supported = uploadSupported(active)
-        beforeSupportAdmission(supported)
+        beforeSupportAdmission(supported, token)
         model.setAttachmentAvailability(active, token, supported) { !closed }
         if (closed || !model.acceptsScreen(active.key, token)) return@withLock
         coordinator!!.recover()
