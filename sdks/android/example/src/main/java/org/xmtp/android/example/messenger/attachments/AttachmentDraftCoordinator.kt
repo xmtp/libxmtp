@@ -195,6 +195,7 @@ class AttachmentDraftCoordinator(
     ) {
         checkCurrent()
         check(screenCurrent()) { "The screen changed" }
+        val admission = { accepts(key) && screenCurrent() }
         processMutex.withLock { check(running.add(operationId(draftId))) { "This file action is already running" } }
         var draft = SendDraftRef(draftId, "")
         var remote: RemoteAttachment? = null
@@ -203,7 +204,7 @@ class AttachmentDraftCoordinator(
             require(!draftNeedsReview(draft)) { "Review the unknown send outcome in the chat" }
             require(draft.conversationKey == conversation.id()) { "The draft belongs to another chat" }
             draft.acceptedMessageId?.let { id ->
-                sends.retry(key, client, conversation, id, reconcile)
+                sends.retry(key, client, conversation, id, admission = admission, reconcile = reconcile)
                 clearPublishedSecret(draft)
                 return
             }
@@ -226,7 +227,7 @@ class AttachmentDraftCoordinator(
                 check(operationId(draftId) !in discarded) { "The draft was discarded" }
                 queueing.add(operationId(draftId))
             }
-            sends.queue(key, client, conversation, draft, reconcile) {
+            sends.queue(key, client, conversation, draft, admission = admission, reconcile = reconcile) {
                 checkCurrent()
                 check(screenCurrent()) { "The screen changed" }
                 processMutex.withLock { check(operationId(draftId) !in discarded) { "The draft was discarded" } }

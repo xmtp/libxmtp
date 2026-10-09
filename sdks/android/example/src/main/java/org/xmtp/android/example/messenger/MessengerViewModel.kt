@@ -259,7 +259,9 @@ class MessengerViewModel(
     ): Boolean =
         onCurrentScreen(owner, token) {
             if (current()) {
-                ui.value = ui.value.copy(features = ui.value.features.copy(attachments = supported))
+                ui.update { currentUi ->
+                    currentUi.copy(features = currentUi.features.copy(attachments = supported))
+                }
                 true
             } else {
                 false

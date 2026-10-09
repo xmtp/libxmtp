@@ -135,6 +135,10 @@ class AttachmentSupportInstrumentedTest {
                 refreshing.await()
                 assertFalse(model.state.value.features.attachments)
                 model.dispatch(MessengerAction.Navigate(Screen.TIMELINE))
+                compose.waitUntil(5_000) {
+                    compose.onAllNodesWithContentDescription("Select file").fetchSemanticsNodes().isEmpty()
+                }
+                assertFalse(model.state.value.features.attachments)
                 compose.onNodeWithContentDescription("Select file").assertDoesNotExist()
                 println("ATTACHMENT_SUPPORT_PROOF stage=old-screen-result-rejected picker-hidden=true")
             } finally {
