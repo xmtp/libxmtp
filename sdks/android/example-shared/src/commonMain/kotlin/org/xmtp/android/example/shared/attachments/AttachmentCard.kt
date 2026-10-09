@@ -34,8 +34,11 @@ fun AttachmentCard(
                 null
             ) {
                 TextButton(onClick = {
+                    action(AttachmentAction.RetryPublication(state.id, conversationId))
+                }, enabled = !state.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry publication") }
+                TextButton(onClick = {
                     action(AttachmentAction.ViewChat(conversationId))
-                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("View chat / Retry publication") }
+                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("View chat") }
             }
             if (state.canDownload) {
                 TextButton(onClick = {

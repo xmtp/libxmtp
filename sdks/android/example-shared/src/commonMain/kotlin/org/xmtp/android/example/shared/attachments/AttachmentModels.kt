@@ -24,6 +24,11 @@ sealed interface AttachmentAction {
         val draftId: String,
     ) : AttachmentAction
 
+    data class RetryPublication(
+        val draftId: String,
+        val conversationId: String,
+    ) : AttachmentAction
+
     data class Discard(
         val draftId: String,
     ) : AttachmentAction
