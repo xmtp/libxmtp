@@ -35,10 +35,11 @@ fun AttachmentMessage(
     conversationId: String,
     preview: ImageBitmap?,
     action: (AttachmentAction) -> Unit,
+    showFilename: Boolean = true,
 ) {
     Column {
         if (preview != null) Image(preview, card.filename, Modifier.fillMaxWidth().heightIn(max = 240.dp))
-        AttachmentCard(card, conversationId, action)
+        AttachmentCard(card, conversationId, action, showFilename)
     }
 }
 

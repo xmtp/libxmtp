@@ -331,6 +331,7 @@ class AttachmentHost(
             conversationId,
             bitmap?.asImageBitmap(),
             ::act,
+            showFilename = row.text.isBlank() || state.filename != row.text,
         )
     }
 

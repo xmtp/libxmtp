@@ -15,9 +15,10 @@ fun AttachmentCard(
     state: AttachmentCardState,
     conversationId: String,
     action: (AttachmentAction) -> Unit,
+    showFilename: Boolean = true,
 ) {
     Column {
-        Text(state.filename)
+        if (showFilename) Text(state.filename)
         Text(state.status)
         state.error?.let { Text(it) }
         if (state.busy) CircularProgressIndicator()
