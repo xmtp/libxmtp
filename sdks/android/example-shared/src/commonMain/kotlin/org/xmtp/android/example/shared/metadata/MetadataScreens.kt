@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MetadataScreen(
     state: MetadataEditorState,
@@ -80,7 +81,8 @@ fun MetadataScreen(
                             ),
                         enabled = !state.busy,
                     )
-                    Row {
+                    Text(if (ownValues[field.id] == null) "Absent" else "Set", Modifier.fillMaxWidth())
+                    FlowRow(Modifier.fillMaxWidth()) {
                         TextButton(
                             { draft = currentDraft.change(field.id, "") },
                             Modifier.heightIn(min = 48.dp),
@@ -91,7 +93,6 @@ fun MetadataScreen(
                             Modifier.heightIn(min = 48.dp),
                             enabled = !state.busy && !field.immutable,
                         ) { Text("Clear") }
-                        Text(if (ownValues[field.id] == null) "Absent" else "Set", Modifier.padding(12.dp))
                     }
                 } else {
                     GroupField(field, state.busy, action)
