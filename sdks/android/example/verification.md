@@ -5,14 +5,15 @@ spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
-The combined source check starts at `1e2a9aee1c8084d88fd65d62a5456904057d7506`.
-Its exact base is E `7b25ca53261da655a014f1ee29a245c2ec288540`, D
-`249fbad6ae4abee9d02a71ab1d0f2f64fa7fd593`, C
-`05164d23a51ee7575967d1f965669cac9f2fae31`, and B
+The combined source check starts at `154f1ab477fe273b13e04abe11505a0108c57306`.
+Its exact base is E `104db5581d4ee8bee2c6fa1329da310a4322084e`, D
+`4c421c12da4c2af5b974ee408eb2e7f4dba8f2bb`, C
+`9850a2ab5ee2d58725e9a3aed0c2d1240949c9a8`, and B
 `8c4929abe3ecf363b4c46f19a198c2b324480215`.
-This source includes B's Markdown, recovery-page and owner-projection repairs
-and E's fresh-session native fixtures. E's repaired native run and controls
-remain pending. F's four new device cases and V9 remain unrun.
+This source includes B's Markdown, recovery-page and owner-projection repairs,
+E's Off runtime freeze and C's accepted-Retry/discard repairs. C's three new
+native cases and five controls remain pending. E's configured publisher, F's
+four new device cases and V9 remain unrun. B's tie-policy choice remains pending.
 
 This ledger separates current source checks from recorded branch runtime proof.
 A listed test or compile is not a passing native result.
@@ -49,8 +50,8 @@ before the final app gate is ready. Label every manual result as manual.
 | P26 Group values | V7. String/Bytes/map/set commits through app; delta keeps unrelated entries; limits and denied policy enforced | D1d5 records actual peer readbacks and group mutations with matched native controls; current F native replay remains pending |
 | P27 Own fields | V7. One changed-only updateUserData; own refs only; empty differs from Clear; group/DM values isolated | D1d5 records actual group/DM own and sibling values, dirty refs and draft preservation; current F replay remains pending |
 | P28 Field refresh | V7. Events and failed/type-changed/policy-changed saves reread; actual error retained; stale completion rejected | D1d5 records actual error/refresh/admission/event/draft controls and restored native cases; current F replay remains pending |
-| P29 Optional Firebase | V8. Unconfigured strict build, transport Off, no registration or permission request; configured build also compiles | E7b25 passes both strict builds and app lint in this checkpoint; repaired native fixtures and full controls remain pending |
-| P30 Generic push | V8. Parse ULong, current known group/installation admission, mute/consent/token policy, dedupe, late A push after B sign-in, generic content | E records host policy/restore/transport controls; its first native run is incomplete; real FCM needs a developer project/channel/device |
+| P29 Optional Firebase | V8. Unconfigured strict build, transport Off, no registration or permission request; configured build also compiles | E104db passes both strict builds and app lint in this checkpoint; ten Off cases and 15 controls are recorded at E2318; configured runtime remains pending |
+| P30 Generic push | V8. Parse ULong, current known group/installation admission, mute/consent/token policy, dedupe, late A push after B sign-in, generic content | E2318 records ten Off cases and 15 intended production-control failures; captured publisher proof does not establish real FCM or OS posting |
 | P31 App gates | V1/V9. Current SDK host/package/consumer/platform gates plus actual launch and app tests in scoped emulator; no release publication | Final recipes, CI, and combined gate runs pending |
 | P32 Failure detection | V1–V9. Each new test has a plausible broken production run and restored pass at a recorded source commit | Host performance result gate has broken/restored records; final per-test ledger pending |
 | P33 Performance | V9. Exact 1000/100000 workload, one 50000 transcript, five warmups, 30 measured runs, all query/heap/retention limits | Test APK compiled; eight host validator/control checks and the generated-message wrapper regression pass; real Linux fixed-device run pending |
@@ -80,9 +81,9 @@ combined tree. The parent must verify the final restack and current source.
 | --- | --- | --- |
 | A shared build | Strict app/shared/SDK assembly, consumers and selected platform checks recorded in PR A | Combined final gates |
 | B8c | Prior B1091 has 43 debug and two release native cases; B80183 has two harness cases; B8c has four restored repair cases, a final two-case refinement and host24 in each build | No fresh full 46-case suite; current F replay, Linux confirmation, TalkBack and manual checks for all screens |
-| C05164, prior Cbd26 proof | Seventeen native cases at Ca675, with actual Complete queue admission, concurrent reply preservation and verified card/grants; all four app/test source trees match Cbd26; host23 and strict/lint gates pass | Current F native replay |
-| D249fb, prior Dfea8 proof | Host35, including 12 metadata cases; two actual controller/UI native cases and eight matched controls at D1d5, with retained source hashes | Current F native replay |
-| E7b25 | Current F records both strict variants and app lint with E's publisher repair; synthetic public resources prove compile only | E's first native run has seven passes and three fixture failures; fresh-session fixtures compile, but repaired runtime and native controls remain pending, as does real Firebase delivery |
+| C9850, prior C05164/Cbd26 proof | Seventeen native cases at Ca675, with actual Complete queue admission, concurrent reply preservation and verified card/grants; all four old app/test source trees match Cbd26; current host27 and strict/lint gates pass | C9850 accepted-Retry/discard three cases, five controls and restored 20-case suite; current F native replay |
+| D4c421, prior Dfea8 proof | Host35, including 12 metadata cases; two actual controller/UI native cases and eight matched controls at D1d5, with retained source hashes | Current F native replay |
+| E104db, E2318 runtime | Ten Off cases, 15 intended assertion failures and restored ten-case pass; repaired three plus fresh-session startup Retry pass at E2318 | Configured publisher runtime/control and real Firebase delivery; current combined native replay |
 | F combined source | Current strict Off/configured builds, host48 and app lint in each variant, performance host8, SDK lint and config70 pass on the named base | Four new native group/scale cases and controls; exact Linux V9/cache failure/restoration; observed seed time must set the timeout |
 
 The execution reports retain exact source, command, XML and failure patches.
@@ -102,9 +103,17 @@ controls and `pr-c-final-b-card.png` remain historical runtime evidence.
 D evidence is `pr-d-native-restored-results`, the eight `pr-d-native-red-*` paths,
 and `pr-d-final-source-hashes.txt` at D1d5. E's earlier fast proof is `pr-e-d1-*`
 on E1bac; it does not replace E's pending native repairs.
-Current F source checks use `pr-f-676-*` logs.
-`pr-f-676-source-evidence.json` records identical performance and prepared UI
-proof files across this restack; `pr-f-676-vm-merge-diff.txt` records the VM delta.
+E2318 Off runtime is `pr-e-b8c-restored-native`; controls are
+`pr-e-control-matrix-summary.json` and its per-case XML/logcat.
+`pr-e-b8c-repaired-native` records the repaired cases and startup Retry.
+The old fixture failures are superseded by these restored branch results.
+Current F source checks use `pr-f-985-*` logs.
+`pr-f-985-source-evidence.json` records the performance/group proof files and
+E notification/session source mapping. The scale fixture now has two real staged
+files and one real uploaded optimistic accepted SDK ID. It checks staged Send
+file/Discard and accepted Retry publication/View chat/Discard without clicking
+Discard. This source change is prepared proof only. `pr-f-985-base-delta.txt`
+records the inherited delta; the ViewModel and performance workload are unchanged.
 A compile does not replace
 missing device proof. B's observed 200% proof covers reaction controls on a narrow
 display. It does not prove all-screen accessibility. Real FCM, TalkBack and V9
@@ -121,7 +130,7 @@ app action, so an omitted mutation can fail its readback assertion directly.
 
 `ScreenScaleInstrumentedTest` sets an actual 320 dp display and 200% font scale
 before Activity launch. It visits all nine screens with a real catalogue session
-and real SDK staged drafts. It uses physical swipes, checks scrolling progress,
+and real SDK staged and accepted drafts. It uses physical swipes, checks scrolling progress,
 48 dp action bounds and label clipping, and saves each screen. It restores the
 previous display settings after Activity teardown. This source is compiled but
 has no device result. It does not provide TalkBack service proof.
