@@ -2,6 +2,9 @@
 
 Check an affected output with `nix build --no-link .#<output>`; run `dev/nix-shell 'just lint-config'`.
 
+The default and Rust shells provide `CI_PATH_FILTER_BUNDLE` for the path fixtures
+in `just lint-config`. Its fixed hash and version match the workflow's Dorny pin.
+
 Rust-capable development shells select pinned Kache through `dev/kache-env`.
 Check the package with `nix build --no-link .#kache` and the effective wrapper
 with `dev/nix-shell --shell rust '"$RUSTC_WRAPPER" --version'`.

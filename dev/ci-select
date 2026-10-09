@@ -9,8 +9,6 @@ import os
 from pathlib import Path
 import sys
 from typing import NamedTuple
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 
 class Check(NamedTuple):
@@ -253,37 +251,15 @@ def summary(result):
     return "\n".join(lines) + "\n"
 
 
-def pr_changed_files(event, env):
-    pr = event["pull_request"]
-    total = pr.get("changed_files")
-    if type(total) is int and total >= 0:
-        return total, None
-    try:
-        url = f"{env['GITHUB_API_URL']}/repos/{env['GITHUB_REPOSITORY']}/pulls/{pr['number']}"
-        request = Request(
-            url,
-            headers={
-                "Authorization": "Bearer " + env["GITHUB_TOKEN"],
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "libxmtp-ci-select",
-            },
-        )
-        with urlopen(request, timeout=20) as response:
-            current = json.load(response)
-        if current["head"]["sha"] != pr["head"]["sha"]:
-            return None, "The PR head changed after this event."
-        return current.get("changed_files"), None
-    except (KeyError, HTTPError, URLError, TimeoutError, ValueError):
-        return None, "Could not read PR metadata from the API."
-
-
 def main():
     env = os.environ
     event = json.loads(Path(env["GITHUB_EVENT_PATH"]).read_text())
     event_name = env["GITHUB_EVENT_NAME"]
-    total, error = (
-        pr_changed_files(event, env) if event_name == "pull_request" else (None, None)
-    )
+    try:
+        total = int(env.get("PR_CHANGED_FILES", ""))
+    except ValueError:
+        total = None
+    error = env.get("PR_METADATA_ERROR") or None
     try:
         outputs = json.load(sys.stdin)
     except ValueError:
