@@ -134,6 +134,9 @@ dev/nix-shell 'just android example-test-integration'
 
 The installed app tests use the owned emulator scope. The recipe forwards the
 advertised S3 port with `adb reverse`, so signed loopback attachment URLs work.
+The app integration route also owns a disposable backend with no attachment
+storage. It forwards that backend's assigned port for the upload support tests
+and removes its containers and network after the command.
 For a supported loopback backend or the Android emulator host route, the app
 enables local attachment transport. The backend route can use the emulator gateway.
 Attachment URLs still follow the SDK URL rules. The interruption tests receive

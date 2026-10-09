@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Run a command with an owned backend that has no attachment storage target."""
+
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+
+def docker(*args, check=True):
+    return subprocess.run(["docker", *args], check=check, text=True, capture_output=True)
+
+
+def main():
+    if len(sys.argv) < 2:
+        raise SystemExit("Usage: unsupported-backend COMMAND [ARGS...]")
+    scope = "xmtp-attachment-support-" + uuid.uuid4().hex[:12]
+    directory = Path(tempfile.mkdtemp(prefix=scope + "-"))
+    logs = Path(tempfile.mkdtemp(prefix=scope + "-logs-"))
+    root = Path(__file__).resolve().parents[3]
+    config = directory / "config.toml"
+    config.write_text((root / "dev/backend/local.toml").read_text())
+    containers = []
+    network = False
+    child = None
+    signal_sent = False
+
+    def interrupted(signum, _frame):
+        nonlocal signal_sent
+        if child is not None and child.poll() is None:
+            os.killpg(child.pid, signum)
+            signal_sent = True
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
+    try:
+        docker("network", "create", scope)
+        network = True
+        database = docker("run", "-d", "--name", scope + "-db", "--network", scope,
+                          "--network-alias", "database", "--label", "xmtp.test.owner=" + scope,
+                          "--tmpfs", "/var/lib/postgresql", "-e", "POSTGRES_USER=xmtp",
+                          "-e", "POSTGRES_PASSWORD=xmtp", "-e", "POSTGRES_DB=xmtp_backend", "postgres:18.6").stdout.strip()
+        containers.append(database)
+        deadline = time.monotonic() + 60
+        while docker("exec", database, "pg_isready", "-U", "xmtp", "-d", "xmtp_backend", check=False).returncode:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Owned unsupported fixture database did not become ready")
+            time.sleep(.25)
+        url = "postgres://xmtp:xmtp@database:5432/xmtp_backend"
+        backend = docker("run", "-d", "--name", scope + "-backend", "--network", scope,
+                         "--label", "xmtp.test.owner=" + scope, "-p", "127.0.0.1::5050",
+                         "-v", str(config) + ":/config.toml:ro", "-e", "XMTP_DATABASE_URL=" + url,
+                         "-e", "XMTP_REPLICA_URL=" + url, "-e", "XMTP_CHAIN_31337_URL=http://127.0.0.1:8545",
+                         "ghcr.io/xmtp/backend:self-hosted", "--config-file", "/config.toml").stdout.strip()
+        containers.append(backend)
+        deadline = time.monotonic() + 60
+        while docker("exec", backend, "/bin/grpc-health-probe", "-addr=127.0.0.1:5050", check=False).returncode:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Owned unsupported fixture backend did not become ready")
+            time.sleep(.25)
+        ports = json.loads(docker("inspect", backend).stdout)[0]["NetworkSettings"]["Ports"]["5050/tcp"]
+        port = next(binding["HostPort"] for binding in ports if binding["HostIp"] == "127.0.0.1")
+        environment = os.environ.copy()
+        environment["XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT"] = port
+        environment["XMTP_ANDROID_UNSUPPORTED_BACKEND_URL"] = "http://127.0.0.1:" + port
+        print("Owned unsupported backend ready: " + environment["XMTP_ANDROID_UNSUPPORTED_BACKEND_URL"], flush=True)
+        child = subprocess.Popen(sys.argv[1:], env=environment, start_new_session=True)
+        return child.wait()
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        if child is not None and child.poll() is None:
+            if not signal_sent:
+                os.killpg(child.pid, signal.SIGTERM)
+            try:
+                child.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()
+        owned = docker("ps", "-aq", "--filter", "label=xmtp.test.owner=" + scope, check=False).stdout.split()
+        for container in reversed(list(dict.fromkeys(containers + owned))):
+            result = docker("logs", container, check=False)
+            (logs / (container[:12] + ".log")).write_text(result.stdout + result.stderr)
+            docker("rm", "-f", container, check=False)
+        if network:
+            docker("network", "rm", scope, check=False)
+        config.unlink(missing_ok=True)
+        directory.rmdir()
+        print("Owned unsupported fixture removed; logs: " + str(logs), flush=True)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

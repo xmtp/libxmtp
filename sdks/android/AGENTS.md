@@ -36,6 +36,7 @@ dev/nix-shell 'just android example-test'
 dev/nix-shell 'just android example-check'
 dev/nix-shell 'just android example-test-integration'
 dev/nix-shell 'just android example-test-release-integration'
+dev/nix-shell 'just android example-support-fixture'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
@@ -115,6 +116,10 @@ admission. Run both host variants with
 It also forwards the backend proxy and its API. It supplies the `toxicBackendUrl`
 and `toxiproxyApi` runner arguments from the worktree environment. Attachment
 interruption tests change only their named toxic and restore the backend proxy.
+The app integration route also starts an owned disposable PostgreSQL/backend
+fixture with no attachment target. Docker assigns its published port. The route
+forwards it and supplies `unsupportedBackendUrl`. The fixture removes only its
+owned containers and network and retains its logs after success or failure.
 Run this route alone when using a shared stack; no other proxy test can run at
 the same time. Caller environment values can select an existing stack.
 Start the backend before app instrumentation. Keep SDK package and consumer tests.

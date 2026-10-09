@@ -43,6 +43,7 @@ class AttachmentDraftCoordinator(
     private var swept = false
     private val mutableCards = MutableStateFlow<List<AttachmentCardState>>(emptyList())
     val cards: StateFlow<List<AttachmentCardState>> = mutableCards
+    internal var afterRecoverySnapshot: suspend () -> Unit = {}
 
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
 
@@ -276,6 +277,7 @@ class AttachmentDraftCoordinator(
             sweepOnce()
             admitChange { mutableCards.value = emptyList() }
             val drafts = preferences.drafts(key.profileId).filter { it.descriptorSecretRef != null }
+            afterRecoverySnapshot()
             processMutex.withLock {
                 val retained = preferences.drafts(key.profileId).mapNotNull { it.descriptorSecretRef }.toSet()
                 withContext(Dispatchers.IO) {
@@ -327,11 +329,18 @@ class AttachmentDraftCoordinator(
             // The unfinished list is for discovery only. Complete drafts use pending(remote).
             for (pending in attachments.listPending()) {
                 val remote = pending.remoteAttachment()
-                if (known.none { it == remote } && processMutex.withLock { (creating[key.profileId] ?: 0) == 0 }) {
+                processMutex.withLock {
+                    if (known.any { it == remote } || (creating[key.profileId] ?: 0) != 0) return@withLock
+                    // Selection registers before SDK creation. Read its latest saved ownership under this metadata lock.
+                    val latest =
+                        preferences.drafts(key.profileId).filter {
+                            it.descriptorSecretRef != null && it.acceptedMessageId == null
+                        }
+                    if (latest.any { descriptor(it) == remote }) return@withLock
                     val id = UUID.randomUUID().toString()
                     val ref = "attachment-$id"
                     checkCurrent()
-                    processMutex.withLock { activeSecrets.add("${key.profileId}/$ref") }
+                    activeSecrets.add("${key.profileId}/$ref")
                     try {
                         writeDescriptor(ref, remote)
                         checkCurrent()
@@ -341,7 +350,7 @@ class AttachmentDraftCoordinator(
                     } finally {
                         withContext(
                             NonCancellable,
-                        ) { processMutex.withLock { activeSecrets.remove("${key.profileId}/$ref") } }
+                        ) { activeSecrets.remove("${key.profileId}/$ref") }
                     }
                 }
             }
