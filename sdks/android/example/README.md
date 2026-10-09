@@ -35,6 +35,7 @@ The Credential field appears only when the selected server reports that it
 requires authentication. Enter that server's credential in this field. If a
 connection fails, Retry uses the current URL and credential. A failed saved
 connection keeps its saved credential when the field is empty.
+A result for an earlier URL cannot change that field.
 
 The app retains one hidden wallet per backend profile. Private key, credential
 and database key records use Android Keystore encryption. App and SDK files are
