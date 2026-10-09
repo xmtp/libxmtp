@@ -20,6 +20,8 @@ class MessengerPreferences(
 ) {
     internal var beforeSessionCommit: suspend () -> Unit = {}
     internal var sessionCommitAccepted: (BackendProfile) -> Unit = {}
+    internal var beforePositionCommit: suspend (String) -> Unit = {}
+    internal var positionCommitFinished: (String, Boolean) -> Unit = { _, _ -> }
 
     suspend fun commitSession(
         profile: BackendProfile,
@@ -63,17 +65,29 @@ class MessengerPreferences(
     private suspend fun put(
         key: String,
         value: String?,
-    ) {
+        admit: (() -> Unit) -> Boolean = { change ->
+            change()
+            true
+        },
+        position: Boolean = false,
+    ): Boolean {
+        var accepted = false
         store.edit {
-            if (value ==
-                null
-            ) {
-                it
-                    .remove(stringPreferencesKey(key))
-            } else {
-                it[stringPreferencesKey(key)] = value
-            }
+            if (position) beforePositionCommit(key)
+            accepted =
+                admit {
+                    if (value ==
+                        null
+                    ) {
+                        it
+                            .remove(stringPreferencesKey(key))
+                    } else {
+                        it[stringPreferencesKey(key)] = value
+                    }
+                }
         }
+        if (position) positionCommitFinished(key, accepted)
+        return accepted
     }
 
     suspend fun profiles(): List<BackendProfile> {
@@ -219,10 +233,16 @@ class MessengerPreferences(
         profile: String,
         conversation: String,
         value: Long,
+        admit: (() -> Unit) -> Boolean = { change ->
+            change()
+            true
+        },
     ) = put(
         "$profile/read/$conversation",
         value
             .toString(),
+        admit,
+        position = true,
     )
 
     suspend fun anchor(
@@ -250,6 +270,10 @@ class MessengerPreferences(
         profile: String,
         conversation: String,
         value: ScrollAnchor,
+        admit: (() -> Unit) -> Boolean = { change ->
+            change()
+            true
+        },
     ) = put(
         "$profile/scroll/$conversation",
         JSONObject()
@@ -266,6 +290,8 @@ class MessengerPreferences(
                 "newest",
                 value.wasAtNewest,
             ).toString(),
+        admit,
+        position = true,
     )
 
     suspend fun drafts(profile: String): List<SendDraftRef> {

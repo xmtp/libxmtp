@@ -219,7 +219,7 @@ fun MessengerScreens(
                         "Retry",
                     ) {
                         action(
-                            MessengerAction.Refresh,
+                            if (state.pendingReset) MessengerAction.ResumeReset else MessengerAction.Refresh,
                         )
                     }
                 }
@@ -238,10 +238,14 @@ fun MessengerScreens(
                     ) {
                         Screen.START,
                         -> {
-                            Start(
-                                state,
-                                action,
-                            )
+                            if (state.pendingReset) {
+                                Text("Finish local reset before you connect.")
+                            } else {
+                                Start(
+                                    state,
+                                    action,
+                                )
+                            }
                         }
 
                         Screen.CONVERSATIONS,

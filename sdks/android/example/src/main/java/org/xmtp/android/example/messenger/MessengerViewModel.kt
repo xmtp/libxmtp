@@ -47,6 +47,7 @@ class MessengerViewModel(
                 it.sentAt.ns
             },
         )
+    private val screenLock = Any()
     private val screenCounter = AtomicLong()
     private val screenGeneration get() =
         screenCounter
@@ -113,8 +114,7 @@ class MessengerViewModel(
         }
         viewModelScope.launch {
             session.active.collect { owner ->
-                screenCounter
-                    .incrementAndGet()
+                synchronized(screenLock) { screenCounter.incrementAndGet() }
                 conversation = null
                 logicalKey = null
                 cache
@@ -124,6 +124,8 @@ class MessengerViewModel(
                         MessengerState(
                             backend =
                                 ui.value.backend,
+                            pendingReset = ui.value.pendingReset,
+                            error = ui.value.error,
                         )
                 } else {
                     ui.value =
@@ -215,7 +217,11 @@ class MessengerViewModel(
                     }
                 }
             } catch (error: Throwable) {
-                showError(error)
+                val pending = session.preferences.reset() != null
+                if (sessionActionCounter.get() == 0L) {
+                    ui.value = ui.value.copy(pendingReset = pending)
+                    showError(error)
+                }
             }
         }
     }
@@ -227,7 +233,7 @@ class MessengerViewModel(
     }
 
     fun foreground(value: Boolean) {
-        foreground = value
+        synchronized(screenLock) { foreground = value }
         if (value) {
             dispatch(
                 MessengerAction.Refresh,
@@ -241,6 +247,11 @@ class MessengerViewModel(
                 id,
             )
     }
+    internal var writeConsent: suspend (
+        Conversation,
+        ConsentState,
+    ) -> Unit = { chat, value -> chat.updateConsentState(value) }
+    internal var onConsentFinished: () -> Unit = {}
     internal var historyRead: suspend (
         Conversation,
         ListMessagesOptions,
@@ -273,7 +284,13 @@ class MessengerViewModel(
             return
         }
         val requestedToken =
-            if (action is MessengerAction.OpenConversation) screenCounter.incrementAndGet() else screenGeneration
+            if (action is MessengerAction.OpenConversation) {
+                synchronized(screenLock) {
+                    screenCounter.incrementAndGet()
+                }
+            } else {
+                screenGeneration
+            }
         val actionScope =
             if (action is MessengerAction
                     .Connect ||
@@ -281,7 +298,7 @@ class MessengerViewModel(
                     .ResetLegacyAccount || action ==
                 MessengerAction
                     .SignOut || action ==
-                MessengerAction.DeleteAccount
+                MessengerAction.DeleteAccount || action == MessengerAction.ResumeReset
             ) {
                 viewModelScope
             } else {
@@ -294,7 +311,7 @@ class MessengerViewModel(
                     .ResetLegacyAccount || action ==
                 MessengerAction
                     .SignOut || action ==
-                MessengerAction.DeleteAccount
+                MessengerAction.DeleteAccount || action == MessengerAction.ResumeReset
         val operationToken =
             if (replacesSession) {
                 sessionActionCounter
@@ -334,10 +351,12 @@ class MessengerViewModel(
                                 .signOut()
                         }
 
-                        MessengerAction.DeleteAccount,
+                        MessengerAction.DeleteAccount, MessengerAction.ResumeReset,
                         -> {
+                            ui.value = ui.value.copy(pendingReset = true, busy = true, error = null)
                             session
                                 .deleteAccount()
+                            if (operationToken != sessionActionCounter.get()) return@launch
                             ui.value =
                                 MessengerState(
                                     backend =
@@ -351,6 +370,7 @@ class MessengerViewModel(
                                 .resetLegacyAccount(
                                     action.inboxId,
                                 )
+                            if (operationToken != sessionActionCounter.get()) return@launch
                             ui.value =
                                 ui.value
                                     .copy(
@@ -592,20 +612,29 @@ class MessengerViewModel(
 
                                 is MessengerAction.Consent,
                                 -> {
-                                    conversation?.updateConsentState(
-                                        if (action.allowed) {
-                                            ConsentState.ALLOWED
-                                        } else {
-                                            ConsentState.DENIED
-                                        },
-                                    )
-                                    if (!action.allowed) {
-                                        navigate(
-                                            Screen.CONVERSATIONS,
+                                    val chat = conversation ?: return@launch
+                                    try {
+                                        writeConsent(
+                                            chat,
+                                            if (action.allowed) ConsentState.ALLOWED else ConsentState.DENIED,
                                         )
-                                    }
-                                    projection.withLock {
-                                        refreshLoaded(owner)
+                                        val current =
+                                            session.withCurrent(owner.key) {
+                                                synchronized(screenLock) {
+                                                    if (token != screenGeneration || conversation?.id() != chat.id()) {
+                                                        false
+                                                    } else {
+                                                        if (!action.allowed) navigate(Screen.CONVERSATIONS)
+                                                        true
+                                                    }
+                                                }
+                                            } ?: false
+                                        if (!current) return@launch
+                                        projection.withLock {
+                                            if (session.accepts(owner.key)) refreshLoaded(owner)
+                                        }
+                                    } finally {
+                                        onConsentFinished()
                                     }
                                 }
 
@@ -655,11 +684,7 @@ class MessengerViewModel(
                     if (operationToken ==
                         sessionActionCounter
                             .get() && (
-                            owner == null ||
-                                session
-                                    .accepts(
-                                        owner.key,
-                                    )
+                            replacesSession || owner == null || valid(owner, token)
                         )
                     ) {
                         showError(error)
@@ -668,11 +693,7 @@ class MessengerViewModel(
                     if (operationToken ==
                         sessionActionCounter
                             .get() && (
-                            owner == null ||
-                                session
-                                    .accepts(
-                                        owner.key,
-                                    )
+                            replacesSession || owner == null || valid(owner, token)
                         )
                     ) {
                         ui.value =
@@ -684,15 +705,16 @@ class MessengerViewModel(
     }
 
     private fun navigate(screen: Screen) {
-        screenCounter
-            .incrementAndGet()
-        atNewest = false
-        ui.value =
-            ui.value
-                .copy(
-                    screen = screen,
-                    error = null,
-                )
+        synchronized(screenLock) {
+            screenCounter.incrementAndGet()
+            atNewest = false
+            ui.value =
+                ui.value
+                    .copy(
+                        screen = screen,
+                        error = null,
+                    )
+        }
         if (screen == Screen.CONVERSATIONS || screen ==
             Screen.CONVERSATION_SETTINGS
         ) {
@@ -716,8 +738,11 @@ class MessengerViewModel(
                 ui.value
                     .copy(
                         error =
-                            error
-                                .toString(),
+                            if (ui.value.pendingReset) {
+                                "Local reset failed. ${error.message ?: "Cleanup is not complete."}"
+                            } else {
+                                error.toString()
+                            },
                         busy = false,
                     )
         }
@@ -913,15 +938,21 @@ class MessengerViewModel(
         }
 
     internal var onOpenFinished: (String) -> Unit = {}
+    private val openAttemptCounter = AtomicLong()
+    internal var onOpenStarted: (Long, String) -> Unit = { _, _ -> }
+    internal var onOpenAttemptFinished: (Long, String) -> Unit = { _, _ -> }
 
     private suspend fun open(
         owner: ActiveSession,
         id: String,
         token: Long,
     ) {
+        val attempt = openAttemptCounter.incrementAndGet()
+        onOpenStarted(attempt, id)
         try {
             performOpen(owner, id, token)
         } finally {
+            onOpenAttemptFinished(attempt, id)
             onOpenFinished(id)
         }
     }
@@ -941,33 +972,46 @@ class MessengerViewModel(
         if (!valid(owner, token)) return
         val anchor = session.preferences.anchor(owner.key.profileId, key)
         if (!valid(owner, token)) return
-        conversation = chat
-        logicalKey = key
-        atNewest = false
-        newestLoaded = false
-        nextBefore = null
-        ui.value =
-            ui.value.copy(
-                screen = Screen.TIMELINE,
-                conversationId = id,
-                conversationTitle =
-                    ui.value.conversations
-                        .firstOrNull { it.id == id }
-                        ?.title ?: id.take(12),
-                conversationUnknown = state.consentState == ConsentState.UNKNOWN,
-                messages = emptyList(),
-                anchor = null,
-                replyTo = null,
-                replyPreview = null,
-                error = null,
-                hasOlder = true,
-            )
+        val opened =
+            session.withCurrent(owner.key) {
+                synchronized(screenLock) {
+                    if (token != screenGeneration) return@synchronized false
+                    conversation = chat
+                    logicalKey = key
+                    synchronized(screenLock) {
+                        atNewest = false
+                        newestLoaded = false
+                    }
+                    nextBefore = null
+                    ui.value =
+                        ui.value.copy(
+                            screen = Screen.TIMELINE,
+                            conversationId = id,
+                            conversationTitle =
+                                ui.value.conversations
+                                    .firstOrNull { it.id == id }
+                                    ?.title ?: id.take(12),
+                            conversationUnknown = state.consentState == ConsentState.UNKNOWN,
+                            messages = emptyList(),
+                            anchor = null,
+                            replyTo = null,
+                            replyPreview = null,
+                            error = null,
+                            hasOlder = true,
+                        )
+                    true
+                }
+            } ?: false
+        if (!opened) return
         projection.withLock {
             if (!valid(owner, token)) return
             val cached = cache.get(id)
             if (cached != null && anchor != null && cached.any { it.id == anchor.messageId }) {
-                ui.value = ui.value.copy(messages = cached.map { it.toRow(owner.client.inboxId()) }, anchor = anchor)
-                nextBefore = cached.lastOrNull()?.sentAt?.ns
+                onCurrentScreen(owner, token) {
+                    val cachedRows = cached.map { it.toRow(owner.client.inboxId()) }
+                    ui.value = ui.value.copy(messages = cachedRows, anchor = anchor)
+                    nextBefore = cached.lastOrNull()?.sentAt?.ns
+                }
                 refreshTimeline(owner, token, true)
             } else if (anchor != null && !anchor.wasAtNewest) {
                 restorePosition(owner, token, anchor)
@@ -1069,25 +1113,21 @@ class MessengerViewModel(
         ) {
             return
         }
-        nextBefore =
-            result.nextBeforeNs
-        val retained =
-            cache
-                .put(
-                    chat
-                        .id(),
-                    rows,
-                    ui.value.anchor?.messageId,
-                )
-        newestLoaded = rows
-            .isEmpty() ||
-            retained.any {
-                it.id ==
-                    rows
-                        .maxBy { row ->
-                            row.sentAt.ns
-                        }.id
-            }
+        val window =
+            onCurrentScreen(owner, token) {
+                val kept =
+                    cache.retainPage(
+                        chat.id(),
+                        emptyList(),
+                        result.copy(rows = rows),
+                        ui.value.anchor?.messageId,
+                    )
+                nextBefore = kept.nextBeforeNs
+                val newestId = rows.maxByOrNull { it.sentAt.ns }?.id
+                newestLoaded = newestId == null || kept.rows.any { it.id == newestId }
+                kept
+            } ?: return
+        val retained = window.rows
         val previousAnchor =
             ui.value.anchor.takeIf {
                 preserve
@@ -1130,41 +1170,43 @@ class MessengerViewModel(
         ) {
             return
         }
-        ui.value =
-            ui.value
-                .copy(
-                    messages =
-                        (retained + queued)
-                            .associateBy {
-                                it.id
-                            }.values
-                            .sortedWith(
-                                compareByDescending<Message> {
-                                    it.sentAt.ns
-                                }.thenBy {
+        onCurrentScreen(owner, token) {
+            ui.value =
+                ui.value
+                    .copy(
+                        messages =
+                            (retained + queued)
+                                .associateBy {
                                     it.id
+                                }.values
+                                .sortedWith(
+                                    compareByDescending<Message> {
+                                        it.sentAt.ns
+                                    }.thenBy {
+                                        it.id
+                                    },
+                                ).map {
+                                    it
+                                        .toRow(
+                                            owner.client
+                                                .inboxId(),
+                                        )
                                 },
-                            ).map {
-                                it
-                                    .toRow(
-                                        owner.client
-                                            .inboxId(),
-                                    )
+                        historyNotice =
+                            window.notice ?: if (positionLost) {
+                                "Position changed"
+                            } else {
+                                null
                             },
-                    historyNotice =
-                        if (positionLost) {
-                            "Position changed"
-                        } else {
-                            result.notice
-                        },
-                    hasOlder =
-                        !result
-                            .complete && result.notice == null,
-                    conversationUnknown =
-                        consent ==
-                            ConsentState.UNKNOWN,
-                    anchor = restoredAnchor,
-                )
+                        hasOlder =
+                            !window
+                                .complete && window.notice == null,
+                        conversationUnknown =
+                            consent ==
+                                ConsentState.UNKNOWN,
+                        anchor = restoredAnchor,
+                    )
+        }
         markRead(
             owner,
             token,
@@ -1175,6 +1217,7 @@ class MessengerViewModel(
         owner: ActiveSession,
         token: Long,
     ) {
+        if (ui.value.historyNotice?.startsWith("More history") == true) return
         val chat = conversation ?: return
         val result =
             page(
@@ -1189,56 +1232,41 @@ class MessengerViewModel(
         ) {
             return
         }
-        nextBefore =
-            result.nextBeforeNs
-        val before =
-            cache
-                .get(
-                    chat
-                        .id(),
-                ).orEmpty()
-        val newestId =
-            before
-                .firstOrNull()
-                ?.id
-        val rows =
-            cache
-                .put(
-                    chat
-                        .id(),
-                    before +
-                        result.rows,
-                    ui.value.anchor?.messageId,
-                )
-        newestLoaded = newestLoaded && (
-            newestId == null ||
-                rows.any {
-                    it.id == newestId
-                }
-        )
-        ui.value =
-            ui.value
-                .copy(
-                    messages =
-                        (rows + queued)
-                            .associateBy {
-                                it.id
-                            }.values
-                            .sortedByDescending {
-                                it.sentAt.ns
-                            }.map {
-                                it
-                                    .toRow(
-                                        owner.client
-                                            .inboxId(),
-                                    )
-                            },
-                    historyNotice =
-                        result.notice,
-                    hasOlder =
-                        !result
-                            .complete && result.notice == null,
-                )
+        val window =
+            onCurrentScreen(owner, token) {
+                val before = cache.get(chat.id()).orEmpty()
+                val newestId = before.firstOrNull()?.id
+                val kept = cache.retainPage(chat.id(), before, result, ui.value.anchor?.messageId)
+                nextBefore = kept.nextBeforeNs
+                newestLoaded = newestLoaded && (newestId == null || kept.rows.any { it.id == newestId })
+                kept
+            } ?: return
+        val rows = window.rows
+        onCurrentScreen(owner, token) {
+            ui.value =
+                ui.value
+                    .copy(
+                        messages =
+                            (rows + queued)
+                                .associateBy {
+                                    it.id
+                                }.values
+                                .sortedByDescending {
+                                    it.sentAt.ns
+                                }.map {
+                                    it
+                                        .toRow(
+                                            owner.client
+                                                .inboxId(),
+                                        )
+                                },
+                        historyNotice =
+                            window.notice,
+                        hasOlder =
+                            !window
+                                .complete && window.notice == null,
+                    )
+        }
     }
 
     private suspend fun restorePosition(
@@ -1250,22 +1278,29 @@ class MessengerViewModel(
         val before = if (saved.sentAtNs == Long.MAX_VALUE) null else saved.sentAtNs + 1
         val result = page(chat, before)
         if (!valid(owner, token)) return
-        nextBefore = result.nextBeforeNs
         if (result.rows.isEmpty() && result.notice == null) {
             refreshTimeline(owner, token, false)
-            if (valid(owner, token)) ui.value = ui.value.copy(historyNotice = "Position changed")
+            onCurrentScreen(owner, token) { ui.value = ui.value.copy(historyNotice = "Position changed") }
             return
         }
-        val retained = cache.put(chat.id(), result.rows, saved.messageId)
+        val window =
+            onCurrentScreen(owner, token) {
+                cache.retainPage(chat.id(), emptyList(), result, saved.messageId).also {
+                    nextBefore = it.nextBeforeNs
+                    newestLoaded = false
+                }
+            } ?: return
+        val retained = window.rows
         val position = restoreAnchor(saved, retained.map { it.toRow(owner.client.inboxId()) })
-        newestLoaded = false
-        ui.value =
-            ui.value.copy(
-                messages = retained.map { it.toRow(owner.client.inboxId()) },
-                anchor = position.anchor,
-                historyNotice = result.notice ?: if (position.changed) "Position changed" else null,
-                hasOlder = !result.complete && result.notice == null,
-            )
+        onCurrentScreen(owner, token) {
+            ui.value =
+                ui.value.copy(
+                    messages = retained.map { it.toRow(owner.client.inboxId()) },
+                    anchor = position.anchor,
+                    historyNotice = window.notice ?: if (position.changed) "Position changed" else null,
+                    hasOlder = !window.complete && window.notice == null,
+                )
+        }
     }
 
     private suspend fun merge(
@@ -1301,32 +1336,55 @@ class MessengerViewModel(
         ) {
             return
         }
-        atNewest =
-            action.atNewest
+        if (!admitPosition(owner, token, false) { atNewest = action.atNewest }) return
         val key = logicalKey ?: return
         session.preferences
             .saveAnchor(
                 owner.key.profileId,
                 key,
                 action.anchor,
+                admit = { change -> admitPosition(owner, token, false, change) },
             )
         if (valid(
                 owner,
                 token,
             )
         ) {
-            ui.value =
-                ui.value
-                    .copy(
-                        anchor =
-                            action.anchor,
-                    )
+            onCurrentScreen(owner, token) {
+                ui.value = ui.value.copy(anchor = action.anchor)
+            }
             markRead(
                 owner,
                 token,
             )
         }
     }
+
+    private fun <T> onCurrentScreen(
+        owner: ActiveSession,
+        token: Long,
+        change: () -> T,
+    ): T? =
+        session.withCurrent(owner.key) {
+            synchronized(screenLock) {
+                if (token == screenGeneration) change() else null
+            }
+        }
+
+    private fun admitPosition(
+        owner: ActiveSession,
+        token: Long,
+        read: Boolean,
+        change: () -> Unit,
+    ): Boolean =
+        onCurrentScreen(owner, token) {
+            if (ui.value.screen == Screen.TIMELINE && (!read || (foreground && atNewest && newestLoaded))) {
+                change()
+                true
+            } else {
+                false
+            }
+        } ?: false
 
     private suspend fun markRead(
         owner: ActiveSession,
@@ -1371,8 +1429,9 @@ class MessengerViewModel(
                         owner.key.profileId,
                         key,
                         it,
+                        admit = { change -> admitPosition(owner, token, true, change) },
                     )
-                refreshUnread(owner, chat, key)
+                if (valid(owner, token)) refreshUnread(owner, chat, key)
             },
         )
     }
@@ -1674,9 +1733,9 @@ class MessengerViewModel(
                 token,
             )
         ) {
-            ui.value =
-                ui.value
-                    .copy(settings = settings)
+            onCurrentScreen(owner, token) {
+                ui.value = ui.value.copy(settings = settings)
+            }
         }
     }
 

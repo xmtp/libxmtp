@@ -50,7 +50,16 @@ class MessengerRaceInstrumentedTest {
                 val entered = CompletableDeferred<Unit>()
                 val returned = CompletableDeferred<Unit>()
                 val completed = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == a.id()) completed.complete(Unit) }
+                var attemptA: Long? = null
+                model.onOpenStarted = { attempt, id -> if (id == a.id()) attemptA = attempt }
+                model.onOpenAttemptFinished = { attempt, id ->
+                    if (attempt == attemptA && id == a.id()) {
+                        println(
+                            "OPEN_PROOF attempt=$attempt old-operation-completed screen=${model.state.value.screen} chat=${model.state.value.conversationId}",
+                        )
+                        completed.complete(Unit)
+                    }
+                }
                 model.lookupConversation = { current, id ->
                     val result = current.client.conversations.getById(id)
                     if (id == a.id()) {
@@ -61,14 +70,15 @@ class MessengerRaceInstrumentedTest {
                     result
                 }
                 model.dispatch(MessengerAction.OpenConversation(a.id()))
-                entered.await()
+                withTimeout(30_000) { entered.await() }
+                println("OPEN_PROOF stage=old-lookup-blocked attempt=$attemptA")
                 model.dispatch(MessengerAction.OpenConversation(b.id()))
                 until { model.state.value.conversationId == b.id() }
                 model.dispatch(MessengerAction.Navigate(Screen.CONVERSATION_SETTINGS))
                 until { model.state.value.settings.title == "B" }
                 release.complete(Unit)
-                returned.await()
-                completed.await()
+                withTimeout(30_000) { returned.await() }
+                withTimeout(30_000) { completed.await() }
                 assertEquals(b.id(), model.state.value.conversationId)
                 assertEquals(Screen.CONVERSATION_SETTINGS, model.state.value.screen)
             } finally {
