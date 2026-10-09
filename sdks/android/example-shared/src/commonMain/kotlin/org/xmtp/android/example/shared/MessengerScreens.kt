@@ -128,6 +128,10 @@ fun MessengerScreens(
                                                 Screen.CONVERSATION_SETTINGS
                                             ) {
                                                 Screen.TIMELINE
+                                            } else if (state.screen == Screen.GROUP_FIELDS ||
+                                                state.screen == Screen.MY_FIELDS
+                                            ) {
+                                                Screen.CONVERSATION_SETTINGS
                                             } else {
                                                 Screen.CONVERSATIONS
                                             },
@@ -1663,12 +1667,7 @@ private fun MessagePopover(
                 Column {
                     if (state.settings.group) {
                         Action("Group fields") {
-                            action(
-                                MessengerAction
-                                    .Navigate(
-                                        Screen.GROUP_FIELDS,
-                                    ),
-                            )
+                            action(MessengerAction.Navigate(Screen.GROUP_FIELDS))
                         }
                     }
                     Action("My fields") {

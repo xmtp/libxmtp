@@ -157,6 +157,7 @@ jobs:
       timeout-minutes: 30
       env:
         NIX_DEVSHELL: android
+        XMTP_METADATA_LOG_DIR: ${{ runner.temp }}/messenger-metadata-backend
         NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/messenger-emulator-startup
         NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192
       run: dev/nix-shell 'just android example-test-integration'
@@ -174,6 +175,7 @@ jobs:
           sdks/android/example/build/screenshots/**
           sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
           sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
+          ${{ runner.temp }}/messenger-metadata-backend/
           ${{ runner.temp }}/android-emulator-startup/
           ${{ runner.temp }}/messenger-emulator-startup/
         include-hidden-files: 'true'

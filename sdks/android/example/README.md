@@ -70,6 +70,25 @@ the same session is active. A partial SDK failure shows the state read from the
 SDK. Request removal shows PendingRemove
 until a later committed state changes it.
 
+## Conversation fields
+
+Conversation settings opens Group fields and My fields. Group fields shows the
+registered application fields. My fields shows your values and member values
+for this conversation. String values use text. Bytes use hex. Map and set
+controls change one entry. A save in My fields sends only changed own values in
+one commit. Set empty keeps a value; Clear removes it.
+
+The committed registry supplies field types and policies. An unknown type or
+policy shows Unsupported. An offered field that is absent from the registry
+shows a missing-field notice. The app cannot register arbitrary fields.
+Descriptors and values refresh after a mutation, metadata event, event lag,
+foreground return, or session open. An old screen or session cannot publish a
+save result into the current editor. SDK failures retain their actual type.
+
+The [catalogue fixture](fixtures/README.md) supplies stable example group and
+user fields. The integration recipe starts its own backend and database. It
+keeps the shared backend catalogue unchanged.
+
 ## Local history limits
 
 Published history uses SDK pages of 50 raw rows. The SDK orders by sent time,

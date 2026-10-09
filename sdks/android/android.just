@@ -59,9 +59,22 @@ example-support-fixture:
 example-io-fixture:
   {{ _env }} && ./dev/attachment-io-proxy true
 
-# Run app instrumentation inside the emulator launcher's owned scope.
-example-test-integration *args: build
-  {{ _env }} && ./dev/attachment-io-proxy ./dev/unsupported-backend run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_S3_PORT tcp:$XMTP_ANDROID_S3_GATE_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_ANDROID_S3_GATE_PORT tcp:$XMTP_ANDROID_S3_GATE_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_PORT tcp:$XMTP_TOXIPROXY_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_API_PORT tcp:$XMTP_TOXIPROXY_API_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT tcp:$XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT; test_status=0; ./gradlew -p . :example:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.s3GateApi="http://127.0.0.1:$XMTP_ANDROID_S3_GATE_PORT/_xmtp_attachment_test/" -Pandroid.testInstrumentationRunnerArguments.unsupportedBackendUrl="$XMTP_ANDROID_UNSUPPORTED_BACKEND_URL" -Pandroid.testInstrumentationRunnerArguments.toxicBackendUrl="$XMTP_BACKEND_TOXIC_URL" -Pandroid.testInstrumentationRunnerArguments.toxiproxyApi="$XMTP_TOXIPROXY_API" {{ args }} --dependency-verification=strict --no-daemon || test_status=$?; mkdir -p "{{ root }}/sdks/android/example/build/screenshots"; if adb -s "$ANDROID_SERIAL" shell test -d /sdcard/Pictures/XmtpMessengerProof; then adb -s "$ANDROID_SERIAL" pull /sdcard/Pictures/XmtpMessengerProof/. "{{ root }}/sdks/android/example/build/screenshots"; fi; exit "$test_status"'
+# Stage the current backend for the isolated app metadata catalogue.
+[private]
+_metadata-backend:
+  env -u LD_LIBRARY_PATH nix build "{{ root }}#xmtp-backend" --out-link "{{ root }}/sdks/android/.build/metadata-backend"
+
+# Check real catalogue backend startup and cleanup without an emulator.
+metadata-fixture-smoke: _metadata-backend
+  {{ _env }} && ./dev/unsupported-backend python3.11 -B example/fixtures/metadata_backend.py --backend '{{ root }}/sdks/android/.build/metadata-backend/bin/xmtp-backend' -- true
+
+# Check owned database and process cleanup with local stubs.
+metadata-fixture-test:
+  python3.11 -B example/fixtures/test_metadata_backend.py
+
+# Run app instrumentation with owned S3, catalogue and emulator scopes.
+example-test-integration *args: build _metadata-backend
+  {{ _env }} && ./dev/attachment-io-proxy ./dev/unsupported-backend python3.11 -B example/fixtures/metadata_backend.py --backend '{{ root }}/sdks/android/.build/metadata-backend/bin/xmtp-backend' -- run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_METADATA_BACKEND_PORT tcp:$XMTP_METADATA_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_S3_PORT tcp:$XMTP_ANDROID_S3_GATE_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_ANDROID_S3_GATE_PORT tcp:$XMTP_ANDROID_S3_GATE_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_PORT tcp:$XMTP_TOXIPROXY_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_API_PORT tcp:$XMTP_TOXIPROXY_API_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT tcp:$XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT; test_status=0; ./gradlew -p . :example:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.metadataBackendUrl="$XMTP_METADATA_BACKEND_URL" -Pandroid.testInstrumentationRunnerArguments.s3GateApi="http://127.0.0.1:$XMTP_ANDROID_S3_GATE_PORT/_xmtp_attachment_test/" -Pandroid.testInstrumentationRunnerArguments.unsupportedBackendUrl="$XMTP_ANDROID_UNSUPPORTED_BACKEND_URL" -Pandroid.testInstrumentationRunnerArguments.toxicBackendUrl="$XMTP_BACKEND_TOXIC_URL" -Pandroid.testInstrumentationRunnerArguments.toxiproxyApi="$XMTP_TOXIPROXY_API" {{ args }} --dependency-verification=strict --no-daemon || test_status=$?; mkdir -p "{{ root }}/sdks/android/example/build/screenshots"; if adb -s "$ANDROID_SERIAL" shell test -d /sdcard/Pictures/XmtpMessengerProof; then adb -s "$ANDROID_SERIAL" pull /sdcard/Pictures/XmtpMessengerProof/. "{{ root }}/sdks/android/example/build/screenshots"; fi; exit "$test_status"'
 
 # Prove compiled release URL admission and packaged policy with temporary test signing.
 example-test-release-integration *args: build

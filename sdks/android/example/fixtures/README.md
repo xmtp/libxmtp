@@ -7,40 +7,32 @@ The database, listeners and backend process belong to this run. The runner
 removes them after success, command failure or cancellation. Backend logs remain
 at the printed path.
 
-Start PostgreSQL and S3 with the normal worktree recipes. Read the URLs from
-`dev/docker/.env`. Build the current binary with
-`dev/nix-shell 'just backend build'`. Use the resulting `result/bin/xmtp-backend`
-path with `metadata_backend.py --backend PATH -- COMMAND`. Run the runner in a
-Nix environment with Python 3.11 or later, `psql` and `grpc-health-probe`.
-Export `DATABASE_URL`, `XMTP_S3_URL` and `XMTP_S3_BASE_URL` from that worktree.
-The runner sets `XMTP_BACKEND_URL`, `XMTP_ANDROID_BACKEND_URL` and
-`XMTP_METADATA_BACKEND_PORT` for `COMMAND`.
-
-From the repository root, this command checks real backend startup and teardown:
+Run from the repository root:
 
 ```sh
-dev/nix-shell 'just backend db-up'
-dev/nix-shell 'just backend s3-up'
-dev/nix-shell 'just backend build'
-dev/nix-shell --shell android '
-  . dev/docker/load-env
-  env -u LD_LIBRARY_PATH nix shell --inputs-from . nixpkgs#postgresql_18 --command \
-    python3 sdks/android/example/fixtures/metadata_backend.py \
-    --backend "$PWD/result/bin/xmtp-backend" -- true
-'
+dev/nix-shell 'just backend up'
+dev/nix-shell 'just android metadata-fixture-test'
+dev/nix-shell 'just android metadata-fixture-smoke'
+dev/nix-shell 'just android example-test-integration'
 ```
 
-The pinned PostgreSQL package supplies `psql`, which is absent from the Android
-shell. Replace `true` with the test command. Each run gets a new catalogue
-backend URL. This startup check does not run the Kotlin tests.
+The integration recipe stages the current backend and Android SDK. The Android
+Nix shell supplies the pinned PostgreSQL client and `grpc-health-probe`. The
+runner creates a catalogue backend and starts the owned emulator scope. The
+recipe forwards its listener and the worktree S3 port. It passes the catalogue
+URL as the `metadataBackendUrl` instrumentation argument. The runner keeps the
+normal backend URLs for the other app tests. No shared database or catalogue is
+changed. Set `XMTP_METADATA_LOG_DIR` to keep logs at a selected path.
 
-For Android instrumentation, run `COMMAND` in the existing owned emulator scope.
-Reverse the fixture's `XMTP_METADATA_BACKEND_PORT` and the worktree S3 port with
-`adb -s "$ANDROID_SERIAL" reverse`. Pass the fixture URL as the
-`metadataBackendUrl` instrumentation argument. Select
-`org.xmtp.android.example.messenger.metadata.MetadataEditorInstrumentedTest`.
-Do not use the default backend URL for this test. The test requires all eight
-published catalogue entries before it creates two clients and new conversations.
+Select the metadata test with:
+
+```sh
+dev/nix-shell 'just android example-test-integration -Pandroid.testInstrumentationRunnerArguments.class=org.xmtp.android.example.messenger.metadata.MetadataEditorInstrumentedTest'
+```
+
+The test requires all eight published catalogue entries before it creates new
+conversations. Each run uses two real clients. An existing conversation can
+lack a registered field; this state is checked in the app host tests.
 
 `metadata-catalogue.toml` is also a complete catalogue example for an operator.
 Append its `[[application_components]]` entries to a backend configuration.
@@ -57,7 +49,7 @@ current conversation. Empty values and absent values are different.
 Run local ownership checks with:
 
 ```sh
-dev/nix-shell --shell android 'python3 -m unittest discover -s sdks/android/example/fixtures -p test_metadata_backend.py'
+dev/nix-shell 'just android metadata-fixture-test'
 ```
 
 These checks use process stubs. They prove teardown and exit status behavior.

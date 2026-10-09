@@ -25,10 +25,14 @@ def config_text(source, catalogue, listener, metrics):
     expected = tomllib.loads(source)
     expected["server"]["listen"] = f"127.0.0.1:{listener}"
     expected.setdefault("telemetry", {})["metrics_listen"] = f"127.0.0.1:{metrics}"
-    expected["application_components"] = tomllib.loads(catalogue)["application_components"]
-    text = re.sub(r'(?m)^listen\s*=.*$', f'listen = "127.0.0.1:{listener}"', source)
+    expected["application_components"] = tomllib.loads(catalogue)[
+        "application_components"
+    ]
+    text = re.sub(r"(?m)^listen\s*=.*$", f'listen = "127.0.0.1:{listener}"', source)
     if "[telemetry]" in text:
-        raise ValueError("The fixture base already has telemetry. Update the fixture derivation.")
+        raise ValueError(
+            "The fixture base already has telemetry. Update the fixture derivation."
+        )
     text += f'\n[telemetry]\nmetrics_listen = "127.0.0.1:{metrics}"\n' + catalogue
     if tomllib.loads(text) != expected:
         raise ValueError("Unexpected fixture configuration change.")
@@ -60,10 +64,14 @@ def run(backend, command, environment=None):
     parsed = urlsplit(database)
     owned_url = urlunsplit(parsed._replace(path="/" + name))
     listener, metrics = port(), port()
-    env.update(DATABASE_URL=owned_url, XMTP_DATABASE_URL=owned_url,
-               XMTP_REPLICA_URL=owned_url, XMTP_BACKEND_URL=f"http://127.0.0.1:{listener}",
-               XMTP_ANDROID_BACKEND_URL=f"http://127.0.0.1:{listener}",
-               XMTP_METADATA_BACKEND_PORT=str(listener))
+    child_env = dict(
+        env,
+        XMTP_METADATA_BACKEND_URL=f"http://127.0.0.1:{listener}",
+        XMTP_METADATA_BACKEND_PORT=str(listener),
+    )
+    env.update(
+        DATABASE_URL=owned_url, XMTP_DATABASE_URL=owned_url, XMTP_REPLICA_URL=owned_url
+    )
     env.setdefault("XMTP_CHAIN_31337_URL", env.get("ANVIL_URL", ""))
     env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
     fixture = Path(__file__).resolve().parent
@@ -78,40 +86,103 @@ def run(backend, command, environment=None):
     for signum in (signal.SIGINT, signal.SIGTERM):
         previous[signum] = signal.signal(signum, interrupted)
     try:
-        subprocess.run(["psql", database, "-v", "ON_ERROR_STOP=1", "-c", f'CREATE DATABASE "{name}"'], check=True, timeout=30, stdout=subprocess.DEVNULL)
+        subprocess.run(
+            [
+                "psql",
+                database,
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-c",
+                f'CREATE DATABASE "{name}"',
+            ],
+            check=True,
+            timeout=30,
+            stdout=subprocess.DEVNULL,
+        )
         created = True
         with tempfile.TemporaryDirectory(prefix="messenger-metadata-") as directory:
             config = Path(directory) / "backend.toml"
-            config.write_text(config_text((root / "dev/backend/local-s3.toml").read_text(), (fixture / "metadata-catalogue.toml").read_text(), listener, metrics))
-            logs = Path(env["XMTP_METADATA_LOG_DIR"] if env.get("XMTP_METADATA_LOG_DIR") else tempfile.mkdtemp(prefix="messenger-metadata-logs-", dir=env.get("RUNNER_TEMP", "/tmp")))
+            config.write_text(
+                config_text(
+                    (root / "dev/backend/local-s3.toml").read_text(),
+                    (fixture / "metadata-catalogue.toml").read_text(),
+                    listener,
+                    metrics,
+                )
+            )
+            logs = Path(
+                env["XMTP_METADATA_LOG_DIR"]
+                if env.get("XMTP_METADATA_LOG_DIR")
+                else tempfile.mkdtemp(
+                    prefix="messenger-metadata-logs-",
+                    dir=env.get("RUNNER_TEMP", "/tmp"),
+                )
+            )
             logs.mkdir(parents=True, exist_ok=True)
             print(f"Metadata fixture logs: {logs}", flush=True)
             with (logs / "backend.log").open("w") as log:
-                server = subprocess.Popen([backend, "--config-file", str(config)], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                server = subprocess.Popen(
+                    [backend, "--config-file", str(config)],
+                    env=env,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
                 deadline = time.monotonic() + 60
                 while True:
                     if server.poll() is not None:
-                        raise RuntimeError(f"Metadata backend exited with {server.returncode}; see {logs}")
-                    probe = subprocess.run(["grpc-health-probe", "-addr", f"127.0.0.1:{listener}", "-connect-timeout", "1s", "-rpc-timeout", "1s"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                        raise RuntimeError(
+                            f"Metadata backend exited with {server.returncode}; see {logs}"
+                        )
+                    probe = subprocess.run(
+                        [
+                            "grpc-health-probe",
+                            "-addr",
+                            f"127.0.0.1:{listener}",
+                            "-connect-timeout",
+                            "1s",
+                            "-rpc-timeout",
+                            "1s",
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
                     if probe.returncode == 0:
                         break
                     if time.monotonic() >= deadline:
-                        raise TimeoutError(f"Metadata backend did not become ready; see {logs}")
+                        raise TimeoutError(
+                            f"Metadata backend did not become ready; see {logs}"
+                        )
                     time.sleep(0.1)
-                child = subprocess.Popen(command, env=env, start_new_session=True)
+                child = subprocess.Popen(command, env=child_env, start_new_session=True)
                 return child.wait()
     finally:
         stop(child)
         stop(server)
         if created:
-            subprocess.run(["psql", database, "-v", "ON_ERROR_STOP=1", "-c", f'DROP DATABASE "{name}" WITH (FORCE)'], check=True, timeout=30, stdout=subprocess.DEVNULL)
+            subprocess.run(
+                [
+                    "psql",
+                    database,
+                    "-v",
+                    "ON_ERROR_STOP=1",
+                    "-c",
+                    f'DROP DATABASE "{name}" WITH (FORCE)',
+                ],
+                check=True,
+                timeout=30,
+                stdout=subprocess.DEVNULL,
+            )
         for signum, handler in previous.items():
             signal.signal(signum, handler)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", required=True, help="Path to the current xmtp-backend binary")
+    parser.add_argument(
+        "--backend", required=True, help="Path to the current xmtp-backend binary"
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
