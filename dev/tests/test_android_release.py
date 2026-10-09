@@ -18,6 +18,29 @@ def step(name):
 
 
 class AndroidReleaseTest(unittest.TestCase):
+    def test_integration_failure_upload_retains_app_and_library_evidence(self):
+        workflow = (ROOT / ".github/workflows/test-android.yml").read_text()
+        upload = workflow.split("    - name: Upload failed Android test reports\n", 1)[
+            1
+        ]
+        upload = upload.split("  results:", 1)[0]
+        self.assertIn("      if: failure()\n", upload)
+        paths = upload.split("        path: |\n", 1)[1].split(
+            "        include-hidden-files:", 1
+        )[0]
+        paths = [line.strip() for line in paths.splitlines() if line.strip()]
+        required = {
+            "sdks/android/example/build/outputs/androidTest-results/connected/**/*.xml",
+            "sdks/android/example/build/outputs/androidTest-results/connected/**/*.txt",
+            "sdks/android/example/build/reports/androidTests/**",
+            "sdks/android/example/build/screenshots/**",
+            "sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml",
+            "sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt",
+            "${{ runner.temp }}/android-emulator-startup/",
+            "${{ runner.temp }}/messenger-emulator-startup/",
+        }
+        self.assertTrue(required.issubset(paths), paths)
+
     def test_live_environment_reaches_gradle(self):
         command = step("Build and test").split("        run: ", 1)[1].strip()
         with tempfile.TemporaryDirectory() as folder:

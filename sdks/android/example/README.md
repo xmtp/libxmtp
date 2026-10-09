@@ -28,10 +28,13 @@ process lifecycle checks remain separate gates.
 The Start screen shows the backend URL from the worktree build configuration.
 You can edit it. Use HTTPS for a remote backend. HTTP is allowed only for the
 local development hosts `localhost`, `127.0.0.1`, `[::1]` and the Android emulator
-host `10.0.2.2`. Do not put credentials in the URL.
+host `10.0.2.2` in debug builds. Release builds permit HTTP only for the listed
+loopback hosts. Do not put credentials in the URL.
 
 The Credential field appears only when the selected server reports that it
-requires authentication. Enter that server's credential in this field.
+requires authentication. Enter that server's credential in this field. If a
+connection fails, Retry uses the current URL and credential. A failed saved
+connection keeps its saved credential when the field is empty.
 
 The app retains one hidden wallet per backend profile. Private key, credential
 and database key records use Android Keystore encryption. App and SDK files are
@@ -54,7 +57,9 @@ addresses. Groups offer All members and Admins only presets.
 
 Messages support text, replies, emoji reactions and remote deletion. “Delivered”
 means that the SDK reports Published. It does not mean that a recipient read the
-message. Publication Retry names the accepted message ID. A send interrupted
+message. The composer keeps text until the SDK accepts a message ID. A definite
+failure before acceptance keeps the draft. New edits stay in the composer when
+an earlier send completes. Publication Retry names the accepted message ID. A send interrupted
 before its ID is saved has an unknown outcome. Settings offers View chat and
 Discard record. It does not resend that record automatically.
 

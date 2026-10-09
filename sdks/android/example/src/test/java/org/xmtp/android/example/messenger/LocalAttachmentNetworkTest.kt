@@ -8,7 +8,6 @@ class LocalAttachmentNetworkTest {
         for (url in listOf(
             "http://localhost:5250",
             "http://127.0.0.1:5250",
-            "http://10.0.2.2:5250",
             "http://[::1]:5250",
         )) {
             assertTrue(url, localAttachmentNetwork(url))

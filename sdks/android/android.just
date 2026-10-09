@@ -55,6 +55,10 @@ example-test *args: build _test-host
 example-test-integration *args: build
   {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_S3_PORT tcp:$XMTP_S3_PORT; test_status=0; ./gradlew -p . :example:connectedDebugAndroidTest {{ args }} --dependency-verification=strict --no-daemon || test_status=$?; mkdir -p "{{ root }}/sdks/android/example/build/screenshots"; if adb -s "$ANDROID_SERIAL" shell test -d /sdcard/Pictures/XmtpMessengerProof; then adb -s "$ANDROID_SERIAL" pull /sdcard/Pictures/XmtpMessengerProof/. "{{ root }}/sdks/android/example/build/screenshots"; fi; exit "$test_status"'
 
+# Prove compiled release URL admission and packaged policy with temporary test signing.
+example-test-release-integration *args: build
+  {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; test_status=0; ./gradlew -p . :example:connectedReleaseAndroidTest -PxmtpExampleReleaseTests=true -Pandroid.testInstrumentationRunnerArguments.class=org.xmtp.android.example.messenger.ReleaseTransportInstrumentedTest {{ args }} --dependency-verification=strict --no-daemon || test_status=$?; exit "$test_status"'
+
 # Run integration tests (requires emulator)
 test-integration: build
   {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:${XMTP_S3_PORT:-9067} tcp:${XMTP_S3_PORT:-9067}; exec ./gradlew -p . connectedCheck --continue'

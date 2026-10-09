@@ -11,7 +11,6 @@ class BackendTransportTest {
             "http://localhost:5050",
             "http://127.0.0.1:5050",
             "http://[::1]:5050",
-            "http://10.0.2.2:5050",
         )) {
             assertEquals(url, validatedBackendUrl("  $url/  "))
         }

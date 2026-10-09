@@ -1,8 +1,11 @@
 package org.xmtp.android.example.messenger
 
+import org.xmtp.android.example.BuildConfig
 import java.net.URI
 
-internal val localDevelopmentHosts = setOf("localhost", "127.0.0.1", "::1", "[::1]", "10.0.2.2")
+internal val localDevelopmentHosts =
+    setOf("localhost", "127.0.0.1", "::1", "[::1]") +
+        if (BuildConfig.DEBUG) setOf("10.0.2.2") else emptySet()
 
 /** Validate transport before profile, credential, or SDK work. */
 internal fun validatedBackendUrl(backend: String): String {

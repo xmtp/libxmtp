@@ -133,6 +133,8 @@ class SessionFence {
         )
     }
 
+    fun isReserved(reserved: Long) = generation == reserved && profileId == null
+
     fun accepts(key: SessionKey) = key.profileId == profileId && key.generation == generation
 
     @Synchronized fun <T> withCurrent(

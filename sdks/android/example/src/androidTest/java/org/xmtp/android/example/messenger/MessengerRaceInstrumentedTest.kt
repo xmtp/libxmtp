@@ -24,9 +24,12 @@ class MessengerRaceInstrumentedTest {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
         model.session.signOut()
+        until { model.state.value.screen == Screen.START }
         model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
         val owner = checkNotNull(model.session.active.value)
-        until { model.state.value.inbox == owner.client.inboxId() }
+        until {
+            model.state.value.inbox == owner.client.inboxId() && model.state.value.screen == Screen.CONVERSATIONS
+        }
         model.foreground(false)
         return owner
     }
@@ -48,11 +51,17 @@ class MessengerRaceInstrumentedTest {
                 val owner = connect()
                 val a = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "A"))
                 val b = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "B"))
+                val aId = a.id()
+                val bId = b.id()
+                println("OPEN_PROOF stage=ids A=$aId B=$bId key=${owner.key}")
                 val entered = CompletableDeferred<Unit>()
                 val returned = CompletableDeferred<Unit>()
                 val completed = CompletableDeferred<Unit>()
                 var attemptA: Long? = null
-                model.onOpenStarted = { attempt, id -> if (id == a.id()) attemptA = attempt }
+                model.onOpenStarted = { attempt, id ->
+                    println("OPEN_PROOF stage=start id=$id attempt=$attempt token=${model.screenToken()}")
+                    if (id == aId) attemptA = attempt
+                }
                 model.onOpenAttemptFinished = { attempt, id ->
                     if (attempt == attemptA && id == a.id()) {
                         println(
@@ -74,9 +83,22 @@ class MessengerRaceInstrumentedTest {
                 withTimeout(30_000) { entered.await() }
                 println("OPEN_PROOF stage=old-lookup-blocked attempt=$attemptA")
                 model.dispatch(MessengerAction.OpenConversation(b.id()))
-                until { model.state.value.conversationId == b.id() }
+                try {
+                    until { model.state.value.conversationId == bId }
+                } catch (error: TimeoutCancellationException) {
+                    val chatId = model.state.value.conversationId
+                    val token = model.screenToken()
+                    val accepted = model.session.accepts(owner.key)
+                    throw AssertionError("B open: chat=$chatId token=$token accepted=$accepted", error)
+                }
                 model.dispatch(MessengerAction.Navigate(Screen.CONVERSATION_SETTINGS))
-                until { model.state.value.settings.title == "B" }
+                try {
+                    until { model.state.value.settings.title == "B" }
+                } catch (error: TimeoutCancellationException) {
+                    val screen = model.state.value.screen
+                    val title = model.state.value.settings.title
+                    throw AssertionError("B settings: screen=$screen title=$title", error)
+                }
                 release.complete(Unit)
                 withTimeout(30_000) { returned.await() }
                 withTimeout(30_000) { completed.await() }

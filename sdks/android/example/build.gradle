@@ -23,9 +23,13 @@ String androidBackendURL() {
     return "http://10.0.2.2:${port ?: '5050'}"
 }
 
+// The release test mode changes signing and instrumentation only, not DEBUG or resources.
+boolean releaseTransportTests = providers.gradleProperty('xmtpExampleReleaseTests').map { it.toBoolean() }.getOrElse(false)
+
 android {
     namespace 'org.xmtp.android.example'
     compileSdk 35
+    testBuildType releaseTransportTests ? 'release' : 'debug'
 
     defaultConfig {
         applicationId "org.xmtp.android.example"
@@ -45,8 +49,14 @@ android {
 
     buildTypes {
         release {
+            if (releaseTransportTests) signingConfig signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    sourceSets {
+        androidTest {
+            if (releaseTransportTests) java.srcDir 'src/androidTestRelease/java'
         }
     }
     compileOptions {
