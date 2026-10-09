@@ -104,10 +104,10 @@ jobs:
             - '!sdks/agent/src/util/test.ts'
           docs_app: &docs_app
             - 'apps/docs/**'
-          docs:
+          docs: &docs
             - *docs_app
-          neutral: &neutral
             - 'docs/**'
+          neutral: &neutral
             - '{.agents,.vscode,.zed}/**'
             - '{README.md,AGENTS.md,CLAUDE.md}'
           known_files:
@@ -118,7 +118,7 @@ jobs:
             - *node
             - *browser
             - *agent
-            - *docs_app
+            - *docs
             - *neutral
     - name: Set mode and conservative fallback
       id: scope
