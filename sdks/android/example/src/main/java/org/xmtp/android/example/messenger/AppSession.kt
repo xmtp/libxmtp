@@ -1,0 +1,188 @@
+package org.xmtp.android.example.messenger
+
+import android.content.Context
+import java.io.File
+import java.net.URI
+import java.security.SecureRandom
+import java.util.UUID
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import uniffi.xmtp_sdk.*
+import org.xmtp.android.example.exampleStorageLocation
+
+data class ActiveSession(val key: SessionKey, val profile: BackendProfile, val paths: ProfilePaths, val client: SDKClient, val work: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO))
+
+/** One process owner for clients, transfers and the default message collector. */
+class AppSession(context: Context) {
+    private val context = context.applicationContext
+    val preferences = MessengerPreferences(this.context)
+    val secrets = SecureSecretStore(this.context)
+    private val fence = SessionFence()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val operation = Mutex()
+    private val activeState = MutableStateFlow<ActiveSession?>(null)
+    val active: StateFlow<ActiveSession?> = activeState
+    private val errorState = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = errorState
+    private val readerState = MutableStateFlow<String?>(null)
+    val readerError: StateFlow<String?> = readerState
+    private val connectionState = MutableStateFlow("")
+    val connection: StateFlow<String> = connectionState
+    private var messageJob: Job? = null
+    private var conversationJob: Job? = null
+    var onMessage: suspend (ActiveSession, Message) -> Unit = { _, _ -> }
+    var onInvalidated: suspend (ActiveSession) -> Unit = {}
+    var beforeEnd: suspend (ActiveSession) -> Unit = {}
+    var unregisterNotifications: suspend (SDKClient) -> Unit = { it.disableNotifications() }
+    fun accepts(key: SessionKey) = fence.accepts(key)
+    fun <T> withCurrent(key: SessionKey, block: () -> T): T? = fence.withCurrent(key, block)
+
+    suspend fun restore() {
+        operation.withLock {
+            preferences.reset()?.let { recoverReset(it); return }
+        }
+        if (preferences.signedIn()) preferences.active()?.let { connect(it.backend, null, it.allowPrivateNetwork) }
+    }
+    suspend fun connect(backend: String, credential: String?, allowPrivateNetwork: Boolean) {
+        val url = backend.trim().trimEnd('/')
+        val uri = URI(url)
+        require(uri.scheme in listOf("http", "https") && uri.host != null) { "Use an HTTP or HTTPS backend URL" }
+        val profile = preferences.profiles().firstOrNull { it.backend == url }
+            ?: BackendProfile(UUID.randomUUID().toString(), url, allowPrivateNetwork = allowPrivateNetwork)
+        val key = checkNotNull(fence.replace(profile.id))
+        operation.withLock {
+            if (!accepts(key)) return
+            check(preferences.reset()?.profileId != profile.id) { "Finish local reset before connecting" }
+            preferences.setSignedIn(false)
+            closeCurrent()
+            val saved = profile.copy(allowPrivateNetwork = allowPrivateNetwork)
+            preferences.setActive(saved)
+            if (credential != null) secrets.write(saved.id, "credential", credential.toByteArray())
+            val wallet = secrets.read(saved.id, "wallet") ?: SecureRandom().generateSeed(32).also { secrets.write(saved.id, "wallet", it) }
+            val encryption = secrets.read(saved.id, "database-key") ?: SecureRandom().generateSeed(32).also { secrets.write(saved.id, "database-key", it) }
+            val paths = saved.paths(context.filesDir)
+            check(paths.database.parentFile!!.isDirectory || paths.database.parentFile!!.mkdirs())
+            check(paths.attachments.isDirectory || paths.attachments.mkdirs())
+            val source = if (secrets.read(saved.id, "credential")?.isNotEmpty() == true) object : CredentialSource {
+                override suspend fun credential(): Credential {
+                    if (!accepts(key)) throw CredentialException.Failed()
+                    val value = secrets.read(saved.id, "credential")?.toString(Charsets.UTF_8) ?: throw CredentialException.Failed()
+                    return Credential(name = null, value = value, expiresAtSeconds = Long.MAX_VALUE)
+                }
+            } else null
+            val options = ClientOptions(backend = BackendSource.Options(BackendOptions(url = url, credentials = source)), storage = StorageOptions(location = StorageLocation.Explicit(paths.database.absolutePath, paths.attachments.absolutePath), encryptionKey = encryption), allowOffline = saved.inboxId != null, attachments = AttachmentOptions(allowPrivateNetwork = allowPrivateNetwork))
+            val signer = localSignerFromPrivateKey(wallet)
+            val client = if (saved.inboxId != null && saved.identity != null) SDKClient.build(context, PublicIdentity(saved.identity, PublicIdentityKind.ETHEREUM), options, saved.inboxId) else SDKClient.create(context, signer, options)
+            if (!accepts(key)) { withContext(NonCancellable) { client.end() }; return }
+            val opened = saved.copy(inboxId = client.inboxId(), identity = client.identity().identifier)
+            val owner = ActiveSession(key, opened, paths, client)
+            // Register events before exposing the session for initial local reads.
+            client.startListener(EventFilter(kinds = EventKind.entries)) { if (accepts(key)) onInvalidated(owner) }
+            if (!accepts(key)) { withContext(NonCancellable) { client.end() }; return }
+            preferences.setActive(opened)
+            preferences.setSignedIn(true)
+            activeState.value = owner
+            errorState.value = null
+            startReaders(owner)
+        }
+    }
+    private fun startReaders(owner: ActiveSession) {
+        messageJob = scope.launch {
+            try {
+                owner.client.conversations.streamAllMessages(MessageStreamOptions(consentStates = listOf(ConsentState.ALLOWED, ConsentState.UNKNOWN), onConnectionStateChange = { _, value -> if (accepts(owner.key)) connectionState.value = value.toString() })).collect { message ->
+                    // No asynchronous Flow operator occurs before this completed app handling.
+                    if (accepts(owner.key)) onMessage(owner, message)
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                if (accepts(owner.key)) readerState.value = error.toString()
+            }
+        }
+        conversationJob = scope.launch {
+            try { owner.client.conversations.stream(ConversationStreamOptions(consentStates = listOf(ConsentState.ALLOWED, ConsentState.UNKNOWN))).collect { if (accepts(owner.key)) onInvalidated(owner) } }
+            catch (error: Throwable) { if (error is CancellationException) throw error; if (accepts(owner.key)) errorState.value = error.toString() }
+        }
+    }
+    suspend fun retryReader() = operation.withLock {
+        val owner = activeState.value ?: return
+        messageJob?.cancelAndJoin()
+        conversationJob?.cancelAndJoin()
+        if (accepts(owner.key)) { readerState.value = null; startReaders(owner) }
+    }
+    private suspend fun closeCurrent() {
+        messageJob?.cancelAndJoin(); messageJob = null
+        conversationJob?.cancelAndJoin(); conversationJob = null
+        val owner = activeState.value
+        activeState.value = null
+        if (owner != null) withContext(NonCancellable) {
+            owner.work.coroutineContext[Job]?.cancelAndJoin()
+            try { beforeEnd(owner) } finally { owner.client.end() }
+        }
+        readerState.value = null
+        connectionState.value = ""
+    }
+    suspend fun signOut() {
+        fence.replace(null)
+        operation.withLock {
+            preferences.setSignedIn(false)
+            val owner = activeState.value
+            withContext(NonCancellable) {
+                try { owner?.client?.let { unregisterNotifications(it) } } catch (_: Exception) { /* Signed-out state already blocks late push. */ }
+                try { closeCurrent() } finally { preferences.active()?.let { secrets.delete(it.id, "credential") } }
+            }
+        }
+    }
+    suspend fun deleteAccount() {
+        fence.replace(null)
+        operation.withLock {
+            preferences.setSignedIn(false)
+            var record = preferences.reset()
+            if (record == null) {
+                val profile = preferences.active() ?: error("No local account is selected")
+                record = profile.paths(context.filesDir).resetRecord(profile.id)
+                preferences.saveReset(record)
+                val storage = activeState.value?.takeIf { it.profile.id == profile.id }?.client?.storage()
+                closeCurrent()
+                if (storage != null) {
+                    storage.delete()
+                    ResetCleanup(context.filesDir).removeDatabase(record, activeState.value == null)
+                    record = record.copy(phase = ResetPhase.DATABASE_REMOVED)
+                    preferences.saveReset(record)
+                }
+            }
+            recoverReset(record)
+        }
+    }
+    suspend fun resetLegacyAccount(inboxId: String) {
+        require(inboxId.matches(Regex("[0-9a-f]{64}")))
+        fence.replace(null)
+        operation.withLock {
+            check(activeState.value == null) { "Sign out before a legacy reset" }
+            val location = exampleStorageLocation(context.filesDir) { inboxId }
+            val explicit = location as? StorageLocation.Explicit ?: error("Selected legacy storage is unavailable")
+            val record = ResetRecord("legacy-$inboxId", explicit.dbPath, listOf(explicit.attachmentsDir, explicit.dbPath), ResetPhase.STOPPING)
+            preferences.setSignedIn(false)
+            preferences.saveReset(record)
+            recoverReset(record)
+        }
+    }
+    private suspend fun recoverReset(initial: ResetRecord) {
+        check(activeState.value == null) { "Cannot reset an open profile" }
+        val cleanup = ResetCleanup(context.filesDir)
+        var record = initial
+        if (record.phase == ResetPhase.STOPPING) {
+            cleanup.removeDatabase(record, noOwner = activeState.value == null)
+            record = record.copy(phase = ResetPhase.DATABASE_REMOVED); preferences.saveReset(record)
+        }
+        if (record.phase == ResetPhase.DATABASE_REMOVED) {
+            cleanup.removeFiles(record)
+            record = record.copy(phase = ResetPhase.FILES_REMOVED); preferences.saveReset(record)
+        }
+        preferences.removeProfile(record.profileId)
+        preferences.saveReset(null)
+        errorState.value = null
+    }
+}

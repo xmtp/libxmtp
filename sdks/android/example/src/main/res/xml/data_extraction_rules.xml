@@ -1,12 +1,2 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Backup and transfer rules for Android 12 and higher. -->
-<data-extraction-rules>
-    <cloud-backup>
-        <exclude domain="sharedpref" path="EncryptionPref.xml" />
-        <exclude domain="file" path="xmtp_db" />
-    </cloud-backup>
-    <device-transfer>
-        <exclude domain="sharedpref" path="EncryptionPref.xml" />
-        <exclude domain="file" path="xmtp_db" />
-    </device-transfer>
-</data-extraction-rules>
+<data-extraction-rules><cloud-backup><exclude domain="root" path="." /></cloud-backup><device-transfer><exclude domain="root" path="." /></device-transfer></data-extraction-rules>
