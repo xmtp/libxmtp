@@ -33,6 +33,8 @@ A prefix appears exactly once. A prefix whose document was deleted is removed fr
 | `EVENT` | Client events | `docs/specs/EVENT-client-events.md` |
 | `LOG` | Client logging | `docs/specs/LOG-client-logging.md` |
 
+| `MIG` | Legacy database migration | `docs/specs/MIG-legacy-database-migration.md` |
+
 ## Reused prefixes and their floors
 
 `API` and `PUSH` are reused by their replacements: the deleted documents `001_backend_api.md` and `005_push_subscriptions.md` used those prefixes, and the new specs take them over.

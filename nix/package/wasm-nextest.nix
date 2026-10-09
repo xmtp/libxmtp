@@ -23,6 +23,7 @@ let
     inherit root;
     fileset = unions [
       xmtp.filesets.libraries
+      (root + /crates/xmtp_legacy_migration/fixtures)
       # Include SDK sources so the full workspace resolves
       # with --locked. crane replaces source with dummies for buildDepsOnly.
       (commonCargoSources (root + /crates/xmtp_sdk))

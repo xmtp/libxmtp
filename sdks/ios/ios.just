@@ -46,6 +46,10 @@ test mode="all":
 test-lifecycle:
     {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --filter {{ _lifecycle_tests }}
 
+# Test legacy conversion through the normal macOS package.
+test-migration:
+    ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --filter XmtpSdkTests.LegacyMigrationTests
+
 # Run the consumer in Tests/Consumer as a bare executable, then check that the
 # negative consumers in Tests/Consumer/Negative do not compile.
 check-consumer:

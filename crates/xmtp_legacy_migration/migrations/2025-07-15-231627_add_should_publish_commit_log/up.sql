@@ -1,0 +1,1 @@
+ALTER TABLE groups ADD COLUMN should_publish_commit_log BOOLEAN NOT NULL DEFAULT FALSE;

@@ -434,7 +434,7 @@ pub fn merge_dict_into_mutable_metadata(
         }
     }
 
-    insert_absent_bounded_string_defaults(base);
+    insert_absent_bounded_string_defaults(base, &[]);
 
     for (component_id, list) in [
         (ComponentId::ADMIN_LIST, &mut base.admin_list),
@@ -445,6 +445,61 @@ pub fn merge_dict_into_mutable_metadata(
         }
     }
     Ok(())
+}
+
+/// Merge available dictionary fields for legacy migration. Keep defaults for
+/// absent fields. Omit malformed values without replacing them with defaults.
+// implements: MIG-005
+pub fn merge_dict_into_mutable_metadata_lossy(
+    base: &mut GroupMutableMetadata,
+    extensions: &Extensions<GroupContext>,
+) -> Vec<GroupMutableMetadataError> {
+    use super::app_data::component_id::ComponentId;
+
+    let Some(ext) = extensions.app_data_dictionary() else {
+        return vec![];
+    };
+    let dict = ext.dictionary();
+    let mut errors = vec![];
+    let mut unavailable = vec![];
+    for (field, id) in METADATA_FIELD_COMPONENT_MAP {
+        if let Some(bytes) = dict.get(&id.as_u16()) {
+            let value = if *id == ComponentId::COMMIT_LOG_SIGNER && bytes.len() != 32 {
+                Err(GroupMutableMetadataError::MalformedComponent {
+                    component_id: Some(*id),
+                    reason: format!("expected 32 bytes, got {}", bytes.len()),
+                })
+            } else {
+                decode_metadata_component(*id, bytes)
+            };
+            match value {
+                Ok(value) => {
+                    base.attributes.insert(field.as_str().to_string(), value);
+                }
+                Err(error) => {
+                    base.attributes.remove(field.as_str());
+                    unavailable.push(*field);
+                    errors.push(error);
+                }
+            }
+        }
+    }
+    insert_absent_bounded_string_defaults(base, &unavailable);
+    for (id, list) in [
+        (ComponentId::ADMIN_LIST, &mut base.admin_list),
+        (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
+    ] {
+        if let Some(bytes) = dict.get(&id.as_u16()) {
+            match decode_inbox_id_list(id, bytes) {
+                Ok(value) => *list = value,
+                Err(error) => {
+                    list.clear();
+                    errors.push(error);
+                }
+            }
+        }
+    }
+    errors
 }
 
 /// The four bounded-string metadata fields that the pre-dictionary
@@ -473,8 +528,14 @@ const DEFAULTED_BOUNDED_STRING_FIELDS: &[(MetadataField, &str)] = &[
 /// Give every field in [`DEFAULTED_BOUNDED_STRING_FIELDS`] its legacy
 /// default when the dictionary carried no such component. Fields that
 /// the dictionary did carry keep their decoded value.
-fn insert_absent_bounded_string_defaults(base: &mut GroupMutableMetadata) {
+fn insert_absent_bounded_string_defaults(
+    base: &mut GroupMutableMetadata,
+    unavailable: &[MetadataField],
+) {
     for (field, default) in DEFAULTED_BOUNDED_STRING_FIELDS {
+        if unavailable.contains(field) {
+            continue;
+        }
         base.attributes
             .entry(field.as_str().to_string())
             .or_insert_with(|| (*default).to_string());
@@ -681,5 +742,66 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    // verifies: MIG-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_lossy_merge_omits_malformed_fields_without_defaults() {
+        use super::super::app_data::component_id::ComponentId;
+        use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
+        use openmls::group::GroupContext;
+
+        let mut dict = AppDataDictionary::new();
+        let _ = dict.insert(ComponentId::GROUP_NAME.as_u16(), vec![0xff]);
+        let _ = dict.insert(
+            ComponentId::GROUP_DESCRIPTION.as_u16(),
+            b"Readable".to_vec(),
+        );
+        let _ = dict.insert(ComponentId::ADMIN_LIST.as_u16(), vec![0xff, 0xff, 0xff]);
+        let _ = dict.insert(ComponentId::COMMIT_LOG_SIGNER.as_u16(), vec![1, 2, 3]);
+        let extensions: Extensions<GroupContext> =
+            Extensions::from_vec(vec![Extension::AppDataDictionary(
+                AppDataDictionaryExtension::new(dict),
+            )])?;
+        let mut base = GroupMutableMetadata::new(
+            HashMap::from([
+                ("group_name".to_string(), "Stale".to_string()),
+                (
+                    MetadataField::CommitLogSigner.as_str().to_string(),
+                    hex::encode([7; 32]),
+                ),
+            ]),
+            vec!["stale-admin".to_string()],
+            vec![],
+        );
+        let errors = merge_dict_into_mutable_metadata_lossy(&mut base, &extensions);
+        let mut components: Vec<_> = errors
+            .into_iter()
+            .map(|error| match error {
+                GroupMutableMetadataError::MalformedComponent {
+                    component_id: Some(id),
+                    ..
+                } => id.as_u16(),
+                error => panic!("unexpected metadata error: {error:?}"),
+            })
+            .collect();
+        components.sort();
+        let mut expected = [
+            ComponentId::GROUP_NAME.as_u16(),
+            ComponentId::ADMIN_LIST.as_u16(),
+            ComponentId::COMMIT_LOG_SIGNER.as_u16(),
+        ];
+        expected.sort();
+        assert_eq!(components, expected);
+        assert!(!base.attributes.contains_key("group_name"));
+        assert!(
+            !base
+                .attributes
+                .contains_key(MetadataField::CommitLogSigner.as_str())
+        );
+        assert_eq!(base.attributes["description"], "Readable");
+        assert_eq!(base.attributes["group_image_url_square"], "");
+        assert_eq!(base.attributes["app_data"], "");
+        assert!(base.admin_list.is_empty());
     }
 }

@@ -3,6 +3,7 @@
   xmtp,
   lib,
   cargo-llvm-cov,
+  python3,
   ...
 }:
 let
@@ -16,6 +17,7 @@ let
     inherit root;
     fileset = unions [
       xmtp.filesets.libraries
+      (root + /crates/xmtp_legacy_migration/fixtures)
       # db snapshots
       (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
       (fileFilter (file: file.hasExt "json") (root + /crates))
@@ -43,6 +45,8 @@ rust.cargoNextest (
   commonArgs
   // {
     inherit src cargoArtifacts;
+    # The migration lock test uses a separate SQLite process.
+    nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ python3 ];
     doCheck = true;
     DATABASE_URL = "postgres://xmtp:xmtp@localhost:55432/xmtp_backend";
     pnameSuffix = "nextest";

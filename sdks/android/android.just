@@ -34,6 +34,10 @@ test: build _test-host
   {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest --dependency-verification=strict --no-daemon
 
 
+# Test legacy conversion through the normal Kotlin package.
+test-migration: build _test-host
+  JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . library:testDebugUnitTest --tests uniffi.xmtp_sdk.LegacyMigrationTest --dependency-verification=strict --no-daemon
+
 # Run unit tests against existing matched generated bindings.
 test-unit *args:
   {{ _env }} && ./gradlew -p . library:testDebugUnitTest {{ args }} --dependency-verification=strict --no-daemon

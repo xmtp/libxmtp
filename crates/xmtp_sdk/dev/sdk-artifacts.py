@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[3]
 TARGETS = ("swift", "kotlin", "node", "browser")
 # Live data embedded by the SDK dependency graph through include_str!.
 COMPILE_INPUTS = (
+    "crates/xmtp_legacy_migration/browser-storage.js",
     "crates/xmtp_attachments/src/address-registry.txt",
     "crates/xmtp_id/src/scw_verifier/chain_urls_default.json",
     "crates/xmtp_id/src/scw_verifier/signature_validation.hex",

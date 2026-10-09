@@ -46,6 +46,8 @@ mod logging;
 #[cfg(not(feature = "pure-only"))]
 mod message;
 mod metadata;
+#[cfg(not(feature = "pure-only"))]
+mod migration;
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
 mod notifications;
 #[cfg(not(feature = "pure-only"))]
@@ -147,6 +149,10 @@ pub use metadata::{
     SetMutation, UserFieldUpdate, UserFieldValue,
 };
 pub use metadata::{MetadataFieldRef, WellKnownMetadataField, metadata_field_ref};
+#[cfg(all(not(feature = "pure-only"), target_arch = "wasm32"))]
+pub use migration::read_migration_archive;
+#[cfg(not(feature = "pure-only"))]
+pub use migration::{MigrationReport, PrepareMigrationArchiveArgs, prepare_migration_archive};
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
 pub use notifications::{
     NotificationChannel, NotificationConfig, NotificationFailure, NotificationState,

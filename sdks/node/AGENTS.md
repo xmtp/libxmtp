@@ -91,3 +91,7 @@ types change. `publicSurface.ts` holds `@ts-expect-error` lines for the
 binding shapes that the generated root must hide and for codec values that
 `send`, `prepareMessage`, `reply` and `encode` must reject. The Browser SDK
 `typecheck` compiles a copy from `sdks/browser/type-tests/`.
+
+`dev/nix-shell 'just js test-node-sdk-ci test/migration.test.ts'` checks legacy
+archive preparation through the public package, including encrypted WAL data,
+key byte views, typed failures, and source/output preservation.

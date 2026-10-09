@@ -104,3 +104,7 @@ bench-check:
 # Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
 check-android-toolchain:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
+
+# Run only migration in the existing Browser platform suite.
+test-browser-migration:
+    bash "{{ root }}/crates/xmtp_sdk/dev/run-browser-platform-tests" migration

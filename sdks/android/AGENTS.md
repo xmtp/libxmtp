@@ -126,3 +126,7 @@ message reader fails with `XmtpException.ConsumerOwned`. Explicit `from` cursors
 permit independent replay/live readers that do not advance default progress. Use the
 generated reader options for scopes, filters, and replay. Keep typed errors and
 `ULong` values.
+
+`dev/nix-shell 'just android test-migration'` runs `LegacyMigrationTest` in the
+normal JVM target with matched bindings and the host library. Gradle supplies
+the pinned legacy fixture directory. The required Android unit job includes this test.

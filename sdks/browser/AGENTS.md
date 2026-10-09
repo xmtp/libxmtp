@@ -28,3 +28,7 @@ panic proofs, with the loopback object store in `test/platform/object-store`.
 `pnpm test` does not run them, and the package lint and typecheck skip them.
 Run them with `dev/nix-shell 'just sdk test-browser'`; `just sdk lint`
 type-checks the shared helpers. See `crates/xmtp_sdk/AGENTS.md`.
+
+Migration platform tests are in `test/platform/migration`. Run only them with
+`dev/nix-shell 'just sdk test-browser-migration'`. The normal platform runner
+builds their private legacy fixture host and runs every migration assertion.

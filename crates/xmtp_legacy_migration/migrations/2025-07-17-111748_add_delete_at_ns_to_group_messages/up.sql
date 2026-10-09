@@ -1,0 +1,1 @@
+ALTER TABLE group_messages ADD COLUMN expire_at_ns BIGINT;

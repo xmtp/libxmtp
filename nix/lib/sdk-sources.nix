@@ -59,6 +59,7 @@ let
     fileset = xmtp.filesets.workspace;
   };
   embedded = [
+    (root + /crates/xmtp_legacy_migration/browser-storage.js)
     (root + /proto)
     (root + /crates/xmtp_db/migrations)
     (root + /crates/xmtp_attachments/src/address-registry.txt)
@@ -135,6 +136,7 @@ let
         || lib.hasSuffix ".sql" file.name
         || file.name == "Cargo.toml"
       ) (root + /apps))
+      (root + /crates/xmtp_legacy_migration/browser-storage.js)
       (root + /flake.lock)
       (root + /rust-toolchain.toml)
       (root + /crates/xmtp_sdk)

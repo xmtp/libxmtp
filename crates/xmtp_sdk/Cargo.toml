@@ -45,6 +45,7 @@ xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_events.workspace = true
 xmtp_id.workspace = true
+xmtp_legacy_migration.workspace = true
 xmtp_logging.workspace = true
 xmtp_macro.workspace = true
 xmtp_mls.workspace = true

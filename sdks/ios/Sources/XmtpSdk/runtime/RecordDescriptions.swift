@@ -71,6 +71,16 @@ extension AttachmentRef: CustomStringConvertible, CustomDebugStringConvertible {
     }
 }
 
+extension PrepareMigrationArchiveArgs: CustomStringConvertible, CustomDebugStringConvertible {
+    public var description: String {
+        return "PrepareMigrationArchiveArgs(databasePath: \(String(reflecting: self.`databasePath`)), databaseKey: <redacted>, archiveKey: <redacted>, outputPath: \(String(reflecting: self.`outputPath`)))"
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}
+
 extension HmacKey: CustomStringConvertible, CustomDebugStringConvertible {
     public var description: String {
         return "HmacKey(key: <redacted>, epoch: \(String(reflecting: self.`epoch`)))"
