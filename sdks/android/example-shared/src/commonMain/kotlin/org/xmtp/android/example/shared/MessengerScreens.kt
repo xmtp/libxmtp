@@ -982,6 +982,24 @@ fun MessengerScreens(
         state.historyNotice?.let {
             Notice(it)
         }
+        state.recoveryNotice?.let { Notice(it) }
+        if (state.hasOlderRecovery || !state.recoveryAtNewest) {
+            Row(Modifier.fillMaxWidth()) {
+                if (state.hasOlderRecovery) {
+                    TextButton(
+                        { action(MessengerAction.LoadOlderRecovery) },
+                        Modifier.weight(1f).heightIn(min = 48.dp),
+                    ) {
+                        Text("Older pending messages")
+                    }
+                }
+                if (!state.recoveryAtNewest) {
+                    TextButton({ action(MessengerAction.LatestRecovery) }, Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        Text("Newest pending messages")
+                    }
+                }
+            }
+        }
         if (state.conversationUnknown) {
             Row {
                 TextButton(

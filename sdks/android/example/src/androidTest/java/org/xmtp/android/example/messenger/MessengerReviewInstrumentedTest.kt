@@ -57,6 +57,7 @@ class MessengerReviewInstrumentedTest {
             model.writeConsent = { chat, value -> chat.updateConsentState(value) }
             model.onConsentFinished = {}
             model.beforeQueuedAction = {}
+            model.beforeActiveRefresh = {}
             model.beforeFeaturesUiUpdate = {}
             model.beforeGroupWrite = { _, _ -> }
             model.onQueuedActionFinished = {}
@@ -77,6 +78,164 @@ class MessengerReviewInstrumentedTest {
         model.dispatch(MessengerAction.OpenConversation(id))
         until("open $id") { model.state.value.conversationId == id && model.state.value.screen == Screen.TIMELINE }
     }
+
+    @Test fun closedOwnerDuringActiveProjectionDoesNotTerminateTheUiCollector() =
+        runBlocking {
+            val entered = CompletableDeferred<ActiveSession>()
+            val finished = CompletableDeferred<Unit>()
+            try {
+                model.session.signOut()
+                until("signed-out UI before owner refresh") { model.state.value.screen == Screen.START }
+                model.beforeActiveRefresh = { owner ->
+                    entered.complete(owner)
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        withContext(NonCancellable) {
+                            finished.complete(Unit)
+                            owner.client.conversations.list()
+                        }
+                    }
+                }
+                model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+                until("native owner entered active projection") { entered.isCompleted }
+                val owner = entered.await()
+                model.session.signOut()
+                until("cancelled owner projection finished before client close") { finished.isCompleted }
+                until("closed owner returns to Start") { model.state.value.screen == Screen.START }
+                assertFalse(model.session.accepts(owner.key))
+                assertTrue(
+                    runCatching { owner.client.conversations.list() }.exceptionOrNull() is XmtpException.ClientClosed,
+                )
+                model.beforeActiveRefresh = {}
+                model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+                val next = checkNotNull(model.session.active.value)
+                until("collector handles next owner") { model.state.value.inbox == next.client.inboxId() }
+                assertNull(model.state.value.error)
+            } finally {
+                cleanup()
+            }
+        }
+
+    @Test fun nativeMarkdownIsVisibleAndKeepsItsReplyQuote() =
+        runBlocking {
+            try {
+                val owner = connect()
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Markdown"),
+                    )
+                val text = "**First line**\nSecond line"
+                assertTrue(publishedSelection().contentTypes!!.contains(MarkdownCodec().type))
+                val parentId = group.sendMarkdown(text)
+                val chat = Conversation.Group(group)
+                until("published Markdown") { chat.messages(publishedSelection()).any { it.id == parentId } }
+                assertEquals(1uL, chat.countMessages(incomingSelection("0".repeat(64))))
+                assertEquals(0uL, chat.countMessages(incomingSelection(owner.client.inboxId())))
+                model.dispatch(MessengerAction.Refresh)
+                until("Markdown conversation preview") {
+                    model.state.value.conversations
+                        .any { it.id == group.id() && it.preview == text }
+                }
+                openChat(group.id())
+                until("Markdown timeline row") {
+                    model.state.value.messages
+                        .any { it.id == parentId && it.text == text }
+                }
+                model.dispatch(MessengerAction.Reply(parentId))
+                assertEquals("**First line**", model.state.value.replyPreview)
+                val parent = checkNotNull(owner.client.conversations.getMessageById(parentId))
+                val replyId = parent.reply("Answer")
+                until("native Markdown reply parent") {
+                    owner.client.conversations
+                        .getMessageById(replyId)
+                        ?.inReplyTo != null
+                }
+                val reply = checkNotNull(owner.client.conversations.getMessageById(replyId))
+                assertTrue(reply.inReplyTo?.content is MessageBody.Markdown)
+                assertEquals(text, reply.toRow(owner.client.inboxId()).reply)
+                model.dispatch(MessengerAction.Refresh)
+                until("Markdown reply quote in timeline") {
+                    model.state.value.messages
+                        .any { it.id == replyId && it.reply == text }
+                }
+            } finally {
+                cleanup()
+            }
+        }
+
+    @Test fun pendingRecoveryPagesExposeOlderNativeIdsAndRetryWithoutDuplicateSend() =
+        runBlocking {
+            try {
+                val owner = connect()
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Pending pages"),
+                    )
+                val ids =
+                    (0 until 80).map { index ->
+                        group.sendText("Pending $index", SendOptions(optimistic = true)).also { delay(2) }
+                    }
+                val chat = Conversation.Group(group)
+                assertEquals(
+                    80uL,
+                    chat.countMessages(
+                        publishedSelection().copy(deliveryStatus = DeliveryStatus.UNPUBLISHED),
+                    ),
+                )
+                assertEquals(0uL, chat.countMessages(incomingSelection("0".repeat(64))))
+                openChat(group.id())
+                until("fifty newest pending rows") {
+                    model.state.value.messages
+                        .count { it.status == "Queued" } == 50 &&
+                        model.state.value.hasOlderRecovery
+                }
+                assertFalse(
+                    model.state.value.messages
+                        .any { it.id == ids.first() },
+                )
+                compose.onNodeWithText("Older pending messages").performClick()
+                until("oldest SDK pending ID exposed") {
+                    model.state.value.messages
+                        .any { it.id == ids.first() } && !model.state.value.hasOlderRecovery
+                }
+                assertFalse(model.state.value.recoveryAtNewest)
+                assertTrue(model.state.value.messages.size <= 50)
+                val refreshed = CompletableDeferred<Unit>()
+                model.onQueuedActionFinished = { if (it == MessengerAction.Refresh) refreshed.complete(Unit) }
+                model.dispatch(MessengerAction.Refresh)
+                until("selected pending window refresh completed") { refreshed.isCompleted }
+                assertTrue(
+                    model.state.value.messages
+                        .any { it.id == ids.first() },
+                )
+                val finished = CompletableDeferred<Unit>()
+                val retry = MessengerAction.RetrySend(ids.first())
+                model.onQueuedActionFinished = { if (it == retry) finished.complete(Unit) }
+                model.dispatch(retry)
+                withTimeout(30_000) { finished.await() }
+                until("oldest ID published by actual retry") {
+                    owner.client.conversations
+                        .getMessageById(ids.first())
+                        ?.deliveryStatus == DeliveryStatus.PUBLISHED
+                }
+                assertEquals(80uL, chat.countMessages(publishedSelection().copy(deliveryStatus = null)))
+                assertEquals(
+                    80,
+                    chat
+                        .messages(publishedSelection().copy(deliveryStatus = null, limit = 100u))
+                        .map { it.id }
+                        .toSet()
+                        .size,
+                )
+                model.dispatch(MessengerAction.LatestRecovery)
+                until("pending newest window restored") { model.state.value.recoveryAtNewest }
+            } finally {
+                cleanup()
+            }
+        }
 
     @Test fun admittedGroupWritesFinishOnOriginAfterNavigation() =
         runBlocking {

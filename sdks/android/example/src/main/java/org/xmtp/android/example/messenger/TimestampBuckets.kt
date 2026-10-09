@@ -11,6 +11,7 @@ data class BucketPage<T>(
 . A short lifted list proves nothing. */
 class TimestampBuckets<T>(
     private val sentAt: (T) -> Long,
+    private val maxRows: Int = 500,
 ) {
     suspend fun load(
         beforeNs: Long?,
@@ -28,7 +29,7 @@ class TimestampBuckets<T>(
             101,
             201,
             501,
-        )) {
+        ).filter { it <= maxRows + 1 }) {
             val rows =
                 read(
                     beforeNs,
@@ -57,7 +58,7 @@ class TimestampBuckets<T>(
                 )
             }
             // One row is a sentinel. Never advance past an unretained member of a tie.
-            val retainedLimit = if (limit == 51) 50 else 500
+            val retainedLimit = if (limit == 51) minOf(50, maxRows) else maxRows
             if (rawCount <=
                 limit
                     .toULong() &&

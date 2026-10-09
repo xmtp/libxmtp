@@ -49,6 +49,45 @@ class TimestampBucketTest {
                 },
             )
 
+    @Test fun recoveryPagesKeepFiftyRowsAndDoNotSkipOlderPendingMessages() =
+        runBlocking {
+            val rows = (1..80).map { Stored(it, it.toLong()) }
+            val pager = TimestampBuckets<Stored>({ it.time }, maxRows = 50)
+
+            suspend fun page(before: Long?) =
+                pager.load(
+                    before,
+                    read = {
+                        upper,
+                        limit,
+                        ->
+                        rows.filter { upper == null || it.time < upper }.sortedByDescending { it.time }.take(limit)
+                    },
+                    count = { upper, lower ->
+                        rows
+                            .count {
+                                (upper == null || it.time < upper) &&
+                                    (lower == null || it.time > lower)
+                            }.toULong()
+                    },
+                )
+            val newest = page(null)
+            assertEquals(50, newest.rows.size)
+            assertFalse(newest.complete)
+            val older = page(newest.nextBeforeNs)
+            assertTrue(older.complete)
+            assertEquals((1..80).toSet(), (newest.rows + older.rows).map { it.id }.toSet())
+            val tied =
+                TimestampBuckets<Stored>({ it.time }, maxRows = 50).load(
+                    null,
+                    read = { _, limit -> rows.map { it.copy(time = 1) }.take(limit) },
+                    count = { _, _ -> 80uL },
+                )
+            assertTrue(tied.rows.isEmpty())
+            assertNotNull(tied.notice)
+            assertNull(tied.nextBeforeNs)
+        }
+
     @Test fun conversionShortPageDoesNotSkipTheRestOfAnEightyRowTie() =
         runBlocking {
             val raw =

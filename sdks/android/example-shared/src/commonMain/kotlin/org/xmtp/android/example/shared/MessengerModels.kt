@@ -109,6 +109,9 @@ data class MessengerState(
     val replyPreview: String? = null,
     val historyNotice: String? = null,
     val hasOlder: Boolean = true,
+    val hasOlderRecovery: Boolean = false,
+    val recoveryAtNewest: Boolean = true,
+    val recoveryNotice: String? = null,
     val anchor: ScrollAnchor? = null,
     val settings: ConversationSettings = ConversationSettings(),
     val unknownSends: List<UnknownSendRow> = emptyList(),
@@ -147,6 +150,10 @@ sealed interface MessengerAction {
     data object Refresh : MessengerAction
 
     data object RetryReader : MessengerAction
+
+    data object LoadOlderRecovery : MessengerAction
+
+    data object LatestRecovery : MessengerAction
 
     data object LoadOlder : MessengerAction
 

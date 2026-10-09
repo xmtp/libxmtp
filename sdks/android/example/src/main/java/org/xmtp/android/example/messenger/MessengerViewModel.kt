@@ -60,6 +60,8 @@ class MessengerViewModel(
     @Volatile private var conversation: Conversation? = null
     private var logicalKey: String? = null
     private var nextBefore: Long? = null
+    private var recoveryUpper: Long? = null
+    private var recoveryNext: Long? = null
 
     @Volatile private var atNewest = false
 
@@ -131,18 +133,28 @@ class MessengerViewModel(
                             error = ui.value.error,
                         )
                 } else {
-                    ui.value =
-                        MessengerState(
-                            screen =
-                                Screen.CONVERSATIONS,
-                            backend =
-                                owner.profile.backend,
-                            inbox =
-                                owner.client
-                                    .inboxId(),
-                        )
-                    projection.withLock {
-                        refreshLoaded(owner)
+                    try {
+                        owner.work
+                            .async {
+                                val inbox = owner.client.inboxId()
+                                if (!session.accepts(owner.key)) return@async
+                                ui.value =
+                                    MessengerState(
+                                        screen = Screen.CONVERSATIONS,
+                                        backend = owner.profile.backend,
+                                        inbox = inbox,
+                                    )
+                                projection.withLock {
+                                    beforeActiveRefresh(owner)
+                                    refreshLoaded(owner)
+                                }
+                            }.await()
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) {
+                            currentCoroutineContext().ensureActive()
+                        } else if (session.accepts(owner.key)) {
+                            showError(error)
+                        }
                     }
                 }
             }
@@ -312,6 +324,7 @@ class MessengerViewModel(
             }
     }
 
+    internal var beforeActiveRefresh: suspend (ActiveSession) -> Unit = {}
     internal var beforeGroupWrite: suspend (MessengerAction, Int) -> Unit = { _, _ -> }
     internal var beforeQueuedAction: suspend (MessengerAction) -> Unit = {}
     internal var onQueuedActionFinished: (MessengerAction) -> Unit = {}
@@ -530,6 +543,17 @@ class MessengerViewModel(
                                 -> {
                                     session
                                         .retryReader()
+                                }
+
+                                MessengerAction.LoadOlderRecovery,
+                                MessengerAction.LatestRecovery,
+                                -> {
+                                    projection.withLock {
+                                        if (!valid(owner, token)) return@withLock
+                                        recoveryUpper =
+                                            if (action == MessengerAction.LatestRecovery) null else recoveryNext
+                                        refreshTimeline(owner, token, preserve = true)
+                                    }
                                 }
 
                                 MessengerAction.LoadOlder,
@@ -1094,6 +1118,8 @@ class MessengerViewModel(
                         newestLoaded = false
                     }
                     nextBefore = null
+                    recoveryUpper = null
+                    recoveryNext = null
                     ui.update { currentUi ->
                         currentUi.copy(
                             screen = Screen.TIMELINE,
@@ -1152,25 +1178,17 @@ class MessengerViewModel(
         },
     )
 
-    private suspend fun overlay(chat: Conversation) =
-        chat
-            .messages(
-                publishedSelection()
-                    .copy(
-                        deliveryStatus =
-                            DeliveryStatus.UNPUBLISHED,
-                        limit = 25u,
-                    ),
-            ) +
-            chat
-                .messages(
-                    publishedSelection()
-                        .copy(
-                            deliveryStatus =
-                                DeliveryStatus.FAILED,
-                            limit = 25u,
-                        ),
-                )
+    private suspend fun overlay(chat: Conversation): BucketPage<Message> =
+        pendingMessagePage(recoveryUpper, read = { chat.messages(it) }, count = { chat.countMessages(it) })
+
+    private fun MessengerState.withRecovery(page: BucketPage<Message>): MessengerState {
+        recoveryNext = page.nextBeforeNs
+        return copy(
+            hasOlderRecovery = !page.complete && page.notice == null,
+            recoveryAtNewest = recoveryUpper == null,
+            recoveryNotice = page.notice?.replace("history", "pending messages"),
+        )
+    }
 
     private suspend fun refreshTimeline(
         owner: ActiveSession,
@@ -1299,7 +1317,7 @@ class MessengerViewModel(
                 currentUi
                     .copy(
                         messages =
-                            (retained + queued)
+                            (retained + queued.rows)
                                 .associateBy {
                                     it.id
                                 }.values
@@ -1329,7 +1347,8 @@ class MessengerViewModel(
                             consent ==
                                 ConsentState.UNKNOWN,
                         anchor = restoredAnchor,
-                    ).refreshReply()
+                    ).withRecovery(queued)
+                    .refreshReply()
             }
         }
         markRead(
@@ -1372,7 +1391,7 @@ class MessengerViewModel(
                 currentUi
                     .copy(
                         messages =
-                            (rows + queued)
+                            (rows + queued.rows)
                                 .associateBy {
                                     it.id
                                 }.values
@@ -1390,7 +1409,8 @@ class MessengerViewModel(
                         hasOlder =
                             !window
                                 .complete && window.notice == null,
-                    ).refreshReply()
+                    ).withRecovery(queued)
+                    .refreshReply()
             }
         }
     }
@@ -1403,6 +1423,7 @@ class MessengerViewModel(
         val chat = conversation ?: return
         val before = if (saved.sentAtNs == Long.MAX_VALUE) null else saved.sentAtNs + 1
         val result = page(chat, before)
+        val queued = overlay(chat)
         if (!valid(owner, token)) return
         if (result.rows.isEmpty() && result.notice == null) {
             refreshTimeline(owner, token, false)
@@ -1426,11 +1447,17 @@ class MessengerViewModel(
             ui.update { currentUi ->
                 currentUi
                     .copy(
-                        messages = retained.map { it.toRow(owner.client.inboxId()) },
+                        messages =
+                            (retained + queued.rows).sortedByDescending { it.sentAt.ns }.map {
+                                it.toRow(
+                                    owner.client.inboxId(),
+                                )
+                            },
                         anchor = position.anchor,
                         historyNotice = window.notice ?: if (position.changed) "Position changed" else null,
                         hasOlder = !window.complete && window.notice == null,
-                    ).refreshReply()
+                    ).withRecovery(queued)
+                    .refreshReply()
             }
         }
     }
