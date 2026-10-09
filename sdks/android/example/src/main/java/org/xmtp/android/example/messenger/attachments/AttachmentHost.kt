@@ -41,6 +41,7 @@ class AttachmentHost(
     private val previousAction = model.featureAction
     private val previousRefresh = model.featureRefresh
     private val previousEnd = session.beforeEnd
+    internal var beforeDownloadRefresh: suspend () -> Unit = {}
     private val pick =
         activity.registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             val request = pickerRequest.also { pickerRequest = null }
@@ -252,6 +253,7 @@ class AttachmentHost(
                                         .associate { it.key to it.value }
                                 }
                             }
+                            beforeDownloadRefresh()
                         } else {
                             bitmap?.recycle()
                         }

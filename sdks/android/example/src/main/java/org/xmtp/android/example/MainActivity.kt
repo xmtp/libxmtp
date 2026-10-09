@@ -13,7 +13,8 @@ import org.xmtp.android.example.shared.Screen
 
 class MainActivity : ComponentActivity() {
     private val model: MessengerViewModel by viewModels()
-    private lateinit var attachments: AttachmentHost
+    internal lateinit var attachments: AttachmentHost
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
