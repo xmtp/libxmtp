@@ -1,0 +1,81 @@
+# Test catalogue. These IDs and definitions must remain stable.
+
+[[application_components]]
+component_id = 49153
+name = "EXAMPLE_TITLE"
+component_type = "string"
+insert_policy = "allow"
+update_policy = "allow"
+delete_policy = "allow"
+in_groups = true
+in_dms = true
+
+[[application_components]]
+component_id = 49154
+name = "EXAMPLE_BYTES"
+component_type = "bytes"
+insert_policy = "allow"
+update_policy = "allow"
+delete_policy = "allow"
+in_groups = true
+in_dms = true
+
+[[application_components]]
+component_id = 49155
+name = "EXAMPLE_MAP"
+component_type = "tls_map_bytes_bytes"
+insert_policy = "allow"
+update_policy = "allow"
+delete_policy = "allow"
+in_groups = true
+in_dms = true
+
+[[application_components]]
+component_id = 49156
+name = "EXAMPLE_BYTE_SET"
+component_type = "tls_set_bytes"
+insert_policy = "allow"
+update_policy = "allow"
+delete_policy = "allow"
+in_groups = true
+in_dms = true
+
+[[application_components]]
+component_id = 49157
+name = "EXAMPLE_INBOX_SET"
+component_type = "tls_set_inbox_id"
+insert_policy = "allow"
+update_policy = "allow"
+delete_policy = "allow"
+in_groups = true
+in_dms = true
+
+[[application_components]]
+component_id = 49158
+name = "USER_EXAMPLE_NOTE"
+component_type = "tls_map_inbox_id_string"
+insert_policy = "allow_if_self_or_non_member"
+update_policy = "allow_if_self_or_non_member"
+delete_policy = "allow_if_self_or_non_member"
+in_groups = true
+in_dms = true
+
+[[application_components]]
+component_id = 49159
+name = "USER_EXAMPLE_KEY"
+component_type = "tls_map_inbox_id_bytes"
+insert_policy = "allow_if_self_or_non_member"
+update_policy = "allow_if_self_or_non_member"
+delete_policy = "allow_if_self_or_non_member"
+in_groups = true
+in_dms = true
+
+[[application_components]]
+component_id = 49160
+name = "EXAMPLE_ADMIN"
+component_type = "string"
+insert_policy = "allow_if_admin"
+update_policy = "allow_if_admin"
+delete_policy = "allow_if_admin"
+in_groups = true
+in_dms = false
