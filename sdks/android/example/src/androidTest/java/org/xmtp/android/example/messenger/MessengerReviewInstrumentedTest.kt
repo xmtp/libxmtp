@@ -51,6 +51,10 @@ class MessengerReviewInstrumentedTest {
             model.session.preferences.positionCommitFinished = { _, _ -> }
             model.writeConsent = { chat, value -> chat.updateConsentState(value) }
             model.onConsentFinished = {}
+            model.beforeQueuedAction = {}
+            model.onQueuedActionFinished = {}
+            model.actionMessageRead = { owner, id -> owner.client.conversations.getMessageById(id) }
+            model.sends.messageRead = { client, id -> client.conversations.getMessageById(id) }
             model.session.onSessionInvalidated = {}
             model.session.unregisterNotifications = {}
             if (model.session.active.value != null ||
@@ -60,6 +64,397 @@ class MessengerReviewInstrumentedTest {
             }
             model.session.signOut()
             AndroidStreamLifecycle.enabled = true
+        }
+
+    private suspend fun openChat(id: String) {
+        model.dispatch(MessengerAction.OpenConversation(id))
+        until("open $id") { model.state.value.conversationId == id && model.state.value.screen == Screen.TIMELINE }
+    }
+
+    @Test fun queuedActionsCannotMutateEitherChatAfterSwitch() =
+        runBlocking {
+            val releases = mutableListOf<CompletableDeferred<Unit>>()
+            try {
+                val owner = connect()
+                val a =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Origin A", description = "Original"),
+                    )
+                val b =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Current B", description = "Original"),
+                    )
+                a.updateConsentState(ConsentState.ALLOWED)
+                b.updateConsentState(ConsentState.ALLOWED)
+                val target = a.sendText("Origin parent")
+                val pending = a.sendText("Pending origin", SendOptions(optimistic = true))
+                val bParent = b.sendText("Current parent")
+                val beforeA =
+                    Conversation
+                        .Group(a)
+                        .messages()
+                        .map { it.id }
+                        .toSet()
+                val beforeB =
+                    Conversation
+                        .Group(b)
+                        .messages()
+                        .map { it.id }
+                        .toSet()
+                val actions =
+                    listOf(
+                        MessengerAction.SendText("Queued origin reply"),
+                        MessengerAction.Consent(false),
+                        MessengerAction.UpdateGroup("Wrong name", "Wrong description"),
+                        MessengerAction.RetrySend(pending),
+                        MessengerAction.DeleteMessage(target),
+                        MessengerAction.React(target, "👍", false),
+                        MessengerAction.SetDisappearing(60),
+                        MessengerAction.SetPreset(true),
+                    )
+                for (action in actions) {
+                    openChat(a.id())
+                    until("origin parent visible") {
+                        model.state.value.messages
+                            .any { it.id == target }
+                    }
+                    model.dispatch(MessengerAction.Reply(target))
+                    val entered = CompletableDeferred<Unit>()
+                    val release = CompletableDeferred<Unit>().also(releases::add)
+                    val finished = CompletableDeferred<Unit>()
+                    model.beforeQueuedAction = { queued ->
+                        if (queued == action) {
+                            entered.complete(Unit)
+                            release.await()
+                        }
+                    }
+                    model.onQueuedActionFinished = { queued -> if (queued == action) finished.complete(Unit) }
+                    model.dispatch(action)
+                    withTimeout(30_000) { entered.await() }
+                    openChat(b.id())
+                    until("current parent visible") {
+                        model.state.value.messages
+                            .any { it.id == bParent }
+                    }
+                    model.dispatch(MessengerAction.Reply(bParent))
+                    release.complete(Unit)
+                    withTimeout(30_000) { finished.await() }
+                    assertEquals(
+                        "A rows after $action",
+                        beforeA,
+                        Conversation
+                            .Group(a)
+                            .messages()
+                            .map { it.id }
+                            .toSet(),
+                    )
+                    assertEquals(
+                        "B rows after $action",
+                        beforeB,
+                        Conversation
+                            .Group(b)
+                            .messages()
+                            .map { it.id }
+                            .toSet(),
+                    )
+                    val parent = checkNotNull(owner.client.conversations.getMessageById(target))
+                    assertEquals("Origin parent", parent.toRow(owner.client.inboxId()).text)
+                    assertFalse(parent.toRow(owner.client.inboxId()).deleted)
+                    assertTrue(parent.reactions.isEmpty())
+                    assertEquals("Origin A", a.state().name)
+                    assertEquals("Current B", b.state().name)
+                    assertEquals("Original", a.state().description)
+                    assertEquals("Original", b.state().description)
+                    assertEquals(ConsentState.ALLOWED, a.state().common.consentState)
+                    assertEquals(ConsentState.ALLOWED, b.state().common.consentState)
+                    assertNull(a.state().common.disappearingSettings)
+                    assertNull(b.state().common.disappearingSettings)
+                    assertEquals(GroupPolicyType.ALL_MEMBERS, a.state().permissions.policyType)
+                    assertEquals(GroupPolicyType.ALL_MEMBERS, b.state().permissions.policyType)
+                    assertNotEquals(
+                        DeliveryStatus.PUBLISHED,
+                        owner.client.conversations
+                            .getMessageById(pending)
+                            ?.deliveryStatus,
+                    )
+                    assertTrue(
+                        model.session.preferences
+                            .drafts(owner.key.profileId)
+                            .isEmpty(),
+                    )
+                    assertEquals(bParent, model.state.value.replyTo)
+                    println("ACTION_SCOPE_PROOF stage=queued-rejected action=$action")
+                }
+            } finally {
+                releases.forEach { it.complete(Unit) }
+                cleanup()
+            }
+        }
+
+    @Test fun suspendedTargetsCannotMutateAfterSwitch() =
+        runBlocking {
+            val releases = mutableListOf<CompletableDeferred<Unit>>()
+            try {
+                val owner = connect()
+                val a = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "Read A"))
+                val b = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "Read B"))
+                val target = a.sendText("Read parent")
+                val pending = a.sendText("Read pending", SendOptions(optimistic = true))
+                val beforeA =
+                    Conversation
+                        .Group(a)
+                        .messages()
+                        .map { it.id }
+                        .toSet()
+                val beforeB =
+                    Conversation
+                        .Group(b)
+                        .messages()
+                        .map { it.id }
+                        .toSet()
+                val actions =
+                    listOf(
+                        MessengerAction.React(target, "❤️", false),
+                        MessengerAction.DeleteMessage(target),
+                        MessengerAction.SendText("Late reply"),
+                        MessengerAction.RetrySend(pending),
+                    )
+                for (action in actions) {
+                    openChat(a.id())
+                    until("origin parent visible") {
+                        model.state.value.messages
+                            .any { it.id == target }
+                    }
+                    model.dispatch(MessengerAction.Reply(target))
+                    val entered = CompletableDeferred<Unit>()
+                    val release = CompletableDeferred<Unit>().also(releases::add)
+                    val finished = CompletableDeferred<Unit>()
+
+                    suspend fun read(
+                        client: SDKClient,
+                        id: MessageId,
+                    ): Message? {
+                        val message = client.conversations.getMessageById(id)
+                        entered.complete(Unit)
+                        release.await()
+                        return message
+                    }
+                    model.actionMessageRead = { current, id -> read(current.client, id) }
+                    model.sends.messageRead = ::read
+                    model.onQueuedActionFinished = { queued -> if (queued == action) finished.complete(Unit) }
+                    model.dispatch(action)
+                    withTimeout(30_000) { entered.await() }
+                    openChat(b.id())
+                    release.complete(Unit)
+                    withTimeout(30_000) { finished.await() }
+                    assertEquals(
+                        "A rows after suspended $action",
+                        beforeA,
+                        Conversation
+                            .Group(a)
+                            .messages()
+                            .map { it.id }
+                            .toSet(),
+                    )
+                    assertEquals(
+                        "B rows after suspended $action",
+                        beforeB,
+                        Conversation
+                            .Group(b)
+                            .messages()
+                            .map { it.id }
+                            .toSet(),
+                    )
+                    val parent = checkNotNull(owner.client.conversations.getMessageById(target))
+                    assertFalse(parent.toRow(owner.client.inboxId()).deleted)
+                    assertTrue(parent.reactions.isEmpty())
+                    assertNotEquals(
+                        DeliveryStatus.PUBLISHED,
+                        owner.client.conversations
+                            .getMessageById(pending)
+                            ?.deliveryStatus,
+                    )
+                    assertTrue(
+                        model.session.preferences
+                            .drafts(owner.key.profileId)
+                            .isEmpty(),
+                    )
+                    println("ACTION_SCOPE_PROOF stage=read-completed-without-write action=$action")
+                    model.actionMessageRead = { current, id -> current.client.conversations.getMessageById(id) }
+                    model.sends.messageRead = { client, id -> client.conversations.getMessageById(id) }
+                }
+            } finally {
+                releases.forEach { it.complete(Unit) }
+                cleanup()
+            }
+        }
+
+    @Test fun currentActionsWriteNativeTargetsAndKeepCapturedReply() =
+        runBlocking {
+            val release = CompletableDeferred<Unit>()
+            try {
+                val owner = connect()
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Current actions"),
+                    )
+                val original = group.sendText("Original reply parent")
+                val next = group.sendText("Next reply parent")
+                val pending = group.sendText("Current retry", SendOptions(optimistic = true))
+                openChat(group.id())
+                until("reply parents visible") {
+                    model.state.value.messages
+                        .any { it.id == original } &&
+                        model.state.value.messages
+                            .any { it.id == next }
+                }
+                model.dispatch(MessengerAction.Reply(original))
+                val action = MessengerAction.SendText("Captured reply")
+                val entered = CompletableDeferred<Unit>()
+                val finished = CompletableDeferred<Unit>()
+                model.beforeQueuedAction = { queued ->
+                    if (queued == action) {
+                        entered.complete(Unit)
+                        release.await()
+                    }
+                }
+                model.onQueuedActionFinished = { queued -> if (queued == action) finished.complete(Unit) }
+                model.dispatch(action)
+                withTimeout(30_000) { entered.await() }
+                model.dispatch(MessengerAction.Reply(next))
+                release.complete(Unit)
+                withTimeout(30_000) { finished.await() }
+                val replies =
+                    Conversation.Group(group).messages(publishedSelection()).mapNotNull {
+                        ((it.content as? SDKMessageContent.Standard)?.value as? MessageContent.Reply)
+                    }
+                assertEquals(
+                    listOf(MessageContent.Reply(original, MessageBody.Text("Captured reply"))),
+                    replies,
+                )
+                assertEquals(next, model.state.value.replyTo)
+                model.beforeQueuedAction = {}
+
+                suspend fun dispatchCurrent(current: MessengerAction) {
+                    val done = CompletableDeferred<Unit>()
+                    model.onQueuedActionFinished = { queued -> if (queued == current) done.complete(Unit) }
+                    model.dispatch(current)
+                    withTimeout(30_000) { done.await() }
+                    assertNull("Current action error: $current", model.state.value.error)
+                }
+                dispatchCurrent(MessengerAction.UpdateGroup("Updated current", "Updated description"))
+                assertEquals("Updated current", group.state().name)
+                assertEquals("Updated description", group.state().description)
+                dispatchCurrent(MessengerAction.SetDisappearing(60))
+                assertEquals(
+                    60_000_000_000L,
+                    group
+                        .state()
+                        .common.disappearingSettings
+                        ?.retentionNs,
+                )
+                dispatchCurrent(MessengerAction.SetDisappearing(0))
+                dispatchCurrent(MessengerAction.SetPreset(true))
+                assertEquals(GroupPolicyType.ADMIN_ONLY, group.state().permissions.policyType)
+                dispatchCurrent(MessengerAction.RetrySend(pending))
+                assertEquals(
+                    DeliveryStatus.PUBLISHED,
+                    owner.client.conversations
+                        .getMessageById(pending)
+                        ?.deliveryStatus,
+                )
+                dispatchCurrent(MessengerAction.React(original, "👍", false))
+                assertTrue(
+                    checkNotNull(owner.client.conversations.getMessageById(original)).reactions.any {
+                        it.reaction.content == "👍"
+                    },
+                )
+                dispatchCurrent(MessengerAction.DeleteMessage(next))
+                assertTrue(
+                    checkNotNull(owner.client.conversations.getMessageById(next)).toRow(owner.client.inboxId()).deleted,
+                )
+                dispatchCurrent(MessengerAction.Consent(false))
+                assertEquals(ConsentState.DENIED, group.state().common.consentState)
+                println("ACTION_SCOPE_PROOF stage=current-sdk-writes-and-captured-reply-succeeded")
+            } finally {
+                release.complete(Unit)
+                cleanup()
+            }
+        }
+
+    @Test fun acceptedSendKeepsOriginalIdAfterScreenSwitch() =
+        runBlocking {
+            val release = CompletableDeferred<Unit>()
+            try {
+                val owner = connect()
+                val a =
+                    Conversation.Group(
+                        owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "Accepted A")),
+                    )
+                val b =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Accepted B"),
+                    )
+                openChat(a.id())
+                val token = model.screenToken()
+                val accepted = CompletableDeferred<MessageId>()
+                val task =
+                    async {
+                        runCatching {
+                            model.sends.queue(
+                                owner.key,
+                                owner.client,
+                                a,
+                                admission = {
+                                    model.acceptsScreen(
+                                        owner.key,
+                                        token,
+                                    )
+                                },
+                                reconcile = {},
+                            ) {
+                                val id = a.sendText("Accepted before switch", SendOptions(optimistic = true))
+                                accepted.complete(id)
+                                release.await()
+                                id
+                            }
+                        }
+                    }
+                val id = withTimeout(30_000) { accepted.await() }
+                openChat(b.id())
+                release.complete(Unit)
+                val outcome = withTimeout(30_000) { task.await() }
+                assertTrue(outcome.exceptionOrNull() is CancellationException)
+                val draft =
+                    model.session.preferences
+                        .drafts(owner.key.profileId)
+                        .single()
+                assertEquals(SendPhase.ACCEPTED, draft.phase)
+                assertEquals(id, draft.acceptedMessageId)
+                assertEquals(a.id(), draft.conversationKey)
+                assertNotNull(owner.client.conversations.getMessageById(id))
+                assertEquals(0uL, Conversation.Group(b).countMessages(publishedSelection()))
+                model.sends.retry(owner.key, owner.client, a, id) {}
+                assertEquals(
+                    DeliveryStatus.PUBLISHED,
+                    owner.client.conversations
+                        .getMessageById(id)
+                        ?.deliveryStatus,
+                )
+                assertTrue(
+                    model.session.preferences
+                        .drafts(owner.key.profileId)
+                        .isEmpty(),
+                )
+                println("ACTION_SCOPE_PROOF stage=accepted-original-id-saved-and-retried id=$id")
+            } finally {
+                release.complete(Unit)
+                cleanup()
+            }
         }
 
     @Test fun lateBlockedConsentCannotReplaceNewChatSettings() =
