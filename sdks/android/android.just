@@ -84,6 +84,14 @@ example-test-integration *args: build _metadata-backend
 example-test-release-integration *args: build
   {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; test_status=0; ./gradlew -p . :example:connectedReleaseAndroidTest -PxmtpExampleReleaseTests=true -Pandroid.testInstrumentationRunnerArguments.class=org.xmtp.android.example.messenger.ReleaseTransportInstrumentedTest {{ args }} --dependency-verification=strict --no-daemon || test_status=$?; exit "$test_status"'
 
+# Check the fixed performance report validator without a device.
+example-performance-check:
+  python3.11 -B -m unittest discover -s example/performance -p 'test_*.py' -v
+
+# Run the complete workload and cache failure control in the owned Linux API 34 scope.
+example-performance output="example/build/performance": build
+  {{ _env }} && NIX_ANDROID_EMULATOR_API=34 NIX_ANDROID_EMULATOR_FLAGS="-no-snapshot -no-window -gpu swiftshader_indirect -noaudio -cores 4 -memory 4096 -partition-size 16384" run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; exec python3.11 -B example/performance/run.py --output "{{output}}" --backend "$XMTP_BACKEND_URL" --red-control'
+
 # Run integration tests (requires emulator)
 test-integration: build
   {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:${XMTP_S3_PORT:-9067} tcp:${XMTP_S3_PORT:-9067}; exec ./gradlew -p . :library:connectedCheck --continue'

@@ -1,12 +1,12 @@
 # Messenger verification ledger
 
-The approved app plan uses P1–P33 and V1–V9. These are plan identifiers, not SDK
+The approved app plan uses P1–P35 and V1–V9. These are plan identifiers, not SDK
 spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
-This ledger is preparatory. Combined verification waits for the completed
-attachment, metadata, and push branches. A listed test is not a passing proof.
+This ledger records separate branch proofs. Combined verification waits for
+final UI and push integration. A listed test is not a passing proof.
 Fill each evidence cell with the source commit, command, result, and artifact
 before the final app gate is ready. Label every manual result as manual.
 
@@ -27,7 +27,7 @@ before the final app gate is ready. Label every manual result as manual.
 | P13 Timestamp buckets | V3. Independent raw counts, 80 tied rows, conversion-short 51-row page, 501 tie stop, no skipped valid row | B unit and broken/restored proof pending final audit |
 | P14 Scroll restore | V3. Retained key/offset, deleted anchor, three-cache eviction, process loss, visible best-effort fallback | B real viewport/restore proof pending |
 | P15 Bounded work | V3/V9. Four reads, first 50 handles, visible plus next 50 row reads, 500 published rows, three caches, 50-row overlay | B limits plus actual fixed-device performance pending |
-| P16 Chat actions | V4. Real text/reply/reaction add/remove and visible enriched readback | B device action proof pending final audit |
+| P16 Chat actions | V4. Real text/reply/reaction readback; animated five-choice inline reaction popover and full picker; normal composer reply first line and X that keeps draft text | B device action proof pending final audit |
 | P17 Stored retries | V4/V5. Accepted ID survives recovery; retry publishes that ID once; no typed resend | B/C native accepted-ID recovery pending |
 | P18 Unknown send | V2/V5. Interrupted QUEUEING lacks ID; review/discard; no automatic queue; old screen queue completion fenced | B/C process and queue-outcome proof pending |
 | P19 Removal/expiry | V4. Loaded content disappears or shows supported deleted placeholder after real delete and expiry | B device expiry and refresh proof pending |
@@ -44,7 +44,31 @@ before the final app gate is ready. Label every manual result as manual.
 | P30 Generic push | V8. Parse ULong, current known group/installation admission, mute/consent/token policy, dedupe, late A push after B sign-in, generic content | E tests pending; real background delivery needs developer FCM project |
 | P31 App gates | V1/V9. Current SDK host/package/consumer/platform gates plus actual launch and app tests in scoped emulator; no release publication | Final recipes, CI, and combined gate runs pending |
 | P32 Failure detection | V1–V9. Each new test has a plausible broken production run and restored pass at a recorded source commit | Host performance result gate has broken/restored records; final per-test ledger pending |
-| P33 Performance | V9. Exact 1000/100000 workload, one 50000 transcript, five warmups, 30 measured runs, all query/heap/retention limits | Runner source prepared; real Linux fixed-device run pending |
+| P33 Performance | V9. Exact 1000/100000 workload, one 50000 transcript, five warmups, 30 measured runs, all query/heap/retention limits | Test APK compiled; seven host validator/control tests pass; real Linux fixed-device run pending |
+| P34 Credential visibility | V2/V8. Current server auth configuration shows the credential field only for its URL; stale capability results cannot show or hide the current field | B UI correction and native proof pending |
+| P35 Attachment availability | V5/V8. SDK and current server support determine attachments; Start has no attachment checkbox or network switch | B/C final UI restack and screenshot proof pending |
+
+## Recorded branch evidence
+
+These results are from the separate branch reports. They do not prove the final
+combined tree. The parent must verify the final restack and current source.
+
+| Branch | Recorded checks | Remaining proof |
+| --- | --- | --- |
+| A shared build | Strict app/shared/SDK assembly, consumers and selected platform checks recorded in PR A | Combined final gates |
+| B recovery | 25 native tests and 17 host tests pass; seven matching native failure controls fail at their named assertions; restored gates pass | Current P16/P34/P35 UI correction, final restack, review and manual access checks |
+| C attachments | 12 native cases pass, including actual SDK download/card update and external UID grants; stale-card control fails at the Verified UI assertion; grant and copy-ceiling controls fail; restoration passes | Single-filename visual cleanup has fast build/host/lint proof only; new screenshot and final UI restack |
+| D metadata | 30 host tests pass, including ten metadata tests; twelve matching host controls fail; 60 configuration fixtures pass; real catalogue backend startup and cleanup pass | Native two-client metadata writes and exact value/byte readback |
+| E optional push | Source integration is in progress on D | Combined configured/unconfigured builds, route tests and real Firebase delivery |
+| F performance | Matched immutable bindings and actual SDK/app/shared/test APK assembly pass; seven host validator/control tests pass | Exact fixed Linux run, intended cache failure and restored measurement on the same dataset; observed seed time must set the final CI timeout |
+
+The execution reports retain source checkpoints, commands, XML and failure
+patches. B evidence is `pr-b-third-review-all-device-green.log` and its native
+and host XML. C evidence is `pr-c-native-rebased-restored-12.log` and XML,
+`pr-c-control-card-state-results.xml`, and the isolated grant/ceiling controls.
+D evidence is `pr-d-checkpoint-gates.log`, `pr-d-host-controls-final.log`, and
+`pr-d-lint-config-final.log`. A later compile does not replace a missing device
+result. No report establishes real FCM, TalkBack, 200% text scale, or V9 budgets.
 
 ## Required final commands
 
@@ -59,6 +83,8 @@ dev/nix-shell 'just android check-consumers'
 dev/nix-shell 'just android example-test'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android example-test-integration'
+dev/nix-shell 'just android example-performance-check'
+dev/nix-shell 'just android example-performance'
 dev/nix-shell 'just lint-config'
 dev/nix-shell 'just spec-check'
 ```
