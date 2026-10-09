@@ -94,6 +94,17 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
                 }
             }
         }
+        activity.lifecycleScope.launch {
+            var token = model.screenToken()
+            model.state.collect {
+                if (token != model.screenToken()) {
+                    token = model.screenToken()
+                    downloads.value = emptyMap()
+                    previews.value = emptyMap()
+                    error.value = null
+                }
+            }
+        }
     }
 
     fun close() {
@@ -151,7 +162,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
                     val bitmap = files!!.preview(action.messageId)
                     if (model.acceptsScreen(active.key, token)) {
                         downloads.value = downloads.value + (action.messageId to AttachmentCardState(action.messageId, downloaded.filename ?: "File", "Verified", canOpen = true))
-                        if (bitmap != null) previews.value = previews.value + (action.messageId to bitmap)
+                        if (bitmap != null) previews.value = ((previews.value - action.messageId) + (action.messageId to bitmap)).entries.toList().takeLast(3).associate { it.key to it.value }
                     } else bitmap?.recycle()
                 } catch (failure: Throwable) {
                     if (model.acceptsScreen(active.key, token)) downloads.value = downloads.value + (action.messageId to AttachmentCardState(action.messageId, remote.filename ?: "File", "Failed", canDownload = true, error = failure.attachmentLabel()))
