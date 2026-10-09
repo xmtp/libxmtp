@@ -7,6 +7,20 @@ import java.io.File
 import java.nio.file.Files
 
 class SessionBoundaryTest {
+    @Test fun savedRestoreCannotReserveAfterANewerConnectionIntent() {
+        val fence = SessionFence()
+        val savedIntent = fence.currentGeneration()
+        val selectedIntent = fence.reserve()
+        assertNull(fence.reserveRestoreIfCurrent(savedIntent))
+        val selected = checkNotNull(fence.bind("selected", selectedIntent))
+        assertTrue(fence.accepts(selected))
+        assertNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
+        assertTrue(fence.accepts(selected))
+        fence.replace(null)
+        val fresh = checkNotNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
+        assertNotNull(fence.bind("saved", fresh))
+    }
+
     @get:Rule val temp = TemporaryFolder()
 
     @Test fun profileReplacementAndSignOutRejectOldCompletions() {

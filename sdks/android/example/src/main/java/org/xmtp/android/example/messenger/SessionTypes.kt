@@ -121,6 +121,14 @@ class SessionFence {
         return generation
     }
 
+    fun currentGeneration(): Long = generation
+
+    @Synchronized fun reserveRestoreIfCurrent(expected: Long): Long? {
+        if (generation != expected || profileId != null) return null
+        generation += 1
+        return generation
+    }
+
     @Synchronized fun bind(
         profile: String,
         reserved: Long,

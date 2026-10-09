@@ -115,9 +115,11 @@ class TimestampBucketTest {
                         it.id
                     }.toSet(),
             )
-            assertTrue(
+            assertFalse(
                 page.complete,
             )
+            assertNotNull(page.notice)
+            assertNull(page.nextBeforeNs)
         }
 
     @Test fun fiveHundredAndOneReadableRowsStopWithoutAdvancingPastAnUnretainedTie() =

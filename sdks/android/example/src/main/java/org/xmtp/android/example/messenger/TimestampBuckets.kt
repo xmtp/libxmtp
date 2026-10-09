@@ -64,6 +64,14 @@ class TimestampBuckets<T>(
                     .toULong() &&
                 rows.size <= retainedLimit
             ) {
+                if (rows.size.toULong() != rawCount) {
+                    return BucketPage(
+                        rows,
+                        beforeNs,
+                        false,
+                        "Some stored history cannot be read. Refresh to try again.",
+                    )
+                }
                 return BucketPage(
                     rows,
                     rows
@@ -99,6 +107,14 @@ class TimestampBuckets<T>(
                     limit
                         .toULong() && prefix.size <= retainedLimit
                 ) {
+                    if (prefix.size.toULong() != coveredCount) {
+                        return BucketPage(
+                            prefix,
+                            beforeNs,
+                            false,
+                            "Some stored history cannot be read. Refresh to try again.",
+                        )
+                    }
                     return BucketPage(
                         prefix,
                         timestamp,

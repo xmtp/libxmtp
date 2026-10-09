@@ -56,6 +56,7 @@ class MessengerViewModel(
         screenCounter
             .get()
     private val sessionActionCounter = AtomicLong()
+    private var startupRestoreJob: Job? = null
 
     @Volatile private var conversation: Conversation? = null
     private var logicalKey: String? = null
@@ -190,59 +191,64 @@ class MessengerViewModel(
                 }
             }
         }
-        viewModelScope.launch {
-            try {
-                val saved = session.preferences.active()
-                if (saved != null && session.preferences.signedIn() && sessionActionCounter.get() == 0L) {
-                    synchronized(screenLock) {
-                        if (selectedBackend == BuildConfig.XMTP_BACKEND_URL.trim().trimEnd('/')) {
-                            ui.update { currentUi -> currentUi.copy(backend = saved.backend) }
+        startupRestoreJob =
+            viewModelScope.launch {
+                try {
+                    if (sessionActionCounter.get() != 0L) return@launch
+                    val saved = session.preferences.active()
+                    if (saved != null && session.preferences.signedIn() && sessionActionCounter.get() == 0L) {
+                        synchronized(screenLock) {
+                            if (selectedBackend == BuildConfig.XMTP_BACKEND_URL.trim().trimEnd('/')) {
+                                ui.update { currentUi -> currentUi.copy(backend = saved.backend) }
+                            }
                         }
                     }
-                }
-                session
-                    .restore()
-                if (session.active.value == null &&
-                    session.preferences
-                        .profiles()
-                        .isEmpty()
-                ) {
-                    val legacy =
-                        java.io
-                            .File(
-                                application.filesDir,
-                                "xmtp_db",
-                            )
-                    val accounts =
-                        legacy
-                            .listFiles()
-                            ?.filter {
-                                it.name
-                                    .matches(Regex("xmtp-local-[0-9a-f]{64}\\.db3"))
-                            }?.map {
-                                it.name
-                                    .removePrefix("xmtp-local-")
-                                    .removeSuffix(".db3")
-                            }.orEmpty()
-                    if (accounts
-                            .isNotEmpty()
+                    currentCoroutineContext().ensureActive()
+                    if (sessionActionCounter.get() != 0L) return@launch
+                    session
+                        .restore()
+                    if (session.active.value == null &&
+                        session.preferences
+                            .profiles()
+                            .isEmpty()
                     ) {
-                        ui.update { currentUi ->
-                            currentUi.copy(
-                                migrationRequired = true,
-                                migrationAccounts = accounts,
-                            )
+                        val legacy =
+                            java.io
+                                .File(
+                                    application.filesDir,
+                                    "xmtp_db",
+                                )
+                        val accounts =
+                            legacy
+                                .listFiles()
+                                ?.filter {
+                                    it.name
+                                        .matches(Regex("xmtp-local-[0-9a-f]{64}\\.db3"))
+                                }?.map {
+                                    it.name
+                                        .removePrefix("xmtp-local-")
+                                        .removeSuffix(".db3")
+                                }.orEmpty()
+                        if (accounts
+                                .isNotEmpty()
+                        ) {
+                            ui.update { currentUi ->
+                                currentUi.copy(
+                                    migrationRequired = true,
+                                    migrationAccounts = accounts,
+                                )
+                            }
                         }
                     }
-                }
-            } catch (error: Throwable) {
-                val pending = session.preferences.reset() != null
-                if (sessionActionCounter.get() == 0L) {
-                    ui.update { currentUi -> currentUi.copy(pendingReset = pending) }
-                    showError(error)
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    val pending = session.preferences.reset() != null
+                    if (sessionActionCounter.get() == 0L) {
+                        ui.update { currentUi -> currentUi.copy(pendingReset = pending) }
+                        showError(error)
+                    }
                 }
             }
-        }
     }
 
     internal var beforeFeaturesUiUpdate: () -> Unit = {}
@@ -331,6 +337,13 @@ class MessengerViewModel(
     internal var actionMessageRead: suspend (ActiveSession, String) -> Message? = { owner, id ->
         owner.client.conversations.getMessageById(id)
     }
+    internal var recoveryRead: suspend (Conversation, ListMessagesOptions) -> List<Message> = { chat, options ->
+        chat.messages(options)
+    }
+
+    internal suspend fun awaitStartupRestore() {
+        startupRestoreJob?.join()
+    }
 
     fun dispatch(action: MessengerAction) {
         if (action is MessengerAction.InspectBackend) {
@@ -405,6 +418,7 @@ class MessengerViewModel(
                 sessionActionCounter
                     .get()
             }
+        if (replacesSession) startupRestoreJob?.cancel()
         actionScope
             .launch(
                 Dispatchers.IO,
@@ -413,6 +427,7 @@ class MessengerViewModel(
                 val token = origin.token
                 try {
                     beforeQueuedAction(action)
+                    if (replacesSession && operationToken != sessionActionCounter.get()) return@launch
                     when (action) {
                         is MessengerAction.Connect,
                         -> {
@@ -1179,7 +1194,7 @@ class MessengerViewModel(
     )
 
     private suspend fun overlay(chat: Conversation): BucketPage<Message> =
-        pendingMessagePage(recoveryUpper, read = { chat.messages(it) }, count = { chat.countMessages(it) })
+        pendingMessagePage(recoveryUpper, read = { recoveryRead(chat, it) }, count = { chat.countMessages(it) })
 
     private fun MessengerState.withRecovery(page: BucketPage<Message>): MessengerState {
         recoveryNext = page.nextBeforeNs

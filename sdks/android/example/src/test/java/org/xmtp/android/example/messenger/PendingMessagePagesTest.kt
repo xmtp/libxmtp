@@ -32,6 +32,34 @@ internal fun storedMessage(
 )
 
 class PendingMessagePagesTest {
+    @Test fun partialStatusPagesKeepReadableRowsAndDoNotAdvanceAcrossMissingRows() =
+        runBlocking {
+            for (rawSize in listOf(2, 60)) {
+                val raw = (1..rawSize).map { storedMessage(it, DeliveryStatus.UNPUBLISHED) }
+                val before = (rawSize + 1).toLong()
+                val missing = rawSize.toString()
+
+                fun selected(options: ListMessagesOptions) =
+                    raw
+                        .filter {
+                            it.deliveryStatus == options.deliveryStatus &&
+                                (options.sentBefore == null || it.sentAt.ns < options.sentBefore!!.ns) &&
+                                (options.sentAfter == null || it.sentAt.ns > options.sentAfter!!.ns)
+                        }.sortedByDescending { it.sentAt.ns }
+                val page =
+                    pendingMessagePage(
+                        before,
+                        read = { selected(it).take(it.limit!!.toInt()).filter { row -> row.id != missing } },
+                        count = { selected(it).size.toULong() },
+                    )
+                assertTrue("A readable result remains available", page.rows.isNotEmpty())
+                assertFalse("The raw selection is not fully readable", page.complete)
+                assertNotNull("A partial result must be visible", page.notice)
+                assertEquals("Do not skip a missing timestamp bucket", before, page.nextBeforeNs)
+                assertTrue(page.rows.size <= 50)
+            }
+        }
+
     @Test fun combinedStatusPagesExposeBothBacklogsWithTheSameBoundedSelection() =
         runBlocking {
             val rows =
