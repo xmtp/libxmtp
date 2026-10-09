@@ -18,7 +18,41 @@ private val Context
 class MessengerPreferences(
     context: Context,
 ) {
-    private val draftLock = Mutex()
+    internal var beforeSessionCommit: suspend () -> Unit = {}
+    internal var sessionCommitAccepted: (BackendProfile) -> Unit = {}
+
+    suspend fun commitSession(
+        profile: BackendProfile,
+        admit: (() -> Unit) -> Boolean,
+    ): Boolean {
+        var accepted = false
+        store.edit { values ->
+            beforeSessionCommit()
+            accepted =
+                admit {
+                    val existing = JSONArray(values[stringPreferencesKey("profiles")] ?: "[]")
+                    val updated = JSONArray()
+                    for (index in 0 until existing.length()) {
+                        val item = existing.getJSONObject(index)
+                        if (item.getString("id") != profile.id) updated.put(item)
+                    }
+                    updated.put(
+                        JSONObject()
+                            .put("id", profile.id)
+                            .put("backend", profile.backend)
+                            .put("inbox", profile.inboxId ?: "")
+                            .put("identity", profile.identity ?: "")
+                            .put("private", profile.allowPrivateNetwork),
+                    )
+                    values[stringPreferencesKey("profiles")] = updated.toString()
+                    values[stringPreferencesKey("active")] = profile.id
+                    values[stringPreferencesKey("signed-in")] = "true"
+                    sessionCommitAccepted(profile)
+                }
+        }
+        return accepted
+    }
+
     private val store =
         context.applicationContext.messengerDataStore
 
@@ -268,59 +302,58 @@ class MessengerPreferences(
     suspend fun saveDraft(
         profile: String,
         draft: SendDraftRef,
-    ) = draftLock.withLock {
-        writeDrafts(
-            profile,
-            drafts(profile).filterNot {
-                it.draftId ==
-                    draft.draftId
-            } + draft,
-        )
-    }
+        admit: (() -> Unit) -> Boolean = {
+            it()
+            true
+        },
+    ) = mutateDrafts(profile, admit) { entries -> entries.filterNot { it.draftId == draft.draftId } + draft }
 
     suspend fun removeDraft(
         profile: String,
         id: String,
-    ) = draftLock.withLock {
-        writeDrafts(
-            profile,
-            drafts(profile).filterNot {
-                it.draftId ==
-                    id
-            },
-        )
-    }
+        admit: (() -> Unit) -> Boolean = {
+            it()
+            true
+        },
+    ) = mutateDrafts(profile, admit) { entries -> entries.filterNot { it.draftId == id } }
 
-    private suspend fun writeDrafts(
+    private suspend fun mutateDrafts(
         profile: String,
-        values: List<SendDraftRef>,
-    ) = put(
-        "$profile/drafts",
-        JSONArray()
-            .apply {
-                values.forEach {
-                    put(
-                        JSONObject()
-                            .put(
-                                "id",
-                                it.draftId,
-                            ).put(
-                                "conversation",
-                                it.conversationKey,
-                            ).put(
-                                "secret",
-                                it.descriptorSecretRef ?: "",
-                            ).put(
-                                "accepted",
-                                it.acceptedMessageId ?: "",
-                            ).put(
-                                "phase",
-                                it.phase.name,
-                            ),
-                    )
+        admit: (() -> Unit) -> Boolean,
+        transform: (List<SendDraftRef>) -> List<SendDraftRef>,
+    ): Boolean {
+        var accepted = false
+        store.edit { values ->
+            accepted =
+                admit {
+                    val array = JSONArray(values[stringPreferencesKey("$profile/drafts")] ?: "[]")
+                    val entries =
+                        (0 until array.length()).map { index ->
+                            val item = array.getJSONObject(index)
+                            SendDraftRef(
+                                item.getString("id"),
+                                item.getString("conversation"),
+                                item.optString("secret").takeIf(String::isNotEmpty),
+                                item.optString("accepted").takeIf(String::isNotEmpty),
+                                SendPhase.valueOf(item.getString("phase")),
+                            )
+                        }
+                    val updated = JSONArray()
+                    transform(entries).forEach {
+                        updated.put(
+                            JSONObject()
+                                .put("id", it.draftId)
+                                .put("conversation", it.conversationKey)
+                                .put("secret", it.descriptorSecretRef ?: "")
+                                .put("accepted", it.acceptedMessageId ?: "")
+                                .put("phase", it.phase.name),
+                        )
+                    }
+                    values[stringPreferencesKey("$profile/drafts")] = updated.toString()
                 }
-            }.toString(),
-    )
+        }
+        return accepted
+    }
 
     suspend fun removeProfile(id: String) {
         put(

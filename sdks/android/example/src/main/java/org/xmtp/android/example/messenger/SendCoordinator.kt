@@ -10,6 +10,14 @@ import java.util.concurrent.ConcurrentHashMap
 class SendCoordinator(
     private val preferences: MessengerPreferences,
     private val accepts: (SessionKey) -> Boolean,
+    private val admit: (SessionKey, () -> Unit) -> Boolean = { key, change ->
+        if (accepts(key)) {
+            change()
+            true
+        } else {
+            false
+        }
+    },
 ) {
     private val activeDrafts =
         ConcurrentHashMap.newKeySet<String>()
@@ -43,15 +51,18 @@ class SendCoordinator(
             "This draft is already being sent"
         }
         try {
-            preferences
-                .saveDraft(
-                    key.profileId,
-                    draft
-                        .copy(
-                            phase =
-                                SendPhase.QUEUEING,
-                        ),
-                )
+            val prepared =
+                preferences
+                    .saveDraft(
+                        key.profileId,
+                        draft
+                            .copy(
+                                phase =
+                                    SendPhase.QUEUEING,
+                            ),
+                        admit = { change -> admit(key, change) },
+                    )
+            if (!prepared) throw kotlinx.coroutines.CancellationException("Session changed before queue admission")
             val id = send()
             // Acceptance belongs to this profile even when navigation cancels the caller.
             withContext(NonCancellable) {
@@ -65,6 +76,7 @@ class SendCoordinator(
                                         SendPhase.ACCEPTED,
                                     acceptedMessageId = id,
                                 ),
+                            admit = { change -> admit(key, change) },
                         )
                 }
             }
@@ -123,6 +135,7 @@ class SendCoordinator(
                     .removeDraft(
                         key.profileId,
                         it.draftId,
+                        admit = { change -> admit(key, change) },
                     )
             }
     }

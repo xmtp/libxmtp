@@ -82,6 +82,17 @@ class AppSession(
             .disableNotifications()
     }
 
+    internal var onSessionInvalidated: () -> Unit = {}
+
+    fun admit(
+        key: SessionKey,
+        change: () -> Unit,
+    ): Boolean =
+        withCurrent(key) {
+            change()
+            true
+        } == true
+
     fun accepts(key: SessionKey) =
         fence
             .accepts(key)
@@ -371,13 +382,21 @@ class AppSession(
                 }
                 return
             }
-            preferences
-                .setActive(opened)
-            preferences
-                .setSignedIn(true)
-            activeState.value = owner
-            errorState.value = null
-            startReaders(owner)
+            val committed =
+                preferences.commitSession(opened) { change ->
+                    withCurrent(key) {
+                        change()
+                        true
+                    } == true
+                }
+            val published =
+                committed && withCurrent(key) {
+                    activeState.value = owner
+                    errorState.value = null
+                    startReaders(owner)
+                    true
+                } == true
+            if (!published) withContext(NonCancellable) { client.end() }
         }
     }
 
@@ -419,6 +438,7 @@ class AppSession(
                                 owner,
                                 message,
                             )
+                            if (!accepts(owner.key)) throw CancellationException("Session changed during handling")
                         }
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
@@ -511,6 +531,7 @@ class AppSession(
     suspend fun signOut() {
         fence
             .replace(null)
+        onSessionInvalidated()
         operation.withLock {
             preferences
                 .setSignedIn(false)
