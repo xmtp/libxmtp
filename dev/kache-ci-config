@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Select remote storage before the Kache action can start its daemon.
+set -euo pipefail
+
+fail() {
+  printf '::error::%s\n' "$1" >&2
+  exit 1
+}
+
+access_key=${KACHE_CI_ACCESS_KEY:-}
+secret_key=${KACHE_CI_SECRET_KEY:-}
+readonly=${KACHE_CI_READONLY:-true}
+case "$readonly" in
+  true|false) ;;
+  *) fail 'kache-readonly must be true or false' ;;
+esac
+
+backend=local
+region=us-east-2
+manifest_key=
+if [[ -n "$access_key" || -n "$secret_key" ]]; then
+  [[ -n "$access_key" && -n "$secret_key" ]] || fail 'Kache S3 needs both credential fields'
+  bucket=${KACHE_CI_BUCKET:-}
+  region=${KACHE_CI_REGION:-us-east-2}
+  endpoint=${KACHE_CI_ENDPOINT:-}
+  scope=${KACHE_CI_SCOPE:-}
+  [[ "$bucket" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || fail 'Kache S3 needs a valid bucket name'
+  [[ "$region" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || fail 'Kache S3 needs a valid region'
+  [[ -z "$endpoint" || ( "$endpoint" == https://* && ! "$endpoint" =~ [[:space:]] ) ]] || fail 'Kache S3 endpoint must use HTTPS without whitespace'
+  [[ "$scope" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail 'Kache S3 needs a build scope with letters, digits, dots, underscores, or hyphens'
+  case "${RUNNER_OS:-}" in Linux|macOS|Windows) ;; *) fail 'Kache S3 needs a runner OS' ;; esac
+  case "${RUNNER_ARCH:-}" in X64|ARM64|ARM) ;; *) fail 'Kache S3 needs a runner architecture' ;; esac
+  backend=s3
+  manifest_key="$scope-$RUNNER_OS-$RUNNER_ARCH"
+fi
+
+printf 'backend=%s\nregion=%s\nmanifest-key=%s\n' "$backend" "$region" "$manifest_key" >> "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  if [[ "$backend" == s3 ]]; then
+    printf 'Kache backend: S3 (s3://%s/libxmtp/trusted). Build scope: %s.\n' "$bucket" "$manifest_key" >> "$GITHUB_STEP_SUMMARY"
+  else
+    printf 'Kache backend: local only. S3 credentials are not available.\n' >> "$GITHUB_STEP_SUMMARY"
+  fi
+fi

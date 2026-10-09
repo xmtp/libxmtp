@@ -26,6 +26,34 @@ inputs:
     description: "Enable pinned Kache for Cargo commands outside Nix derivations"
     required: false
     default: "true"
+  kache-s3-bucket:
+    description: "S3 compiler cache bucket; used only with a complete credential pair"
+    required: false
+    default: ""
+  kache-s3-region:
+    description: "S3 compiler cache region"
+    required: false
+    default: "us-east-2"
+  kache-s3-endpoint:
+    description: "Optional HTTPS endpoint for an S3-compatible compiler cache"
+    required: false
+    default: ""
+  kache-s3-access-key-id:
+    description: "Selected reader or writer access key ID"
+    required: false
+    default: ""
+  kache-s3-secret-access-key:
+    description: "Selected reader or writer secret access key"
+    required: false
+    default: ""
+  kache-scope:
+    description: "Stable compiler build variant; required for S3 and distinct from disk-key"
+    required: false
+    default: ""
+  kache-readonly:
+    description: "Disable remote uploads; false still requires a trusted protected branch push"
+    required: false
+    default: "true"
   gradle-disk:
     description: "Mount the shared repo-wide sticky disk at ~/.gradle (Linux); enable in jobs that run Gradle"
     required: false
@@ -142,9 +170,25 @@ runs:
       if: ${{ inputs.cachix-auth-token == '' }}
       with:
         name: xmtp
+    - name: Compiler cache backend
+      if: ${{ inputs.kache == 'true' }}
+      id: compiler-cache-backend
+      env:
+        KACHE_CI_BUCKET: ${{ inputs.kache-s3-bucket }}
+        KACHE_CI_REGION: ${{ inputs.kache-s3-region }}
+        KACHE_CI_ENDPOINT: ${{ inputs.kache-s3-endpoint }}
+        KACHE_CI_ACCESS_KEY: ${{ inputs.kache-s3-access-key-id }}
+        KACHE_CI_SECRET_KEY: ${{ inputs.kache-s3-secret-access-key }}
+        KACHE_CI_SCOPE: ${{ inputs.kache-scope }}
+        KACHE_CI_READONLY: ${{ inputs.kache-readonly }}
+      run: bash dev/kache-ci-config
+      shell: bash
     - name: Compiler cache write policy
       if: ${{ inputs.kache == 'true' }}
       id: compiler-cache-policy
+      env:
+        KACHE_CI_BACKEND: ${{ steps.compiler-cache-backend.outputs.backend }}
+        KACHE_CI_READONLY: ${{ inputs.kache-readonly }}
       run: bash dev/kache-ci-policy
       shell: bash
     - name: Setup Kache
@@ -154,9 +198,19 @@ runs:
         version: v1.0.0
         cache-executables: "true"
         pr-comment: "false"
-        github-cache: "true"
+        github-cache: "false"
+        s3-bucket: ${{ steps.compiler-cache-backend.outputs.backend == 's3' && inputs.kache-s3-bucket || '' }}
+        s3-region: ${{ steps.compiler-cache-backend.outputs.region }}
+        s3-endpoint: ${{ steps.compiler-cache-backend.outputs.backend == 's3' && inputs.kache-s3-endpoint || '' }}
+        s3-prefix: libxmtp/trusted
+        s3-access-key-id: ${{ steps.compiler-cache-backend.outputs.backend == 's3' && inputs.kache-s3-access-key-id || '' }}
+        s3-secret-access-key: ${{ steps.compiler-cache-backend.outputs.backend == 's3' && inputs.kache-s3-secret-access-key || '' }}
         save-cache: ${{ steps.compiler-cache-policy.outputs.cache-write }}
-        cache-key-prefix: libxmtp-${{ inputs.disk-key || github.job }}
+        manifest-key: ${{ steps.compiler-cache-backend.outputs.manifest-key }}
+        namespace: ${{ steps.compiler-cache-backend.outputs.manifest-key }}
+        sync: "false"
+        warm: "true"
+        min-compile-ms: "1000"
         max-size: 10GiB
     - name: Configure Kache compiler environment
       if: ${{ inputs.kache == 'true' }}
