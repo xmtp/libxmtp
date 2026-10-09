@@ -125,10 +125,12 @@ class PackagingTests(
                 self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
 
             if target == "android":
+
                 def missing_abi(command, **kwargs):
                     self.mobile_tool(command, **kwargs)
                     archive = (
-                        self.root / "sdks/android/library/build/outputs/aar/library-release.aar"
+                        self.root
+                        / "sdks/android/library/build/outputs/aar/library-release.aar"
                     )
                     with zipfile.ZipFile(archive, "w") as broken:
                         broken.writestr("classes.jar", b"fixture classes")
@@ -137,7 +139,9 @@ class PackagingTests(
                     with self.assertRaisesRegex(ValueError, "AAR missing ABI"):
                         self.assemble_mobile(target, missing_abi)
                     self.assertEqual(self.product_files(output), before)
-                    self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
+                    self.assertEqual(
+                        list(output.parent.glob(".sdk-mobile-stage-*")), []
+                    )
 
             with self.subTest(target=target, phase="success replaces prior product"):
                 # The fake Android tool rewrites the AAR after the missing-ABI run.
@@ -149,7 +153,9 @@ class PackagingTests(
                     self.assertEqual(artifacts.digest(output / name), expected)
                 self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
 
-            with self.subTest(target=target, phase="late failure without prior product"):
+            with self.subTest(
+                target=target, phase="late failure without prior product"
+            ):
                 shutil.rmtree(output)
                 with self.assertRaises(subprocess.CalledProcessError):
                     self.assemble_mobile(target, fail)
