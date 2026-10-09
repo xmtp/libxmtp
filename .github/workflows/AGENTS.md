@@ -56,7 +56,12 @@ scanner workflow changes. Ready PRs keep all four Cargo-Deny checks.
 Source lint does not generate SDK products or run compiler checks. Test owns
 full types, full lint, Clippy, SDK and runtime checks. Pure Rust PRs omit host
 language checks; post-merge runs retain language units and consumers. Platform
-packaging uses native inputs. Full docs use docs, examples, and public API inputs.
+packaging uses native inputs. Full docs use the docs app, examples, and public
+API inputs.
+Files under `docs/` are neutral inputs. `apps/docs/` still selects docs builds.
+`sdks/js.just` selects Node, Browser, and Agent SDK checks, including generated
+JS SDK products. Gradle and Kotlin build scripts select Android checks only;
+copies under `docs/` remain neutral. Android build scripts do not select public API docs.
 The standalone Rust reference keeps rustdoc and glossary checks for Rust changes.
 Automatic PR backend image checks use amd64; two-architecture publication runs
 only on main, self-hosted, tag pushes, or reusable calls.

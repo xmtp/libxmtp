@@ -40,15 +40,16 @@ jobs:
         filters: |
           all_files:
             - '**'
-          shared: &shared
-            - '{.github,nix,dev,.cargo,proto,bindings}/**'
-            - 'apps/{backend,xmtp_sdk_bindgen}/**'
-            - 'crates/{xmtp_sdk,xmtp_configuration}/**'
-            - 'docs/{specs,schemas}/**'
-            - '{Cargo.toml,Cargo.lock,rust-toolchain.toml,flake.nix,flake.lock,package.json,pnpm-lock.yaml,pnpm-workspace.yaml,justfile}'
-            - 'sdks/js.just'
-            - '**/{Cargo.toml,build.rs,package.json}'
-            - '**/*.{nix,toml,lock,gradle,kts}'
+          shared:
+            - &shared_inputs
+              - '{.github,nix,dev,.cargo,proto,bindings}/**'
+              - 'apps/{backend,xmtp_sdk_bindgen}/**'
+              - 'crates/{xmtp_sdk,xmtp_configuration}/**'
+              - '{Cargo.toml,Cargo.lock,rust-toolchain.toml,flake.nix,flake.lock,package.json,pnpm-lock.yaml,pnpm-workspace.yaml,justfile}'
+              - '**/{Cargo.toml,build.rs,package.json}'
+              - '**/*.{nix,toml,lock}'
+            - '!docs/**'
+            - '!**/*.{gradle,kts}'
           rust: &rust
             - 'crates/{xmtp_api,xmtp_api_grpc,xmtp_archive,xmtp_attachments,xmtp_common,xmtp_content_types,xmtp_cryptography,xmtp_db,xmtp_events,xmtp_id,xmtp_logging,xmtp_macro,xmtp_mls,xmtp_mls_common,xmtp_mls_validation,xmtp_proto,xmtp_user_preferences,xmtp-workspace-hack}/{src,tests,benches,examples}/**/*.rs'
           swift: &swift
@@ -58,13 +59,17 @@ jobs:
             - '!sdks/ios/Tests/**'
           apple_lifecycle:
             - 'sdks/ios/**/*AppleLifecycleTests.swift'
-          android: &android
-            - 'sdks/android/**/*.{kt,java}'
+          android:
+            - &android_inputs
+              - 'sdks/android/**/*.{kt,java}'
+              - '**/*.{gradle,kts}'
+            - '!docs/**'
           android_platform:
-            - *android
+            - *android_inputs
+            - '!docs/**'
             - '!sdks/android/library/src/test/**'
           android_public:
-            - *android
+            - 'sdks/android/**/*.{kt,java}'
             - '!sdks/android/library/src/test/**'
             - '!sdks/android/**/androidTest/**'
           node_public: &node_public
@@ -73,6 +78,7 @@ jobs:
             - 'sdks/node/type-tests/publicSurface*/**/*.{ts,tsx,js,mjs}'
           node: &node
             - *node_public
+            - 'sdks/js.just'
             - 'sdks/node/{test,type-tests}/**/*.{ts,tsx,js,mjs}'
             - 'sdks/node/vitest.{config,setup}.ts'
             - 'apps/cli/{src,test}/**/*.{ts,tsx,js,mjs}'
@@ -82,11 +88,14 @@ jobs:
             - 'sdks/browser/type-tests/publicSurface*/**/*.{ts,tsx,js,mjs}'
           browser: &browser
             - *browser_public
+            - 'sdks/js.just'
             - 'sdks/browser/{test,type-tests}/**/*.{ts,tsx,js,mjs}'
             - 'apps/web-chat/{src,test}/**/*.{ts,tsx,js,mjs}'
           browser_platform:
             - 'sdks/browser/test/platform/**/*.{ts,tsx,js,mjs}'
+            - 'sdks/js.just'
           agent: &agent
+            - 'sdks/js.just'
             - 'sdks/agent/{src,test}/**/*.{ts,tsx,js,mjs}'
             - 'sdks/agent/vitest.{config,setup}.ts'
           agent_public:
@@ -97,20 +106,19 @@ jobs:
             - 'apps/docs/**'
           docs:
             - *docs_app
-            - 'docs/**/*.{md,mdx}'
           neutral: &neutral
+            - 'docs/**'
             - '{.agents,.vscode,.zed}/**'
             - '{README.md,AGENTS.md,CLAUDE.md}'
           known_files:
-            - *shared
+            - *shared_inputs
             - *rust
             - *swift
-            - *android
+            - *android_inputs
             - *node
             - *browser
             - *agent
             - *docs_app
-            - 'docs/**/*.{md,mdx}'
             - *neutral
     - name: Set mode and conservative fallback
       id: scope
