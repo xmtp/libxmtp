@@ -46,7 +46,7 @@ class AttachmentSupportInstrumentedTest {
 
     private suspend fun cleanup() =
         withContext(NonCancellable) {
-            compose.activity.attachments.beforeSupportAdmission = {}
+            compose.activity.attachments.beforeSupportAdmission = { _, _ -> }
             previousInvalidated?.let { model.session.onInvalidated = it }
             model.onOpenFinished = {}
             if (model.session.active.value != null ||
@@ -112,6 +112,9 @@ class AttachmentSupportInstrumentedTest {
         runBlocking<Unit> {
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
+            val oldResult = CompletableDeferred<Job>()
+            val currentResults = CompletableDeferred<Unit>()
+            var refreshing: Deferred<Unit>? = null
             try {
                 connect(BuildConfig.XMTP_BACKEND_URL)
                 until { model.state.value.features.attachments }
@@ -119,12 +122,19 @@ class AttachmentSupportInstrumentedTest {
                 val owner = checkNotNull(model.session.active.value)
                 previousInvalidated = model.session.onInvalidated
                 model.session.onInvalidated = {}
-                compose.activity.attachments.beforeSupportAdmission = { supported ->
-                    assertTrue(supported)
-                    entered.complete(Unit)
-                    release.await()
+                val oldToken = model.screenToken()
+                compose.activity.attachments.beforeSupportAdmission = { supported, token ->
+                    if (token == oldToken) {
+                        assertTrue(supported)
+                        oldResult.complete(checkNotNull(currentCoroutineContext()[Job]))
+                        entered.complete(Unit)
+                        release.await()
+                    } else {
+                        // Hold later valid results while this case checks the captured old result.
+                        currentResults.await()
+                    }
                 }
-                val refreshing = async { model.featureRefresh(owner, model.currentConversation()) }
+                refreshing = async { model.featureRefresh(owner, model.currentConversation()) }
                 withTimeout(30_000) { entered.await() }
                 model.dispatch(MessengerAction.Navigate(Screen.APP_SETTINGS))
                 model.setFeatures(
@@ -132,7 +142,7 @@ class AttachmentSupportInstrumentedTest {
                         .copy(attachments = false),
                 )
                 release.complete(Unit)
-                refreshing.await()
+                withTimeout(30_000) { oldResult.await().join() }
                 assertFalse(model.state.value.features.attachments)
                 model.dispatch(MessengerAction.Navigate(Screen.TIMELINE))
                 compose.waitUntil(5_000) {
@@ -143,6 +153,8 @@ class AttachmentSupportInstrumentedTest {
                 println("ATTACHMENT_SUPPORT_PROOF stage=old-screen-result-rejected picker-hidden=true")
             } finally {
                 release.complete(Unit)
+                currentResults.complete(Unit)
+                refreshing?.cancelAndJoin()
                 cleanup()
             }
         }
