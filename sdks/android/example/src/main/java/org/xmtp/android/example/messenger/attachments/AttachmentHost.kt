@@ -58,6 +58,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
         val request = saveRequest.also { saveRequest = null }
         if (uri != null && request != null && model.acceptsScreen(request.first, request.second)) perform { active ->
             check(active.key == request.first)
+            readableRemote(active, request.third)
             files!!.save(request.third, uri)
         }
     }
@@ -158,11 +159,11 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
             is AttachmentAction.Discard -> perform { coordinator!!.discard(action.draftId) }
             is AttachmentAction.Download -> perform { active ->
                 val token = model.screenToken()
-                val message = checkNotNull(active.client.conversations.getMessageById(action.messageId)) { "Message is unavailable" }
-                val remote = ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.RemoteAttachment)?.v1 ?: error("File content is unavailable")
+                val remote = readableRemote(active, action.messageId)
                 if (model.acceptsScreen(active.key, token)) downloads.update { it + (action.messageId to AttachmentCardState(action.messageId, remote.filename ?: "File", "Downloading", busy = true)) }
                 try {
                     val downloaded = files!!.download(action.messageId, remote)
+                    readableRemote(active, action.messageId)
                     val bitmap = files!!.preview(action.messageId)
                     if (model.acceptsScreen(active.key, token)) {
                         downloads.update { it + (action.messageId to AttachmentCardState(action.messageId, downloaded.filename ?: "File", "Verified", canOpen = true)) }
@@ -175,7 +176,9 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
             }
             is AttachmentAction.Open -> perform { active ->
                 val token = model.screenToken()
+                readableRemote(active, action.messageId)
                 val intent = files!!.openIntent(action.messageId)
+                readableRemote(active, action.messageId)
                 withContext(Dispatchers.Main) { if (!closed && model.acceptsScreen(active.key, token)) activity.startActivity(intent) }
             }
             is AttachmentAction.Save -> {
@@ -184,6 +187,12 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
                 save.launch(files!!.filename(action.messageId))
             }
         }
+    }
+
+    private suspend fun readableRemote(active: ActiveSession, messageId: String): RemoteAttachment {
+        check(session.accepts(active.key)) { "The session changed" }
+        val message = checkNotNull(active.client.conversations.getMessageById(messageId)) { "Message is unavailable" }
+        return ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.RemoteAttachment)?.v1 ?: error("File content is unavailable")
     }
 
     @Composable fun Composer() {
