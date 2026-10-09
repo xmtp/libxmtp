@@ -47,6 +47,7 @@ class AttachmentDraftCoordinator(
     internal var afterDiscardDescriptorRead: suspend () -> Unit = {}
     internal var afterDiscardDelete: suspend () -> Unit = {}
     internal var beforeUploadPhaseSave: suspend () -> Unit = {}
+    internal var afterAssignSnapshot: suspend () -> Unit = {}
 
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
 
@@ -405,7 +406,15 @@ class AttachmentDraftCoordinator(
         checkCurrent()
         val draft = preferences.drafts(key.profileId).single { it.draftId == draftId }
         require(draft.conversationKey.isEmpty() && draft.phase != SendPhase.QUEUEING && draft.acceptedMessageId == null)
-        check(save(draft.copy(conversationKey = conversationKey), screenCurrent)) { "The session or screen changed" }
+        afterAssignSnapshot()
+        processMutex.withLock {
+            check(operationId(draftId) !in discarded) { "The draft was discarded" }
+            val latest = preferences.drafts(key.profileId).singleOrNull { it.draftId == draftId }
+            check(latest == draft) { "The draft changed before assignment" }
+            check(
+                save(draft.copy(conversationKey = conversationKey), screenCurrent),
+            ) { "The session or screen changed" }
+        }
         recover()
     }
 
