@@ -368,11 +368,17 @@ class ScreenScaleInstrumentedTest {
                 }
                 control(click("Reload fields")).performClick()
                 until("The real field refresh did not finish") { !model.metadataState.value.busy }
-                for (idValue in listOf(49153, 49154, 49155, 49156, 49157, 49160)) {
-                    val prefix = if (idValue in 49155..49157) "metadata-key-" else "metadata-value-"
+                for (idValue in listOf(49153, 49154, 49155, 49156, 49157, 49160, 64768, 64769, 64770)) {
+                    val prefix =
+                        if (idValue in 49155..49157 || idValue in 64769..64770) "metadata-key-" else "metadata-value-"
                     control(hasTestTag("$prefix$idValue"))
                 }
                 control(hasTestTag("metadata-set-49160"))
+                control(hasTestTag("metadata-set-64768"))
+                control(hasTestTag("metadata-entry-value-64769"))
+                control(hasTestTag("metadata-add-64769"))
+                control(hasTestTag("metadata-update-64769"))
+                control(hasTestTag("metadata-add-64770"))
                 capture(Screen.GROUP_FIELDS)
                 control(hasContentDescription("Back")).performClick()
                 until("Settings did not return from group fields") {
@@ -387,6 +393,10 @@ class ScreenScaleInstrumentedTest {
                 }
                 control(hasTestTag("metadata-value-49158"))
                 control(hasTestTag("metadata-value-49159"))
+                control(hasTestTag("metadata-value-64771"))
+                val immutableOwn = hasAnyAncestor(hasTestTag("metadata-field-64771"))
+                control(click("Set empty") and immutableOwn)
+                control(click("Clear") and immutableOwn)
                 control(click("Save changed fields"))
                 capture(Screen.MY_FIELDS)
                 control(hasContentDescription("Back")).performClick()
