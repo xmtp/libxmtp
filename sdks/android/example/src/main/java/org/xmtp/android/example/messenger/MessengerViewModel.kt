@@ -273,12 +273,15 @@ class MessengerViewModel(
                 ui.value
                     .copy(
                         replyTo =
-                            action.messageId,
+                            ui.value.messages
+                                .firstOrNull {
+                                    it.id == action.messageId && !it.deleted
+                                }?.id,
                         replyPreview =
                             ui.value.messages
                                 .firstOrNull {
                                     it.id ==
-                                        action.messageId
+                                        action.messageId && !it.deleted
                                 }?.text,
                     )
             return
@@ -1080,11 +1083,23 @@ class MessengerViewModel(
             previous.minOfOrNull {
                 it.sentAt.ns
             }
-        var result =
-            page(
+        val intervalFits =
+            oldest == null || historyCount(
                 chat,
-                null,
-            )
+                publishedSelection().copy(
+                    sentAfter = if (oldest == Long.MIN_VALUE) null else Timestamp(oldest - 1),
+                ),
+            ) <= 500uL
+        // Reread the retained range when the newer interval exceeds the cache bound.
+        val upper =
+            if (preserve && ui.value.anchor?.wasAtNewest == false && !intervalFits) {
+                previous.maxOfOrNull { it.sentAt.ns }?.let {
+                    if (it == Long.MAX_VALUE) null else it + 1
+                }
+            } else {
+                null
+            }
+        var result = page(chat, upper)
         val rows =
             result.rows
                 .toMutableList()
@@ -1124,7 +1139,7 @@ class MessengerViewModel(
                     )
                 nextBefore = kept.nextBeforeNs
                 val newestId = rows.maxByOrNull { it.sentAt.ns }?.id
-                newestLoaded = newestId == null || kept.rows.any { it.id == newestId }
+                newestLoaded = upper == null && (newestId == null || kept.rows.any { it.id == newestId })
                 kept
             } ?: return
         val retained = window.rows
@@ -1205,7 +1220,7 @@ class MessengerViewModel(
                             consent ==
                                 ConsentState.UNKNOWN,
                         anchor = restoredAnchor,
-                    )
+                    ).refreshReply()
         }
         markRead(
             owner,
@@ -1265,7 +1280,7 @@ class MessengerViewModel(
                         hasOlder =
                             !window
                                 .complete && window.notice == null,
-                    )
+                    ).refreshReply()
         }
     }
 
@@ -1294,13 +1309,19 @@ class MessengerViewModel(
         val position = restoreAnchor(saved, retained.map { it.toRow(owner.client.inboxId()) })
         onCurrentScreen(owner, token) {
             ui.value =
-                ui.value.copy(
-                    messages = retained.map { it.toRow(owner.client.inboxId()) },
-                    anchor = position.anchor,
-                    historyNotice = window.notice ?: if (position.changed) "Position changed" else null,
-                    hasOlder = !window.complete && window.notice == null,
-                )
+                ui.value
+                    .copy(
+                        messages = retained.map { it.toRow(owner.client.inboxId()) },
+                        anchor = position.anchor,
+                        historyNotice = window.notice ?: if (position.changed) "Position changed" else null,
+                        hasOlder = !window.complete && window.notice == null,
+                    ).refreshReply()
         }
+    }
+
+    private fun MessengerState.refreshReply(): MessengerState {
+        val parent = messages.firstOrNull { it.id == replyTo && !it.deleted }
+        return copy(replyTo = parent?.id, replyPreview = parent?.text)
     }
 
     private suspend fun merge(

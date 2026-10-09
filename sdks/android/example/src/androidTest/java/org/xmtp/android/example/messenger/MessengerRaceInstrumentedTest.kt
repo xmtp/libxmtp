@@ -1,5 +1,6 @@
 package org.xmtp.android.example.messenger
 
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.*
@@ -157,6 +158,139 @@ class MessengerRaceInstrumentedTest {
                 until { model.state.value.messages.size == 79 }
                 assertFalse(model.state.value.hasOlder)
                 assertNull(model.state.value.historyNotice)
+            } finally {
+                cleanup()
+            }
+        }
+
+    @Test fun refreshRereadsRetainedNativeWindowAfterMoreThanFiveHundredNewerRows() =
+        runBlocking {
+            try {
+                val owner = connect()
+                model.session.onInvalidated = {}
+                model.session.onMessage = { _, _ -> }
+                val group = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "Old window"))
+                val ids =
+                    withTimeout(120_000) {
+                        (1..650).map { index ->
+                            group.sendText("History $index").also { delay(1) }
+                        }
+                    }
+                val native = group.messages(publishedSelection().copy(limit = 651u))
+                assertEquals(650, native.size)
+                assertEquals(650, native.map { it.sentAt.ns }.toSet().size)
+                val anchor = checkNotNull(owner.client.conversations.getMessageById(ids[99]))
+                val removed = ids[89]
+                val saved = ScrollAnchor(anchor.id, anchor.sentAt.ns, 17, false)
+                model.session.preferences.saveAnchor(owner.key.profileId, group.id(), saved)
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                until {
+                    model.state.value.messages
+                        .any { it.id == anchor.id } &&
+                        model.state.value.anchor
+                            ?.offsetPx == 17
+                }
+                assertTrue(
+                    model.state.value.messages
+                        .any { it.id == removed && !it.deleted },
+                )
+                println("REFRESH_PROOF retained-anchor=${anchor.id} newer-count=550")
+                group.deleteMessage(removed)
+                model.dispatch(MessengerAction.Refresh)
+                until {
+                    model.state.value.messages
+                        .any { it.id == removed && it.deleted } ||
+                        model.state.value.messages
+                            .any { it.id == ids.last() }
+                }
+                val stillReadable =
+                    model.state.value.messages
+                        .any { it.id == removed && !it.deleted }
+                println("REFRESH_PROOF completed-anchor=${model.state.value.anchor} removed-readable=$stillReadable")
+                assertEquals(saved, model.state.value.anchor)
+                assertTrue(
+                    model.state.value.messages
+                        .any { it.id == removed && it.deleted },
+                )
+                assertTrue(
+                    model.state.value.messages
+                        .any { it.id == anchor.id },
+                )
+                assertTrue(model.state.value.messages.size <= 500)
+                assertTrue(model.state.value.hasOlder)
+                assertNull(model.state.value.historyNotice)
+                println("REFRESH_PROOF stage=retained-anchor-and-current-removal")
+                model.dispatch(MessengerAction.LoadOlder)
+                until {
+                    model.state.value.messages
+                        .any { it.id == ids[0] }
+                }
+                assertTrue(
+                    model.state.value.messages
+                        .any { it.id == anchor.id },
+                )
+                assertFalse(model.state.value.hasOlder)
+                assertTrue(model.state.value.messages.size <= 500)
+                println("REFRESH_PROOF stage=older-cursor-complete")
+            } finally {
+                cleanup()
+            }
+        }
+
+    @Test fun selectedDialogAndReplyClearAfterNativeDeletionAndExpiry() =
+        runBlocking {
+            try {
+                val owner = connect()
+                model.session.onInvalidated = {}
+                model.session.onMessage = { _, _ -> }
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Removed text"),
+                    )
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                until { model.state.value.conversationId == group.id() }
+                for (expiry in listOf(false, true)) {
+                    if (expiry) {
+                        group.updateDisappearingSettings(
+                            DisappearingSettings(Timestamp(System.currentTimeMillis() * 1_000_000), 5_000_000_000L),
+                        )
+                    }
+                    val text = if (expiry) "Expiring private content" else "Deleted private content"
+                    val id = group.sendText(text)
+                    model.dispatch(MessengerAction.Refresh)
+                    until {
+                        model.state.value.messages
+                            .any { it.id == id }
+                    }
+                    compose.waitForIdle()
+                    compose.onAllNodesWithText(text).onFirst().performClick()
+                    compose.onNodeWithText("Reply", useUnmergedTree = true).performClick()
+                    until { model.state.value.replyTo == id }
+                    assertEquals(text, model.state.value.replyPreview)
+                    compose.waitForIdle()
+                    compose.onAllNodesWithText(text).onFirst().performClick()
+                    compose.onNodeWithText("React", useUnmergedTree = true).assertExists()
+                    if (expiry) {
+                        withTimeout(30_000) {
+                            while (owner.client.conversations.getMessageById(id) != null) delay(50)
+                        }
+                    } else {
+                        group.deleteMessage(id)
+                    }
+                    model.dispatch(MessengerAction.Refresh)
+                    until {
+                        model.state.value.messages
+                            .none { it.id == id && !it.deleted }
+                    }
+                    println("REMOVAL_PROOF refreshed-reply=${model.state.value.replyPreview}")
+                    assertNull(model.state.value.replyPreview)
+                    assertNull(model.state.value.replyTo)
+                    compose.waitForIdle()
+                    compose.onAllNodesWithText(text, substring = true).assertCountEquals(0)
+                    println("REMOVAL_PROOF stage=${if (expiry) "expired" else "deleted"}-dialog-and-reply-current")
+                    if (!expiry) compose.onNodeWithText("Close", useUnmergedTree = true).performClick()
+                }
             } finally {
                 cleanup()
             }
