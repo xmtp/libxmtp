@@ -52,7 +52,7 @@ class NotificationHandlerTest {
             return value
         }
 
-        override fun postIfCurrent(
+        override suspend fun postIfCurrent(
             owner: PushOwner,
             envelope: PushEnvelope,
             route: PushRoute,

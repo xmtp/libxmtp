@@ -109,6 +109,139 @@ class NotificationControllerInstrumentedTest {
         }
     }
 
+    private suspend fun finalPrivacyChange(kind: String) {
+        AndroidStreamLifecycle.enabled = false
+        resumeStreams()
+        val session = AppSession(context)
+        val controller = controller(session)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var pending: Deferred<Boolean>? = null
+        var posts = 0
+        controller.postNotification = { _, _, _ ->
+            posts += 1
+            true
+        }
+        try {
+            session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+            val owner = checkNotNull(session.active.value)
+            enabled(session, controller)
+            val group = owner.client.conversations.createGroup(emptyList())
+            controller.beforeFinalAdmission = {
+                entered.complete(Unit)
+                release.await()
+            }
+            pending = owner.work.async { controller.receive(payload(0, group.id())) }
+            stage(session, "final publisher entered for $kind") { entered.await() }
+            owner.work
+                .async {
+                    when (kind) {
+                        "off" -> controller.setEnabled(owner, false)
+                        "mute" -> controller.setConversationEnabled(owner, Conversation.Group(group), false)
+                        "Denied" -> group.updateConsentState(ConsentState.DENIED)
+                        else -> error("Unknown privacy case")
+                    }
+                }.await()
+            release.complete(Unit)
+            assertFalse(
+                "The final publisher must reject $kind",
+                stage(session, "final publisher rejected $kind") {
+                    pending.await()
+                },
+            )
+            assertEquals("No captured publisher call for $kind", 0, posts)
+        } finally {
+            release.complete(Unit)
+            withContext(NonCancellable) {
+                pending?.cancelAndJoin()
+                controller.beforeFinalAdmission = {}
+                cleanup(session, controller)
+                AndroidStreamLifecycle.enabled = true
+            }
+        }
+    }
+
+    @Test fun finalPublisherRechecksAppOptOut() = runBlocking { finalPrivacyChange("off") }
+
+    @Test fun finalPublisherRechecksConversationMute() = runBlocking { finalPrivacyChange("mute") }
+
+    @Test fun finalPublisherRechecksNativeDenied() = runBlocking { finalPrivacyChange("Denied") }
+
+    private suspend fun changeDuringFinalNativeRead(kind: String) {
+        AndroidStreamLifecycle.enabled = false
+        resumeStreams()
+        val session = AppSession(context)
+        val controller = controller(session)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var pending: Deferred<Boolean>? = null
+        var posts = 0
+        controller.postNotification = { _, _, _ ->
+            posts += 1
+            true
+        }
+        try {
+            session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+            val owner = checkNotNull(session.active.value)
+            enabled(session, controller)
+            val group = owner.client.conversations.createGroup(emptyList())
+            var reads = 0
+            controller.readConversationState = { chat ->
+                val snapshot = conversationState(chat).copy(notificationsEnabled = true)
+                reads += 1
+                if (reads == 3) {
+                    entered.complete(Unit)
+                    release.await()
+                }
+                snapshot
+            }
+            pending = owner.work.async { controller.receive(payload(0, group.id())) }
+            stage(session, "final native read entered") { entered.await() }
+            if (kind == "off") {
+                owner.work.async { controller.setEnabled(owner, false) }.await()
+            } else {
+                val changed = CompletableDeferred<Unit>()
+                val admission = session.onNotificationAdmissionChanged
+                session.onNotificationAdmissionChanged = { current ->
+                    admission(current)
+                    changed.complete(Unit)
+                }
+                owner.work.async { group.updateConsentState(ConsentState.DENIED) }.await()
+                stage(session, "native consent admission event") { changed.await() }
+            }
+            release.complete(Unit)
+            assertFalse(
+                "A $kind change during the last SDK read must invalidate its earlier result",
+                stage(
+                    session,
+                    "revision fence rejected post",
+                ) {
+                    pending.await()
+                },
+            )
+            assertEquals(0, posts)
+        } finally {
+            release.complete(Unit)
+            withContext(NonCancellable) {
+                pending?.cancelAndJoin()
+                cleanup(session, controller)
+                AndroidStreamLifecycle.enabled = true
+            }
+        }
+    }
+
+    @Test fun appOptOutDuringFinalNativeReadInvalidatesPublication() =
+        runBlocking {
+            changeDuringFinalNativeRead(
+                "off",
+            )
+        }
+
+    @Test fun nativeDeniedEventDuringFinalReadInvalidatesPublication() =
+        runBlocking {
+            changeDuringFinalNativeRead("Denied")
+        }
+
     @Test fun unconfiguredControllerDoesNotRequestTokenPermissionOrRegistration() =
         runBlocking {
             AndroidStreamLifecycle.enabled = false
@@ -256,8 +389,10 @@ class NotificationControllerInstrumentedTest {
                 val delayed = checkNotNull(parsePush(payload(0, group.id(), "9")))
                 session.onSessionInvalidated = {
                     assertSame(owner, session.active.value)
-                    assertFalse(controller.postIfCurrent(snapshot, delayed, route))
-                    runBlocking { assertNull(session.restoreForPush()) }
+                    runBlocking {
+                        assertFalse(controller.postIfCurrent(snapshot, delayed, route))
+                        assertNull(session.restoreForPush())
+                    }
                     assertSame(owner, session.active.value)
                 }
                 session.signOut()
