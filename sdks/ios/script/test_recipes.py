@@ -107,8 +107,10 @@ class RecipeTests(unittest.TestCase):
         self.assertEqual(selected[1], skipped[-1])
         self.assertNotIn("--skip", swift_test_args("test"))
         self.assertEqual(
-            swift_test_args("test-history-pages"),
-            ["--filter", "XmtpSdkTests.MessageHistoryPageTests"],
+            swift_test_args(
+                "test", "all", "--filter", "XmtpSdkTests.MessageHistoryPageTests"
+            ),
+            ["--parallel", "-q", "--filter", "XmtpSdkTests.MessageHistoryPageTests"],
         )
         for test_case in ("ReaderTeardownTests", "ListenerGateTests"):
             self.assertRegex(f"XmtpSdkTests.{test_case}/testA", selected[1])
@@ -155,7 +157,6 @@ class RecipeTests(unittest.TestCase):
         for recipe in (
             "test",
             "test-lifecycle",
-            "test-history-pages",
             "test-simulator",
         ):
             with self.subTest(recipe=recipe):
