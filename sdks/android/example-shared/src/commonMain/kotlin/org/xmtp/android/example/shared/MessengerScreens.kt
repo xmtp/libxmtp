@@ -1684,10 +1684,11 @@ private fun MessagePopover(
         }
         if (state.features.notifications) {
             item {
-                Action("Notifications") {
+                val label = if (state.settings.notifications) "Turn notifications off" else "Turn notifications on"
+                Action(label) {
                     action(
                         MessengerAction
-                            .Feature("conversation-notifications"),
+                            .Feature("conversation-notifications", (!state.settings.notifications).toString()),
                     )
                 }
             }
@@ -1743,12 +1744,13 @@ private fun MessagePopover(
         item {
             Text("Unread counts use local insertion time. Equal timestamps and imports can change these counts.")
         }
+        item { Text("Notifications: ${state.notificationStatus}") }
         if (state.features.notifications) {
             item {
-                Action("Notifications") {
+                Action(if (state.notificationsEnabled) "Turn notifications off" else "Turn notifications on") {
                     action(
                         MessengerAction
-                            .Feature("app-notifications"),
+                            .Feature("app-notifications", (!state.notificationsEnabled).toString()),
                     )
                 }
             }
