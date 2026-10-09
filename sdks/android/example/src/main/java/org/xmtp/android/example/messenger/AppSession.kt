@@ -60,6 +60,7 @@ class AppSession(
     internal var beforeSessionStopLock: suspend () -> Unit = {}
     internal var beforeClientBuild: (String) -> Unit = {}
     internal var beforeOpeningListener: suspend (ActiveSession) -> Unit = {}
+    internal var beforeSavedRestoreConnect: suspend (BackendProfile) -> Unit = {}
     var onMessage: suspend (
         ActiveSession,
         Message,
@@ -111,6 +112,7 @@ class AppSession(
             )
 
     suspend fun restore() {
+        val restoreIntent = fence.currentGeneration()
         operation.withLock {
             preferences
                 .reset()
@@ -125,10 +127,15 @@ class AppSession(
             preferences
                 .active()
                 ?.let {
-                    connect(
-                        it.backend,
+                    val url = validatedBackendUrl(it.backend)
+                    beforeSavedRestoreConnect(it)
+                    currentCoroutineContext().ensureActive()
+                    val generation = fence.reserveRestoreIfCurrent(restoreIntent) ?: return
+                    connectWithGeneration(
+                        url,
                         null,
-                        localAttachmentNetwork(it.backend),
+                        localAttachmentNetwork(url),
+                        generation,
                     )
                 }
         }
@@ -138,11 +145,17 @@ class AppSession(
         backend: String,
         credential: String?,
         allowPrivateNetwork: Boolean,
+    ) = connectWithGeneration(backend, credential, allowPrivateNetwork, null)
+
+    private suspend fun connectWithGeneration(
+        backend: String,
+        credential: String?,
+        allowPrivateNetwork: Boolean,
+        reservedGeneration: Long?,
     ) {
         val url = validatedBackendUrl(backend)
-        val openingGeneration =
-            fence
-                .reserve()
+        val openingGeneration = reservedGeneration ?: fence.reserve()
+        if (!fence.isReserved(openingGeneration)) return
         val profile =
             preferences
                 .profiles()
