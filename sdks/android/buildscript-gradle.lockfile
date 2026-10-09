@@ -3,7 +3,6 @@
 # This file is expected to be part of source control.
 androidx.databinding:databinding-common:8.10.1=classpath
 androidx.databinding:databinding-compiler-common:8.10.1=classpath
-com.android.application:com.android.application.gradle.plugin:8.10.1=classpath
 com.android.databinding:baseLibrary:8.10.1=classpath
 com.android.library:com.android.library.gradle.plugin:8.10.1=classpath
 com.android.tools.analytics-library:crash:31.10.1=classpath
@@ -140,16 +139,11 @@ org.eclipse.platform:org.eclipse.osgi:3.23.200=classpath
 org.glassfish.jaxb:jaxb-runtime:2.3.2=classpath
 org.glassfish.jaxb:txw2:2.3.2=classpath
 org.jdom:jdom2:2.0.6=classpath
-org.jetbrains.compose:compose-gradle-plugin:1.8.2=classpath
-org.jetbrains.compose:org.jetbrains.compose.gradle.plugin:1.8.2=classpath
 org.jetbrains.dokka:dokka-core:2.2.0=classpath
 org.jetbrains.dokka:dokka-gradle-plugin:2.2.0=classpath
 org.jetbrains.dokka:org.jetbrains.dokka.gradle.plugin:2.2.0=classpath
 org.jetbrains.kotlin.android:org.jetbrains.kotlin.android.gradle.plugin:2.2.20=classpath
-org.jetbrains.kotlin.multiplatform:org.jetbrains.kotlin.multiplatform.gradle.plugin:2.2.20=classpath
-org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:2.2.20=classpath
 org.jetbrains.kotlin:abi-tools-api:2.2.20=classpath
-org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.2.20=classpath
 org.jetbrains.kotlin:fus-statistics-gradle-plugin:2.2.20=classpath
 org.jetbrains.kotlin:kotlin-build-statistics:2.2.20=classpath
 org.jetbrains.kotlin:kotlin-build-tools-api:2.2.20=classpath

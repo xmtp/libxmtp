@@ -69,14 +69,22 @@ process.stdout.write(JSON.stringify(result));
     matches = json.loads(matcher.stdout)
     outputs = {"changes": json.dumps([k for k, v in matches.items() if v])}
     outputs.update({k + "_files": json.dumps(v) for k, v in matches.items()})
-    loader = importlib.machinery.SourceFileLoader("ci_select", str(ROOT / "dev/ci-select"))
+    loader = importlib.machinery.SourceFileLoader(
+        "ci_select", str(ROOT / "dev/ci-select")
+    )
     spec = importlib.util.spec_from_loader(loader.name, loader)
     selector = importlib.util.module_from_spec(spec)
     loader.exec_module(selector)
-    payload = {"repository": {"full_name": "xmtp/libxmtp"},
-               "pull_request": {"draft": draft, "head": {"repo": {"full_name": "xmtp/libxmtp"}}}}
-    return selector.select_checks(outputs, event, payload,
-                                  "success" if available else "failure", len(paths))["plan"]
+    payload = {
+        "repository": {"full_name": "xmtp/libxmtp"},
+        "pull_request": {
+            "draft": draft,
+            "head": {"repo": {"full_name": "xmtp/libxmtp"}},
+        },
+    }
+    return selector.select_checks(
+        outputs, event, payload, "success" if available else "failure", len(paths)
+    )["plan"]
 
 
 class SelectionTest(unittest.TestCase):

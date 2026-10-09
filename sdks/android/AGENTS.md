@@ -143,4 +143,3 @@ message reader fails with `XmtpException.ConsumerOwned`. Explicit `from` cursors
 permit independent replay/live readers that do not advance default progress. Use the
 generated reader options for scopes, filters, and replay. Keep typed errors and
 `ULong` values.
-
