@@ -4,8 +4,8 @@ import {
   Client,
   type MessageHistoryPage,
   type MessageHistoryPosition,
-} from "../index";
-import { createSigner, createUser } from "../user/User";
+} from "@/index";
+import { createSigner, createUser } from "@/user/User";
 
 it("the Agent root exposes the native page records and continuation", async () => {
   const client = await Client.create(createSigner(createUser()), {
