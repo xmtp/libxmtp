@@ -19,7 +19,8 @@ When `ANDROID_NDK_HOME` is set, all Android modules use that NDK path and its
 `check` also runs `check-packages` on the debug and release AARs and example APKs.
 The artifact check rejects static symbol and debug sections and requires the
 dynamic symbol sections in every packaged SDK JNI library. It uses NDK `llvm-readelf`.
-The format recipe uses strict dependency verification and stops its Gradle daemon.
+The format and lint recipes use strict dependency verification and stop their Gradle daemons.
+The lint recipe checks both the SDK and the example app.
 The dependency locks include the pinned Spotless formatter graph.
 The config check tests settings service startup and clock failure before emulator tests.
 

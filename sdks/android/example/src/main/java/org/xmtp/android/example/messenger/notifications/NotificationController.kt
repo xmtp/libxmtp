@@ -111,13 +111,14 @@ class NotificationController(
         PushEnvelope,
         PushRoute,
         android.app.Notification,
-    ) -> Unit = {
+    ) -> Boolean = {
         envelope,
         _,
         notification,
         ->
-        context.getSystemService(NotificationManager::class.java).notify(envelope.tag, 0, notification)
+        NotificationPublisher.post(context, envelope.tag, notification)
     }
+
     internal var readConversationState: suspend (Conversation) -> ConversationState = ::conversationState
     internal var enableRegistration: suspend (
         SDKClient,
@@ -252,7 +253,6 @@ class NotificationController(
                     .setOnlyAlertOnce(true)
                     .build()
             postNotification(envelope, route, notification)
-            true
         } ?: false
     }
 

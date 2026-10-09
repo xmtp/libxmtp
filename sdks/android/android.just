@@ -25,9 +25,9 @@ assemble: build
 example-check *args: build
   ./gradlew -p . :example:assembleDebug :example:assembleRelease :example:assembleDebugAndroidTest :example-shared:assembleDebug :example-shared:assembleRelease {{ args }} --dependency-verification=strict --no-daemon
 
-# Run Spotless + Android Lint
+# Run Spotless and SDK/app Android Lint.
 lint: build
-  ./gradlew -p . spotlessCheck --continue && ./gradlew -p . :library:lintDebug
+  ./gradlew -p . spotlessCheck --continue --dependency-verification=strict --no-daemon && ./gradlew -p . :library:lintDebug :example:lintDebug --dependency-verification=strict --no-daemon
 
 # Format Kotlin code
 format:
