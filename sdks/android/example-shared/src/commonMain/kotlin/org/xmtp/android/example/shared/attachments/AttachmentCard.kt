@@ -21,6 +21,7 @@ fun AttachmentCard(state: AttachmentCardState, conversationId: String, action: (
         if (state.unavailable) Text("Draft expired or unavailable. Select a file again to make a new draft.")
         Row {
             if (state.canSend) TextButton(onClick = { action(AttachmentAction.Send(state.id)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Send file") }
+            if (state.acceptedMessageId != null) TextButton(onClick = { action(AttachmentAction.ViewChat(conversationId)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("View chat / Retry publication") }
             if (state.canDownload) TextButton(onClick = { action(AttachmentAction.Download(state.id)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Download") }
             if (state.canOpen) {
                 TextButton(onClick = { action(AttachmentAction.Open(state.id)) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open") }

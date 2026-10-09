@@ -13,6 +13,8 @@ data class AttachmentCardState(
     val unknownOutcome: Boolean = false,
     val unavailable: Boolean = false,
     val error: String? = null,
+    val conversationId: String = "",
+    val acceptedMessageId: String? = null,
 )
 
 sealed interface AttachmentAction {
@@ -23,4 +25,5 @@ sealed interface AttachmentAction {
     data class Open(val messageId: String) : AttachmentAction
     data class Save(val messageId: String) : AttachmentAction
     data class ViewChat(val conversationId: String) : AttachmentAction
+    data class Assign(val draftId: String, val conversationId: String) : AttachmentAction
 }

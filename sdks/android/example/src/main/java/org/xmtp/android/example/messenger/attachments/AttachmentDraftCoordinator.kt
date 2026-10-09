@@ -30,14 +30,12 @@ class AttachmentDraftCoordinator(
 ) {
     private val attachments = client.attachments()
     private val mutex = Mutex()
-    private val running = mutableSetOf<String>()
-    private val discarded = mutableSetOf<String>()
-    private val queueing = mutableSetOf<String>()
     private var swept = false
     private val mutableCards = MutableStateFlow<List<AttachmentCardState>>(emptyList())
     val cards: StateFlow<List<AttachmentCardState>> = mutableCards
 
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
+    private fun operationId(draftId: String) = "${key.profileId}/$draftId"
     private fun update(card: AttachmentCardState) {
         if (accepts(key)) mutableCards.value = mutableCards.value.filterNot { it.id == card.id } + card
     }
@@ -49,6 +47,7 @@ class AttachmentDraftCoordinator(
         canSend = !busy && !unavailable && !draftNeedsReview(draft) && draft.acceptedMessageId == null,
         canDiscard = !busy || draft.phase == SendPhase.UPLOADING,
         unknownOutcome = draftNeedsReview(draft), unavailable = unavailable, error = error,
+        conversationId = draft.conversationKey, acceptedMessageId = draft.acceptedMessageId,
     )
 
     private suspend fun sweepOnce() = mutex.withLock {
@@ -83,7 +82,7 @@ class AttachmentDraftCoordinator(
             return draft
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
-                check(source.file.delete() || !source.file.exists()) { "Cannot remove the private source" }
+                PrivateFileStager.release(source.file)
                 if (!saved) {
                     remote?.let { attachments.deleteLocal(it) }
                     secrets.delete(key.profileId, ref)
@@ -94,7 +93,7 @@ class AttachmentDraftCoordinator(
 
     suspend fun send(draftId: String, conversation: Conversation, reconcile: suspend (Message) -> Unit) {
         checkCurrent()
-        mutex.withLock { check(running.add(draftId)) { "This file action is already running" } }
+        processMutex.withLock { check(running.add(operationId(draftId))) { "This file action is already running" } }
         var draft = preferences.drafts(key.profileId).single { it.draftId == draftId }
         var remote: RemoteAttachment? = null
         try {
@@ -115,17 +114,17 @@ class AttachmentDraftCoordinator(
             pending.upload()
             // A cancelled waiter does not stop native transfer. Discard owns deletion.
             checkCurrent()
-            mutex.withLock { check(draftId !in discarded) { "The draft was discarded" } }
+            processMutex.withLock { check(operationId(draftId) !in discarded) { "The draft was discarded" } }
             check(pending.status() == PendingAttachmentStatus.Complete) { "Upload has not completed" }
             update(card(draft, remote, "Complete", busy = true))
             // The persisted QUEUEING phase precedes the typed send in SendCoordinator.
-            mutex.withLock {
-                check(draftId !in discarded) { "The draft was discarded" }
-                queueing.add(draftId)
+            processMutex.withLock {
+                check(operationId(draftId) !in discarded) { "The draft was discarded" }
+                queueing.add(operationId(draftId))
             }
             sends.queue(key, client, conversation, draft, reconcile) {
                 checkCurrent()
-                mutex.withLock { check(draftId !in discarded) { "The draft was discarded" } }
+                processMutex.withLock { check(operationId(draftId) !in discarded) { "The draft was discarded" } }
                 conversation.sendRemoteAttachment(selected, SendOptions(optimistic = true))
             }
             clearPublishedSecret(draft)
@@ -136,7 +135,7 @@ class AttachmentDraftCoordinator(
             if (current != null) update(card(current, remote, if (draftNeedsReview(current)) "Review send outcome" else "Failed", unavailable = error.isExpiredDraft(), error = error.attachmentLabel()))
             throw error
         } finally {
-            mutex.withLock { running.remove(draftId); queueing.remove(draftId) }
+            processMutex.withLock { running.remove(operationId(draftId)); queueing.remove(operationId(draftId)) }
         }
     }
 
@@ -169,7 +168,7 @@ class AttachmentDraftCoordinator(
                 } else {
                     val status = attachments.pending(remote).status()
                     checkCurrent()
-                    update(card(draft, remote, status.label()))
+                    update(card(draft, remote, status.label(), busy = status == PendingAttachmentStatus.Uploading))
                 }
             } catch (error: CancellationException) { throw error }
             catch (error: Throwable) { update(card(draft, remote, "Draft expired or unavailable", unavailable = true, error = error.attachmentLabel())) }
@@ -200,13 +199,12 @@ class AttachmentDraftCoordinator(
 
     suspend fun discard(draftId: String) {
         checkCurrent()
-        val draft = mutex.withLock {
-            check(draftId !in queueing) { "Wait for the queue action to finish" }
-            preferences.drafts(key.profileId).single { it.draftId == draftId }.also { discarded.add(draftId) }
+        val draft = processMutex.withLock {
+            check(operationId(draftId) !in queueing) { "Wait for the queue action to finish" }
+            preferences.drafts(key.profileId).single { it.draftId == draftId }.also { discarded.add(operationId(draftId)) }
         }
         // QUEUEING can have produced a message before the process lost its ID.
         if (draft.acceptedMessageId == null && !draftNeedsReview(draft)) {
-            mutex.withLock { discarded.add(draftId) }
             try {
                 val bytes = withContext(Dispatchers.IO) { draft.descriptorSecretRef?.let { secrets.read(key.profileId, it) } }
                 if (bytes != null) attachments.deleteLocal(AttachmentDescriptor.decode(bytes))
@@ -217,6 +215,14 @@ class AttachmentDraftCoordinator(
         preferences.removeDraft(key.profileId, draftId)
         withContext(Dispatchers.IO) { draft.descriptorSecretRef?.let { secrets.delete(key.profileId, it) } }
         if (accepts(key)) mutableCards.value = mutableCards.value.filterNot { it.id == draftId }
+    }
+
+    companion object {
+        // These guards survive an Activity recreation while its session work still runs.
+        private val processMutex = Mutex()
+        private val running = mutableSetOf<String>()
+        private val queueing = mutableSetOf<String>()
+        private val discarded = mutableSetOf<String>()
     }
 }
 
