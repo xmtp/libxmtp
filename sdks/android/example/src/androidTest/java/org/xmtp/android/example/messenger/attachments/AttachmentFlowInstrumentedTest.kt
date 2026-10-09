@@ -142,6 +142,15 @@ class AttachmentFlowInstrumentedTest {
                 try { files.download("missing", missing); fail("A missing object must fail") }
                 catch (error: XmtpException.Attachment) { assertEquals(AttachmentFailureCause.NOT_FOUND, error.v2.cause) }
                 assertFalse(files.isDownloaded("missing"))
+                val image = android.graphics.Bitmap.createBitmap(2048, 1024, android.graphics.Bitmap.Config.ARGB_8888)
+                val bytes = java.io.ByteArrayOutputStream().also { image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+                image.recycle()
+                val photo = sender.client.attachments().create(AttachmentSource.Bytes(bytes, "image.bin", "application/octet-stream"))
+                photo.upload()
+                files.download("photo", photo.remoteAttachment())
+                val preview = checkNotNull(files.preview("photo"))
+                assertTrue(preview.width <= 1024 && preview.height <= 1024)
+                preview.recycle()
             }
         } finally { receiver.close(); sender.close() }
     }

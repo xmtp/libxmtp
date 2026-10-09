@@ -20,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.example.messenger.*
@@ -48,7 +49,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
         val request = pickerRequest.also { pickerRequest = null }
         if (uri != null && request != null && model.acceptsScreen(request.first, request.second)) perform { active ->
             check(active.key == request.first)
-            coordinator!!.select(context.contentResolver, uri, request.third)
+            coordinator!!.select(context.contentResolver, uri, request.third) { model.acceptsScreen(request.first, request.second) }
         }
     }
     private val save = activity.registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -121,6 +122,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
         active.work.launch {
             try {
                 refresh(active)
+                check(model.acceptsScreen(active.key, token)) { "The screen changed" }
                 block(active)
                 if (model.acceptsScreen(active.key, token)) { drafts.value = coordinator!!.cards.value; error.value = null; model.dispatch(MessengerAction.Refresh) }
             } catch (failure: CancellationException) { throw failure }
@@ -136,7 +138,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
             is AttachmentAction.Send -> perform { active ->
                 val token = model.screenToken()
                 val chat = checkNotNull(model.currentConversation())
-                coordinator!!.send(action.draftId, chat) { model.reconcileFeatureMessage(active, token, it) }
+                coordinator!!.send(action.draftId, chat, { model.acceptsScreen(active.key, token) }) { model.reconcileFeatureMessage(active, token, it) }
             }
             is AttachmentAction.Discard -> perform { coordinator!!.discard(action.draftId) }
             is AttachmentAction.Download -> perform { active ->

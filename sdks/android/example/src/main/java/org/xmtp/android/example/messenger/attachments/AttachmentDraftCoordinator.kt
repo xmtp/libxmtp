@@ -57,8 +57,9 @@ class AttachmentDraftCoordinator(
         }
     }
 
-    suspend fun select(resolver: ContentResolver, uri: Uri, conversationKey: String): SendDraftRef {
+    suspend fun select(resolver: ContentResolver, uri: Uri, conversationKey: String, screenCurrent: () -> Boolean = { true }): SendDraftRef {
         checkCurrent()
+        check(screenCurrent()) { "The screen changed" }
         sweepOnce()
         check(attachments.offered()) { "This backend does not offer file uploads" }
         val configuration = checkNotNull(client.serverConfiguration().attachments) { "This backend does not offer file uploads" }
@@ -69,11 +70,14 @@ class AttachmentDraftCoordinator(
         val ref = "attachment-$id"
         try {
             checkCurrent()
+            check(screenCurrent()) { "The screen changed" }
             val stagedRemote = attachments.create(AttachmentSource.Path(source.file.absolutePath, source.filename, source.mimeType)).remoteAttachment()
             remote = stagedRemote
             checkCurrent()
+            check(screenCurrent()) { "The screen changed" }
             withContext(Dispatchers.IO) { secrets.write(key.profileId, ref, AttachmentDescriptor.encode(stagedRemote)) }
             checkCurrent()
+            check(screenCurrent()) { "The screen changed" }
             val draft = SendDraftRef(id, conversationKey, ref)
             preferences.saveDraft(key.profileId, draft)
             saved = true
@@ -91,8 +95,9 @@ class AttachmentDraftCoordinator(
         }
     }
 
-    suspend fun send(draftId: String, conversation: Conversation, reconcile: suspend (Message) -> Unit) {
+    suspend fun send(draftId: String, conversation: Conversation, screenCurrent: () -> Boolean = { true }, reconcile: suspend (Message) -> Unit) {
         checkCurrent()
+        check(screenCurrent()) { "The screen changed" }
         processMutex.withLock { check(running.add(operationId(draftId))) { "This file action is already running" } }
         var draft = SendDraftRef(draftId, "")
         var remote: RemoteAttachment? = null
@@ -115,6 +120,7 @@ class AttachmentDraftCoordinator(
             pending.upload()
             // A cancelled waiter does not stop native transfer. Discard owns deletion.
             checkCurrent()
+            check(screenCurrent()) { "The screen changed" }
             processMutex.withLock { check(operationId(draftId) !in discarded) { "The draft was discarded" } }
             check(pending.status() == PendingAttachmentStatus.Complete) { "Upload has not completed" }
             update(card(draft, remote, "Complete", busy = true))
@@ -125,6 +131,7 @@ class AttachmentDraftCoordinator(
             }
             sends.queue(key, client, conversation, draft, reconcile) {
                 checkCurrent()
+                check(screenCurrent()) { "The screen changed" }
                 processMutex.withLock { check(operationId(draftId) !in discarded) { "The draft was discarded" } }
                 conversation.sendRemoteAttachment(selected, SendOptions(optimistic = true))
             }
