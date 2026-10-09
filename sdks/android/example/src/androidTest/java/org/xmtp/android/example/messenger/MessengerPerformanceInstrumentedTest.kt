@@ -74,7 +74,7 @@ class MessengerPerformanceInstrumentedTest {
                         ),
                 ),
             deviceSync = false,
-            allowOffline = true,
+            allowOffline = false,
         )
 
     private fun expected(index: Int) =
