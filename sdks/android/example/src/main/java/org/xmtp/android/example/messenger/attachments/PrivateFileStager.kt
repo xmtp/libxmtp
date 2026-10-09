@@ -16,6 +16,7 @@ internal data class PrivateSource(val file: File, val filename: String?, val mim
 
 internal object PrivateFileStager {
     const val CHUNK_BYTES = 64 * 1024
+    private val activeFiles = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     suspend fun copy(input: InputStream, output: OutputStream, ceiling: ULong): ULong {
         val buffer = ByteArray(CHUNK_BYTES)
@@ -35,6 +36,7 @@ internal object PrivateFileStager {
         require(uri.scheme == "content") { "Select a file from the system picker" }
         check(directory.isDirectory || directory.mkdirs()) { "Cannot create the private source directory" }
         val file = File(directory, "source-${UUID.randomUUID()}")
+        activeFiles.add(file.absolutePath)
         try {
             // Names are labels. The provider size does not determine the copy limit.
             val label = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
@@ -47,11 +49,17 @@ internal object PrivateFileStager {
             PrivateSource(file, label, mime)
         } catch (error: Throwable) {
             file.delete()
+            activeFiles.remove(file.absolutePath)
             throw error
         }
     }
 
+    fun release(file: File) {
+        try { check(file.delete() || !file.exists()) { "Cannot remove the private source" } }
+        finally { activeFiles.remove(file.absolutePath) }
+    }
+
     fun sweep(directory: File) {
-        directory.listFiles()?.filter { it.name.startsWith("source-") }?.forEach { check(it.delete()) { "Cannot remove a private source" } }
+        directory.listFiles()?.filter { it.name.startsWith("source-") && it.absolutePath !in activeFiles }?.forEach { check(it.delete()) { "Cannot remove a private source" } }
     }
 }
