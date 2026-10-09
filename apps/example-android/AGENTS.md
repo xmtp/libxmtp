@@ -91,7 +91,6 @@ proof logs. The fixed job timeout is provisional until measured seed progress
 sets the final limit. Host validator tests also run under `lint-config`.
 See `performance/README.md` for budgets and retained proof files.
 
-
 ## Verification
 
 CI uses `test-example-android.yml` and `lint-example-android.yml`. SDK input
