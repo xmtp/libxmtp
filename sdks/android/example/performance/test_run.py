@@ -118,6 +118,33 @@ class PerformanceGateTest(unittest.TestCase):
 
 
 class DeviceInvocationTest(unittest.TestCase):
+    def test_failed_device_run_retains_seed_checkpoint_progress(self):
+        progress = '{"group":0,"expectedPublished":256,"status":"failed"}\n'
+
+        def execute_process(arguments, **options):
+            if arguments[0] != "adb":
+                return subprocess.CompletedProcess(arguments, 1)
+            if arguments[-1] == "files/messenger-performance/seed-progress.jsonl":
+                return subprocess.CompletedProcess(arguments, 0, stdout=progress)
+            return subprocess.CompletedProcess(arguments, 1, stdout="")
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            with (
+                patch.dict(run.os.environ, {"ANDROID_SERIAL": "emulator-5560"}),
+                patch.object(run, "ANDROID", output / "android"),
+                patch.object(run.subprocess, "run", side_effect=execute_process),
+                patch.object(
+                    run.subprocess, "Popen", return_value=MagicMock(stdout=iter(()))
+                ),
+                patch.object(run, "result_failures", return_value=["receipt barrier"]),
+            ):
+                code, report, failures = run.execute(output, "green", "http://fixture")
+            self.assertEqual(1, code)
+            self.assertEqual({}, report)
+            self.assertEqual(["receipt barrier"], failures)
+            self.assertEqual(progress, (output / "green-seed-progress.jsonl").read_text())
+
     def test_every_pass_retains_the_installed_app_for_result_and_dataset_reuse(self):
         invocations = []
 

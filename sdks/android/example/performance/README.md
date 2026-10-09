@@ -28,6 +28,17 @@ the production conversation list projection, including its four-read limit.
 The unread selection includes the sender's incoming texts.
 
 The sender queues at most 256 optimistic texts before `publishMessages()`.
+Before the next send, fixture preparation calls receiver group sync and requires
+the exact Published Application count after each batch. It also checks the
+49,900-row flush, each newest separate send, and each group tail. This keeps
+the unsynced text count at most 256. SDK receipt cursors can include metadata;
+they are not text counts. Each checkpoint records counts and send, publication,
+sync and count durations in app-private `seed-progress.jsonl` and stdout. A
+failed SDK barrier records its typed target, receipt and processing progress.
+The host runner saves this file even when instrumentation fails. No successful
+receipt cursor is invented: public sync returns no cursor. This pacing is
+fixture preparation; its complete Linux seed result remains pending.
+
 Fixture preparation uses public Welcome and group sync calls. It also drains
 fixture texts through the public sequential Flow before normal AppSession
 restore. The test observes the complete production app callback after reopen.
