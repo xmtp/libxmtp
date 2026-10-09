@@ -50,14 +50,17 @@ class GroupSettingsInstrumentedTest {
 
     @After fun closeSession() =
         runBlocking<Unit> {
-            model.onGroupActionFinished = {}
-            readers.forEach { it.cancelAndJoin() }
-            withContext(NonCancellable) {
-                peers.forEach { it.end() }
-                work.cancel()
-                if (model.session.active.value != null) model.session.deleteAccount()
+            try {
+                model.onGroupActionFinished = {}
+                readers.forEach { it.cancelAndJoin() }
+                withContext(NonCancellable) {
+                    peers.forEach { it.end() }
+                    work.cancel()
+                    if (model.session.active.value != null) model.session.deleteAccount()
+                }
+            } finally {
+                AndroidStreamLifecycle.enabled = lifecycle
             }
-            AndroidStreamLifecycle.enabled = lifecycle
         }
 
     private suspend fun peer(): SDKClient {

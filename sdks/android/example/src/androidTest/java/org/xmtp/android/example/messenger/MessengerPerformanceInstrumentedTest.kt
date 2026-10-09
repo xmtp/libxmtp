@@ -433,13 +433,16 @@ class MessengerPerformanceInstrumentedTest {
                 assertTrue("History read sentinel bound was removed", maxHistoryReadRows <= 501)
                 assertTrue("Transcript cache trimming was removed", maxCacheRows <= 1_500 && maxCacheTranscripts <= 3)
             } finally {
-                withContext(NonCancellable) {
-                    withContext(Dispatchers.Main) { store.clear() }
-                    session.onMessage = { _, _ -> }
-                    session.onInvalidated = {}
-                    session.signOut()
+                try {
+                    withContext(NonCancellable) {
+                        withContext(Dispatchers.Main) { store.clear() }
+                        session.onMessage = { _, _ -> }
+                        session.onInvalidated = {}
+                        session.signOut()
+                    }
+                } finally {
+                    AndroidStreamLifecycle.enabled = previousLifecycle
                 }
-                AndroidStreamLifecycle.enabled = previousLifecycle
             }
         }
 }
