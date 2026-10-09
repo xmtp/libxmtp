@@ -175,6 +175,7 @@ pub enum SortBy {
     #[default]
     SentAt,
     InsertedAt,
+    SentAtDelivery,
 }
 
 #[repr(i32)]
@@ -494,6 +495,10 @@ pub struct MsgQueryArgs {
     pub inserted_before_ns: Option<i64>,
     #[builder(default = false)]
     pub exclude_disappearing: bool,
+    #[builder(default = None)]
+    pub history_before: Option<super::delivery::HistoryPosition>,
+    #[builder(default = None)]
+    pub history_after: Option<super::delivery::HistoryPosition>,
 }
 
 impl MsgQueryArgs {
@@ -855,7 +860,10 @@ where
 
 // Macro to apply common message filters to any boxed query
 macro_rules! apply_message_filters {
-    ($query:expr, $args:expr) => {{
+    ($query:expr, $args:expr) => {
+        apply_message_filters!($query, $args, now_ns())
+    };
+    ($query:expr, $args:expr, $read_now:expr) => {{
         let mut query = $query;
 
         if let Some(sent_after) = $args.sent_after_ns {
@@ -894,8 +902,27 @@ macro_rules! apply_message_filters {
             query = query.filter(dsl::inserted_at_ns.lt(inserted_before_ns));
         }
 
+        if let Some(position) = $args.history_before {
+            query = query.filter(
+                diesel_sql::<diesel::sql_types::Bool>("(sent_at_ns, delivery_sequence) < (")
+                    .bind::<diesel::sql_types::BigInt, _>(position.sent_at_ns)
+                    .sql(",")
+                    .bind::<diesel::sql_types::BigInt, _>(position.cursor.delivery_sequence as i64)
+                    .sql(")"),
+            );
+        }
+        if let Some(position) = $args.history_after {
+            query = query.filter(
+                diesel_sql::<diesel::sql_types::Bool>("(sent_at_ns, delivery_sequence) > (")
+                    .bind::<diesel::sql_types::BigInt, _>(position.sent_at_ns)
+                    .sql(",")
+                    .bind::<diesel::sql_types::BigInt, _>(position.cursor.delivery_sequence as i64)
+                    .sql(")"),
+            );
+        }
+
         // Always exclude expired messages (expire_at_ns < now)
-        let current_time = now_ns();
+        let current_time = $read_now;
         query = query.filter(
             dsl::expire_at_ns
                 .is_null()
@@ -905,6 +932,9 @@ macro_rules! apply_message_filters {
         query
     }};
 }
+
+mod history_page;
+pub(crate) use history_page::read_history_page;
 
 impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
     /// Query for group messages
@@ -936,6 +966,12 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                 dsl::sent_at_ns.desc(),
                 diesel_sql::<Integer>("rowid").desc(),
             )),
+            (SortBy::SentAtDelivery, SortDirection::Ascending) => {
+                query.order((dsl::sent_at_ns.asc(), dsl::delivery_sequence.asc()))
+            }
+            (SortBy::SentAtDelivery, SortDirection::Descending) => {
+                query.order((dsl::sent_at_ns.desc(), dsl::delivery_sequence.desc()))
+            }
             (SortBy::InsertedAt, SortDirection::Ascending) => query.order((
                 dsl::inserted_at_ns.asc(),
                 diesel_sql::<Integer>("rowid").asc(),

@@ -1,5 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+mod history_pages;
 mod history_snapshot;
 mod reader_ack_cancellation;
 mod reader_admission;

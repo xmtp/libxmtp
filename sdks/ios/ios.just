@@ -46,6 +46,10 @@ test mode="all":
 test-lifecycle:
     {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --filter {{ _lifecycle_tests }}
 
+# Read chronological pages through the matched native Swift package.
+test-history-pages *args="":
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --filter 'XmtpSdkTests.MessageHistoryPageTests' {{ args }}
+
 # Run the consumer in Tests/Consumer as a bare executable, then check that the
 # negative consumers in Tests/Consumer/Negative do not compile.
 check-consumer:

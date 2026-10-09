@@ -28,3 +28,15 @@ do {
 }
 
 print("Swift missing bundle identifier rejected")
+
+/// Compile the SDK page records and omitted/default argument forms.
+func consumeHistoryPageForms(_ group: Group, _ dm: Dm) async throws {
+	let page: MessageHistoryPage = try await group.messageHistoryPage()
+	_ = try await dm.messageHistoryPage()
+	let position: MessageHistoryPosition? = page.lastPosition
+	_ = try await group.messageHistoryPage(options: ListMessagesOptions(limit: 50), before: position)
+	_ = try await dm.messageHistoryPage(after: position)
+	let timestamp: Timestamp? = position?.sentAt
+	let cursor: String? = position?.deliveryCursor
+	precondition(timestamp == nil || cursor != nil)
+}

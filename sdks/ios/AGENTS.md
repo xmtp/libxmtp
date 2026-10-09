@@ -16,6 +16,7 @@ dev/nix-shell 'just ios format'
 dev/nix-shell 'just ios test'           # Test the installed macOS package.
 dev/nix-shell 'just ios test skip-lifecycle' # The same, without the lifecycle checks.
 dev/nix-shell 'just ios test-lifecycle'     # Only ReaderTeardownTests and ListenerGateTests.
+dev/nix-shell 'just ios test-history-pages' # Only the live chronological page case.
 dev/nix-shell 'just ios test-simulator "platform=iOS Simulator,name=iPhone 17"'
 dev/nix-shell 'just ios docs'
 NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XmtpSdkTests.RecordCodecTests/testRemoteAttachmentLength'

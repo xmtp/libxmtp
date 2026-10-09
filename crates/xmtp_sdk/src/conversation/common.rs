@@ -494,6 +494,35 @@ macro_rules! common_conversation {
                 .await
             }
 
+            /// Read Published history by sent time, then immutable local delivery order.
+            /// Defaults are ascending order and limit 50. Messenger uses descending
+            /// order for newest and older pages. Explicit limits must be positive.
+            /// None or SentAt sort is accepted; InsertedAt and pending statuses fail.
+            /// All other selection filters apply before the page limit.
+            /// Before is strict tuple less-than; after is strict tuple greater-than.
+            /// Direction never changes those meanings. Deleted boundaries stay valid.
+            /// First/last positions cover consumed raw rows, even after conversion loss.
+            /// A sentinel key sets has_more without loading its base body.
+            /// This query does not acquire a reader lease or acknowledge messages.
+            #[uniffi::method(default(options = None, before = None, after = None))]
+            pub async fn message_history_page(
+                &self,
+                options: Option<crate::ListMessagesOptions>,
+                before: Option<crate::MessageHistoryPosition>,
+                after: Option<crate::MessageHistoryPosition>,
+            ) -> Result<crate::MessageHistoryPage, XmtpError> {
+                let query = crate::delivery::page_query(options, before, after)?;
+                let group = self.inner.clone();
+                let client_key = self.client_key;
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    let page = group
+                        .find_history_page_with_stored(&query)
+                        .map_err(crate::delivery::history_error)?;
+                    Ok(crate::delivery::lift_page(page, client_key))
+                })
+                .await
+            }
+
             pub async fn message_history_snapshot(
                 &self,
                 limit: u32,

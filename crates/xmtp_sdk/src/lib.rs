@@ -105,7 +105,10 @@ pub use credentials::{
 #[cfg(all(test, not(feature = "pure-only")))]
 use delivery as reader;
 #[cfg(not(feature = "pure-only"))]
-pub use delivery::{ConnectionState, ConversationReader, MessageHistorySnapshot, MessageReader};
+pub use delivery::{
+    ConnectionState, ConversationReader, MessageHistoryPage, MessageHistoryPosition,
+    MessageHistorySnapshot, MessageReader,
+};
 #[cfg(not(feature = "pure-only"))]
 pub use diagnostics::{ApiStats, Diagnostics, IdentityStats};
 pub use error::{

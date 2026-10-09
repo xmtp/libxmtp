@@ -6,8 +6,8 @@ mod message_reader;
 
 pub use connection_state::ConnectionState;
 pub use conversation_reader::ConversationReader;
-pub use history::MessageHistorySnapshot;
-pub(crate) use history::history_snapshot;
+pub use history::{MessageHistoryPage, MessageHistoryPosition, MessageHistorySnapshot};
+pub(crate) use history::{history_error, history_snapshot, lift_page, page_query};
 pub use message_reader::MessageReader;
 
 #[cfg(test)]

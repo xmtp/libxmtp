@@ -101,3 +101,20 @@ internal fun receivedDetails(message: Message): String? {
         is SDKMessageContent.Standard -> null
     }
 }
+
+@Suppress("unused")
+internal suspend fun consumeHistoryPageForms(
+    group: Group,
+    dm: Dm,
+    conversation: Conversation,
+) {
+    val first: MessageHistoryPage = group.messageHistoryPage()
+    dm.messageHistoryPage()
+    conversation.messageHistoryPage()
+    val position: MessageHistoryPosition? = first.lastPosition
+    group.messageHistoryPage(ListMessagesOptions(limit = 50u), position)
+    dm.messageHistoryPage(after = position)
+    val timestamp: Timestamp? = position?.sentAt
+    val cursor: String? = position?.deliveryCursor
+    check(timestamp == null || cursor != null)
+}

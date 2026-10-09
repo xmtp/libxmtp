@@ -8,10 +8,49 @@ use xmtp_db::DbQuery;
 use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
 
+pub struct EnrichedHistoryPage {
+    pub messages: Vec<EnrichedStoredMessage>,
+    pub first_position: Option<xmtp_db::delivery::HistoryPosition>,
+    pub last_position: Option<xmtp_db::delivery::HistoryPosition>,
+    pub has_more: bool,
+}
+
 impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
+    /// Read base rows and raw coverage in one database snapshot.
+    pub fn find_history_page_with_stored(
+        &self,
+        query: &MsgQueryArgs,
+    ) -> Result<EnrichedHistoryPage, EnrichMessageError> {
+        use xmtp_db::delivery::QueryDelivery;
+        let conn = self.context.db();
+        let page = conn.history_page_rows(
+            &self.group_id,
+            &filter_out_hidden_message_types_from_query(query),
+        )?;
+        let cursors: std::collections::HashMap<_, _> = page
+            .rows
+            .iter()
+            .map(|row| (row.stored.id.clone(), row.cursor))
+            .collect();
+        let mut messages = enrich_messages_with_stored(
+            conn,
+            &self.group_id,
+            page.rows.into_iter().map(|row| row.stored).collect(),
+        )?;
+        for message in &mut messages {
+            message.delivery_cursor = cursors.get(&message.stored.id).copied().flatten();
+        }
+        Ok(EnrichedHistoryPage {
+            messages,
+            first_position: page.first_position,
+            last_position: page.last_position,
+            has_more: page.has_more,
+        })
+    }
+
     #[xmtp_common::mls_span]
     pub fn find_messages_v2(
         &self,

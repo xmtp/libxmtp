@@ -106,6 +106,10 @@ class RecipeTests(unittest.TestCase):
         self.assertEqual(skipped[-2], "--skip")
         self.assertEqual(selected[1], skipped[-1])
         self.assertNotIn("--skip", swift_test_args("test"))
+        self.assertEqual(
+            swift_test_args("test-history-pages"),
+            ["--filter", "XmtpSdkTests.MessageHistoryPageTests"],
+        )
         for test_case in ("ReaderTeardownTests", "ListenerGateTests"):
             self.assertRegex(f"XmtpSdkTests.{test_case}/testA", selected[1])
         rejected = subprocess.run(
@@ -148,7 +152,12 @@ class RecipeTests(unittest.TestCase):
 
     def test_tests_use_repository_backend_helpers(self):
         prefix = f"{ROOT}/dev/worktree-env && . {ROOT}/dev/docker/load-env && "
-        for recipe in ("test", "test-lifecycle", "test-simulator"):
+        for recipe in (
+            "test",
+            "test-lifecycle",
+            "test-history-pages",
+            "test-simulator",
+        ):
             with self.subTest(recipe=recipe):
                 result = subprocess.run(
                     ["just", "--dry-run", "ios", recipe],
