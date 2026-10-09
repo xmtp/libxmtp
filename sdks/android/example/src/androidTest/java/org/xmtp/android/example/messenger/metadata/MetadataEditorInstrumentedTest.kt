@@ -23,6 +23,15 @@ class MetadataEditorInstrumentedTest {
         value: Int,
     ): ByteArray = ((chat.metadataValue(ref(value)) as MetadataValue.Scalar).v1 as FieldValue.Bytes).v1
 
+    private suspend fun mapBytes(
+        chat: Conversation,
+        key: ByteArray,
+    ): ByteArray {
+        val value = chat.mapValue(ref(0xc003), FieldKey.Bytes(key))
+        assertTrue("Map key ${MetadataMapper.hex(key)} must retain its Bytes value", value is FieldValue.Bytes)
+        return (value as FieldValue.Bytes).v1
+    }
+
     @Test fun registeredFieldsRoundTripBetweenTwoClients() =
         runBlocking {
             withTimeout(180_000) {
@@ -78,12 +87,25 @@ class MetadataEditorInstrumentedTest {
 
                     val denied = MetadataEditorController(peer, bo.inboxId(), { true }, catalogue)
                     denied.refresh()
+                    denied.beforeWrite = {
+                        group.updateMetadataField(
+                            ref(0xc008),
+                            ComponentMutation.Replace(FieldValue.String("Committed")),
+                        )
+                        peer.sync()
+                    }
                     denied.edit(MetadataEdit.Scalar(id(0xc008), "denied"))
                     assertNotNull(denied.failure)
                     assertNotNull(denied.state.value.error)
                     group.sync()
-                    assertNull(group.metadataValue(ref(0xc008)))
-                    println("METADATA_PROOF group denied=${denied.failure} committed=absent")
+                    assertEquals(MetadataValue.Scalar(FieldValue.String("Committed")), group.metadataValue(ref(0xc008)))
+                    assertEquals(
+                        "Committed",
+                        denied.state.value.fields
+                            .single { it.id == id(0xc008) }
+                            .scalar,
+                    )
+                    println("METADATA_PROOF group denied=${denied.failure} refreshed=Committed")
 
                     val dm = alix.conversations.createDm(bo.inboxId())
                     bo.conversations.sync()
@@ -146,21 +168,21 @@ class MetadataEditorInstrumentedTest {
         edit(MetadataEdit.Entry(id(0xc003), EntryAction.UPDATE, "01", "80"))
         assertArrayEquals(
             byteArrayOf(127),
-            (peer.mapValue(ref(0xc003), FieldKey.Bytes(byteArrayOf(2))) as FieldValue.Bytes).v1,
+            mapBytes(peer, byteArrayOf(2)),
         )
         assertArrayEquals(
             byteArrayOf(-128),
-            (peer.mapValue(ref(0xc003), FieldKey.Bytes(byteArrayOf(1))) as FieldValue.Bytes).v1,
+            mapBytes(peer, byteArrayOf(1)),
         )
         assertArrayEquals(
             byteArrayOf(),
-            (peer.mapValue(ref(0xc003), FieldKey.Bytes(byteArrayOf())) as FieldValue.Bytes).v1,
+            mapBytes(peer, byteArrayOf()),
         )
         edit(MetadataEdit.Entry(id(0xc003), EntryAction.DELETE, "01"))
         assertNull(peer.mapValue(ref(0xc003), FieldKey.Bytes(byteArrayOf(1))))
         assertArrayEquals(
             byteArrayOf(127),
-            (peer.mapValue(ref(0xc003), FieldKey.Bytes(byteArrayOf(2))) as FieldValue.Bytes).v1,
+            mapBytes(peer, byteArrayOf(2)),
         )
 
         edit(MetadataEdit.Entry(id(0xc004), EntryAction.INSERT, "00ff"))
@@ -207,6 +229,14 @@ class MetadataEditorInstrumentedTest {
         source.sync()
         editor.refresh()
         edit(MetadataEdit.Own(mapOf(id(0xc006) to "Alix", id(0xc007) to "00ff")))
+        val initial =
+            peer
+                .userData(listOf(ref(0xc006), ref(0xc007)), listOf(own))
+                .getValue(own)
+                .associate { it.field.componentId to it.value }
+        assertEquals(FieldValue.String("Alix"), initial[0xc006.toUShort()])
+        assertTrue(initial[0xc007.toUShort()] is FieldValue.Bytes)
+        assertArrayEquals(byteArrayOf(0, -1), (initial[0xc007.toUShort()] as FieldValue.Bytes).v1)
         val displayed = OwnFieldDraft().merge(editor.state.value.fields)
         val dirty = displayed.change(id(0xc007), "80").edit()
         source.updateUserData(listOf(UserFieldUpdate(ref(0xc006), FieldValue.String("New Alix"))))
@@ -248,10 +278,19 @@ class MetadataEditorInstrumentedTest {
         var screen = 1L
         val stale = MetadataEditorController(source, own, { fence.accepts(key) && screen == 1L }, catalogue)
         stale.refresh()
-        screen++
+        stale.beforeWrite = { screen++ }
         stale.edit(MetadataEdit.Own(mapOf(id(0xc006) to "old screen")))
+        peer.sync()
+        assertEquals(
+            FieldValue.String(""),
+            peer
+                .userData(listOf(ref(0xc006)), listOf(own))
+                .getValue(own)
+                .single()
+                .value,
+        )
         screen = 1L
-        fence.replace("other-profile")
+        stale.beforeWrite = { fence.replace("other-profile") }
         stale.edit(MetadataEdit.Own(mapOf(id(0xc006) to "old session")))
         peer.sync()
         assertEquals(

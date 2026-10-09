@@ -24,33 +24,33 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state = model.state.collectAsStateWithLifecycle().value
             ReactionPickerHost(state, model::dispatch) { action ->
-            MessengerScreens(
-                state,
-                action,
-                extraScreen = { screen ->
-                    when (screen) {
-                        Screen.DRAFTS -> {
-                            attachments.Recovery()
-                        }
+                MessengerScreens(
+                    state,
+                    action,
+                    extraScreen = { screen ->
+                        when (screen) {
+                            Screen.DRAFTS -> {
+                                attachments.Recovery()
+                            }
 
-                        Screen.GROUP_FIELDS, Screen.MY_FIELDS -> {
-                            key(model.screenToken()) {
-                                MetadataScreen(
-                                    model.metadataState.collectAsStateWithLifecycle().value,
-                                    screen == Screen.MY_FIELDS,
-                                    model::editMetadata,
-                                )
+                            Screen.GROUP_FIELDS, Screen.MY_FIELDS -> {
+                                key(model.screenToken()) {
+                                    MetadataScreen(
+                                        model.metadataState.collectAsStateWithLifecycle().value,
+                                        screen == Screen.MY_FIELDS,
+                                        model::editMetadata,
+                                    )
+                                }
+                            }
+
+                            else -> {
+                                Unit
                             }
                         }
-
-                        else -> {
-                            Unit
-                        }
-                    }
-                },
-                composerExtra = { attachments.Composer() },
-                messageExtra = { row -> attachments.Message(row) },
-            )
+                    },
+                    composerExtra = { attachments.Composer() },
+                    messageExtra = { row -> attachments.Message(row) },
+                )
             }
         }
     }
