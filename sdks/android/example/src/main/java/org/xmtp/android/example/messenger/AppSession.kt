@@ -245,7 +245,7 @@ class AppSession(
                     null
                 }
             } finally {
-                if (!published) withContext(NonCancellable) { closeCurrent() }
+                if (!published) withContext(NonCancellable) { closeCurrent(unregister = false) }
             }
         }
 
@@ -540,7 +540,7 @@ class AppSession(
                     } == true
                 if (published) opening = null
             } finally {
-                if (!published) withContext(NonCancellable) { closeCurrent() }
+                if (!published) withContext(NonCancellable) { closeCurrent(unregister = false) }
             }
         }
     }

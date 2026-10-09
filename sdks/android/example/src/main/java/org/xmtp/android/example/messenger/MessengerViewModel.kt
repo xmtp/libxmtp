@@ -855,10 +855,13 @@ class MessengerViewModel(
                                     val chat = origin.chat ?: return@launch
                                     try {
                                         requireOrigin(origin)
-                                        writeConsent(
-                                            chat,
-                                            if (action.allowed) ConsentState.ALLOWED else ConsentState.DENIED,
-                                        )
+                                        notifications.withPrivacyMutation(owner) {
+                                            requireOrigin(origin)
+                                            writeConsent(
+                                                chat,
+                                                if (action.allowed) ConsentState.ALLOWED else ConsentState.DENIED,
+                                            )
+                                        }
                                         val current =
                                             session.withCurrent(owner.key) {
                                                 synchronized(screenLock) {
@@ -1744,6 +1747,14 @@ class MessengerViewModel(
     }
 
     private suspend fun mutateGroup(
+        origin: ActionOrigin,
+        action: MessengerAction,
+    ) {
+        val owner = origin.owner ?: return
+        notifications.withPrivacyMutation(owner) { mutateGroupWithinPrivacy(origin, action) }
+    }
+
+    private suspend fun mutateGroupWithinPrivacy(
         origin: ActionOrigin,
         action: MessengerAction,
     ) {
