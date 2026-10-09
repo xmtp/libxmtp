@@ -54,6 +54,84 @@ class AttachmentRecoveryRaceInstrumentedTest {
             }
         }
 
+    @Test fun assignmentCannotReviveADiscardedNativeOrphan() =
+        runBlocking<Unit> {
+            val fixture = AttachmentTestFixture()
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            try {
+                withTimeout(90_000) {
+                    fixture.start()
+                    val attachments = fixture.client.attachments()
+                    val bytes = "assign the actual orphan".toByteArray()
+                    val pending = attachments.create(AttachmentSource.Bytes(bytes, "orphan.txt", "text/plain"))
+                    val remote = pending.remoteAttachment()
+                    val coordinator = fixture.coordinator()
+                    coordinator.recover()
+                    val draft = fixture.preferences.drafts(fixture.profile.id).single()
+                    assertEquals("", draft.conversationKey)
+                    val ref = checkNotNull(draft.descriptorSecretRef)
+                    val descriptor = checkNotNull(fixture.secrets.read(fixture.profile.id, ref))
+                    assertEquals(remote, AttachmentDescriptor.decode(descriptor))
+                    val file = File(attachments.localPath(remote))
+                    assertArrayEquals(bytes, file.readBytes())
+                    assertEquals(PendingAttachmentStatus.Waiting, attachments.pending(remote).status())
+                    assertEquals(1, attachments.listPending().size)
+                    coordinator.afterAssignSnapshot = {
+                        entered.complete(Unit)
+                        release.await()
+                    }
+                    val assigning = async { runCatching { coordinator.assign(draft.draftId, fixture.group.id()) } }
+                    withTimeout(30_000) { entered.await() }
+                    coordinator.discard(draft.draftId)
+                    assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
+                    assertNull(fixture.secrets.read(fixture.profile.id, ref))
+                    assertFalse(file.exists())
+                    assertTrue(attachments.listPending().isEmpty())
+                    release.complete(Unit)
+                    val result = assigning.await()
+                    assertTrue(
+                        "Assignment cannot recreate a discarded native orphan reference",
+                        fixture.preferences.drafts(fixture.profile.id).isEmpty(),
+                    )
+                    assertEquals("The draft was discarded", result.exceptionOrNull()?.message)
+                    assertNull(fixture.secrets.read(fixture.profile.id, ref))
+                    assertFalse(file.exists())
+                    assertTrue(attachments.listPending().isEmpty())
+                    assertTrue(fixture.group.messages(null).isEmpty())
+                    val recreated = fixture.coordinator()
+                    recreated.recover()
+                    assertTrue(recreated.cards.value.isEmpty())
+                    assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
+                    val next = attachments.create(AttachmentSource.Bytes(bytes, "next.txt", "text/plain"))
+                    val nextRemote = next.remoteAttachment()
+                    recreated.recover()
+                    val nextDraft = fixture.preferences.drafts(fixture.profile.id).single()
+                    assertEquals("", nextDraft.conversationKey)
+                    recreated.assign(nextDraft.draftId, fixture.group.id())
+                    val assigned = fixture.preferences.drafts(fixture.profile.id).single()
+                    assertEquals(nextDraft.draftId, assigned.draftId)
+                    assertEquals(fixture.group.id(), assigned.conversationKey)
+                    assertEquals(nextDraft.descriptorSecretRef, assigned.descriptorSecretRef)
+                    assertArrayEquals(bytes, File(attachments.localPath(nextRemote)).readBytes())
+                    assertEquals(PendingAttachmentStatus.Waiting, attachments.pending(nextRemote).status())
+                    assertEquals(1, attachments.listPending().size)
+                    recreated.discard(nextDraft.draftId)
+                    assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
+                    assertNull(fixture.secrets.read(fixture.profile.id, checkNotNull(nextDraft.descriptorSecretRef)))
+                    assertFalse(File(attachments.localPath(nextRemote)).exists())
+                    assertTrue(attachments.listPending().isEmpty())
+                    assertTrue(fixture.group.messages(null).isEmpty())
+                    println(
+                        "$proofPrefix stage=discard-before-assign no-revival=true native-delete=true valid-assign=true",
+                    )
+                }
+            } finally {
+                release.complete(Unit)
+                fixture.close()
+            }
+        }
+
     @Test fun damagedDescriptorDoesNotBlockHealthyActionsOrGuessOrphanOwnership() =
         runBlocking<Unit> {
             val fixture = AttachmentTestFixture()
