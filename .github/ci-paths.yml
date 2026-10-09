@@ -1,0 +1,122 @@
+all_files:
+- '**'
+shared:
+- &shared_inputs
+  - '{.github,nix,dev,.cargo,proto,bindings}/**'
+  - 'apps/{backend,xmtp_sdk_bindgen}/**'
+  - 'crates/{xmtp_sdk,xmtp_configuration}/**'
+  - '{Cargo.toml,Cargo.lock,rust-toolchain.toml,flake.nix,flake.lock,package.json,pnpm-lock.yaml,pnpm-workspace.yaml,justfile}'
+  - '**/{Cargo.toml,build.rs,package.json}'
+  - '**/*.{nix,toml,lock}'
+- '!docs/**'
+- '!**/*.{gradle,kts}'
+
+lint_workspace: &rust
+- 'crates/{xmtp_api,xmtp_api_grpc,xmtp_archive,xmtp_attachments,xmtp_common,xmtp_content_types,xmtp_cryptography,xmtp_db,xmtp_events,xmtp_id,xmtp_logging,xmtp_macro,xmtp_mls,xmtp_mls_common,xmtp_mls_validation,xmtp_proto,xmtp_user_preferences,xmtp-workspace-hack}/{src,tests,benches,examples}/**/*.rs'
+check_rust: *rust
+check_sdk_unit: *rust
+test_native_backend: *rust
+test_validation: *rust
+test_backend: *rust
+test_workspace: *rust
+test_keepalive: *rust
+test_wasm: *rust
+test_xdbg: *rust
+docs_rust: *rust
+
+test_ios: &swift
+- 'sdks/ios/**/*.swift'
+lint_ios: *swift
+test_swift_lifecycle: *swift
+check_bindings_ios: &swift_public
+- *swift
+- '!sdks/ios/Tests/**'
+test_ios_platform: *swift_public
+# These tests select the platform check even though they are not public inputs.
+test_ios_platform_lifecycle:
+- 'sdks/ios/**/*AppleLifecycleTests.swift'
+
+test_android: &android
+- &android_inputs
+  - 'sdks/android/**/*.{kt,java}'
+  - '**/*.{gradle,kts}'
+- '!docs/**'
+lint_android: *android
+test_android_consumers: *android
+check_bindings_android: &android_platform
+- *android_inputs
+- '!docs/**'
+- '!sdks/android/library/src/test/**'
+test_android_platform: *android_platform
+test_sdk_staging: *android_platform
+
+test_node: &node
+- &node_public
+  - 'sdks/node/{src,examples}/**/*.{ts,tsx,js,mjs}'
+  - 'sdks/node/type-tests/publicSurface*.{ts,tsx,js,mjs}'
+  - 'sdks/node/type-tests/publicSurface*/**/*.{ts,tsx,js,mjs}'
+- 'sdks/js.just'
+- 'sdks/node/{test,type-tests}/**/*.{ts,tsx,js,mjs}'
+- 'sdks/node/vitest.{config,setup}.ts'
+- 'apps/cli/{src,test}/**/*.{ts,tsx,js,mjs}'
+test_browser: &browser
+- &browser_public
+  - 'sdks/browser/{src,examples}/**/*.{ts,tsx,js,mjs}'
+  - 'sdks/browser/type-tests/publicSurface*.{ts,tsx,js,mjs}'
+  - 'sdks/browser/type-tests/publicSurface*/**/*.{ts,tsx,js,mjs}'
+- 'sdks/js.just'
+- 'sdks/browser/{test,type-tests}/**/*.{ts,tsx,js,mjs}'
+- 'apps/web-chat/{src,test}/**/*.{ts,tsx,js,mjs}'
+test_agent:
+- *node
+- &agent
+  - 'sdks/js.just'
+  - 'sdks/agent/{src,test}/**/*.{ts,tsx,js,mjs}'
+  - 'sdks/agent/vitest.{config,setup}.ts'
+test_bridge_runtime: *browser
+test_browser_platform: *browser
+check_sdk:
+- 'sdks/browser/test/platform/**/*.{ts,tsx,js,mjs}'
+- 'sdks/js.just'
+lint_js: &js
+- *node
+- *browser
+- *agent
+- &docs_app
+  - 'apps/docs/**'
+check_types: *js
+lint_config:
+- *node
+- *browser
+# This source check is selected by full validation only.
+lint_proto: []
+
+docs_site:
+- *docs_app
+- &docs
+  - 'docs/**'
+- *node_public
+- *browser_public
+- 'sdks/agent/src/**/*.{ts,tsx,js,mjs}'
+- '!sdks/agent/src/**/*.test.{ts,tsx}'
+- '!sdks/agent/src/util/test.ts'
+- *swift_public
+- 'sdks/android/**/*.{kt,java}'
+- '!sdks/android/library/src/test/**'
+- '!sdks/android/**/androidTest/**'
+
+neutral: &neutral
+- '{.agents,.vscode,.zed}/**'
+- '{README.md,AGENTS.md,CLAUDE.md}'
+# Use positive inputs here. Route exclusions must not hide known files.
+known_files:
+- *shared_inputs
+- *rust
+- *swift
+- *android_inputs
+- *node
+- *browser
+- *agent
+- *docs_app
+- *docs
+- *neutral

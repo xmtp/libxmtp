@@ -42,9 +42,16 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 ## CI selection
 
 `ci.yml` owns required Lint and Test. Its pinned dorny filters use PR changed
-files or the push event's before SHA. Unavailable or capped detection and
-unknown or shared build inputs select all checks. Inline path groups define
-the scope; fixed boolean decisions drive the selected job lists and gates.
+files or the push event's before SHA. `.github/ci-paths.yml` names filters after
+checks. `dev/ci-select` reads Dorny's `changes` output and builds one plan for
+scheduling and result gates. PRs with more than 3,000 changed files, unavailable
+detection, unknown paths, and shared inputs select all checks. The PR file total
+comes from event metadata or the PR API. Rename-expanded path counts do not
+select full validation. Empty diffs are valid.
+The job summary lists matched filters, full-run reasons, shared and unknown
+paths, policy exclusions, selected checks, and required jobs. Lists show up to
+200 entries. JSON path data goes through standard input to preserve quotes and
+line breaks and avoid environment size limits.
 The static source and runtime routers use fail-fast matrices and require the
 selected child result. Selected skipped, failed, cancelled, or missing jobs
 cannot pass. Direct reusable calls default to all checks.
@@ -59,7 +66,12 @@ scanner workflow changes. Ready PRs keep all four Cargo-Deny checks.
 Source lint does not generate SDK products or run compiler checks. Test owns
 full types, full lint, Clippy, SDK and runtime checks. Pure Rust PRs omit host
 language checks; post-merge runs retain language units and consumers. Platform
-packaging uses native inputs. Full docs use docs, examples, and public API inputs.
+packaging uses native inputs. Full docs use `docs/`, the docs app, examples, and
+public API inputs. Files under `docs/` select docs builds and are excluded from
+shared inputs.
+`sdks/js.just` selects Node, Browser, and Agent SDK checks, including generated
+JS SDK products. Gradle and Kotlin build scripts select Android checks only;
+copies under `docs/` select docs builds. Android build scripts do not select public API docs.
 The standalone Rust reference keeps rustdoc and glossary checks for Rust changes.
 Automatic PR backend image checks use amd64; two-architecture publication runs
 only on main, self-hosted, tag pushes, or reusable calls.
@@ -85,5 +97,6 @@ Existing deployment jobs retain their environments and use reader access when
 added later. Tags, dispatches, and jobs that build a selected ref cannot write.
 Keep the native backend acceptance job free of cache writer keys.
 
-`just lint-config` tests the backend selector and write policy without keys,
-a compiler daemon, or cloud access. See the setup action's README for settings.
+`just lint-config` tests CI selection, result gates, summaries, the backend
+selector, and write policy without keys, a compiler daemon, or cloud access.
+See the setup action's README for settings.

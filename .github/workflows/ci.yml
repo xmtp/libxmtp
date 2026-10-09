@@ -37,199 +37,24 @@ jobs:
         # The action shallow-fetches event.before by exact SHA only when it is missing.
         base: ${{ github.ref }}
         predicate-quantifier: some-with-excludes
-        filters: |
-          all_files:
-            - '**'
-          shared: &shared
-            - '{.github,nix,dev,.cargo,proto,bindings}/**'
-            - 'apps/{backend,xmtp_sdk_bindgen}/**'
-            - 'crates/{xmtp_sdk,xmtp_configuration}/**'
-            - 'docs/{specs,schemas}/**'
-            - '{Cargo.toml,Cargo.lock,rust-toolchain.toml,flake.nix,flake.lock,package.json,pnpm-lock.yaml,pnpm-workspace.yaml,justfile}'
-            - 'sdks/js.just'
-            - '**/{Cargo.toml,build.rs,package.json}'
-            - '**/*.{nix,toml,lock,gradle,kts}'
-          rust: &rust
-            - 'crates/{xmtp_api,xmtp_api_grpc,xmtp_archive,xmtp_attachments,xmtp_common,xmtp_content_types,xmtp_cryptography,xmtp_db,xmtp_events,xmtp_id,xmtp_logging,xmtp_macro,xmtp_mls,xmtp_mls_common,xmtp_mls_validation,xmtp_proto,xmtp_user_preferences,xmtp-workspace-hack}/{src,tests,benches,examples}/**/*.rs'
-          swift: &swift
-            - 'sdks/ios/**/*.swift'
-          swift_public:
-            - *swift
-            - '!sdks/ios/Tests/**'
-          apple_lifecycle:
-            - 'sdks/ios/**/*AppleLifecycleTests.swift'
-          android: &android
-            - 'sdks/android/**/*.{kt,java}'
-          android_platform:
-            - *android
-            - '!sdks/android/library/src/test/**'
-          android_public:
-            - *android
-            - '!sdks/android/library/src/test/**'
-            - '!sdks/android/**/androidTest/**'
-          node_public: &node_public
-            - 'sdks/node/{src,examples}/**/*.{ts,tsx,js,mjs}'
-            - 'sdks/node/type-tests/publicSurface*.{ts,tsx,js,mjs}'
-            - 'sdks/node/type-tests/publicSurface*/**/*.{ts,tsx,js,mjs}'
-          node: &node
-            - *node_public
-            - 'sdks/node/{test,type-tests}/**/*.{ts,tsx,js,mjs}'
-            - 'sdks/node/vitest.{config,setup}.ts'
-            - 'apps/cli/{src,test}/**/*.{ts,tsx,js,mjs}'
-          browser_public: &browser_public
-            - 'sdks/browser/{src,examples}/**/*.{ts,tsx,js,mjs}'
-            - 'sdks/browser/type-tests/publicSurface*.{ts,tsx,js,mjs}'
-            - 'sdks/browser/type-tests/publicSurface*/**/*.{ts,tsx,js,mjs}'
-          browser: &browser
-            - *browser_public
-            - 'sdks/browser/{test,type-tests}/**/*.{ts,tsx,js,mjs}'
-            - 'apps/web-chat/{src,test}/**/*.{ts,tsx,js,mjs}'
-          browser_platform:
-            - 'sdks/browser/test/platform/**/*.{ts,tsx,js,mjs}'
-          agent: &agent
-            - 'sdks/agent/{src,test}/**/*.{ts,tsx,js,mjs}'
-            - 'sdks/agent/vitest.{config,setup}.ts'
-          agent_public:
-            - 'sdks/agent/src/**/*.{ts,tsx,js,mjs}'
-            - '!sdks/agent/src/**/*.test.{ts,tsx}'
-            - '!sdks/agent/src/util/test.ts'
-          docs_app: &docs_app
-            - 'apps/docs/**'
-          docs:
-            - *docs_app
-            - 'docs/**/*.{md,mdx}'
-          neutral: &neutral
-            - '{.agents,.vscode,.zed}/**'
-            - '{README.md,AGENTS.md,CLAUDE.md}'
-          known_files:
-            - *shared
-            - *rust
-            - *swift
-            - *android
-            - *node
-            - *browser
-            - *agent
-            - *docs_app
-            - 'docs/**/*.{md,mdx}'
-            - *neutral
-    - name: Set mode and conservative fallback
-      id: scope
-      env:
-        DRAFT: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' }}
-        FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-        FULL: >-
-          ${{ github.event_name == 'workflow_dispatch' || steps.paths.outcome != 'success' ||
-          steps.paths.outputs.all_files_count == '' || steps.paths.outputs.known_files_count == '' ||
-          steps.paths.outputs.all_files_count != steps.paths.outputs.known_files_count ||
-          steps.paths.outputs.shared == 'true' ||
-          (github.event_name == 'pull_request' && (github.event.pull_request.changed_files >= 3000 ||
-          steps.paths.outputs.all_files_count >= 3000 || steps.paths.outputs.all_files_count < github.event.pull_request.changed_files)) }}
-      run: |
-        echo "draft=$DRAFT" >> "$GITHUB_OUTPUT"
-        echo "fork=$FORK" >> "$GITHUB_OUTPUT"
-        echo "full=$FULL" >> "$GITHUB_OUTPUT"
-    - name: Assemble selected jobs
+        list-files: json
+        filters: .github/ci-paths.yml
+    - name: Select checks and write summary
       id: select
       env:
-        IS_DRAFT: ${{ steps.scope.outputs.draft }}
-        IS_FORK: ${{ steps.scope.outputs.fork }}
-        CHECK_LINT_WORKSPACE: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_LINT_JS: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.node == 'true' || steps.paths.outputs.browser == 'true' || steps.paths.outputs.agent == 'true' || steps.paths.outputs.docs_app == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_LINT_CONFIG: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.node == 'true' || steps.paths.outputs.browser == 'true' }}
-        CHECK_LINT_PROTO: ${{ steps.scope.outputs.full == 'true' }}
-        CHECK_TEST_NATIVE_BACKEND: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_TEST_VALIDATION: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_TEST_BACKEND: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_TEST_WORKSPACE: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_TEST_KEEPALIVE: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_TEST_WASM: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_TEST_NODE: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.node == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_TEST_AGENT: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.node == 'true' || steps.paths.outputs.agent == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_TEST_XDBG: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_TEST_BROWSER: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.browser == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_TEST_SDK_STAGING: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.android_platform == 'true' }}
-        CHECK_TEST_BRIDGE_RUNTIME: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.browser == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_TEST_BROWSER_PLATFORM: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.browser == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_LINT_IOS: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.swift == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_LINT_ANDROID: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.android == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_CHECK_RUST: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_CHECK_TYPES: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.node == 'true' || steps.paths.outputs.browser == 'true' || steps.paths.outputs.agent == 'true' || steps.paths.outputs.docs_app == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_CHECK_SDK: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.browser_platform == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_CHECK_SDK_UNIT: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
-        CHECK_CHECK_BINDINGS_IOS: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.swift_public == 'true' }}
-        CHECK_CHECK_BINDINGS_ANDROID: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.android_platform == 'true' }}
-        CHECK_TEST_IOS: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.swift == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_TEST_IOS_PLATFORM: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.swift_public == 'true' || steps.paths.outputs.apple_lifecycle == 'true' }}
-        CHECK_TEST_ANDROID: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.android == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_TEST_ANDROID_CONSUMERS: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.android == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_TEST_ANDROID_PLATFORM: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.android_platform == 'true' }}
-        CHECK_TEST_SWIFT_LIFECYCLE: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.swift == 'true' || (github.event_name == 'push' && steps.paths.outputs.rust == 'true') }}
-        CHECK_DOCS_QUALITY: ${{ true }}
-        CHECK_DOCS_SITE: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.docs == 'true' || steps.paths.outputs.node_public == 'true' || steps.paths.outputs.browser_public == 'true' || steps.paths.outputs.agent_public == 'true' || steps.paths.outputs.swift_public == 'true' || steps.paths.outputs.android_public == 'true' }}
-        CHECK_DOCS_RUST: ${{ steps.scope.outputs.full == 'true' || steps.paths.outputs.rust == 'true' }}
+        PATHS_OUTCOME: ${{ steps.paths.outcome }}
+        GITHUB_TOKEN: ${{ github.token }}
+      # JSON encoding keeps quotes and line breaks in file paths inside data.
+      # Use standard input so large file lists do not exceed environment limits.
       run: |
-        jq -n '
-          {checks: {
-            lint_workspace: (env.CHECK_LINT_WORKSPACE == "true"),
-            lint_js: (env.CHECK_LINT_JS == "true"),
-            lint_config: (env.CHECK_LINT_CONFIG == "true"),
-            lint_proto: (env.CHECK_LINT_PROTO == "true"),
-            test_native_backend: (env.CHECK_TEST_NATIVE_BACKEND == "true"),
-            test_validation: (env.CHECK_TEST_VALIDATION == "true"),
-            test_backend: (env.CHECK_TEST_BACKEND == "true"),
-            test_workspace: (env.CHECK_TEST_WORKSPACE == "true"),
-            test_keepalive: (env.CHECK_TEST_KEEPALIVE == "true"),
-            test_wasm: (env.CHECK_TEST_WASM == "true"),
-            test_node: (env.CHECK_TEST_NODE == "true"),
-            test_agent: (env.CHECK_TEST_AGENT == "true"),
-            test_xdbg: (env.CHECK_TEST_XDBG == "true"),
-            test_browser: (env.CHECK_TEST_BROWSER == "true"),
-            test_sdk_staging: (env.CHECK_TEST_SDK_STAGING == "true"),
-            test_bridge_runtime: (env.CHECK_TEST_BRIDGE_RUNTIME == "true"),
-            test_browser_platform: (env.CHECK_TEST_BROWSER_PLATFORM == "true"),
-            lint_ios: (env.CHECK_LINT_IOS == "true"),
-            lint_android: (env.CHECK_LINT_ANDROID == "true"),
-            check_rust: (env.CHECK_CHECK_RUST == "true"),
-            check_types: (env.CHECK_CHECK_TYPES == "true"),
-            check_sdk: (env.CHECK_CHECK_SDK == "true"),
-            check_sdk_unit: (env.CHECK_CHECK_SDK_UNIT == "true"),
-            check_bindings_ios: (env.CHECK_CHECK_BINDINGS_IOS == "true"),
-            check_bindings_android: (env.CHECK_CHECK_BINDINGS_ANDROID == "true"),
-            test_ios: (env.CHECK_TEST_IOS == "true"),
-            test_ios_platform: (env.CHECK_TEST_IOS_PLATFORM == "true"),
-            test_android: (env.CHECK_TEST_ANDROID == "true"),
-            test_android_consumers: (env.CHECK_TEST_ANDROID_CONSUMERS == "true"),
-            test_android_platform: (env.CHECK_TEST_ANDROID_PLATFORM == "true"),
-            test_swift_lifecycle: (env.CHECK_TEST_SWIFT_LIFECYCLE == "true"),
-            docs_quality: (env.CHECK_DOCS_QUALITY == "true"),
-            docs_site: (env.CHECK_DOCS_SITE == "true"),
-            docs_rust: (env.CHECK_DOCS_RUST == "true")
-          }}
-          | if env.IS_FORK == "true" then
-              .checks.test_ios = false | .checks.test_ios_platform = false |
-              .checks.test_swift_lifecycle = false | .checks.test_native_backend = false
-            else . end
-          | if env.IS_DRAFT == "true" then
-              .checks |= with_entries(if .key as $key | ["lint_workspace", "lint_js", "lint_config", "lint_proto", "docs_quality"] | index($key) then . else .value = false end)
-            else . end
-          | .checks.test_bindings = (.checks.check_bindings_ios or .checks.check_bindings_android)
-          | .source_suites = ["lint_workspace", "lint_js", "lint_config", "lint_proto"] | . as $plan | .source_suites |= map(select($plan.checks[.] == true))
-          | .test_suites = ["test_native_backend", "test_validation", "test_backend", "test_workspace", "test_keepalive", "test_wasm", "test_node", "test_agent", "test_xdbg", "test_browser", "test_bindings", "test_sdk_staging", "test_bridge_runtime", "test_browser_platform"] | . as $plan | .test_suites |= map(select($plan.checks[.] == true))
-          | .checks.source_lint = (.source_suites | length > 0)
-          | .checks.tests = (.test_suites | length > 0)
-          | .lint_jobs = {"source-lint": .checks.source_lint, "docs-quality": .checks.docs_quality, "lint-ios": .checks.lint_ios, "lint-android": .checks.lint_android}
-          | .lint_jobs |= ["detect-changes"] + [to_entries[] | select(.value) | .key]
-          | .test_jobs = {"check-rust": .checks.check_rust, "check-types": .checks.check_types, "check-sdk": .checks.check_sdk, "check-sdk-unit": .checks.check_sdk_unit,
-                          "tests": .checks.tests, "docs": .checks.docs_site, "test-ios": (.checks.test_ios or .checks.test_ios_platform),
-                          "test-android": (.checks.test_android or .checks.test_android_consumers or .checks.test_android_platform),
-                          "test-swift-lifecycle": .checks.test_swift_lifecycle, "docs-rust-reference": (.checks.docs_rust and (.checks.docs_site | not))}
-          | .test_jobs |= ["detect-changes"] + [to_entries[] | select(.value) | .key]
-        ' > "$RUNNER_TEMP/ci-selection.json"
+        python3 dev/ci-select <<'CI_PATH_DATA'
         {
-          echo "selection=$(jq -c 'del(.source_suites,.test_suites)' "$RUNNER_TEMP/ci-selection.json")"
-          echo "source_suites=$(jq -c '.source_suites' "$RUNNER_TEMP/ci-selection.json")"
-          echo "test_suites=$(jq -c '.test_suites' "$RUNNER_TEMP/ci-selection.json")"
-        } >> "$GITHUB_OUTPUT"
+          "changes": ${{ toJSON(steps.paths.outputs.changes) }},
+          "all_files_files": ${{ toJSON(steps.paths.outputs.all_files_files) }},
+          "known_files_files": ${{ toJSON(steps.paths.outputs.known_files_files) }},
+          "shared_files": ${{ toJSON(steps.paths.outputs.shared_files) }}
+        }
+        CI_PATH_DATA
   docs-quality:
     needs: detect-changes
     if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'docs-quality')
