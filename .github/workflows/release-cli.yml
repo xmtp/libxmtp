@@ -137,6 +137,13 @@ jobs:
           nix-disk: "false"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+          kache-scope: sdk-native-debug
+          kache-readonly: "true"
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-release-tools
         with:

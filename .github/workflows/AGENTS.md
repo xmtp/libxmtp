@@ -85,17 +85,31 @@ smoke remains a manual owner in `test-sdk.yml`.
 ## Compiler cache
 
 `setup-nix` uses a private local Kache store and disables GitHub compiler-cache
-archives. Native Clippy and the Darwin SDK check are the S3 pilot callers.
-Other callers stay local-only until the pilot's live checks pass.
+archives. All enabled callers pass S3 settings with a stable build scope.
+Keep callers with `kache: false` disabled and free of S3 inputs. The setup
+action's README lists each scope and its access mode.
 `dev/kache-ci-config` requires a complete key pair, bucket, and build scope for
 S3. No keys selects local-only; a partial pair fails before the action starts.
 
-The pilot jobs select `kache-s3-writer` only for protected branch pushes to
-`main` or `self-hosted`. Other events select the empty `kache-s3-reader`
-environment. Writer secrets belong only in the restricted writer environment.
-Existing deployment jobs retain their environments and use reader access when
-added later. Tags, dispatches, and jobs that build a selected ref cannot write.
-Keep the native backend acceptance job free of cache writer keys.
+Audited compiler jobs select `kache-s3-writer` only for protected branch pushes to
+`main` or `self-hosted`. Other events use an empty environment name and select
+no GitHub environment. Same-repository PRs use repository reader secrets; fork
+PRs build local-only. Writer secrets belong only in the restricted writer
+environment. Do not create a reader environment.
+Existing deployment jobs retain their environments and use reader access.
+Tags, dispatches, and jobs that build a selected ref cannot write. Source lint,
+docs quality and composition, Nix output warming, and manual recovery are
+readers. Keep the native backend acceptance job free of cache writer keys and
+pass only its reader pair through the reusable workflow call.
+
+When adding an enabled caller, pass both optional Kache secrets through every
+reusable call in its chain. Declare them under `workflow_call.secrets` when a
+caller uses an explicit secret map. Share a stable scope across the same outer
+Cargo build family, including reader-only consumers. Keep Clippy, check, test,
+doc, and release variants separate. Jobs with no outer Cargo compilation share
+`nix-only`; Nix derivations do not use this remote. Identical test shards share
+a scope. The action adds runner OS and architecture.
+Keep credentials out of global `AWS_*` settings and Nix derivations.
 
 `just lint-config` tests CI selection, result gates, summaries, the backend
 selector, and write policy without keys, a compiler daemon, or cloud access.

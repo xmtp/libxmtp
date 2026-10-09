@@ -8,6 +8,8 @@ jobs:
     name: Swift lifecycle checks and consumers
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: warp-macos-15-arm64-6x
+    environment:
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
     timeout-minutes: 60
     env:
       NIX_DEVSHELL: ios
@@ -18,6 +20,13 @@ jobs:
           kache: "true"
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+          kache-scope: nix-only
+          kache-readonly: "false"
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26"
