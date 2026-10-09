@@ -10,7 +10,14 @@ class FileGrantReceiverActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val receiver = intent.getParcelableExtra<ResultReceiver>("result")
-        val readable = try { contentResolver.openInputStream(checkNotNull(intent.data))?.use { it.read() >= 0 } == true } catch (_: Exception) { false }
+        val readable =
+            try {
+                contentResolver.openInputStream(checkNotNull(intent.data))?.use { it.read() >= 0 } == true
+            } catch (
+                _: Exception,
+            ) {
+                false
+            }
         receiver?.send(if (readable) 1 else 0, Bundle())
         finish()
     }
@@ -18,14 +25,24 @@ class FileGrantReceiverActivity : Activity() {
 
 class FileGrantReceiverService : Service() {
     private val receiver by lazy {
-        Messenger(object : Handler(Looper.getMainLooper()) {
-            override fun handleMessage(message: Message) {
-                val readable = try {
-                    contentResolver.openInputStream(android.net.Uri.parse(message.data.getString("uri")))?.use { it.read() >= 0 } == true
-                } catch (_: Exception) { false }
-                message.replyTo.send(Message.obtain().apply { arg1 = if (readable) 1 else 0 })
-            }
-        })
+        Messenger(
+            object : Handler(Looper.getMainLooper()) {
+                override fun handleMessage(message: Message) {
+                    val readable =
+                        try {
+                            contentResolver.openInputStream(android.net.Uri.parse(message.data.getString("uri")))?.use {
+                                it.read() >=
+                                    0
+                            } ==
+                                true
+                        } catch (_: Exception) {
+                            false
+                        }
+                    message.replyTo.send(Message.obtain().apply { arg1 = if (readable) 1 else 0 })
+                }
+            },
+        )
     }
+
     override fun onBind(intent: Intent): IBinder = receiver.binder
 }

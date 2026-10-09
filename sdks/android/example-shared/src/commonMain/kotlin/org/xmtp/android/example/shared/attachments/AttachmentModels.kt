@@ -19,11 +19,33 @@ data class AttachmentCardState(
 
 sealed interface AttachmentAction {
     data object Select : AttachmentAction
-    data class Send(val draftId: String) : AttachmentAction
-    data class Discard(val draftId: String) : AttachmentAction
-    data class Download(val messageId: String) : AttachmentAction
-    data class Open(val messageId: String) : AttachmentAction
-    data class Save(val messageId: String) : AttachmentAction
-    data class ViewChat(val conversationId: String) : AttachmentAction
-    data class Assign(val draftId: String, val conversationId: String) : AttachmentAction
+
+    data class Send(
+        val draftId: String,
+    ) : AttachmentAction
+
+    data class Discard(
+        val draftId: String,
+    ) : AttachmentAction
+
+    data class Download(
+        val messageId: String,
+    ) : AttachmentAction
+
+    data class Open(
+        val messageId: String,
+    ) : AttachmentAction
+
+    data class Save(
+        val messageId: String,
+    ) : AttachmentAction
+
+    data class ViewChat(
+        val conversationId: String,
+    ) : AttachmentAction
+
+    data class Assign(
+        val draftId: String,
+        val conversationId: String,
+    ) : AttachmentAction
 }

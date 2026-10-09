@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.example.exampleStorageLocation
+import org.xmtp.android.example.messenger.attachments.AttachmentFiles
 import uniffi.xmtp_sdk.*
 import java.io.File
 import java.security.SecureRandom
@@ -696,6 +697,7 @@ class AppSession(
         if (record.phase ==
             ResetPhase.DATABASE_REMOVED
         ) {
+            AttachmentFiles.revokeProfile(context, record.profileId)
             cleanup
                 .removeFiles(record)
             record =

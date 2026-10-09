@@ -112,6 +112,11 @@ the backend port for the release loopback connection. The Gradle property
 `xmtpExampleReleaseTests=true` selects this test mode. It does not change URL
 admission. Run both host variants with
 `dev/nix-shell 'just android example-test :example:testReleaseUnitTest'`.
+It also forwards the backend proxy and its API. It supplies the `toxicBackendUrl`
+and `toxiproxyApi` runner arguments from the worktree environment. Attachment
+interruption tests change only their named toxic and restore the backend proxy.
+Run this route alone when using a shared stack; no other proxy test can run at
+the same time. Caller environment values can select an existing stack.
 Start the backend before app instrumentation. Keep SDK package and consumer tests.
 
 Run `dev/nix-shell 'just backend up'`. The library test BuildConfig reads backend

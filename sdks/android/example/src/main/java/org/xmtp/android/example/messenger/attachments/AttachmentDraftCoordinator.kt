@@ -2,8 +2,6 @@ package org.xmtp.android.example.messenger.attachments
 
 import android.content.ContentResolver
 import android.net.Uri
-import java.io.File
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -16,8 +14,11 @@ import kotlinx.coroutines.withContext
 import org.xmtp.android.example.messenger.*
 import org.xmtp.android.example.shared.attachments.AttachmentCardState
 import uniffi.xmtp_sdk.*
+import java.io.File
+import java.util.UUID
 
-internal fun draftNeedsReview(draft: SendDraftRef) = draft.acceptedMessageId == null && draft.phase == SendPhase.QUEUEING
+internal fun draftNeedsReview(draft: SendDraftRef) =
+    draft.acceptedMessageId == null && draft.phase == SendPhase.QUEUEING
 
 /** Owns one profile's draft actions. It never resumes a typed send on recovery. */
 class AttachmentDraftCoordinator(
@@ -36,34 +37,63 @@ class AttachmentDraftCoordinator(
     val cards: StateFlow<List<AttachmentCardState>> = mutableCards
 
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
+
     private fun operationId(draftId: String) = "${key.profileId}/$draftId"
+
     private fun update(card: AttachmentCardState) {
         if (accepts(key)) mutableCards.update { cards -> cards.filterNot { it.id == card.id } + card }
     }
-    private suspend fun descriptor(draft: SendDraftRef): RemoteAttachment = withContext(Dispatchers.IO) {
-        AttachmentDescriptor.decode(checkNotNull(secrets.read(key.profileId, checkNotNull(draft.descriptorSecretRef))) { "Draft descriptor is unavailable" })
-    }
-    private fun card(draft: SendDraftRef, remote: RemoteAttachment?, status: String, busy: Boolean = false, unavailable: Boolean = false, error: String? = null) = AttachmentCardState(
-        id = draft.draftId, filename = remote?.filename ?: "File", status = status, busy = busy,
+
+    private suspend fun descriptor(draft: SendDraftRef): RemoteAttachment =
+        withContext(Dispatchers.IO) {
+            val ref = checkNotNull(draft.descriptorSecretRef)
+            val bytes = checkNotNull(secrets.read(key.profileId, ref)) { "Draft descriptor is unavailable" }
+            AttachmentDescriptor.decode(bytes)
+        }
+
+    private fun card(
+        draft: SendDraftRef,
+        remote: RemoteAttachment?,
+        status: String,
+        busy: Boolean = false,
+        unavailable: Boolean = false,
+        error: String? = null,
+    ) = AttachmentCardState(
+        id = draft.draftId,
+        filename = remote?.filename ?: "File",
+        status = status,
+        busy = busy,
         canSend = !busy && !unavailable && !draftNeedsReview(draft) && draft.acceptedMessageId == null,
         canDiscard = !busy || draft.phase == SendPhase.UPLOADING,
-        unknownOutcome = draftNeedsReview(draft), unavailable = unavailable, error = error,
-        conversationId = draft.conversationKey, acceptedMessageId = draft.acceptedMessageId,
+        unknownOutcome = draftNeedsReview(draft),
+        unavailable = unavailable,
+        error = error,
+        conversationId = draft.conversationKey,
+        acceptedMessageId = draft.acceptedMessageId,
     )
 
-    private suspend fun sweepOnce() = mutex.withLock {
-        if (!swept) {
-            withContext(Dispatchers.IO) { PrivateFileStager.sweep(paths.temp) }
-            swept = true
+    private suspend fun sweepOnce() =
+        mutex.withLock {
+            if (!swept) {
+                withContext(Dispatchers.IO) { PrivateFileStager.sweep(paths.temp) }
+                swept = true
+            }
         }
-    }
 
-    suspend fun select(resolver: ContentResolver, uri: Uri, conversationKey: String, screenCurrent: () -> Boolean = { true }): SendDraftRef {
+    suspend fun select(
+        resolver: ContentResolver,
+        uri: Uri,
+        conversationKey: String,
+        screenCurrent: () -> Boolean = {
+            true
+        },
+    ): SendDraftRef {
         checkCurrent()
         check(screenCurrent()) { "The screen changed" }
         sweepOnce()
         check(attachments.offered()) { "This backend does not offer file uploads" }
-        val configuration = checkNotNull(client.serverConfiguration().attachments) { "This backend does not offer file uploads" }
+        val configuration =
+            checkNotNull(client.serverConfiguration().attachments) { "This backend does not offer file uploads" }
         val source = PrivateFileStager.stage(resolver, uri, paths.temp, configuration.maxUploadBytes)
         var remote: RemoteAttachment? = null
         var saved = false
@@ -78,7 +108,11 @@ class AttachmentDraftCoordinator(
             }
             checkCurrent()
             check(screenCurrent()) { "The screen changed" }
-            val stagedRemote = attachments.create(AttachmentSource.Path(source.file.absolutePath, source.filename, source.mimeType)).remoteAttachment()
+            val stagedRemote =
+                attachments
+                    .create(
+                        AttachmentSource.Path(source.file.absolutePath, source.filename, source.mimeType),
+                    ).remoteAttachment()
             remote = stagedRemote
             checkCurrent()
             check(screenCurrent()) { "The screen changed" }
@@ -111,7 +145,14 @@ class AttachmentDraftCoordinator(
         }
     }
 
-    suspend fun send(draftId: String, conversation: Conversation, screenCurrent: () -> Boolean = { true }, reconcile: suspend (Message) -> Unit) {
+    suspend fun send(
+        draftId: String,
+        conversation: Conversation,
+        screenCurrent: () -> Boolean = {
+            true
+        },
+        reconcile: suspend (Message) -> Unit,
+    ) {
         checkCurrent()
         check(screenCurrent()) { "The screen changed" }
         processMutex.withLock { check(running.add(operationId(draftId))) { "This file action is already running" } }
@@ -156,11 +197,26 @@ class AttachmentDraftCoordinator(
             throw error
         } catch (error: Throwable) {
             val current = preferences.drafts(key.profileId).firstOrNull { it.draftId == draftId }
-            if (current != null) update(card(current, remote, if (draftNeedsReview(current)) "Review send outcome" else "Failed", unavailable = error.isExpiredDraft(), error = error.attachmentLabel()))
+            if (current !=
+                null
+            ) {
+                update(
+                    card(
+                        current,
+                        remote,
+                        if (draftNeedsReview(current)) "Review send outcome" else "Failed",
+                        unavailable = error.isExpiredDraft(),
+                        error = error.attachmentLabel(),
+                    ),
+                )
+            }
             throw error
         } finally {
             withContext(NonCancellable) {
-                processMutex.withLock { running.remove(operationId(draftId)); queueing.remove(operationId(draftId)) }
+                processMutex.withLock {
+                    running.remove(operationId(draftId))
+                    queueing.remove(operationId(draftId))
+                }
             }
         }
     }
@@ -173,58 +229,89 @@ class AttachmentDraftCoordinator(
         }
     }
 
-    suspend fun recover() = recoveryMutex.withLock {
-        checkCurrent()
-        sweepOnce()
-        if (accepts(key)) mutableCards.value = emptyList()
-        val drafts = preferences.drafts(key.profileId).filter { it.descriptorSecretRef != null }
-        processMutex.withLock {
-            val retained = preferences.drafts(key.profileId).mapNotNull { it.descriptorSecretRef }.toSet()
-            withContext(Dispatchers.IO) {
-                paths.secrets.listFiles()?.filter { it.name.matches(Regex("attachment-[a-zA-Z0-9-]+")) && it.name !in retained && "${key.profileId}/${it.name}" !in activeSecrets }?.forEach { secrets.delete(key.profileId, it.name) }
-            }
-        }
-        val known = mutableListOf<RemoteAttachment>()
-        for (draft in drafts) {
+    suspend fun recover() =
+        recoveryMutex.withLock {
             checkCurrent()
-            var remote: RemoteAttachment? = null
-            try {
-                if (draft.acceptedMessageId != null) {
-                    update(card(draft, null, "Message accepted. Retry publication in the chat."))
-                    continue
+            sweepOnce()
+            if (accepts(key)) mutableCards.value = emptyList()
+            val drafts = preferences.drafts(key.profileId).filter { it.descriptorSecretRef != null }
+            processMutex.withLock {
+                val retained = preferences.drafts(key.profileId).mapNotNull { it.descriptorSecretRef }.toSet()
+                withContext(Dispatchers.IO) {
+                    paths.secrets
+                        .listFiles()
+                        ?.filter {
+                            it.name.matches(Regex("attachment-[a-zA-Z0-9-]+")) &&
+                                it.name !in retained &&
+                                "${key.profileId}/${it.name}" !in activeSecrets
+                        }?.forEach { secrets.delete(key.profileId, it.name) }
                 }
-                remote = descriptor(draft)
-                known += remote
-                if (draftNeedsReview(draft)) {
-                    update(card(draft, remote, "Review send outcome"))
-                } else {
-                    val status = attachments.pending(remote).status()
-                    checkCurrent()
-                    update(card(draft, remote, status.label(), busy = status == PendingAttachmentStatus.Uploading))
-                }
-            } catch (error: CancellationException) { throw error }
-            catch (error: Throwable) { update(card(draft, remote, "Draft expired or unavailable", unavailable = true, error = error.attachmentLabel())) }
-        }
-        // The unfinished list is for discovery only. Complete drafts use pending(remote).
-        for (pending in attachments.listPending()) {
-            val remote = pending.remoteAttachment()
-            if (known.none { it == remote } && processMutex.withLock { (creating[key.profileId] ?: 0) == 0 }) {
-                val id = UUID.randomUUID().toString()
-                val ref = "attachment-$id"
+            }
+            val known = mutableListOf<RemoteAttachment>()
+            for (draft in drafts) {
                 checkCurrent()
-                processMutex.withLock { activeSecrets.add("${key.profileId}/$ref") }
+                var remote: RemoteAttachment? = null
                 try {
-                    withContext(Dispatchers.IO) { secrets.write(key.profileId, ref, AttachmentDescriptor.encode(remote)) }
+                    if (draft.acceptedMessageId != null) {
+                        update(card(draft, null, "Message accepted. Retry publication in the chat."))
+                        continue
+                    }
+                    remote = descriptor(draft)
+                    known += remote
+                    if (draftNeedsReview(draft)) {
+                        update(card(draft, remote, "Review send outcome"))
+                    } else {
+                        val status = attachments.pending(remote).status()
+                        checkCurrent()
+                        update(card(draft, remote, status.label(), busy = status == PendingAttachmentStatus.Uploading))
+                    }
+                } catch (
+                    error: CancellationException,
+                ) {
+                    throw error
+                } catch (
+                    error: Throwable,
+                ) {
+                    update(
+                        card(
+                            draft,
+                            remote,
+                            "Draft expired or unavailable",
+                            unavailable = true,
+                            error = error.attachmentLabel(),
+                        ),
+                    )
+                }
+            }
+            // The unfinished list is for discovery only. Complete drafts use pending(remote).
+            for (pending in attachments.listPending()) {
+                val remote = pending.remoteAttachment()
+                if (known.none { it == remote } && processMutex.withLock { (creating[key.profileId] ?: 0) == 0 }) {
+                    val id = UUID.randomUUID().toString()
+                    val ref = "attachment-$id"
                     checkCurrent()
-                    val draft = SendDraftRef(id, "", ref)
-                    preferences.saveDraft(key.profileId, draft)
-                    update(card(draft, remote, "Unassigned file. Discard or select a chat.").copy(canSend = false))
-                } finally { withContext(NonCancellable) { processMutex.withLock { activeSecrets.remove("${key.profileId}/$ref") } } }
+                    processMutex.withLock { activeSecrets.add("${key.profileId}/$ref") }
+                    try {
+                        withContext(
+                            Dispatchers.IO,
+                        ) { secrets.write(key.profileId, ref, AttachmentDescriptor.encode(remote)) }
+                        checkCurrent()
+                        val draft = SendDraftRef(id, "", ref)
+                        preferences.saveDraft(key.profileId, draft)
+                        update(card(draft, remote, "Unassigned file. Discard or select a chat.").copy(canSend = false))
+                    } finally {
+                        withContext(
+                            NonCancellable,
+                        ) { processMutex.withLock { activeSecrets.remove("${key.profileId}/$ref") } }
+                    }
+                }
             }
         }
-    }
 
-    suspend fun assign(draftId: String, conversationKey: String) {
+    suspend fun assign(
+        draftId: String,
+        conversationKey: String,
+    ) {
         checkCurrent()
         val draft = preferences.drafts(key.profileId).single { it.draftId == draftId }
         require(draft.conversationKey.isEmpty() && draft.phase != SendPhase.QUEUEING && draft.acceptedMessageId == null)
@@ -234,17 +321,24 @@ class AttachmentDraftCoordinator(
 
     suspend fun discard(draftId: String) {
         checkCurrent()
-        val draft = processMutex.withLock {
-            check(operationId(draftId) !in queueing) { "Wait for the queue action to finish" }
-            preferences.drafts(key.profileId).single { it.draftId == draftId }.also { discarded.add(operationId(draftId)) }
-        }
+        val draft =
+            processMutex.withLock {
+                check(operationId(draftId) !in queueing) { "Wait for the queue action to finish" }
+                preferences
+                    .drafts(
+                        key.profileId,
+                    ).single { it.draftId == draftId }
+                    .also { discarded.add(operationId(draftId)) }
+            }
         // QUEUEING can have produced a message before the process lost its ID.
         if (draft.acceptedMessageId == null && !draftNeedsReview(draft)) {
             try {
-                val bytes = withContext(Dispatchers.IO) { draft.descriptorSecretRef?.let { secrets.read(key.profileId, it) } }
+                val bytes =
+                    withContext(Dispatchers.IO) { draft.descriptorSecretRef?.let { secrets.read(key.profileId, it) } }
                 if (bytes != null) attachments.deleteLocal(AttachmentDescriptor.decode(bytes))
+            } catch (error: XmtpException.Attachment) {
+                if (!error.isExpiredDraft()) throw error
             }
-            catch (error: XmtpException.Attachment) { if (!error.isExpiredDraft()) throw error }
         }
         checkCurrent()
         preferences.removeDraft(key.profileId, draftId)
@@ -264,11 +358,21 @@ class AttachmentDraftCoordinator(
     }
 }
 
-internal fun Throwable.isExpiredDraft() = this is XmtpException.Attachment && v2.cause == AttachmentFailureCause.STAGED_UNUSABLE
-internal fun Throwable.attachmentLabel(): String = if (this is XmtpException.Attachment) "${v2.cause}${v2.httpStatus?.let { " (HTTP $it)" } ?: ""}" else message ?: javaClass.simpleName
-internal fun PendingAttachmentStatus.label(): String = when (this) {
-    PendingAttachmentStatus.Waiting -> "Waiting"
-    PendingAttachmentStatus.Uploading -> "Uploading"
-    PendingAttachmentStatus.Complete -> "Complete"
-    is PendingAttachmentStatus.Failed -> "Failed: ${v1.cause}"
-}
+internal fun Throwable.isExpiredDraft() =
+    this is XmtpException.Attachment && v2.cause == AttachmentFailureCause.STAGED_UNUSABLE
+
+internal fun Throwable.attachmentLabel(): String =
+    if (this is XmtpException.Attachment) {
+        "${v2.cause}${v2.httpStatus?.let { " (HTTP $it)" } ?: ""}"
+    } else {
+        message
+            ?: javaClass.simpleName
+    }
+
+internal fun PendingAttachmentStatus.label(): String =
+    when (this) {
+        PendingAttachmentStatus.Waiting -> "Waiting"
+        PendingAttachmentStatus.Uploading -> "Uploading"
+        PendingAttachmentStatus.Complete -> "Complete"
+        is PendingAttachmentStatus.Failed -> "Failed: ${v1.cause}"
+    }
