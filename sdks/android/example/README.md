@@ -26,9 +26,16 @@ process lifecycle checks remain separate gates.
 ## Connect
 
 The Start screen shows the backend URL from the worktree build configuration.
-You can edit it and supply an optional credential. The app retains one hidden
-wallet per backend profile. Private key, credential and database key records use
-Android Keystore encryption. App and SDK files are excluded from backup.
+You can edit it. Use HTTPS for a remote backend. HTTP is allowed only for the
+local development hosts `localhost`, `127.0.0.1`, `[::1]` and the Android emulator
+host `10.0.2.2`. Do not put credentials in the URL.
+
+The Credential field appears only when the selected server reports that it
+requires authentication. Enter that server's credential in this field.
+
+The app retains one hidden wallet per backend profile. Private key, credential
+and database key records use Android Keystore encryption. App and SDK files are
+excluded from backup.
 
 An old example database with no retained wallet key shows a migration state.
 Select its inbox only when you want to reset that local account. First launch
@@ -52,8 +59,10 @@ before its ID is saved has an unknown outcome. Settings offers View chat and
 Discard record. It does not resend that record automatically.
 
 Group settings use current names, descriptions, roles, built-in permissions and
-disappearing settings. A preset change uses separate SDK writes. A partial
-failure shows the state read from the SDK. Request removal shows PendingRemove
+disappearing settings. A preset change uses separate SDK writes. After the first
+write starts, navigation does not stop the remaining writes to that group while
+the same session is active. A partial SDK failure shows the state read from the
+SDK. Request removal shows PendingRemove
 until a later committed state changes it.
 
 ## Local history limits

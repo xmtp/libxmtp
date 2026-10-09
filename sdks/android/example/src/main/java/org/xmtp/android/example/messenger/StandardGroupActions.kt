@@ -6,7 +6,7 @@ import uniffi.xmtp_sdk.*
 suspend fun applyStandardPreset(
     group: Group,
     adminOnly: Boolean,
-    beforeWrite: () -> Unit = {},
+    beforeWrite: suspend () -> Unit = {},
 ) = standardPresetWrites(
     adminOnly,
     { kind, policy, field ->
