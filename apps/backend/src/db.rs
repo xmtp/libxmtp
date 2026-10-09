@@ -7,7 +7,6 @@ pub(crate) mod stream;
 
 use crate::{config::Config, error::Error};
 use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
-use xmtp_common::time::{Duration, sleep};
 
 mod model;
 pub(crate) use model::*;
@@ -45,67 +44,16 @@ impl Store {
     ///
     /// A replica is never used for migrations. If no replica URL is configured,
     /// both fields share the primary pool and all reads use the same database.
-    /// A physical replica must replay the migrations before backend state is read.
     #[xmtp_common::db_span]
     pub async fn connect(config: &Config) -> Result<Self, Error> {
         let primary = connect_pool(&config.database.url, config).await?;
         sqlx::migrate!().run(&primary).await?;
         let read = match &config.database.replica_url {
-            Some(url) => {
-                let read = connect_pool(url, config).await?;
-                wait_for_migration_replay(
-                    &primary,
-                    &read,
-                    Duration::from_millis(config.streams.poll_interval_ms),
-                )
-                .await?;
-                read
-            }
+            Some(url) => connect_pool(url, config).await?,
             None => primary.clone(),
         };
         Ok(Self { primary, read })
     }
-}
-
-/// Wait for the selected physical replica to apply the primary's migrations.
-///
-/// Capture the WAL insert position once after migration commits, including commits
-/// not yet flushed with asynchronous commit. PostgreSQL built-ins remain available
-/// before the backend schema exists. Lag keeps initialization pending; query errors
-/// propagate, and cancelling initialization cancels the wait. A primary read pool
-/// needs no recovery wait.
-#[xmtp_common::db_span]
-async fn wait_for_migration_replay(
-    primary: &PgPool,
-    read: &PgPool,
-    poll_interval: Duration,
-) -> Result<(), Error> {
-    let migration_lsn = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(
-        "SELECT pg_current_wal_insert_lsn()::text",
-    ))
-    .fetch_one(primary)
-    .await?;
-    let mut waiting = false;
-    loop {
-        let ready = sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe(
-            "SELECT NOT pg_is_in_recovery() OR COALESCE(pg_last_wal_replay_lsn() >= $1::pg_lsn, false)",
-        ))
-        .bind(&migration_lsn)
-        .fetch_one(read)
-        .await?;
-        if ready {
-            break;
-        }
-        if !waiting {
-            tracing::info!("waiting for replica to replay database migrations");
-            waiting = true;
-        }
-        sleep(poll_interval).await;
-    }
-    if waiting {
-        tracing::info!("replica has replayed database migrations");
-    }
-    Ok(())
 }
 
 /// Create a pool whose connections enforce the configured PostgreSQL statement timeout.

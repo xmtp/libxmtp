@@ -158,12 +158,13 @@ An empty chain map supports identities that do not need chain RPC verification.
 
 The optional replica URL must name one physical PostgreSQL replica, not a load
 balancer that selects independently lagging replicas. After primary migrations,
-startup waits for that replica to replay the primary's captured WAL insert
-position before reading backend tables or opening the gRPC listener. The wait
-logs when it begins and completes; database errors still fail startup.
-Publish and Query use the
-primary. Newest, identifier lookup, and subscriptions use the selected read
-database. Those reads can lag behind a successful publish.
+initial startup retries a missing allocation-boundary table for up to 10 seconds,
+using a fresh transaction each time. Other database errors fail startup. Once the
+table exists, the existing wait for the required boundary value remains unchanged.
+This handles fresh database initialization; an existing-schema upgrade must ensure
+the required migrations have replayed before starting the upgraded backend.
+Publish and Query use the primary. Newest, identifier lookup, and subscriptions
+use the selected read database. Those reads can lag behind a successful publish.
 
 The tailer keeps one dedicated connection to the selected read database. This is
 in addition to the configured request pools. Without a replica, budget at most
