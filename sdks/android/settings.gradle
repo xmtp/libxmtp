@@ -15,4 +15,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "xmtp-android"
 include ':example'
+include ':example-shared'
 include ':library'

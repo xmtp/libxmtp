@@ -23,7 +23,7 @@ let
   hasApi23Emulator = stdenv.isLinux && hostArch == "x86_64";
 
   # SDK configuration - keep in sync with sdks/android/library/build.gradle
-  # Library: compileSdk 35, Example: compileSdk 34
+  # Library, Example, and shared presentation module: compileSdk 35
   # Gradle auto-selects buildTools matching compileSdk when not specified.
   sdkConfig = {
     platforms = [
