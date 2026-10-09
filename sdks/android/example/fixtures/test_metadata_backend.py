@@ -19,6 +19,8 @@ class MetadataBackendFixtureTest(unittest.TestCase):
         self.env = dict(
             os.environ,
             DATABASE_URL="postgres://test:test@127.0.0.1:1/shared",
+            XMTP_DATABASE_URL="postgres://test:test@127.0.0.1:1/shared_alias",
+            XMTP_REPLICA_URL="postgres://test:test@127.0.0.1:1/shared_replica",
             XMTP_S3_URL="http://127.0.0.1:2",
             XMTP_S3_BASE_URL="http://127.0.0.1:2/attachments",
             XMTP_BACKEND_URL="http://127.0.0.1:3",
@@ -74,9 +76,15 @@ while True: time.sleep(.05)
             "child",
             """import os,sys,time
 from pathlib import Path
+from urllib.parse import urlsplit
 assert os.environ['XMTP_ANDROID_BACKEND_URL'] == 'http://10.0.2.2:3'
 assert os.environ['XMTP_BACKEND_URL'] == 'http://127.0.0.1:3'
-assert os.environ['DATABASE_URL'].endswith('/shared')
+assert os.environ['XMTP_S3_URL'] == 'http://127.0.0.1:2'
+assert os.environ['XMTP_S3_BASE_URL'] == 'http://127.0.0.1:2/attachments'
+owned_name = Path(os.environ['FIXTURE_LEDGER'] + '.database').read_text()
+assert urlsplit(os.environ['DATABASE_URL']).path == '/' + owned_name
+assert os.environ['XMTP_DATABASE_URL'] == os.environ['DATABASE_URL']
+assert os.environ['XMTP_REPLICA_URL'] == os.environ['DATABASE_URL']
 assert os.environ['XMTP_METADATA_BACKEND_URL'] == 'http://127.0.0.1:' + os.environ['XMTP_METADATA_BACKEND_PORT']
 with open(os.environ['FIXTURE_LEDGER'], 'a') as out: out.write('CHILD_READY\\n')
 if os.environ.get('WAIT_CHILD'):
@@ -123,6 +131,12 @@ sys.exit(int(os.environ.get('CHILD_STATUS','0')))
         out, error = process.communicate(timeout=15)
         self.assertEqual(7, process.returncode, (out, error))
         self.assertIn("BACKEND_STOP", self.check_cleanup())
+
+    def test_child_uses_owned_sql_urls_and_preserves_app_endpoints(self):
+        process = self.start()
+        out, error = process.communicate(timeout=15)
+        self.assertEqual(0, process.returncode, (out, error))
+        self.assertIn("CHILD_READY", self.check_cleanup())
 
     def test_backend_startup_failure_drops_only_owned_database(self):
         process = self.start(FAIL_BACKEND="1")

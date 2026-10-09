@@ -64,13 +64,13 @@ def run(backend, command, environment=None):
     parsed = urlsplit(database)
     owned_url = urlunsplit(parsed._replace(path="/" + name))
     listener, metrics = port(), port()
+    env.update(
+        DATABASE_URL=owned_url, XMTP_DATABASE_URL=owned_url, XMTP_REPLICA_URL=owned_url
+    )
     child_env = dict(
         env,
         XMTP_METADATA_BACKEND_URL=f"http://127.0.0.1:{listener}",
         XMTP_METADATA_BACKEND_PORT=str(listener),
-    )
-    env.update(
-        DATABASE_URL=owned_url, XMTP_DATABASE_URL=owned_url, XMTP_REPLICA_URL=owned_url
     )
     env.setdefault("XMTP_CHAIN_31337_URL", env.get("ANVIL_URL", ""))
     env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
