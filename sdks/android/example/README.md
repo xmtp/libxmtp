@@ -119,3 +119,56 @@ The count and marker reads are separate SDK calls.
 Attachment, custom field and notification controls are enabled only when their
 app feature wiring is present. Shared UI records contain no SDK or Android
 objects.
+
+## Optional notifications
+
+The app builds and runs without Firebase configuration. App settings shows
+notifications Off. This build does not ask for Android notification permission,
+request an FCM token, or register SDK notifications.
+
+To enable the Firebase build, supply your Android app's `google-services.json`:
+
+```sh
+XMTP_FIREBASE_CONFIG=/absolute/path/google-services.json dev/nix-shell 'just android example-check'
+```
+
+You can also keep the file at `sdks/android/example/google-services.json`. Git
+ignores that file. The application ID must be `org.xmtp.android.example`.
+The configured dependency graph has its own strict lock file. It uses Firebase
+Messaging 26.0.0 and Fragment 1.8.5 with the current Android toolchain.
+The backend must also have its FCM channel configured.
+
+Open App settings and select Turn notifications on. This action asks for Android
+permission when required. The app shows the current token, permission and SDK
+registration state. Conversation settings can enable or mute the conversation.
+Sign out persists signed-out state before stopping owned jobs and unregistering.
+A failed unregister cannot reopen the signed-out account.
+
+Notifications show only “XMTP Messenger” and “You got a message.” A group topic
+must resolve through the current profile's local SDK database. Unknown groups,
+Denied consent, muted conversations, app Off, and stale sessions are dropped.
+A Welcome must name the current installation and opens the conversation list.
+Topic and unsigned sequence identify a notification, not a message. The app does
+not fetch an exact message from that pair or substitute the latest message.
+
+A background push can reopen only the saved signed-in profile with its recorded
+SDK database still present. This path starts no default message collector.
+Foreground launch adopts that process owner and starts normal collection.
+A saved account cannot replace a pending sign-out or reset. A user Connect
+request starts the next session generation.
+
+When Firebase or the app setting is Off, an existing SDK database first opens
+with the task runner disabled. This temporary client clears stored notification
+state before a normal worker can renew it. Local Disabled state survives an
+unavailable Unregister response. The temporary client then ends, and the app
+opens its normal client with the original worker options. Chat workers remain
+available in that normal session.
+
+The persisted-state fixture uses the local backend's HTTP channel with an empty
+conversation selection and no Welcomes or sync groups. It does not deliver to
+that target or register with FCM. Other local tests use a simulated configured
+transport and registration state with
+real app session, SDK conversation, consent and preference paths. They do not
+prove Firebase delivery. Real background receipt and tap testing still require
+a developer Firebase project and a device. Synthetic public build resources
+can prove configured compilation only.

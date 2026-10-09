@@ -8,6 +8,7 @@ if (suppliedFirebasePath && !firebaseFile.isFile()) {
 }
 def firebaseConfigured = firebaseFile.isFile()
 if (firebaseConfigured) {
+    dependencyLocking { lockFile = file('firebase-gradle.lockfile') }
     def firebase = new JsonSlurper().parse(firebaseFile)
     def client = firebase.client.find { it.client_info.android_client_info.package_name == android.defaultConfig.applicationId }
     if (!client) throw new GradleException('Firebase configuration has no client for this applicationId')
@@ -27,7 +28,13 @@ if (firebaseConfigured) {
         debug.manifest.srcFile 'src/pushConfigured/AndroidManifest.xml'
         release.manifest.srcFile 'src/pushConfigured/AndroidManifest.xml'
     }
-    dependencies { implementation 'com.google.firebase:firebase-messaging:26.0.0' }
+    dependencies {
+        implementation 'com.google.firebase:firebase-messaging:26.0.0'
+        // Play Services selects Fragment 1.0.0. Activity result APIs require 1.3.0 or later.
+        implementation 'androidx.fragment:fragment:1.8.5'
+        // Keep Kotlin common metadata present in the strict configured graph.
+        implementation 'org.jetbrains.kotlin:kotlin-stdlib-common:2.2.20'
+    }
 } else {
     android.sourceSets.main.java.srcDir 'src/pushOff/java'
 }

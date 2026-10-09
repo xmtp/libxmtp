@@ -15,9 +15,14 @@ import java.util.concurrent.atomic.AtomicInteger
 /** This fixture owns its listener, workers and every accepted socket. */
 internal class AppOfflineBackendProxy(
     backendUrl: String,
+    listenerPort: Int = 0,
 ) : AutoCloseable {
     private val backend = URI(backendUrl).also { require(it.scheme == "http") }
-    private val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
+    private val server =
+        ServerSocket().apply {
+            reuseAddress = true
+            bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), listenerPort), 50)
+        }
     private val executor = Executors.newCachedThreadPool()
     private val sockets = Collections.synchronizedSet(mutableSetOf<Socket>())
     private val closed = AtomicBoolean(false)

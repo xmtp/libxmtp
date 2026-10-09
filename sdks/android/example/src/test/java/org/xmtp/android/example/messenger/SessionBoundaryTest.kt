@@ -80,6 +80,21 @@ class SessionBoundaryTest {
         )
     }
 
+    @Test fun automaticRestoreCannotReplaceSignOutOrAUserConnection() {
+        val fence = SessionFence()
+        val saved = checkNotNull(fence.reserveRestore())
+        val old = checkNotNull(fence.bind("a", saved))
+        fence.replace(null)
+        assertNull(fence.reserveRestore())
+        assertFalse(fence.accepts(old))
+        val selected = fence.reserve()
+        assertNull(fence.reserveRestore())
+        val current = checkNotNull(fence.bind("b", selected))
+        assertTrue(fence.accepts(current))
+        assertNull(fence.reserveRestore())
+        assertNull(fence.bind("a", saved))
+    }
+
     @Test fun coldResetRemovesDatabaseSidecarsAndOwnedFilesOnly() {
         val selected =
             File(

@@ -68,7 +68,9 @@ uses Compose and app data types. The SDK and app keep pinned desugaring for
 generated timestamps.
 `assemble` compiles the SDK, shared target, app, and SDK/app test APKs with strict
 dependency verification. `example-check` also compiles debug and release app
-and shared targets, plus the app test APK. The Android unit CI job runs `assemble`.
+and shared targets, plus the app test APK. It accepts Gradle resolution options.
+The optional configured Firebase graph uses `example/firebase-gradle.lockfile`.
+The normal build uses `example/gradle.lockfile`. The Android unit CI job runs `assemble`.
 The pinned build uses AGP 8.10.1, Kotlin and its Compose compiler 2.2.20,
 Compose Multiplatform 1.8.2, and Gradle 8.11.1. Nix provides API 35 for all
 three modules. Keep the SDK minimum at API 23 and desugar_jdk_libs at 2.1.5.

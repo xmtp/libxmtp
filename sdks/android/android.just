@@ -22,8 +22,8 @@ assemble: build
   ./gradlew -p . :library:assembleDebug :library:assembleDebugAndroidTest :example-shared:assembleDebug :example:assembleDebug :example:assembleDebugAndroidTest --dependency-verification=strict --no-daemon
 
 # Compile both app variants, shared UI and app instrumentation under strict verification.
-example-check: build
-  ./gradlew -p . :example:assembleDebug :example:assembleRelease :example:assembleDebugAndroidTest :example-shared:assembleDebug :example-shared:assembleRelease --dependency-verification=strict --no-daemon
+example-check *args: build
+  ./gradlew -p . :example:assembleDebug :example:assembleRelease :example:assembleDebugAndroidTest :example-shared:assembleDebug :example-shared:assembleRelease {{ args }} --dependency-verification=strict --no-daemon
 
 # Run Spotless + Android Lint
 lint: build
