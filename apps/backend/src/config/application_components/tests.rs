@@ -10,8 +10,8 @@ const MINIMAL: &str =
 fn entry(component_id: u32, name: &str) -> String {
     format!(
         "\n[[application_components]]\ncomponent_id = {component_id}\nname = '{name}'\n\
-         component_type = 'tls_map_inbox_id_string'\ninsert_policy = 'allow_if_self_or_non_member'\n\
-         update_policy = 'allow_if_self_or_non_member'\ndelete_policy = 'allow_if_admin'\n\
+         component_type = 'tls_map_inbox_id_string'\ninsert_policy = 'allow'\n\
+         update_policy = 'deny'\ndelete_policy = 'allow_if_admin'\n\
          in_groups = true\nin_dms = false\n"
     )
 }
@@ -82,6 +82,14 @@ fn every_type_and_policy_name_maps_to_its_wire_tag() {
         let source = entry(0xC000, "field").replace("'allow_if_admin'", &format!("'{name}'"));
         let published = load(&[source])?.configuration_response(&[]);
         let permissions = published.application_components[0].permissions.clone()?;
+        assert_eq!(
+            permissions.insert_policy,
+            Some(base(MetadataBasePolicy::Allow))
+        );
+        assert_eq!(
+            permissions.update_policy,
+            Some(base(MetadataBasePolicy::Deny))
+        );
         assert_eq!(permissions.delete_policy, Some(base(tag)));
     }
 }
