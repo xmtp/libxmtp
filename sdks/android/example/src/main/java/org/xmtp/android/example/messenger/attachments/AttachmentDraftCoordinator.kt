@@ -66,12 +66,14 @@ class AttachmentDraftCoordinator(
         val source = PrivateFileStager.stage(resolver, uri, paths.temp, configuration.maxUploadBytes)
         var remote: RemoteAttachment? = null
         var saved = false
+        var registered = false
         val id = UUID.randomUUID().toString()
         val ref = "attachment-$id"
         try {
             processMutex.withLock {
                 activeSecrets.add("${key.profileId}/$ref")
                 creating[key.profileId] = (creating[key.profileId] ?: 0) + 1
+                registered = true
             }
             checkCurrent()
             check(screenCurrent()) { "The screen changed" }
@@ -98,8 +100,10 @@ class AttachmentDraftCoordinator(
                     }
                 } finally {
                     processMutex.withLock {
-                        activeSecrets.remove("${key.profileId}/$ref")
-                        creating[key.profileId] = ((creating[key.profileId] ?: 1) - 1).coerceAtLeast(0)
+                        if (registered) {
+                            activeSecrets.remove("${key.profileId}/$ref")
+                            creating[key.profileId] = ((creating[key.profileId] ?: 1) - 1).coerceAtLeast(0)
+                        }
                     }
                 }
             }
