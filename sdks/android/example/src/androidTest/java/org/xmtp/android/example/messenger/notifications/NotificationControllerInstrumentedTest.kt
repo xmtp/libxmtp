@@ -1,7 +1,11 @@
 package org.xmtp.android.example.messenger.notifications
 
+import android.Manifest
 import android.app.Notification
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
@@ -15,7 +19,7 @@ import java.security.SecureRandom
 import java.util.Base64
 import java.util.UUID
 
-/** Test native local admission with simulated FCM registration. */
+/** Test native admission with simulated FCM registration and a captured publisher. */
 class NotificationControllerInstrumentedTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
 
@@ -107,6 +111,19 @@ class NotificationControllerInstrumentedTest {
             try {
                 session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
                 val owner = checkNotNull(session.active.value)
+                if (Build.VERSION.SDK_INT >= 33 &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    // The outer seam admits the route. The actual publisher must reject Android denial.
+                    assertFalse(
+                        controller.postIfCurrent(
+                            PushOwner(owner.key.profileId, owner.key.generation, installation(owner)),
+                            checkNotNull(parsePush(payload(1, installation(owner)))),
+                            PushRoute(owner.key.profileId, null),
+                        ),
+                    )
+                }
                 controller.permissionGranted = { false }
                 enabled(session, controller)
                 controller.tokenChanged("changed")
@@ -131,8 +148,10 @@ class NotificationControllerInstrumentedTest {
             val session = AppSession(context)
             val controller = controller(session)
             val posted = linkedMapOf<String, Pair<PushRoute, Notification>>()
+            // Capture construction and routes. This fixture does not post to Android.
             controller.postNotification = { envelope, route, notification ->
                 posted[envelope.tag] = route to notification
+                true
             }
             var peer: SDKClient? = null
             try {
@@ -276,7 +295,10 @@ class NotificationControllerInstrumentedTest {
                 recreated = AppSession(context)
                 cold = controller(checkNotNull(recreated))
                 val posted = mutableListOf<PushRoute>()
-                cold.postNotification = { _, route, _ -> posted += route }
+                cold.postNotification = { _, route, _ ->
+                    posted += route
+                    true
+                }
                 assertFalse(cold.receive(payload(0, aGroup)))
                 assertFalse(cold.receive(payload(1, aWelcome)))
                 assertTrue(cold.receive(payload(0, bGroup)))
