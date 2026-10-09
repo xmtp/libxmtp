@@ -16,6 +16,24 @@ Export `DATABASE_URL`, `XMTP_S3_URL` and `XMTP_S3_BASE_URL` from that worktree.
 The runner sets `XMTP_BACKEND_URL`, `XMTP_ANDROID_BACKEND_URL` and
 `XMTP_METADATA_BACKEND_PORT` for `COMMAND`.
 
+From the repository root, this command checks real backend startup and teardown:
+
+```sh
+dev/nix-shell 'just backend db-up'
+dev/nix-shell 'just backend s3-up'
+dev/nix-shell 'just backend build'
+dev/nix-shell --shell android '
+  . dev/docker/load-env
+  env -u LD_LIBRARY_PATH nix shell --inputs-from . nixpkgs#postgresql_18 --command \
+    python3 sdks/android/example/fixtures/metadata_backend.py \
+    --backend "$PWD/result/bin/xmtp-backend" -- true
+'
+```
+
+The pinned PostgreSQL package supplies `psql`, which is absent from the Android
+shell. Replace `true` with the test command. Each run gets a new catalogue
+backend URL. This startup check does not run the Kotlin tests.
+
 For Android instrumentation, run `COMMAND` in the existing owned emulator scope.
 Reverse the fixture's `XMTP_METADATA_BACKEND_PORT` and the worktree S3 port with
 `adb -s "$ANDROID_SERIAL" reverse`. Pass the fixture URL as the

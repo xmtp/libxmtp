@@ -23,6 +23,7 @@ class MetadataEditorTest {
         var denied: Exception? = null
         override suspend fun metadataFields(): List<MetadataFieldDescriptor> { descriptorRead?.invoke(); return fields }
         override suspend fun metadataValues(fields: List<MetadataFieldRef>): List<MetadataFieldValue> { reads += fields; return values.filter { row -> fields.any { it.componentId == row.field.componentId } } }
+        override suspend fun metadataValue(field: MetadataFieldRef): MetadataValue? = values.singleOrNull { it.field.componentId == field.componentId }?.value ?: MetadataValue.Map(users.flatMap { (inbox, fields) -> fields.filter { it.field.componentId == field.componentId }.map { MapEntry(FieldKey.InboxId(inbox), it.value) } })
         override suspend fun userData(fields: List<MetadataFieldRef>?, inboxIds: List<String>?) = users
         override suspend fun updateMetadataField(field: MetadataFieldRef, operation: ComponentMutation) { mutations += field to operation; denied?.let { throw it } }
         override suspend fun updateUserData(values: List<UserFieldUpdate>) { userWrites += values }

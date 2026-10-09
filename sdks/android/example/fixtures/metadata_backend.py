@@ -83,7 +83,7 @@ def run(backend, command, environment=None):
         with tempfile.TemporaryDirectory(prefix="messenger-metadata-") as directory:
             config = Path(directory) / "backend.toml"
             config.write_text(config_text((root / "dev/backend/local-s3.toml").read_text(), (fixture / "metadata-catalogue.toml").read_text(), listener, metrics))
-            logs = Path(env["XMTP_METADATA_LOG_DIR"] if env.get("XMTP_METADATA_LOG_DIR") else tempfile.mkdtemp(prefix="messenger-metadata-logs-"))
+            logs = Path(env["XMTP_METADATA_LOG_DIR"] if env.get("XMTP_METADATA_LOG_DIR") else tempfile.mkdtemp(prefix="messenger-metadata-logs-", dir=env.get("RUNNER_TEMP", "/tmp")))
             logs.mkdir(parents=True, exist_ok=True)
             print(f"Metadata fixture logs: {logs}", flush=True)
             with (logs / "backend.log").open("w") as log:

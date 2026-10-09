@@ -69,12 +69,15 @@ class MetadataEditorController(
             val loaded = own.getValue(id)
             val value = text?.let { MetadataMapper.value(loaded.shape, it) }
             val canonical = value?.let(MetadataMapper::scalar)
-            val next = mutableState.value.members.mapNotNull { member ->
-                member.values.singleOrNull { it.id == id && it.present }?.let { FieldEntry(member.inboxId, it.scalar) }
+            if (loaded.present == (value != null) && (value == null || loaded.scalar == canonical)) return@mapNotNull null
+            // Include former members' entries when checking the complete map size.
+            val snapshot = conversation.metadataValue(d.field) as? MetadataValue.Map
+            val next = snapshot?.v1.orEmpty().filterNot { (it.key as? FieldKey.InboxId)?.v1 == ownInboxId }.map {
+                FieldEntry(MetadataMapper.key(it.key), MetadataMapper.scalar(it.value))
             }.toMutableList()
             if (canonical != null) next += FieldEntry(ownInboxId, canonical)
             MetadataMapper.collectionSize(loaded.shape, next)
-            if (loaded.present == (value != null) && (value == null || loaded.scalar == canonical)) null else UserFieldUpdate(d.field, value)
+            UserFieldUpdate(d.field, value)
         }
         if (updates.isNotEmpty() && isCurrent()) conversation.updateUserData(updates)
     }
