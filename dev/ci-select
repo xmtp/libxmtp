@@ -1,0 +1,310 @@
+#!/usr/bin/env python3
+"""Select CI checks from Dorny outputs and record the decision."""
+
+from __future__ import annotations
+
+import html
+import json
+import os
+from pathlib import Path
+import sys
+from typing import NamedTuple
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+
+class Check(NamedTuple):
+    phase: str
+    job: str
+    suite: str | None = None
+    flag: str | None = None
+
+
+# Each entry owns its job and, where needed, its reusable workflow suite.
+CHECK_CATALOG = {
+    "lint_workspace": Check("lint", "source-lint", "lint_workspace"),
+    "lint_js": Check("lint", "source-lint", "lint_js"),
+    "lint_config": Check("lint", "source-lint", "lint_config"),
+    "lint_proto": Check("lint", "source-lint", "lint_proto"),
+    "docs_quality": Check("lint", "docs-quality"),
+    "lint_ios": Check("lint", "lint-ios"),
+    "lint_android": Check("lint", "lint-android"),
+    "check_rust": Check("test", "check-rust"),
+    "check_types": Check("test", "check-types"),
+    "check_sdk": Check("test", "check-sdk"),
+    "check_sdk_unit": Check("test", "check-sdk-unit"),
+    "test_native_backend": Check("test", "tests", "test_native_backend"),
+    "test_validation": Check("test", "tests", "test_validation"),
+    "test_backend": Check("test", "tests", "test_backend"),
+    "test_workspace": Check("test", "tests", "test_workspace"),
+    "test_keepalive": Check("test", "tests", "test_keepalive"),
+    "test_wasm": Check("test", "tests", "test_wasm"),
+    "test_node": Check("test", "tests", "test_node"),
+    "test_agent": Check("test", "tests", "test_agent"),
+    "test_xdbg": Check("test", "tests", "test_xdbg"),
+    "test_browser": Check("test", "tests", "test_browser"),
+    "check_bindings_ios": Check("test", "tests", "test_bindings"),
+    "check_bindings_android": Check("test", "tests", "test_bindings"),
+    "test_sdk_staging": Check("test", "tests", "test_sdk_staging"),
+    "test_bridge_runtime": Check("test", "tests", "test_bridge_runtime"),
+    "test_browser_platform": Check("test", "tests", "test_browser_platform"),
+    "test_ios": Check("test", "test-ios"),
+    "test_ios_platform": Check("test", "test-ios"),
+    "test_ios_platform_lifecycle": Check("test", "test-ios", flag="test_ios_platform"),
+    "test_android": Check("test", "test-android"),
+    "test_android_consumers": Check("test", "test-android"),
+    "test_android_platform": Check("test", "test-android"),
+    "test_swift_lifecycle": Check("test", "test-swift-lifecycle"),
+    "docs_site": Check("test", "docs"),
+    "docs_rust": Check("test", "docs-rust-reference"),
+}
+METADATA_FILTERS = {"all_files", "known_files", "shared", "neutral"}
+DRAFT_CHECKS = {
+    name for name, check in CHECK_CATALOG.items() if check.job == "source-lint"
+} | {"docs_quality"}
+FORK_EXCLUSIONS = {
+    "test_ios",
+    "test_ios_platform",
+    "test_swift_lifecycle",
+    "test_native_backend",
+}
+POST_MERGE_RUST = {
+    "lint_js",
+    "lint_ios",
+    "lint_android",
+    "check_types",
+    "check_sdk",
+    "test_node",
+    "test_agent",
+    "test_browser",
+    "test_bridge_runtime",
+    "test_browser_platform",
+    "test_ios",
+    "test_android",
+    "test_android_consumers",
+    "test_swift_lifecycle",
+}
+
+
+def json_strings(value):
+    """Require a JSON array of strings. Empty arrays are valid."""
+    items = json.loads(value)
+    if not isinstance(items, list) or any(not isinstance(x, str) for x in items):
+        raise ValueError("Expected a JSON array of strings")
+    return items
+
+
+def build_plan(selected):
+    flags = {CHECK_CATALOG[name].flag or name for name in selected}
+    checks = {
+        check.flag or name: (check.flag or name) in flags
+        for name, check in CHECK_CATALOG.items()
+    }
+    source_suites, test_suites = [], []
+    jobs = {"lint": ["detect-changes"], "test": ["detect-changes"]}
+    for name, check in CHECK_CATALOG.items():
+        if name not in selected:
+            continue
+        # The full docs workflow already includes the Rust reference.
+        if name == "docs_rust" and "docs_site" in selected:
+            continue
+        if check.job not in jobs[check.phase]:
+            jobs[check.phase].append(check.job)
+        suites = source_suites if check.job == "source-lint" else test_suites
+        if check.suite and check.suite not in suites:
+            suites.append(check.suite)
+    checks.update(
+        source_lint=bool(source_suites),
+        tests=bool(test_suites),
+        test_bindings="test_bindings" in test_suites,
+    )
+    return {
+        "checks": checks,
+        "lint_jobs": jobs["lint"],
+        "test_jobs": jobs["test"],
+        "source_suites": source_suites,
+        "test_suites": test_suites,
+    }
+
+
+def select_checks(
+    outputs, event_name, event, outcome, changed_files=None, metadata_error=None
+):
+    pr = event.get("pull_request", {}) if event_name == "pull_request" else {}
+    draft = pr.get("draft") is True
+    fork = bool(pr) and pr.get("head", {}).get("repo", {}).get("full_name") != (
+        event.get("repository", {}).get("full_name")
+    )
+    matched, shared, unknown, details, reasons = [], [], [], [], []
+    if event_name == "workflow_dispatch":
+        reasons.append("explicit_request")
+    else:
+        if metadata_error:
+            reasons.append("detection_failed")
+            details.append(metadata_error)
+        if event_name == "pull_request":
+            if type(changed_files) is not int or changed_files < 0:
+                if "detection_failed" not in reasons:
+                    reasons.append("detection_failed")
+                details.append("The PR changed-file total is unavailable.")
+            elif changed_files > 3000:
+                reasons.append("large_pr")
+        if outcome != "success":
+            if "detection_failed" not in reasons:
+                reasons.append("detection_failed")
+            details.append(f"Path filter result: {outcome}.")
+        else:
+            try:
+                matched = json_strings(outputs["changes"])
+                all_paths = set(json_strings(outputs["all_files_files"]))
+                known_paths = set(json_strings(outputs["known_files_files"]))
+                shared = sorted(set(json_strings(outputs["shared_files"])))
+                unexpected = set(matched) - CHECK_CATALOG.keys() - METADATA_FILTERS
+                if unexpected:
+                    raise ValueError(
+                        "Unexpected filters: " + ", ".join(sorted(unexpected))
+                    )
+                if not known_paths <= all_paths or not set(shared) <= all_paths:
+                    raise ValueError("Filter file lists contain inconsistent paths")
+                if any(
+                    (name in matched) != bool(paths)
+                    for name, paths in (
+                        ("all_files", all_paths),
+                        ("known_files", known_paths),
+                    )
+                ):
+                    raise ValueError("Matched filters and file lists disagree")
+                if ("shared" in matched) != bool(shared):
+                    raise ValueError("The shared filter and file list disagree")
+                unknown = sorted(all_paths - known_paths)
+                if shared:
+                    reasons.append("shared_input")
+                if unknown:
+                    reasons.append("unknown_paths")
+            except (KeyError, ValueError, TypeError) as error:
+                if "detection_failed" not in reasons:
+                    reasons.append("detection_failed")
+                details.append(str(error))
+    selected = set(CHECK_CATALOG) if reasons else set(matched) & CHECK_CATALOG.keys()
+    selected.add("docs_quality")
+    if event_name == "push" and "lint_workspace" in matched:
+        selected |= POST_MERGE_RUST
+    excluded = set()
+    if fork:
+        excluded |= {
+            name
+            for name in selected
+            if (CHECK_CATALOG[name].flag or name) in FORK_EXCLUSIONS
+        }
+    if draft:
+        excluded |= selected - DRAFT_CHECKS
+    selected -= excluded
+    return {
+        "plan": build_plan(selected),
+        "matched_filters": sorted(set(matched)),
+        "reasons": reasons,
+        "details": details,
+        "shared_paths": shared,
+        "unknown_paths": unknown,
+        "draft": draft,
+        "fork": fork,
+        "changed_files": changed_files,
+        "excluded_checks": sorted({CHECK_CATALOG[n].flag or n for n in excluded}),
+    }
+
+
+def summary(result):
+    """Keep file paths as text, including quotes and line breaks."""
+
+    def code(text):
+        text = str(text).replace("\n", "\\n").replace("\r", "\\r")
+        return "<code>" + html.escape(text).replace("|", "&#124;") + "</code>"
+
+    lines = ["## CI selection", "", "| Field | Value |", "| --- | --- |"]
+    fields = {
+        "Mode": "draft" if result["draft"] else "ready",
+        "Fork": str(result["fork"]).lower(),
+        "Selection": "full" if result["reasons"] else "path-selected",
+        "PR changed files": result["changed_files"]
+        if result["changed_files"] is not None
+        else "Not applicable or unavailable",
+        "Matched filters": ", ".join(result["matched_filters"]) or "None available",
+        "Full-run reasons": ", ".join(result["reasons"]) or "None",
+    }
+    lines.extend(f"| {key} | {code(value)} |" for key, value in fields.items())
+    lists = {
+        "Detection details": result["details"],
+        "Shared paths": result["shared_paths"],
+        "Unknown paths": result["unknown_paths"],
+        "Checks excluded by draft or fork policy": result["excluded_checks"],
+        "Selected checks": [
+            k for k, v in result["plan"]["checks"].items() if v and k in CHECK_CATALOG
+        ],
+        "Required lint jobs": result["plan"]["lint_jobs"],
+        "Required test jobs": result["plan"]["test_jobs"],
+    }
+    for title, values in lists.items():
+        lines.extend(["", f"### {title}", ""])
+        lines.extend("- " + code(value) for value in values[:200])
+        if len(values) > 200:
+            lines.append(f"- {len(values) - 200} more entries.")
+        if not values:
+            lines.append("None.")
+    return "\n".join(lines) + "\n"
+
+
+def pr_changed_files(event, env):
+    pr = event["pull_request"]
+    total = pr.get("changed_files")
+    if type(total) is int and total >= 0:
+        return total, None
+    try:
+        url = f"{env['GITHUB_API_URL']}/repos/{env['GITHUB_REPOSITORY']}/pulls/{pr['number']}"
+        request = Request(
+            url,
+            headers={
+                "Authorization": "Bearer " + env["GITHUB_TOKEN"],
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "libxmtp-ci-select",
+            },
+        )
+        with urlopen(request, timeout=20) as response:
+            current = json.load(response)
+        if current["head"]["sha"] != pr["head"]["sha"]:
+            return None, "The PR head changed after this event."
+        return current.get("changed_files"), None
+    except (KeyError, HTTPError, URLError, TimeoutError, ValueError):
+        return None, "Could not read PR metadata from the API."
+
+
+def main():
+    env = os.environ
+    event = json.loads(Path(env["GITHUB_EVENT_PATH"]).read_text())
+    event_name = env["GITHUB_EVENT_NAME"]
+    total, error = (
+        pr_changed_files(event, env) if event_name == "pull_request" else (None, None)
+    )
+    try:
+        outputs = json.load(sys.stdin)
+    except ValueError:
+        outputs = {}
+    result = select_checks(
+        outputs, event_name, event, env["PATHS_OUTCOME"], total, error
+    )
+    plan = result["plan"]
+    with open(env["GITHUB_OUTPUT"], "a") as output:
+        selection = {
+            k: v for k, v in plan.items() if k not in ("source_suites", "test_suites")
+        }
+        for key, value in {
+            "selection": selection,
+            "source_suites": plan["source_suites"],
+            "test_suites": plan["test_suites"],
+        }.items():
+            output.write(key + "=" + json.dumps(value, separators=(",", ":")) + "\n")
+    with open(env["GITHUB_STEP_SUMMARY"], "a") as output:
+        output.write(summary(result))
+
+
+if __name__ == "__main__":
+    main()
