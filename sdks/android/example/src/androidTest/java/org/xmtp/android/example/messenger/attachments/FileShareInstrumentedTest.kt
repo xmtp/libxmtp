@@ -38,6 +38,8 @@ class FileShareInstrumentedTest {
                 val exportRoot = AttachmentFiles.profileDirectory(fixture.context, fixture.profile.id)
                 val sibling = File(exportRoot, "sibling").apply { writeText("sibling") }
                 val siblingUri = FileProvider.getUriForFile(fixture.context, "${fixture.context.packageName}.fileprovider", sibling)
+                files.save("file", siblingUri)
+                assertEquals("grant", sibling.readText())
                 val opened = CompletableDeferred<Boolean>()
                 val result = object : ResultReceiver(Handler(Looper.getMainLooper())) {
                     override fun onReceiveResult(resultCode: Int, resultData: Bundle?) { opened.complete(resultCode == 1) }
