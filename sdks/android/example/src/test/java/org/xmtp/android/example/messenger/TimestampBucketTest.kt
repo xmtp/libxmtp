@@ -224,4 +224,39 @@ class TimestampBucketTest {
                 .get("a"),
         )
     }
+
+    @Test fun mergedCacheCannotAdvancePastFiftyOneRemovedRowsOfACompleteTie() =
+        runBlocking {
+            val cache = TranscriptCache<Stored>({ it.id.toString() }, { it.time })
+            val newer = (0 until 500).map { Stored(it, 1000L - it) }
+            val older = (500 until 800).map { Stored(it, 500) }
+            val previous = cache.put("chat", newer, "499")
+            val page = load(older, 501)
+            assertEquals(300, page.rows.size)
+            assertTrue(page.complete)
+            val window = cache.retainPage("chat", previous, page, "499")
+            assertEquals(500, window.rows.size)
+            assertEquals(249, window.rows.count { it.time == 500L })
+            assertFalse(window.complete)
+            assertNotNull(window.notice)
+            assertEquals(501L, window.nextBeforeNs)
+        }
+
+    @Test fun trimmedWholeOlderBucketsRemainReachableDespiteCompleteLoadedPage() =
+        runBlocking {
+            val cache = TranscriptCache<Stored>({ it.id.toString() }, { it.time })
+            val newer = (0 until 500).map { Stored(it, 1000L - it) }
+            val older = (500 until 800).map { Stored(it, 1000L - it) }
+            val previous = cache.put("chat", newer, "499")
+            // This complete page represents repeated count-backed reads of the remaining history.
+            val window = cache.retainPage("chat", previous, BucketPage(older, 201, true), "499")
+            assertFalse(window.complete)
+            assertNull(window.notice)
+            val remaining = older.filter { it.time < checkNotNull(window.nextBeforeNs) }
+            assertEquals(51, remaining.size)
+            assertEquals(
+                older.map { it.id }.toSet(),
+                (window.rows.filter { it.id >= 500 } + remaining).map { it.id }.toSet(),
+            )
+        }
 }

@@ -86,6 +86,7 @@ data class MessengerState(
     val inbox: String = "",
     val busy: Boolean = false,
     val error: String? = null,
+    val pendingReset: Boolean = false,
     val readerError: String? = null,
     val connection: String = "",
     val migrationRequired: Boolean = false,
@@ -210,6 +211,8 @@ sealed interface MessengerAction {
     data object SignOut : MessengerAction
 
     data object DeleteAccount : MessengerAction
+
+    data object ResumeReset : MessengerAction
 
     data class ResetLegacyAccount(
         val inboxId: String,

@@ -177,4 +177,36 @@ class TranscriptCache<T>(
     fun clear() =
         entries
             .clear()
+
+    /** Derive coverage from the retained window, not from rows removed by the cache. */
+    fun retainPage(
+        key: String,
+        previous: List<T>,
+        page: BucketPage<T>,
+        anchorId: String?,
+    ): BucketPage<T> {
+        val merged = (previous + page.rows).associateBy(id).values.toList()
+        val retained = put(key, merged, anchorId)
+        val oldest = retained.minOfOrNull(sentAt) ?: return page.copy(rows = retained)
+        val retainedIds = retained.map(id).toSet()
+        val removed = merged.filter { id(it) !in retainedIds && sentAt(it) <= oldest }
+        if (removed.any { sentAt(it) == oldest }) {
+            return BucketPage(
+                retained,
+                if (oldest == Long.MAX_VALUE) null else oldest + 1,
+                false,
+                "More history at this time cannot be kept in this window. Jump to latest to change the position.",
+            )
+        }
+        return if (removed.isNotEmpty()) {
+            BucketPage(
+                retained,
+                oldest,
+                false,
+                page.notice,
+            )
+        } else {
+            page.copy(rows = retained)
+        }
+    }
 }
