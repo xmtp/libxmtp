@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = Path(
@@ -491,6 +492,32 @@ class EmulatorStartupTests(unittest.TestCase):
         self.assertNotEqual(self.run_start("boot-hang", interrupt=True), 0, self.output)
         self.assertIn("Startup interrupted", self.output)
         self.assertTrue(all(not self.alive(pid) for _, pid in self.processes()))
+
+
+class CommandDeadlineTests(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("android_emulator_start", HELPER)
+        self.supervisor = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.supervisor)
+
+    def assert_deadline(self, deadline, timeout, message):
+        # The clock crosses the deadline between the two timeout checks.
+        ticks = iter((0.0, 0.0, 0.9, 1.1))
+        with patch.object(
+            self.supervisor.time, "monotonic", side_effect=lambda: next(ticks, 1.1)
+        ):
+            with self.assertRaisesRegex(self.supervisor.StartupFailure, message):
+                self.supervisor.run_command(
+                    [sys.executable, "-c", "import time; time.sleep(60)"],
+                    deadline=deadline,
+                    timeout=timeout,
+                )
+
+    def test_shared_deadline_keeps_its_label_when_the_clock_crosses(self):
+        self.assert_deadline(1.0, 10.0, "^Emulator startup deadline exceeded$")
+
+    def test_command_deadline_keeps_its_distinct_label(self):
+        self.assert_deadline(100.0, 1.0, "^Startup command timed out:")
 
 
 class StopProcessTests(unittest.TestCase):
