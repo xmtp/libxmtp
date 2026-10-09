@@ -1,6 +1,7 @@
 mod chaos 'apps/chaos/chaos.just'
 mod backend 'apps/backend/backend.just'
 mod android 'sdks/android/android.just'
+mod example-android 'apps/example-android/example-android.just'
 mod ios 'sdks/ios/ios.just'
 mod sdk 'crates/xmtp_sdk/sdk.just'
 mod wasm 'dev/wasm.just'
@@ -101,13 +102,14 @@ lint-config: lint-treefmt
     python3.11 -B dev/tests/test_ci_select.py
     python3.11 -B dev/agents/test_kache_env.py
     python3.11 dev/tests/test_android_release.py
+    python3.11 -B dev/tests/test_example_android_selection.py
     python3.11 dev/tests/test_release_push.py
     python3.11 dev/tests/test_android_clock.py
     python3.11 dev/tests/test_android_emulator_start.py
     python3.11 dev/tests/test_docker_startup.py
-    python3.11 -B sdks/android/example/fixtures/test_metadata_backend.py
-    python3.11 -B sdks/android/example/fixtures/test_export_screenshots.py
-    python3.11 -B -m unittest discover -s sdks/android/example/performance -p 'test_*.py' -v
+    python3.11 -B apps/example-android/fixtures/test_metadata_backend.py
+    python3.11 -B apps/example-android/fixtures/test_export_screenshots.py
+    python3.11 -B -m unittest discover -s apps/example-android/performance -p 'test_*.py' -v
     python3.11 nix/lib/test-android-emulator-platform.py
 
 lint-toml:

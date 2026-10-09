@@ -2,7 +2,10 @@
 
 This is an Android example for the current `uniffi.xmtp_sdk` package. The Android
 host owns the client and device services. Compose screens and app records are in
-`example-shared/src/commonMain`.
+`shared/src/commonMain`. Open `apps/example-android` as the Gradle project.
+The `:example` host is in `app`. The local composite build uses the SDK library
+from this checkout. The SDK root owns the shared toolchain pins, wrapper, and
+dependency verification inventory.
 
 This app is for testing and debugging purposes only.
 
@@ -11,12 +14,12 @@ This app is for testing and debugging purposes only.
 Run these commands from the repository root:
 
 ```sh
-dev/nix-shell 'just android assemble'
-dev/nix-shell 'just android example-check'
-dev/nix-shell 'just android example-test'
+dev/nix-shell 'just example-android check'
+dev/nix-shell 'just example-android check'
+dev/nix-shell 'just example-android test'
 dev/nix-shell 'just backend up'
 dev/nix-shell 'just backend status'
-dev/nix-shell 'just android example-test-integration'
+dev/nix-shell 'just example-android test-integration'
 ```
 
 The integration recipe owns its emulator and stops it after the tests. It uses
@@ -130,10 +133,10 @@ request an FCM token, or register SDK notifications.
 To enable the Firebase build, supply your Android app's `google-services.json`:
 
 ```sh
-XMTP_FIREBASE_CONFIG=/absolute/path/google-services.json dev/nix-shell 'just android example-check'
+XMTP_FIREBASE_CONFIG=/absolute/path/google-services.json dev/nix-shell 'just example-android check'
 ```
 
-You can also keep the file at `sdks/android/example/google-services.json`. Git
+You can also keep the file at `apps/example-android/app/google-services.json`. Git
 ignores that file. The application ID must be `org.xmtp.android.example`.
 The configured dependency graph has its own strict lock file. It uses Firebase
 Messaging 26.0.0 and Fragment 1.8.5 with the current Android toolchain.

@@ -19,21 +19,24 @@ def step(name):
 
 class AndroidReleaseTest(unittest.TestCase):
     def test_integration_failure_upload_retains_app_and_library_evidence(self):
-        workflow = (ROOT / ".github/workflows/test-android.yml").read_text()
-        upload = workflow.split("    - name: Upload failed Android test reports\n", 1)[
-            1
-        ]
-        upload = upload.split("  results:", 1)[0]
-        self.assertIn("      if: failure()\n", upload)
-        paths = upload.split("        path: |\n", 1)[1].split(
-            "        include-hidden-files:", 1
-        )[0]
-        paths = [line.strip() for line in paths.splitlines() if line.strip()]
+        paths = []
+        for name, title in (
+            ("test-android.yml", "Upload failed Android test reports"),
+            ("test-example-android.yml", "Upload failed Messenger test reports"),
+        ):
+            workflow = (ROOT / ".github/workflows" / name).read_text()
+            upload = workflow.split(f"    - name: {title}\n", 1)[1]
+            upload = upload.split("  results:", 1)[0]
+            self.assertIn("      if: failure()\n", upload)
+            block = upload.split("        path: |\n", 1)[1].split(
+                "        include-hidden-files:", 1
+            )[0]
+            paths.extend(line.strip() for line in block.splitlines() if line.strip())
         required = {
-            "sdks/android/example/build/outputs/androidTest-results/connected/**/*.xml",
-            "sdks/android/example/build/outputs/androidTest-results/connected/**/*.txt",
-            "sdks/android/example/build/reports/androidTests/**",
-            "sdks/android/example/build/screenshots/**",
+            "apps/example-android/app/build/outputs/androidTest-results/connected/**/*.xml",
+            "apps/example-android/app/build/outputs/androidTest-results/connected/**/*.txt",
+            "apps/example-android/app/build/reports/androidTests/**",
+            "apps/example-android/app/build/screenshots/**",
             "sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml",
             "sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt",
             "${{ runner.temp }}/android-emulator-startup/",

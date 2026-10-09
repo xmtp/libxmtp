@@ -33,7 +33,7 @@ if (firebaseConfigured) {
         // Play Services selects Fragment 1.0.0. Activity result APIs require 1.3.0 or later.
         implementation 'androidx.fragment:fragment:1.8.5'
         // Keep Kotlin common metadata present in the strict configured graph.
-        implementation 'org.jetbrains.kotlin:kotlin-stdlib-common:2.2.20'
+        implementation "org.jetbrains.kotlin:kotlin-stdlib-common:${rootProject.ext.androidToolchain.getProperty('plugin.org.jetbrains.kotlin.android')}"
     }
 } else {
     android.sourceSets.main.java.srcDir 'src/pushOff/java'

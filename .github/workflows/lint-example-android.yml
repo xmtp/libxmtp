@@ -1,0 +1,21 @@
+name: Lint Android example
+on:
+  workflow_call:
+env:
+  NIX_DEVSHELL: android
+jobs:
+  lint:
+    name: Lint (Android example)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: android
+          gradle-disk: "true"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - name: Build Android bindings (required for lint)
+        run: dev/nix-shell 'just example-android build'
+      - name: Lint Android example
+        run: dev/nix-shell 'just example-android lint'
