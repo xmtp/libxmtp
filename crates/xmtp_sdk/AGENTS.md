@@ -73,8 +73,8 @@ Run commands from the repository root in the Nix shell. Run
   `dev/nix-shell 'just ios check-consumer'` runs the missing bundle identifier
   check in a bare executable and the Swift negative consumers.
   `dev/nix-shell 'just android check-consumers'` runs the Kotlin negative
-  consumers. Swift checks run in `test-swift-lifecycle.yml`. Kotlin consumer
-  checks run in `test-android.yml`. Selected jobs gate aggregate `Test`.
+  consumers. Swift checks run in `test-ios.yml`. Kotlin consumer
+  checks run in `test-android.yml`. Selected suites gate aggregate `Test`.
 - `dev/nix-shell 'just sdk bench <node|browser|swift|kotlin> [--samples N]'` measures
   the staged package on one host against this worktree's backend and writes
   `results.json` (p50 and p95, no pass or fail). Stage the package first. For

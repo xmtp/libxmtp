@@ -1,8 +1,7 @@
 <!-- The branded header uses HTML and places status badges before the title. -->
 <!-- markdownlint-configure-file {"MD041": false, "MD033": {"allowed_elements": ["h1", "p", "img", "br", "a"]}} -->
 
-[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml)
-[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
+[![CI](https://github.com/xmtp/libxmtp/actions/workflows/ci.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/ci.yml)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
 <!-- LOGO -->

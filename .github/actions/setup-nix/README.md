@@ -166,14 +166,14 @@ needed for this rollout.
 | `test-android.yml / min-sdk-smoke` | `nix-only` | Protected push writer; otherwise reader |
 | `test-android.yml / unit-tests` | `nix-only` | Protected push writer; otherwise reader |
 | `test-android.yml / integration-tests` | `nix-only` | Protected push writer; otherwise reader |
-| `test-bindings-check.yml / check-swift` | `bindings-check-${{ matrix.target }}` | Protected push writer; otherwise reader |
-| `test-bindings-check.yml / check-android` | `nix-only` | Protected push writer; otherwise reader |
+| `test-android.yml / check-android` | `nix-only` | Protected push writer; otherwise reader |
+| `test-android.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
+| `test-backend.yml / native` | `backend-tests-debug` | Reader |
 | `test-browser-sdk.yml / test` | `sdk-products-debug` | Protected push writer; otherwise reader |
 | `test-ios.yml / tests` | `nix-only` | Protected push writer; otherwise reader |
-| `test-native-backend.yml / native` | `backend-tests-debug` | Reader |
+| `test-ios.yml / swift` | `nix-only` | Protected push writer; otherwise reader |
+| `test-ios.yml / check-swift` | `bindings-check-${{ matrix.target }}` | Protected push writer; otherwise reader |
 | `test-node-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
-| `test-sdk-platform.yml / proof` | `sdk-products-debug` (bridge), `sdk-browser-conformance` (browser) | Protected push writer; otherwise reader |
-| `test-sdk-staging.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
+| `test-sdk-platform.yml / proof` | `sdk-products-debug` (`bridge` matrix target), `sdk-browser-conformance` (`browser` matrix target) | Protected push writer; otherwise reader |
 | `test-sdk.yml / sdk` | `sdk-products-tests-conformance` | Protected push writer; otherwise reader |
 | `test-sdk.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
-| `test-swift-lifecycle.yml / swift` | `nix-only` | Protected push writer; otherwise reader |

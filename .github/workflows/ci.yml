@@ -12,6 +12,8 @@ permissions:
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+# .github/ci-suites.yml declares the suites. dev/ci-suites generates
+# lint-generated.yml and test-generated.yml, which have one job per suite.
 jobs:
   detect-changes:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -19,16 +21,13 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      selection: ${{ steps.select.outputs.selection }}
-      source_suites: ${{ steps.select.outputs.source_suites }}
+      lint_suites: ${{ steps.select.outputs.lint_suites }}
       test_suites: ${{ steps.select.outputs.test_suites }}
-      lint_jobs: ${{ toJSON(fromJSON(steps.select.outputs.selection).lint_jobs) }}
-      test_jobs: ${{ toJSON(fromJSON(steps.select.outputs.selection).test_jobs) }}
     steps:
     - uses: actions/checkout@v6
       with:
         fetch-depth: 2
-    - name: Match changed paths
+    - name: List changed paths
       id: paths
       if: github.event_name != 'workflow_dispatch'
       continue-on-error: true
@@ -36,10 +35,11 @@ jobs:
       with:
         # The action shallow-fetches event.before by exact SHA only when it is missing.
         base: ${{ github.ref }}
-        predicate-quantifier: some-with-excludes
         list-files: json
-        filters: .github/ci-paths.yml
-    - name: Select checks and write summary
+        filters: |
+          all_files:
+          - '**'
+    - name: Select suites and write summary
       id: select
       env:
         PATHS_OUTCOME: ${{ steps.paths.outcome }}
@@ -50,154 +50,53 @@ jobs:
         python3 dev/ci-select <<'CI_PATH_DATA'
         {
           "changes": ${{ toJSON(steps.paths.outputs.changes) }},
-          "all_files_files": ${{ toJSON(steps.paths.outputs.all_files_files) }},
-          "known_files_files": ${{ toJSON(steps.paths.outputs.known_files_files) }},
-          "shared_files": ${{ toJSON(steps.paths.outputs.shared_files) }}
+          "all_files_files": ${{ toJSON(steps.paths.outputs.all_files_files) }}
         }
         CI_PATH_DATA
-  docs-quality:
+  lint-suites:
+    name: Lint suites
     needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'docs-quality')
-    uses: ./.github/workflows/docs-quality.yml
-    secrets:
-      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-  source-lint:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'source-lint')
-    uses: ./.github/workflows/lint.yml
+    uses: ./.github/workflows/lint-generated.yml
     with:
-      suites: ${{ needs.detect-changes.outputs.source_suites }}
+      suites: ${{ needs.detect-changes.outputs.lint_suites }}
     secrets: inherit
-  lint-ios:
+  # Grant every permission a test suite declares. Each generated job narrows
+  # the token to its suite's permissions.
+  test-suites:
+    name: Test suites
     needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'lint-ios')
-    uses: ./.github/workflows/lint-ios.yml
-    secrets: inherit
-  lint-android:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.lint_jobs), 'lint-android')
-    uses: ./.github/workflows/lint-android.yml
-    secrets: inherit
-  test-ios:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'test-ios')
-    uses: ./.github/workflows/test-ios.yml
-    with:
-      run-unit: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_ios }}
-      run-platform: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_ios_platform }}
-    secrets: inherit
-  test-swift-lifecycle:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'test-swift-lifecycle') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name
-      == github.repository)
-    uses: ./.github/workflows/test-swift-lifecycle.yml
-    secrets: inherit
-  test-android:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'test-android')
-    uses: ./.github/workflows/test-android.yml
-    with:
-      run-unit: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_android }}
-      run-consumers: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_android_consumers }}
-      run-platform: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.test_android_platform }}
-    secrets: inherit
-  check-rust:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'check-rust')
-    uses: ./.github/workflows/check-rust.yml
-    secrets:
-      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-  check-types:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'check-types')
-    uses: ./.github/workflows/check-types.yml
-    secrets:
-      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-  check-sdk:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'check-sdk')
-    uses: ./.github/workflows/check-sdk-products.yml
-    secrets:
-      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-  check-sdk-unit:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'check-sdk-unit')
-    uses: ./.github/workflows/check-sdk-unit.yml
-    secrets:
-      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-  tests:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'tests')
-    uses: ./.github/workflows/test.yml
-    secrets: inherit
-    with:
-      suites: ${{ needs.detect-changes.outputs.test_suites }}
-      run-bindings-ios: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.check_bindings_ios }}
-      run-bindings-android: ${{ fromJSON(needs.detect-changes.outputs.selection).checks.check_bindings_android }}
-  docs-rust-reference:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'docs-rust-reference')
-    uses: ./.github/workflows/docs-rust-reference.yml
-    secrets:
-      KACHE_S3_ACCESS_KEY_ID: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
-      KACHE_S3_SECRET_ACCESS_KEY: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-  docs:
-    needs: detect-changes
-    if: contains(fromJSON(needs.detect-changes.outputs.test_jobs), 'docs')
     permissions:
       contents: read
       pages: write
       id-token: write
-    uses: ./.github/workflows/deploy-docs.yml
+    uses: ./.github/workflows/test-generated.yml
+    with:
+      suites: ${{ needs.detect-changes.outputs.test_suites }}
     secrets: inherit
+  # Branch protection requires the Lint and Test checks.
   lint:
     name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Draft lint' || 'Lint' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     if: always()
     needs:
     - detect-changes
-    - source-lint
-    - docs-quality
-    - lint-ios
-    - lint-android
+    - lint-suites
     steps:
-    - name: Check selected jobs
+    - name: Require detection and the selected lint suites
       env:
-        REQUIRED_JOBS: ${{ needs.detect-changes.outputs.lint_jobs }}
-        JOB_RESULTS: ${{ toJSON(needs) }}
-      run: |
-        jq -en \
-          --argjson required "$REQUIRED_JOBS" \
-          --argjson results "$JOB_RESULTS" \
-          '$required | all(.[]; $results[.].result == "success")'
+        DETECTED: ${{ needs.detect-changes.result }}
+        SUITES: ${{ needs.lint-suites.result }}
+      run: test "$DETECTED" = success && test "$SUITES" = success
   test:
     name: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.draft) == 'true' && 'Draft checks' || 'Test' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     if: always()
     needs:
     - detect-changes
-    - check-rust
-    - check-types
-    - check-sdk
-    - check-sdk-unit
-    - tests
-    - docs
-    - test-ios
-    - test-android
-    - test-swift-lifecycle
-    - docs-rust-reference
+    - test-suites
     steps:
-    - name: Check selected jobs
+    - name: Require detection and the selected test suites
       env:
-        REQUIRED_JOBS: ${{ needs.detect-changes.outputs.test_jobs }}
-        JOB_RESULTS: ${{ toJSON(needs) }}
-      run: |
-        jq -en \
-          --argjson required "$REQUIRED_JOBS" \
-          --argjson results "$JOB_RESULTS" \
-          '$required | all(.[]; $results[.].result == "success")'
+        DETECTED: ${{ needs.detect-changes.result }}
+        SUITES: ${{ needs.test-suites.result }}
+      run: test "$DETECTED" = success && test "$SUITES" = success

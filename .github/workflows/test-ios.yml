@@ -2,20 +2,12 @@ name: Test iOS
 
 on:
   workflow_call:
-    inputs:
-      run-unit:
-        type: boolean
-        default: true
-      run-platform:
-        type: boolean
-        default: true
 
 permissions:
   contents: read
 
 jobs:
   tests:
-    if: inputs.run-unit || inputs.run-platform
     runs-on: warp-macos-15-arm64-6x
     environment:
       name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
@@ -43,13 +35,11 @@ jobs:
           NIX_DEVSHELL: ios
         run: dev/nix-shell 'bash dev/check-apple-toolchain'
       - name: Run iOS unit tests and examples
-        if: inputs.run-unit
         env:
           NIX_DEVSHELL: ios
-        # The separate Swift job owns the lifecycle and consumer proofs.
+        # The swift job owns the lifecycle and consumer proofs.
         run: dev/nix-shell 'just backend ci bash -c "just ios test skip-lifecycle && just ios check-examples"'
       - name: Run iOS simulator tests
-        if: inputs.run-platform
         env:
           NIX_DEVSHELL: ios
         run: dev/nix-shell 'just backend ci just ios test-simulator'
@@ -60,3 +50,76 @@ jobs:
           name: ios-backend-ci-logs
           path: ${{ runner.temp }}/backend-ci-logs
           retention-days: 7
+
+  swift:
+    name: Swift lifecycle checks and consumers
+    runs-on: warp-macos-15-arm64-6x
+    environment:
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
+    timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: ios
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          kache: "true"
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+          kache-scope: nix-only
+          kache-readonly: "false"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - uses: taiki-e/install-action@just
+      - name: Check native Apple toolchain
+        run: dev/nix-shell 'bash dev/check-apple-toolchain'
+      # The tests job skips these tests in its macOS run (`test skip-lifecycle`).
+      - name: Swift lifecycle checks
+        run: dev/nix-shell 'just backend ci just ios test-lifecycle'
+      - name: Check Swift consumers
+        run: dev/nix-shell 'just ios check-consumer'
+      - name: Retain native service logs
+        timeout-minutes: 2
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-backend-ci-logs
+          path: ${{ runner.temp }}/backend-ci-logs
+          retention-days: 7
+
+  check-swift:
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 30
+    environment:
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-apple-darwin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: android
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          kache: "true"
+          kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+          kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+          kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+          kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+          kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+          kache-scope: bindings-check-${{ matrix.target }}
+          kache-readonly: "false"
+      - name: Check native SDK compile
+        env:
+          NIX_DEVSHELL: ios
+        run: dev/nix-shell 'dev/agent-run cargo check --locked -p xmtp_sdk --target ${{ matrix.target }}'
