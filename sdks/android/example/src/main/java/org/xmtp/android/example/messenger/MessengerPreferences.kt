@@ -18,6 +18,7 @@ private val Context
 class MessengerPreferences(
     context: Context,
 ) {
+    internal var beforeDraftCommit: suspend () -> Unit = {}
     internal var beforeSessionCommit: suspend () -> Unit = {}
     internal var sessionCommitAccepted: (BackendProfile) -> Unit = {}
     internal var beforePositionCommit: suspend (String) -> Unit = {}
@@ -350,6 +351,7 @@ class MessengerPreferences(
     ): Boolean {
         var accepted = false
         store.edit { values ->
+            beforeDraftCommit()
             accepted =
                 admit {
                     val array = JSONArray(values[stringPreferencesKey("$profile/drafts")] ?: "[]")

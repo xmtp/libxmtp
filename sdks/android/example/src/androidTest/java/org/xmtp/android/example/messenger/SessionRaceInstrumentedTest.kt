@@ -12,6 +12,55 @@ import java.security.SecureRandom
 class SessionRaceInstrumentedTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
 
+    @Test fun staleSignOutAndResetCannotCloseANewerNativeConnect() =
+        runBlocking {
+            AndroidStreamLifecycle.enabled = false
+            resumeStreams()
+            val session = AppSession(context)
+            val releases = mutableListOf<CompletableDeferred<Unit>>()
+            try {
+                session.signOut()
+                for (reset in listOf(false, true)) {
+                    session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+                    val first = checkNotNull(session.active.value)
+                    val entered = CompletableDeferred<Unit>()
+                    val release = CompletableDeferred<Unit>().also(releases::add)
+                    session.beforeSessionStopLock = {
+                        entered.complete(Unit)
+                        release.await()
+                    }
+                    val stop = async(Dispatchers.IO) { if (reset) session.deleteAccount() else session.signOut() }
+                    withTimeout(30_000) { entered.await() }
+                    assertFalse(session.accepts(first.key))
+                    session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+                    val latest = checkNotNull(session.active.value)
+                    val group =
+                        latest.client.conversations.createGroup(
+                            emptyList(),
+                            CreateGroupOptions(name = "Latest owner"),
+                        )
+                    release.complete(Unit)
+                    withTimeout(30_000) { stop.await() }
+                    assertEquals(latest.key, session.active.value?.key)
+                    assertTrue(session.accepts(latest.key))
+                    assertEquals("Latest owner", group.state().name)
+                    assertTrue(session.preferences.signedIn())
+                    assertTrue(latest.paths.database.exists())
+                    assertNull(session.preferences.reset())
+                    println("SESSION_ORDER_PROOF reset=$reset stage=old-stop-skipped-new-native-owner-live")
+                    session.beforeSessionStopLock = {}
+                }
+            } finally {
+                releases.forEach { it.complete(Unit) }
+                session.beforeSessionStopLock = {}
+                withContext(NonCancellable) {
+                    if (session.active.value != null) session.deleteAccount()
+                    session.signOut()
+                }
+                AndroidStreamLifecycle.enabled = true
+            }
+        }
+
     @Test fun invalidatedFinalPersistenceCannotCommitOrStartReaders() =
         runBlocking {
             AndroidStreamLifecycle.enabled = false

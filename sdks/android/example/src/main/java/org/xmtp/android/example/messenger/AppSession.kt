@@ -57,6 +57,7 @@ class AppSession(
     private var conversationJob: Job? = null
     private var stopping: ActiveSession? = null
     private var opening: ActiveSession? = null
+    internal var beforeSessionStopLock: suspend () -> Unit = {}
     internal var beforeClientBuild: (String) -> Unit = {}
     internal var beforeOpeningListener: suspend (ActiveSession) -> Unit = {}
     var onMessage: suspend (
@@ -510,10 +511,11 @@ class AppSession(
     }
 
     suspend fun signOut() {
-        fence
-            .replace(null)
+        val stopGeneration = fence.reserve()
         onSessionInvalidated()
+        beforeSessionStopLock()
         operation.withLock {
+            if (!fence.isReserved(stopGeneration)) return@withLock
             preferences
                 .setSignedIn(false)
             val owner =
@@ -544,9 +546,10 @@ class AppSession(
     }
 
     suspend fun deleteAccount() {
-        fence
-            .replace(null)
+        val stopGeneration = fence.reserve()
+        beforeSessionStopLock()
         operation.withLock {
+            if (!fence.isReserved(stopGeneration)) return@withLock
             preferences
                 .setSignedIn(false)
             var record =

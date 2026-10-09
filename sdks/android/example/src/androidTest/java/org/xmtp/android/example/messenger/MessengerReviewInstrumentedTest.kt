@@ -16,6 +16,8 @@ import java.io.File
 import java.nio.file.Files
 import java.security.SecureRandom
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class MessengerReviewInstrumentedTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
@@ -23,7 +25,7 @@ class MessengerReviewInstrumentedTest {
 
     private suspend fun until(
         stage: String,
-        check: () -> Boolean,
+        check: suspend () -> Boolean,
     ) {
         try {
             withTimeout(30_000) { while (!check()) delay(20) }
@@ -38,9 +40,12 @@ class MessengerReviewInstrumentedTest {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
         model.session.signOut()
+        until("signed-out UI") { model.state.value.screen == Screen.START }
         model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
         val owner = checkNotNull(model.session.active.value)
-        until("connected UI") { model.state.value.inbox == owner.client.inboxId() }
+        until("connected UI") {
+            model.state.value.inbox == owner.client.inboxId() && model.state.value.screen == Screen.CONVERSATIONS
+        }
         model.foreground(false)
         return owner
     }
@@ -52,6 +57,7 @@ class MessengerReviewInstrumentedTest {
             model.writeConsent = { chat, value -> chat.updateConsentState(value) }
             model.onConsentFinished = {}
             model.beforeQueuedAction = {}
+            model.beforeFeaturesUiUpdate = {}
             model.beforeGroupWrite = { _, _ -> }
             model.onQueuedActionFinished = {}
             model.actionMessageRead = { owner, id -> owner.client.conversations.getMessageById(id) }
@@ -379,7 +385,33 @@ class MessengerReviewInstrumentedTest {
                         model.state.value.messages
                             .any { it.id == next }
                 }
+                val featureEntered = CompletableDeferred<Unit>()
+                val featureRelease = CountDownLatch(1)
+                model.beforeFeaturesUiUpdate = {
+                    featureEntered.complete(Unit)
+                    check(featureRelease.await(30, TimeUnit.SECONDS))
+                }
+                val featureUpdate =
+                    async(Dispatchers.IO) {
+                        model.setFeatures(model.state.value.features)
+                    }
+                try {
+                    withTimeout(30_000) { featureEntered.await() }
+                    model.dispatch(MessengerAction.Reply(original))
+                    assertEquals(original, model.state.value.replyTo)
+                    featureRelease.countDown()
+                    withTimeout(30_000) { featureUpdate.await() }
+                    assertEquals(
+                        "Reply survives a concurrent SDK host state update",
+                        original,
+                        model.state.value.replyTo,
+                    )
+                } finally {
+                    featureRelease.countDown()
+                    model.beforeFeaturesUiUpdate = {}
+                }
                 model.dispatch(MessengerAction.Reply(original))
+                assertEquals(original, model.state.value.replyTo)
                 val action = MessengerAction.SendText("Captured reply")
                 val entered = CompletableDeferred<Unit>()
                 val finished = CompletableDeferred<Unit>()
@@ -395,6 +427,16 @@ class MessengerReviewInstrumentedTest {
                 model.dispatch(MessengerAction.Reply(next))
                 release.complete(Unit)
                 withTimeout(30_000) { finished.await() }
+                val nativeRows = Conversation.Group(group).messages()
+                println(
+                    "REPLY_INTENT_PROOF result=${model.state.value.textSendResult} error=${model.state.value.error}",
+                )
+                println("REPLY_INTENT_PROOF rows=${nativeRows.map { it.deliveryStatus to it.content }}")
+                until("actual captured reply publication") {
+                    Conversation.Group(group).messages(publishedSelection()).any {
+                        (it.content as? SDKMessageContent.Standard)?.value is MessageContent.Reply
+                    }
+                }
                 val replies =
                     Conversation.Group(group).messages(publishedSelection()).mapNotNull {
                         ((it.content as? SDKMessageContent.Standard)?.value as? MessageContent.Reply)

@@ -19,6 +19,7 @@ class SendCoordinator(
         }
     },
 ) {
+    internal var beforePublish: suspend (MessageId) -> Unit = {}
     internal var messageRead: suspend (SDKClient, MessageId) -> Message? = { client, id ->
         client.conversations.getMessageById(id)
     }
@@ -43,6 +44,7 @@ class SendCoordinator(
                     .id(),
             ),
         admission: () -> Boolean = { true },
+        onAccepted: (MessageId) -> Unit = {},
         reconcile: suspend (Message) -> Unit,
         send: suspend () -> MessageId,
     ): MessageId {
@@ -76,6 +78,7 @@ class SendCoordinator(
             val id = send()
             // Acceptance belongs to this profile even when navigation cancels the caller.
             withContext(NonCancellable) {
+                onAccepted(id)
                 if (accepts(key)) {
                     preferences
                         .saveDraft(
@@ -133,6 +136,12 @@ class SendCoordinator(
         if (current.deliveryStatus !=
             DeliveryStatus.PUBLISHED
         ) {
+            beforePublish(id)
+            if (!accepts(key) ||
+                !admission()
+            ) {
+                throw kotlinx.coroutines.CancellationException("Action scope changed before publication")
+            }
             conversation
                 .publishMessage(id)
         }

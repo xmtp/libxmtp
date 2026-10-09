@@ -79,6 +79,12 @@ data class UnknownSendRow(
     val conversationId: String,
 )
 
+data class TextSendResult(
+    val requestId: Long,
+    val conversationId: String,
+    val accepted: Boolean,
+)
+
 data class MessengerState(
     val screen: Screen =
         Screen.START,
@@ -98,6 +104,7 @@ data class MessengerState(
     val conversationId: String? = null,
     val conversationTitle: String = "",
     val conversationUnknown: Boolean = false,
+    val textSendResult: TextSendResult? = null,
     val replyTo: String? = null,
     val replyPreview: String? = null,
     val historyNotice: String? = null,
@@ -111,7 +118,7 @@ data class MessengerState(
 sealed interface MessengerAction {
     data class Connect(
         val backend: String,
-        val credential: String,
+        val credential: String?,
     ) : MessengerAction
 
     data class InspectBackend(
@@ -152,6 +159,7 @@ sealed interface MessengerAction {
 
     data class SendText(
         val text: String,
+        val requestId: Long = 0,
     ) : MessengerAction
 
     data class Reply(

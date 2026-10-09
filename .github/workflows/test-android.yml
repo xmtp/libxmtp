@@ -169,13 +169,15 @@ jobs:
         name: android-integration-failures
         retention-days: 7
         if-no-files-found: ignore
-        path: 'sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
-
+        path: |
+          sdks/android/example/build/outputs/androidTest-results/connected/**/*.xml
+          sdks/android/example/build/outputs/androidTest-results/connected/**/*.txt
+          sdks/android/example/build/reports/androidTests/**
+          sdks/android/example/build/screenshots/**
+          sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
           sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
-
           ${{ runner.temp }}/android-emulator-startup/
-
-          '
+          ${{ runner.temp }}/messenger-emulator-startup/
         include-hidden-files: 'true'
   check-android:
     runs-on: blacksmith-16vcpu-ubuntu-2404

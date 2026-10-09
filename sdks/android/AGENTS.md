@@ -35,6 +35,7 @@ dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifec
 dev/nix-shell 'just android example-test'
 dev/nix-shell 'just android example-check'
 dev/nix-shell 'just android example-test-integration'
+dev/nix-shell 'just android example-test-release-integration'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
@@ -103,6 +104,12 @@ The Messenger app has an Android host in `example` and shared Compose screens
 in `example-shared/src/commonMain`. `example-test` runs host/shared unit tests.
 `example-test-integration` runs app instrumentation in the owned emulator scope.
 It forwards the current worktree backend and S3 ports for signed loopback URLs.
+`example-test-release-integration` tests the actual release build with temporary
+local test signing. It keeps DEBUG=false and the release resources. It forwards
+the backend port for the release loopback connection. The Gradle property
+`xmtpExampleReleaseTests=true` selects this test mode. It does not change URL
+admission. Run both host variants with
+`dev/nix-shell 'just android example-test :example:testReleaseUnitTest'`.
 Start the backend before app instrumentation. Keep SDK package and consumer tests.
 
 Run `dev/nix-shell 'just backend up'`. The library test BuildConfig reads backend

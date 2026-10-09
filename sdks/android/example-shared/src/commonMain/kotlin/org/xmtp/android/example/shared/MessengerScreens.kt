@@ -236,7 +236,7 @@ fun MessengerScreens(
                         }
                     }
                 }
-                state.error?.let {
+                state.error?.takeIf { state.screen != Screen.START || state.pendingReset }?.let {
                     Notice(
                         it,
                         "Retry",
@@ -409,6 +409,8 @@ fun MessengerScreens(
     var credential by remember(backend) { mutableStateOf("") }
     val requiresCredential = state.credentialsRequiredFor == backend.trim().trimEnd('/')
     LaunchedEffect(Unit) { action(MessengerAction.InspectBackend(backend)) }
+
+    fun connectCredential() = credential.takeIf { requiresCredential && it.isNotBlank() }
     Column(
         Modifier
             .fillMaxSize()
@@ -422,6 +424,12 @@ fun MessengerScreens(
                     16.dp,
                 ),
     ) {
+        state.error?.takeIf { !state.pendingReset }?.let { message ->
+            Notice(message, "Retry") {
+                action(MessengerAction.Connect(backend, connectCredential()))
+            }
+        }
+
         Spacer(
             Modifier
                 .height(
@@ -515,7 +523,7 @@ fun MessengerScreens(
                     MessengerAction
                         .Connect(
                             backend,
-                            if (requiresCredential) credential else "",
+                            connectCredential(),
                         ),
                 )
             }
@@ -874,6 +882,21 @@ fun MessengerScreens(
     ) {
         mutableStateOf("")
     }
+    var draftRevision by remember(state.conversationId) { mutableStateOf(0L) }
+    var sendCounter by remember(state.conversationId) { mutableStateOf(0L) }
+    var pendingSend by remember(state.conversationId) { mutableStateOf<Long?>(null) }
+    var sentRevision by remember(state.conversationId) { mutableStateOf(0L) }
+    LaunchedEffect(state.textSendResult) {
+        state.textSendResult?.let { result ->
+            if (result.requestId == pendingSend && result.conversationId == state.conversationId) {
+                if (result.accepted && draftRevision == sentRevision) {
+                    text = ""
+                    draftRevision += 1
+                }
+                pendingSend = null
+            }
+        }
+    }
     var selected by remember(state.conversationId) { mutableStateOf<String?>(null) }
     var selectedBounds by remember(state.conversationId) { mutableStateOf(Rect.Zero) }
     var composerTop by remember(state.conversationId) { mutableStateOf(Float.POSITIVE_INFINITY) }
@@ -1194,6 +1217,7 @@ fun MessengerScreens(
                     text,
                     {
                         text = it
+                        draftRevision += 1
                     },
                     placeholder = {
                         Text("Message")
@@ -1213,11 +1237,10 @@ fun MessengerScreens(
             }
             TextButton(
                 {
-                    action(
-                        MessengerAction
-                            .SendText(text),
-                    )
-                    text = ""
+                    sendCounter += 1
+                    pendingSend = sendCounter
+                    sentRevision = draftRevision
+                    action(MessengerAction.SendText(text, sendCounter))
                 },
                 Modifier
                     .heightIn(
@@ -1227,7 +1250,7 @@ fun MessengerScreens(
                 enabled =
                     text
                         .isNotBlank() &&
-                        !state.busy,
+                        !state.busy && pendingSend == null,
             ) {
                 Text("Send")
             }

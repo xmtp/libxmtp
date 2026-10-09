@@ -6,6 +6,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -47,6 +48,8 @@ class MessengerViewModel(
                 it.sentAt.ns
             },
         )
+
+    @Volatile private var selectedBackend = BuildConfig.XMTP_BACKEND_URL.trim().trimEnd('/')
     private val screenLock = Any()
     private val screenCounter = AtomicLong()
     private val screenGeneration get() =
@@ -147,40 +150,44 @@ class MessengerViewModel(
         viewModelScope.launch {
             session.error.collect { error ->
                 if (error != null) {
-                    ui.value =
-                        ui.value
-                            .copy(error = error)
+                    ui.update { currentUi -> currentUi.copy(error = error) }
                 }
             }
         }
         viewModelScope.launch {
             session.readerError.collect {
-                ui.value =
-                    ui.value
-                        .copy(readerError = it)
+                ui.update { currentUi -> currentUi.copy(readerError = it) }
             }
         }
         viewModelScope.launch {
             session.connection.collect {
-                ui.value =
-                    ui.value
-                        .copy(
-                            connection =
-                                if (it
-                                        .contains(
-                                            "Connected",
-                                            true,
-                                        )
-                                ) {
-                                    ""
-                                } else {
-                                    it
-                                },
-                        )
+                ui.update { currentUi ->
+                    currentUi.copy(
+                        connection =
+                            if (it
+                                    .contains(
+                                        "Connected",
+                                        true,
+                                    )
+                            ) {
+                                ""
+                            } else {
+                                it
+                            },
+                    )
+                }
             }
         }
         viewModelScope.launch {
             try {
+                val saved = session.preferences.active()
+                if (saved != null && session.preferences.signedIn() && sessionActionCounter.get() == 0L) {
+                    synchronized(screenLock) {
+                        if (selectedBackend == BuildConfig.XMTP_BACKEND_URL.trim().trimEnd('/')) {
+                            ui.update { currentUi -> currentUi.copy(backend = saved.backend) }
+                        }
+                    }
+                }
                 session
                     .restore()
                 if (session.active.value == null &&
@@ -208,28 +215,29 @@ class MessengerViewModel(
                     if (accounts
                             .isNotEmpty()
                     ) {
-                        ui.value =
-                            ui.value
-                                .copy(
-                                    migrationRequired = true,
-                                    migrationAccounts = accounts,
-                                )
+                        ui.update { currentUi ->
+                            currentUi.copy(
+                                migrationRequired = true,
+                                migrationAccounts = accounts,
+                            )
+                        }
                     }
                 }
             } catch (error: Throwable) {
                 val pending = session.preferences.reset() != null
                 if (sessionActionCounter.get() == 0L) {
-                    ui.value = ui.value.copy(pendingReset = pending)
+                    ui.update { currentUi -> currentUi.copy(pendingReset = pending) }
                     showError(error)
                 }
             }
         }
     }
 
+    internal var beforeFeaturesUiUpdate: () -> Unit = {}
+
     fun setFeatures(value: FeatureAvailability) {
-        ui.value =
-            ui.value
-                .copy(features = value)
+        beforeFeaturesUiUpdate()
+        ui.update { currentUi -> currentUi.copy(features = value) }
     }
 
     fun foreground(value: Boolean) {
@@ -264,7 +272,6 @@ class MessengerViewModel(
     private val backendProbeCounter = AtomicLong()
     private var backendProbeJob: Job? = null
 
-    @Volatile private var selectedBackend = BuildConfig.XMTP_BACKEND_URL.trim().trimEnd('/')
     internal var inspectBackend: suspend (String) -> ServerConfiguration = { backend ->
         SDKClient.fetchServerConfiguration(BackendSource.Options(BackendOptions(url = backend)))
     }
@@ -276,7 +283,7 @@ class MessengerViewModel(
         val token =
             synchronized(screenLock) {
                 selectedBackend = url
-                ui.value = ui.value.copy(credentialsRequiredFor = null)
+                ui.update { currentUi -> currentUi.copy(credentialsRequiredFor = null) }
                 screenGeneration
             }
         backendProbeJob?.cancel()
@@ -289,10 +296,11 @@ class MessengerViewModel(
                         if (attempt == backendProbeCounter.get() && token == screenGeneration &&
                             ui.value.screen == Screen.START && selectedBackend == url
                         ) {
-                            ui.value =
-                                ui.value.copy(
+                            ui.update { currentUi ->
+                                currentUi.copy(
                                     credentialsRequiredFor = url.takeIf { configuration.auth.enabled },
                                 )
+                            }
                         }
                     }
                 } catch (error: Throwable) {
@@ -323,23 +331,23 @@ class MessengerViewModel(
             return
         }
         if (action is MessengerAction.Reply) {
-            ui.value =
-                ui.value
-                    .copy(
-                        replyTo =
-                            ui.value.messages
-                                .firstOrNull {
-                                    it.id == action.messageId && !it.deleted
-                                }?.id,
-                        replyPreview =
-                            ui.value.messages
-                                .firstOrNull {
-                                    it.id ==
-                                        action.messageId && !it.deleted
-                                }?.text
-                                ?.lineSequence()
-                                ?.firstOrNull(),
-                    )
+            ui.update { currentUi ->
+                currentUi.copy(
+                    replyTo =
+                        currentUi.messages
+                            .firstOrNull {
+                                it.id == action.messageId && !it.deleted
+                            }?.id,
+                    replyPreview =
+                        currentUi.messages
+                            .firstOrNull {
+                                it.id ==
+                                    action.messageId && !it.deleted
+                            }?.text
+                            ?.lineSequence()
+                            ?.firstOrNull(),
+                )
+            }
             return
         }
         val origin =
@@ -395,12 +403,12 @@ class MessengerViewModel(
                     when (action) {
                         is MessengerAction.Connect,
                         -> {
-                            ui.value =
-                                ui.value
-                                    .copy(
-                                        busy = true,
-                                        error = null,
-                                    )
+                            ui.update { currentUi ->
+                                currentUi.copy(
+                                    busy = true,
+                                    error = null,
+                                )
+                            }
                             session
                                 .connect(
                                     action.backend,
@@ -417,7 +425,7 @@ class MessengerViewModel(
 
                         MessengerAction.DeleteAccount, MessengerAction.ResumeReset,
                         -> {
-                            ui.value = ui.value.copy(pendingReset = true, busy = true, error = null)
+                            ui.update { currentUi -> currentUi.copy(pendingReset = true, busy = true, error = null) }
                             session
                                 .deleteAccount()
                             if (operationToken != sessionActionCounter.get()) return@launch
@@ -435,16 +443,16 @@ class MessengerViewModel(
                                     action.inboxId,
                                 )
                             if (operationToken != sessionActionCounter.get()) return@launch
-                            ui.value =
-                                ui.value
-                                    .copy(
-                                        migrationAccounts =
-                                            ui.value
-                                                .migrationAccounts -
-                                                action.inboxId,
-                                        migrationRequired =
-                                            ui.value.migrationAccounts.size > 1,
-                                    )
+                            ui.update { currentUi ->
+                                currentUi.copy(
+                                    migrationAccounts =
+                                        currentUi
+                                            .migrationAccounts -
+                                            action.inboxId,
+                                    migrationRequired =
+                                        currentUi.migrationAccounts.size > 1,
+                                )
+                            }
                         }
 
                         else -> {
@@ -474,12 +482,12 @@ class MessengerViewModel(
                                 is MessengerAction.SelectTab,
                                 -> {
                                     projection.withLock {
-                                        ui.value =
-                                            ui.value
-                                                .copy(
-                                                    unknownTab =
-                                                        action.unknown,
-                                                )
+                                        ui.update { currentUi ->
+                                            currentUi.copy(
+                                                unknownTab =
+                                                    action.unknown,
+                                            )
+                                        }
                                         listLimit = 50
                                         visibleStart = 0
                                         refreshList(owner)
@@ -557,55 +565,86 @@ class MessengerViewModel(
                                 is MessengerAction.SendText,
                                 -> {
                                     val chat = origin.chat ?: return@launch
-                                    requireOrigin(origin)
-                                    val reply =
-                                        origin.replyId?.let { id ->
-                                            actionMessageRead(owner, id).also { parent ->
-                                                requireOrigin(origin)
-                                                require(
-                                                    parent != null && parent.conversationId == chat.id(),
-                                                ) { "Reply parent unavailable" }
+                                    var accepted = false
+                                    try {
+                                        onCurrentScreen(owner, token) {
+                                            ui.update { currentUi ->
+                                                currentUi.copy(error = null)
                                             }
                                         }
-                                    sends
-                                        .queue(
-                                            owner.key,
-                                            owner.client,
-                                            chat,
-                                            admission = { acceptsOrigin(origin) },
-                                            reconcile = {
-                                                merge(
-                                                    owner,
-                                                    token,
-                                                    it,
-                                                )
-                                            },
-                                        ) {
-                                            requireOrigin(origin)
-                                            if (reply != null) {
-                                                reply.reply(
-                                                    action.text,
-                                                    SendOptions(optimistic = true),
-                                                )
-                                            } else {
-                                                chat
-                                                    .sendText(
+                                        requireOrigin(origin)
+                                        val reply =
+                                            origin.replyId?.let { id ->
+                                                actionMessageRead(owner, id).also { parent ->
+                                                    requireOrigin(origin)
+                                                    require(
+                                                        parent != null && parent.conversationId == chat.id(),
+                                                    ) { "Reply parent unavailable" }
+                                                }
+                                            }
+                                        sends
+                                            .queue(
+                                                owner.key,
+                                                owner.client,
+                                                chat,
+                                                admission = { acceptsOrigin(origin) },
+                                                onAccepted = {
+                                                    accepted = true
+                                                    onCurrentScreen(owner, token) {
+                                                        val sameReply = ui.value.replyTo == origin.replyId
+                                                        val replyId = ui.value.replyTo.takeUnless { sameReply }
+                                                        val preview = ui.value.replyPreview.takeUnless { sameReply }
+                                                        ui.update { currentUi ->
+                                                            currentUi.copy(
+                                                                textSendResult =
+                                                                    TextSendResult(
+                                                                        action.requestId,
+                                                                        chat.id(),
+                                                                        true,
+                                                                    ),
+                                                                replyTo = replyId,
+                                                                replyPreview = preview,
+                                                            )
+                                                        }
+                                                    }
+                                                },
+                                                reconcile = {
+                                                    merge(
+                                                        owner,
+                                                        token,
+                                                        it,
+                                                    )
+                                                },
+                                            ) {
+                                                requireOrigin(origin)
+                                                if (reply != null) {
+                                                    reply.reply(
                                                         action.text,
                                                         SendOptions(optimistic = true),
                                                     )
+                                                } else {
+                                                    chat
+                                                        .sendText(
+                                                            action.text,
+                                                            SendOptions(optimistic = true),
+                                                        )
+                                                }
+                                            }
+                                    } finally {
+                                        if (!accepted) {
+                                            onCurrentScreen(owner, token) {
+                                                ui.update { currentUi ->
+                                                    currentUi.copy(
+                                                        textSendResult =
+                                                            TextSendResult(
+                                                                action.requestId,
+                                                                chat.id(),
+                                                                false,
+                                                            ),
+                                                    )
+                                                }
                                             }
                                         }
-                                    if (valid(
-                                            owner,
-                                            token,
-                                        ) && ui.value.replyTo == origin.replyId
-                                    ) {
-                                        ui.value =
-                                            ui.value
-                                                .copy(
-                                                    replyTo = null,
-                                                    replyPreview = null,
-                                                )
                                     }
                                 }
 
@@ -774,9 +813,7 @@ class MessengerViewModel(
                             replacesSession || owner == null || valid(owner, token)
                         )
                     ) {
-                        ui.value =
-                            ui.value
-                                .copy(busy = false)
+                        ui.update { currentUi -> currentUi.copy(busy = false) }
                     }
                 }
             }
@@ -786,12 +823,12 @@ class MessengerViewModel(
         synchronized(screenLock) {
             screenCounter.incrementAndGet()
             atNewest = false
-            ui.value =
-                ui.value
-                    .copy(
-                        screen = screen,
-                        error = null,
-                    )
+            ui.update { currentUi ->
+                currentUi.copy(
+                    screen = screen,
+                    error = null,
+                )
+            }
         }
         if (screen == Screen.CONVERSATIONS || screen ==
             Screen.CONVERSATION_SETTINGS
@@ -812,17 +849,17 @@ class MessengerViewModel(
 
     private fun showError(error: Throwable) {
         if (error !is CancellationException) {
-            ui.value =
-                ui.value
-                    .copy(
-                        error =
-                            if (ui.value.pendingReset) {
-                                "Local reset failed. ${error.message ?: "Cleanup is not complete."}"
-                            } else {
-                                error.toString()
-                            },
-                        busy = false,
-                    )
+            ui.update { currentUi ->
+                currentUi.copy(
+                    error =
+                        if (currentUi.pendingReset) {
+                            "Local reset failed. ${error.message ?: "Cleanup is not complete."}"
+                        } else {
+                            error.toString()
+                        },
+                    busy = false,
+                )
+            }
         }
     }
 
@@ -850,9 +887,7 @@ class MessengerViewModel(
                     owner.key,
                 )
         ) {
-            ui.value =
-                ui.value
-                    .copy(unknownSends = unknown)
+            ui.update { currentUi -> currentUi.copy(unknownSends = unknown) }
         }
     }
 
@@ -1009,9 +1044,7 @@ class MessengerViewModel(
                         owner.key,
                     ) && ui.value.unknownTab == unknown
             ) {
-                ui.value =
-                    ui.value
-                        .copy(conversations = rows)
+                ui.update { currentUi -> currentUi.copy(conversations = rows) }
             }
         }
 
@@ -1061,12 +1094,12 @@ class MessengerViewModel(
                         newestLoaded = false
                     }
                     nextBefore = null
-                    ui.value =
-                        ui.value.copy(
+                    ui.update { currentUi ->
+                        currentUi.copy(
                             screen = Screen.TIMELINE,
                             conversationId = id,
                             conversationTitle =
-                                ui.value.conversations
+                                currentUi.conversations
                                     .firstOrNull { it.id == id }
                                     ?.title ?: id.take(12),
                             conversationUnknown = state.consentState == ConsentState.UNKNOWN,
@@ -1077,6 +1110,7 @@ class MessengerViewModel(
                             error = null,
                             hasOlder = true,
                         )
+                    }
                     true
                 }
             } ?: false
@@ -1087,7 +1121,7 @@ class MessengerViewModel(
             if (cached != null && anchor != null && cached.any { it.id == anchor.messageId }) {
                 onCurrentScreen(owner, token) {
                     val cachedRows = cached.map { it.toRow(owner.client.inboxId()) }
-                    ui.value = ui.value.copy(messages = cachedRows, anchor = anchor)
+                    ui.update { currentUi -> currentUi.copy(messages = cachedRows, anchor = anchor) }
                     nextBefore = cached.lastOrNull()?.sentAt?.ns
                 }
                 refreshTimeline(owner, token, true)
@@ -1261,8 +1295,8 @@ class MessengerViewModel(
             return
         }
         onCurrentScreen(owner, token) {
-            ui.value =
-                ui.value
+            ui.update { currentUi ->
+                currentUi
                     .copy(
                         messages =
                             (retained + queued)
@@ -1296,6 +1330,7 @@ class MessengerViewModel(
                                 ConsentState.UNKNOWN,
                         anchor = restoredAnchor,
                     ).refreshReply()
+            }
         }
         markRead(
             owner,
@@ -1333,8 +1368,8 @@ class MessengerViewModel(
             } ?: return
         val rows = window.rows
         onCurrentScreen(owner, token) {
-            ui.value =
-                ui.value
+            ui.update { currentUi ->
+                currentUi
                     .copy(
                         messages =
                             (rows + queued)
@@ -1356,6 +1391,7 @@ class MessengerViewModel(
                             !window
                                 .complete && window.notice == null,
                     ).refreshReply()
+            }
         }
     }
 
@@ -1370,7 +1406,11 @@ class MessengerViewModel(
         if (!valid(owner, token)) return
         if (result.rows.isEmpty() && result.notice == null) {
             refreshTimeline(owner, token, false)
-            onCurrentScreen(owner, token) { ui.value = ui.value.copy(historyNotice = "Position changed") }
+            onCurrentScreen(owner, token) {
+                ui.update { currentUi ->
+                    currentUi.copy(historyNotice = "Position changed")
+                }
+            }
             return
         }
         val window =
@@ -1383,14 +1423,15 @@ class MessengerViewModel(
         val retained = window.rows
         val position = restoreAnchor(saved, retained.map { it.toRow(owner.client.inboxId()) })
         onCurrentScreen(owner, token) {
-            ui.value =
-                ui.value
+            ui.update { currentUi ->
+                currentUi
                     .copy(
                         messages = retained.map { it.toRow(owner.client.inboxId()) },
                         anchor = position.anchor,
                         historyNotice = window.notice ?: if (position.changed) "Position changed" else null,
                         hasOlder = !window.complete && window.notice == null,
                     ).refreshReply()
+            }
         }
     }
 
@@ -1447,7 +1488,7 @@ class MessengerViewModel(
             )
         ) {
             onCurrentScreen(owner, token) {
-                ui.value = ui.value.copy(anchor = action.anchor)
+                ui.update { currentUi -> currentUi.copy(anchor = action.anchor) }
             }
             markRead(
                 owner,
@@ -1540,13 +1581,14 @@ class MessengerViewModel(
         val marker = session.preferences.marker(owner.key.profileId, key).insertedAtNs
         val count = chat.countMessages(incomingSelection(owner.client.inboxId(), marker)).toString()
         session.withCurrent(owner.key) {
-            ui.value =
-                ui.value.copy(
+            ui.update { currentUi ->
+                currentUi.copy(
                     conversations =
-                        ui.value.conversations.map {
+                        currentUi.conversations.map {
                             if (it.id == chat.id()) it.copy(unread = count) else it
                         },
                 )
+            }
         }
     }
 
@@ -1869,7 +1911,7 @@ class MessengerViewModel(
             )
         ) {
             onCurrentScreen(owner, token) {
-                ui.value = ui.value.copy(settings = settings)
+                ui.update { currentUi -> currentUi.copy(settings = settings) }
             }
         }
     }

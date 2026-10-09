@@ -104,13 +104,9 @@ class ComposeActionInstrumentedTest {
         compose
             .onNodeWithText("Send")
             .performClick()
-        assertTrue(
-            actions
-                .contains(
-                    MessengerAction
-                        .SendText("New text"),
-                ),
-        )
+        val sent = actions.filterIsInstance<MessengerAction.SendText>().single()
+        assertEquals("New text", sent.text)
+        assertTrue(sent.requestId > 0)
         compose
             .onNodeWithText("Hello")
             .performClick()
