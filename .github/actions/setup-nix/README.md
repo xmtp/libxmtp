@@ -51,11 +51,11 @@ for the repository reader secrets in jobs that select the writer environment.
 Set both fields of each pair together. Do not put writer keys at repository
 or organization scope.
 
-Audited compiler jobs select this environment only on a protected branch push to
-`main` or `self-hosted`. Other events select `kache-s3-reader`, which needs no
-secrets, approval, or branch restriction. GitHub can create that empty reader
-environment when the jobs first reference it. Pull request runs get only
-repository reader secrets; fork and Dependabot runs can build local-only.
+Audited compiler jobs select this environment only on a protected branch push
+to `main` or `self-hosted`. Other events use an empty environment name and
+select no GitHub environment. Same-repository pull request runs use repository
+reader secrets. Fork and Dependabot runs have no reader secrets and build
+local-only. No reader environment is needed.
 
 `kache-readonly` defaults to `true`. An audited writer caller sets it to
 `false`; the write helper still requires S3, the push event, the exact branch,

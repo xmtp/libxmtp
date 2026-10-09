@@ -18,7 +18,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: macos-15
     environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
     timeout-minutes: 60
     steps:
     - uses: actions/checkout@v6
@@ -52,7 +52,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v6
@@ -82,7 +82,7 @@ jobs:
     name: Site and JavaScript references
     runs-on: blacksmith-16vcpu-ubuntu-2404
     environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
     timeout-minutes: 60
     steps:
     - uses: actions/checkout@v6

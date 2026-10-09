@@ -12,7 +12,7 @@ jobs:
     name: Generate and test SDK façade
     runs-on: blacksmith-16vcpu-ubuntu-2404
     environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
     timeout-minutes: 90
     permissions:
       contents: read
@@ -81,7 +81,7 @@ jobs:
     name: Android SDK staging
     runs-on: blacksmith-16vcpu-ubuntu-2404
     environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
     timeout-minutes: 90
     permissions:
       contents: read

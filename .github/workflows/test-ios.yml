@@ -18,7 +18,7 @@ jobs:
     if: inputs.run-unit || inputs.run-platform
     runs-on: warp-macos-15-arm64-6x
     environment:
-      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || 'kache-s3-reader' }}
+      name: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
     name: Tests (iOS)
     timeout-minutes: 45
     steps:
