@@ -4,7 +4,32 @@ use crate::{
     test_support::{TestDatabase, TestServer},
 };
 use sqlx::Connection;
+use xmtp_common::time::{Duration, timeout};
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
+
+const PRIMARY_READ_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn primary_read_pool_does_not_wait_for_recovery() {
+    let mut database = TestDatabase::new()?;
+    let mut config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    config.database.replica_url = Some(database.url().to_owned());
+    let store = timeout(PRIMARY_READ_STARTUP_TIMEOUT, Store::connect(&config)).await??;
+    assert!(
+        !sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe("SELECT pg_is_in_recovery()"))
+            .fetch_one(&store.read)
+            .await?
+    );
+    assert_eq!(
+        sqlx::query_scalar!("SELECT closed_sequence_id FROM allocation_boundary WHERE singleton")
+            .fetch_one(&store.read)
+            .await?,
+        0
+    );
+    store.read.close().await;
+    store.primary.close().await;
+    database.remove()?;
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_begin_returns_a_clean_connection() {

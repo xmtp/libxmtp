@@ -157,7 +157,11 @@ Configure each chain RPC route needed for smart-contract-wallet signatures.
 An empty chain map supports identities that do not need chain RPC verification.
 
 The optional replica URL must name one physical PostgreSQL replica, not a load
-balancer that selects independently lagging replicas. Publish and Query use the
+balancer that selects independently lagging replicas. After primary migrations,
+startup waits for that replica to replay the primary's captured WAL insert
+position before reading backend tables or opening the gRPC listener. The wait
+logs when it begins and completes; database errors still fail startup.
+Publish and Query use the
 primary. Newest, identifier lookup, and subscriptions use the selected read
 database. Those reads can lag behind a successful publish.
 
