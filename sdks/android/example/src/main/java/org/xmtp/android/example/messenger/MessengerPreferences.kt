@@ -22,6 +22,7 @@ class MessengerPreferences(
     internal var beforeSessionCommit: suspend () -> Unit = {}
     internal var sessionCommitAccepted: (BackendProfile) -> Unit = {}
     internal var beforePositionCommit: suspend (String) -> Unit = {}
+    internal var beforeDraftAdmission: suspend () -> Unit = {}
     internal var positionCommitFinished: (String, Boolean) -> Unit = { _, _ -> }
 
     suspend fun commitSession(
@@ -377,6 +378,36 @@ class MessengerPreferences(
         return matched
     }
 
+    internal suspend fun prepareQueueDraft(
+        profile: String,
+        draft: SendDraftRef,
+        admit: (() -> Unit) -> Boolean,
+    ): Pair<Boolean, SendDraftRef?> {
+        var prepared = false
+        var previous: SendDraftRef? = null
+        mutateDrafts(profile, admit) { entries ->
+            previous = entries.firstOrNull { it.draftId == draft.draftId }
+            if (draft.descriptorSecretRef != null && previous != draft) {
+                entries
+            } else {
+                prepared = true
+                entries.filterNot { it.draftId == draft.draftId } + draft.copy(phase = SendPhase.QUEUEING)
+            }
+        }
+        return prepared to previous
+    }
+
+    internal suspend fun rejectQueueDraft(
+        profile: String,
+        queued: SendDraftRef,
+        previous: SendDraftRef?,
+        admit: (() -> Unit) -> Boolean,
+    ) = mutateDrafts(profile, admit) { entries ->
+        entries.mapNotNull { entry ->
+            if (entry != queued) entry else previous?.takeIf { it.descriptorSecretRef != null }
+        }
+    }
+
     private suspend fun mutateDrafts(
         profile: String,
         admit: (() -> Unit) -> Boolean,
@@ -385,6 +416,7 @@ class MessengerPreferences(
         var accepted = false
         store.edit { values ->
             beforeDraftCommit()
+            beforeDraftAdmission()
             accepted =
                 admit {
                     val array = JSONArray(values[stringPreferencesKey("$profile/drafts")] ?: "[]")
