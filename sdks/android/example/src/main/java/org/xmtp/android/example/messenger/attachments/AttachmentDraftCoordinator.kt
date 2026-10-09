@@ -70,9 +70,10 @@ class AttachmentDraftCoordinator(
         val ref = "attachment-$id"
         try {
             checkCurrent()
-            remote = attachments.create(AttachmentSource.Path(source.file.absolutePath, source.filename, source.mimeType)).remoteAttachment()
+            val stagedRemote = attachments.create(AttachmentSource.Path(source.file.absolutePath, source.filename, source.mimeType)).remoteAttachment()
+            remote = stagedRemote
             checkCurrent()
-            withContext(Dispatchers.IO) { secrets.write(key.profileId, ref, AttachmentDescriptor.encode(remote)) }
+            withContext(Dispatchers.IO) { secrets.write(key.profileId, ref, AttachmentDescriptor.encode(stagedRemote)) }
             checkCurrent()
             val draft = SendDraftRef(id, conversationKey, ref)
             preferences.saveDraft(key.profileId, draft)
@@ -104,8 +105,9 @@ class AttachmentDraftCoordinator(
                 clearPublishedSecret(draft)
                 return
             }
-            remote = descriptor(draft)
-            val pending = attachments.pending(remote)
+            val selected = descriptor(draft)
+            remote = selected
+            val pending = attachments.pending(selected)
             draft = draft.copy(phase = SendPhase.UPLOADING)
             checkCurrent()
             preferences.saveDraft(key.profileId, draft)
@@ -124,7 +126,7 @@ class AttachmentDraftCoordinator(
             sends.queue(key, client, conversation, draft, reconcile) {
                 checkCurrent()
                 mutex.withLock { check(draftId !in discarded) { "The draft was discarded" } }
-                conversation.sendRemoteAttachment(remote, SendOptions(optimistic = true))
+                conversation.sendRemoteAttachment(selected, SendOptions(optimistic = true))
             }
             clearPublishedSecret(draft)
         } catch (error: CancellationException) {

@@ -56,7 +56,7 @@ class AttachmentFlowInstrumentedTest {
                 coordinator.recover()
                 assertEquals("Complete", coordinator.cards.value.single().status)
                 coordinator.send(draft.draftId, fixture.group) { }
-                val messages = fixture.group.messages()
+                val messages = fixture.group.messages(null)
                 assertEquals(1, messages.size)
                 assertEquals(DeliveryStatus.PUBLISHED, messages.single().deliveryStatus)
                 assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
@@ -86,9 +86,9 @@ class AttachmentFlowInstrumentedTest {
                 assertTrue(coordinator.cards.value.single { it.id == unknown.draftId }.unknownOutcome)
                 assertFalse(coordinator.cards.value.single { it.id == unknown.draftId }.canSend)
                 assertFalse(coordinator.cards.value.single { it.id == accepted.draftId }.unavailable)
-                assertEquals(1, fixture.group.messages().size)
+                assertEquals(1, fixture.group.messages(null).size)
                 coordinator.send(accepted.draftId, fixture.group) { }
-                assertEquals(listOf(id), fixture.group.messages().map { it.id })
+                assertEquals(listOf(id), fixture.group.messages(null).map { it.id })
                 coordinator.discard(unknown.draftId)
                 assertTrue(File(fixture.client.attachments().localPath(remote)).isFile)
             }
@@ -114,7 +114,7 @@ class AttachmentFlowInstrumentedTest {
                 coordinator.recover()
                 assertTrue(coordinator.cards.value.single().unavailable)
                 assertFalse(coordinator.cards.value.single().canSend)
-                assertTrue(fixture.group.messages().isEmpty())
+                assertTrue(fixture.group.messages(null).isEmpty())
                 coordinator.discard(draft.draftId)
                 assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
             }
