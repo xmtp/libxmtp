@@ -176,6 +176,23 @@ def execute(output, label, backend):
     connected = ANDROID / "example/build/outputs/androidTest-results/connected"
     if connected.exists():
         shutil.copytree(connected, output / f"{label}-connected", dirs_exist_ok=True)
+    progress = subprocess.run(
+        [
+            "adb",
+            "-s",
+            serial,
+            "shell",
+            "run-as",
+            APP_ID,
+            "cat",
+            "files/messenger-performance/seed-progress.jsonl",
+        ],
+        text=True,
+        capture_output=True,
+    )
+    (output / f"{label}-seed-progress.jsonl").write_text(
+        progress.stdout if progress.returncode == 0 else ""
+    )
     read = subprocess.run(
         [
             "adb",

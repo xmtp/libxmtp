@@ -32,6 +32,7 @@ class MessengerPerformanceInstrumentedTest {
     private val arguments get() = InstrumentationRegistry.getArguments()
     private val root get() = File(context.filesDir, "messenger-performance")
     private val manifest get() = File(root, "workload.json")
+    private val seedProgress get() = File(root, "seed-progress.jsonl")
     private val secrets by lazy { SecureSecretStore(context) }
 
     private val profile get() =
@@ -87,6 +88,7 @@ class MessengerPerformanceInstrumentedTest {
 
     private suspend fun seed(): JSONObject {
         root.mkdirs()
+        seedProgress.writeText("")
         val started = SystemClock.elapsedRealtime()
         val receiverKey = SecureRandom().generateSeed(32)
         val senderKey = SecureRandom().generateSeed(32)
@@ -110,15 +112,93 @@ class MessengerPerformanceInstrumentedTest {
                 receiver.conversations.sync()
                 val local = checkNotNull(receiver.conversations.getById(group.id()))
                 local.updateConsentState(ConsentState.ALLOWED)
+                var published = 0
+                var sendStarted = SystemClock.elapsedRealtime()
+
+                suspend fun checkpoint(
+                    rows: Int,
+                    phase: String,
+                    publish: Boolean,
+                ) {
+                    val publishStarted = SystemClock.elapsedRealtime()
+                    val record =
+                        JSONObject()
+                            .put("phase", phase)
+                            .put("group", index)
+                            .put("expectedPublished", rows)
+                            .put("pendingApplicationRows", rows - published)
+                            .put("sendMs", publishStarted - sendStarted)
+                            .put("operation", "publish")
+                    try {
+                        check(rows - published in 0..256) { "Seed publication backlog exceeded 256 texts" }
+                        if (publish) group.publishMessages()
+                        val syncStarted = SystemClock.elapsedRealtime()
+                        record.put("publishMs", syncStarted - publishStarted)
+                        record.put("operation", "sync")
+                        val received =
+                            verifySeedCheckpoint(
+                                rows.toULong(),
+                                sync = {
+                                    try {
+                                        local.sync()
+                                    } finally {
+                                        record.put("syncMs", SystemClock.elapsedRealtime() - syncStarted)
+                                    }
+                                },
+                                count = {
+                                    val countStarted = SystemClock.elapsedRealtime()
+                                    record.put("operation", "count")
+                                    try {
+                                        local.countMessages(publishedSelection()).also {
+                                            record.put("receiverPublished", it.toString())
+                                        }
+                                    } finally {
+                                        record.put("countMs", SystemClock.elapsedRealtime() - countStarted)
+                                    }
+                                },
+                            )
+                        record.put("receiverPublished", received.toString()).put("status", "complete")
+                        published = rows
+                    } catch (error: Throwable) {
+                        record.put("status", "failed").put("errorType", error.javaClass.simpleName)
+                        val details = (error as? XmtpException.Unknown)?.v1?.streamFailure
+                        if (details != null) {
+                            record.put("code", details.code).put("retryable", details.retryable)
+                            val barriers = JSONArray()
+                            for (barrier in details.barriers) {
+                                for (topic in barrier.unfinished) {
+                                    barriers.put(
+                                        JSONObject()
+                                            .put("reason", barrier.reason.name)
+                                            .put("target", topic.target?.toString())
+                                            .put("received", topic.received.toString())
+                                            .put("processed", topic.processed.toString())
+                                            .put("cause", topic.cause?.kind?.name),
+                                    )
+                                }
+                            }
+                            record.put("barriers", barriers)
+                        }
+                        throw error
+                    } finally {
+                        record.put("elapsedMs", SystemClock.elapsedRealtime() - started)
+                        record.put("checkpointMs", SystemClock.elapsedRealtime() - publishStarted)
+                        seedProgress.appendText("$record\n")
+                        println("MESSENGER_PERFORMANCE_SEED checkpoint=$record")
+                    }
+                    sendStarted = SystemClock.elapsedRealtime()
+                }
                 for (row in 0 until expected(index)) {
                     // Each row has a distinct body. All rows pass through the public codec.
                     // A publish batch can share a timestamp. The newest 100 heavy rows
                     // use separate SDK publications for the two measured 50-row pages.
-                    if (index == 0 && row == 49_900) group.publishMessages()
+                    if (index == 0 && row == 49_900) checkpoint(row, "heavy-direct-flush", publish = true)
                     val optimistic = index != 0 || row < 49_900
                     group.sendText("$index/$row " + "m".repeat(256), SendOptions(optimistic = optimistic))
-                    if ((row + 1) % 256 == 0) {
-                        group.publishMessages()
+                    if (!optimistic) {
+                        checkpoint(row + 1, "heavy-direct", publish = (row + 1) % 256 == 0)
+                    } else if ((row + 1) % 256 == 0) {
+                        checkpoint(row + 1, "batch", publish = true)
                         if (index == 0 && (row + 1) % 4096 == 0) {
                             println(
                                 "MESSENGER_PERFORMANCE_SEED heavyMessages=${row + 1} " +
@@ -127,10 +207,8 @@ class MessengerPerformanceInstrumentedTest {
                         }
                     }
                 }
-                group.publishMessages()
                 // Fixture preparation may sync. Measured screen reads never do.
-                local.sync()
-                assertEquals(expected(index).toULong(), local.countMessages(publishedSelection()))
+                checkpoint(expected(index), "group-tail", publish = true)
                 ids.put(group.id())
                 total += expected(index)
                 println(
