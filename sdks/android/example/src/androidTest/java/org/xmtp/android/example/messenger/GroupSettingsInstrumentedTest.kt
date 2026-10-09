@@ -76,7 +76,18 @@ class GroupSettingsInstrumentedTest {
         return client
     }
 
-    private fun button(label: String) = compose.onNode(hasText(label) and hasClickAction())
+    private fun settingsNode(matcher: SemanticsMatcher): SemanticsNodeInteraction {
+        compose.onNodeWithTag("conversation-settings").performScrollToNode(matcher)
+        return compose.onNode(matcher)
+    }
+
+    private fun button(label: String): SemanticsNodeInteraction {
+        val matcher = hasText(label) and hasClickAction()
+        if (model.state.value.screen == Screen.CONVERSATION_SETTINGS) {
+            compose.onNodeWithTag("conversation-settings").performScrollToNode(hasText(label))
+        }
+        return compose.onNode(matcher)
+    }
 
     private suspend fun appGroup(member: SDKClient): Group {
         compose.onNodeWithContentDescription("New conversation").performClick()
@@ -180,7 +191,9 @@ class GroupSettingsInstrumentedTest {
             androidx.test.espresso.Espresso
                 .closeSoftKeyboard()
             action(MessengerAction.SetDisappearing(0)) { button("Save duration").performScrollTo().performClick() }
-            assertNull("Settings did not disable disappearing messages", group.state().common.disappearingSettings)
+            val cleared = group.state().common
+            assertFalse("Settings did not disable disappearing messages", cleared.isDisappearingEnabled)
+            assertEquals("Settings retained the old duration", 0L, cleared.disappearingSettings?.retentionNs)
         }
 
     @Test fun membersAndRolesCommitThroughSharedSettings() =
@@ -189,7 +202,7 @@ class GroupSettingsInstrumentedTest {
             val second = peer()
             val group = appGroup(first)
             val added = second.inboxId()
-            compose.onNodeWithText("Inbox ID").performScrollTo().performTextReplacement(added)
+            settingsNode(hasText("Inbox ID")).performTextReplacement(added)
             androidx.test.espresso.Espresso
                 .closeSoftKeyboard()
             action(MessengerAction.AddMember(added)) { button("Add member").performScrollTo().performClick() }
@@ -249,8 +262,8 @@ class GroupSettingsInstrumentedTest {
                 },
             )
             assertFalse(model.state.value.settings.canRequestRemoval)
-            compose.onNodeWithText("Membership: PendingRemove").performScrollTo().assertIsDisplayed()
-            button("Request removal").assertDoesNotExist()
+            settingsNode(hasText("Membership: PendingRemove")).assertIsDisplayed()
+            compose.onNode(hasText("Request removal") and hasClickAction()).assertDoesNotExist()
             saveMessengerScreenshot(compose.activity, "group-settings-pending-remove")
         }
 }
