@@ -36,6 +36,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
     private val downloads = MutableStateFlow<Map<String, AttachmentCardState>>(emptyMap())
     private val previews = MutableStateFlow<Map<String, Bitmap>>(emptyMap())
     private val error = MutableStateFlow<String?>(null)
+    @Volatile private var closed = false
     private var owner: ActiveSession? = null
     private var coordinator: AttachmentDraftCoordinator? = null
     private var files: AttachmentFiles? = null
@@ -49,7 +50,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
         val request = pickerRequest.also { pickerRequest = null }
         if (uri != null && request != null && model.acceptsScreen(request.first, request.second)) perform { active ->
             check(active.key == request.first)
-            coordinator!!.select(context.contentResolver, uri, request.third) { model.acceptsScreen(request.first, request.second) }
+            coordinator!!.select(context.contentResolver, uri, request.third) { !closed && model.acceptsScreen(request.first, request.second) }
         }
     }
     private val save = activity.registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -108,6 +109,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
     }
 
     fun close() {
+        closed = true
         model.featureAction = previousAction
         model.featureRefresh = previousRefresh
         session.beforeEnd = previousEnd
@@ -128,12 +130,13 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
     }
 
     private fun perform(block: suspend (ActiveSession) -> Unit) {
+        if (closed) return
         val active = session.active.value ?: return
         val token = model.screenToken()
         active.work.launch {
             try {
                 refresh(active)
-                check(model.acceptsScreen(active.key, token)) { "The screen changed" }
+                check(!closed && model.acceptsScreen(active.key, token)) { "The screen changed" }
                 block(active)
                 if (model.acceptsScreen(active.key, token)) { drafts.value = coordinator!!.cards.value; error.value = null; model.dispatch(MessengerAction.Refresh) }
             } catch (failure: CancellationException) { throw failure }
@@ -149,7 +152,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
             is AttachmentAction.Send -> perform { active ->
                 val token = model.screenToken()
                 val chat = checkNotNull(model.currentConversation())
-                coordinator!!.send(action.draftId, chat, { model.acceptsScreen(active.key, token) }) { model.reconcileFeatureMessage(active, token, it) }
+                coordinator!!.send(action.draftId, chat, { !closed && model.acceptsScreen(active.key, token) }) { model.reconcileFeatureMessage(active, token, it) }
             }
             is AttachmentAction.Discard -> perform { coordinator!!.discard(action.draftId) }
             is AttachmentAction.Download -> perform { active ->
@@ -172,7 +175,7 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
             is AttachmentAction.Open -> perform { active ->
                 val token = model.screenToken()
                 val intent = files!!.openIntent(action.messageId)
-                withContext(Dispatchers.Main) { if (model.acceptsScreen(active.key, token)) activity.startActivity(intent) }
+                withContext(Dispatchers.Main) { if (!closed && model.acceptsScreen(active.key, token)) activity.startActivity(intent) }
             }
             is AttachmentAction.Save -> {
                 val active = session.active.value ?: return
