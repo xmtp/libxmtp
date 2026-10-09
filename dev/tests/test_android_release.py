@@ -41,6 +41,41 @@ class AndroidReleaseTest(unittest.TestCase):
         }
         self.assertTrue(required.issubset(paths), paths)
 
+    def test_sdk_integration_cannot_select_app_instrumentation(self):
+        recipes = (ROOT / "sdks/android/android.just").read_text()
+        body = recipes.split("test-integration: build\n", 1)[1].split("\n\n", 1)[0]
+        command = body.split("&& ", 1)[1].strip()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            launcher = root / "run-test-emulator"
+            launcher.write_text(
+                '#!/usr/bin/env bash\nset -eu\ntest "$1" = --\nshift\nexec "$@"\n'
+            )
+            launcher.chmod(0o755)
+            adb = root / "adb"
+            adb.write_text(
+                '#!/usr/bin/env bash\nset -eu\ntest "$1" = -s\ntest "$3" = reverse\n'
+            )
+            adb.chmod(0o755)
+            gradle = root / "gradlew"
+            gradle.write_text(
+                "#!/usr/bin/env bash\nset -eu\n"
+                'printf "%s\\n" "$*" >&2\n'
+                'test "$*" = "-p . :library:connectedCheck --continue"\n'
+            )
+            gradle.chmod(0o755)
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"])
+            env["ANDROID_SERIAL"] = "fixture-device"
+            env["XMTP_S3_PORT"] = "9067"
+            result = subprocess.run(
+                ["bash", "-euc", command],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_live_environment_reaches_gradle(self):
         command = step("Build and test").split("        run: ", 1)[1].strip()
         with tempfile.TemporaryDirectory() as folder:
