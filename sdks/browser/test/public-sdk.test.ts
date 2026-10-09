@@ -86,6 +86,14 @@ test("a DM created from an identity keeps optimistic sends, filters, reactions, 
   expect(
     await dm.messages({ sentAfter: new Timestamp(2n ** 63n - 1n) }),
   ).toHaveLength(0);
+
+  const reverseDm = await peer.conversations.createDm(client.inboxId);
+  expect(reverseDm.id).not.toBe(dm.id);
+  await client.conversations.syncAll(undefined);
+  await dm.sync();
+  expect((await dm.duplicateDms()).map((duplicate) => duplicate.id)).toEqual([
+    reverseDm.id,
+  ]);
 });
 
 test("stream callbacks observe new conversations and messages", async () => {
@@ -226,16 +234,7 @@ test("configuration snapshots and diagnostic counters remain public", async () =
   expect(await client.diagnostics.aggregateStatistics()).toBeTypeOf("string");
 });
 
-test("a codec imported from pure encodes once when sent through the root", async () => {
-  const client = await create();
-  const group = await client.conversations.createGroup([]);
-  const codec = new TextCodec();
-  const encode = vi.spyOn(codec, "encode");
-  await group.send(codec, "one encode", { shouldPush: true });
-  expect(encode).toHaveBeenCalledExactlyOnceWith("one encode");
-});
-
-test("standard codec subclasses keep app fallback hooks before publication", async () => {
+test("pure codecs encode once and subclass fallbacks guard publication", async () => {
   class CustomText extends TextCodec {
     override fallback(value: string): string {
       return `custom ${value}`;
@@ -248,6 +247,11 @@ test("standard codec subclasses keep app fallback hooks before publication", asy
   }
   const client = await create();
   const group = await client.conversations.createGroup([]);
+  const codec = new TextCodec();
+  const encode = vi.spyOn(codec, "encode");
+  await group.send(codec, "one encode", { shouldPush: true });
+  expect(encode).toHaveBeenCalledExactlyOnceWith("one encode");
+
   const id = await group.send(new CustomText(), "override", {
     shouldPush: true,
   });

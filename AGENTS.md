@@ -49,6 +49,8 @@ The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`
 `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
 `just backend db-up` starts only `db` and `replica`, without an image build.
 `just backend logs [services...]` shows service logs.
+Failed Compose startup retains project logs and container state under
+`$RUNNER_TEMP/backend-startup-logs`, or the printed temporary path for local runs.
 Use `XMTP_BACKEND_URL=http://127.0.0.1:5050` when local IPv6 forwarding fails.
 Ports above are the main checkout's. Every worktree gets its own Compose project
 and port block, so run `just backend status` for the checkout you are in. See the
@@ -81,8 +83,8 @@ and port block, so run `just backend status` for the checkout you are in. See th
 - After changes to the CI failure filter, run
   `dev/nix-shell 'just ci-failures-filter-test'`. It checks local log fixtures.
 - `dev/nix-shell 'just lint-config'` also checks Android emulator startup,
-  scoped test teardown, platform selection, and clock synchronization with local
-  process fixtures.
+  scoped test teardown, platform selection, clock synchronization, and Docker
+  startup diagnostics with local process fixtures.
 
 ## Android release workflow
 

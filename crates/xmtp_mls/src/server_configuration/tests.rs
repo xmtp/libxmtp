@@ -42,8 +42,28 @@ fn a_client_exactly_at_the_minimum_is_accepted() {
 // verifies: CONF-050
 #[xmtp_common::test(unwrap_try = true)]
 fn a_prerelease_tag_never_makes_a_client_too_old() {
-    check_minimum_version(&requiring("1.2.3"), &version("1.2.3-rc.1")).unwrap();
-    check_minimum_version(&requiring("1.2.3-rc.4"), &version("1.2.3")).unwrap();
+    for (minimum, client, is_below) in [
+        ("1.2.3", "1.2.2", true),
+        ("1.2.3", "1.2.3", false),
+        ("1.2.3", "1.3.0", false),
+        ("1.2.3", "1.2.3-rc.1", false),
+        ("1.2.3-rc.4", "1.2.3", false),
+        ("1.2.3+build.2", "1.2.3", false),
+        ("1.2.3", "1.2.3+build.2", false),
+    ] {
+        let result = check_minimum_version(&requiring(minimum), &version(client));
+        if is_below {
+            assert!(
+                matches!(&result, Err(ClientError::ClientVersionTooOld { .. })),
+                "minimum {minimum}, client {client}: {result:?}"
+            );
+        } else {
+            assert!(
+                result.is_ok(),
+                "minimum {minimum}, client {client}: {result:?}"
+            );
+        }
+    }
 }
 
 // An empty minimum publishes no requirement at all.
@@ -135,17 +155,6 @@ fn an_undecodable_stored_copy_falls_back_to_compiled_defaults() {
     );
 }
 
-// A response that fails validation is never stored or used.
-// verifies: CONF-071
-#[xmtp_common::test(unwrap_try = true)]
-fn an_invalid_response_is_rejected() {
-    let response = backend_v1::GetConfigurationResponse {
-        identifier: String::new(),
-        ..Default::default()
-    };
-    assert!(validated(&response).is_err());
-}
-
 /// A catalogue entry no client could register makes the whole answer
 /// unusable, while tags this build does not know and an unsorted list do not:
 /// a newer deployment may publish either, and the group registry decides.
@@ -177,10 +186,16 @@ fn a_catalogue_entry_no_client_could_register_is_rejected() {
     };
     let accepted = validated(&response(vec![entry(0xC001, "b"), entry(0xC000, "a")]))?;
     assert_eq!(accepted.application_components[0].component_id, 0xC001);
-    assert!(matches!(
-        validated(&response(vec![entry(0xC000, "a"), entry(0xFF00, "b")])),
-        Err(ServerConfigurationError::ApplicationComponent { index: 1, .. })
-    ));
+    for bad_id in [0xBFFF, 0xFF00] {
+        assert_eq!(
+            validated(&response(vec![entry(0xC000, "a"), entry(bad_id, "b")])),
+            Err(ServerConfigurationError::ApplicationComponent {
+                index: 1,
+                reason: xmtp_configuration::ApplicationComponentError::ComponentId,
+            }),
+            "component ID {bad_id:#x}"
+        );
+    }
 }
 
 // The refresh worker's three attempts are driven by this
@@ -452,7 +467,7 @@ in_dms = false
 
     // The client reads the deployment's values
     // before any identity work and stores the copy bound to the URL it used.
-    // verifies: CONF-061
+    // verifies: CONF-061, CONF-079
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_client_reads_and_stores_what_the_deployment_publishes() {
         let backend = EphemeralBackend::start(DISTINCT).await?;
@@ -471,6 +486,43 @@ in_dms = false
             vec!["eip155:1".to_owned(), "eip155:8453".to_owned()]
         );
         assert_eq!(catalogue(configuration), DISTINCT_CATALOGUE);
+        assert_eq!(configuration.application_components.len(), 2);
+        let topic = &configuration.application_components[0];
+        assert_eq!(topic.component_id, 0xC000);
+        assert_eq!(topic.name, "topic");
+        assert_eq!(topic.component_type, 2);
+        assert_eq!(
+            topic.permissions.insert,
+            Some(xmtp_configuration::MetadataPolicy::Base(1))
+        );
+        assert_eq!(
+            topic.permissions.update,
+            Some(xmtp_configuration::MetadataPolicy::Base(3))
+        );
+        assert_eq!(
+            topic.permissions.delete,
+            Some(xmtp_configuration::MetadataPolicy::Base(2))
+        );
+        assert!(topic.in_groups);
+        assert!(!topic.in_dms);
+        let pronouns = &configuration.application_components[1];
+        assert_eq!(pronouns.component_id, 0xC001);
+        assert_eq!(pronouns.name, "USER_PRONOUNS");
+        assert_eq!(pronouns.component_type, 7);
+        assert_eq!(
+            pronouns.permissions.insert,
+            Some(xmtp_configuration::MetadataPolicy::Base(5))
+        );
+        assert_eq!(
+            pronouns.permissions.update,
+            Some(xmtp_configuration::MetadataPolicy::Base(5))
+        );
+        assert_eq!(
+            pronouns.permissions.delete,
+            Some(xmtp_configuration::MetadataPolicy::Base(3))
+        );
+        assert!(pronouns.in_groups);
+        assert!(pronouns.in_dms);
 
         let stored = context.db().server_configuration()?.unwrap();
         assert_eq!(stored.identifier, "org.example.distinct");

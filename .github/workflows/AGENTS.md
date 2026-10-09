@@ -19,6 +19,9 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 
 - Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
+- Failed Compose startup retains project logs and container state in
+  `$RUNNER_TEMP/backend-startup-logs`. The Android SDK check uploads these for
+  7 days; retain the same directory when adding diagnostics to other callers.
 
 - The iOS jobs and `test-swift-lifecycle.yml` use disposable native
   services through `dev/nix-shell 'just backend ci COMMAND'`. Each job creates
@@ -70,3 +73,21 @@ all outputs and dependencies, including the default developer shell. Kache is
 the default compiler wrapper; its Darwin helper bypasses linked outputs.
 Recovery runs only through the manual workflow. Windows installed-package
 smoke remains a manual owner in `test-sdk.yml`.
+
+## Compiler cache
+
+`setup-nix` uses a private local Kache store and disables GitHub compiler-cache
+archives. Native Clippy and the Darwin SDK check are the S3 pilot callers.
+Other callers stay local-only until the pilot's live checks pass.
+`dev/kache-ci-config` requires a complete key pair, bucket, and build scope for
+S3. No keys selects local-only; a partial pair fails before the action starts.
+
+The pilot jobs select `kache-s3-writer` only for protected branch pushes to
+`main` or `self-hosted`. Other events select the empty `kache-s3-reader`
+environment. Writer secrets belong only in the restricted writer environment.
+Existing deployment jobs retain their environments and use reader access when
+added later. Tags, dispatches, and jobs that build a selected ref cannot write.
+Keep the native backend acceptance job free of cache writer keys.
+
+`just lint-config` tests the backend selector and write policy without keys,
+a compiler daemon, or cloud access. See the setup action's README for settings.

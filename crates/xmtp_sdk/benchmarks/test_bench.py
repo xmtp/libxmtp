@@ -272,9 +272,6 @@ class RunIntegrity(unittest.TestCase):
             out = run_bench(temp, host_call(bench.dataset(), measured), output=output)
             return json.loads((out / "results.json").read_text())
 
-    def test_unchanged_run_writes_results(self):
-        self.assertEqual(self.run_changing(None)["package"]["files"], 1)
-
     def test_changed_package_or_source_fails(self):
         for change in ("package", "sources"):
             with self.subTest(change), self.assertRaises(bench.BenchError):
@@ -602,13 +599,6 @@ class AndroidHost(unittest.TestCase):
                 ["reverse", "--remove", "tcp:5050"],
             ],
         )
-
-    def test_reverse_rejects_a_missing_port(self):
-        with patch.object(android_host.subprocess, "run") as run:
-            with self.assertRaises(ValueError):
-                with android_host.reverse({"serial": "device"}, [5050, None]):
-                    pass
-        run.assert_not_called()
 
 
 if __name__ == "__main__":

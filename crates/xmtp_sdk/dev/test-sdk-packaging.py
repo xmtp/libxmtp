@@ -111,51 +111,55 @@ class PackagingTests(
 
     def test_mobile_late_tool_failure_preserves_prior_and_cleans_fresh_stage(self):
         for target in ("ios", "android"):
-            with self.subTest(target=target):
-                output = self.prepare_mobile_stage(target)
-                before = self.product_files(output)
+            output = self.prepare_mobile_stage(target)
+            before = self.product_files(output)
 
-                def fail(command, **kwargs):
-                    self.mobile_tool(command, **kwargs)
-                    raise subprocess.CalledProcessError(1, command)
+            def fail(command, **kwargs):
+                self.mobile_tool(command, **kwargs)
+                raise subprocess.CalledProcessError(1, command)
 
+            with self.subTest(target=target, phase="late failure with prior product"):
                 with self.assertRaises(subprocess.CalledProcessError):
                     self.assemble_mobile(target, fail)
                 self.assertEqual(self.product_files(output), before)
                 self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
-                shutil.rmtree(output)
-                with self.assertRaises(subprocess.CalledProcessError):
-                    self.assemble_mobile(target, fail)
-                self.assertFalse(output.exists())
-                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
 
-    def test_mobile_archive_failure_preserves_prior_stage(self):
-        output = self.prepare_mobile_stage("android")
-        before = self.product_files(output)
+            if target == "android":
 
-        def missing_abi(command, **kwargs):
-            self.mobile_tool(command, **kwargs)
-            archive = (
-                self.root / "sdks/android/library/build/outputs/aar/library-release.aar"
-            )
-            with zipfile.ZipFile(archive, "w") as broken:
-                broken.writestr("classes.jar", b"fixture classes")
+                def missing_abi(command, **kwargs):
+                    self.mobile_tool(command, **kwargs)
+                    archive = (
+                        self.root
+                        / "sdks/android/library/build/outputs/aar/library-release.aar"
+                    )
+                    with zipfile.ZipFile(archive, "w") as broken:
+                        broken.writestr("classes.jar", b"fixture classes")
 
-        with self.assertRaisesRegex(ValueError, "AAR missing ABI"):
-            self.assemble_mobile("android", missing_abi)
-        self.assertEqual(self.product_files(output), before)
-        self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
+                with self.subTest(target=target, phase="AAR missing ABI"):
+                    with self.assertRaisesRegex(ValueError, "AAR missing ABI"):
+                        self.assemble_mobile(target, missing_abi)
+                    self.assertEqual(self.product_files(output), before)
+                    self.assertEqual(
+                        list(output.parent.glob(".sdk-mobile-stage-*")), []
+                    )
 
-    def test_mobile_success_replaces_prior_with_checked_product(self):
-        for target in ("ios", "android"):
-            with self.subTest(target=target):
-                output = self.prepare_mobile_stage(target)
+            with self.subTest(target=target, phase="success replaces prior product"):
+                # The fake Android tool rewrites the AAR after the missing-ABI run.
                 self.assemble_mobile(target)
                 self.assertFalse((output / "previous.txt").exists())
                 contract = json.loads((output / "sdk-contract.json").read_text())
                 self.assertTrue(contract["assets"])
                 for name, expected in contract["assets"].items():
                     self.assertEqual(artifacts.digest(output / name), expected)
+                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
+
+            with self.subTest(
+                target=target, phase="late failure without prior product"
+            ):
+                shutil.rmtree(output)
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.assemble_mobile(target, fail)
+                self.assertFalse(output.exists())
                 self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
 
     def test_mobile_interruptions_preserve_prior_bytes(self):

@@ -3,9 +3,7 @@ import { expect, it } from "vitest";
 
 import { notificationBackend } from "./notificationBackend";
 
-async function credentialUpdate(
-  readThree: (read: () => Promise<unknown>) => Promise<void>,
-): Promise<void> {
+it("deduplicates concurrent and sequential credential reads across expiry and replacement", async () => {
   const backend = await notificationBackend();
   let calls = 0;
   const client = await createClient(createSigner().signer, {
@@ -24,22 +22,40 @@ async function credentialUpdate(
   });
   const unknown = createSigner().identifier;
   const read = () => client.inboxIdFor(unknown);
+  const expired = { value: "Bearer expired-test", expiresAtSeconds: 0n };
   try {
-    await readThree(read);
+    // Concurrent reads share the first missing credential.
+    await Promise.all([read(), read(), read()]);
     expect(calls).toBe(1);
-    await client.setCredential({
-      value: "Bearer expired-test",
-      expiresAtSeconds: 0n,
-    });
-    await readThree(read);
+
+    // The first sequential read must refresh an expired credential itself.
+    await client.setCredential(expired);
+    await read();
     expect(calls).toBe(2);
+    await read();
+    await read();
+    expect(calls).toBe(2);
+
+    // Concurrent reads also share a refresh after the credential expires.
+    await client.setCredential(expired);
+    await Promise.all([read(), read(), read()]);
+    expect(calls).toBe(3);
+
+    // Repeat the single-read miss after another explicit expiry.
+    await client.setCredential(expired);
+    await read();
+    expect(calls).toBe(4);
+    await read();
+    await read();
+    expect(calls).toBe(4);
+
     await client.setCredential({
       value: "Bearer replacement-test",
       expiresAtSeconds: BigInt(Math.floor(Date.now() / 1000) + 3600),
     });
     const before = backend.requests.length;
     await read();
-    expect(calls).toBe(2);
+    expect(calls).toBe(4);
     expect(
       backend.requests
         .slice(before)
@@ -54,16 +70,4 @@ async function credentialUpdate(
     await client.end();
     await backend.close();
   }
-}
-
-it("deduplicates credential refresh and accepts expired and replacement client credentials", () =>
-  credentialUpdate(async (read) => {
-    await Promise.all([read(), read(), read()]);
-  }));
-
-it("accepts expired and replacement client credentials in sequence", () =>
-  credentialUpdate(async (read) => {
-    await read();
-    await read();
-    await read();
-  }));
+});

@@ -557,6 +557,16 @@ async fn test_update_group_name_via_app_data_update() {
             .map(String::as_str),
         Some("AppData Group Name")
     );
+
+    alix_group
+        .update_group_description("AppData Description".to_string())
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(
+        bo_group.group_description()?,
+        "AppData Description",
+        "Bo should see the new group description through the AppData path"
+    );
 }
 
 /// A raw AppData intent bypasses `update_group_name`'s friendly length
@@ -564,9 +574,19 @@ async fn test_update_group_name_via_app_data_update() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
     use crate::groups::intents::AppDataUpdateIntentData;
+    use tls_codec::Serialize as _;
+    use xmtp_mls_common::tls_set::TlsSetDelta;
 
     tester!(alix);
     tester!(bo);
+
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
+    bo_group.sync().await?;
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    let mut last_rejection_sequence = None;
 
     for (component_id, max_length) in [
         (ComponentId::GROUP_NAME, MAX_GROUP_NAME_LENGTH),
@@ -574,12 +594,6 @@ async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
         (ComponentId::GROUP_IMAGE_URL, MAX_GROUP_IMAGE_URL_LENGTH),
         (ComponentId::APP_DATA, MAX_APP_DATA_LENGTH),
     ] {
-        let alix_group = alix
-            .create_group_with_members(&[bo.inbox_id()], None, None)
-            .await?;
-        let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
-
-        bo_group.sync().await?;
         let before = match component_id {
             ComponentId::GROUP_NAME => bo_group.read_single_component::<GroupNameComponent>()?,
             ComponentId::GROUP_DESCRIPTION => {
@@ -606,12 +620,18 @@ async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
         // Safe rejections can return a successful sync summary, so the
         // durable terminal-rejection record is the receiver-side proof.
         let _ = bo_group.sync().await;
-        let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
         let rejection = bo
             .context
             .db()
             .read_last_rejection(&topic)?
             .unwrap_or_else(|| panic!("receiver did not reject overlong {component_id}"));
+        if let Some(previous) = last_rejection_sequence {
+            assert!(
+                rejection.sequence_id > previous,
+                "{component_id} did not create a new durable rejection"
+            );
+        }
+        last_rejection_sequence = Some(rejection.sequence_id);
         assert_eq!(
             bo.context.db().topic_progress(&topic)?.processed,
             rejection.sequence_id,
@@ -633,23 +653,6 @@ async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
             "receiver state changed after rejected {component_id}"
         );
     }
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_receiver_rejects_last_super_admin_removal_from_raw_app_data_intent() {
-    use crate::groups::intents::AppDataUpdateIntentData;
-    use tls_codec::Serialize as _;
-    use xmtp_mls_common::tls_set::TlsSetDelta;
-
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_group = bo.wait_for_welcomes().await?.first()?.clone();
-
-    bo_group.sync().await?;
 
     let payload = TlsSetDelta::new()
         .remove(xmtp_mls_common::inbox_id::InboxId::from_hex(
@@ -667,12 +670,15 @@ async fn test_receiver_rejects_last_super_admin_removal_from_raw_app_data_intent
     // A safe receiver rejection can produce an `Ok` sync summary; require
     // the durable record rather than relying on that return value.
     let _ = bo_group.sync().await;
-    let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
     let rejection = bo
         .context
         .db()
         .read_last_rejection(&topic)?
         .expect("receiver did not reject last-super-admin removal");
+    assert!(
+        rejection.sequence_id > last_rejection_sequence.expect("overlong rejections"),
+        "last-super-admin removal did not create a new durable rejection"
+    );
     assert_eq!(
         bo.context.db().topic_progress(&topic)?.processed,
         rejection.sequence_id,
@@ -680,35 +686,6 @@ async fn test_receiver_rejects_last_super_admin_removal_from_raw_app_data_intent
     );
     let super_admins = bo_group.super_admin_list()?;
     assert_eq!(super_admins, vec![alix.inbox_id().to_string()]);
-}
-
-/// `update_group_description` on a dictionary-native group should also
-/// flow through the AppData path. This catches any per-field hardcoding
-/// (e.g. forgetting to map `Description` → `GROUP_DESCRIPTION`).
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_update_group_description_via_app_data_update() {
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_groups = bo.wait_for_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    bo_group.sync().await?;
-
-    alix_group
-        .update_group_description("AppData Description".to_string())
-        .await?;
-
-    bo_group.sync().await?;
-    assert_eq!(
-        bo_group.group_description()?,
-        "AppData Description",
-        "Bo should see the new group description through the AppData path"
-    );
 }
 
 // Two areas still rely on indirect coverage:
@@ -936,28 +913,7 @@ async fn test_admin_list_add_via_app_data_path() {
             meta.super_admin_list,
         );
     }
-}
 
-/// Round-trip: add then remove on a dictionary-native group.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_admin_list_remove_via_app_data_path() {
-    use crate::groups::UpdateAdminListType;
-
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_groups = bo.wait_for_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    bo_group.sync().await?;
-
-    alix_group
-        .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
-        .await?;
     alix_group
         .update_admin_list(UpdateAdminListType::Remove, bo.inbox_id().to_string())
         .await?;
@@ -973,28 +929,8 @@ async fn test_admin_list_remove_via_app_data_path() {
             meta.admin_list,
         );
     }
-}
 
-/// `update_admin_list(AddSuper, bo)` should target the SUPER_ADMIN_LIST
-/// component rather than ADMIN_LIST. Confirms the action→component
-/// mapping in the sender's match arm.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_super_admin_list_add_via_app_data_path() {
-    use crate::groups::UpdateAdminListType;
-
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_groups = bo.wait_for_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    bo_group.sync().await?;
-
-    // AddSuper targets SUPER_ADMIN_LIST per the sender's mapping.
+    // The admin list is empty before AddSuper. AddSuper targets the other list.
     alix_group
         .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
         .await?;

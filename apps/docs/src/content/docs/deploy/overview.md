@@ -56,12 +56,13 @@ These ingress mechanisms must meet the transport requirements below. How far
 each path has been exercised differs by platform, so check a guide's own
 caveats, and the ingress contract below, before you rely on it.
 
-| Platform                              | Ingress mechanism                                                     | Native gRPC                                                                         |
-| ------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| [Fly.io](/deploy/fly/)                | Fly Proxy with TLS termination and h2c to the backend                 | Yes                                                                                 |
-| [Railway](/deploy/railway/)           | **DEVELOPMENT ONLY:** TCP proxy to a separate HAProxy TLS terminator  | Yes, through the TCP proxy and HAProxy. The HTTP edge does not support native gRPC. |
-| [AWS ECS (Fargate)](/deploy/aws-ecs/) | NLB TLS listener with ALPN `HTTP2Preferred` and a TCP target group    | Yes                                                                                 |
-| [Kubernetes](/deploy/kubernetes/)     | Gateway API HTTPS listener and HTTPRoute, with an h2c backend service | Yes, with a controller that preserves streaming and trailers                        |
+| Platform                                                      | Ingress mechanism                                                     | Native gRPC                                                                         |
+| ------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| [Local Linux or Mac with Tailscale](/deploy/local-tailscale/) | Tailscale Serve with private HTTPS and h2c to the backend             | Supported by current stable Tailscale Serve                                         |
+| [Fly.io](/deploy/fly/)                                        | Fly Proxy with TLS termination and h2c to the backend                 | Yes                                                                                 |
+| [Railway](/deploy/railway/)                                   | **DEVELOPMENT ONLY:** TCP proxy to a separate HAProxy TLS terminator  | Yes, through the TCP proxy and HAProxy. The HTTP edge does not support native gRPC. |
+| [AWS ECS (Fargate)](/deploy/aws-ecs/)                         | NLB TLS listener with ALPN `HTTP2Preferred` and a TCP target group    | Yes                                                                                 |
+| [Kubernetes](/deploy/kubernetes/)                             | Gateway API HTTPS listener and HTTPRoute, with an h2c backend service | Yes, with a controller that preserves streaming and trailers                        |
 
 ## Container image
 

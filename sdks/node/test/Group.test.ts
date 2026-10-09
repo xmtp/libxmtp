@@ -10,9 +10,9 @@ const WAIT = { timeout: 30_000, interval: 1000 };
 // permissions, consent, disappearing messages, message filters and counts.
 // See `crates/xmtp_mls/src/groups/tests` and `crates/xmtp_sdk/src/tests`.
 describe("Group", () => {
-  it("should send and list messages", async () => {
+  it("sends, lists, and streams messages across two group creation forms", async () => {
     const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
+    const { signer: signer2, identifier: identifier2 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
     const group = await client1.conversations.createGroup([client2.inboxId]);
@@ -97,38 +97,38 @@ describe("Group", () => {
     expect(await group.sendText("keyed", { idempotencyKey: "key-2" })).not.toBe(
       keyed,
     );
-  });
 
-  it("should stream messages", async () => {
-    const { signer: signer1 } = createSigner();
-    const { signer: signer2, identifier: identifier2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
-    // An identity list routes to the generated `createGroupWithIdentities`
-    // call. The send test above creates its group from inbox IDs.
-    const group = await client1.conversations.createGroup([identifier2]);
+    // An identity list routes to the generated createGroupWithIdentities call.
+    const identityGroup = await client1.conversations.createGroup([
+      identifier2,
+    ]);
     expect(
-      (await group.members()).map((member) => member.inboxId).sort(),
+      (await identityGroup.members()).map((member) => member.inboxId).sort(),
     ).toEqual([client1.inboxId, client2.inboxId].sort());
 
     await client2.conversations.sync();
-    const groups = await client2.conversations.listGroups({});
-    expect(groups.length).toBe(1);
-    expect(groups[0].id).toBe(group.id);
+    const streamedGroups = await client2.conversations.listGroups({});
+    expect(streamedGroups).toHaveLength(2);
+    expect(streamedGroups.map((item) => item.id)).toContain(group.id);
+    const streamGroup = streamedGroups.find(
+      (item) => item.id === identityGroup.id,
+    );
+    expect(streamGroup).toBeDefined();
 
     const cursor = (
-      await groups[0].messages({ direction: "descending", limit: 1 })
+      await streamGroup!.messages({ direction: "descending", limit: 1 })
     )[0]?.deliveryCursor;
     const streamedMessages: unknown[] = [];
-    const stream = groups[0].streamMessages({ from: cursor ?? undefined });
+    const stream = streamGroup!.streamMessages({ from: cursor ?? undefined });
     await stream.ready();
     void stream.onValue((message) => {
       if (message.content.kind === "text")
         streamedMessages.push(message.content.value);
     });
 
-    await group.sendText("gm");
-    await group.sendText("gm2");
+    await group.sendText("outside stream");
+    await identityGroup.sendText("gm");
+    await identityGroup.sendText("gm2");
 
     await vi.waitFor(() => {
       expect(streamedMessages).toEqual(["gm", "gm2"]);

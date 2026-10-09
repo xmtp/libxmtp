@@ -490,37 +490,19 @@ mod tests {
     #[xmtp_common::test]
     fn test_insert_and_contains() {
         let mut set = TlsSet::<u16>::new();
+        assert!(set.remove(&42).is_err());
         set.insert(42).unwrap();
         assert!(set.contains(&42));
         assert!(!set.contains(&99));
-    }
-
-    #[xmtp_common::test]
-    fn test_insert_duplicate_fails() {
-        let mut set = TlsSet::<u8>::new();
-        set.insert(1).unwrap();
-        assert!(set.insert(1).is_err());
-    }
-
-    #[xmtp_common::test]
-    fn test_remove() {
-        let mut set = TlsSet::<u8>::new();
-        set.insert(1).unwrap();
-        set.remove(&1).unwrap();
-        assert!(!set.contains(&1));
+        assert!(set.insert(42).is_err());
+        set.remove(&42).unwrap();
+        assert!(!set.contains(&42));
         assert!(set.is_empty());
-    }
+        assert!(set.remove(&42).is_err());
 
-    #[xmtp_common::test]
-    fn test_remove_missing_fails() {
-        let mut set = TlsSet::<u8>::new();
-        assert!(set.remove(&1).is_err());
-    }
-
-    #[xmtp_common::test]
-    fn test_from_keys_deduplicates() {
         let set = TlsSet::from_keys([1_u8, 2, 3, 1, 2]);
         assert_eq!(set.len(), 3);
+        assert!(set.contains(&1));
     }
 
     #[xmtp_common::test]
@@ -528,6 +510,11 @@ mod tests {
         let set = TlsSet::from_keys([3_u8, 1, 2]);
         let keys: Vec<_> = set.iter().copied().collect();
         assert_eq!(keys, vec![1, 2, 3]);
+        assert_eq!(set.clone().into_iter().collect::<Vec<_>>(), vec![1, 2, 3]);
+        let collected: TlsSet<u8> = [3, 1, 2].into_iter().collect();
+        assert_eq!(collected.len(), 3);
+        assert!(collected.contains(&1));
+        assert_eq!(collected.iter().copied().collect::<Vec<_>>(), keys);
     }
 
     #[xmtp_common::test]
@@ -536,29 +523,11 @@ mod tests {
         let bytes = set.tls_serialize_detached().unwrap();
         let restored = TlsSet::<u16>::tls_deserialize_exact(&bytes).unwrap();
         assert_eq!(set, restored);
-    }
-
-    #[xmtp_common::test]
-    fn test_empty_round_trip() {
-        let set = TlsSet::<u8>::new();
-        let bytes = set.tls_serialize_detached().unwrap();
+        let empty = TlsSet::<u8>::new();
+        let bytes = empty.tls_serialize_detached().unwrap();
         let restored = TlsSet::<u8>::tls_deserialize_exact(&bytes).unwrap();
-        assert_eq!(set, restored);
+        assert_eq!(empty, restored);
         assert!(restored.is_empty());
-    }
-
-    #[xmtp_common::test]
-    fn test_into_iter() {
-        let set = TlsSet::from_keys([3_u8, 1, 2]);
-        let keys: Vec<_> = set.into_iter().collect();
-        assert_eq!(keys, vec![1, 2, 3]);
-    }
-
-    #[xmtp_common::test]
-    fn test_collect() {
-        let set: TlsSet<u8> = [3, 1, 2].into_iter().collect();
-        assert_eq!(set.len(), 3);
-        assert!(set.contains(&1));
     }
 
     #[xmtp_common::test]

@@ -19,4 +19,36 @@ if docker ps --filter label=com.docker.compose.project=xmtp-backend --format '{{
 fi
 
 echo "stack '${XMTP_COMPOSE_PROJECT}' (slot ${XMTP_WORKTREE_SLOT}): backend ${XMTP_BACKEND_URL}, db ${XMTP_BACKEND_DB_PORT}"
-exec docker compose -f "$script_dir/compose.yml" -p "${XMTP_COMPOSE_PROJECT}" up --detach --remove-orphans --wait "$@"
+if docker compose -f "$script_dir/compose.yml" -p "${XMTP_COMPOSE_PROJECT}" up --detach --remove-orphans --wait "$@"; then
+  exit 0
+else
+  startup_status=$?
+fi
+
+# Keep the failed project's logs and state before a runner removes its containers.
+# Inspect only State: a full inspect would also retain environment credentials.
+# Diagnostics are best effort and must never replace Compose's failure status.
+collect_startup_diagnostics() {
+  local logs_root diagnostics_dir container_id
+  logs_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/backend-startup-logs"
+  if ! mkdir -p "$logs_root" || ! diagnostics_dir="$(mktemp -d "$logs_root/startup.XXXXXX")"; then
+    echo "Unable to create backend startup diagnostics in $logs_root" >&2
+    return
+  fi
+  printf '%s\n' "$XMTP_COMPOSE_PROJECT" > "$diagnostics_dir/project.txt"
+  echo "Backend startup diagnostics: $diagnostics_dir" >&2
+  docker compose -f "$script_dir/compose.yml" -p "$XMTP_COMPOSE_PROJECT" logs --no-color --timestamps \
+    > "$diagnostics_dir/compose.log" 2> "$diagnostics_dir/diagnostic-errors.log" || true
+  docker compose -f "$script_dir/compose.yml" -p "$XMTP_COMPOSE_PROJECT" ps --all \
+    > "$diagnostics_dir/compose-ps.txt" 2>> "$diagnostics_dir/diagnostic-errors.log" || true
+  docker compose -f "$script_dir/compose.yml" -p "$XMTP_COMPOSE_PROJECT" ps --all --quiet \
+    > "$diagnostics_dir/container-ids.txt" 2>> "$diagnostics_dir/diagnostic-errors.log" || true
+  while IFS= read -r container_id; do
+    [ -n "$container_id" ] || continue
+    docker inspect --format '{"name":{{json .Name}},"state":{{json .State}}}' "$container_id" \
+      >> "$diagnostics_dir/container-state.jsonl" 2>> "$diagnostics_dir/diagnostic-errors.log" || true
+  done < "$diagnostics_dir/container-ids.txt"
+}
+
+(umask 077; collect_startup_diagnostics) || true
+exit "$startup_status"

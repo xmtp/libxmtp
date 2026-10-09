@@ -1,28 +1,5 @@
 use super::*;
 
-#[rstest::rstest]
-#[xmtp_common::test(flavor = "multi_thread")]
-async fn only_test_sync_welcomes() {
-    let alice = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
-    let bob = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
-
-    let alice_bob_group = alice.create_group(None, None).unwrap();
-    alice_bob_group
-        .add_members(&[bob.inbox_id()])
-        .await
-        .unwrap();
-
-    let bob_received_groups = bob.sync_welcomes().await.unwrap();
-    assert_eq!(bob_received_groups.len(), 1);
-    assert_eq!(
-        bob_received_groups.first().unwrap().group_id,
-        alice_bob_group.group_id
-    );
-
-    let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
-    assert_eq!(duplicate_received_groups.len(), 0);
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(flavor = "multi_thread")]
 async fn test_leaf_node_lifetime_validation_disabled() {
@@ -135,6 +112,13 @@ async fn test_sync_all_groups() {
     let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
     let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
     assert_eq!(bo_messages2.len(), 2);
+
+    let alix_bo_group3 = alix.create_group(None, None).unwrap();
+    alix_bo_group3.add_members(&[bo.inbox_id()]).await.unwrap();
+    let new_welcomes = bo.sync_welcomes().await.unwrap();
+    assert_eq!(new_welcomes.len(), 1);
+    assert_eq!(new_welcomes[0].group_id, alix_bo_group3.group_id);
+    assert!(bo.sync_welcomes().await.unwrap().is_empty());
 }
 
 #[xmtp_common::test(flavor = "multi_thread")]

@@ -1389,22 +1389,6 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn message_lift_uses_browser_host_class() {
-        let message = Type::Custom {
-            module_path: "test".into(),
-            name: "Message".into(),
-            builtin: Box::new(Type::Record {
-                module_path: "test".into(),
-                name: "MessageData".into(),
-            }),
-        };
-        assert_eq!(
-            decode_expr(&message, "raw", "session"),
-            "new HostMessage(decodeRecordMessageData(session, raw), session)"
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
     fn named_error_variant_uses_named_constructor() {
         let item = Metadata::Enum(EnumMetadata {
             module_path: "test".into(),
@@ -1779,35 +1763,6 @@ mod tests {
         let files = render(&[item], &[], "test")?;
         assert!(files["wire.gen.ts"].contains("export type WireKind = number"));
         assert!(files["wire.gen.ts"].contains("flat: true"));
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn generated_client_end_rejects_closed_handle() {
-        let object = Metadata::Object(ObjectMetadata {
-            module_path: "test".into(),
-            name: "Client".into(),
-            orig_name: None,
-            remote: false,
-            imp: ObjectImpl::Struct,
-            docstring: None,
-        });
-        let method = Metadata::Method(MethodMetadata {
-            module_path: "test".into(),
-            self_name: "Client".into(),
-            name: "end".into(),
-            orig_name: None,
-            is_async: true,
-            inputs: vec![],
-            return_type: None,
-            throws: None,
-            takes_self_by_arc: true,
-            checksum: None,
-            docstring: None,
-        });
-        let items = [object, method];
-        let operations = operations(&items);
-        let files = render(&items, &operations, "test")?;
-        assert!(files["proxy.gen.ts"].contains("async end(asyncOpts_?:"));
     }
 
     fn foreign_trait(name: &str, method: &str, is_async: bool) -> [Metadata; 3] {

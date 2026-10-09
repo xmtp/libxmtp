@@ -175,74 +175,7 @@ async fn encoded_content_encryption_rejects_missing_content_type() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-fn standard_content_decodes_text() {
-    use prost::Message as _;
-    use xmtp_content_types::{ContentCodec, text::TextCodec};
-    let encoded = TextCodec::encode("hello".into())?.encode_to_vec();
-    assert!(
-        matches!(crate::MessageContent::decode(encoded)?, crate::MessageContent::Text(value) if value == "hello")
-    );
-}
-
-#[xmtp_common::test(unwrap_try = true)]
 async fn client_configuration_and_credential_update() {
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    assert_eq!(client.libxmtp_version(), env!("CARGO_PKG_VERSION"));
-    let configured = client.server_configuration();
-    let fetched =
-        crate::client_identity::fetch_server_configuration(options().backend.unwrap()).await?;
-    assert_eq!(configured.identifier, fetched.identifier);
-    let refreshed = client.refresh_server_configuration().await?;
-    assert_eq!(refreshed.identifier, configured.identifier);
-    client.end().await?;
-    let mut authenticated_options = options();
-    let Some(BackendSource::Options {
-        options: backend_options,
-    }) = &mut authenticated_options.backend
-    else {
-        panic!("test uses backend options");
-    };
-    backend_options.credential = Some(Credential {
-        name: None,
-        value: "Bearer first".into(),
-        expires_at_seconds: i64::MAX,
-    });
-    let authenticated =
-        Client::create(crate::generate_local_signer().await, authenticated_options).await?;
-    authenticated
-        .set_credential(Credential {
-            name: None,
-            value: "Bearer test".into(),
-            expires_at_seconds: i64::MAX,
-        })
-        .await?;
-    // The backend token is a secret; the public options omit it.
-    let Some(BackendSource::Options { options: exposed }) = authenticated.options().backend else {
-        panic!("test uses backend options");
-    };
-    assert!(
-        exposed.credential.is_none(),
-        "options exposed the credential"
-    );
-    assert!(
-        exposed.credentials.is_none(),
-        "options exposed the credential source"
-    );
-    assert!(matches!(
-        authenticated
-            .set_credential(Credential {
-                name: Some("not a header".into()),
-                value: "a".into(),
-                expires_at_seconds: 0,
-            })
-            .await,
-        Err(XmtpError::InvalidInput(_))
-    ));
-    authenticated.end().await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn credential_can_be_set_after_build_without_initial_source() {
     use prost::bytes::Bytes;
     use xmtp_proto::api::{ApiClientError, BytesStream, Client as TransportClient};
     use xmtp_proto::api_client::XmtpBackendClient;
@@ -283,12 +216,19 @@ async fn credential_can_be_set_after_build_without_initial_source() {
         }
     }
 
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    assert_eq!(client.libxmtp_version(), env!("CARGO_PKG_VERSION"));
+    let configured = client.server_configuration();
+    let fetched =
+        crate::client_identity::fetch_server_configuration(options().backend.unwrap()).await?;
+    assert_eq!(configured.identifier, fetched.identifier);
+    let refreshed = client.refresh_server_configuration().await?;
+    assert_eq!(refreshed.identifier, configured.identifier);
     let backend = crate::Backend::from_options(BackendOptions {
         url: xmtp_configuration::backend_test_url(),
         ..Default::default()
     })?;
     assert!(!backend.api.has_credential_source());
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
     client
         .set_credential(Credential {
             name: None,
@@ -311,6 +251,74 @@ async fn credential_can_be_set_after_build_without_initial_source() {
         .await?;
     assert!(sent.load(Ordering::SeqCst));
     client.end().await?;
+    let mut authenticated_options = options();
+    let Some(BackendSource::Options {
+        options: backend_options,
+    }) = &mut authenticated_options.backend
+    else {
+        panic!("test uses backend options");
+    };
+    backend_options.credential = Some(Credential {
+        name: None,
+        value: "Bearer first".into(),
+        expires_at_seconds: i64::MAX,
+    });
+    backend_options.app_version = Some("test/8".into());
+    authenticated_options.workers = Some(crate::client::WorkerOptions {
+        default_interval_ns: Some(60_000_000_000),
+        intervals: vec![crate::client::WorkerInterval {
+            kind: crate::client::WorkerKind::DeviceSync,
+            interval_ns: Some(30_000_000_000),
+            jitter_ns: None,
+            enabled: None,
+        }],
+    });
+    let configured_options = authenticated_options.clone();
+    let authenticated =
+        Client::create(crate::generate_local_signer().await, authenticated_options).await?;
+    assert_eq!(authenticated.app_version().as_deref(), Some("test/8"));
+    let reported = authenticated.options();
+    let Some(BackendSource::Options {
+        options: reported_backend,
+    }) = &reported.backend
+    else {
+        panic!("test uses backend options");
+    };
+    assert_eq!(reported_backend.app_version.as_deref(), Some("test/8"));
+    assert_eq!(
+        format!("{:?}", reported.workers),
+        format!("{:?}", configured_options.workers)
+    );
+    authenticated
+        .set_credential(Credential {
+            name: None,
+            value: "Bearer test".into(),
+            expires_at_seconds: i64::MAX,
+        })
+        .await?;
+    // The backend token is a secret; the public options omit it.
+    let Some(BackendSource::Options { options: exposed }) = authenticated.options().backend else {
+        panic!("test uses backend options");
+    };
+    assert!(
+        exposed.credential.is_none(),
+        "options exposed the credential"
+    );
+    assert!(
+        exposed.credentials.is_none(),
+        "options exposed the credential source"
+    );
+    assert!(matches!(
+        authenticated
+            .set_credential(Credential {
+                name: Some("not a header".into()),
+                value: "a".into(),
+                expires_at_seconds: 0,
+            })
+            .await,
+        Err(XmtpError::InvalidInput(_))
+    ));
+    authenticated.end().await?;
 }
 
 #[xmtp_common::test]
@@ -362,36 +370,6 @@ async fn create_uses_the_selected_registration_nonce() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn client_reports_its_app_version_and_worker_options() {
-    let mut settings = options();
-    let Some(BackendSource::Options { options: backend }) = &mut settings.backend else {
-        panic!("test uses backend options");
-    };
-    backend.app_version = Some("test/8".into());
-    settings.workers = Some(crate::client::WorkerOptions {
-        default_interval_ns: Some(60_000_000_000),
-        intervals: vec![crate::client::WorkerInterval {
-            kind: crate::client::WorkerKind::DeviceSync,
-            interval_ns: Some(30_000_000_000),
-            jitter_ns: None,
-            enabled: None,
-        }],
-    });
-    let client = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
-    assert_eq!(client.app_version().as_deref(), Some("test/8"));
-    let reported = client.options();
-    let Some(BackendSource::Options { options: backend }) = reported.backend else {
-        panic!("test uses backend options");
-    };
-    assert_eq!(backend.app_version.as_deref(), Some("test/8"));
-    assert_eq!(
-        format!("{:?}", reported.workers),
-        format!("{:?}", settings.workers)
-    );
-    client.end().await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
 async fn revoke_installations_removes_only_the_selected_installation() {
     let signer = crate::generate_local_signer().await;
     let first = Client::create(signer.clone(), options()).await?;
@@ -436,43 +414,6 @@ async fn invalid_notification_key_has_typed_error() {
         })
         .await;
     assert!(matches!(result, Err(XmtpError::InvalidArgument(_))));
-    client.end().await?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn disabled_task_runner_has_typed_notification_error() {
-    let mut settings = options();
-    settings.workers = Some(crate::client::WorkerOptions {
-        default_interval_ns: None,
-        intervals: vec![crate::client::WorkerInterval {
-            kind: crate::client::WorkerKind::TaskRunner,
-            interval_ns: None,
-            jitter_ns: None,
-            enabled: Some(false),
-        }],
-    });
-    let client = Client::create(crate::generate_local_signer().await, settings).await?;
-    let result = client
-        .enable_notifications(crate::NotificationConfig {
-            channel: crate::NotificationChannel::Http {
-                url: "https://example.com".into(),
-                signing_key: vec![1; 16],
-            },
-            consent_states: None,
-            include_welcomes: None,
-            include_sync_groups: None,
-            include_commits: None,
-        })
-        .await;
-    assert!(matches!(result, Err(XmtpError::TaskRunnerDisabled(_))));
-    client.end().await?;
-}
-
-// An unconfigured push channel fails with a typed error, the client keeps
-// the failure as its notification state, and disable clears it.
-#[xmtp_common::test(unwrap_try = true)]
-async fn unconfigured_channel_keeps_a_typed_failed_state() {
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
     for channel in [
         crate::NotificationChannel::Apns {
             token: "a".repeat(64),
@@ -507,6 +448,35 @@ async fn unconfigured_channel_keeps_a_typed_failed_state() {
             crate::NotificationState::Disabled
         ));
     }
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn disabled_task_runner_has_typed_notification_error() {
+    let mut settings = options();
+    settings.workers = Some(crate::client::WorkerOptions {
+        default_interval_ns: None,
+        intervals: vec![crate::client::WorkerInterval {
+            kind: crate::client::WorkerKind::TaskRunner,
+            interval_ns: None,
+            jitter_ns: None,
+            enabled: Some(false),
+        }],
+    });
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    let result = client
+        .enable_notifications(crate::NotificationConfig {
+            channel: crate::NotificationChannel::Http {
+                url: "https://example.com".into(),
+                signing_key: vec![1; 16],
+            },
+            consent_states: None,
+            include_welcomes: None,
+            include_sync_groups: None,
+            include_commits: None,
+        })
+        .await;
+    assert!(matches!(result, Err(XmtpError::TaskRunnerDisabled(_))));
     client.end().await?;
 }
 

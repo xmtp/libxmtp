@@ -467,17 +467,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sqlcipher_version() {
-        let db_path = tmp_path();
-        {
-            let opts = Persistent(db_path.clone());
-            let mut conn = SqliteConnection::establish(&db_path).unwrap();
-            let v = EncryptedConnection::check_for_sqlcipher(&opts, &mut conn).unwrap();
-            println!("SQLCipher Version {}", v.cipher_version);
-        }
-    }
-
-    #[tokio::test]
     async fn test_db_creates_with_plaintext_header() {
         let db_path = tmp_path();
         {

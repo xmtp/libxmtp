@@ -12,7 +12,7 @@ import org.junit.Test
 // archive bytes, decodeContent, prepare and publish, the Conversation
 // lastMessage forward, duplicate DMs and the debug record's epoch. Each value
 // crosses the native boundary once. Rust owns the behavior: xmtp_sdk/src/tests/archives.rs::consent_archive_storage_and_diagnostics,
-// client_setup.rs::standard_content_decodes_text,
+// content_records.rs::standard_content_types_decode_to_records,
 // reader_cursor.rs::delivery_cursor_absent_until_publication,
 // reader_restored.rs::foreign_restored_dm_has_no_local_peer.
 class GeneratedForwardsTest {

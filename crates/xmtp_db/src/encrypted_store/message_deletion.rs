@@ -246,6 +246,8 @@ mod tests {
             create_test_message(conn, message_id.clone(), group_id);
             create_test_message(conn, delete_message_id.clone(), group_id);
 
+            assert!(!conn.is_message_deleted(&message_id)?);
+
             let deletion = StoredMessageDeletion {
                 id: delete_message_id.clone(),
                 group_id,
@@ -256,6 +258,7 @@ mod tests {
             };
 
             deletion.store(conn)?;
+            assert!(conn.is_message_deleted(&message_id)?);
 
             // Test get by ID
             let retrieved = conn.get_message_deletion(&delete_message_id)?;
@@ -266,36 +269,6 @@ mod tests {
             let by_deleted_id = conn.get_deletion_by_deleted_message_id(&message_id)?;
             assert!(by_deleted_id.is_some());
             assert_eq!(by_deleted_id.unwrap().id, delete_message_id);
-        })
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn test_is_message_deleted() {
-        with_connection(|conn| {
-            let group_id = GroupId::ONE;
-            let message_id = vec![4, 5, 6];
-            let delete_message_id = vec![7, 8, 9];
-
-            create_test_group(conn, group_id);
-            create_test_message(conn, message_id.clone(), group_id);
-            create_test_message(conn, delete_message_id.clone(), group_id);
-
-            // Initially not deleted
-            assert!(!conn.is_message_deleted(&message_id)?);
-
-            // Store deletion
-            StoredMessageDeletion {
-                id: delete_message_id.clone(),
-                group_id,
-                deleted_message_id: message_id.clone(),
-                deleted_by_inbox_id: "sender".to_string(),
-                is_super_admin_deletion: false,
-                deleted_at_ns: 2000,
-            }
-            .store(conn)?;
-
-            // Now it's deleted
-            assert!(conn.is_message_deleted(&message_id)?);
         })
     }
 
