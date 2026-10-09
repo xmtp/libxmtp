@@ -51,15 +51,13 @@ class MetadataEditorTest {
 
         override suspend fun metadataValue(field: MetadataFieldRef): MetadataValue? =
             values.singleOrNull { it.field.componentId == field.componentId }?.value
-                ?: MetadataValue.Map(
-                    users.flatMap { (inbox, fields) ->
+                ?: users
+                    .flatMap { (inbox, fields) ->
                         fields
-                            .filter {
-                                it.field.componentId ==
-                                    field.componentId
-                            }.map { MapEntry(FieldKey.InboxId(inbox), it.value) }
-                    },
-                )
+                            .filter { it.field.componentId == field.componentId }
+                            .map { MapEntry(FieldKey.InboxId(inbox), it.value) }
+                    }.takeIf { it.isNotEmpty() }
+                    ?.let { MetadataValue.Map(it) }
 
         override suspend fun userData(
             fields: List<MetadataFieldRef>?,
@@ -310,6 +308,168 @@ class MetadataEditorTest {
         val empty = displayed.change(first.id, "")
         assertEquals(mapOf(first.id to ""), empty.merge(listOf(first, second)).edit().values)
     }
+
+    @Test fun immutableGroupFieldsPermitOnlyTheirInitialValue() =
+        runBlocking {
+            val shapes =
+                listOf(
+                    MetadataComponentType.String,
+                    MetadataComponentType.Bytes,
+                    MetadataComponentType.Map(MetadataKeyType.BYTES, MetadataScalarType.BYTES),
+                    MetadataComponentType.Set(MetadataKeyType.BYTES),
+                    MetadataComponentType.Set(MetadataKeyType.INBOX_ID),
+                )
+            for ((index, shape) in shapes.withIndex()) {
+                val group = RecordingGroup()
+                val field = descriptor(0xfd00 + index, shape)
+                val id = FieldUiId(field.field.componentId)
+                group.fields = listOf(field)
+                val controller = MetadataEditorController(Conversation.Group(group), own, { true })
+                controller.refresh()
+                assertTrue(
+                    controller.state.value.fields
+                        .single()
+                        .canWrite,
+                )
+                val insert =
+                    when (shape) {
+                        MetadataComponentType.String -> {
+                            MetadataEdit.Scalar(id, "initial")
+                        }
+
+                        MetadataComponentType.Bytes -> {
+                            MetadataEdit.Scalar(id, "00ff")
+                        }
+
+                        is MetadataComponentType.Map -> {
+                            MetadataEdit.Entry(id, EntryAction.INSERT, "01", "02")
+                        }
+
+                        is MetadataComponentType.Set -> {
+                            MetadataEdit.Entry(
+                                id,
+                                EntryAction.INSERT,
+                                if (shape.keyType == MetadataKeyType.INBOX_ID) peer else "01",
+                            )
+                        }
+
+                        else -> {
+                            error("Unexpected test shape")
+                        }
+                    }
+                val invalidAbsent =
+                    if (insert is MetadataEdit.Scalar) {
+                        MetadataEdit.Scalar(id, null)
+                    } else {
+                        MetadataEdit.Entry(id, EntryAction.DELETE, "01")
+                    }
+                controller.edit(invalidAbsent)
+                assertTrue(group.mutations.isEmpty())
+                controller.edit(insert)
+                assertNull(controller.failure)
+                assertEquals(1, group.mutations.size)
+                val value =
+                    when (shape) {
+                        MetadataComponentType.String -> {
+                            MetadataValue.Scalar(FieldValue.String("initial"))
+                        }
+
+                        MetadataComponentType.Bytes -> {
+                            MetadataValue.Scalar(FieldValue.Bytes(byteArrayOf(0, -1)))
+                        }
+
+                        is MetadataComponentType.Map -> {
+                            MetadataValue.Map(
+                                listOf(
+                                    MapEntry(FieldKey.Bytes(byteArrayOf(1)), FieldValue.Bytes(byteArrayOf(2))),
+                                ),
+                            )
+                        }
+
+                        is MetadataComponentType.Set -> {
+                            MetadataValue.Set(
+                                listOf(
+                                    if (shape.keyType == MetadataKeyType.INBOX_ID) {
+                                        FieldKey.InboxId(peer)
+                                    } else {
+                                        FieldKey.Bytes(byteArrayOf(1))
+                                    },
+                                ),
+                            )
+                        }
+
+                        else -> {
+                            error("Unexpected test shape")
+                        }
+                    }
+                group.values = listOf(MetadataFieldValue(field.field, value))
+                controller.refresh()
+                val rendered =
+                    controller.state.value.fields
+                        .single()
+                assertTrue(rendered.editable)
+                assertTrue(rendered.immutable)
+                assertFalse(rendered.canWrite)
+                controller.edit(insert)
+                assertNotNull(controller.failure)
+                assertEquals(1, group.mutations.size)
+                controller.edit(invalidAbsent)
+                assertEquals(1, group.mutations.size)
+            }
+            assertFalse(MetadataMapper.field(descriptor(0xfcff, MetadataComponentType.String), null).immutable)
+            assertTrue(MetadataMapper.field(descriptor(0xfeff, MetadataComponentType.String), null).immutable)
+        }
+
+    @Test fun immutableOwnMapsLockForAllMembersAfterTheFirstEntry() =
+        runBlocking {
+            for (type in listOf(MetadataScalarType.STRING, MetadataScalarType.BYTES)) {
+                val group = RecordingGroup()
+                val field = descriptor(0xfd03, MetadataComponentType.Map(MetadataKeyType.INBOX_ID, type), true)
+                val id = FieldUiId(field.field.componentId)
+                group.fields = listOf(field)
+                val controller = MetadataEditorController(Conversation.Group(group), own, { true })
+                controller.refresh()
+                controller.edit(
+                    MetadataEdit.Own(
+                        mapOf(id to if (type == MetadataScalarType.STRING) "initial" else "00ff"),
+                    ),
+                )
+                assertNull(controller.failure)
+                assertEquals(1, group.userWrites.size)
+                val peerValue =
+                    if (type == MetadataScalarType.STRING) {
+                        FieldValue.String("peer")
+                    } else {
+                        FieldValue.Bytes(byteArrayOf(1))
+                    }
+                group.users = mapOf(peer to listOf(UserFieldValue(field.field, peerValue)))
+                group.values =
+                    listOf(
+                        MetadataFieldValue(
+                            field.field,
+                            MetadataValue.Map(listOf(MapEntry(FieldKey.InboxId(peer), peerValue))),
+                        ),
+                    )
+                controller.refresh()
+                val rendered =
+                    controller.state.value.fields
+                        .single()
+                assertFalse(rendered.present)
+                assertTrue(rendered.componentPresent)
+                assertFalse(rendered.canWrite)
+                assertTrue(OwnFieldDraft().merge(controller.state.value.fields).values.isEmpty())
+                controller.edit(MetadataEdit.Own(mapOf(id to "02")))
+                assertNotNull(controller.failure)
+                assertEquals(1, group.userWrites.size)
+                assertEquals(
+                    peerValue,
+                    group.users
+                        .getValue(peer)
+                        .single()
+                        .value,
+                )
+            }
+        }
 
     @Test fun changedTypeOrPolicyRejectsStaleFormAndRefreshes() =
         runBlocking {

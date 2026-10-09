@@ -30,7 +30,7 @@ Select the metadata test with:
 dev/nix-shell 'just android example-test-integration -Pandroid.testInstrumentationRunnerArguments.class=org.xmtp.android.example.messenger.metadata.MetadataEditorInstrumentedTest'
 ```
 
-The test requires all eight published catalogue entries before it creates new
+The test requires all twelve published catalogue entries before it creates new
 conversations. Each run uses two real clients. An existing conversation can
 lack a registered field; this state is checked in the app host tests.
 
@@ -56,3 +56,15 @@ These checks use process stubs. They prove teardown and exit status behavior.
 They do not prove metadata commits. The instrumented test uses two real clients
 to check bytes, collection deltas, sibling entries, own fields in a group and DM,
 empty and absent values, denied writes and stale save rejection.
+
+The original eight definitions remain stable. Four immutable definitions use
+IDs 0xFD00–0xFD03 for a group String, Bytes map, Bytes set and own String map.
+An immutable component permits one initial value. Each later write or removal
+is forbidden, even when a different member has no own entry in that map.
+The app shows the committed value and disables later controls.
+
+The runner defers signals through CREATE completion and verifies the exact
+allocated database on uncertain command failure. Cleanup ignores further
+SIGINT/SIGTERM until its owned processes and database are removed. It never
+claims an already existing allocated name. Local signal tests send real signals
+during the CREATE process.

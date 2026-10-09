@@ -66,7 +66,10 @@ class MetadataEditorInstrumentedTest {
                     val alix = SDKClient.create(context, generateLocalSigner(), options()).also(clients::add)
                     val bo = SDKClient.create(context, generateLocalSigner(), options()).also(clients::add)
                     val catalogue = alix.serverConfiguration().applicationComponents
-                    assertEquals((0xc001..0xc008).map { it.toUShort() }, catalogue.map { it.componentId })
+                    assertEquals(
+                        ((0xc001..0xc008) + (0xfd00..0xfd03)).map { it.toUShort() },
+                        catalogue.map { it.componentId },
+                    )
                     assertEquals(
                         MetadataComponentType.Map(MetadataKeyType.BYTES, MetadataScalarType.BYTES),
                         catalogue.single { it.componentId == 0xc003.toUShort() }.componentType,
@@ -84,6 +87,7 @@ class MetadataEditorInstrumentedTest {
                     val mine = Conversation.Group(group)
                     val peer = checkNotNull(bo.conversations.getById(group.id()))
                     roundTrip(mine, peer, alix.inboxId(), bo.inboxId(), catalogue)
+                    immutableFields(mine, peer, alix.inboxId(), bo.inboxId(), catalogue, group = true)
 
                     val denied = MetadataEditorController(peer, bo.inboxId(), { true }, catalogue)
                     denied.refresh()
@@ -116,6 +120,14 @@ class MetadataEditorInstrumentedTest {
                         bo.inboxId(),
                         catalogue,
                     )
+                    immutableFields(
+                        Conversation.Dm(dm),
+                        checkNotNull(bo.conversations.getById(dm.id())),
+                        alix.inboxId(),
+                        bo.inboxId(),
+                        catalogue,
+                        group = false,
+                    )
                     assertEquals(
                         FieldValue.String(""),
                         mine
@@ -133,6 +145,88 @@ class MetadataEditorInstrumentedTest {
                 }
             }
         }
+
+    private suspend fun immutableFields(
+        source: Conversation,
+        peer: Conversation,
+        own: String,
+        other: String,
+        catalogue: List<ApplicationComponentDefinition>,
+        group: Boolean,
+    ) {
+        val editor = MetadataEditorController(source, own, { true }, catalogue)
+        editor.refresh()
+        var writes = 0
+        editor.beforeWrite = { writes++ }
+
+        suspend fun save(edit: MetadataEdit) {
+            editor.edit(edit)
+            assertNull(editor.failure)
+            peer.sync()
+        }
+
+        suspend fun reject(edit: MetadataEdit) {
+            editor.edit(edit)
+            assertNotNull(editor.failure)
+        }
+        if (group) {
+            save(MetadataEdit.Scalar(id(0xfd00), "First"))
+            assertFalse(
+                editor.state.value.fields
+                    .single { it.id == id(0xfd00) }
+                    .canWrite,
+            )
+            reject(MetadataEdit.Scalar(id(0xfd00), "Later"))
+            reject(MetadataEdit.Scalar(id(0xfd00), null))
+            assertEquals(1, writes)
+            assertNotNull(
+                runCatching {
+                    source.updateMetadataField(ref(0xfd00), ComponentMutation.Replace(FieldValue.String("SDK rejects")))
+                }.exceptionOrNull(),
+            )
+            peer.sync()
+            assertEquals(MetadataValue.Scalar(FieldValue.String("First")), peer.metadataValue(ref(0xfd00)))
+            save(MetadataEdit.Entry(id(0xfd01), EntryAction.INSERT, "01", "02"))
+            reject(MetadataEdit.Entry(id(0xfd01), EntryAction.INSERT, "03", "04"))
+            reject(MetadataEdit.Entry(id(0xfd01), EntryAction.DELETE, "01"))
+            assertArrayEquals(
+                byteArrayOf(2),
+                (peer.mapValue(ref(0xfd01), FieldKey.Bytes(byteArrayOf(1))) as FieldValue.Bytes).v1,
+            )
+            assertNull(peer.mapValue(ref(0xfd01), FieldKey.Bytes(byteArrayOf(3))))
+            save(MetadataEdit.Entry(id(0xfd02), EntryAction.INSERT, "00ff"))
+            reject(MetadataEdit.Entry(id(0xfd02), EntryAction.INSERT, "80"))
+            assertArrayEquals(
+                byteArrayOf(0, -1),
+                ((peer.metadataValue(ref(0xfd02)) as MetadataValue.Set).v1.single() as FieldKey.Bytes).v1,
+            )
+        }
+        save(MetadataEdit.Own(mapOf(id(0xfd03) to "First own")))
+        val otherEditor = MetadataEditorController(peer, other, { true }, catalogue)
+        otherEditor.refresh()
+        var peerWrites = 0
+        otherEditor.beforeWrite = { peerWrites++ }
+        val readonly =
+            otherEditor.state.value.fields
+                .single { it.id == id(0xfd03) }
+        assertFalse(readonly.present)
+        assertTrue(readonly.componentPresent)
+        assertFalse(readonly.canWrite)
+        otherEditor.edit(MetadataEdit.Own(mapOf(id(0xfd03) to "Later peer")))
+        assertNotNull(otherEditor.failure)
+        assertEquals(0, peerWrites)
+        source.sync()
+        assertEquals(
+            FieldValue.String("First own"),
+            source
+                .userData(listOf(ref(0xfd03)), listOf(own))
+                .getValue(own)
+                .single()
+                .value,
+        )
+        assertTrue(source.userData(listOf(ref(0xfd03)), listOf(other)).getValue(other).isEmpty())
+        println("IMMUTABLE_PROOF ${source.id()} first=retained later=blocked peer-own=absent")
+    }
 
     private suspend fun roundTrip(
         source: Conversation,

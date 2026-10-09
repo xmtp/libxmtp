@@ -76,30 +76,63 @@ def run(backend, command, environment=None):
     env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
     fixture = Path(__file__).resolve().parent
     root = fixture.parents[3]
-    created = False
+    create_attempted = False
+    creating = False
+    pending_signal = None
     server = child = None
     previous = {}
 
     def interrupted(signum, _frame):
-        raise KeyboardInterrupt(signum)
+        nonlocal pending_signal
+        if creating:
+            pending_signal = signum
+        else:
+            raise KeyboardInterrupt(signum)
+
+    def database_exists():
+        result = subprocess.run(
+            [
+                "psql",
+                database,
+                "-At",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-c",
+                f"SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = '{name}')",
+            ],
+            check=True,
+            timeout=30,
+            text=True,
+            capture_output=True,
+        )
+        return result.stdout.strip() == "t"
 
     for signum in (signal.SIGINT, signal.SIGTERM):
         previous[signum] = signal.signal(signum, interrupted)
     try:
-        subprocess.run(
-            [
-                "psql",
-                database,
-                "-v",
-                "ON_ERROR_STOP=1",
-                "-c",
-                f'CREATE DATABASE "{name}"',
-            ],
-            check=True,
-            timeout=30,
-            stdout=subprocess.DEVNULL,
-        )
-        created = True
+        if database_exists():
+            raise RuntimeError("The allocated fixture database already exists.")
+        creating = True
+        create_attempted = True
+        try:
+            subprocess.run(
+                [
+                    "psql",
+                    database,
+                    "-v",
+                    "ON_ERROR_STOP=1",
+                    "-c",
+                    f'CREATE DATABASE "{name}"',
+                ],
+                check=True,
+                timeout=30,
+                stdout=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        finally:
+            creating = False
+        if pending_signal is not None:
+            raise KeyboardInterrupt(pending_signal)
         with tempfile.TemporaryDirectory(prefix="messenger-metadata-") as directory:
             config = Path(directory) / "backend.toml"
             config.write_text(
@@ -158,24 +191,28 @@ def run(backend, command, environment=None):
                 child = subprocess.Popen(command, env=child_env, start_new_session=True)
                 return child.wait()
     finally:
-        stop(child)
-        stop(server)
-        if created:
-            subprocess.run(
-                [
-                    "psql",
-                    database,
-                    "-v",
-                    "ON_ERROR_STOP=1",
-                    "-c",
-                    f'DROP DATABASE "{name}" WITH (FORCE)',
-                ],
-                check=True,
-                timeout=30,
-                stdout=subprocess.DEVNULL,
-            )
-        for signum, handler in previous.items():
-            signal.signal(signum, handler)
+        for signum in previous:
+            signal.signal(signum, signal.SIG_IGN)
+        try:
+            stop(child)
+            stop(server)
+            if create_attempted and database_exists():
+                subprocess.run(
+                    [
+                        "psql",
+                        database,
+                        "-v",
+                        "ON_ERROR_STOP=1",
+                        "-c",
+                        f'DROP DATABASE "{name}" WITH (FORCE)',
+                    ],
+                    check=True,
+                    timeout=30,
+                    stdout=subprocess.DEVNULL,
+                )
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
 
 
 if __name__ == "__main__":

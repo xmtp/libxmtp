@@ -104,15 +104,18 @@ object MetadataMapper {
                     listOf(d.permissions.insert, d.permissions.update, d.permissions.delete).all(::known),
             unsupportedTag = (d.componentType as? MetadataComponentType.Unknown)?.tag,
             userField = d.isUserField,
+            immutable = d.field.componentId.toInt() in 0xFD00..0xFEFF,
         )
     }
 
     fun own(
         d: MetadataFieldDescriptor,
         value: FieldValue?,
+        componentPresent: Boolean = value != null,
     ): FieldUi =
         field(d, null).copy(
             present = value != null,
+            componentPresent = componentPresent,
             scalar =
                 value?.let(::scalar) ?: "",
         )

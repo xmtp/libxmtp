@@ -41,7 +41,10 @@ fun MetadataScreen(
         }
         if (fields.isEmpty()) item { Text("No registered fields.") }
         items(fields, key = { it.id.componentId.toInt() }) { field ->
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                Modifier.testTag("metadata-field-${field.id.componentId}"),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text(field.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text("Component ${field.id.componentId} · ${field.shape}", style = MaterialTheme.typography.bodySmall)
                 if (field.shape == FieldShape.BYTES ||
@@ -52,6 +55,10 @@ fun MetadataScreen(
                 Text(field.policy, style = MaterialTheme.typography.bodySmall)
                 if (!field.editable) {
                     Text("Unsupported${field.unsupportedTag?.let { " type $it" } ?: " field or policy"}")
+                } else if (!field.canWrite) {
+                    Text("Immutable field: this component is already set.")
+                    Text(if (field.present) field.scalar else "Your value is absent.")
+                    field.entries.forEach { Text("${it.key}: ${it.value}") }
                 } else if (own) {
                     OutlinedTextField(
                         ownValues[field.id] ?: "",
@@ -82,7 +89,7 @@ fun MetadataScreen(
                         TextButton(
                             { draft = currentDraft.change(field.id, null) },
                             Modifier.heightIn(min = 48.dp),
-                            enabled = !state.busy,
+                            enabled = !state.busy && !field.immutable,
                         ) { Text("Clear") }
                         Text(if (ownValues[field.id] == null) "Absent" else "Set", Modifier.padding(12.dp))
                     }
@@ -98,7 +105,7 @@ fun MetadataScreen(
                     { action(currentDraft.edit()) },
                     Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     enabled =
-                        !state.busy && fields.any { it.editable },
+                        !state.busy && fields.any { it.canWrite },
                 ) { Text("Save changed fields") }
             }
             items(state.members, key = { it.inboxId }) { member ->
@@ -165,7 +172,7 @@ private fun GroupField(
                     { action(MetadataEdit.Scalar(field.id, null)) },
                     Modifier.heightIn(min = 48.dp),
                     enabled =
-                        !busy && field.present,
+                        !busy && field.present && !field.immutable,
                 ) { Text("Clear") }
             }
         }
@@ -196,6 +203,7 @@ private fun GroupField(
                     ) { Text("Delete") }
                 }
             }
+            if (field.immutable) Text("Set once. This first entry will lock the component.")
             OutlinedTextField(key, { key = it }, label = {
                 Text(
                     if (field.shape ==
@@ -236,7 +244,7 @@ private fun GroupField(
                             action(MetadataEdit.Entry(field.id, EntryAction.UPDATE, key, text))
                         },
                         Modifier.heightIn(min = 48.dp).testTag("metadata-update-${field.id.componentId}"),
-                        enabled = !busy,
+                        enabled = !busy && !field.immutable,
                     ) { Text("Update entry") }
                 }
             }

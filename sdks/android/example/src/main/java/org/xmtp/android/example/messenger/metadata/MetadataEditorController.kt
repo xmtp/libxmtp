@@ -73,6 +73,7 @@ class MetadataEditorController(
                     }
 
                     is MetadataEdit.Scalar -> {
+                        requireFirstWrite(edit.id, edit.value != null)
                         val d = descriptor(edit.id)
                         require(
                             !d.isUserField && d.field.componentId.toInt() in 0xC000..0xFEFF,
@@ -123,6 +124,8 @@ class MetadataEditorController(
                 }
                 // Include former members' entries when checking the complete map size.
                 val snapshot = read { conversation.metadataValue(d.field) } as? MetadataValue.Map
+                requireFirstWrite(id, value != null)
+                require(!loaded.immutable || snapshot == null) { "This immutable component is already set." }
                 val next =
                     snapshot
                         ?.v1
@@ -138,7 +141,18 @@ class MetadataEditorController(
         if (updates.isNotEmpty()) write { conversation.updateUserData(updates) }
     }
 
+    private fun requireFirstWrite(
+        id: FieldUiId,
+        insert: Boolean,
+    ) {
+        val field = mutableState.value.fields.single { it.id == id }
+        require(!field.immutable || (!field.componentPresent && insert)) {
+            "An immutable field permits only its first value."
+        }
+    }
+
     private suspend fun saveEntry(edit: MetadataEdit.Entry) {
+        requireFirstWrite(edit.id, edit.action == EntryAction.INSERT)
         val d = descriptor(edit.id)
         require(!d.isUserField && d.field.componentId.toInt() in 0xC000..0xFEFF) { "Use My fields for user values." }
         val shape = MetadataMapper.shape(d)
@@ -209,6 +223,14 @@ class MetadataEditorController(
                         it.value
                 }
             }
+        val immutableUsers = supportedUsers.filter { MetadataMapper.field(it, null).immutable }
+        val immutableValues =
+            if (immutableUsers.isEmpty()) {
+                emptyMap()
+            } else {
+                read { conversation.metadataValues(immutableUsers.map { it.field }) }
+                    .associate { it.field.componentId to it.value }
+            }
         val profiles =
             if (supportedUsers.isEmpty()) {
                 emptyMap()
@@ -218,7 +240,15 @@ class MetadataEditorController(
         val own = profiles[ownInboxId].orEmpty().associate { it.field.componentId to it.value }
         val fields =
             custom.map { MetadataMapper.field(it, values[it.field.componentId]) } +
-                users.map { MetadataMapper.own(it, own[it.field.componentId]) }
+                users.map {
+                    val present =
+                        if (MetadataMapper.field(it, null).immutable) {
+                            immutableValues[it.field.componentId] != null
+                        } else {
+                            own[it.field.componentId] != null
+                        }
+                    MetadataMapper.own(it, own[it.field.componentId], present)
+                }
         val members =
             profiles.filterKeys { it != ownInboxId }.map { (inbox, entries) ->
                 val byId = entries.associate { it.field.componentId to it.value }
