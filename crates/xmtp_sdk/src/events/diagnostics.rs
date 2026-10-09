@@ -33,6 +33,13 @@ fn event_attachment_diagnostics_hide_signed_urls() {
                 attachment_upload_failed: failed.clone()
             }
         ),
+        // The download arm has its own core-to-SDK conversion.
+        format!(
+            "{:?}",
+            ClientEvent::from(core::ClientEvent::AttachmentDownloadFailed(
+                core_failed.clone()
+            ))
+        ),
     ];
     for value in forms {
         assert!(
