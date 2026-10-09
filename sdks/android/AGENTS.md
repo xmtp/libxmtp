@@ -32,6 +32,8 @@ dev/nix-shell 'just android lint'
 dev/nix-shell 'just android format'
 dev/nix-shell 'just android test'
 dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifecycleTest'
+dev/nix-shell 'just android example-test'
+dev/nix-shell 'just android example-test-integration'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
@@ -93,6 +95,12 @@ when Gradle runs directly through `dev/nix-shell`. The `test-unit` recipe uses
 these existing matched bindings and accepts Gradle test filters.
 
 ## Local services
+
+The Messenger app has an Android host in `example` and shared Compose screens
+in `example-shared/src/commonMain`. `example-test` runs host/shared unit tests.
+`example-test-integration` runs app instrumentation in the owned emulator scope.
+It forwards the current worktree backend and S3 ports for signed loopback URLs.
+Start the backend before app instrumentation. Keep SDK package and consumer tests.
 
 Run `dev/nix-shell 'just backend up'`. The library test BuildConfig reads backend
 and anvil ports from the worktree environment. The emulator reaches these
