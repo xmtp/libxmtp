@@ -1193,7 +1193,28 @@ class MessengerViewModel(
             ) {
                 ui.update { currentUi -> currentUi.copy(conversations = rows) }
             }
+            rows
         }
+
+    internal suspend fun performanceList(owner: ActiveSession): List<ConversationRow> =
+        projection.withLock {
+            check(session.active.value === owner && session.accepts(owner.key))
+            refreshList(owner)
+        }
+
+    internal suspend fun performancePage(
+        chat: Conversation,
+        before: Long?,
+    ) = page(chat, before)
+
+    internal fun performanceRetain(
+        id: String,
+        rows: List<Message>,
+    ): List<Message> = cache.put(id, cache.get(id).orEmpty() + rows)
+
+    internal fun performanceCacheRows(ids: List<String>) = ids.sumOf { cache.get(it)?.size ?: 0 }
+
+    internal fun performanceClearCache() = cache.clear()
 
     internal var onOpenFinished: (String) -> Unit = {}
     private val openAttemptCounter = AtomicLong()

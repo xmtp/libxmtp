@@ -2,16 +2,42 @@
 
 import copy
 import unittest
+from pathlib import Path
+import tempfile
+from unittest.mock import patch
+import run
 from run import validate
 
 
 def result():
-    return {"api": 34, "abi": "x86_64", "cores": 4, "hardware": "ranchu",
-            "memoryKb": 4_000_000, "groups": 1000, "messages": "100000",
-            "heavyMessages": 50000, "warmups": 5, "measuredRuns": 30,
-            "firstMs": [100.0] * 30, "olderMs": [100.0] * 30,
-            "listMs": [100.0] * 30, "heapDeltaBytes": 1024,
-            "maxTranscriptRows": 500, "maxCacheRows": 1500, "maxPageRows": 500}
+    return {
+        "api": 34,
+        "abi": "x86_64",
+        "cores": 4,
+        "hardware": "ranchu",
+        "memoryKb": 4_000_000,
+        "groups": 1000,
+        "messages": "100000",
+        "heavyMessages": 50000,
+        "warmups": 5,
+        "measuredRuns": 30,
+        "bodyAsciiBytes": 256,
+        "visitedTranscripts": 10,
+        "maxCacheTranscripts": 3,
+        "sdkVersion": "8.0.0",
+        "seedMs": 1000,
+        "workloadId": "fixture-1",
+        "startupReplayRows": 0,
+        "replayRowsAfterMeasurements": 0,
+        "firstMs": [100.0] * 30,
+        "olderMs": [100.0] * 30,
+        "listMs": [100.0] * 30,
+        "heapDeltaBytes": 1024,
+        "maxTranscriptRows": 500,
+        "maxCacheRows": 1500,
+        "maxPageRows": 500,
+        "maxHistoryReadRows": 501,
+    }
 
 
 class PerformanceGateTest(unittest.TestCase):
@@ -19,10 +45,26 @@ class PerformanceGateTest(unittest.TestCase):
         validate(result())
 
     def test_rejects_other_device_and_short_workload(self):
-        for key, value in (("api", 35), ("abi", "arm64-v8a"), ("cores", 8),
-                           ("hardware", "physical"), ("memoryKb", 2_000_000),
-                           ("groups", 999), ("messages", "99999"),
-                           ("heavyMessages", 49999), ("warmups", 4), ("measuredRuns", 29)):
+        for key, value in (
+            ("api", 35),
+            ("abi", "arm64-v8a"),
+            ("cores", 8),
+            ("hardware", "physical"),
+            ("memoryKb", 2_000_000),
+            ("groups", 999),
+            ("messages", "99999"),
+            ("heavyMessages", 49999),
+            ("warmups", 4),
+            ("measuredRuns", 29),
+            ("bodyAsciiBytes", 255),
+            ("visitedTranscripts", 9),
+            ("maxCacheTranscripts", 4),
+            ("sdkVersion", ""),
+            ("seedMs", 0),
+            ("workloadId", ""),
+            ("startupReplayRows", 2),
+            ("replayRowsAfterMeasurements", 1),
+        ):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 report = result()
                 report[key] = value
@@ -38,20 +80,109 @@ class PerformanceGateTest(unittest.TestCase):
 
     def test_rejects_missing_short_invalid_or_slow_measurements(self):
         for metric, limit in (("firstMs", 300), ("olderMs", 250), ("listMs", 1000)):
-            for samples in ([], [1.0] * 29, [float("nan")] * 30,
-                            [-1.0] * 30, [limit + 1.0] * 30):
-                with self.subTest(metric=metric, samples=samples), self.assertRaises(ValueError):
+            for samples in (
+                [],
+                [1.0] * 29,
+                [float("nan")] * 30,
+                [-1.0] * 30,
+                [limit + 1.0] * 30,
+            ):
+                with (
+                    self.subTest(metric=metric, samples=samples),
+                    self.assertRaises(ValueError),
+                ):
                     report = result()
                     report[metric] = samples
                     validate(report)
 
     def test_rejects_removed_row_or_cache_bound_and_heap_overflow(self):
-        for metric, value in (("maxTranscriptRows", 501), ("maxCacheRows", 1501), ("maxPageRows", 501),
-                              ("heapDeltaBytes", 64 * 1024 * 1024 + 1)):
-            with self.subTest(metric=metric), self.assertRaisesRegex(ValueError, metric):
+        for metric, value in (
+            ("maxTranscriptRows", 501),
+            ("maxCacheRows", 1501),
+            ("maxPageRows", 501),
+            ("maxHistoryReadRows", 502),
+            ("heapDeltaBytes", 64 * 1024 * 1024 + 1),
+            ("maxCacheRows", 0),
+            ("maxTranscriptRows", 0),
+            ("heapDeltaBytes", -1),
+        ):
+            with (
+                self.subTest(metric=metric),
+                self.assertRaisesRegex(ValueError, metric),
+            ):
                 report = copy.deepcopy(result())
                 report[metric] = value
                 validate(report)
+
+
+class CacheFailureControlTest(unittest.TestCase):
+    def test_restores_production_source_after_interruption(self):
+        production = (
+            run.ANDROID
+            / "example/src/main/java/org/xmtp/android/example/messenger/TimestampBuckets.kt"
+        )
+        original = production.read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            android = Path(directory)
+            source = android / production.relative_to(run.ANDROID)
+            source.parent.mkdir(parents=True)
+            source.write_text(original)
+            with (
+                patch.object(run, "ANDROID", android),
+                patch.object(run, "execute", side_effect=SystemExit(143)),
+            ):
+                with self.assertRaises(SystemExit):
+                    run.cache_red_control(android, "http://fixture", result())
+            self.assertEqual(original, source.read_text())
+
+    def test_restores_production_source_and_requires_the_named_failure_on_the_same_dataset(
+        self,
+    ):
+        production = (
+            run.ANDROID
+            / "example/src/main/java/org/xmtp/android/example/messenger/TimestampBuckets.kt"
+        )
+        original = production.read_text()
+        for failure, workload_id, restored_id, accepted in (
+            ("Transcript cache trimming was removed", "fixture-1", "fixture-1", True),
+            ("Unrelated test failed", "fixture-1", "fixture-1", False),
+            ("Transcript cache trimming was removed", "fixture-2", "fixture-1", False),
+            ("Transcript cache trimming was removed", "fixture-1", "fixture-2", False),
+        ):
+            with (
+                self.subTest(
+                    failure=failure, workload=workload_id, restored=restored_id
+                ),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                android = Path(directory)
+                source = android / production.relative_to(run.ANDROID)
+                source.parent.mkdir(parents=True)
+                source.write_text(original)
+                red = result()
+                red.update(
+                    maxCacheRows=5000, maxCacheTranscripts=10, workloadId=workload_id
+                )
+                restored = result()
+                restored["workloadId"] = restored_id
+
+                def execute(output, label, backend):
+                    if label == "red-cache":
+                        self.assertNotEqual(original, source.read_text())
+                        return 1, red, [failure]
+                    self.assertEqual(original, source.read_text())
+                    return 0, restored, []
+
+                with (
+                    patch.object(run, "ANDROID", android),
+                    patch.object(run, "execute", execute),
+                ):
+                    if accepted:
+                        run.cache_red_control(android, "http://fixture", result())
+                    else:
+                        with self.assertRaises(ValueError):
+                            run.cache_red_control(android, "http://fixture", result())
+                self.assertEqual(original, source.read_text())
 
 
 if __name__ == "__main__":

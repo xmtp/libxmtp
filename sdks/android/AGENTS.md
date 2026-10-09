@@ -38,6 +38,8 @@ dev/nix-shell 'just android example-check'
 dev/nix-shell 'just android example-test-integration'
 dev/nix-shell 'just android example-test-release-integration'
 dev/nix-shell 'just android example-support-fixture'
+dev/nix-shell 'just android example-performance-check'
+dev/nix-shell 'just android example-performance'
 dev/nix-shell 'just android metadata-fixture-test'
 dev/nix-shell 'just android metadata-fixture-test MetadataBackendFixtureTest.test_every_psql_call_uses_a_private_passfile_without_argv_password'
 dev/nix-shell 'just android metadata-fixture-smoke'
@@ -152,6 +154,16 @@ services through `10.0.2.2`. Attachments use the backend's advertised loopback U
 Set `XMTP_ANDROID_BACKEND_URL` to use a test relay or another reachable endpoint.
 The integration recipe uses `adb reverse` for `XMTP_S3_PORT`; it must match the
 backend attachment URL. Tests set `allowPrivateNetwork = true` for this fixture.
+
+The performance recipe requires Linux x86_64 with KVM. It owns an API 34
+x86_64 emulator with four CPUs and 4096 MiB RAM. It seeds 1000 conversations
+and 100000 Published messages through public SDK sends. It runs five warmups
+and 30 measured samples, checks heap and cache bounds, then removes cache
+eviction and requires its named assertion to fail. It restores the same source
+and measures the same dataset again. Seed progress and `seedMs` stay in the
+proof logs. The fixed job timeout is provisional until measured seed progress
+sets the final limit. Host validator tests also run under `lint-config`.
+See `example/performance/README.md` for budgets and retained proof files.
 
 ## Tests and lifecycle
 
