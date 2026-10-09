@@ -102,7 +102,9 @@ these existing matched bindings and accepts Gradle test filters.
 
 The Messenger app has an Android host in `example` and shared Compose screens
 in `example-shared/src/commonMain`. `example-test` runs host/shared unit tests.
-`example-test-integration` runs app instrumentation in the owned emulator scope.
+`test-integration` selects `:library:connectedCheck` for SDK instrumentation.
+It does not select the app test task. `example-test-integration` runs app
+instrumentation in the owned emulator scope.
 It forwards the current worktree backend and S3 ports for signed loopback URLs.
 `example-test-release-integration` tests the actual release build with temporary
 local test signing. It keeps DEBUG=false and the release resources. It forwards

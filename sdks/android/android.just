@@ -61,7 +61,7 @@ example-test-release-integration *args: build
 
 # Run integration tests (requires emulator)
 test-integration: build
-  {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:${XMTP_S3_PORT:-9067} tcp:${XMTP_S3_PORT:-9067}; exec ./gradlew -p . connectedCheck --continue'
+  {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:${XMTP_S3_PORT:-9067} tcp:${XMTP_S3_PORT:-9067}; exec ./gradlew -p . :library:connectedCheck --continue'
 
 # Check release JNI, public clients, timestamps, and cancel/replay on API 23.
 test-min-sdk:
