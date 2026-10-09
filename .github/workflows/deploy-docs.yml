@@ -32,7 +32,7 @@ jobs:
         kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
         kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: docs-swift
+        kache-scope: nix-only
         kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - run: just ios docs apps/docs/generated/reference/swift
@@ -67,7 +67,7 @@ jobs:
         kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
         kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: docs-kotlin
+        kache-scope: nix-only
         kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - run: just android docs-generated
@@ -98,7 +98,7 @@ jobs:
         kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
         kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: docs-site
+        kache-scope: sdk-products-debug
         kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - uses: ./.github/actions/setup-js
@@ -136,7 +136,7 @@ jobs:
         kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
         kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: docs-compose
+        kache-scope: nix-only
         kache-readonly: "true"
     - uses: taiki-e/install-action@just
     - uses: ./.github/actions/setup-js

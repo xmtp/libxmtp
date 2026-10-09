@@ -15,8 +15,8 @@ The job summary reports the backend and whether remote writes are enabled.
 All 42 enabled `setup-nix` callers use S3 when the reader key pair is
 available. This includes callers that use the default `kache: true` setting.
 The nine callers with `kache: false` stay disabled and receive no S3 inputs.
-Stable scopes include the build variant, runner OS and architecture. All
-callers use `libxmtp/trusted`, prefetch expensive outputs, and do not pull the
+The 13 stable scope families follow the outer Cargo build variant. The action
+adds runner OS and architecture. All callers use `libxmtp/trusted`, prefetch expensive outputs, and do not pull the
 whole bucket at startup.
 
 The resources are managed by
@@ -92,10 +92,29 @@ errors. Reader runs must report no uploads. The two pilot workflows retain
 redacted JSON reports when the reader-evidence change is present.
 
 Do not use commit IDs, run IDs, branch names, or shard numbers in a scope.
-Node and browser test shards share a scope because they compile the same
-products. Node platform scopes include the matrix target. SDK platform proof
-scopes use the validated `bridge` or `browser` input. Nix-only jobs keep
+The [pinned action guidance](https://github.com/kunobi-ninja/kache-action/blob/1a33fb2ff51be23eb9e87abeae6edb65be78f71c/README.md#manifest-vs-shards)
+separates build variants to keep their prefetch lists useful.
+Scopes follow outer Cargo build families. The SDK bridge proof and JavaScript
+SDK product builds share `sdk-products-debug`. The browser platform proof uses
+`sdk-browser-conformance` because it builds debug panic-test and release
+pure-codec fixtures with conformance features. The older SDK facade job uses
+`sdk-products-tests-conformance` because it combines product builds, Rust unit
+tests, and those browser fixtures. Node-only SDK builds share `sdk-native-debug`. Android staging and native Node release
+builds use separate release scopes. Default SDK tests, backend tests, native
+Clippy, WASM Clippy, Cargo check, and Rust docs retain distinct scopes.
+
+A scope selects prefetch manifests and dependency shard indexes. It does not
+partition compiled artifacts: all callers share matching artifacts under
+`libxmtp/trusted`. Reader-only SDK release and deployment jobs use the same
+debug build scopes as their writer jobs. An npm release still uses a debug
+Cargo build when its SDK generation command does not request `--profile release`.
+
+Jobs with no outer Cargo compilation share `nix-only`. This includes the
+Unix Node platform matrix and the iOS and Android jobs that build through Nix.
+They have no S3 compiler working set to separate by target. Nix-only jobs keep
 Nix/Crane and Cachix caching; S3 cannot cache output inside Nix derivations.
+The action appends runner OS and architecture to every scope. Node and browser
+test shards share the build scope without adding shard numbers.
 
 To stop S3 use, remove both credential fields at both GitHub scopes. The jobs
 then use local-only Kache. Removing only the bucket while keeping credentials
@@ -116,45 +135,45 @@ needed for this rollout.
 
 | Workflow / job | Scope | Access |
 | --- | --- | --- |
-| `build-sdk-node-platforms.yml / unix` | `sdk-node-${{ matrix.target }}` | Reader |
-| `build-sdk-node-platforms.yml / assemble` | `sdk-node-assemble` | Reader |
+| `build-sdk-node-platforms.yml / unix` | `nix-only` | Reader |
+| `build-sdk-node-platforms.yml / assemble` | `sdk-native-release` | Reader |
 | `check-rust.yml / native` | `rust-clippy-native` | Protected push writer; otherwise reader |
 | `check-rust.yml / wasm` | `rust-clippy-wasm` | Protected push writer; otherwise reader |
-| `check-sdk-products.yml / generated` | `sdk-products` | Protected push writer; otherwise reader |
-| `check-sdk-unit.yml / unit` | `sdk-unit` | Protected push writer; otherwise reader |
-| `check-types.yml / check` | `sdk-types` | Protected push writer; otherwise reader |
-| `deploy-docs.yml / swift` | `docs-swift` | Protected push writer; otherwise reader |
-| `deploy-docs.yml / kotlin` | `docs-kotlin` | Protected push writer; otherwise reader |
-| `deploy-docs.yml / site` | `docs-site` | Protected push writer; otherwise reader |
-| `deploy-docs.yml / compose` | `docs-compose` | Reader |
-| `deploy-web-chat.yml / deploy` | `web-chat-deploy` | Reader |
-| `docs-quality.yml / quality` | `docs-quality` | Reader |
+| `check-sdk-products.yml / generated` | `sdk-products-debug` | Protected push writer; otherwise reader |
+| `check-sdk-unit.yml / unit` | `sdk-tests-debug` | Protected push writer; otherwise reader |
+| `check-types.yml / check` | `sdk-products-debug` | Protected push writer; otherwise reader |
+| `deploy-docs.yml / swift` | `nix-only` | Protected push writer; otherwise reader |
+| `deploy-docs.yml / kotlin` | `nix-only` | Protected push writer; otherwise reader |
+| `deploy-docs.yml / site` | `sdk-products-debug` | Protected push writer; otherwise reader |
+| `deploy-docs.yml / compose` | `nix-only` | Reader |
+| `deploy-web-chat.yml / deploy` | `sdk-products-debug` | Reader |
+| `docs-quality.yml / quality` | `nix-only` | Reader |
 | `docs-rust-reference.yml / rust` | `rust-reference` | Protected push writer; otherwise reader |
-| `fh-cache.yml / build` | `nix-all-outputs` | Reader |
-| `lint-android.yml / lint` | `android-lint` | Reader |
-| `lint-config.yml / lint` | `config-lint` | Reader |
-| `lint-ios.yml / lint` | `ios-lint` | Reader |
-| `lint-js.yml / lint` | `js-lint` | Reader |
-| `lint-proto.yml / lint` | `proto-lint` | Reader |
-| `lint-workspace.yml / lint` | `rust-source-lint` | Reader |
-| `manual-sdk-recovery.yml / recovery` | `sdk-recovery` | Reader |
-| `release-agent-sdk.yml / build` | `release-agent-sdk` | Reader |
-| `release-android.yml / publish` | `release-android` | Reader |
-| `release-browser-sdk.yml / build` | `release-browser-sdk` | Reader |
-| `release-cli.yml / build` | `release-cli` | Reader |
-| `release-ios.yml / build-and-package` | `release-ios` | Reader |
-| `test-agent-sdk.yml / test` | `agent-sdk-test` | Protected push writer; otherwise reader |
-| `test-android.yml / min-sdk-smoke` | `android-min-sdk` | Protected push writer; otherwise reader |
-| `test-android.yml / unit-tests` | `android-unit` | Protected push writer; otherwise reader |
-| `test-android.yml / integration-tests` | `android-integration` | Protected push writer; otherwise reader |
+| `fh-cache.yml / build` | `nix-only` | Reader |
+| `lint-android.yml / lint` | `nix-only` | Reader |
+| `lint-config.yml / lint` | `nix-only` | Reader |
+| `lint-ios.yml / lint` | `nix-only` | Reader |
+| `lint-js.yml / lint` | `nix-only` | Reader |
+| `lint-proto.yml / lint` | `nix-only` | Reader |
+| `lint-workspace.yml / lint` | `nix-only` | Reader |
+| `manual-sdk-recovery.yml / recovery` | `sdk-native-debug` | Reader |
+| `release-agent-sdk.yml / build` | `sdk-native-debug` | Reader |
+| `release-android.yml / publish` | `nix-only` | Reader |
+| `release-browser-sdk.yml / build` | `sdk-products-debug` | Reader |
+| `release-cli.yml / build` | `sdk-native-debug` | Reader |
+| `release-ios.yml / build-and-package` | `nix-only` | Reader |
+| `test-agent-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
+| `test-android.yml / min-sdk-smoke` | `nix-only` | Protected push writer; otherwise reader |
+| `test-android.yml / unit-tests` | `nix-only` | Protected push writer; otherwise reader |
+| `test-android.yml / integration-tests` | `nix-only` | Protected push writer; otherwise reader |
 | `test-bindings-check.yml / check-swift` | `bindings-check-${{ matrix.target }}` | Protected push writer; otherwise reader |
-| `test-bindings-check.yml / check-android` | `bindings-check-android` | Protected push writer; otherwise reader |
-| `test-browser-sdk.yml / test` | `browser-sdk-test` | Protected push writer; otherwise reader |
-| `test-ios.yml / tests` | `ios-test` | Protected push writer; otherwise reader |
-| `test-native-backend.yml / native` | `native-backend-acceptance` | Reader |
-| `test-node-sdk.yml / test` | `node-sdk-test` | Protected push writer; otherwise reader |
-| `test-sdk-platform.yml / proof` | `sdk-platform-${{ inputs.target }}` | Protected push writer; otherwise reader |
-| `test-sdk-staging.yml / android-stage` | `sdk-android-stage` | Protected push writer; otherwise reader |
-| `test-sdk.yml / sdk` | `sdk-facade` | Protected push writer; otherwise reader |
-| `test-sdk.yml / android-stage` | `sdk-android-stage` | Protected push writer; otherwise reader |
-| `test-swift-lifecycle.yml / swift` | `swift-lifecycle` | Protected push writer; otherwise reader |
+| `test-bindings-check.yml / check-android` | `nix-only` | Protected push writer; otherwise reader |
+| `test-browser-sdk.yml / test` | `sdk-products-debug` | Protected push writer; otherwise reader |
+| `test-ios.yml / tests` | `nix-only` | Protected push writer; otherwise reader |
+| `test-native-backend.yml / native` | `backend-tests-debug` | Reader |
+| `test-node-sdk.yml / test` | `sdk-native-debug` | Protected push writer; otherwise reader |
+| `test-sdk-platform.yml / proof` | `sdk-products-debug` (bridge), `sdk-browser-conformance` (browser) | Protected push writer; otherwise reader |
+| `test-sdk-staging.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
+| `test-sdk.yml / sdk` | `sdk-products-tests-conformance` | Protected push writer; otherwise reader |
+| `test-sdk.yml / android-stage` | `sdk-android-release` | Protected push writer; otherwise reader |
+| `test-swift-lifecycle.yml / swift` | `nix-only` | Protected push writer; otherwise reader |

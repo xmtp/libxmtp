@@ -35,7 +35,7 @@ jobs:
         kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
         kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: android-min-sdk
+        kache-scope: nix-only
         kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - name: Start backend
@@ -95,7 +95,7 @@ jobs:
         kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
         kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: android-unit
+        kache-scope: nix-only
         kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - name: Start backend
@@ -133,7 +133,7 @@ jobs:
         kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
         kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
         kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
-        kache-scope: android-integration
+        kache-scope: nix-only
         kache-readonly: "false"
     - uses: taiki-e/install-action@just
     - name: Start backend

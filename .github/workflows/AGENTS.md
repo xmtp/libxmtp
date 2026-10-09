@@ -104,8 +104,11 @@ pass only its reader pair through the reusable workflow call.
 
 When adding an enabled caller, pass both optional Kache secrets through every
 reusable call in its chain. Declare them under `workflow_call.secrets` when a
-caller uses an explicit secret map. Use a stable scope for each build variant;
-identical test shards share a scope. The action adds runner OS and architecture.
+caller uses an explicit secret map. Share a stable scope across the same outer
+Cargo build family, including reader-only consumers. Keep Clippy, check, test,
+doc, and release variants separate. Jobs with no outer Cargo compilation share
+`nix-only`; Nix derivations do not use this remote. Identical test shards share
+a scope. The action adds runner OS and architecture.
 Keep credentials out of global `AWS_*` settings and Nix derivations.
 
 `just lint-config` tests CI selection, result gates, summaries, the backend
