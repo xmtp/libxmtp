@@ -59,9 +59,7 @@ internal class AttachmentTestFixture {
             paths,
             preferences,
             secrets,
-            SendCoordinator(preferences) {
-                current
-            },
+            SendCoordinator(preferences, { current }),
             { current },
         )
 
