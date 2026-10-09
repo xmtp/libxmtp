@@ -3,6 +3,14 @@
     <application>
         <provider android:name="org.xmtp.android.example.messenger.attachments.AttachmentSourceProvider"
             android:authorities="${applicationId}.file-source" android:exported="true" />
+        <activity android:name="org.xmtp.android.example.messenger.attachments.AttachmentPickerActivity"
+            android:exported="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <receiver android:name="org.xmtp.android.example.messenger.attachments.AttachmentPickerActivity$ResultReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="org.xmtp.android.example.test.COMPLETE_ATTACHMENT_PICKER" />
+            </intent-filter>
+        </receiver>
         <activity android:name="org.xmtp.android.example.messenger.attachments.FileGrantReceiverActivity"
             android:exported="true" />
         <service android:name="org.xmtp.android.example.messenger.attachments.FileGrantReceiverService"
