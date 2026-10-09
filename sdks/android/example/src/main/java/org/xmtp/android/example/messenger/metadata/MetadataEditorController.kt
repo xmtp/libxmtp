@@ -22,6 +22,14 @@ class MetadataEditorController(
     val state: StateFlow<MetadataEditorState> = mutableState
     var failure: Throwable? = null
         private set
+    internal var beforeWrite: suspend () -> Unit = {}
+
+    private suspend fun write(block: suspend () -> Unit) {
+        if (!isCurrent()) return
+        beforeWrite()
+        if (isCurrent()) block()
+    }
+
     private val mutex = Mutex()
     private var descriptors: Map<UShort, MetadataFieldDescriptor> = emptyMap()
 
@@ -76,7 +84,7 @@ class MetadataEditorController(
                         val operation =
                             edit.value?.let { ComponentMutation.Replace(MetadataMapper.value(shape, it)) }
                                 ?: ComponentMutation.Remove
-                        if (isCurrent()) conversation.updateMetadataField(d.field, operation)
+                        write { conversation.updateMetadataField(d.field, operation) }
                     }
 
                     is MetadataEdit.Entry -> {
@@ -127,7 +135,7 @@ class MetadataEditorController(
                 MetadataMapper.collectionSize(loaded.shape, next)
                 UserFieldUpdate(d.field, value)
             }
-        if (updates.isNotEmpty() && isCurrent()) conversation.updateUserData(updates)
+        if (updates.isNotEmpty()) write { conversation.updateUserData(updates) }
     }
 
     private suspend fun saveEntry(edit: MetadataEdit.Entry) {
@@ -178,7 +186,7 @@ class MetadataEditorController(
                     ),
                 )
             }
-        if (isCurrent()) conversation.updateMetadataField(d.field, operation)
+        write { conversation.updateMetadataField(d.field, operation) }
     }
 
     private suspend fun reload() {

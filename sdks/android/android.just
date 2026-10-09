@@ -66,7 +66,7 @@ _metadata-backend:
 
 # Check real catalogue backend startup and cleanup without an emulator.
 metadata-fixture-smoke: _metadata-backend
-  {{ _env }} && ./dev/unsupported-backend python3.11 -B example/fixtures/metadata_backend.py --backend '{{ root }}/sdks/android/.build/metadata-backend/bin/xmtp-backend' -- true
+  {{ _env }} && python3.11 -B example/fixtures/metadata_backend.py --backend '{{ root }}/sdks/android/.build/metadata-backend/bin/xmtp-backend' -- true
 
 # Check owned database and process cleanup with local stubs.
 metadata-fixture-test:

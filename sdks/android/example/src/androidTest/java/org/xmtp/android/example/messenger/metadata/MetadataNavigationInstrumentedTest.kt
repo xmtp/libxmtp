@@ -31,6 +31,16 @@ class MetadataNavigationInstrumentedTest {
         compose.onNodeWithTag(tag).performScrollTo().performTextReplacement(value)
     }
 
+    private fun settingsAction(text: String) {
+        compose.onNodeWithTag("conversation-settings").performScrollToNode(hasText(text))
+        compose.onNodeWithText(text).performClick()
+    }
+
+    private fun saveOwn() {
+        compose.onNodeWithTag("metadata-fields").performScrollToNode(hasText("Save changed fields"))
+        compose.onNodeWithText("Save changed fields").performClick()
+    }
+
     private suspend fun entry(
         id: Int,
         key: String,
@@ -98,7 +108,7 @@ class MetadataNavigationInstrumentedTest {
                 until { model.state.value.conversationId == group.id() && !model.state.value.busy }
                 compose.onNodeWithContentDescription("Conversation settings").performClick()
                 until { model.state.value.screen == Screen.CONVERSATION_SETTINGS && model.state.value.settings.group }
-                compose.onNodeWithText("Group fields").performScrollTo().performClick()
+                settingsAction("Group fields")
                 until {
                     !model.metadataState.value.busy &&
                         model.metadataState.value.fields
@@ -154,17 +164,26 @@ class MetadataNavigationInstrumentedTest {
                     (other.metadataValue(ref(0xc005)) as MetadataValue.Set).v1,
                 )
                 other.updateMetadataField(ref(0xc001), ComponentMutation.Replace(FieldValue.String("Peer title")))
-                until {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
-                            .any { it.scalar == "Peer title" }
+                withTimeoutOrNull(10_000) {
+                    while (model.metadataState.value.fields
+                            .none { it.scalar == "Peer title" }
+                    ) {
+                        delay(20)
+                    }
                 }
+                assertEquals(
+                    "Peer title",
+                    model.metadataState.value.fields
+                        .single {
+                            it.id.componentId == 0xc001.toUShort()
+                        }.scalar,
+                )
                 println("METADATA_UI event refreshed=Peer title")
 
                 model.dispatch(MessengerAction.Navigate(Screen.CONVERSATION_SETTINGS))
                 until { model.state.value.screen == Screen.CONVERSATION_SETTINGS && !model.state.value.busy }
                 group.updateUserData(listOf(UserFieldUpdate(ref(0x800c), FieldValue.String("Old name"))))
-                compose.onNodeWithText("My fields").performScrollTo().performClick()
+                settingsAction("My fields")
                 until {
                     !model.metadataState.value.busy &&
                         model.metadataState.value.fields
@@ -180,7 +199,7 @@ class MetadataNavigationInstrumentedTest {
                 compose.onNodeWithTag("metadata-value-49158").assertTextContains("UI own note")
                 androidx.test.espresso.Espresso
                     .closeSoftKeyboard()
-                compose.onNodeWithText("Save changed fields").performScrollTo().performClick()
+                saveOwn()
                 until {
                     !model.metadataState.value.busy &&
                         model.metadataState.value.fields
@@ -218,7 +237,7 @@ class MetadataNavigationInstrumentedTest {
                         !model.state.value.settings.group && !model.state.value.busy
                 }
                 compose.onNodeWithText("Group fields").assertDoesNotExist()
-                compose.onNodeWithText("My fields").performScrollTo().performClick()
+                settingsAction("My fields")
                 until {
                     !model.metadataState.value.busy &&
                         model.metadataState.value.fields
@@ -230,7 +249,7 @@ class MetadataNavigationInstrumentedTest {
                 compose.onNodeWithTag("metadata-value-49159").performTextReplacement("00ff")
                 androidx.test.espresso.Espresso
                     .closeSoftKeyboard()
-                compose.onNodeWithText("Save changed fields").performScrollTo().performClick()
+                saveOwn()
                 until {
                     !model.metadataState.value.busy &&
                         model.metadataState.value.fields

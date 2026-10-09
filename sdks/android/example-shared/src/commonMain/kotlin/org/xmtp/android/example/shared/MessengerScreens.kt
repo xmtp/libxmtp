@@ -1457,6 +1457,7 @@ private fun MessagePopover(
         )
     }
     LazyColumn(
+        Modifier.testTag("conversation-settings"),
         contentPadding =
             PaddingValues(
                 20.dp,
