@@ -132,7 +132,8 @@ class ScreenScaleInstrumentedTest {
             val scrolling =
                 compose
                     .onAllNodes(
-                        SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy),
+                        SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy) and
+                            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange),
                         useUnmergedTree = true,
                     ).fetchSemanticsNodes()
                     .maxByOrNull { it.boundsInRoot.width * it.boundsInRoot.height }
@@ -368,6 +369,7 @@ class ScreenScaleInstrumentedTest {
     }
 
     private fun capture(screen: Screen) {
+        compose.waitForIdle()
         assertEquals(screen, model.state.value.screen)
         saveMessengerScreenshot(compose.activity, "scale-${screen.name.lowercase()}")
         captured += screen
@@ -587,9 +589,10 @@ class ScreenScaleInstrumentedTest {
                 until("App settings did not open") { model.state.value.screen == Screen.APP_SETTINGS }
                 control(click("Draft recovery"))
                 control(click("Sign out"))
+                capture(Screen.APP_SETTINGS)
                 control(click("Delete my account")).performClick()
                 control(click("Cancel")).performClick()
-                capture(Screen.APP_SETTINGS)
+                compose.onNodeWithText("Delete local account?").assertDoesNotExist()
                 control(click("Draft recovery")).performClick()
                 until("Draft recovery did not open") { model.state.value.screen == Screen.DRAFTS }
                 for (draft in draftIds) {
