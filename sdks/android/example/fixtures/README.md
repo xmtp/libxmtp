@@ -24,6 +24,10 @@ URL as the `metadataBackendUrl` instrumentation argument. The runner keeps the
 normal backend URLs for the other app tests. No shared database or catalogue is
 changed. Set `XMTP_METADATA_LOG_DIR` to keep logs at a selected path.
 
+The child command receives `DATABASE_URL`, `XMTP_DATABASE_URL` and
+`XMTP_REPLICA_URL` for the owned database. The backend and S3 HTTP endpoints
+stay available for the app tests. These environment values are not a sandbox.
+
 Select the metadata test with:
 
 ```sh
