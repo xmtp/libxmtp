@@ -186,8 +186,14 @@ class MetadataNavigationInstrumentedTest {
                 compose.onNodeWithTag("metadata-set-64768").performScrollTo().performClick()
                 until {
                     model.metadataState.value.fields
-                        .any { it.scalar == "First UI" && !it.canWrite }
+                        .any { it.scalar == "First UI" }
                 }
+                assertFalse(
+                    model.metadataState.value.fields
+                        .single {
+                            it.id.componentId == 0xfd00.toUShort()
+                        }.canWrite,
+                )
                 compose.onNodeWithTag("metadata-value-64768").assertDoesNotExist()
                 other.sync()
                 assertEquals(MetadataValue.Scalar(FieldValue.String("First UI")), other.metadataValue(ref(0xfd00)))
