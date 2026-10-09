@@ -12,13 +12,16 @@ class SessionBoundaryTest {
         val savedIntent = fence.currentGeneration()
         val selectedIntent = fence.reserve()
         assertNull(fence.reserveRestoreIfCurrent(savedIntent))
+        assertNull(fence.reserveRestoreIfCurrent(selectedIntent))
         val selected = checkNotNull(fence.bind("selected", selectedIntent))
         assertTrue(fence.accepts(selected))
         assertNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
         assertTrue(fence.accepts(selected))
         fence.replace(null)
-        val fresh = checkNotNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
-        assertNotNull(fence.bind("saved", fresh))
+        assertNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
+        val restarted = SessionFence()
+        val fresh = checkNotNull(restarted.reserveRestoreIfCurrent(restarted.currentGeneration()))
+        assertNotNull(restarted.bind("saved", fresh))
     }
 
     @get:Rule val temp = TemporaryFolder()
