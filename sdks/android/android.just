@@ -51,9 +51,13 @@ test-unit *args:
 example-test *args: build _test-host
   {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . :example:testDebugUnitTest {{ args }} :example-shared:testDebugUnitTest --dependency-verification=strict --no-daemon
 
+# Check startup and teardown of the owned backend without attachment storage.
+example-support-fixture:
+  ./dev/unsupported-backend true
+
 # Run app instrumentation inside the emulator launcher's owned scope.
 example-test-integration *args: build
-  {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_S3_PORT tcp:$XMTP_S3_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_PORT tcp:$XMTP_TOXIPROXY_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_API_PORT tcp:$XMTP_TOXIPROXY_API_PORT; test_status=0; ./gradlew -p . :example:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.toxicBackendUrl="$XMTP_BACKEND_TOXIC_URL" -Pandroid.testInstrumentationRunnerArguments.toxiproxyApi="$XMTP_TOXIPROXY_API" {{ args }} --dependency-verification=strict --no-daemon || test_status=$?; mkdir -p "{{ root }}/sdks/android/example/build/screenshots"; if adb -s "$ANDROID_SERIAL" shell test -d /sdcard/Pictures/XmtpMessengerProof; then adb -s "$ANDROID_SERIAL" pull /sdcard/Pictures/XmtpMessengerProof/. "{{ root }}/sdks/android/example/build/screenshots"; fi; exit "$test_status"'
+  {{ _env }} && ./dev/unsupported-backend run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_S3_PORT tcp:$XMTP_S3_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_PORT tcp:$XMTP_TOXIPROXY_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_TOXIPROXY_API_PORT tcp:$XMTP_TOXIPROXY_API_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT tcp:$XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT; test_status=0; ./gradlew -p . :example:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.unsupportedBackendUrl="$XMTP_ANDROID_UNSUPPORTED_BACKEND_URL" -Pandroid.testInstrumentationRunnerArguments.toxicBackendUrl="$XMTP_BACKEND_TOXIC_URL" -Pandroid.testInstrumentationRunnerArguments.toxiproxyApi="$XMTP_TOXIPROXY_API" {{ args }} --dependency-verification=strict --no-daemon || test_status=$?; mkdir -p "{{ root }}/sdks/android/example/build/screenshots"; if adb -s "$ANDROID_SERIAL" shell test -d /sdcard/Pictures/XmtpMessengerProof; then adb -s "$ANDROID_SERIAL" pull /sdcard/Pictures/XmtpMessengerProof/. "{{ root }}/sdks/android/example/build/screenshots"; fi; exit "$test_status"'
 
 # Prove compiled release URL admission and packaged policy with temporary test signing.
 example-test-release-integration *args: build

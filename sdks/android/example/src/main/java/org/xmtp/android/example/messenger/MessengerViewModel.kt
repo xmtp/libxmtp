@@ -251,6 +251,21 @@ class MessengerViewModel(
         ui.update { currentUi -> currentUi.copy(features = value) }
     }
 
+    internal fun setAttachmentAvailability(
+        owner: ActiveSession,
+        token: Long,
+        supported: Boolean,
+        current: () -> Boolean,
+    ): Boolean =
+        onCurrentScreen(owner, token) {
+            if (current()) {
+                ui.value = ui.value.copy(features = ui.value.features.copy(attachments = supported))
+                true
+            } else {
+                false
+            }
+        } == true
+
     fun foreground(value: Boolean) {
         synchronized(screenLock) { foreground = value }
         if (value) {

@@ -42,6 +42,7 @@ class AttachmentHost(
     private val previousRefresh = model.featureRefresh
     private val previousEnd = session.beforeEnd
     internal var beforeDownloadRefresh: suspend () -> Unit = {}
+    internal var beforeSupportAdmission: suspend (Boolean) -> Unit = {}
     private val pick =
         activity.registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             val request = pickerRequest.also { pickerRequest = null }
@@ -71,10 +72,17 @@ class AttachmentHost(
         model.featureAction = { action ->
             when (action.name) {
                 "select-file" -> {
+                    val active = checkNotNull(session.active.value)
+                    val token = model.screenToken()
+                    val supported = uploadSupported(active)
                     withContext(Dispatchers.Main) {
-                        val active = checkNotNull(session.active.value)
+                        if (closed || !model.acceptsScreen(active.key, token)) return@withContext
+                        if (!supported) {
+                            model.setAttachmentAvailability(active, token, false) { !closed }
+                            return@withContext
+                        }
                         val chat = checkNotNull(model.currentConversation())
-                        pickerRequest = Triple(active.key, model.screenToken(), chat.id())
+                        pickerRequest = Triple(active.key, token, chat.id())
                         pick.launch(arrayOf("*/*"))
                     }
                 }
@@ -138,33 +146,38 @@ class AttachmentHost(
         session.beforeEnd = previousEnd
     }
 
-    private suspend fun refresh(active: ActiveSession) =
-        refreshMutex.withLock {
-            if (!session.accepts(active.key)) return@withLock
-            if (owner?.key != active.key) {
-                owner = active
-                coordinator =
-                    AttachmentDraftCoordinator(
-                        active.key,
-                        active.client,
-                        active.paths,
-                        session.preferences,
-                        session.secrets,
-                        model.sends,
-                        session::accepts,
-                        { change -> session.admit(active.key, change) },
-                    )
-                files = AttachmentFiles(context, active.key, active.client, session::accepts)
-            }
-            coordinator!!.recover()
-            if (session.accepts(active.key)) {
-                drafts.value = coordinator!!.cards.value
-                model.setFeatures(
-                    model.state.value.features
-                        .copy(attachments = true),
+    private suspend fun uploadSupported(active: ActiveSession): Boolean =
+        active.client.serverConfiguration().attachments != null && active.client.attachments().offered()
+
+    private suspend fun refresh(
+        active: ActiveSession,
+        token: Long = model.screenToken(),
+    ) = refreshMutex.withLock {
+        if (closed || !model.acceptsScreen(active.key, token)) return@withLock
+        if (owner?.key != active.key) {
+            owner = active
+            coordinator =
+                AttachmentDraftCoordinator(
+                    active.key,
+                    active.client,
+                    active.paths,
+                    session.preferences,
+                    session.secrets,
+                    model.sends,
+                    session::accepts,
+                    { change -> session.admit(active.key, change) },
                 )
-            }
+            files = AttachmentFiles(context, active.key, active.client, session::accepts)
         }
+        val supported = uploadSupported(active)
+        beforeSupportAdmission(supported)
+        model.setAttachmentAvailability(active, token, supported) { !closed }
+        if (closed || !model.acceptsScreen(active.key, token)) return@withLock
+        coordinator!!.recover()
+        session.admit(active.key) {
+            if (!closed && model.acceptsScreen(active.key, token)) drafts.value = coordinator!!.cards.value
+        }
+    }
 
     private fun perform(block: suspend (ActiveSession) -> Unit) {
         if (closed) return
