@@ -319,10 +319,14 @@ class AttachmentHost(
         val cached = downloads.collectAsState().value[row.id]
         val state = cached ?: AttachmentCardState(row.id, row.text, "File", canDownload = true)
         val bitmap = previews.collectAsState().value[row.id]
+        val conversationId =
+            model.state
+                .collectAsState()
+                .value.conversationId
+                .orEmpty()
         AttachmentMessage(
             state,
-            model.state.value.conversationId
-                .orEmpty(),
+            conversationId,
             bitmap?.asImageBitmap(),
             ::act,
         )
