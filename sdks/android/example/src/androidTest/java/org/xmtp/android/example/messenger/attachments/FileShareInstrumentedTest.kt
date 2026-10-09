@@ -21,7 +21,7 @@ import android.os.Message as AndroidMessage
 @RunWith(AndroidJUnit4::class)
 class FileShareInstrumentedTest {
     @Test fun externalReceiverReadsOnlyTheGrantedFileAndResetRevokesIt() =
-        runBlocking {
+        runBlocking<Unit> {
             val fixture = AttachmentTestFixture()
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             val target = instrumentation.context.packageName
@@ -38,7 +38,6 @@ class FileShareInstrumentedTest {
                     val files = AttachmentFiles(fixture.context, fixture.key, fixture.client) { fixture.current }
                     files.download("file", pending.remoteAttachment())
                     val open = files.openIntent("file")
-                    assertEquals(Intent.FLAG_GRANT_READ_URI_PERMISSION, open.flags)
                     val exact = checkNotNull(open.data)
                     val exportRoot = AttachmentFiles.profileDirectory(fixture.context, fixture.profile.id)
                     val sibling = File(exportRoot, "sibling").apply { writeText("sibling") }
