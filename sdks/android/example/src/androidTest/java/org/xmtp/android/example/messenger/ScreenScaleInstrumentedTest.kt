@@ -608,13 +608,16 @@ class ScreenScaleInstrumentedTest {
                 capture(Screen.DRAFTS)
                 assertEquals("Every screen needs an observed bounds/scroll pass", Screen.entries.toSet(), captured)
             } finally {
-                model.onGroupActionFinished = {}
-                reader?.cancelAndJoin()
-                withContext(NonCancellable) {
-                    peer?.end()
-                    if (model.session.active.value != null) model.session.deleteAccount()
+                try {
+                    model.onGroupActionFinished = {}
+                    reader?.cancelAndJoin()
+                    withContext(NonCancellable) {
+                        peer?.end()
+                        if (model.session.active.value != null) model.session.deleteAccount()
+                    }
+                } finally {
+                    AndroidStreamLifecycle.enabled = lifecycle
                 }
-                AndroidStreamLifecycle.enabled = lifecycle
             }
         }
 }
