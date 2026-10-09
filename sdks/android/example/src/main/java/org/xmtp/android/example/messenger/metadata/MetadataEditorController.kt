@@ -47,7 +47,9 @@ class MetadataEditorController(
                 is MetadataEdit.Scalar -> {
                     val d = descriptor(edit.id)
                     require(!d.isUserField && d.field.componentId.toInt() in 0xC000..0xFEFF) { "Use My fields for user values." }
-                    val operation = edit.value?.let { ComponentMutation.Replace(MetadataMapper.value(MetadataMapper.shape(d), it)) } ?: ComponentMutation.Remove
+                    val shape = MetadataMapper.shape(d)
+                    require(shape == FieldShape.STRING || shape == FieldShape.BYTES) { "Use an entry delta for a collection." }
+                    val operation = edit.value?.let { ComponentMutation.Replace(MetadataMapper.value(shape, it)) } ?: ComponentMutation.Remove
                     if (isCurrent()) conversation.updateMetadataField(d.field, operation)
                 }
                 is MetadataEdit.Entry -> saveEntry(edit)
