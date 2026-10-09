@@ -14,6 +14,7 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.xmtp.android.example.messenger.AppSession
 import uniffi.xmtp_sdk.*
 
 @RunWith(AndroidJUnit4::class)
@@ -65,7 +66,19 @@ class FileShareInstrumentedTest {
                 assertTrue(canRead(exact))
                 AttachmentFiles.revokeProfile(fixture.context, fixture.profile.id)
                 assertFalse(canRead(exact))
-                exportRoot.deleteRecursively()
+                fixture.context.grantUriPermission(target, exact, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                assertTrue(canRead(exact))
+                fixture.current = false
+                fixture.endClient()
+                fixture.preferences.setActive(fixture.profile)
+                fixture.preferences.saveReset(fixture.paths.resetRecord(fixture.profile.id))
+                AppSession(fixture.context).restore()
+                assertFalse(exportRoot.exists())
+                assertFalse(canRead(exact))
+                // A removed file alone does not prove that the old URI grant was revoked.
+                exportRoot.mkdirs()
+                val exportName = exact.lastPathSegment!!
+                File(exportRoot, exportName).writeText("replacement")
                 assertFalse(canRead(exact))
             }
         } finally {

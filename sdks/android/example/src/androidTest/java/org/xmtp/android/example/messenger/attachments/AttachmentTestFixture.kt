@@ -17,6 +17,7 @@ internal class AttachmentTestFixture {
     val secrets = SecureSecretStore(context)
     var current = true
     lateinit var client: SDKClient
+    private var clientEnded = true
     lateinit var group: Conversation
     private val signer = generateLocalSigner()
     private lateinit var options: ClientOptions
@@ -26,21 +27,29 @@ internal class AttachmentTestFixture {
         paths.attachments.mkdirs()
         options = ClientOptions(backend = BackendSource.Options(BackendOptions(url = backend)), storage = StorageOptions(location = StorageLocation.Explicit(paths.database.absolutePath, paths.attachments.absolutePath)), deviceSync = false, attachments = AttachmentOptions(maxPendingAgeSeconds = age, allowPrivateNetwork = true))
         client = SDKClient.create(context, signer, options)
+        clientEnded = false
         group = Conversation.Group(client.conversations.createGroup(emptyList<InboxId>(), CreateGroupOptions(name = "File proof")))
     }
     fun coordinator() = AttachmentDraftCoordinator(key, client, paths, preferences, secrets, SendCoordinator(preferences) { current }, { current })
     suspend fun reopen() {
         val inbox = client.inboxId()
-        client.end()
+        endClient()
         client = SDKClient.build(context, signer.identity(), options, inbox)
+        clientEnded = false
         group = checkNotNull(client.conversations.getById(group.id()))
     }
     suspend fun close() = withContext(NonCancellable) {
         current = false
-        if (::client.isInitialized) client.end()
+        endClient()
         paths.root.deleteRecursively()
         AttachmentFiles.profileDirectory(context, profile.id).deleteRecursively()
         preferences.removeProfile(profile.id)
+    }
+    suspend fun endClient() {
+        if (::client.isInitialized && !clientEnded) {
+            client.end()
+            clientEnded = true
+        }
     }
     suspend fun save(remote: RemoteAttachment, phase: SendPhase = SendPhase.DRAFT, acceptedId: String? = null): SendDraftRef {
         val id = UUID.randomUUID().toString()
