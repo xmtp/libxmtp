@@ -399,6 +399,7 @@ class ScreenScaleInstrumentedTest {
                 until("Conversations did not return") { model.state.value.screen == Screen.CONVERSATIONS }
                 // The layout fixture creates real SDK staged files, not invented card states.
                 val draftIds = mutableListOf<String>()
+                var acceptedDraft: String? = null
                 repeat(3) { index ->
                     val pending =
                         owner.client.attachments().create(
@@ -410,12 +411,31 @@ class ScreenScaleInstrumentedTest {
                         )
                     val draft = UUID.randomUUID().toString()
                     val secret = "scale-$draft"
+                    val reference =
+                        if (index == 2) {
+                            pending.upload()
+                            val accepted =
+                                chat.sendRemoteAttachment(
+                                    pending.remoteAttachment(),
+                                    SendOptions(optimistic = true),
+                                )
+                            assertEquals(
+                                DeliveryStatus.UNPUBLISHED,
+                                owner.client.conversations
+                                    .getMessageById(accepted)!!
+                                    .deliveryStatus,
+                            )
+                            acceptedDraft = draft
+                            SendDraftRef(draft, id, secret, accepted, SendPhase.ACCEPTED)
+                        } else {
+                            SendDraftRef(draft, id, secret)
+                        }
                     model.session.secrets.write(
                         owner.key.profileId,
                         secret,
                         AttachmentDescriptor.encode(pending.remoteAttachment()),
                     )
-                    model.session.preferences.saveDraft(owner.key.profileId, SendDraftRef(draft, id, secret))
+                    model.session.preferences.saveDraft(owner.key.profileId, reference)
                     draftIds += draft
                 }
                 model.dispatch(MessengerAction.Refresh)
@@ -431,7 +451,12 @@ class ScreenScaleInstrumentedTest {
                 for (draft in draftIds) {
                     val card = "attachment-card-$draft"
                     control(click("Discard") and hasAnyAncestor(hasTestTag(card)))
-                    control(click("View chat") and hasAnyAncestor(hasTestTag(card)))
+                    if (draft == acceptedDraft) {
+                        control(click("Retry publication") and hasAnyAncestor(hasTestTag(card)))
+                        control(click("View chat") and hasAnyAncestor(hasTestTag(card)))
+                    } else {
+                        control(click("Send file") and hasAnyAncestor(hasTestTag(card)))
+                    }
                 }
                 capture(Screen.DRAFTS)
                 assertEquals("Every screen needs an observed bounds/scroll pass", Screen.entries.toSet(), captured)
