@@ -44,6 +44,8 @@ class AttachmentDraftCoordinator(
     private val mutableCards = MutableStateFlow<List<AttachmentCardState>>(emptyList())
     val cards: StateFlow<List<AttachmentCardState>> = mutableCards
     internal var afterRecoverySnapshot: suspend () -> Unit = {}
+    internal var afterDiscardDescriptorRead: suspend () -> Unit = {}
+    internal var afterDiscardDelete: suspend () -> Unit = {}
 
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
 
@@ -192,17 +194,36 @@ class AttachmentDraftCoordinator(
             true
         },
         reconcile: suspend (Message) -> Unit,
+    ) = sendDraft(draftId, conversation, screenCurrent, false, reconcile)
+
+    suspend fun retryPublication(
+        draftId: String,
+        conversation: Conversation,
+        screenCurrent: () -> Boolean = { true },
+        reconcile: suspend (Message) -> Unit,
+    ) = sendDraft(draftId, conversation, screenCurrent, true, reconcile)
+
+    private suspend fun sendDraft(
+        draftId: String,
+        conversation: Conversation,
+        screenCurrent: () -> Boolean,
+        publicationOnly: Boolean,
+        reconcile: suspend (Message) -> Unit,
     ) {
         checkCurrent()
         check(screenCurrent()) { "The screen changed" }
         val admission = { accepts(key) && screenCurrent() }
-        processMutex.withLock { check(running.add(operationId(draftId))) { "This file action is already running" } }
+        processMutex.withLock {
+            check(operationId(draftId) !in discarded) { "The draft was discarded" }
+            check(running.add(operationId(draftId))) { "This file action is already running" }
+        }
         var draft = SendDraftRef(draftId, "")
         var remote: RemoteAttachment? = null
         try {
             draft = preferences.drafts(key.profileId).single { it.draftId == draftId }
             require(!draftNeedsReview(draft)) { "Review the unknown send outcome in the chat" }
             require(draft.conversationKey == conversation.id()) { "The draft belongs to another chat" }
+            require(!publicationOnly || draft.acceptedMessageId != null) { "The draft has no accepted message" }
             draft.acceptedMessageId?.let { id ->
                 sends.retry(key, client, conversation, id, admission = admission, reconcile = reconcile)
                 clearPublishedSecret(draft)
@@ -374,6 +395,7 @@ class AttachmentDraftCoordinator(
         screenCurrent: () -> Boolean = { true },
     ) {
         checkCurrent()
+        check(screenCurrent()) { "The screen changed" }
         val draft =
             processMutex.withLock {
                 check(operationId(draftId) !in queueing) { "Wait for the queue action to finish" }
@@ -381,26 +403,51 @@ class AttachmentDraftCoordinator(
                     .drafts(
                         key.profileId,
                     ).single { it.draftId == draftId }
-                    .also { discarded.add(operationId(draftId)) }
+                    .also { check(discarded.add(operationId(draftId))) { "This discard is already running" } }
             }
-        // QUEUEING can have produced a message before the process lost its ID.
-        if (draft.acceptedMessageId == null && !draftNeedsReview(draft)) {
-            try {
-                val bytes =
-                    withContext(Dispatchers.IO) { draft.descriptorSecretRef?.let { secrets.read(key.profileId, it) } }
-                if (bytes != null) attachments.deleteLocal(AttachmentDescriptor.decode(bytes))
-            } catch (error: XmtpException.Attachment) {
-                if (!error.isExpiredDraft()) throw error
+        var complete = false
+        try {
+            // QUEUEING can have produced a message before the process lost its ID.
+            val remote =
+                if (draft.acceptedMessageId == null && !draftNeedsReview(draft)) {
+                    withContext(Dispatchers.IO) {
+                        draft.descriptorSecretRef
+                            ?.let {
+                                secrets.read(
+                                    key.profileId,
+                                    it,
+                                )
+                            }?.let(AttachmentDescriptor::decode)
+                    }
+                } else {
+                    null
+                }
+            afterDiscardDescriptorRead()
+            withContext(NonCancellable) {
+                check(admitChange(screenCurrent) {}) { "The session or screen changed before discard" }
+                try {
+                    if (remote != null) attachments.deleteLocal(remote)
+                } catch (error: XmtpException.Attachment) {
+                    if (!error.isExpiredDraft()) throw error
+                }
+                afterDiscardDelete()
+                // An admitted deletion finishes profile cleanup when navigation changes.
+                check(preferences.removeDraft(key.profileId, draftId) { change -> admitChange(change = change) }) {
+                    "The session changed"
+                }
+                withContext(Dispatchers.IO) {
+                    admitChange { draft.descriptorSecretRef?.let { secrets.delete(key.profileId, it) } }
+                }
+                admitChange { mutableCards.update { cards -> cards.filterNot { it.id == draftId } } }
+                complete = true
+            }
+        } finally {
+            if (!complete) {
+                withContext(NonCancellable) {
+                    processMutex.withLock { discarded.remove(operationId(draftId)) }
+                }
             }
         }
-        checkCurrent()
-        check(preferences.removeDraft(key.profileId, draftId) { change -> admitChange(screenCurrent, change) }) {
-            "The session or screen changed"
-        }
-        withContext(Dispatchers.IO) {
-            admitChange { draft.descriptorSecretRef?.let { secrets.delete(key.profileId, it) } }
-        }
-        admitChange { mutableCards.update { cards -> cards.filterNot { it.id == draftId } } }
     }
 
     companion object {

@@ -234,6 +234,18 @@ class AttachmentHost(
                 }
             }
 
+            is AttachmentAction.RetryPublication -> {
+                perform { active ->
+                    val token = model.screenToken()
+                    val chat = checkNotNull(active.client.conversations.getById(action.conversationId))
+                    coordinator!!.retryPublication(action.draftId, chat, {
+                        !closed && model.acceptsScreen(active.key, token)
+                    }) {
+                        model.reconcileFeatureMessage(active, token, it)
+                    }
+                }
+            }
+
             is AttachmentAction.Discard -> {
                 perform { active ->
                     val token = model.screenToken()
