@@ -7,6 +7,7 @@ import java.time.format.DateTimeFormatter
 val visibleContentTypes =
     listOf(
         "text",
+        "markdown",
         "reply",
         "remoteStaticAttachment",
     ).map {
@@ -241,6 +242,11 @@ fun Message.toRow(own: InboxId): MessageRow {
                     parent.content
             ) {
                 is MessageBody.Text,
+                -> {
+                    body.v1
+                }
+
+                is MessageBody.Markdown,
                 -> {
                     body.v1
                 }

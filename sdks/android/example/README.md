@@ -79,12 +79,14 @@ stops visibly when the current SDK cannot cover a bucket within its 501-row quer
 limit. It never advances past an unretained member of that bucket.
 
 The cache keeps three transcripts and at most 500 published rows per transcript.
-Queued and failed messages have a separate 50-row overlay. Retained positions
+Queued and failed messages have a separate 50-row recovery page. Use Older pending
+messages and Newest pending messages to change this page. Refresh reads the selected
+page again. A visible notice stops a timestamp tie that exceeds 50 rows. Retained positions
 restore the message key and pixel offset. After eviction, the app makes one
 bounded timestamp query. If the key is absent, it selects a surviving row at
 offset zero and shows Position changed.
 
-Unread counts use retained incoming Published text, reply and remote attachment
+Unread counts use retained incoming Published text, Markdown, reply and remote attachment
 rows with an insertion timestamp greater than the local read marker. Equal
 timestamps count as read together. Imports can retain an older insertion time.
 The count and marker reads are separate SDK calls.
