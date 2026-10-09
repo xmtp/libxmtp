@@ -27,6 +27,7 @@
   watchexec,
   just,
   python311,
+  ci-path-filter-bundle,
   uv,
 }:
 let
@@ -54,6 +55,7 @@ mkShell (
     meta.description = "Full libXMTP local development environment";
 
     XMTP_DEV_SHELL = "local";
+    CI_PATH_FILTER_BUNDLE = "${ci-path-filter-bundle}";
 
     # --- Rust base ---
     inherit (shellCommon.rustBase) hardeningDisable nativeBuildInputs LD_LIBRARY_PATH;

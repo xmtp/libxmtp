@@ -49,6 +49,7 @@ let
     swiftformat = host.callPackage ./packages/swiftformat.nix { };
     rtk = host.callPackage ./packages/rtk.nix { };
     kache = host.callPackage ./packages/kache.nix { };
+    ci-path-filter-bundle = host.callPackage ./packages/ci-path-filter-bundle.nix { };
     xmtp-pnpm = host.callPackage ./packages/pnpm.nix { };
     xmtp = {
       filesets = host.callPackage ./filesets.nix { };
