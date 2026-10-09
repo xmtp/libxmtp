@@ -239,3 +239,150 @@ async fn history_page_sdk_stitched_dm_preserves_defaults_and_filters() {
     b.end().await?;
     a.end().await?;
 }
+
+// verifies: PROC-037, CTYPE-027
+#[xmtp_common::test(unwrap_try = true)]
+async fn history_page_sdk_enriches_each_stitched_source_and_redacts_its_deletion() {
+    use crate::{MessageBody, Reaction, ReactionAction, ReactionSchema};
+
+    let a = Client::create(crate::generate_local_signer().await, options()).await?;
+    let b = Client::create(crate::generate_local_signer().await, options()).await?;
+    let first = a.conversations().create_dm(b.inbox_id(), None).await?;
+    let second = b.conversations().create_dm(a.inbox_id(), None).await?;
+    assert_ne!(first.inner.group_id, second.inner.group_id);
+    let mut sent = Vec::new();
+    for (dm, sender) in [(&first, &a), (&second, &b)] {
+        let mut content = crate::encode_text("private-source-parent".into())?;
+        content.fallback = Some("private-source-fallback".into());
+        let parent = dm.send(content, None).await?;
+        let reply = dm
+            .send_reply(
+                parent.clone(),
+                Some(sender.inbox_id()),
+                crate::encode_text("source reply".into())?,
+                None,
+            )
+            .await?;
+        let reaction = dm
+            .send_reaction(
+                parent.clone(),
+                Some(sender.inbox_id()),
+                Reaction {
+                    content: "👍".into(),
+                    action: ReactionAction::Added,
+                    schema: ReactionSchema::Unicode,
+                },
+                None,
+            )
+            .await?;
+        sent.push((parent, reply, reaction));
+    }
+    a.conversations().sync_all(None).await?;
+    b.conversations().sync_all(None).await?;
+    let winner = a
+        .conversations()
+        .get_dm_by_inbox_id(b.inbox_id())
+        .await?
+        .expect("stitched DM");
+    let (source, author, index) = if first.inner.group_id != winner.inner.group_id {
+        (&first, &a, 0)
+    } else {
+        (&second, &b, 1)
+    };
+    let (parent, reply, _) = &sent[index];
+    assert_ne!(source.inner.group_id, winner.inner.group_id);
+    assert_eq!(
+        a.inner.message(parent.to_bytes()?)?.group_id,
+        source.inner.group_id
+    );
+    let before = winner
+        .message_history_page(selected(MessageOrder::Ascending, 50), None, None)
+        .await?;
+    assert_eq!(before.messages.len(), 4);
+    assert_eq!(
+        before
+            .messages
+            .iter()
+            .map(|message| &message.0.id)
+            .collect::<Vec<_>>(),
+        sent.iter()
+            .flat_map(|(parent, reply, _)| [parent, reply])
+            .collect::<Vec<_>>()
+    );
+    author
+        .conversations()
+        .delete_message(parent.clone())
+        .await?;
+    source.publish_messages().await?;
+    a.conversations().sync_all(None).await?;
+    let after = winner
+        .message_history_page(selected(MessageOrder::Ascending, 50), None, None)
+        .await?;
+    let deleted = after
+        .messages
+        .iter()
+        .find(|message| &message.0.id == parent)
+        .expect("deleted message from the non-requested source");
+    assert!(
+        matches!(deleted.0.content, MessageContent::DeletedMessage(_)),
+        "non-requested source must redact its deleted body: {:?}",
+        deleted.0.content
+    );
+    assert!(deleted.0.raw_bytes.is_empty());
+    assert!(deleted.0.fallback.is_none());
+    assert!(!format!("{:?}", deleted.0).contains("private-source"));
+    let answer = after
+        .messages
+        .iter()
+        .find(|message| &message.0.id == reply)
+        .expect("reply from the non-requested source");
+    let embedded = answer.0.in_reply_to.as_ref().expect("deleted reply parent");
+    assert!(matches!(embedded.content, MessageBody::DeletedMessage(_)));
+    assert!(embedded.raw_bytes.is_empty());
+    assert!(embedded.fallback.is_none());
+    assert!(!format!("{embedded:?}").contains("private-source"));
+    for (parent, reply, reaction) in sent {
+        let original = before
+            .messages
+            .iter()
+            .find(|message| message.0.id == parent)
+            .expect("source parent before deletion");
+        assert_eq!(original.0.reply_count, 1);
+        assert_eq!(original.0.reactions.len(), 1);
+        assert_eq!(original.0.reactions[0].id, reaction);
+        let answer = before
+            .messages
+            .iter()
+            .find(|message| message.0.id == reply)
+            .expect("source reply before deletion");
+        assert_eq!(
+            answer.0.in_reply_to.as_ref().expect("reply parent").id,
+            parent
+        );
+    }
+    assert_eq!(
+        after
+            .messages
+            .iter()
+            .map(|message| &message.0.id)
+            .collect::<Vec<_>>(),
+        before
+            .messages
+            .iter()
+            .map(|message| &message.0.id)
+            .collect::<Vec<_>>()
+    );
+    for (after, before) in [
+        (&after.first_position, &before.first_position),
+        (&after.last_position, &before.last_position),
+    ] {
+        let after = after.as_ref().expect("consumed position after deletion");
+        let before = before.as_ref().expect("consumed position before deletion");
+        assert_eq!(after.sent_at, before.sent_at);
+        assert_eq!(after.delivery_cursor, before.delivery_cursor);
+    }
+    assert!(!after.has_more);
+    assert_eq!(after.skipped_count, 0);
+    b.end().await?;
+    a.end().await?;
+}

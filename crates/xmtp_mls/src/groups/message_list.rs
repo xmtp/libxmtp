@@ -30,18 +30,27 @@ where
             &self.group_id,
             &filter_out_hidden_message_types_from_query(query),
         )?;
-        let cursors: std::collections::HashMap<_, _> = page
+        let positions: std::collections::HashMap<_, _> = page
             .rows
             .iter()
-            .map(|row| (row.stored.id.clone(), row.cursor))
+            .enumerate()
+            .map(|(index, row)| (row.stored.id.clone(), (index, row.cursor)))
             .collect();
-        let mut messages = enrich_messages_with_stored(
-            conn,
-            &self.group_id,
-            page.rows.into_iter().map(|row| row.stored).collect(),
-        )?;
+        let mut sources: std::collections::HashMap<_, Vec<_>> = std::collections::HashMap::new();
+        for row in page.rows {
+            sources
+                .entry(row.stored.group_id)
+                .or_default()
+                .push(row.stored);
+        }
+        let mut messages = Vec::with_capacity(positions.len());
+        for (group_id, rows) in sources {
+            messages.extend(enrich_messages_with_stored(&conn, &group_id, rows)?);
+        }
+        // Relations use the physical source. Display order uses the selected raw keys.
+        messages.sort_by_key(|message| positions[&message.stored.id].0);
         for message in &mut messages {
-            message.delivery_cursor = cursors.get(&message.stored.id).copied().flatten();
+            message.delivery_cursor = positions[&message.stored.id].1;
         }
         Ok(EnrichedHistoryPage {
             messages,

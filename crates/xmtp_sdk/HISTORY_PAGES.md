@@ -66,9 +66,10 @@ A history page does not resend them.
 
 The SDK resolves the physical groups of a stitched DM in the read transaction.
 With limit L and K physical groups, it reads at most K*(L+1) candidate keys,
-merges the ordered keys, and loads at most L base bodies. Reply and reaction
-enrichment remains available. The query index covers group, sent time and
-local delivery sequence.
+merges the ordered keys, and loads at most L base bodies. Deletions, replies and
+reactions use each selected message's physical source group. Enrichment keeps
+the merged page order and positions. The query index covers group, sent time
+and local delivery sequence.
 
 The implementation and record declarations are in
 [src/delivery/history.rs](src/delivery/history.rs). The database selector is in
