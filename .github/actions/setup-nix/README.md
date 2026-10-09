@@ -29,7 +29,11 @@ Set these repository variables:
 | --- | --- |
 | `KACHE_S3_BUCKET` | Bucket from the `libxmtp_kache` Terraform output |
 | `KACHE_S3_REGION` | `us-east-2` |
-| `KACHE_S3_ENDPOINT` | Empty for AWS |
+| `KACHE_S3_ENDPOINT` | Optional. Leave unset for AWS |
+
+The workflows default an unset endpoint to an empty action input. Kache then
+uses the AWS endpoint for the bucket's region. Set this variable only for a
+custom S3-compatible endpoint.
 
 Use the reader pair as repository secrets:
 
