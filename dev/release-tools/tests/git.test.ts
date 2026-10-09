@@ -30,6 +30,7 @@ describe("git helpers", () => {
     execSync("git config tag.gpgSign false", { cwd: tmpDir });
     fs.writeFileSync(path.join(tmpDir, "file.txt"), "initial");
     execSync("git add . && git commit -m 'initial commit'", { cwd: tmpDir });
+    execSync("git branch -M main", { cwd: tmpDir });
   });
 
   afterEach(() => {
@@ -38,6 +39,7 @@ describe("git helpers", () => {
 
   describe("listTags", () => {
     it("returns all tags", () => {
+      expect(listTags(tmpDir)).toEqual([]);
       gitTag("ios-4.8.0", tmpDir);
       gitTag("ios-4.9.0", tmpDir);
       gitTag("android-1.0.0", tmpDir);
@@ -45,10 +47,6 @@ describe("git helpers", () => {
       expect(tags).toContain("ios-4.8.0");
       expect(tags).toContain("ios-4.9.0");
       expect(tags).toContain("android-1.0.0");
-    });
-
-    it("returns empty array for repo with no tags", () => {
-      expect(listTags(tmpDir)).toEqual([]);
     });
   });
 
@@ -74,11 +72,11 @@ describe("git helpers", () => {
       expect(commits).toHaveLength(2);
       expect(commits[0]).toContain("fix: bug fix");
       expect(commits[1]).toContain("feat: add feature");
-    });
-
-    it("returns all commits from HEAD when sinceRef is null", () => {
-      const commits = getCommitsBetween(tmpDir, null, "HEAD");
-      expect(commits.length).toBeGreaterThan(0);
+      const fromHead = getCommitsBetween(tmpDir, null, "HEAD");
+      expect(fromHead).toHaveLength(3);
+      expect(fromHead[0]).toContain("fix: bug fix");
+      expect(fromHead[1]).toContain("feat: add feature");
+      expect(fromHead[2]).toContain("initial commit");
     });
   });
 
@@ -87,22 +85,11 @@ describe("git helpers", () => {
       createTag(tmpDir, "v1.0.0");
       const tags = listTags(tmpDir);
       expect(tags).toContain("v1.0.0");
-    });
-
-    it("throws when tag exists and ignoreIfExists is false", () => {
-      gitTag("v1.0.0", tmpDir);
       expect(() => createTag(tmpDir, "v1.0.0")).toThrow(
         "Tag v1.0.0 already exists",
       );
-    });
-
-    it("skips when tag exists and ignoreIfExists is true", () => {
-      gitTag("v1.0.0", tmpDir);
-      // Should not throw
       createTag(tmpDir, "v1.0.0", true);
-      // Tag should still exist
-      const tags = listTags(tmpDir);
-      expect(tags).toContain("v1.0.0");
+      expect(listTags(tmpDir)).toEqual(tags);
     });
   });
 
@@ -126,33 +113,44 @@ describe("git helpers", () => {
 
     it("pushes a tag to remote", () => {
       gitTag("v1.0.0", tmpDir);
+      const firstTagSha = execSync("git rev-parse v1.0.0", {
+        cwd: tmpDir,
+        encoding: "utf-8",
+      }).trim();
       pushTag(tmpDir, "v1.0.0", false);
-      // Verify tag exists on remote
-      const remoteTags = execSync("git tag --list", {
+      const remoteTagSha = execSync("git rev-parse refs/tags/v1.0.0", {
         cwd: remoteDir,
         encoding: "utf-8",
       }).trim();
-      expect(remoteTags).toContain("v1.0.0");
-    });
+      expect(remoteTagSha).toBe(firstTagSha);
 
-    it("pushes tag and branch when pushBranch is true", () => {
       fs.writeFileSync(path.join(tmpDir, "file.txt"), "updated");
       execSync("git add . && git commit -m 'update'", { cwd: tmpDir });
       gitTag("v2.0.0", tmpDir);
       pushTag(tmpDir, "v2.0.0", true);
-      const remoteTags = execSync("git tag --list", {
+      const localHead = execSync("git rev-parse HEAD", {
+        cwd: tmpDir,
+        encoding: "utf-8",
+      }).trim();
+      const remoteHead = execSync("git rev-parse refs/heads/main", {
         cwd: remoteDir,
         encoding: "utf-8",
       }).trim();
-      expect(remoteTags).toContain("v2.0.0");
-    });
+      const secondTagSha = execSync("git rev-parse refs/tags/v2.0.0", {
+        cwd: remoteDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(remoteHead).toBe(localHead);
+      expect(secondTagSha).toBe(localHead);
 
-    it("skips when tag exists on remote and ignoreIfExists is true", () => {
-      gitTag("v1.0.0", tmpDir);
-      // Push the tag first
-      execSync(`git push origin v1.0.0`, { cwd: tmpDir });
-      // Pushing again should not throw with ignoreIfExists
+      // A conflicting local tag must not replace an existing remote tag.
+      execSync("git tag -f v1.0.0 HEAD", { cwd: tmpDir });
       pushTag(tmpDir, "v1.0.0", false, true);
+      const retainedTagSha = execSync("git rev-parse refs/tags/v1.0.0", {
+        cwd: remoteDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(retainedTagSha).toBe(firstTagSha);
     });
   });
 });

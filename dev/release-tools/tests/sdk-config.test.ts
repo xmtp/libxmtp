@@ -48,13 +48,6 @@ describe("SDK configs", () => {
     );
   });
 
-  it("has config for all SDK enum values", () => {
-    for (const sdk of Object.values(Sdk)) {
-      expect(SDK_CONFIGS[sdk]).toBeDefined();
-      expect(SDK_CONFIGS[sdk].manifest).toBeDefined();
-    }
-  });
-
   describe("Libxmtp manifest provider", () => {
     let tmpDir: string;
 

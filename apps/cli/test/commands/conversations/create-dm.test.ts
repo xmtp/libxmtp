@@ -24,27 +24,6 @@ interface DmResult {
 }
 
 describe("conversations create-dm", () => {
-  it("creates a DM with another user", async () => {
-    const sender = await createRegisteredIdentity();
-    const recipient = await createRegisteredIdentity();
-
-    const result = await runWithIdentity(sender, [
-      "conversations",
-      "create-dm",
-      recipient.address,
-      "--json",
-    ]);
-
-    expect(result.exitCode).toBe(0);
-
-    const output = parseJsonOutput<DmResult>(result.stdout);
-    expect(output.id).toBeDefined();
-    expect(output.peerInboxId).toBe(recipient.inboxId);
-    expect(output.createdAt).toBeDefined();
-    expect(output.isActive).toBe(true);
-    expect(output.members.length).toBe(2);
-  });
-
   it("returns same DM when created twice", async () => {
     const sender = await createRegisteredIdentity();
     const recipient = await createRegisteredIdentity();
@@ -61,48 +40,13 @@ describe("conversations create-dm", () => {
       recipient.address,
       "--json",
     ]);
-
-    expect(result1.exitCode).toBe(0);
-    expect(result2.exitCode).toBe(0);
-
-    const output1 = parseJsonOutput<DmResult>(result1.stdout);
-    const output2 = parseJsonOutput<DmResult>(result2.stdout);
-
-    // DMs are unique, so we should get the same DM back
-    expect(output1.id).toBe(output2.id);
-  });
-
-  it("handles case-insensitive addresses", async () => {
-    const sender = await createRegisteredIdentity();
-    const recipient = await createRegisteredIdentity();
-
-    const result1 = await runWithIdentity(sender, [
-      "conversations",
-      "create-dm",
-      recipient.address.toLowerCase(),
-      "--json",
-    ]);
-    const result2 = await runWithIdentity(sender, [
+    const upperCaseResult = await runWithIdentity(sender, [
       "conversations",
       "create-dm",
       recipient.address.toUpperCase(),
       "--json",
     ]);
-
-    expect(result1.exitCode).toBe(0);
-    expect(result2.exitCode).toBe(0);
-
-    const output1 = parseJsonOutput<DmResult>(result1.stdout);
-    const output2 = parseJsonOutput<DmResult>(result2.stdout);
-
-    expect(output1.id).toBe(output2.id);
-  });
-
-  it("explicitly specifies ethereum identifier kind", async () => {
-    const sender = await createRegisteredIdentity();
-    const recipient = await createRegisteredIdentity();
-
-    const result = await runWithIdentity(sender, [
+    const explicitKindResult = await runWithIdentity(sender, [
       "conversations",
       "create-dm",
       recipient.address,
@@ -111,10 +55,26 @@ describe("conversations create-dm", () => {
       "--json",
     ]);
 
-    expect(result.exitCode).toBe(0);
+    expect(result1.exitCode).toBe(0);
+    expect(result2.exitCode).toBe(0);
+    expect(upperCaseResult.exitCode).toBe(0);
+    expect(explicitKindResult.exitCode).toBe(0);
 
-    const output = parseJsonOutput<DmResult>(result.stdout);
-    expect(output.id).toBeDefined();
+    const output1 = parseJsonOutput<DmResult>(result1.stdout);
+    const output2 = parseJsonOutput<DmResult>(result2.stdout);
+    const upperCaseOutput = parseJsonOutput<DmResult>(upperCaseResult.stdout);
+    const explicitKindOutput = parseJsonOutput<DmResult>(
+      explicitKindResult.stdout,
+    );
+
+    expect(output1.id).toBeDefined();
+    expect(output1.peerInboxId).toBe(recipient.inboxId);
+    expect(output1.createdAt).toBeDefined();
+    expect(output1.isActive).toBe(true);
+    expect(output1.members).toHaveLength(2);
+    expect(output1.id).toBe(output2.id);
+    expect(output1.id).toBe(upperCaseOutput.id);
+    expect(output1.id).toBe(explicitKindOutput.id);
   });
 
   it("fails without recipient identifier", async () => {

@@ -421,6 +421,7 @@ describe("generated bridge value conformance", () => {
     );
     expect(source).toContain(`console.error("${RUST_PANIC_PREFIX} `);
   });
+
   it("loads the real WASM bridge in worker_threads", () => {
     const output = execFileSync(
       "sdks/node/node_modules/.bin/tsx",

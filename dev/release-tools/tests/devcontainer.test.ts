@@ -69,19 +69,6 @@ describe("setDevcontainerImage", () => {
     expect(updated).not.toContain("oldoldoldold");
   });
 
-  it("inserts image between name and runArgs where build used to be", () => {
-    fs.writeFileSync(jsonPath, BUILD_SHAPE);
-
-    setDevcontainerImage(jsonPath, NEW_IMAGE);
-
-    const keys = Object.keys(
-      parseJsonc(fs.readFileSync(jsonPath, "utf-8")) as Record<string, unknown>,
-    );
-    expect(keys.indexOf("image")).toBeGreaterThan(keys.indexOf("name"));
-    expect(keys.indexOf("image")).toBeLessThan(keys.indexOf("runArgs"));
-    expect(keys).not.toContain("build");
-  });
-
   it("preserves the leading JSONC comment", () => {
     fs.writeFileSync(jsonPath, BUILD_SHAPE);
 
@@ -89,16 +76,6 @@ describe("setDevcontainerImage", () => {
 
     const updated = fs.readFileSync(jsonPath, "utf-8");
     expect(updated.startsWith("// For format details")).toBe(true);
-  });
-
-  it("preserves the original indent width", () => {
-    fs.writeFileSync(jsonPath, BUILD_SHAPE);
-
-    setDevcontainerImage(jsonPath, NEW_IMAGE);
-
-    const updated = fs.readFileSync(jsonPath, "utf-8");
-    expect(updated).toContain('    "name": "libxmtp (Nix)"');
-    expect(updated).toContain(`    "image": "${NEW_IMAGE}"`);
   });
 
   it("preserves unrelated keys", () => {

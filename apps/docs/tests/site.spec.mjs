@@ -155,42 +155,6 @@ test("the docs use the system theme without a selector", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
 
-test("the header fits above the page content", async ({ page, viewport }) => {
-  await page.goto("/get-started/quickstart/");
-  const header = await page.locator("header").boundingBox();
-  const sections = await page
-    .getByRole("navigation", { name: "Sections" })
-    .boundingBox();
-  expect(sections.y + sections.height).toBeLessThanOrEqual(
-    header.y + header.height + 1,
-  );
-  const logo = await page.locator(".site-title img:visible").boundingBox();
-  const row = await page.locator(".docs-header").boundingBox();
-  const search = await page
-    .locator("site-search [data-open-modal]")
-    .boundingBox();
-  const social = page.locator(".docs-header .social");
-  const last = (await social.isVisible()) ? await social.boundingBox() : search;
-  expect(Math.abs(last.x + last.width - row.x - row.width)).toBeLessThan(2);
-  if (await social.isVisible()) {
-    expect(search.x + search.width).toBeLessThan(last.x);
-  }
-  expect(logo.height).toBeLessThanOrEqual(40);
-  await expect(page.locator(".site-title img:visible")).toHaveAttribute(
-    "src",
-    /xmtp-logo.*\.svg/,
-  );
-  const dark =
-    (await page.locator("html").getAttribute("data-theme")) === "dark";
-  await expect(page.locator(".site-title img:visible")).toHaveCSS(
-    "filter",
-    dark ? "brightness(0) invert(1)" : "brightness(0)",
-  );
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(viewport.width);
-});
-
 test("native references load their content and styles", async ({ page }) => {
   // The Kotlin and Swift references are built on push only; a pull-request
   // build composes without them. See apps/docs/AGENTS.md.

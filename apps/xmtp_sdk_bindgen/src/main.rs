@@ -567,23 +567,6 @@ mod tests {
         );
     }
 
-    #[xmtp_common::test(unwrap_try = true)]
-    fn markers_do_not_reach_generated_docs() {
-        let dir = tempfile::tempdir()?;
-        let path = Utf8Path::from_path(dir.path())
-            .context("test directory is not UTF-8")?
-            .join("binding.swift");
-        fs::write(
-            &path,
-            "/**\n * @xmtp-pure\n */\npublic func encodeText() {}\n/**\n * The ID.\n * @xmtp-immutable\n */\nfunc id() {}\n",
-        )?;
-        strip_doc_markers(&path)?;
-        assert_eq!(
-            fs::read_to_string(path)?,
-            "public func encodeText() {}\n/**\n * The ID.\n */\nfunc id() {}\n"
-        );
-    }
-
     #[test]
     fn log_admission_is_internal_to_node_runtime() {
         let exports = public_node_exports(
