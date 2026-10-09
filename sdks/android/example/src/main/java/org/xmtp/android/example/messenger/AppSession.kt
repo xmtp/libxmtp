@@ -87,6 +87,7 @@ class AppSession(
     var beforeEnd: suspend (ActiveSession) -> Unit = {
     }
     var unregisterNotifications: suspend (SDKClient) -> Unit = {}
+    internal var onNotificationAdmissionChanged: (ActiveSession) -> Unit = {}
 
     internal var onSessionInvalidated: () -> Unit = {}
     var beforeProfileRemoval: suspend (String) -> Unit = {}
@@ -562,6 +563,12 @@ class AppSession(
             ) { event ->
                 if (accepts(key)) {
                     try {
+                        if (event is ClientEvent.ConsentChanged || event is ClientEvent.ConversationRemoved ||
+                            event is ClientEvent.ConversationMembershipChanged ||
+                            event is ClientEvent.ConversationPaused
+                        ) {
+                            onNotificationAdmissionChanged(owner)
+                        }
                         onEvent(
                             owner,
                             event,

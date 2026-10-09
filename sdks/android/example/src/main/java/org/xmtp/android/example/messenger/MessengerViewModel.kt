@@ -97,29 +97,6 @@ class MessengerViewModel(
 
     init {
         featureRefresh = { owner, _ -> owner.work.async { notifications.refreshStatus(owner) }.await() }
-        featureAction = { action ->
-            val owner = session.active.value
-            when (action.name) {
-                "app-notifications" -> {
-                    owner?.work?.async { notifications.setEnabled(owner, action.value == "true") }?.await()
-                }
-
-                "conversation-notifications" -> {
-                    owner
-                        ?.work
-                        ?.async {
-                            currentConversation()?.let {
-                                notifications.setConversationEnabled(
-                                    owner,
-                                    it,
-                                    action.value == "true",
-                                )
-                            }
-                            projection.withLock { if (session.accepts(owner.key)) refreshLoaded(owner) }
-                        }?.await()
-                }
-            }
-        }
         viewModelScope.launch {
             kotlinx.coroutines.flow
                 .combine(notifications.status, notifications.enabled) { status, enabled ->
@@ -930,7 +907,22 @@ class MessengerViewModel(
 
                                 is MessengerAction.Feature,
                                 -> {
-                                    featureAction(action)
+                                    when (action.name) {
+                                        "app-notifications" -> {
+                                            notifications.setEnabled(owner, action.value == "true")
+                                        }
+
+                                        "conversation-notifications" -> {
+                                            setConversationNotifications(
+                                                origin,
+                                                action.value == "true",
+                                            )
+                                        }
+
+                                        else -> {
+                                            featureAction(action)
+                                        }
+                                    }
                                 }
 
                                 else -> {
@@ -1727,6 +1719,28 @@ class MessengerViewModel(
 
     private fun requireOrigin(origin: ActionOrigin) {
         if (!acceptsOrigin(origin)) throw CancellationException("Action scope changed")
+    }
+
+    internal var beforeConversationNotificationAction: suspend () -> Unit = {}
+
+    private suspend fun setConversationNotifications(
+        origin: ActionOrigin,
+        enabled: Boolean,
+    ) {
+        val owner = origin.owner ?: return
+        val chat = origin.chat ?: return
+        beforeConversationNotificationAction()
+        notifications.setConversationEnabled(owner, chat, enabled) { change ->
+            onCurrentScreen(owner, origin.token) {
+                if (origin.chat?.id() == conversation?.id()) {
+                    change()
+                    true
+                } else {
+                    false
+                }
+            } == true
+        }
+        projection.withLock { if (acceptsOrigin(origin)) refreshLoaded(owner) }
     }
 
     private suspend fun mutateGroup(

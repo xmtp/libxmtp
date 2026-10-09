@@ -64,8 +64,8 @@ interface PushAdmission {
         source: String,
     ): PushConversation?
 
-    /** The host must check ownership and post in one synchronous operation. */
-    fun postIfCurrent(
+    /** Recheck privacy state, then fence ownership and post in one synchronous operation. */
+    suspend fun postIfCurrent(
         owner: PushOwner,
         envelope: PushEnvelope,
         route: PushRoute,

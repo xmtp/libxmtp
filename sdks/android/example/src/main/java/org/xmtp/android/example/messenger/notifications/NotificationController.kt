@@ -32,6 +32,7 @@ import org.xmtp.android.example.messenger.SessionKey
 import org.xmtp.android.example.messenger.conversationState
 import org.xmtp.android.example.messenger.logicalConversationKey
 import uniffi.xmtp_sdk.*
+import java.util.concurrent.atomic.AtomicLong
 
 class NotificationController(
     context: Context,
@@ -42,6 +43,7 @@ class NotificationController(
     private val preferences = NotificationPreferences(this.context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val registration = Mutex()
+    private val privacyRevision = AtomicLong()
     private var registeredOwner: SessionKey? = null
     private var registeredToken: String? = null
 
@@ -56,6 +58,11 @@ class NotificationController(
     private val handler = PushHandler(this)
 
     init {
+        val previousAdmissionChange = session.onNotificationAdmissionChanged
+        session.onNotificationAdmissionChanged = { owner ->
+            previousAdmissionChange(owner)
+            session.withCurrent(owner.key) { privacyRevision.incrementAndGet() }
+        }
         session.unregisterNotifications = { client ->
             if (configured) registration.withLock { disableRegistration(client) }
         }
@@ -194,14 +201,26 @@ class NotificationController(
         )
     }
 
-    override fun postIfCurrent(
+    internal var beforeFinalAdmission: suspend () -> Unit = {}
+
+    override suspend fun postIfCurrent(
         owner: PushOwner,
         envelope: PushEnvelope,
         route: PushRoute,
     ): Boolean {
+        beforeFinalAdmission()
         val active = owner(owner) ?: return false
+        val revision = privacyRevision.get()
+        if (!enabled(owner)) return false
+        if (envelope.kind == PushKind.GROUP) {
+            val fresh = conversation(owner, envelope.identifier) ?: return false
+            if (!fresh.allowed || !fresh.enabled || fresh.route != route.conversation) return false
+        } else if (envelope.identifier != owner.installation || route.conversation != null) {
+            return false
+        }
         if (!permission()) return false
         return session.withCurrent(active.key) {
+            if (privacyRevision.get() != revision) return@withCurrent false
             val manager = context.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
                 NotificationChannel(
@@ -365,6 +384,7 @@ class NotificationController(
         enabled: Boolean,
     ) {
         if (!configured || !session.accepts(owner.key)) return
+        session.withCurrent(owner.key) { privacyRevision.incrementAndGet() }
         if (!preferences.setEnabled(owner.key.profileId, enabled) { change -> session.admit(owner.key, change) }) return
         if (!session.accepts(owner.key)) return
         if (enabled && !permission() && Build.VERSION.SDK_INT >= 33) {
@@ -376,29 +396,23 @@ class NotificationController(
         refresh(owner)
     }
 
+    internal var beforeConversationPreferenceLookup: suspend (ActiveSession, Conversation) -> Unit = { _, _ -> }
+    internal var beforeConversationNotificationWrite: (Conversation) -> Unit = {}
+
     suspend fun setConversationEnabled(
         owner: ActiveSession,
         conversation: Conversation,
         enabled: Boolean,
+        admit: (() -> Unit) -> Boolean = { change -> session.admit(owner.key, change) },
     ) {
-        if (!configured || !session.accepts(owner.key)) return
+        if (!configured || !admit {}) return
+        beforeConversationPreferenceLookup(owner, conversation)
         val key = logicalConversationKey(conversation, owner.client.inboxId())
-        if (!session.accepts(owner.key)) return
+        if (!admit { privacyRevision.incrementAndGet() }) return
+        beforeConversationNotificationWrite(conversation)
         conversation.setNotifications(if (enabled) NotificationOverride.ENABLED else NotificationOverride.DISABLED)
         if (!session.accepts(owner.key)) return
-        if (!preferences.setMuted(
-                owner.key.profileId,
-                key,
-                !enabled,
-            ) { change ->
-                session.admit(
-                    owner.key,
-                    change,
-                )
-            }
-        ) {
-            return
-        }
+        if (!preferences.setMuted(owner.key.profileId, key, !enabled, admit)) return
         reconcile(owner)
     }
 
