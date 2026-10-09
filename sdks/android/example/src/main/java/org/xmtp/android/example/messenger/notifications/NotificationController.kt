@@ -51,6 +51,8 @@ class NotificationController(context: Context, private val session: AppSession, 
         session.beforeEnd = { owner ->
             try { previous(owner) } finally {
                 registration.withLock {
+                    // Feature work has stopped. A late enable cannot follow this unregister.
+                    if (configured) try { owner.client.disableNotifications() } catch (_: Exception) { }
                     registeredOwner = null; registeredToken = null
                     NotificationManagerCompat.from(this.context).cancelAll()
                     if (session.preferences.reset()?.profileId == owner.key.profileId) preferences.remove(owner.key.profileId)

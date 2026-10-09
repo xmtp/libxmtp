@@ -1,0 +1,33 @@
+import groovy.json.JsonSlurper
+
+// A developer supplies this file. An absent file selects the Firebase-free sources.
+def suppliedFirebasePath = System.getenv('XMTP_FIREBASE_CONFIG')
+def firebaseFile = suppliedFirebasePath ? file(suppliedFirebasePath) : file('google-services.json')
+if (suppliedFirebasePath && !firebaseFile.isFile()) {
+    throw new GradleException('XMTP_FIREBASE_CONFIG must name a readable google-services.json file')
+}
+def firebaseConfigured = firebaseFile.isFile()
+if (firebaseConfigured) {
+    def firebase = new JsonSlurper().parse(firebaseFile)
+    def client = firebase.client.find { it.client_info.android_client_info.package_name == android.defaultConfig.applicationId }
+    if (!client) throw new GradleException('Firebase configuration has no client for this applicationId')
+    def apiKey = client.api_key?.find { it.current_key }?.current_key
+    def appId = client.client_info.mobilesdk_app_id
+    def sender = firebase.project_info.project_number
+    def projectId = firebase.project_info.project_id
+    if (!apiKey || !appId || !sender || !projectId) throw new GradleException('Firebase configuration is incomplete')
+    android.defaultConfig {
+        resValue 'string', 'google_app_id', appId.toString()
+        resValue 'string', 'google_api_key', apiKey.toString()
+        resValue 'string', 'gcm_defaultSenderId', sender.toString()
+        resValue 'string', 'project_id', projectId.toString()
+    }
+    android.sourceSets {
+        main.java.srcDir 'src/pushConfigured/java'
+        debug.manifest.srcFile 'src/pushConfigured/AndroidManifest.xml'
+        release.manifest.srcFile 'src/pushConfigured/AndroidManifest.xml'
+    }
+    dependencies { implementation 'com.google.firebase:firebase-messaging:26.0.0' }
+} else {
+    android.sourceSets.main.java.srcDir 'src/pushOff/java'
+}
