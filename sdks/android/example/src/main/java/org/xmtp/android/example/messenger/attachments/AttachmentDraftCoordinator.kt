@@ -69,6 +69,10 @@ class AttachmentDraftCoordinator(
         val id = UUID.randomUUID().toString()
         val ref = "attachment-$id"
         try {
+            processMutex.withLock {
+                activeSecrets.add("${key.profileId}/$ref")
+                creating[key.profileId] = (creating[key.profileId] ?: 0) + 1
+            }
             checkCurrent()
             check(screenCurrent()) { "The screen changed" }
             val stagedRemote = attachments.create(AttachmentSource.Path(source.file.absolutePath, source.filename, source.mimeType)).remoteAttachment()
@@ -86,10 +90,17 @@ class AttachmentDraftCoordinator(
             return draft
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
-                PrivateFileStager.release(source.file)
-                if (!saved) {
-                    remote?.let { attachments.deleteLocal(it) }
-                    secrets.delete(key.profileId, ref)
+                try {
+                    PrivateFileStager.release(source.file)
+                    if (!saved) {
+                        remote?.let { attachments.deleteLocal(it) }
+                        secrets.delete(key.profileId, ref)
+                    }
+                } finally {
+                    processMutex.withLock {
+                        activeSecrets.remove("${key.profileId}/$ref")
+                        creating[key.profileId] = ((creating[key.profileId] ?: 1) - 1).coerceAtLeast(0)
+                    }
                 }
             }
         }
@@ -157,11 +168,17 @@ class AttachmentDraftCoordinator(
         }
     }
 
-    suspend fun recover() {
+    suspend fun recover() = recoveryMutex.withLock {
         checkCurrent()
         sweepOnce()
         if (accepts(key)) mutableCards.value = emptyList()
         val drafts = preferences.drafts(key.profileId).filter { it.descriptorSecretRef != null }
+        processMutex.withLock {
+            val retained = preferences.drafts(key.profileId).mapNotNull { it.descriptorSecretRef }.toSet()
+            withContext(Dispatchers.IO) {
+                paths.secrets.listFiles()?.filter { it.name.matches(Regex("attachment-[a-zA-Z0-9-]+")) && it.name !in retained && "${key.profileId}/${it.name}" !in activeSecrets }?.forEach { secrets.delete(key.profileId, it.name) }
+            }
+        }
         val known = mutableListOf<RemoteAttachment>()
         for (draft in drafts) {
             checkCurrent()
@@ -186,15 +203,18 @@ class AttachmentDraftCoordinator(
         // The unfinished list is for discovery only. Complete drafts use pending(remote).
         for (pending in attachments.listPending()) {
             val remote = pending.remoteAttachment()
-            if (known.none { it == remote }) {
+            if (known.none { it == remote } && processMutex.withLock { (creating[key.profileId] ?: 0) == 0 }) {
                 val id = UUID.randomUUID().toString()
                 val ref = "attachment-$id"
                 checkCurrent()
-                withContext(Dispatchers.IO) { secrets.write(key.profileId, ref, AttachmentDescriptor.encode(remote)) }
-                checkCurrent()
-                val draft = SendDraftRef(id, "", ref)
-                preferences.saveDraft(key.profileId, draft)
-                update(card(draft, remote, "Unassigned file. Discard or select a chat.").copy(canSend = false))
+                processMutex.withLock { activeSecrets.add("${key.profileId}/$ref") }
+                try {
+                    withContext(Dispatchers.IO) { secrets.write(key.profileId, ref, AttachmentDescriptor.encode(remote)) }
+                    checkCurrent()
+                    val draft = SendDraftRef(id, "", ref)
+                    preferences.saveDraft(key.profileId, draft)
+                    update(card(draft, remote, "Unassigned file. Discard or select a chat.").copy(canSend = false))
+                } finally { withContext(NonCancellable) { processMutex.withLock { activeSecrets.remove("${key.profileId}/$ref") } } }
             }
         }
     }
@@ -230,9 +250,12 @@ class AttachmentDraftCoordinator(
     companion object {
         // These guards survive an Activity recreation while its session work still runs.
         private val processMutex = Mutex()
+        private val recoveryMutex = Mutex()
         private val running = mutableSetOf<String>()
         private val queueing = mutableSetOf<String>()
         private val discarded = mutableSetOf<String>()
+        private val activeSecrets = mutableSetOf<String>()
+        private val creating = mutableMapOf<String, Int>()
     }
 }
 
