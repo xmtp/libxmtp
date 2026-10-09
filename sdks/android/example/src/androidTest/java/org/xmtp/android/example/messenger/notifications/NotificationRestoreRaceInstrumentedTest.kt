@@ -24,6 +24,18 @@ class NotificationRestoreRaceInstrumentedTest {
             var foreground: Deferred<Unit>? = null
             var push: Deferred<org.xmtp.android.example.messenger.ActiveSession?>? = null
             try {
+                suspend fun <T> stage(
+                    name: String,
+                    block: suspend () -> T,
+                ): T =
+                    try {
+                        withTimeout(30_000) { block() }
+                    } catch (error: TimeoutCancellationException) {
+                        throw AssertionError(
+                            "Stage: $name; connection=${restored.connection.value}; reader=${restored.readerError.value}",
+                            error,
+                        )
+                    }
                 original.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
                 val inbox = checkNotNull(original.active.value).client.inboxId()
                 original.signOut()
@@ -36,21 +48,25 @@ class NotificationRestoreRaceInstrumentedTest {
                     if (currentCoroutineContext()[CoroutineName]?.name == "push-restore") pushOpened.complete(Unit)
                 }
                 foreground = async(Dispatchers.IO + CoroutineName("foreground-restore")) { restored.restore() }
-                withTimeout(30_000) { lookupEntered.await() }
+                stage("automatic profile lookup") { lookupEntered.await() }
+                println("PUSH_RESTORE_RACE stage=lookup-paused")
                 push =
                     async(Dispatchers.IO + CoroutineName("push-restore"), start = CoroutineStart.UNDISPATCHED) {
                         restored.restoreForPush()
                     }
                 releaseLookup.complete(Unit)
-                withTimeout(30_000) { foreground.await() }
-                val fromPush = withTimeout(30_000) { checkNotNull(push.await()) }
+                stage("foreground restore returns") { foreground.await() }
+                val fromPush = stage("push restore returns") { checkNotNull(push.await()) }
+                println("PUSH_RESTORE_RACE stage=both-restores-returned")
                 assertFalse("A push must not displace foreground restore with a cold owner", pushOpened.isCompleted)
                 val owner = checkNotNull(restored.active.value)
                 assertSame(owner, fromPush)
                 assertEquals(inbox, owner.client.inboxId())
-                withTimeout(30_000) { restored.connection.first { it.contains("Connected") } }
+                stage("foreground reader connected") {
+                    restored.connection.first { it == ConnectionState.CONNECTED.toString() }
+                }
                 val error =
-                    withTimeout(30_000) {
+                    stage("foreground owns default reader") {
                         runCatching {
                             owner.client.conversations
                                 .streamAllMessages()

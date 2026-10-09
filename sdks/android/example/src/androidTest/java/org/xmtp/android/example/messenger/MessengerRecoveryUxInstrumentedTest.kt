@@ -11,7 +11,9 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.xmtp.android.example.BuildConfig
+import org.xmtp.android.example.ExampleApp
 import org.xmtp.android.example.MainActivity
+import org.xmtp.android.example.messenger.notifications.NotificationController
 import org.xmtp.android.example.shared.*
 import uniffi.xmtp_sdk.*
 import java.io.IOException
@@ -192,14 +194,36 @@ class MessengerRecoveryUxInstrumentedTest {
     @Test fun failedStartupRestoreRetryUsesSavedBackendAndRetainedCredential() =
         runBlocking {
             val store = ViewModelStore()
+            val app = compose.activity.application as ExampleApp
+            val originalSession = app.session
+            val originalNotifications = app.notifications
+            var recreated: AppSession? = null
+            var recreatedNotifications: NotificationController? = null
+
+            fun setAppField(
+                name: String,
+                value: Any,
+            ) {
+                ExampleApp::class.java
+                    .getDeclaredField(name)
+                    .apply { isAccessible = true }
+                    .set(app, value)
+            }
             try {
                 val (owner, _) = chat()
                 val saved = owner.profile
                 model.session.signOut()
                 model.session.secrets.write(saved.id, "credential", "retained secret".toByteArray())
                 model.session.preferences.setSignedIn(true)
-                model.session.beforeClientBuild = { throw IOException("Saved restore failed") }
-                val factory = ViewModelProvider.AndroidViewModelFactory.getInstance(compose.activity.application)
+                // A new process has a new session fence and notification controller.
+                val restoredSession = AppSession(app)
+                recreated = restoredSession
+                val restoredNotifications = NotificationController(app, restoredSession)
+                recreatedNotifications = restoredNotifications
+                setAppField("session", restoredSession)
+                setAppField("notifications", restoredNotifications)
+                restoredSession.beforeClientBuild = { throw IOException("Saved restore failed") }
+                val factory = ViewModelProvider.AndroidViewModelFactory.getInstance(app)
                 val fresh = ViewModelProvider(store, factory)[MessengerViewModel::class.java]
                 until("failed actual startup restore") {
                     fresh.state.value.error
@@ -211,18 +235,34 @@ class MessengerRecoveryUxInstrumentedTest {
                     }
                 }
                 compose.onNodeWithText("Backend URL").assertTextContains(saved.backend)
-                model.session.beforeClientBuild = {}
+                restoredSession.beforeClientBuild = {}
                 compose.onNodeWithText("Retry").performClick()
-                until("saved native owner restored by Retry") { model.session.active.value != null }
-                val restored = checkNotNull(model.session.active.value)
+                until("saved native owner restored by Retry") { restoredSession.active.value != null }
+                val restored = checkNotNull(restoredSession.active.value)
                 assertEquals(saved.backend, restored.profile.backend)
                 assertEquals(saved.inboxId, restored.client.inboxId())
-                val retained = model.session.secrets.read(saved.id, "credential")
+                val retained = restoredSession.secrets.read(saved.id, "credential")
                 assertEquals("retained secret", retained?.toString(Charsets.UTF_8))
                 println("START_RETRY_PROOF stage=failed-restore-retried-saved-url-and-credential")
             } finally {
-                cleanup()
-                store.clear()
+                withContext(NonCancellable) {
+                    try {
+                        store.clear()
+                        recreated?.let { restoredSession ->
+                            restoredSession.beforeClientBuild = {}
+                            try {
+                                if (restoredSession.preferences.active() != null) restoredSession.deleteAccount()
+                            } finally {
+                                restoredSession.signOut()
+                            }
+                        }
+                    } finally {
+                        recreatedNotifications?.close()
+                        setAppField("session", originalSession)
+                        setAppField("notifications", originalNotifications)
+                        cleanup()
+                    }
+                }
             }
         }
 }
