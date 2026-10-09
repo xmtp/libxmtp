@@ -203,7 +203,11 @@ class MessengerViewModel(
                                         screen = Screen.CONVERSATIONS,
                                         backend = owner.profile.backend,
                                         inbox = inbox,
-                                        features = FeatureAvailability(metadata = true, notifications = notifications.configured),
+                                        features =
+                                            FeatureAvailability(
+                                                metadata = true,
+                                                notifications = notifications.configured,
+                                            ),
                                         notificationStatus = notifications.status.value,
                                         notificationsEnabled = notifications.enabled.value,
                                     )
