@@ -91,8 +91,10 @@ Other callers stay local-only until the pilot's live checks pass.
 S3. No keys selects local-only; a partial pair fails before the action starts.
 
 The pilot jobs select `kache-s3-writer` only for protected branch pushes to
-`main` or `self-hosted`. Other events select the empty `kache-s3-reader`
-environment. Writer secrets belong only in the restricted writer environment.
+`main` or `self-hosted`. Other events use an empty environment name and select
+no GitHub environment. Same-repository PRs use repository reader secrets; fork
+PRs build local-only. Writer secrets belong only in the restricted writer
+environment. Do not create a reader environment.
 Existing deployment jobs retain their environments and use reader access when
 added later. Tags, dispatches, and jobs that build a selected ref cannot write.
 Keep the native backend acceptance job free of cache writer keys.
