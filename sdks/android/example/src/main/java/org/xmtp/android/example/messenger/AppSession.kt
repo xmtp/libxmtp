@@ -150,6 +150,7 @@ class AppSession(
             ::clearExportFiles,
             preferences::completeExportCleanup,
         ).run()
+    internal var beforeAutomaticProfileLookup: suspend () -> Unit = {}
 
     suspend fun restore() {
         val restoreIntent = fence.currentGeneration()
@@ -164,15 +165,32 @@ class AppSession(
                     recoverReset(it)
                     return
                 }
-                val generation = fence.reserveRestoreIfCurrent(restoreIntent) ?: return
                 if (!preferences.signedIn()) return
-                val profile = preferences.active() ?: return
-                profile to generation
+                preferences.active() ?: return
             }
-        val url = validatedBackendUrl(saved.first.backend)
-        beforeSavedRestoreConnect(saved.first)
+        val url = validatedBackendUrl(saved.backend)
+        beforeSavedRestoreConnect(saved)
         currentCoroutineContext().ensureActive()
-        connectWithGeneration(url, null, localAttachmentNetwork(url), saved.second)
+        operation.withLock {
+            activeState.value?.let { owner ->
+                withCurrent(owner.key) { if (messageJob == null) startReaders(owner) }
+                return
+            }
+            preferences.reset()?.let {
+                recoverReset(it)
+                return
+            }
+            val generation = fence.reserveRestoreIfCurrent(restoreIntent) ?: return
+            if (!preferences.signedIn()) return
+            if (preferences.active()?.id != saved.id) return
+            connectWithGeneration(
+                url,
+                null,
+                localAttachmentNetwork(url),
+                generation,
+                operationHeld = true,
+            )
+        }
     }
 
     /** Open the saved account for local push reads without default collectors. */
@@ -305,10 +323,12 @@ class AppSession(
         credential: String?,
         allowPrivateNetwork: Boolean,
         reservedGeneration: Long?,
+        operationHeld: Boolean = false,
     ) {
         val url = validatedBackendUrl(backend)
         val openingGeneration = reservedGeneration ?: fence.reserve()
         if (!fence.isReserved(openingGeneration)) return
+        if (reservedGeneration != null) beforeAutomaticProfileLookup()
         val profile =
             preferences
                 .profiles()
@@ -328,7 +348,7 @@ class AppSession(
                     profile.id,
                     openingGeneration,
                 ) ?: return
-        operation.withLock {
+        withOperation(operationHeld) {
             if (!accepts(key)) return
             check(
                 preferences
@@ -523,6 +543,11 @@ class AppSession(
             }
         }
     }
+
+    private suspend inline fun <T> withOperation(
+        alreadyHeld: Boolean,
+        action: () -> T,
+    ): T = if (alreadyHeld) action() else operation.withLock { action() }
 
     private suspend fun startEvents(owner: ActiveSession) {
         val key = owner.key

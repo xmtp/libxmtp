@@ -139,8 +139,7 @@ class SessionFence {
 
     @Synchronized fun reserveRestoreIfCurrent(expected: Long): Long? {
         if (generation != expected || profileId != null) return null
-        generation += 1
-        return generation
+        return reserveRestore()
     }
 
     @Synchronized fun bind(
