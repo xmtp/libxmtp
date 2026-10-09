@@ -195,19 +195,45 @@ async fn test_dm_stream_all_messages() {
             .send_message("first DM msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
-        alix_group
+        let first_group_message_id = alix_group
             .send_message("first GROUP msg".as_bytes(), SendMessageOpts::default())
             .await
             .unwrap();
-        second_known_group
+        let second_group_message_id = second_known_group
             .send_message(
                 "second known GROUP msg".as_bytes(),
                 SendMessageOpts::default(),
             )
             .await
             .unwrap();
-        assert_msg!(stream, "first GROUP msg");
-        assert_msg!(stream, "second known GROUP msg");
+        // The two groups can deliver in either order.
+        let expected = HashSet::from([
+            (
+                alix_group.group_id,
+                first_group_message_id,
+                b"first GROUP msg".to_vec(),
+            ),
+            (
+                second_known_group.group_id,
+                second_group_message_id,
+                b"second known GROUP msg".to_vec(),
+            ),
+        ]);
+        let received = [
+            stream.next().await.unwrap().unwrap(),
+            stream.next().await.unwrap().unwrap(),
+        ]
+        .into_iter()
+        .map(|message| {
+            assert_eq!(message.kind, GroupMessageKind::Application);
+            (
+                message.group_id,
+                message.id,
+                message.decrypted_message_bytes,
+            )
+        })
+        .collect::<HashSet<_>>();
+        assert_eq!(received, expected);
         bo.sync_all_welcomes_and_groups(None).await.unwrap();
         assert!(
             xmtp_common::time::timeout(Duration::from_secs(1), stream.next())
