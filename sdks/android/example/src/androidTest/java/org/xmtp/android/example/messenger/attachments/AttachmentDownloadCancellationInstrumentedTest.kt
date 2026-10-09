@@ -23,11 +23,11 @@ class AttachmentDownloadCancellationInstrumentedTest {
             while (!check()) delay(20)
         }
 
-    @Test fun cancelledSdkDownloadIsNotARetryableFailureCard() = runBlocking<Unit> { cancel("io") }
+    @Test fun cancelledSdkDownloadIsNotARetryableFailureCard() = runBlocking<Unit> { runCancellation("io") }
 
-    @Test fun cancellationAfterVerificationKeepsTheVerifiedActions() = runBlocking<Unit> { cancel("verified") }
+    @Test fun cancellationAfterVerificationKeepsTheVerifiedActions() = runBlocking<Unit> { runCancellation("verified") }
 
-    private suspend fun cancel(stage: String) =
+    private suspend fun runCancellation(stage: String) =
         coroutineScope {
             val enabled = AndroidStreamLifecycle.enabled
             val sender = AttachmentTestFixture()

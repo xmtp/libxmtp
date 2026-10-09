@@ -9,6 +9,9 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleCallback
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -19,6 +22,7 @@ import org.xmtp.android.example.messenger.*
 import org.xmtp.android.example.shared.MessengerAction
 import uniffi.xmtp_sdk.*
 import java.io.File
+import java.io.FileNotFoundException
 import java.util.UUID
 
 class AttachmentPickerRecreationInstrumentedTest {
@@ -42,8 +46,10 @@ class AttachmentPickerRecreationInstrumentedTest {
     private fun complete(uri: Uri) {
         val request =
             Intent(AttachmentPickerActivity.COMPLETE)
-                .setPackage(instrumentation.context.packageName)
-                .setData(uri)
+                .setClassName(
+                    instrumentation.context.packageName,
+                    AttachmentPickerActivity.ResultReceiver::class.java.name,
+                ).setData(uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         if (uri == Uri.EMPTY) {
             request.setData(null)
@@ -133,11 +139,27 @@ class AttachmentPickerRecreationInstrumentedTest {
                 val retained = ViewModelProvider(compose.activity)[AttachmentRequests::class.java]
                 val oldRequest = if (stage == "select") retained.picker else retained.destination
                 assertNotNull(oldRequest)
-                compose.activityRule.scenario.recreate()
+                val oldActivity = compose.activity
+                val recreated = CompletableDeferred<MainActivity>()
+                val lifecycle = ActivityLifecycleMonitorRegistry.getInstance()
+                val callback =
+                    ActivityLifecycleCallback { activity, state ->
+                        if (activity is MainActivity && activity !== oldActivity && state == Stage.STARTED) {
+                            recreated.complete(activity)
+                        }
+                    }
+                lifecycle.addLifecycleCallback(callback)
+                val newActivity =
+                    try {
+                        instrumentation.runOnMainSync { oldActivity.recreate() }
+                        withTimeout(30_000) { recreated.await() }
+                    } finally {
+                        lifecycle.removeLifecycleCallback(callback)
+                    }
                 pickerReady()
-                assertSame(oldModel, model)
-                assertTrue(model.acceptsScreen(owner.key, token))
-                assertSame(retained, ViewModelProvider(compose.activity)[AttachmentRequests::class.java])
+                assertSame(oldModel, ViewModelProvider(newActivity)[MessengerViewModel::class.java])
+                assertTrue(oldModel.acceptsScreen(owner.key, token))
+                assertSame(retained, ViewModelProvider(newActivity)[AttachmentRequests::class.java])
                 assertEquals(oldRequest, if (stage == "select") retained.picker else retained.destination)
                 if (stage == "select") {
                     val authority = instrumentation.context.packageName + ".file-source"
@@ -165,17 +187,27 @@ class AttachmentPickerRecreationInstrumentedTest {
                         android.content.ContentValues().apply {
                             put(MediaStore.Downloads.DISPLAY_NAME, "recreation-${UUID.randomUUID()}.txt")
                             put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-                            put(MediaStore.Downloads.IS_PENDING, 1)
+                            put(MediaStore.Downloads.IS_PENDING, 0)
                         }
                     val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-                    destination = checkNotNull(compose.activity.contentResolver.insert(collection, values))
+                    destination = checkNotNull(newActivity.contentResolver.insert(collection, values))
+                    checkNotNull(newActivity.contentResolver.openOutputStream(checkNotNull(destination))).close()
+                    newActivity.grantUriPermission(
+                        instrumentation.context.packageName,
+                        checkNotNull(destination),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
                     complete(checkNotNull(destination))
                     outstanding = false
                     val copied =
                         observed {
-                            compose.activity.contentResolver.openInputStream(checkNotNull(destination))?.use {
-                                it.readBytes().contentEquals(bytes)
-                            } == true
+                            try {
+                                compose.activity.contentResolver.openInputStream(checkNotNull(destination))?.use {
+                                    it.readBytes().contentEquals(bytes)
+                                } == true
+                            } catch (_: FileNotFoundException) {
+                                false
+                            }
                         }
                     assertTrue("Recreated Save copies actual SDK-verified bytes to its selected URI", copied)
                     assertNull(retained.destination)
@@ -190,7 +222,13 @@ class AttachmentPickerRecreationInstrumentedTest {
                 session.onInvalidated = invalidated
                 session.onMessage = message
                 withContext(NonCancellable) {
-                    destination?.let { compose.activity.contentResolver.delete(it, null, null) }
+                    destination?.let {
+                        instrumentation.targetContext.revokeUriPermission(
+                            it,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                        )
+                        instrumentation.targetContext.contentResolver.delete(it, null, null)
+                    }
                     sender.close()
                     if (session.active.value != null || session.preferences.reset() != null) session.deleteAccount()
                     session.signOut()
