@@ -1,4 +1,11 @@
 package org.xmtp.android.example.shared
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,15 +21,31 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlin.math.roundToInt
 
 private val ink = Color(0xFF172034)
 private val blue = Color(0xFF3159E8)
@@ -383,12 +406,9 @@ fun MessengerScreens(
             state.backend,
         )
     }
-    var credential by remember {
-        mutableStateOf("")
-    }
-    var privateNetwork by remember {
-        mutableStateOf(false)
-    }
+    var credential by remember(backend) { mutableStateOf("") }
+    val requiresCredential = state.credentialsRequiredFor == backend.trim().trimEnd('/')
+    LaunchedEffect(Unit) { action(MessengerAction.InspectBackend(backend)) }
     Column(
         Modifier
             .fillMaxSize()
@@ -443,6 +463,7 @@ fun MessengerScreens(
             backend,
             {
                 backend = it
+                action(MessengerAction.InspectBackend(it))
             },
             label = {
                 Text("Backend URL")
@@ -452,33 +473,23 @@ fun MessengerScreens(
                     .fillMaxWidth(),
             singleLine = true,
         )
-        OutlinedTextField(
-            credential,
-            {
-                credential = it
-            },
-            label = {
-                Text("Credential (optional)")
-            },
-            visualTransformation =
-                androidx.compose.ui.text.input
-                    .PasswordVisualTransformation(),
-            modifier =
-                Modifier
-                    .fillMaxWidth(),
-            singleLine = true,
-        )
-        Row(
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            Checkbox(
-                privateNetwork,
+        if (requiresCredential) {
+            OutlinedTextField(
+                credential,
                 {
-                    privateNetwork = it
+                    credential = it
                 },
+                label = {
+                    Text("Credential")
+                },
+                visualTransformation =
+                    androidx.compose.ui.text.input
+                        .PasswordVisualTransformation(),
+                modifier =
+                    Modifier
+                        .fillMaxWidth(),
+                singleLine = true,
             )
-            Text("Allow local attachment network")
         }
         if (state.migrationRequired) {
             Text(
@@ -504,8 +515,7 @@ fun MessengerScreens(
                     MessengerAction
                         .Connect(
                             backend,
-                            credential,
-                            privateNetwork,
+                            if (requiresCredential) credential else "",
                         ),
                 )
             }
@@ -864,13 +874,22 @@ fun MessengerScreens(
     ) {
         mutableStateOf("")
     }
-    var selected by remember(
-        state.conversationId,
-    ) {
-        mutableStateOf<String?>(null)
+    var selected by remember(state.conversationId) { mutableStateOf<String?>(null) }
+    var selectedBounds by remember(state.conversationId) { mutableStateOf(Rect.Zero) }
+    var composerTop by remember(state.conversationId) { mutableStateOf(Float.POSITIVE_INFINITY) }
+    var expanded by remember(state.conversationId) { mutableStateOf(false) }
+    val transition = remember(state.conversationId) { MutableTransitionState(false) }
+    val currentSelection = state.messages.firstOrNull { it.id == selected && !it.deleted }
+    transition.targetState = expanded && currentSelection != null
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(currentSelection?.id) {
+        if (currentSelection == null) {
+            expanded = false
+            selected = null
+        }
     }
-    var emoji by remember {
-        mutableStateOf("👍")
+    LaunchedEffect(transition.isIdle, transition.currentState) {
+        if (transition.isIdle && !transition.currentState && !expanded) selected = null
     }
     LaunchedEffect(
         state.conversationId,
@@ -996,6 +1015,7 @@ fun MessengerScreens(
                     it.id
                 },
             ) { row ->
+                var bubbleBounds by remember(row.id) { mutableStateOf(Rect.Zero) }
                 Column(
                     Modifier
                         .fillMaxWidth(),
@@ -1025,8 +1045,14 @@ fun MessengerScreens(
                                 RoundedCornerShape(
                                     16.dp,
                                 ),
-                            ).clickable {
+                            ).onGloballyPositioned {
+                                bubbleBounds = it.boundsInWindow()
+                                if (row.id == selected) selectedBounds = bubbleBounds
+                            }.clickable(enabled = !row.deleted) {
+                                keyboard?.hide()
+                                selectedBounds = bubbleBounds
                                 selected = row.id
+                                expanded = true
                             }.padding(
                                 12.dp,
                             ),
@@ -1111,21 +1137,11 @@ fun MessengerScreens(
         ) {
             Text("Jump to latest")
         }
-        state.replyPreview?.let {
-            Notice(
-                "Reply: $it",
-                "Cancel",
-            ) {
-                action(
-                    MessengerAction
-                        .Reply(null),
-                )
-            }
-        }
         composerExtra()
         Row(
             Modifier
                 .fillMaxWidth()
+                .onGloballyPositioned { composerTop = it.boundsInWindow().top }
                 .padding(
                     12.dp,
                 ),
@@ -1143,26 +1159,58 @@ fun MessengerScreens(
                     )
                 }
             }
-            OutlinedTextField(
-                text,
-                {
-                    text = it
-                },
-                placeholder = {
-                    Text("Message")
-                },
-                modifier =
-                    Modifier
-                        .weight(1f),
-                maxLines = 5,
-                shape = RoundedCornerShape(28.dp),
-                colors =
-                    OutlinedTextFieldDefaults.colors(
-                        unfocusedContainerColor = Color(0xFFF1F3F7),
-                        focusedContainerColor = Color(0xFFF1F3F7),
-                        unfocusedBorderColor = Color.Transparent,
-                    ),
-            )
+            Column(
+                Modifier
+                    .weight(
+                        1f,
+                    ).testTag("message-composer")
+                    .background(Color(0xFFF1F3F7), RoundedCornerShape(28.dp)),
+            ) {
+                state.messages.firstOrNull { it.id == state.replyTo && !it.deleted }?.let { parent ->
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            parent.text
+                                .lineSequence()
+                                .firstOrNull()
+                                .orEmpty(),
+                            Modifier.weight(1f),
+                            color = blue,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        IconButton(
+                            onClick = { action(MessengerAction.Reply(null)) },
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(AppIcons.Close, "Cancel reply", tint = ink)
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    text,
+                    {
+                        text = it
+                    },
+                    placeholder = {
+                        Text("Message")
+                    },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth(),
+                    maxLines = 5,
+                    shape = RoundedCornerShape(28.dp),
+                    colors =
+                        OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = Color(0xFFF1F3F7),
+                            focusedContainerColor = Color(0xFFF1F3F7),
+                            unfocusedBorderColor = Color.Transparent,
+                        ),
+                )
+            }
             TextButton(
                 {
                     action(
@@ -1185,110 +1233,149 @@ fun MessengerScreens(
             }
         }
     }
-    state.messages.firstOrNull { it.id == selected }?.let { row ->
-        AlertDialog(
-            onDismissRequest = {
-                selected = null
-            },
-            title = {
-                Text("Message")
-            },
-            text = {
-                Column {
-                    Text(
-                        row.text,
-                    )
-                    if (!row.deleted) {
-                        TextButton({
-                            action(
-                                MessengerAction
-                                    .Reply(
-                                        row.id,
-                                    ),
-                            )
-                            selected = null
-                        }) {
-                            Text("Reply")
-                        }
-                        OutlinedTextField(
-                            emoji,
-                            {
-                                emoji = it
-                            },
-                            label = {
-                                Text("Emoji")
-                            },
-                        )
-                        TextButton({
-                            action(
-                                MessengerAction
-                                    .React(
-                                        row.id,
-                                        emoji,
-                                        false,
-                                    ),
-                            )
-                            selected = null
-                        }) {
-                            Text("React")
-                        }
-                    }
-                    if (row
-                            .mine &&
-                        !row.deleted
+    if (currentSelection != null && (transition.currentState || transition.targetState)) {
+        val gap = with(LocalDensity.current) { 8.dp.toPx() }
+        Popup(
+            popupPositionProvider = MessagePopupPosition(selectedBounds, composerTop, gap),
+            onDismissRequest = { expanded = false },
+            properties = PopupProperties(focusable = true),
+        ) {
+            AnimatedVisibility(
+                visibleState = transition,
+                enter = fadeIn(tween(140)) + slideInVertically(tween(140)) { -8 },
+                exit = fadeOut(tween(100)) + slideOutVertically(tween(100)) { -4 },
+            ) {
+                val maximumHeight = with(LocalDensity.current) { (composerTop - gap).toDp() }
+                MessagePopover(currentSelection, state.features, expanded, maximumHeight, action) { expanded = false }
+            }
+        }
+    }
+}
+
+private val quickReactions = listOf("👍", "❤️", "😂", "😮", "😢")
+
+private class MessagePopupPosition(
+    private val bubble: Rect,
+    private val composerTop: Float,
+    private val gap: Float,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val x =
+            (bubble.center.x - popupContentSize.width / 2)
+                .roundToInt()
+                .coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+        val bottom = minOf(windowSize.height.toFloat(), composerTop) - gap
+        val above = bubble.top - popupContentSize.height - gap
+        val below = bubble.bottom + gap
+        val preferred =
+            if (above >=
+                0
+            ) {
+                above
+            } else if (below + popupContentSize.height <= bottom) {
+                below
+            } else {
+                bottom - popupContentSize.height
+            }
+        val y =
+            preferred
+                .roundToInt()
+                .coerceIn(0, (bottom - popupContentSize.height).roundToInt().coerceAtLeast(0))
+        return IntOffset(x, y)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MessagePopover(
+    row: MessageRow,
+    features: FeatureAvailability,
+    expanded: Boolean,
+    maximumHeight: androidx.compose.ui.unit.Dp,
+    action: (MessengerAction) -> Unit,
+    dismiss: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .testTag(
+                    "reaction-popover",
+                ).width(304.dp)
+                .heightIn(max = maximumHeight.coerceAtLeast(48.dp)),
+        color = Color.White,
+        shape = RoundedCornerShape(20.dp),
+        shadowElevation = 8.dp,
+    ) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
+            Row {
+                quickReactions.forEach { emoji ->
+                    TextButton(
+                        onClick = {
+                            action(MessengerAction.React(row.id, emoji, false))
+                            dismiss()
+                        },
+                        modifier = Modifier.size(48.dp),
+                        enabled = expanded,
+                        contentPadding = PaddingValues(0.dp),
                     ) {
-                        TextButton({
-                            action(
-                                MessengerAction
-                                    .DeleteMessage(
-                                        row.id,
-                                    ),
-                            )
-                            selected = null
-                        }) {
-                            Text("Delete message")
-                        }
-                    }
-                    if (row.status == "Failed" || row.status == "Queued") {
-                        TextButton({
-                            action(
-                                MessengerAction
-                                    .RetrySend(
-                                        row.id,
-                                    ),
-                            )
-                            selected = null
-                        }) {
-                            Text("Retry publication")
-                        }
-                    }
-                    if (row
-                            .attachment &&
-                        state.features.attachments
-                    ) {
-                        TextButton({
-                            action(
-                                MessengerAction
-                                    .Feature(
-                                        "open-file",
-                                        row.id,
-                                    ),
-                            )
-                            selected = null
-                        }) {
-                            Text("Download / Open")
-                        }
+                        Text(emoji, fontSize = with(LocalDensity.current) { (24 / fontScale).sp })
                     }
                 }
-            },
-            confirmButton = {
-                TextButton({
-                    selected = null
-                }) {
-                    Text("Close")
+                IconButton(
+                    onClick = {
+                        action(MessengerAction.Feature("pick-reaction", row.id))
+                        dismiss()
+                    },
+                    modifier = Modifier.size(48.dp),
+                    enabled = expanded,
+                ) { Icon(AppIcons.More, "More reactions", tint = ink) }
+            }
+            FlowRow(Modifier.fillMaxWidth()) {
+                TextButton(
+                    onClick = {
+                        action(MessengerAction.Reply(row.id))
+                        dismiss()
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    enabled = expanded,
+                ) { Text("Reply") }
+                if (row.mine) {
+                    TextButton(
+                        onClick = {
+                            action(MessengerAction.DeleteMessage(row.id))
+                            dismiss()
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        enabled = expanded,
+                    ) { Text("Delete message") }
                 }
-            },
-        )
+                if (row.status == "Failed" || row.status == "Queued") {
+                    TextButton(
+                        onClick = {
+                            action(MessengerAction.RetrySend(row.id))
+                            dismiss()
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        enabled = expanded,
+                    ) { Text("Retry publication") }
+                }
+            }
+            if (row.attachment && features.attachments) {
+                TextButton(
+                    onClick = {
+                        action(MessengerAction.Feature("open-file", row.id))
+                        dismiss()
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    enabled = expanded,
+                ) { Text("Download / Open") }
+            }
+        }
     }
 }
 

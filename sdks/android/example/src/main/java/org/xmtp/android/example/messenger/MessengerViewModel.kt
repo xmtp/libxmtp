@@ -261,7 +261,54 @@ class MessengerViewModel(
         ListMessagesOptions,
     ) -> ULong = { chat, options -> chat.countMessages(options) }
 
+    private val backendProbeCounter = AtomicLong()
+    private var backendProbeJob: Job? = null
+
+    @Volatile private var selectedBackend = BuildConfig.XMTP_BACKEND_URL.trim().trimEnd('/')
+    internal var inspectBackend: suspend (String) -> ServerConfiguration = { backend ->
+        SDKClient.fetchServerConfiguration(BackendSource.Options(BackendOptions(url = backend)))
+    }
+    internal var onBackendProbeFinished: (Long, String) -> Unit = { _, _ -> }
+
+    private fun inspect(backend: String) {
+        val url = backend.trim().trimEnd('/')
+        val attempt = backendProbeCounter.incrementAndGet()
+        val token =
+            synchronized(screenLock) {
+                selectedBackend = url
+                ui.value = ui.value.copy(credentialsRequiredFor = null)
+                screenGeneration
+            }
+        backendProbeJob?.cancel()
+        backendProbeJob =
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    delay(300)
+                    val configuration = inspectBackend(url)
+                    synchronized(screenLock) {
+                        if (attempt == backendProbeCounter.get() && token == screenGeneration &&
+                            ui.value.screen == Screen.START && selectedBackend == url
+                        ) {
+                            ui.value =
+                                ui.value.copy(
+                                    credentialsRequiredFor = url.takeIf { configuration.auth.enabled },
+                                )
+                        }
+                    }
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    // A failed capability query does not establish an authentication requirement.
+                } finally {
+                    onBackendProbeFinished(attempt, url)
+                }
+            }
+    }
+
     fun dispatch(action: MessengerAction) {
+        if (action is MessengerAction.InspectBackend) {
+            inspect(action.backend)
+            return
+        }
         if (action is MessengerAction.Navigate) {
             navigate(
                 action.screen,
@@ -282,7 +329,9 @@ class MessengerViewModel(
                                 .firstOrNull {
                                     it.id ==
                                         action.messageId && !it.deleted
-                                }?.text,
+                                }?.text
+                                ?.lineSequence()
+                                ?.firstOrNull(),
                     )
             return
         }
@@ -344,7 +393,7 @@ class MessengerViewModel(
                                 .connect(
                                     action.backend,
                                     action.credential,
-                                    action.allowPrivateNetwork,
+                                    localAttachmentNetwork(action.backend),
                                 )
                         }
 
@@ -396,6 +445,10 @@ class MessengerViewModel(
                                 return@launch
                             }
                             when (action) {
+                                is MessengerAction.InspectBackend -> {
+                                    Unit
+                                }
+
                                 is MessengerAction.OpenConversation,
                                 -> {
                                     open(
@@ -1321,7 +1374,7 @@ class MessengerViewModel(
 
     private fun MessengerState.refreshReply(): MessengerState {
         val parent = messages.firstOrNull { it.id == replyTo && !it.deleted }
-        return copy(replyTo = parent?.id, replyPreview = parent?.text)
+        return copy(replyTo = parent?.id, replyPreview = parent?.text?.lineSequence()?.firstOrNull())
     }
 
     private suspend fun merge(

@@ -270,7 +270,7 @@ class MessengerRaceInstrumentedTest {
                     assertEquals(text, model.state.value.replyPreview)
                     compose.waitForIdle()
                     compose.onAllNodesWithText(text).onFirst().performClick()
-                    compose.onNodeWithText("React", useUnmergedTree = true).assertExists()
+                    compose.onNodeWithContentDescription("More reactions", useUnmergedTree = true).assertExists()
                     if (expiry) {
                         withTimeout(30_000) {
                             while (owner.client.conversations.getMessageById(id) != null) delay(50)
@@ -289,7 +289,7 @@ class MessengerRaceInstrumentedTest {
                     compose.waitForIdle()
                     compose.onAllNodesWithText(text, substring = true).assertCountEquals(0)
                     println("REMOVAL_PROOF stage=${if (expiry) "expired" else "deleted"}-dialog-and-reply-current")
-                    if (!expiry) compose.onNodeWithText("Close", useUnmergedTree = true).performClick()
+                    compose.onNodeWithContentDescription("More reactions", useUnmergedTree = true).assertDoesNotExist()
                 }
             } finally {
                 cleanup()

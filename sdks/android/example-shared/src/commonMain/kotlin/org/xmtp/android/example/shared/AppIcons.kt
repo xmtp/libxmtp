@@ -25,6 +25,7 @@ object AppIcons {
 
     val Back = outline("Back", "M15,5 L8,12 L15,19")
     val Add = outline("Add", "M12,5 L12,19 M5,12 L19,12")
+    val Close = outline("Close", "M6,6 L18,18 M18,6 L6,18")
     val More = outline("More", "M5,11 L5,13 M12,11 L12,13 M19,11 L19,13")
     val Settings =
         outline(
