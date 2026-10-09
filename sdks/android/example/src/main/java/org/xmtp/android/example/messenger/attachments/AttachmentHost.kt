@@ -21,6 +21,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.example.messenger.*
@@ -159,16 +160,16 @@ class AttachmentHost(private val activity: ComponentActivity, private val model:
                 val token = model.screenToken()
                 val message = checkNotNull(active.client.conversations.getMessageById(action.messageId)) { "Message is unavailable" }
                 val remote = ((message.content as? SDKMessageContent.Standard)?.value as? MessageContent.RemoteAttachment)?.v1 ?: error("File content is unavailable")
-                if (model.acceptsScreen(active.key, token)) downloads.value = downloads.value + (action.messageId to AttachmentCardState(action.messageId, remote.filename ?: "File", "Downloading", busy = true))
+                if (model.acceptsScreen(active.key, token)) downloads.update { it + (action.messageId to AttachmentCardState(action.messageId, remote.filename ?: "File", "Downloading", busy = true)) }
                 try {
                     val downloaded = files!!.download(action.messageId, remote)
                     val bitmap = files!!.preview(action.messageId)
                     if (model.acceptsScreen(active.key, token)) {
-                        downloads.value = downloads.value + (action.messageId to AttachmentCardState(action.messageId, downloaded.filename ?: "File", "Verified", canOpen = true))
-                        if (bitmap != null) previews.value = ((previews.value - action.messageId) + (action.messageId to bitmap)).entries.toList().takeLast(3).associate { it.key to it.value }
+                        downloads.update { it + (action.messageId to AttachmentCardState(action.messageId, downloaded.filename ?: "File", "Verified", canOpen = true)) }
+                        if (bitmap != null) previews.update { images -> ((images - action.messageId) + (action.messageId to bitmap)).entries.toList().takeLast(3).associate { it.key to it.value } }
                     } else bitmap?.recycle()
                 } catch (failure: Throwable) {
-                    if (model.acceptsScreen(active.key, token)) downloads.value = downloads.value + (action.messageId to AttachmentCardState(action.messageId, remote.filename ?: "File", "Failed", canDownload = true, error = failure.attachmentLabel()))
+                    if (model.acceptsScreen(active.key, token)) downloads.update { it + (action.messageId to AttachmentCardState(action.messageId, remote.filename ?: "File", "Failed", canDownload = true, error = failure.attachmentLabel())) }
                     throw failure
                 }
             }

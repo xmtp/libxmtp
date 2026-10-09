@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -37,7 +38,7 @@ class AttachmentDraftCoordinator(
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
     private fun operationId(draftId: String) = "${key.profileId}/$draftId"
     private fun update(card: AttachmentCardState) {
-        if (accepts(key)) mutableCards.value = mutableCards.value.filterNot { it.id == card.id } + card
+        if (accepts(key)) mutableCards.update { cards -> cards.filterNot { it.id == card.id } + card }
     }
     private suspend fun descriptor(draft: SendDraftRef): RemoteAttachment = withContext(Dispatchers.IO) {
         AttachmentDescriptor.decode(checkNotNull(secrets.read(key.profileId, checkNotNull(draft.descriptorSecretRef))) { "Draft descriptor is unavailable" })
@@ -168,7 +169,7 @@ class AttachmentDraftCoordinator(
         checkCurrent()
         if (preferences.drafts(key.profileId).none { it.draftId == draft.draftId }) {
             withContext(Dispatchers.IO) { draft.descriptorSecretRef?.let { secrets.delete(key.profileId, it) } }
-            if (accepts(key)) mutableCards.value = mutableCards.value.filterNot { it.id == draft.draftId }
+            if (accepts(key)) mutableCards.update { cards -> cards.filterNot { it.id == draft.draftId } }
         }
     }
 
@@ -248,7 +249,7 @@ class AttachmentDraftCoordinator(
         checkCurrent()
         preferences.removeDraft(key.profileId, draftId)
         withContext(Dispatchers.IO) { draft.descriptorSecretRef?.let { secrets.delete(key.profileId, it) } }
-        if (accepts(key)) mutableCards.value = mutableCards.value.filterNot { it.id == draftId }
+        if (accepts(key)) mutableCards.update { cards -> cards.filterNot { it.id == draftId } }
     }
 
     companion object {
