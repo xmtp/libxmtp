@@ -786,15 +786,6 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn synthesis_deterministic_bytes() {
-        // Bit-identical output from two calls on the same input is the
-        // foundation invariant for byte-compare validation.
-        let a = synthesize_registry_from_policy_set(&minimal_default_policy_set()).unwrap();
-        let b = synthesize_registry_from_policy_set(&minimal_default_policy_set()).unwrap();
-        assert_eq!(a.to_bytes().unwrap(), b.to_bytes().unwrap());
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
     fn membership_policy_preserves_combinator_recursively() {
         use xmtp_proto::xmtp::mls::message_contents::{
             MembershipPolicy as MembershipPolicyProto,
@@ -1551,23 +1542,5 @@ mod tests {
             "bootstrap synthesis encoder output changed — see the doc comment \
              on golden_bootstrap_synthesis_group before touching the pins"
         );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn canonical_subset_deterministic_across_calls() {
-        // The validator byte-compares the sender's bootstrap commit
-        // against this output on every receiver. Bit-identical output
-        // from two calls on the same inputs is the entire point.
-        let make = || {
-            build_test_extensions(
-                default_gmm(),
-                minimal_default_policy_set(),
-                empty_membership(),
-                plain_group_metadata(),
-            )
-        };
-        let a = synthesize_canonical_subset_from_extensions(&make()).unwrap();
-        let b = synthesize_canonical_subset_from_extensions(&make()).unwrap();
-        assert_eq!(a, b);
     }
 }

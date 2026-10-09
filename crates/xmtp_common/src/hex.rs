@@ -20,33 +20,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_normalize_hex_str_with_mixed_case_prefix() {
+    fn test_normalize_hex_str() {
         assert_eq!("0xABCDEF".normalize_hex(), "abcdef");
         assert_eq!("0XAbCdEf".normalize_hex(), "abcdef");
         assert_eq!("0xAbC123".normalize_hex(), "abc123");
-    }
-
-    #[test]
-    fn test_normalize_hex_str_without_prefix() {
-        assert_eq!("abcdef".normalize_hex(), "abcdef");
         assert_eq!("123456".normalize_hex(), "123456");
         assert_eq!("ABCDEF".normalize_hex(), "abcdef");
         assert_eq!("AbCdEf".normalize_hex(), "abcdef");
-    }
-
-    #[test]
-    fn test_normalize_hex_str_already_normalized() {
-        assert_eq!("abcdef123456".normalize_hex(), "abcdef123456");
-        assert_eq!("0".normalize_hex(), "0");
-        assert_eq!("ff".normalize_hex(), "ff");
-    }
-
-    #[test]
-    fn test_normalize_hex_str_edge_cases() {
         assert_eq!("".normalize_hex(), "");
         assert_eq!("0x".normalize_hex(), "");
         assert_eq!("0X".normalize_hex(), "");
         assert_eq!("x".normalize_hex(), "x");
         assert_eq!("0".normalize_hex(), "0");
+        assert_eq!(String::from("0XAbCdEf").normalize_hex(), "abcdef");
     }
 }

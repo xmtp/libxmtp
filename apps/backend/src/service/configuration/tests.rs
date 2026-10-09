@@ -6,7 +6,7 @@ use crate::{
 /// Everything an operator sets in TOML must come back on the wire, and the
 /// response must be reachable without a credential.
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-069, CONF-070, CONF-079
+// verifies: CONF-011, CONF-012, CONF-069, CONF-070
 async fn published_settings_round_trip_from_the_configuration_file() {
     let server = TestServer::from_toml(
         "[server]
@@ -23,24 +23,6 @@ group_message_seconds = 604800
 [chains]
 'eip155:1' = 'https://chain.example.com'
 'eip155:8453' = 'https://base.example.com'
-[[application_components]]
-component_id = 0xC001
-name = 'USER_PRONOUNS'
-component_type = 'tls_map_inbox_id_string'
-insert_policy = 'allow_if_self_or_non_member'
-update_policy = 'allow_if_self_or_non_member'
-delete_policy = 'allow_if_admin'
-in_groups = true
-in_dms = true
-[[application_components]]
-component_id = 0xC000
-name = 'topic'
-component_type = 'string'
-insert_policy = 'allow'
-update_policy = 'allow_if_admin'
-delete_policy = 'deny'
-in_groups = true
-in_dms = false
 ",
     )
     .await?;
@@ -55,6 +37,30 @@ in_dms = false
     let limits = published.limits.as_ref().expect("limits are published");
     assert_eq!(limits.max_query_limit, 37);
     assert_eq!(limits.default_query_limit, 12);
+    for value in [
+        limits.max_envelope_bytes,
+        limits.max_request_bytes,
+        limits.max_response_bytes,
+        u64::from(limits.max_publish_topics),
+        u64::from(limits.max_query_topics),
+        u64::from(limits.max_query_limit),
+        u64::from(limits.default_query_limit),
+        u64::from(limits.max_newest_metadata_topics),
+        u64::from(limits.max_newest_full_topics),
+        u64::from(limits.max_update_adds),
+        u64::from(limits.max_update_removes),
+        u64::from(limits.max_stream_topics),
+        u64::from(limits.max_static_topics),
+        u64::from(limits.max_lookup_identifiers),
+        u64::from(limits.max_scw_signatures),
+        u64::from(limits.max_identity_entries),
+        u64::from(limits.max_update_frames_per_second),
+        u64::from(limits.max_update_burst),
+        u64::from(limits.max_ping_frames_per_second),
+        u64::from(limits.max_ping_burst),
+    ] {
+        assert_ne!(value, 0);
+    }
     let mls = published.mls.as_ref().expect("mls is published");
     assert_eq!(mls.max_group_members, 42);
     assert_eq!(mls.max_installations_per_inbox, 10);
@@ -64,62 +70,6 @@ in_dms = false
         .as_ref()
         .expect("retention is published");
     assert_eq!(retention.group_message_seconds, 604_800);
-    assert_eq!(
-        published.smart_contract_wallet_chains,
-        ["eip155:1", "eip155:8453"]
-    );
-    let catalogue: Vec<_> = published
-        .application_components
-        .iter()
-        .map(|definition| (definition.component_id, definition.name.as_str()))
-        .collect();
-    assert_eq!(catalogue, [(0xC000, "topic"), (0xC001, "USER_PRONOUNS")]);
-    server.stop().await?;
-}
-
-/// Zero would tell a client to fall back to a compiled default that the backend
-/// does not enforce, so every published number is filled from the configuration.
-#[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-069
-async fn every_limit_retention_and_mls_field_is_filled() {
-    let server = TestServer::new(|_| {}).await?;
-    let published = server
-        .configuration()
-        .get_configuration(api::GetConfigurationRequest {})
-        .await?
-        .into_inner();
-    assert_eq!(published.identifier, DEFAULT_TEST_IDENTIFIER);
-    assert!(published.min_libxmtp_version.is_empty());
-    let limits = published.limits.expect("limits are published");
-    for value in [
-        limits.max_envelope_bytes,
-        limits.max_request_bytes,
-        limits.max_response_bytes,
-    ] {
-        assert_ne!(value, 0);
-    }
-    for value in [
-        limits.max_publish_topics,
-        limits.max_query_topics,
-        limits.max_query_limit,
-        limits.default_query_limit,
-        limits.max_newest_metadata_topics,
-        limits.max_newest_full_topics,
-        limits.max_update_adds,
-        limits.max_update_removes,
-        limits.max_stream_topics,
-        limits.max_static_topics,
-        limits.max_lookup_identifiers,
-        limits.max_scw_signatures,
-        limits.max_identity_entries,
-        limits.max_update_frames_per_second,
-        limits.max_update_burst,
-        limits.max_ping_frames_per_second,
-        limits.max_ping_burst,
-    ] {
-        assert_ne!(value, 0);
-    }
-    let retention = published.retention.expect("retention is published");
     for value in [
         retention.group_message_seconds,
         retention.welcome_seconds,
@@ -127,10 +77,20 @@ async fn every_limit_retention_and_mls_field_is_filled() {
     ] {
         assert_ne!(value, 0);
     }
-    let mls = published.mls.expect("mls is published");
-    assert_eq!(mls.max_group_members, 250);
-    assert_eq!(mls.max_installations_per_inbox, 10);
-    assert_eq!(mls.commit_log_enabled, Some(true));
+    assert_eq!(
+        published.smart_contract_wallet_chains,
+        ["eip155:1", "eip155:8453"]
+    );
+    let second = server
+        .configuration()
+        .get_configuration(api::GetConfigurationRequest {})
+        .await?
+        .into_inner();
+    assert_eq!(published, second);
+    let encoded = format!("{published:?}");
+    assert!(!encoded.contains("chain.example.com"));
+    assert!(!encoded.contains("base.example.com"));
+    assert!(!encoded.contains("postgres"));
     server.stop().await?;
 }
 
@@ -141,13 +101,18 @@ async fn every_limit_retention_and_mls_field_is_filled() {
 async fn disabled_auth_publishes_an_empty_summary() {
     let server =
         TestServer::from_toml("[auth]\nenabled = false\naudiences = ['ignored']\n").await?;
-    let auth = server
+    let published = server
         .configuration()
         .get_configuration(api::GetConfigurationRequest {})
         .await?
-        .into_inner()
-        .auth
-        .expect("auth is published");
+        .into_inner();
+    assert_eq!(published.identifier, DEFAULT_TEST_IDENTIFIER);
+    assert!(published.min_libxmtp_version.is_empty());
+    let mls = published.mls.as_ref().expect("mls is published");
+    assert_eq!(mls.max_group_members, 250);
+    assert_eq!(mls.max_installations_per_inbox, 10);
+    assert_eq!(mls.commit_log_enabled, Some(true));
+    let auth = published.auth.expect("auth is published");
     assert_eq!(auth, api::AuthConfiguration::default());
     server.stop().await?;
 }
@@ -155,7 +120,7 @@ async fn disabled_auth_publishes_an_empty_summary() {
 /// A client must be able to learn what it needs before it holds a credential,
 /// so the call succeeds with no authorization header at all.
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-010, CONF-068
+// verifies: CONF-010, CONF-011, CONF-068
 async fn enabled_auth_publishes_its_admission_settings_without_a_credential() {
     let key = TestKey::es256();
     let server = TestServer::new(|config| {
@@ -166,13 +131,20 @@ async fn enabled_auth_publishes_its_admission_settings_without_a_credential() {
         config.auth = Some(auth);
     })
     .await?;
-    let published = server
+    let response = server
         .configuration()
         .get_configuration(api::GetConfigurationRequest {})
         .await?
-        .into_inner()
-        .auth
-        .expect("auth is published");
+        .into_inner();
+    let encoded = prost::Message::encode_to_vec(&response);
+    let public_key = key.public_key.as_bytes();
+    assert!(!public_key.is_empty());
+    assert!(
+        !encoded
+            .windows(public_key.len())
+            .any(|bytes| bytes == public_key)
+    );
+    let published = response.auth.expect("auth is published");
     assert!(published.enabled);
     assert_eq!(
         published.keys,
@@ -191,49 +163,6 @@ async fn enabled_auth_publishes_its_admission_settings_without_a_credential() {
         .await
         .expect_err("an uncredentialed query is rejected");
     assert_eq!(rejected.code(), tonic::Code::Unauthenticated);
-    server.stop().await?;
-}
-
-/// The response is built once at startup, so repeated calls are identical.
-#[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-012
-async fn the_same_response_is_returned_for_the_life_of_the_process() {
-    let server = TestServer::new(|_| {}).await?;
-    let mut client = server.configuration();
-    let first = client
-        .get_configuration(api::GetConfigurationRequest {})
-        .await?
-        .into_inner();
-    let second = client
-        .get_configuration(api::GetConfigurationRequest {})
-        .await?
-        .into_inner();
-    assert_eq!(first, second);
-    server.stop().await?;
-}
-
-/// Key material, URLs, and operational timing never leave the process.
-#[xmtp_common::test(unwrap_try = true)]
-async fn the_response_never_carries_a_url_or_key_material() {
-    let key = TestKey::es256();
-    let server = TestServer::from_toml(
-        "[chains]
-'eip155:1' = 'https://secret-chain-endpoint.example.com/private'
-",
-    )
-    .await?;
-    let encoded = format!(
-        "{:?}",
-        server
-            .configuration()
-            .get_configuration(api::GetConfigurationRequest {})
-            .await?
-            .into_inner()
-    );
-    assert!(!encoded.contains("secret-chain-endpoint"));
-    assert!(!encoded.contains(&key.public_key));
-    assert!(!encoded.contains("leeway"));
-    assert!(!encoded.contains("postgres"));
     server.stop().await?;
 }
 

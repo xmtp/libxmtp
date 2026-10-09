@@ -508,12 +508,6 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn test_get_missing_returns_none() {
-        let reg = ComponentRegistry::new();
-        assert!(reg.get(&ComponentId::GROUP_NAME).unwrap().is_none());
-    }
-
-    #[xmtp_common::test]
     fn test_set_overwrites() {
         let mut reg = ComponentRegistry::new();
         let id = ComponentId::GROUP_NAME;

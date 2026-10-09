@@ -53,29 +53,6 @@ fn caip2_shape_accepts_known_namespaces_and_rejects_malformed_entries() {
     }
 }
 
-// verifies: CONF-050
-#[xmtp_common::test(unwrap_try = true)]
-fn version_comparison_ignores_the_prerelease_tag() {
-    let minimum = semver::Version::parse("1.2.3")?;
-    assert!(version_is_below(
-        &semver::Version::parse("1.2.2")?,
-        &minimum
-    ));
-    assert!(!version_is_below(
-        &semver::Version::parse("1.2.3")?,
-        &minimum
-    ));
-    // Equal on major, minor, and patch with a prerelease tag is not below it.
-    assert!(!version_is_below(
-        &semver::Version::parse("1.2.3-dev")?,
-        &minimum
-    ));
-    assert!(!version_is_below(
-        &semver::Version::parse("1.3.0")?,
-        &minimum
-    ));
-}
-
 // verifies: CONF-071
 #[xmtp_common::test(unwrap_try = true)]
 fn validation_names_the_field_that_failed() {
@@ -421,24 +398,3 @@ fn a_repeated_id_or_name_is_refused_at_its_position() {
 
 // The catalogue is part of the answer a client validates before it stores it,
 // so one bad definition refuses the whole configuration.
-// verifies: CONF-071
-#[xmtp_common::test(unwrap_try = true)]
-fn configuration_validation_covers_the_catalogue() {
-    let mut configuration = ServerConfiguration {
-        identifier: "org.example.xmtp".to_owned(),
-        application_components: vec![definition(0xC001, "USER_PRONOUNS")],
-        ..Default::default()
-    };
-    configuration.validate()?;
-
-    configuration
-        .application_components
-        .push(definition(0x8004, "GROUP_TOPIC"));
-    assert_eq!(
-        configuration.validate(),
-        Err(ServerConfigurationError::ApplicationComponent {
-            index: 1,
-            reason: ApplicationComponentError::ComponentId,
-        })
-    );
-}

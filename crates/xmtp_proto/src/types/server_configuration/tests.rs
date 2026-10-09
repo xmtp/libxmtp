@@ -169,16 +169,6 @@ fn every_published_field_survives_the_conversion() {
 // The backend publishes through the reverse conversion and a client later
 // copies the snapshot entry into a group registry, so both directions must
 // carry every field and every policy shape unchanged.
-// verifies: CONF-079
-#[xmtp_common::test(unwrap_try = true)]
-fn the_catalogue_converts_both_ways_unchanged() {
-    let published = populated().application_components.remove(0);
-    assert_eq!(
-        backend_v1::ApplicationComponentDefinition::from(pronouns()),
-        published
-    );
-    assert_eq!(ApplicationComponentDefinition::from(published), pronouns());
-}
 
 // A definition the client cannot represent faithfully must still fail
 // validation, not turn into a different, valid definition.

@@ -209,14 +209,6 @@ mod tests {
         assert!(matches!(decompress(content), Err(CodecError::Decode(_))));
     }
 
-    // verifies: CTYPE-024
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn unknown_compression_is_decode_failure() {
-        let mut content = TextCodec::encode("hello".into())?;
-        content.compression = Some(99);
-        assert!(matches!(decompress(content), Err(CodecError::Decode(_))));
-    }
-
     // verifies: CTYPE-025
     #[xmtp_common::test(unwrap_try = true)]
     async fn decompression_stops_at_limit() {

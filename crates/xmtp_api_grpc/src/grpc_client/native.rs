@@ -208,16 +208,13 @@ mod keepalive_tests {
     }
 
     #[test]
-    fn defaults_when_env_absent() {
+    fn keepalive_lookup_states() {
         let cfg = KeepaliveConfig::from_lookup(|_| None);
         assert_eq!(cfg.interval, Duration::from_secs(45));
         assert_eq!(cfg.timeout, Duration::from_secs(20));
         assert_eq!(cfg.tcp_keepalive, Some(Duration::from_secs(45)));
         assert!(cfg.while_idle);
-    }
 
-    #[test]
-    fn env_overrides_are_applied() {
         let cfg = KeepaliveConfig::from_lookup(lookup(&[
             ("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "30"),
             ("XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS", "45"),
@@ -228,16 +225,10 @@ mod keepalive_tests {
         assert_eq!(cfg.timeout, Duration::from_secs(45));
         assert_eq!(cfg.tcp_keepalive, Some(Duration::from_secs(30)));
         assert!(!cfg.while_idle);
-    }
 
-    #[test]
-    fn zero_tcp_keepalive_disables_it() {
         let cfg = KeepaliveConfig::from_lookup(lookup(&[("XMTP_GRPC_TCP_KEEPALIVE_SECS", "0")]));
         assert_eq!(cfg.tcp_keepalive, None);
-    }
 
-    #[test]
-    fn invalid_values_fall_back_to_defaults() {
         let cfg = KeepaliveConfig::from_lookup(lookup(&[
             ("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "not-a-number"),
             ("XMTP_GRPC_KEEPALIVE_WHILE_IDLE", "maybe"),

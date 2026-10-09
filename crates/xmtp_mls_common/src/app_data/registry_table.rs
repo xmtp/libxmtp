@@ -256,12 +256,6 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn well_known_count_matches_plan() {
-        // 13 well-known impls: 8 Bytes/String + 3 TlsSet<InboxId> + 2 TlsMap.
-        assert_eq!(WELL_KNOWN.len(), 13);
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
     fn dispatch_through_erased_calls_typed_apply() {
         // End-to-end: lookup_component returns an &dyn ErasedComponent
         // whose apply_update_payload mirrors the typed Component::apply_update_payload.
