@@ -17,9 +17,9 @@ check: build _test-host
 check-packages:
   python3 -B ./dev/check-native-packages.py
 
-# Compile the library, example, and instrumented tests.
+# Compile the library, commonMain UI, example, and instrumented tests.
 assemble: build
-  ./gradlew -p . :library:assembleDebug :library:assembleDebugAndroidTest :example:assembleDebug
+  ./gradlew -p . :library:assembleDebug :library:assembleDebugAndroidTest :example-shared:assembleDebug :example:assembleDebug --dependency-verification=strict --no-daemon
 
 # Run Spotless + Android Lint
 lint: build
