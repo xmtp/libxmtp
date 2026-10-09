@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -20,7 +21,7 @@ fun AttachmentCard(
     action: (AttachmentAction) -> Unit,
     showFilename: Boolean = true,
 ) {
-    Column {
+    Column(Modifier.testTag("attachment-card-${state.id}")) {
         if (showFilename) Text(state.filename)
         Text(state.status)
         state.error?.let { Text(it) }

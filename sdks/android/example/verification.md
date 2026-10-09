@@ -14,7 +14,7 @@ before the final app gate is ready. Label every manual result as manual.
 | --- | --- | --- |
 | P1 Current exports | V1. Public `SDKClient` and records; no Rust export, schema, raw client, or app SQL addition | A package/build proof recorded; final source audit pending |
 | P2 Shared UI | V1. Compile actual commonMain Compose screens and Android host under strict locks | A build proof recorded; combined app compilation pending |
-| P3 Navy design | V8. Screen actions, 48 dp controls, light tokens; manual design, text scale, TalkBack, keyboard, empty/error cases | B216304 records real screens and reaction controls at 200% on a narrow display; TalkBack and manual checks for all screens remain pending |
+| P3 Navy design | V8. Screen actions, 48 dp controls, light tokens; manual design, text scale, TalkBack, keyboard, empty/error cases | B216304 records reaction controls at 200% on a narrow display; the new nine-screen 320 dp/200% test compiles but is unrun; TalkBack remains pending |
 | P4 Backend identity | V2. Same inbox on reopen; two isolated backend profiles; migration keeps old account files | B combined lifecycle proof pending |
 | P5 Stale completion | V2/V3/V7/V8. Old session/screen completion changes no UI, marker, draft, field, or notification | Combined races and production guard red controls pending |
 | P6 One message store | V1/V2. Preferences contain only small refs; secrets encrypted; no message mirror | Final persistence and backup audit pending |
@@ -31,7 +31,7 @@ before the final app gate is ready. Label every manual result as manual.
 | P17 Stored retries | V4/V5. Accepted ID survives recovery; retry publishes that ID once; no typed resend | B/C native accepted-ID recovery pending |
 | P18 Unknown send | V2/V5. Interrupted QUEUEING lacks ID; review/discard; no automatic queue; old screen queue completion fenced | B/C process and queue-outcome proof pending |
 | P19 Removal/expiry | V4. Loaded content disappears or shows supported deleted placeholder after real delete and expiry | B device expiry and refresh proof pending |
-| P20 Groups | V4. Create presets, name/description, members/roles, disappearing, failed intermediate preset, accurate PendingRemove | B native group edge cases pending |
+| P20 Groups | V4. Create presets, name/description, members/roles, disappearing, failed intermediate preset, accurate PendingRemove | Three real shared-settings/ViewModel cases compile for edits, member/admin changes and PendingRemove; their native assertions and controls remain pending |
 | P21 File staging | V5. Missing/lying provider length, 64 KiB chunks, effective ceiling, identical names, private source cleanup | C production stager proof pending |
 | P22 Upload first | V5. Failed/retried upload, queue after Complete only, discard active upload, no stale-screen queue | C real backend/object store proof pending |
 | P23 Draft recovery | V5. Encrypted full descriptor; Complete reopen with pending(remote); short-age expiry; orphan; accepted ID takes precedence | C restart/pending/expiry proof pending |
@@ -44,7 +44,7 @@ before the final app gate is ready. Label every manual result as manual.
 | P30 Generic push | V8. Parse ULong, current known group/installation admission, mute/consent/token policy, dedupe, late A push after B sign-in, generic content | E a6 records host policy and restore controls; native cases remain pending; real background delivery needs a developer FCM project |
 | P31 App gates | V1/V9. Current SDK host/package/consumer/platform gates plus actual launch and app tests in scoped emulator; no release publication | Final recipes, CI, and combined gate runs pending |
 | P32 Failure detection | V1–V9. Each new test has a plausible broken production run and restored pass at a recorded source commit | Host performance result gate has broken/restored records; final per-test ledger pending |
-| P33 Performance | V9. Exact 1000/100000 workload, one 50000 transcript, five warmups, 30 measured runs, all query/heap/retention limits | Test APK compiled; eight host validator/control tests pass; real Linux fixed-device run pending |
+| P33 Performance | V9. Exact 1000/100000 workload, one 50000 transcript, five warmups, 30 measured runs, all query/heap/retention limits | Test APK compiled; eight host validator/control checks and the generated-message wrapper regression pass; real Linux fixed-device run pending |
 | P34 Credential visibility | V2/V8. Current server auth configuration shows the credential field only for its URL; stale capability results cannot show or hide the current field | B216304 reads the actual server with authentication disabled; scripted required-authentication and stale-URL branches have a matched control; final integration remains pending |
 | P35 Attachment availability | V5/V8. SDK and current server support determine attachments; Start has no attachment checkbox or network switch | B/C final UI restack and screenshot proof pending |
 
@@ -72,6 +72,26 @@ D evidence is `pr-d-checkpoint-gates.log`, `pr-d-host-controls-final.log`, and
 result. B's observed 200% proof covers the narrow reaction controls. It does
 not establish accessibility for all screens. Real FCM, TalkBack and V9 budgets
 remain unverified.
+
+## Prepared native app proof
+
+`GroupSettingsInstrumentedTest` uses the real shared settings controls and the
+ViewModel, then reads native SDK state. It covers group edits, both presets,
+duration, member addition/removal, admin promotion/demotion and a real member's
+PendingRemove UI. Direct SDK writes create fixture peers and the member group;
+they are not the behavior under test. A completion observer reports the finished
+app action, so an omitted mutation can fail its readback assertion directly.
+
+`ScreenScaleInstrumentedTest` sets an actual 320 dp display and 200% font scale
+before Activity launch. It visits all nine screens with a real catalogue session
+and real SDK staged drafts. It uses physical swipes, checks scrolling progress,
+48 dp action bounds and label clipping, and saves each screen. It restores the
+previous display settings after Activity teardown. This source is compiled but
+has no device result. It does not provide TalkBack service proof.
+
+Both classes need native green, intended production-control failures and restored
+passes on the final stack. The prepared controls omit real group writes and user
+scrolling. Compiler errors and fixture timeouts do not count as failure proof.
 
 ## Required final commands
 

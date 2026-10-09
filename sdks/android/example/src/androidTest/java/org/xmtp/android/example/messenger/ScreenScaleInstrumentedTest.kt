@@ -1,0 +1,383 @@
+package org.xmtp.android.example.messenger
+
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.lifecycle.ViewModelProvider
+import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
+import org.junit.runners.model.Statement
+import org.xmtp.android.example.MainActivity
+import org.xmtp.android.example.messenger.attachments.AttachmentDescriptor
+import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.metadata.FieldShape
+import uniffi.xmtp_sdk.*
+import java.util.UUID
+
+/** Actual 320 dp device layout, touch scrolling and 200% text on all nine screens. */
+class ScreenScaleInstrumentedTest {
+    val compose = createAndroidComposeRule<MainActivity>()
+    private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
+    private val captured = mutableSetOf<Screen>()
+
+    private fun shell(command: String): String =
+        InstrumentationRegistry
+            .getInstrumentation()
+            .uiAutomation
+            .executeShellCommand(command)
+            .use { descriptor ->
+                android.os.ParcelFileDescriptor
+                    .AutoCloseInputStream(
+                        descriptor,
+                    ).bufferedReader()
+                    .use { it.readText().trim() }
+            }
+
+    @get:Rule val rules: TestRule =
+        RuleChain
+            .outerRule(
+                TestRule { base, _ ->
+                    object : Statement() {
+                        override fun evaluate() {
+                            val scale = shell("settings get system font_scale")
+                            val size =
+                                shell("wm size")
+                                    .lineSequence()
+                                    .firstOrNull { it.startsWith("Override size:") }
+                                    ?.substringAfter(':')
+                                    ?.trim()
+                            val density =
+                                shell("wm density")
+                                    .lineSequence()
+                                    .firstOrNull { it.startsWith("Override density:") }
+                                    ?.substringAfter(':')
+                                    ?.trim()
+                            shell("wm size 320x640")
+                            shell("wm density 160")
+                            shell("settings put system font_scale 2.0")
+                            try {
+                                base.evaluate()
+                            } finally {
+                                if (scale == "null") {
+                                    shell("settings delete system font_scale")
+                                } else {
+                                    shell("settings put system font_scale $scale")
+                                }
+                                shell(if (density == null) "wm density reset" else "wm density $density")
+                                shell(if (size == null) "wm size reset" else "wm size $size")
+                            }
+                        }
+                    }
+                },
+            ).around(compose)
+
+    private suspend fun until(
+        stage: String,
+        check: suspend () -> Boolean,
+    ) {
+        assertTrue(
+            stage,
+            withTimeoutOrNull(30_000) {
+                while (!check()) delay(20)
+                true
+            } == true,
+        )
+    }
+
+    private fun closeKeyboard() {
+        androidx.test.espresso.Espresso
+            .closeSoftKeyboard()
+        compose.waitForIdle()
+    }
+
+    private fun click(label: String) = hasText(label) and hasClickAction()
+
+    /** Use physical swipes. Programmatic scroll-to cannot prove user scrolling. */
+    private fun reveal(matcher: SemanticsMatcher): SemanticsNodeInteraction {
+        closeKeyboard()
+        val minimum = 48f * compose.activity.resources.displayMetrics.density
+        repeat(24) {
+            val node = compose.onAllNodes(matcher).fetchSemanticsNodes().singleOrNull()
+            if (node != null) {
+                val bounds = node.boundsInRoot
+                if (bounds.width >= minimum - 1 && bounds.height >= minimum - 1) {
+                    val control = compose.onNode(matcher)
+                    if (labelsFit(control)) return control
+                }
+            }
+            val scrolling =
+                compose
+                    .onAllNodes(
+                        SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy),
+                        useUnmergedTree = true,
+                    ).fetchSemanticsNodes()
+                    .maxByOrNull { it.boundsInRoot.width * it.boundsInRoot.height }
+            assertNotNull("No user scroll path can reveal $matcher on ${model.state.value.screen}", scrolling)
+            val scroll = checkNotNull(scrolling)
+            val interaction =
+                compose.onNode(
+                    SemanticsMatcher("scroll frame ${scroll.id}") { it.id == scroll.id },
+                    useUnmergedTree = true,
+                )
+            val before = scroll.config[SemanticsProperties.VerticalScrollAxisRange].value()
+            val backwards = node != null && node.positionInRoot.y < scroll.boundsInRoot.top
+            interaction.performTouchInput {
+                val x = width - 4f
+                val upper = height * 0.2f
+                val lower = height * 0.8f
+                swipe(Offset(x, if (backwards) upper else lower), Offset(x, if (backwards) lower else upper), 250)
+            }
+            compose.waitForIdle()
+            val after = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            assertNotEquals("Touch scrolling did not move ${model.state.value.screen}", before, after)
+        }
+        fail("The action cannot be reached at 320 dp and 200% text: $matcher")
+        error("Unreachable")
+    }
+
+    private fun labelsFit(control: SemanticsNodeInteraction): Boolean {
+        val label =
+            control
+                .fetchSemanticsNode()
+                .config
+                .getOrNull(SemanticsProperties.Text)
+                ?.singleOrNull()
+                ?.text
+                ?: return true
+        val id = control.fetchSemanticsNode().id
+        val selected = SemanticsMatcher("selected control $id") { it.id == id }
+        val captions =
+            compose
+                .onAllNodes(
+                    hasText(label) and (selected or hasAnyAncestor(selected)),
+                    useUnmergedTree = true,
+                ).fetchSemanticsNodes()
+        return captions.filter { it.config.getOrNull(SemanticsActions.GetTextLayoutResult) != null }.all { node ->
+            val results = mutableListOf<TextLayoutResult>()
+            compose.runOnIdle { node.config[SemanticsActions.GetTextLayoutResult].action?.invoke(results) }
+            results.all {
+                !it.didOverflowWidth && !it.didOverflowHeight &&
+                    it.size.width <= node.boundsInRoot.width + 1 && it.size.height <= node.boundsInRoot.height + 1
+            }
+        }
+    }
+
+    private fun control(matcher: SemanticsMatcher): SemanticsNodeInteraction {
+        val result = reveal(matcher)
+        result.assertIsDisplayed()
+        val bounds = result.fetchSemanticsNode().boundsInRoot
+        val minimum = 48f * compose.activity.resources.displayMetrics.density
+        assertTrue("The action is narrower than 48 dp", bounds.width >= minimum - 1)
+        assertTrue("The action is shorter than 48 dp", bounds.height >= minimum - 1)
+        assertTrue("The action crosses the display edge", bounds.left >= -1 && bounds.right <= 321)
+        assertTrue("The action text is clipped", labelsFit(result))
+        return result
+    }
+
+    private fun input(
+        label: String,
+        value: String,
+    ) {
+        control(hasText(label) and hasSetTextAction()).performTextReplacement(value)
+        closeKeyboard()
+    }
+
+    private fun capture(screen: Screen) {
+        assertEquals(screen, model.state.value.screen)
+        saveMessengerScreenshot(compose.activity, "scale-${screen.name.lowercase()}")
+        captured += screen
+    }
+
+    private suspend fun groupAction(
+        expected: MessengerAction,
+        label: String,
+    ) {
+        val finished = CompletableDeferred<Unit>()
+        model.onGroupActionFinished = { if (it == expected) finished.complete(Unit) }
+        try {
+            control(click(label)).performClick()
+            withTimeout(30_000) { finished.await() }
+        } finally {
+            model.onGroupActionFinished = {}
+        }
+    }
+
+    @Test fun allScreensRemainReachableAtDoubleTextScale() =
+        runBlocking<Unit> {
+            assertEquals(320, compose.activity.resources.configuration.screenWidthDp)
+            assertEquals(2f, compose.activity.resources.configuration.fontScale, 0.01f)
+            val backend = checkNotNull(InstrumentationRegistry.getArguments().getString("metadataBackendUrl"))
+            val lifecycle = AndroidStreamLifecycle.enabled
+            AndroidStreamLifecycle.enabled = false
+            resumeStreams()
+            var peer: SDKClient? = null
+            var reader: Job? = null
+            try {
+                model.session.signOut()
+                until("Start did not appear after sign out") { model.state.value.screen == Screen.START }
+                input("Backend URL", backend)
+                control(click("Connect"))
+                capture(Screen.START)
+                control(click("Connect")).performClick()
+                until("The actual profile did not connect") {
+                    model.session.active.value != null &&
+                        model.state.value.screen == Screen.CONVERSATIONS
+                }
+                val owner = checkNotNull(model.session.active.value)
+                peer =
+                    SDKClient.create(
+                        compose.activity,
+                        generateLocalSigner(),
+                        ClientOptions(
+                            backend = BackendSource.Options(BackendOptions(url = backend)),
+                            storage = StorageOptions(location = StorageLocation.InMemory),
+                            deviceSync = false,
+                        ),
+                    )
+                val other = checkNotNull(peer)
+                reader = launch(Dispatchers.IO) { other.conversations.streamAllMessages().collect {} }
+                control(click("Allowed"))
+                control(click("Unknown"))
+                control(hasContentDescription("Settings"))
+                capture(Screen.CONVERSATIONS)
+                control(hasContentDescription("New conversation")).performClick()
+                until("Create did not open") { model.state.value.screen == Screen.CREATE }
+                control(click("Direct message"))
+                control(click("Group")).performClick()
+                input("Inbox IDs or Ethereum addresses, separated by commas", other.inboxId())
+                input("Name", "Scale proof group")
+                input("Description", "A real group for all screen bounds")
+                control(isToggleable())
+                capture(Screen.CREATE)
+                control(click("Create")).performClick()
+                until("Create did not open the real timeline") {
+                    model.state.value.screen == Screen.TIMELINE &&
+                        model.state.value.conversationId != null
+                }
+                val id = checkNotNull(model.state.value.conversationId)
+                val chat = checkNotNull(owner.client.conversations.getById(id))
+                val group = (chat as Conversation.Group).group
+                assertEquals("Scale proof group", group.state().name)
+                input("Message", "Real scaled composer text")
+                control(click("Send")).performClick()
+                until("The scaled composer did not publish its real text") {
+                    chat.messages(publishedSelection()).any {
+                        (it.standardContent() as? MessageContent.Text)?.v1 == "Real scaled composer text"
+                    }
+                }
+                control(hasContentDescription("Conversation settings"))
+                capture(Screen.TIMELINE)
+                control(hasContentDescription("Conversation settings")).performClick()
+                until("Conversation settings did not open") { model.state.value.screen == Screen.CONVERSATION_SETTINGS }
+                input("Name", "Scaled settings name")
+                input("Description", "The settings controls remain editable")
+                groupAction(
+                    MessengerAction.UpdateGroup("Scaled settings name", "The settings controls remain editable"),
+                    "Save",
+                )
+                assertEquals("Scaled settings name", group.state().name)
+                control(click("All members"))
+                control(click("Admins only"))
+                input("Disappearing messages: seconds (0 is Off)", "0")
+                control(click("Save duration"))
+                val memberTag = "settings-member-${other.inboxId()}"
+                control(click("Make admin") and hasAnyAncestor(hasTestTag(memberTag)))
+                control(click("Remove") and hasAnyAncestor(hasTestTag(memberTag)))
+                input("Inbox ID", other.inboxId())
+                control(click("Add member"))
+                control(click("Block"))
+                capture(Screen.CONVERSATION_SETTINGS)
+                control(click("Group fields")).performClick()
+                until("The real catalogue fields did not load") {
+                    !model.metadataState.value.busy &&
+                        model.metadataState.value.fields
+                            .any { it.id.componentId == 49160.toUShort() }
+                }
+                control(click("Reload fields")).performClick()
+                until("The real field refresh did not finish") { !model.metadataState.value.busy }
+                for (idValue in listOf(49153, 49154, 49155, 49156, 49157, 49160)) {
+                    val prefix = if (idValue in 49155..49157) "metadata-key-" else "metadata-value-"
+                    control(hasTestTag("$prefix$idValue"))
+                }
+                control(hasTestTag("metadata-set-49160"))
+                capture(Screen.GROUP_FIELDS)
+                control(hasContentDescription("Back")).performClick()
+                until("Settings did not return from group fields") {
+                    model.state.value.screen ==
+                        Screen.CONVERSATION_SETTINGS
+                }
+                control(click("My fields")).performClick()
+                until("The actual user fields did not load") {
+                    !model.metadataState.value.busy &&
+                        model.metadataState.value.fields
+                            .any { it.id.componentId == 49159.toUShort() }
+                }
+                control(hasTestTag("metadata-value-49158"))
+                control(hasTestTag("metadata-value-49159"))
+                control(click("Save changed fields"))
+                capture(Screen.MY_FIELDS)
+                control(hasContentDescription("Back")).performClick()
+                until(
+                    "Settings did not return from own fields",
+                ) { model.state.value.screen == Screen.CONVERSATION_SETTINGS }
+                control(hasContentDescription("Back")).performClick()
+                until("Timeline did not return") { model.state.value.screen == Screen.TIMELINE }
+                control(hasContentDescription("Back")).performClick()
+                until("Conversations did not return") { model.state.value.screen == Screen.CONVERSATIONS }
+                // The layout fixture creates real SDK staged files, not invented card states.
+                val draftIds = mutableListOf<String>()
+                repeat(3) { index ->
+                    val pending =
+                        owner.client.attachments().create(
+                            AttachmentSource.Bytes(
+                                ByteArray(64) { 7 },
+                                "scale-layout-draft-$index.bin",
+                                "application/octet-stream",
+                            ),
+                        )
+                    val draft = UUID.randomUUID().toString()
+                    val secret = "scale-$draft"
+                    model.session.secrets.write(
+                        owner.key.profileId,
+                        secret,
+                        AttachmentDescriptor.encode(pending.remoteAttachment()),
+                    )
+                    model.session.preferences.saveDraft(owner.key.profileId, SendDraftRef(draft, id, secret))
+                    draftIds += draft
+                }
+                model.dispatch(MessengerAction.Refresh)
+                control(hasContentDescription("Settings")).performClick()
+                until("App settings did not open") { model.state.value.screen == Screen.APP_SETTINGS }
+                control(click("Draft recovery"))
+                control(click("Sign out"))
+                control(click("Delete my account")).performClick()
+                control(click("Cancel")).performClick()
+                capture(Screen.APP_SETTINGS)
+                control(click("Draft recovery")).performClick()
+                until("Draft recovery did not open") { model.state.value.screen == Screen.DRAFTS }
+                for (draft in draftIds) {
+                    val card = "attachment-card-$draft"
+                    control(click("Discard") and hasAnyAncestor(hasTestTag(card)))
+                    control(click("View chat") and hasAnyAncestor(hasTestTag(card)))
+                }
+                capture(Screen.DRAFTS)
+                assertEquals("Every screen needs an observed bounds/scroll pass", Screen.entries.toSet(), captured)
+            } finally {
+                model.onGroupActionFinished = {}
+                reader?.cancelAndJoin()
+                withContext(NonCancellable) {
+                    peer?.end()
+                    if (model.session.active.value != null) model.session.deleteAccount()
+                }
+                AndroidStreamLifecycle.enabled = lifecycle
+            }
+        }
+}

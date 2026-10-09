@@ -357,6 +357,7 @@ class MessengerViewModel(
     ) -> Unit = { chat, value -> chat.updateConsentState(value) }
     internal var onConsentFinished: () -> Unit = {}
     internal var listGroupStateRead: suspend (Group) -> GroupState = { group -> group.state() }
+    internal var onGroupActionFinished: (MessengerAction) -> Unit = {}
     internal var historyPageRead: suspend (
         Conversation,
         ListMessagesOptions,
@@ -1904,15 +1905,10 @@ class MessengerViewModel(
                 }
             }
         } finally {
-            if (valid(
-                    owner,
-                    token,
-                )
-            ) {
-                refreshSettings(
-                    owner,
-                    token,
-                )
+            try {
+                if (valid(owner, token)) refreshSettings(owner, token)
+            } finally {
+                onGroupActionFinished(action)
             }
         }
     }
