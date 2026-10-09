@@ -216,3 +216,50 @@ zero failures/errors/skips at F52e1 (37.003 seconds native;51 seconds Gradle).
 `pr-f-nine-screen-final/` contains the actual nine final images. Root/F viewed
 Settings without the modal. `pr-f-visual-final-cleanup.json` records exact source
 and owned cleanup/lease release. No Group3 or unchanged full-suite repeat ran.
+
+## Task 10 relocation checkpoint — 2026-10-09
+
+The intermediate base is PR F commit `453fb17a7991ced63344714c6e44d60938462425`.
+The relocation is on branch `codex/move-example-android`. This is not the final
+F source freeze. Final history-page integration and the new performance cache
+control remain with their upstream owners.
+
+All 137 host/shared source files from this base have identical bytes at their
+new paths. The package remains `org.xmtp.android.example`. The host is in
+`apps/example-android/app`; the shared module is in `apps/example-android/shared`.
+Runtime storage paths are unchanged. The app Gradle root maps the local SDK
+module through an explicit composite build. SDK version pins, wrapper files,
+and the dependency verification inventory have one source in `sdks/android`.
+
+| Check | Intermediate result |
+| --- | --- |
+| Strict Off Debug/Release, shared targets, and app test APK | Pass |
+| Strict configured Firebase build graph with build-only configuration | Pass; no Firebase delivery proof |
+| SDK assembly after removal of app-only root plugins | Pass |
+| Existing CI selector tests | 20 pass |
+| New app/SDK/shared/mixed/docs selection and command-path tests | 8 pass |
+| Full configuration checks | Pass with local repository tool dependencies |
+| SDK package-script tests | Pass |
+| Tiny NDK probes for four ABIs | Pass; these are not SDK JNI packages |
+| Markdown and spec checks | Pass; spec check has 34 existing warnings |
+
+The nine routing/path controls removed the app exclusions, dropped app
+compatibility for SDK inputs, dropped the mixed SDK platform route, made app
+docs unknown, disabled unknown-path fallback, disabled the draft mask, accepted
+a skipped performance job, removed the app from the aggregate gate, or restored
+the old screenshot path. Each control failed an intended assertion. Each
+restored test passed. Local logs are kept in `.cache/relocation`.
+
+Removing the local SDK composite mapping failed the actual app check recipe at
+dependency resolution for `org.xmtp:android`. Restoring the mapping passed the
+strict Off app check.
+
+Earlier proof on remote F `a229aee004` includes 50 host tests per variant,
+SDK public consumer checks, SDK/app lint, seven metadata fixture tests, and
+eight performance-tool tests. These checks must be repeated after the final
+source rebase. The old performance cache control is retained only as historical
+source until the final new-cache control and path map arrive.
+
+Pending: final F freeze and source map, final rebase, new-cache control,
+independent review, moved native setup/launch/fixture proof, and fixed Linux
+performance proof. The relocation PR is not open at this checkpoint.
