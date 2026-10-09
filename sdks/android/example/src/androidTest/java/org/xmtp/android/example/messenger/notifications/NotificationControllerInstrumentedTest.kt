@@ -246,6 +246,84 @@ class NotificationControllerInstrumentedTest {
             }
         }
 
+    @Test fun cancelledPrivacyCallerKeepsActualOwnedSdkWritePending() =
+        runBlocking {
+            AndroidStreamLifecycle.enabled = false
+            resumeStreams()
+            val session = AppSession(context)
+            val controller = controller(session)
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val committed = CompletableDeferred<Unit>()
+            var caller: Deferred<ConsentState?>? = null
+            var acceptedChild: Job? = null
+            var posts = 0
+            controller.postNotification = { _, _, _ ->
+                posts += 1
+                true
+            }
+            try {
+                session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
+                val owner = checkNotNull(session.active.value)
+                enabled(session, controller)
+                val group = owner.client.conversations.createGroup(emptyList())
+                group.updateConsentState(ConsentState.ALLOWED)
+                controller.beforePrivacyWrite = {
+                    acceptedChild = currentCoroutineContext().job
+                    entered.complete(Unit)
+                    release.await()
+                }
+                caller =
+                    owner.work.async {
+                        controller.withPrivacyMutation(owner) {
+                            group.updateConsentState(ConsentState.DENIED)
+                            committed.complete(Unit)
+                            group.state().common.consentState
+                        }
+                    }
+                stage(session, "accepted SDK child paused") { entered.await() }
+                caller.cancel()
+                assertEquals(
+                    "The canceled caller must stop waiting for its independent owner child",
+                    "completed",
+                    withTimeoutOrNull(3_000) {
+                        caller.join()
+                        "completed"
+                    },
+                )
+                assertTrue(checkNotNull(acceptedChild).isActive)
+                assertFalse(committed.isCompleted)
+                assertEquals(ConsentState.ALLOWED, group.state().common.consentState)
+                assertFalse(
+                    "The actual owner child remains pending after caller cancellation",
+                    controller.receive(payload(0, group.id())),
+                )
+                assertEquals(0, posts)
+                release.complete(Unit)
+                stage(session, "independent SDK child commits") {
+                    committed.await()
+                    checkNotNull(acceptedChild).join()
+                }
+                assertEquals(ConsentState.DENIED, group.state().common.consentState)
+                controller.beforePrivacyWrite = {}
+                controller.withPrivacyMutation(owner) { group.updateConsentState(ConsentState.ALLOWED) }
+                assertTrue(
+                    "The completed child releases its pending token",
+                    controller.receive(payload(0, group.id(), "2")),
+                )
+                assertEquals(1, posts)
+            } finally {
+                release.complete(Unit)
+                withContext(NonCancellable) {
+                    caller?.cancelAndJoin()
+                    acceptedChild?.cancelAndJoin()
+                    controller.beforePrivacyWrite = {}
+                    cleanup(session, controller)
+                    AndroidStreamLifecycle.enabled = true
+                }
+            }
+        }
+
     private suspend fun finalPrivacyChange(kind: String) {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()

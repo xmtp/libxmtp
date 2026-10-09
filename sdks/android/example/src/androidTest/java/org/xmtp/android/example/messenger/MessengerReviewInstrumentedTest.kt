@@ -237,6 +237,71 @@ class MessengerReviewInstrumentedTest {
             }
         }
 
+    @Test fun signOutCancelsStalledGroupWriteAfterActualFirstCommit() =
+        runBlocking {
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val waitEnded = CompletableDeferred<Unit>()
+            var stop: Deferred<Unit>? = null
+            try {
+                val owner = connect()
+                val inbox = owner.client.inboxId()
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Original", description = "Keep description"),
+                    )
+                val groupId = group.id()
+                openChat(groupId)
+                val action = MessengerAction.UpdateGroup("First native commit", "Must not commit")
+                model.beforeGroupWrite = { current, index ->
+                    if (current == action && index == 1) {
+                        entered.complete(Unit)
+                        try {
+                            release.await()
+                        } finally {
+                            waitEnded.complete(Unit)
+                        }
+                    }
+                }
+                model.dispatch(action)
+                withTimeout(30_000) { entered.await() }
+                assertEquals("First native commit", group.state().name)
+                assertEquals("Keep description", group.state().description)
+                stop = async(Dispatchers.IO) { model.session.signOut() }
+                assertEquals(
+                    "Sign-out must cancel stalled group work without releasing its barrier",
+                    "completed",
+                    withTimeoutOrNull(3_000) {
+                        stop.await()
+                        "completed"
+                    },
+                )
+                assertFalse(release.isCompleted)
+                assertTrue(waitEnded.isCompleted)
+                assertNull(model.session.active.value)
+                assertFalse(model.session.preferences.signedIn())
+                assertTrue(
+                    runCatching { owner.client.conversations.listGroups(null) }
+                        .exceptionOrNull() is XmtpException.ClientClosed,
+                )
+                model.beforeGroupWrite = { _, _ -> }
+                model.session.connect(BuildConfig.XMTP_BACKEND_URL, null, false)
+                val reopened = checkNotNull(model.session.active.value)
+                assertEquals(inbox, reopened.client.inboxId())
+                val stored = (reopened.client.conversations.getById(groupId) as Conversation.Group).group
+                assertEquals("First native commit", stored.state().name)
+                assertEquals("Keep description", stored.state().description)
+                println("GROUP_STOP_PROOF first_native_commit=true blocked_second_cancelled=true client_closed=true")
+            } finally {
+                release.complete(Unit)
+                withContext(NonCancellable) {
+                    stop?.join()
+                    cleanup()
+                }
+            }
+        }
+
     @Test fun admittedGroupWritesFinishOnOriginAfterNavigation() =
         runBlocking {
             val releases = mutableListOf<CompletableDeferred<Unit>>()
