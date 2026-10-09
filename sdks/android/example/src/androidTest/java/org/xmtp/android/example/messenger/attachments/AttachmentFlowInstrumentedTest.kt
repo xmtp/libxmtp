@@ -8,20 +8,155 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.xmtp.android.example.messenger.SendCoordinator
 import org.xmtp.android.example.messenger.SendPhase
+import org.xmtp.android.example.messenger.SessionFence
 import uniffi.xmtp_sdk.*
 import java.io.File
 import java.security.MessageDigest
 
 @RunWith(AndroidJUnit4::class)
 class AttachmentFlowInstrumentedTest {
+    private val sourceAuthority: String
+        get() {
+            val context = InstrumentationRegistry.getInstrumentation().context
+            return context.packageName + ".file-source"
+        }
+
+    @Test fun a64MiBProviderFileUploadsAndVerifiesOnAnotherClient() =
+        runBlocking {
+            val sender = AttachmentTestFixture()
+            val receiver = AttachmentTestFixture()
+            try {
+                withTimeout(180_000) {
+                    sender.start()
+                    receiver.start()
+                    val size = 64 * 1024 * 1024
+                    val authority = sourceAuthority
+                    val uri = Uri.parse("content://$authority/file?bytes=$size&length=1")
+                    val coordinator = sender.coordinator()
+                    val draft = coordinator.select(sender.context.contentResolver, uri, sender.group.id())
+                    val ref = checkNotNull(draft.descriptorSecretRef)
+                    val descriptor = checkNotNull(sender.secrets.read(sender.profile.id, ref))
+                    val remote = AttachmentDescriptor.decode(descriptor)
+                    coordinator.send(draft.draftId, sender.group) { }
+                    assertEquals(1, sender.group.messages(null).size)
+                    val downloaded = receiver.client.attachments().download(remote)
+                    val file = File(downloaded.path)
+                    assertEquals(size.toLong(), file.length())
+                    val expected = MessageDigest.getInstance("SHA-256")
+                    val pattern = ByteArray(8192) { (it % 251).toByte() }
+                    repeat(size / pattern.size) { expected.update(pattern) }
+                    val actual = MessageDigest.getInstance("SHA-256")
+                    file.inputStream().use { input ->
+                        val chunk = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(chunk)
+                            if (count < 0) break
+                            actual.update(chunk, 0, count)
+                        }
+                    }
+                    assertArrayEquals(expected.digest(), actual.digest())
+                    assertTrue(
+                        sender.paths.temp
+                            .listFiles()
+                            .orEmpty()
+                            .isEmpty(),
+                    )
+                }
+            } finally {
+                receiver.close()
+                sender.close()
+            }
+        }
+
+    @Test fun lateAdmissionRejectsDescriptorAndDraftWrites() =
+        runBlocking {
+            for (dropAt in 1..2) {
+                val fixture = AttachmentTestFixture()
+                try {
+                    withTimeout(90_000) {
+                        fixture.start()
+                        val fence = SessionFence()
+                        assertEquals(fixture.key, fence.replace(fixture.profile.id))
+                        var calls = 0
+                        val admission: (() -> Unit) -> Boolean = { change ->
+                            calls += 1
+                            if (calls == 1) {
+                                assertTrue(
+                                    fixture.paths.secrets
+                                        .listFiles()
+                                        .orEmpty()
+                                        .isEmpty(),
+                                )
+                            }
+                            if (calls == 2) {
+                                assertEquals(
+                                    1,
+                                    fixture.paths.secrets
+                                        .listFiles()
+                                        .orEmpty()
+                                        .size,
+                                )
+                            }
+                            if (calls == dropAt) fence.replace(null)
+                            fence.withCurrent(fixture.key) {
+                                change()
+                                true
+                            } == true
+                        }
+                        val coordinator =
+                            AttachmentDraftCoordinator(
+                                fixture.key,
+                                fixture.client,
+                                fixture.paths,
+                                fixture.preferences,
+                                fixture.secrets,
+                                SendCoordinator(fixture.preferences, fence::accepts),
+                                fence::accepts,
+                                admission,
+                            )
+                        val authority = sourceAuthority
+                        val source = Uri.parse("content://$authority/file?bytes=131073&length=0")
+                        try {
+                            coordinator.select(fixture.context.contentResolver, source, fixture.group.id())
+                            fail("A late generation change must reject persistence")
+                        } catch (_: IllegalStateException) {
+                        }
+                        assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
+                        assertTrue(
+                            fixture.paths.secrets
+                                .listFiles()
+                                .orEmpty()
+                                .isEmpty(),
+                        )
+                        assertTrue(
+                            fixture.paths.temp
+                                .listFiles()
+                                .orEmpty()
+                                .isEmpty(),
+                        )
+                        assertTrue(
+                            fixture.client
+                                .attachments()
+                                .listPending()
+                                .isEmpty(),
+                        )
+                        assertTrue(fixture.group.messages(null).isEmpty())
+                    }
+                } finally {
+                    fixture.close()
+                }
+            }
+        }
+
     @Test fun uriLengthHintsAndNamesDoNotControlPrivateCopy() =
         runBlocking {
             val fixture = AttachmentTestFixture()
             try {
                 withTimeout(90_000) {
                     fixture.start()
-                    val authority = InstrumentationRegistry.getInstrumentation().context.packageName + ".file-source"
+                    val authority = sourceAuthority
                     val coordinator = fixture.coordinator()
                     for (hint in listOf("", "&length=0")) {
                         val uri = Uri.parse("content://$authority/file?bytes=131073$hint")

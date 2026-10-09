@@ -151,6 +151,7 @@ class AttachmentHost(
                         session.secrets,
                         model.sends,
                         session::accepts,
+                        { change -> session.admit(active.key, change) },
                     )
                 files = AttachmentFiles(context, active.key, active.client, session::accepts)
             }
@@ -200,7 +201,12 @@ class AttachmentHost(
             }
 
             is AttachmentAction.Assign -> {
-                perform { coordinator!!.assign(action.draftId, action.conversationId) }
+                perform { active ->
+                    val token = model.screenToken()
+                    coordinator!!.assign(action.draftId, action.conversationId) {
+                        !closed && model.acceptsScreen(active.key, token)
+                    }
+                }
             }
 
             is AttachmentAction.Send -> {
@@ -215,7 +221,10 @@ class AttachmentHost(
             }
 
             is AttachmentAction.Discard -> {
-                perform { coordinator!!.discard(action.draftId) }
+                perform { active ->
+                    val token = model.screenToken()
+                    coordinator!!.discard(action.draftId) { !closed && model.acceptsScreen(active.key, token) }
+                }
             }
 
             is AttachmentAction.Download -> {

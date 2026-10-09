@@ -29,6 +29,14 @@ class AttachmentDraftCoordinator(
     private val secrets: SecureSecretStore,
     private val sends: SendCoordinator,
     private val accepts: (SessionKey) -> Boolean,
+    private val admit: (() -> Unit) -> Boolean = { change ->
+        if (accepts(key)) {
+            change()
+            true
+        } else {
+            false
+        }
+    },
 ) {
     private val attachments = client.attachments()
     private val mutex = Mutex()
@@ -38,10 +46,41 @@ class AttachmentDraftCoordinator(
 
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
 
+    private fun admitChange(
+        screenCurrent: () -> Boolean = { true },
+        change: () -> Unit,
+    ): Boolean {
+        var changed = false
+        val accepted =
+            admit {
+                if (accepts(key) && screenCurrent()) {
+                    change()
+                    changed = true
+                }
+            }
+        return accepted && changed
+    }
+
+    private suspend fun save(
+        draft: SendDraftRef,
+        screenCurrent: () -> Boolean = { true },
+    ): Boolean = preferences.saveDraft(key.profileId, draft) { change -> admitChange(screenCurrent, change) }
+
+    private suspend fun writeDescriptor(
+        ref: String,
+        remote: RemoteAttachment,
+        screenCurrent: () -> Boolean = { true },
+    ) = withContext(Dispatchers.IO) {
+        val bytes = AttachmentDescriptor.encode(remote)
+        check(
+            admitChange(screenCurrent) { secrets.write(key.profileId, ref, bytes) },
+        ) { "The session or screen changed" }
+    }
+
     private fun operationId(draftId: String) = "${key.profileId}/$draftId"
 
     private fun update(card: AttachmentCardState) {
-        if (accepts(key)) mutableCards.update { cards -> cards.filterNot { it.id == card.id } + card }
+        admitChange { mutableCards.update { cards -> cards.filterNot { it.id == card.id } + card } }
     }
 
     private suspend fun descriptor(draft: SendDraftRef): RemoteAttachment =
@@ -116,12 +155,12 @@ class AttachmentDraftCoordinator(
             remote = stagedRemote
             checkCurrent()
             check(screenCurrent()) { "The screen changed" }
-            withContext(Dispatchers.IO) { secrets.write(key.profileId, ref, AttachmentDescriptor.encode(stagedRemote)) }
+            writeDescriptor(ref, stagedRemote, screenCurrent)
             checkCurrent()
             check(screenCurrent()) { "The screen changed" }
             val draft = SendDraftRef(id, conversationKey, ref)
-            preferences.saveDraft(key.profileId, draft)
-            saved = true
+            saved = save(draft, screenCurrent)
+            check(saved) { "The session or screen changed" }
             checkCurrent()
             update(card(draft, remote, "Waiting"))
             return draft
@@ -172,7 +211,7 @@ class AttachmentDraftCoordinator(
             val pending = attachments.pending(selected)
             draft = draft.copy(phase = SendPhase.UPLOADING)
             checkCurrent()
-            preferences.saveDraft(key.profileId, draft)
+            check(save(draft, screenCurrent)) { "The session or screen changed" }
             update(card(draft, remote, "Uploading", busy = true))
             pending.upload()
             // A cancelled waiter does not stop native transfer. Discard owns deletion.
@@ -224,8 +263,10 @@ class AttachmentDraftCoordinator(
     private suspend fun clearPublishedSecret(draft: SendDraftRef) {
         checkCurrent()
         if (preferences.drafts(key.profileId).none { it.draftId == draft.draftId }) {
-            withContext(Dispatchers.IO) { draft.descriptorSecretRef?.let { secrets.delete(key.profileId, it) } }
-            if (accepts(key)) mutableCards.update { cards -> cards.filterNot { it.id == draft.draftId } }
+            withContext(Dispatchers.IO) {
+                admitChange { draft.descriptorSecretRef?.let { secrets.delete(key.profileId, it) } }
+            }
+            admitChange { mutableCards.update { cards -> cards.filterNot { it.id == draft.draftId } } }
         }
     }
 
@@ -233,7 +274,7 @@ class AttachmentDraftCoordinator(
         recoveryMutex.withLock {
             checkCurrent()
             sweepOnce()
-            if (accepts(key)) mutableCards.value = emptyList()
+            admitChange { mutableCards.value = emptyList() }
             val drafts = preferences.drafts(key.profileId).filter { it.descriptorSecretRef != null }
             processMutex.withLock {
                 val retained = preferences.drafts(key.profileId).mapNotNull { it.descriptorSecretRef }.toSet()
@@ -244,7 +285,7 @@ class AttachmentDraftCoordinator(
                             it.name.matches(Regex("attachment-[a-zA-Z0-9-]+")) &&
                                 it.name !in retained &&
                                 "${key.profileId}/${it.name}" !in activeSecrets
-                        }?.forEach { secrets.delete(key.profileId, it.name) }
+                        }?.forEach { file -> admitChange { secrets.delete(key.profileId, file.name) } }
                 }
             }
             val known = mutableListOf<RemoteAttachment>()
@@ -292,12 +333,10 @@ class AttachmentDraftCoordinator(
                     checkCurrent()
                     processMutex.withLock { activeSecrets.add("${key.profileId}/$ref") }
                     try {
-                        withContext(
-                            Dispatchers.IO,
-                        ) { secrets.write(key.profileId, ref, AttachmentDescriptor.encode(remote)) }
+                        writeDescriptor(ref, remote)
                         checkCurrent()
                         val draft = SendDraftRef(id, "", ref)
-                        preferences.saveDraft(key.profileId, draft)
+                        check(save(draft)) { "The session changed" }
                         update(card(draft, remote, "Unassigned file. Discard or select a chat.").copy(canSend = false))
                     } finally {
                         withContext(
@@ -311,15 +350,19 @@ class AttachmentDraftCoordinator(
     suspend fun assign(
         draftId: String,
         conversationKey: String,
+        screenCurrent: () -> Boolean = { true },
     ) {
         checkCurrent()
         val draft = preferences.drafts(key.profileId).single { it.draftId == draftId }
         require(draft.conversationKey.isEmpty() && draft.phase != SendPhase.QUEUEING && draft.acceptedMessageId == null)
-        preferences.saveDraft(key.profileId, draft.copy(conversationKey = conversationKey))
+        check(save(draft.copy(conversationKey = conversationKey), screenCurrent)) { "The session or screen changed" }
         recover()
     }
 
-    suspend fun discard(draftId: String) {
+    suspend fun discard(
+        draftId: String,
+        screenCurrent: () -> Boolean = { true },
+    ) {
         checkCurrent()
         val draft =
             processMutex.withLock {
@@ -341,9 +384,13 @@ class AttachmentDraftCoordinator(
             }
         }
         checkCurrent()
-        preferences.removeDraft(key.profileId, draftId)
-        withContext(Dispatchers.IO) { draft.descriptorSecretRef?.let { secrets.delete(key.profileId, it) } }
-        if (accepts(key)) mutableCards.update { cards -> cards.filterNot { it.id == draftId } }
+        check(preferences.removeDraft(key.profileId, draftId) { change -> admitChange(screenCurrent, change) }) {
+            "The session or screen changed"
+        }
+        withContext(Dispatchers.IO) {
+            admitChange { draft.descriptorSecretRef?.let { secrets.delete(key.profileId, it) } }
+        }
+        admitChange { mutableCards.update { cards -> cards.filterNot { it.id == draftId } } }
     }
 
     companion object {

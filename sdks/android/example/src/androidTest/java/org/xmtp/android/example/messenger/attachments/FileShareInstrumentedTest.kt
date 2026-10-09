@@ -50,14 +50,15 @@ class FileShareInstrumentedTest {
                         )
                     files.save("file", siblingUri)
                     assertEquals("grant", sibling.readText())
-                    val opened = CompletableDeferred<Boolean>()
+                    android.util.Log.i("XmtpFileGrant", "Launch external receiver")
+                    val opened = CompletableDeferred<Pair<Boolean, Int>>()
                     val result =
                         object : ResultReceiver(Handler(Looper.getMainLooper())) {
                             override fun onReceiveResult(
                                 resultCode: Int,
                                 resultData: Bundle?,
                             ) {
-                                opened.complete(resultCode == 1)
+                                opened.complete((resultCode == 1) to (resultData?.getInt("uid") ?: -1))
                             }
                         }
                     fixture.context.startActivity(
@@ -67,7 +68,10 @@ class FileShareInstrumentedTest {
                             ).putExtra("result", result)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
-                    assertTrue(withTimeout(10_000) { opened.await() })
+                    val resultState = withTimeout(10_000) { opened.await() }
+                    assertTrue(resultState.first)
+                    assertNotEquals(android.os.Process.myUid(), resultState.second)
+                    android.util.Log.i("XmtpFileGrant", "Receiver result received from another UID")
                     val service = CompletableDeferred<Messenger>()
                     connection =
                         object : ServiceConnection {
@@ -90,12 +94,12 @@ class FileShareInstrumentedTest {
                     val remote = withTimeout(10_000) { service.await() }
 
                     suspend fun canRead(uri: Uri): Boolean {
-                        val read = CompletableDeferred<Boolean>()
+                        val read = CompletableDeferred<Pair<Boolean, Int>>()
                         val response =
                             Messenger(
                                 object : Handler(Looper.getMainLooper()) {
                                     override fun handleMessage(message: AndroidMessage) {
-                                        read.complete(message.arg1 == 1)
+                                        read.complete((message.arg1 == 1) to message.data.getInt("uid"))
                                     }
                                 },
                             )
@@ -106,9 +110,12 @@ class FileShareInstrumentedTest {
                                     response
                             },
                         )
-                        return withTimeout(10_000) { read.await() }
+                        val state = withTimeout(10_000) { read.await() }
+                        assertNotEquals(android.os.Process.myUid(), state.second)
+                        return state.first
                     }
                     assertFalse(canRead(siblingUri))
+                    android.util.Log.i("XmtpFileGrant", "Sibling denied; check explicit grant and revoke")
                     // Grant it explicitly to verify the service route before the revoke check.
                     fixture.context.grantUriPermission(target, exact, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     assertTrue(canRead(exact))
@@ -120,6 +127,7 @@ class FileShareInstrumentedTest {
                     fixture.endClient()
                     fixture.preferences.setActive(fixture.profile)
                     fixture.preferences.saveReset(fixture.paths.resetRecord(fixture.profile.id))
+                    android.util.Log.i("XmtpFileGrant", "Recover recorded STOPPING reset")
                     AppSession(fixture.context).restore()
                     assertFalse(exportRoot.exists())
                     assertFalse(canRead(exact))
@@ -128,6 +136,7 @@ class FileShareInstrumentedTest {
                     val exportName = exact.lastPathSegment!!
                     File(exportRoot, exportName).writeText("replacement")
                     assertFalse(canRead(exact))
+                    android.util.Log.i("XmtpFileGrant", "Same-path replacement denied after reset")
                 }
             } finally {
                 if (bound) fixture.context.unbindService(checkNotNull(connection))
