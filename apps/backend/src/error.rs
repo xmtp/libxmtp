@@ -20,6 +20,8 @@ pub enum Error {
     Database(#[from] sqlx::Error),
     #[error("database migration failed")]
     Migration(#[from] sqlx::migrate::MigrateError),
+    #[error("startup allocation-boundary read exceeded {timeout_ms}ms")]
+    StartupBoundaryTimeout { timeout_ms: u64 },
     #[error("storage invariant failed: {0}")]
     Invariant(&'static str),
 }
