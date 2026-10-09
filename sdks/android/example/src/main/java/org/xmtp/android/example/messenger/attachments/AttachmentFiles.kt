@@ -18,7 +18,7 @@ import uniffi.xmtp_sdk.SDKClient
 
 /** A verified result can enter this class only through the SDK download operation. */
 class AttachmentFiles(private val context: Context, private val key: SessionKey, private val client: SDKClient, private val accepts: (SessionKey) -> Boolean) {
-    private val verified = mutableMapOf<String, DownloadedAttachment>()
+    private val verified = java.util.concurrent.ConcurrentHashMap<String, DownloadedAttachment>()
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
 
     suspend fun download(messageId: String, remote: RemoteAttachment): DownloadedAttachment {
