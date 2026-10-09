@@ -17,9 +17,9 @@ check: build _test-host
 check-packages:
   python3 -B ./dev/check-native-packages.py
 
-# Compile the library, commonMain UI, example, and SDK/UI consumer test fixture.
+# Compile the library, commonMain UI, example, and instrumented tests.
 assemble: build
-  ./gradlew -p . :library:assembleDebug :library:assembleDebugAndroidTest :example-shared:assembleDebug :example-shared:assembleDebugAndroidTest :example:assembleDebug :example:assembleDebugAndroidTest --dependency-verification=strict --no-daemon
+  ./gradlew -p . :library:assembleDebug :library:assembleDebugAndroidTest :example-shared:assembleDebug :example:assembleDebug :example:assembleDebugAndroidTest --dependency-verification=strict --no-daemon
 
 # Run Spotless + Android Lint
 lint: build
@@ -42,6 +42,14 @@ test: build _test-host
 # Run unit tests against existing matched generated bindings.
 test-unit *args:
   {{ _env }} && ./gradlew -p . library:testDebugUnitTest {{ args }} --dependency-verification=strict --no-daemon
+
+# Run app host and shared screen unit tests with matched native bindings.
+example-test *args: build _test-host
+  {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . :example:testDebugUnitTest {{ args }} :example-shared:testDebugUnitTest --dependency-verification=strict --no-daemon
+
+# Run app instrumentation inside the emulator launcher's owned scope.
+example-test-integration *args: build
+  {{ _env }} && run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_S3_PORT tcp:$XMTP_S3_PORT; test_status=0; ./gradlew -p . :example:connectedDebugAndroidTest {{ args }} --dependency-verification=strict --no-daemon || test_status=$?; mkdir -p "{{ root }}/sdks/android/example/build/screenshots"; if adb -s "$ANDROID_SERIAL" shell test -d /sdcard/Pictures/XmtpMessengerProof; then adb -s "$ANDROID_SERIAL" pull /sdcard/Pictures/XmtpMessengerProof/. "{{ root }}/sdks/android/example/build/screenshots"; fi; exit "$test_status"'
 
 # Run integration tests (requires emulator)
 test-integration: build
