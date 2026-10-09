@@ -514,8 +514,13 @@ class AppSession(
                 try {
                     beforeEnd(owner)
                 } finally {
-                    owner.client
-                        .end()
+                    try {
+                        AttachmentFiles.revokeProfile(context, owner.key.profileId)
+                        val exports = owner.paths.exports
+                        check(!exports.exists() || exports.deleteRecursively()) { "Cannot clear file exports" }
+                    } finally {
+                        owner.client.end()
+                    }
                 }
                 stopping = null
             }

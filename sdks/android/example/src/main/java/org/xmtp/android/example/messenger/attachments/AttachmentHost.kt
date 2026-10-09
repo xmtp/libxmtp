@@ -51,7 +51,6 @@ class AttachmentHost(
     private val requests = ViewModelProvider(activity)[AttachmentRequests::class.java]
     private val previousAction = model.featureAction
     private val previousRefresh = model.featureRefresh
-    private val previousEnd = session.beforeEnd
     internal var beforeDownloadRefresh: suspend () -> Unit = {}
     internal var beforeDownload: suspend () -> Unit = {}
     internal var beforeWatchRecovery: () -> Unit = {}
@@ -120,12 +119,6 @@ class AttachmentHost(
             previousRefresh(active, chat)
             active.work.async { refresh(active) }.await()
         }
-        session.beforeEnd = { active ->
-            previousEnd(active)
-            AttachmentFiles.revokeProfile(context, active.key.profileId)
-            val exports = active.paths.exports
-            check(!exports.exists() || exports.deleteRecursively()) { "Cannot clear file exports" }
-        }
         activity.lifecycleScope.launch {
             session.active.collectLatest { active ->
                 drafts.value = emptyList()
@@ -175,7 +168,6 @@ class AttachmentHost(
         closed = true
         model.featureAction = previousAction
         model.featureRefresh = previousRefresh
-        session.beforeEnd = previousEnd
     }
 
     private suspend fun uploadSupported(active: ActiveSession): Boolean =
