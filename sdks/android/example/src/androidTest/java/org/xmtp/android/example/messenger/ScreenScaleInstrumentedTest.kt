@@ -101,7 +101,10 @@ class ScreenScaleInstrumentedTest {
     private fun click(label: String) = hasText(label) and hasClickAction()
 
     /** Use physical swipes. Programmatic scroll-to cannot prove user scrolling. */
-    private fun reveal(matcher: SemanticsMatcher): SemanticsNodeInteraction {
+    private fun reveal(
+        matcher: SemanticsMatcher,
+        siblingLabel: String? = null,
+    ): SemanticsNodeInteraction {
         closeKeyboard()
         val minimum = 48f * compose.activity.resources.displayMetrics.density
         repeat(24) {
@@ -110,7 +113,7 @@ class ScreenScaleInstrumentedTest {
                 val bounds = node.boundsInRoot
                 if (bounds.width >= minimum - 1 && bounds.height >= minimum - 1) {
                     val control = compose.onNode(matcher)
-                    if (labelsFit(control)) return control
+                    if (labelsFit(control, siblingLabel)) return control
                 }
             }
             val scrolling =
@@ -143,42 +146,104 @@ class ScreenScaleInstrumentedTest {
         error("Unreachable")
     }
 
-    private fun labelsFit(control: SemanticsNodeInteraction): Boolean {
-        val label =
-            control
-                .fetchSemanticsNode()
-                .config
-                .getOrNull(SemanticsProperties.Text)
-                ?.singleOrNull()
-                ?.text
-                ?: return true
-        val id = control.fetchSemanticsNode().id
-        val selected = SemanticsMatcher("selected control $id") { it.id == id }
+    private fun labelsFit(
+        control: SemanticsNodeInteraction,
+        siblingLabel: String? = null,
+    ): Boolean {
+        val selectedNode = control.fetchSemanticsNode()
+        val selected = SemanticsMatcher("selected control ${selectedNode.id}") { it.id == selectedNode.id }
+        val scope = if (siblingLabel == null) selected or hasAnyAncestor(selected) else hasText(siblingLabel)
         val captions =
             compose
                 .onAllNodes(
-                    hasText(label) and (selected or hasAnyAncestor(selected)),
+                    SemanticsMatcher.keyIsDefined(SemanticsProperties.Text) and scope,
                     useUnmergedTree = true,
                 ).fetchSemanticsNodes()
-        return captions.filter { it.config.getOrNull(SemanticsActions.GetTextLayoutResult) != null }.all { node ->
+                .filter { node -> node.config[SemanticsProperties.Text].any { it.text.isNotBlank() } }
+        val unmergedLabels =
+            captions
+                .flatMap { node -> node.config[SemanticsProperties.Text].map { it.text } }
+                .filter { it.isNotBlank() }
+        val mergedLabels =
+            selectedNode.config
+                .getOrNull(SemanticsProperties.Text)
+                .orEmpty()
+                .map { it.text }
+                .filter { it.isNotBlank() }
+        val expected = if (siblingLabel != null) listOf(siblingLabel) else (mergedLabels + unmergedLabels).distinct()
+        if (expected.isEmpty()) {
+            val descriptions = selectedNode.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty()
+            assertTrue("The control has no caption or accessible icon label", descriptions.any { it.isNotBlank() })
+            assertNull(
+                "A toggle needs its visible sibling caption",
+                selectedNode.config.getOrNull(SemanticsProperties.ToggleableState),
+            )
+            assertNull(
+                "A text input needs its visible caption",
+                selectedNode.config.getOrNull(SemanticsActions.SetText),
+            )
+            return true
+        }
+        assertTrue("Unmerged caption evidence is missing for $expected", captions.isNotEmpty())
+        for (label in expected) {
+            assertTrue(
+                "Unmerged caption evidence is missing for '$label'",
+                captions.any { node -> node.config[SemanticsProperties.Text].any { it.text == label } },
+            )
+        }
+        var visible = true
+        for (caption in captions) {
+            val labels = caption.config[SemanticsProperties.Text].map { it.text }.filter { it in expected }
+            assertTrue("The expected caption is empty", labels.isNotEmpty())
+            if (siblingLabel != null) {
+                assertEquals(
+                    "The toggle label is not in the same semantic row",
+                    selectedNode.parent?.id,
+                    caption.parent?.id,
+                )
+                assertTrue(
+                    "The toggle label is not beside the checkbox",
+                    caption.positionInRoot.x >= selectedNode.positionInRoot.x,
+                )
+            }
+            val layout = caption.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action
+            assertNotNull("Text layout action is missing for $labels", layout)
             val results = mutableListOf<TextLayoutResult>()
-            compose.runOnIdle { node.config[SemanticsActions.GetTextLayoutResult].action?.invoke(results) }
-            results.all {
-                !it.didOverflowWidth && !it.didOverflowHeight &&
-                    it.size.width <= node.boundsInRoot.width + 1 && it.size.height <= node.boundsInRoot.height + 1
+            var succeeded = false
+            compose.runOnIdle { succeeded = checkNotNull(layout).invoke(results) }
+            assertTrue("Text layout action failed for $labels", succeeded)
+            assertTrue("Text layout evidence is empty for $labels", results.isNotEmpty())
+            for (label in labels) {
+                assertTrue(
+                    "Text layout evidence does not contain '$label'",
+                    results.any { it.layoutInput.text.text == label },
+                )
+            }
+            for (result in results) {
+                assertFalse("The text label is clipped: ${result.layoutInput.text.text}", result.didOverflowWidth)
+                assertFalse("The text label is clipped: ${result.layoutInput.text.text}", result.didOverflowHeight)
+                if (result.size.width > caption.boundsInRoot.width + 1 ||
+                    result.size.height > caption.boundsInRoot.height + 1
+                ) {
+                    visible = false
+                }
             }
         }
+        return visible
     }
 
-    private fun control(matcher: SemanticsMatcher): SemanticsNodeInteraction {
-        val result = reveal(matcher)
+    private fun control(
+        matcher: SemanticsMatcher,
+        siblingLabel: String? = null,
+    ): SemanticsNodeInteraction {
+        val result = reveal(matcher, siblingLabel)
         result.assertIsDisplayed()
         val bounds = result.fetchSemanticsNode().boundsInRoot
         val minimum = 48f * compose.activity.resources.displayMetrics.density
         assertTrue("The action is narrower than 48 dp", bounds.width >= minimum - 1)
         assertTrue("The action is shorter than 48 dp", bounds.height >= minimum - 1)
         assertTrue("The action crosses the display edge", bounds.left >= -1 && bounds.right <= 321)
-        assertTrue("The action text is clipped", labelsFit(result))
+        assertTrue("The action text is clipped", labelsFit(result, siblingLabel))
         return result
     }
 
@@ -255,7 +320,7 @@ class ScreenScaleInstrumentedTest {
                 input("Inbox IDs or Ethereum addresses, separated by commas", other.inboxId())
                 input("Name", "Scale proof group")
                 input("Description", "A real group for all screen bounds")
-                control(isToggleable())
+                control(isToggleable(), siblingLabel = "Admins only")
                 capture(Screen.CREATE)
                 control(click("Create")).performClick()
                 until("Create did not open the real timeline") {
