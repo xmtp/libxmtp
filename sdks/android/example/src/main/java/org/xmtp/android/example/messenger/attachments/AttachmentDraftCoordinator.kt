@@ -46,6 +46,7 @@ class AttachmentDraftCoordinator(
     internal var afterRecoverySnapshot: suspend () -> Unit = {}
     internal var afterDiscardDescriptorRead: suspend () -> Unit = {}
     internal var afterDiscardDelete: suspend () -> Unit = {}
+    internal var beforeUploadPhaseSave: suspend () -> Unit = {}
 
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
 
@@ -233,8 +234,12 @@ class AttachmentDraftCoordinator(
             remote = selected
             val pending = attachments.pending(selected)
             draft = draft.copy(phase = SendPhase.UPLOADING)
+            beforeUploadPhaseSave()
             checkCurrent()
-            check(save(draft, screenCurrent)) { "The session or screen changed" }
+            processMutex.withLock {
+                check(operationId(draftId) !in discarded) { "The draft was discarded" }
+                check(save(draft, screenCurrent)) { "The session or screen changed" }
+            }
             update(card(draft, remote, "Uploading", busy = true))
             pending.upload()
             // A cancelled waiter does not stop native transfer. Discard owns deletion.
@@ -358,7 +363,21 @@ class AttachmentDraftCoordinator(
                         preferences.drafts(key.profileId).filter {
                             it.descriptorSecretRef != null && it.acceptedMessageId == null
                         }
-                    if (latest.any { descriptor(it) == remote }) return@withLock
+                    var unreadableOwner = false
+                    for (candidate in latest) {
+                        val candidateRemote =
+                            try {
+                                descriptor(candidate)
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Throwable) {
+                                unreadableOwner = true
+                                null
+                            }
+                        if (candidateRemote == remote) return@withLock
+                    }
+                    // A damaged reference can still own this SDK record. Do not create a second owner.
+                    if (unreadableOwner) return@withLock
                     val id = UUID.randomUUID().toString()
                     val ref = "attachment-$id"
                     checkCurrent()
@@ -411,13 +430,16 @@ class AttachmentDraftCoordinator(
             val remote =
                 if (draft.acceptedMessageId == null && !draftNeedsReview(draft)) {
                     withContext(Dispatchers.IO) {
-                        draft.descriptorSecretRef
-                            ?.let {
-                                secrets.read(
-                                    key.profileId,
-                                    it,
-                                )
-                            }?.let(AttachmentDescriptor::decode)
+                        try {
+                            draft.descriptorSecretRef
+                                ?.let { secrets.read(key.profileId, it) }
+                                ?.let(AttachmentDescriptor::decode)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Throwable) {
+                            // Remove the damaged reference without guessing which SDK file it owns.
+                            null
+                        }
                     }
                 } else {
                     null
