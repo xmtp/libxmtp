@@ -16,6 +16,9 @@ Build tools use normal parallelism and preserve caller job settings.
 Gradle uses a 4 GiB heap for the combined SDK and example build.
 When `ANDROID_NDK_HOME` is set, all Android modules use that NDK path and its
 `Pkg.Revision` for native library stripping. Keep the path and version matched.
+`check` also runs `check-packages` on the debug and release AARs and example APKs.
+The artifact check rejects static symbol and debug sections and requires the
+dynamic symbol sections in every packaged SDK JNI library. It uses NDK `llvm-readelf`.
 The format recipe uses strict dependency verification and stops its Gradle daemon.
 The dependency locks include the pinned Spotless formatter graph.
 The config check tests settings service startup and clock failure before emulator tests.
@@ -24,6 +27,7 @@ The config check tests settings service startup and clock failure before emulato
 dev/nix-shell 'just android build'
 dev/nix-shell 'just android assemble'
 dev/nix-shell 'just android check'
+dev/nix-shell 'just android check-packages' # checks existing build outputs
 dev/nix-shell 'just android lint'
 dev/nix-shell 'just android format'
 dev/nix-shell 'just android test'
