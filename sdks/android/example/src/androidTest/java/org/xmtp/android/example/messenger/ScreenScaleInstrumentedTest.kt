@@ -93,8 +93,20 @@ class ScreenScaleInstrumentedTest {
     }
 
     private fun closeKeyboard() {
-        androidx.test.espresso.Espresso
-            .closeSoftKeyboard()
+        var visible = true
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            compose.runOnIdle {
+                visible = compose.activity.window.decorView.rootWindowInsets
+                    ?.isVisible(
+                        android.view.WindowInsets.Type
+                            .ime(),
+                    ) ?: true
+            }
+        }
+        if (visible) {
+            androidx.test.espresso.Espresso
+                .closeSoftKeyboard()
+        }
         compose.waitForIdle()
     }
 
@@ -107,13 +119,14 @@ class ScreenScaleInstrumentedTest {
     ): SemanticsNodeInteraction {
         closeKeyboard()
         val minimum = 48f * compose.activity.resources.displayMetrics.density
+        var searchBackwards = false
         repeat(24) {
             val node = compose.onAllNodes(matcher).fetchSemanticsNodes().singleOrNull()
             if (node != null) {
-                val bounds = node.boundsInRoot
+                val bounds = node.touchBoundsInRoot
                 if (bounds.width >= minimum - 1 && bounds.height >= minimum - 1) {
                     val control = compose.onNode(matcher)
-                    if (labelsFit(control, siblingLabel)) return control
+                    if (control.isDisplayed() && labelsFit(control, siblingLabel)) return control
                 }
             }
             val scrolling =
@@ -131,18 +144,87 @@ class ScreenScaleInstrumentedTest {
                     useUnmergedTree = true,
                 )
             val before = scroll.config[SemanticsProperties.VerticalScrollAxisRange].value()
-            val backwards = node != null && node.positionInRoot.y < scroll.boundsInRoot.top
+            val targetTop = node?.takeIf { it.boundsInRoot.width > 0 && it.boundsInRoot.height > 0 }?.positionInRoot?.y
+            val targetBottom = targetTop?.plus(checkNotNull(node).size.height)
+            val backwards = if (targetTop == null) searchBackwards else targetTop < scroll.boundsInRoot.top
+            val gap =
+                when {
+                    backwards && targetTop != null -> {
+                        scroll.boundsInRoot.top - targetTop
+                    }
+
+                    targetBottom != null && targetBottom > scroll.boundsInRoot.bottom -> {
+                        targetBottom -
+                            scroll.boundsInRoot.bottom
+                    }
+
+                    else -> {
+                        scroll.boundsInRoot.height * 0.2f
+                    }
+                }
+            val distance = (gap + 16f).coerceIn(32f, scroll.boundsInRoot.height * 0.25f)
             interaction.performTouchInput {
                 val x = width - 4f
-                val upper = height * 0.2f
-                val lower = height * 0.8f
-                swipe(Offset(x, if (backwards) upper else lower), Offset(x, if (backwards) lower else upper), 250)
+                val upper = height * 0.4f
+                val lower = upper + distance
+                swipe(Offset(x, if (backwards) upper else lower), Offset(x, if (backwards) lower else upper), 750)
             }
             compose.waitForIdle()
             val after = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+            val range = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+            val atEdge = if (backwards) before <= 0f else before >= range.maxValue()
+            if (before == after && atEdge) {
+                searchBackwards = !backwards
+                return@repeat
+            }
+            if (before == after) {
+                println(
+                    "SCALE_UNREACHABLE screen=${model.state.value.screen} matcher=$matcher " +
+                        "node=${node?.boundsInRoot} touch=${node?.touchBoundsInRoot} " +
+                        "sibling=$siblingLabel scroll=${scroll.boundsInRoot}",
+                )
+                if (siblingLabel != null) {
+                    compose.onAllNodes(hasText(siblingLabel), useUnmergedTree = true).fetchSemanticsNodes().forEach {
+                        println("SCALE_SIBLING bounds=${it.boundsInRoot} parent=${it.parent?.id}")
+                    }
+                }
+                saveMessengerScreenshot(
+                    compose.activity,
+                    "scale-unreachable-${model.state.value.screen.name.lowercase()}",
+                )
+            }
             assertNotEquals("Touch scrolling did not move ${model.state.value.screen}", before, after)
         }
-        fail("The action cannot be reached at 320 dp and 200% text: $matcher")
+        val finalNode = compose.onAllNodes(matcher).fetchSemanticsNodes().singleOrNull()
+        println(
+            "SCALE_LIMIT screen=${model.state.value.screen} matcher=${matcher.description} " +
+                "bounds=${finalNode?.boundsInRoot} touch=${finalNode?.touchBoundsInRoot}",
+        )
+        if (finalNode != null) {
+            val selected = SemanticsMatcher("final selected ${finalNode.id}") { it.id == finalNode.id }
+            compose
+                .onAllNodes(
+                    SemanticsMatcher.keyIsDefined(SemanticsProperties.Text) and (selected or hasAnyAncestor(selected)),
+                    useUnmergedTree = true,
+                ).fetchSemanticsNodes()
+                .forEach { caption ->
+                    val results = mutableListOf<TextLayoutResult>()
+                    compose.runOnIdle {
+                        caption.config
+                            .getOrNull(
+                                SemanticsActions.GetTextLayoutResult,
+                            )?.action
+                            ?.invoke(results)
+                    }
+                    println(
+                        "SCALE_LIMIT_CAPTION bounds=${caption.boundsInRoot} layouts=${results.map {
+                            it.layoutInput.text.text to it.size
+                        }}",
+                    )
+                }
+        }
+        saveMessengerScreenshot(compose.activity, "scale-unreachable-${model.state.value.screen.name.lowercase()}")
+        fail("The action cannot be reached at 320 dp and 200% text: ${matcher.description}")
         error("Unreachable")
     }
 
@@ -220,8 +302,38 @@ class ScreenScaleInstrumentedTest {
                 )
             }
             for (result in results) {
-                assertFalse("The text label is clipped: ${result.layoutInput.text.text}", result.didOverflowWidth)
+                val lineBounds =
+                    (0 until result.lineCount).map {
+                        "${result.getLineLeft(it)}..${result.getLineRight(it)}"
+                    }
+                val horizontalFit =
+                    (0 until result.lineCount).all {
+                        result.getLineLeft(it) >= -1 && result.getLineRight(it) <= result.size.width + 1
+                    }
+                if (!horizontalFit || result.didOverflowHeight) {
+                    println(
+                        "SCALE_CLIP text=${result.layoutInput.text.text} width=${result.didOverflowWidth} " +
+                            "height=${result.didOverflowHeight} size=${result.size} " +
+                            "constraints=${result.layoutInput.constraints} bounds=${caption.boundsInRoot} " +
+                            "paragraphWidth=${result.multiParagraph.width} lines=$lineBounds",
+                    )
+                    saveMessengerScreenshot(
+                        compose.activity,
+                        "scale-clipped-${model.state.value.screen.name.lowercase()}",
+                    )
+                }
+                assertTrue("The caption has no laid out line", result.lineCount > 0)
+                assertTrue("The text label is clipped: ${result.layoutInput.text.text}", horizontalFit)
                 assertFalse("The text label is clipped: ${result.layoutInput.text.text}", result.didOverflowHeight)
+                assertTrue(
+                    "The text label is clipped: ${result.layoutInput.text.text}",
+                    (0 until result.lineCount).none { result.isLineEllipsized(it) },
+                )
+                assertEquals(
+                    "The text label is clipped: ${result.layoutInput.text.text}",
+                    result.layoutInput.text.length,
+                    result.getLineEnd(result.lineCount - 1, visibleEnd = false),
+                )
                 if (result.size.width > caption.boundsInRoot.width + 1 ||
                     result.size.height > caption.boundsInRoot.height + 1
                 ) {
@@ -238,7 +350,7 @@ class ScreenScaleInstrumentedTest {
     ): SemanticsNodeInteraction {
         val result = reveal(matcher, siblingLabel)
         result.assertIsDisplayed()
-        val bounds = result.fetchSemanticsNode().boundsInRoot
+        val bounds = result.fetchSemanticsNode().touchBoundsInRoot
         val minimum = 48f * compose.activity.resources.displayMetrics.density
         assertTrue("The action is narrower than 48 dp", bounds.width >= minimum - 1)
         assertTrue("The action is shorter than 48 dp", bounds.height >= minimum - 1)
@@ -259,6 +371,19 @@ class ScreenScaleInstrumentedTest {
         assertEquals(screen, model.state.value.screen)
         saveMessengerScreenshot(compose.activity, "scale-${screen.name.lowercase()}")
         captured += screen
+    }
+
+    private fun recoveryChat(draft: String): SemanticsNodeInteraction {
+        val card = compose.onNodeWithTag("attachment-card-$draft").fetchSemanticsNode()
+        val siblings = checkNotNull(card.parent).children
+        val index = siblings.indexOfFirst { it.id == card.id }
+        assertTrue("The real recovery card has no parent position", index >= 0)
+        val next = siblings.drop(index + 1).firstOrNull()
+        assertNotNull("The staged recovery card has no View chat action", next)
+        val nextId = checkNotNull(next).id
+        return control(
+            click("View chat") and SemanticsMatcher("View chat after recovery card $draft") { it.id == nextId },
+        )
     }
 
     private suspend fun groupAction(
@@ -372,13 +497,22 @@ class ScreenScaleInstrumentedTest {
                     val prefix =
                         if (idValue in 49155..49157 || idValue in 64769..64770) "metadata-key-" else "metadata-value-"
                     control(hasTestTag("$prefix$idValue"))
+                    when (idValue) {
+                        49160, 64768 -> {
+                            control(hasTestTag("metadata-set-$idValue"))
+                        }
+
+                        64769 -> {
+                            control(hasTestTag("metadata-entry-value-$idValue"))
+                            control(hasTestTag("metadata-add-$idValue"))
+                            control(hasTestTag("metadata-update-$idValue"))
+                        }
+
+                        64770 -> {
+                            control(hasTestTag("metadata-add-$idValue"))
+                        }
+                    }
                 }
-                control(hasTestTag("metadata-set-49160"))
-                control(hasTestTag("metadata-set-64768"))
-                control(hasTestTag("metadata-entry-value-64769"))
-                control(hasTestTag("metadata-add-64769"))
-                control(hasTestTag("metadata-update-64769"))
-                control(hasTestTag("metadata-add-64770"))
                 capture(Screen.GROUP_FIELDS)
                 control(hasContentDescription("Back")).performClick()
                 until("Settings did not return from group fields") {
@@ -465,7 +599,7 @@ class ScreenScaleInstrumentedTest {
                         control(click("Retry publication") and hasAnyAncestor(hasTestTag(card)))
                         control(click("View chat") and hasAnyAncestor(hasTestTag(card)))
                     } else {
-                        control(click("Send file") and hasAnyAncestor(hasTestTag(card)))
+                        recoveryChat(draft)
                     }
                 }
                 capture(Screen.DRAFTS)
