@@ -58,8 +58,11 @@ strict dependency verification. The Android unit CI job also runs `assemble`.
 The pinned build uses AGP 8.10.1, Kotlin and its Compose compiler 2.2.20,
 Compose Multiplatform 1.8.2, and Gradle 8.11.1. Nix provides API 35 for all
 three modules. Keep the SDK minimum at API 23 and desugar_jdk_libs at 2.1.5.
-Refresh each resolved graph with `--write-locks --write-verification-metadata sha256`
+Refresh each resolved graph with `--refresh-dependencies --write-locks --write-verification-metadata sha256`
 in the Android Nix shell, then verify the normal strict build.
+Keep parent POM checksums even when the parent has no dependency lock entry.
+Check strict resolution with `--refresh-dependencies` to test fresh metadata.
+AGP updates also need the published Linux AAPT2 checksum for CI.
 
 `test-min-sdk` requires a Linux x86_64 runner. It loads release JNI and checks
 generated `Instant` and `Date` conversions on API 23. It also creates public
