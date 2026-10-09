@@ -180,6 +180,18 @@ class MetadataNavigationInstrumentedTest {
                 )
                 println("METADATA_UI event refreshed=Peer title")
 
+                input("metadata-value-64768", "First UI")
+                androidx.test.espresso.Espresso
+                    .closeSoftKeyboard()
+                compose.onNodeWithTag("metadata-set-64768").performScrollTo().performClick()
+                until {
+                    model.metadataState.value.fields
+                        .any { it.scalar == "First UI" && !it.canWrite }
+                }
+                compose.onNodeWithTag("metadata-value-64768").assertDoesNotExist()
+                other.sync()
+                assertEquals(MetadataValue.Scalar(FieldValue.String("First UI")), other.metadataValue(ref(0xfd00)))
+                other.updateUserData(listOf(UserFieldUpdate(ref(0xfd03), FieldValue.String("Peer first"))))
                 model.dispatch(MessengerAction.Navigate(Screen.CONVERSATION_SETTINGS))
                 until { model.state.value.screen == Screen.CONVERSATION_SETTINGS && !model.state.value.busy }
                 group.updateUserData(listOf(UserFieldUpdate(ref(0x800c), FieldValue.String("Old name"))))
@@ -189,6 +201,13 @@ class MetadataNavigationInstrumentedTest {
                         model.metadataState.value.fields
                             .any { it.id.componentId == 0xc006.toUShort() }
                 }
+                until {
+                    model.metadataState.value.fields.any {
+                        it.id.componentId == 0xfd03.toUShort() && it.componentPresent && !it.canWrite
+                    }
+                }
+                compose.onNodeWithTag("metadata-fields").performScrollToNode(hasTestTag("metadata-field-64771"))
+                compose.onNodeWithTag("metadata-value-64771").assertDoesNotExist()
                 compose.onNodeWithTag("metadata-fields").performScrollToNode(hasTestTag("metadata-value-49158"))
                 compose.onNodeWithTag("metadata-value-49158").performTextReplacement("UI own note")
                 group.updateUserData(listOf(UserFieldUpdate(ref(0x800c), FieldValue.String("New name"))))

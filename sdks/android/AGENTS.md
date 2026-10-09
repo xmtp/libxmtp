@@ -39,6 +39,7 @@ dev/nix-shell 'just android example-test-release-integration'
 dev/nix-shell 'just android example-support-fixture'
 dev/nix-shell 'just android metadata-fixture-test'
 dev/nix-shell 'just android metadata-fixture-smoke'
+dev/nix-shell 'just android metadata-fixture-create-test'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
@@ -198,3 +199,8 @@ message reader fails with `XmtpException.ConsumerOwned`. Explicit `from` cursors
 permit independent replay/live readers that do not advance default progress. Use the
 generated reader options for scopes, filters, and replay. Keep typed errors and
 `ULong` values.
+
+`metadata-fixture-create-test` needs the current PostgreSQL service. It sends
+SIGINT and SIGTERM after a real CREATE commits but before its command returns.
+It also checks a committed CREATE with a failed command result. It verifies and
+removes only each run's exact UUID database. This does not use an emulator.

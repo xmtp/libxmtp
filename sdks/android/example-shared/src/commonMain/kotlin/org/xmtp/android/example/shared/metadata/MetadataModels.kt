@@ -22,7 +22,11 @@ data class FieldUi(
     val editable: Boolean = true,
     val unsupportedTag: Int? = null,
     val userField: Boolean = false,
-)
+    val immutable: Boolean = false,
+    val componentPresent: Boolean = present,
+) {
+    val canWrite: Boolean get() = editable && (!immutable || !componentPresent)
+}
 
 data class MemberFields(
     val inboxId: String,
@@ -74,7 +78,7 @@ data class OwnFieldDraft(
 
     fun merge(fields: List<FieldUi>): OwnFieldDraft {
         val fresh =
-            fields.filter { it.userField && it.editable }.associate {
+            fields.filter { it.userField && it.canWrite }.associate {
                 it.id to if (it.present) it.scalar else null
             }
         val nextBaseline = mutableMapOf<FieldUiId, String?>()

@@ -68,6 +68,10 @@ _metadata-backend:
 metadata-fixture-smoke: _metadata-backend
   {{ _env }} && python3.11 -B example/fixtures/metadata_backend.py --backend '{{ root }}/sdks/android/.build/metadata-backend/bin/xmtp-backend' -- true
 
+# Check actual PostgreSQL CREATE interruption and uncertain command outcomes.
+metadata-fixture-create-test: _metadata-backend
+  {{ _env }} && python3.11 -B example/fixtures/test_metadata_create.py --backend '{{ root }}/sdks/android/.build/metadata-backend/bin/xmtp-backend'
+
 # Check owned database and process cleanup with local stubs.
 metadata-fixture-test:
   python3.11 -B example/fixtures/test_metadata_backend.py

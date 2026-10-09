@@ -79,3 +79,43 @@ update_policy = "allow_if_admin"
 delete_policy = "allow_if_admin"
 in_groups = true
 in_dms = false
+
+[[application_components]]
+component_id = 64768
+name = "EXAMPLE_IMMUTABLE_TITLE"
+component_type = "string"
+insert_policy = "allow"
+update_policy = "allow"
+delete_policy = "allow"
+in_groups = true
+in_dms = false
+
+[[application_components]]
+component_id = 64769
+name = "EXAMPLE_IMMUTABLE_MAP"
+component_type = "tls_map_bytes_bytes"
+insert_policy = "allow"
+update_policy = "allow"
+delete_policy = "allow"
+in_groups = true
+in_dms = false
+
+[[application_components]]
+component_id = 64770
+name = "EXAMPLE_IMMUTABLE_SET"
+component_type = "tls_set_bytes"
+insert_policy = "allow"
+update_policy = "allow"
+delete_policy = "allow"
+in_groups = true
+in_dms = false
+
+[[application_components]]
+component_id = 64771
+name = "USER_EXAMPLE_IMMUTABLE_NOTE"
+component_type = "tls_map_inbox_id_string"
+insert_policy = "allow_if_self_or_non_member"
+update_policy = "allow_if_self_or_non_member"
+delete_policy = "allow_if_self_or_non_member"
+in_groups = true
+in_dms = true
