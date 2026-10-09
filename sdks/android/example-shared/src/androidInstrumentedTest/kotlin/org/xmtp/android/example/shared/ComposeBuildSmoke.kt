@@ -1,13 +1,10 @@
-package org.xmtp.android.example
+package org.xmtp.android.example.shared
 
 import androidx.compose.runtime.Composable
-import org.xmtp.android.example.shared.BuildSmokeAction
-import org.xmtp.android.example.shared.BuildSmokeScreen
-import org.xmtp.android.example.shared.BuildSmokeState
 import uniffi.xmtp_sdk.SDKClient
 import uniffi.xmtp_sdk.inboxId
 
-/** Compile the public SDK to shared UI boundary before the entry point changes. */
+/** Compile the public SDK to shared UI boundary in the Android test target. */
 @Composable
 internal fun ComposeBuildSmoke(
     client: SDKClient,

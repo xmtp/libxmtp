@@ -53,7 +53,10 @@ verification metadata cover the final resolved graph.
 
 The example keeps API 27 as its minimum and JVM 17. `:example-shared` has an
 Android KMP target. Compose UI goes in `commonMain`; SDK and Android objects
-stay in the host. `assemble` compiles that target and the existing app with
+stay in the host. The shared module's Android instrumented test source set has
+a positive SDK/UI compile fixture. Its SDK dependency is test only. The example
+keeps its legacy runtime graph until the real UI is connected.
+`assemble` compiles the shared target and test APK, existing app, and app test APK with
 strict dependency verification. The Android unit CI job also runs `assemble`.
 The pinned build uses AGP 8.10.1, Kotlin and its Compose compiler 2.2.20,
 Compose Multiplatform 1.8.2, and Gradle 8.11.1. Nix provides API 35 for all
