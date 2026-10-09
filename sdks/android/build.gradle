@@ -18,6 +18,20 @@ group = "org.xmtp"
 subprojects {
     apply plugin: 'com.diffplug.spotless'
 
+    // Use the NDK supplied by Nix for native library stripping.
+    def nixNdk = System.getenv("ANDROID_NDK_HOME")
+    if (nixNdk) {
+        def ndkProperties = new Properties()
+        file("${nixNdk}/source.properties").withInputStream { ndkProperties.load(it) }
+        ['com.android.application', 'com.android.library'].each { pluginId ->
+            plugins.withId(pluginId) {
+                def android = extensions.getByName("android")
+                android.ndkPath = nixNdk
+                android.ndkVersion = ndkProperties.getProperty("Pkg.Revision")
+            }
+        }
+    }
+
     dependencyLocking {
         lockAllConfigurations()
         lockMode = org.gradle.api.artifacts.dsl.LockMode.STRICT

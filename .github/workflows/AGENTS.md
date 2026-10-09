@@ -2,6 +2,9 @@
 
 Validate workflow edits with `dev/nix-shell 'just lint-config'`.
 
+The Android SDK compile check uses a fresh `GRADLE_USER_HOME` in `runner.temp`.
+Keep its full build and test scope. A warm transform cache can hide heap failures.
+
 SDK release tags use `GH_APP_ID` and `GH_APP_PK` for the release App.
 The App installation must grant Contents write and Workflows write.
 App tokens are available only in isolated permission and tag push jobs.

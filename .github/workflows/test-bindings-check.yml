@@ -51,7 +51,6 @@ jobs:
     - uses: ./.github/actions/setup-nix
       with:
         disk-key: android
-        gradle-disk: 'true'
         github-token: ${{ github.token }}
         cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
         kache: 'true'
@@ -59,6 +58,9 @@ jobs:
     - name: Start backend
       run: dev/nix-shell 'just backend up'
     - name: Check Android SDK compile
+      # A fresh Gradle cache must pass the full build and test check.
+      env:
+        GRADLE_USER_HOME: ${{ runner.temp }}/android-sdk-gradle-check
       run: dev/nix-shell 'just android check'
     if: inputs.run-android
   result:

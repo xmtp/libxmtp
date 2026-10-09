@@ -13,6 +13,9 @@ directory.
 
 Run from the repository root. Each recipe uses the Android Nix shell.
 Build tools use normal parallelism and preserve caller job settings.
+Gradle uses a 4 GiB heap for the combined SDK and example build.
+When `ANDROID_NDK_HOME` is set, all Android modules use that NDK path and its
+`Pkg.Revision` for native library stripping. Keep the path and version matched.
 The format recipe uses strict dependency verification and stops its Gradle daemon.
 The dependency locks include the pinned Spotless formatter graph.
 The config check tests settings service startup and clock failure before emulator tests.
