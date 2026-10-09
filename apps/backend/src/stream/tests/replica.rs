@@ -3,10 +3,10 @@ use crate::test_support as support;
 use crate::{
     api::{self, subscribe_response::Response as Frame},
     config::Config,
-    server,
+    stream::StreamHub,
 };
 use support::{
-    TestServer,
+    RunningServer, TestDatabase, TestServer,
     native::{Native, envelope},
     replica::with_paused_replay,
 };
@@ -14,6 +14,10 @@ use tonic::Code;
 
 static REPLAY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const DEFAULT_REPLICA_PORT: u16 = 55433;
+const PAUSED_STARTUP_OBSERVATION: xmtp_common::time::Duration =
+    xmtp_common::time::Duration::from_secs(1);
+const STARTUP_AFTER_REPLAY_TIMEOUT: xmtp_common::time::Duration =
+    xmtp_common::time::Duration::from_secs(5);
 
 fn replica(config: &mut Config) {
     let mut url = url::Url::parse(&config.database.url).unwrap();
@@ -72,11 +76,17 @@ async fn startup_waits_for_its_boundary_to_reach_the_selected_replica() {
     let _replay = REPLAY.lock().await;
     let first = TestServer::new(replica).await?;
     let read = first.backend.store.read.clone();
-    let initialization = with_paused_replay(&read, async {
+    let config = (*first.backend.config).clone();
+    // Schema replay has already completed; isolate the tailer's boundary wait.
+    let mut initialization = std::pin::pin!(StreamHub::start(
+        first.backend.store.primary.clone(),
+        read.clone(),
+        &config,
+    ));
+    with_paused_replay(&read, async {
+        wait_for_replay_pause(&read).await?;
         first.publish(vec![envelope(22, 1)]).await?;
-        let config = (*first.backend.config).clone();
-        let initialization = tokio::spawn(server::initialize(config));
-        xmtp_common::wait_for_eq(
+        let advanced = xmtp_common::wait_for_eq(
             || async {
                 sqlx::query_scalar!(
                     "SELECT closed_sequence_id FROM allocation_boundary WHERE singleton"
@@ -86,17 +96,124 @@ async fn startup_waits_for_its_boundary_to_reach_the_selected_replica() {
                 .unwrap()
             },
             1,
-        )
-        .await?;
-        assert!(!initialization.is_finished());
-        Ok(initialization)
+        );
+        tokio::select! {
+            result = &mut initialization => {
+                let streams = result?;
+                streams.stop();
+                panic!("stream recovery completed before its boundary reached the replica");
+            }
+            result = advanced => result?,
+        }
+        match xmtp_common::time::timeout(PAUSED_STARTUP_OBSERVATION, &mut initialization).await {
+            Err(_) => {}
+            Ok(result) => {
+                let streams = result?;
+                streams.stop();
+                panic!("stream recovery completed while its boundary was absent on the replica");
+            }
+        }
+        Ok(())
     })
     .await?;
-    let backend =
-        xmtp_common::time::timeout(xmtp_common::time::Duration::from_secs(5), initialization)
-            .await???;
-    drop(backend);
+    let streams =
+        xmtp_common::time::timeout(STARTUP_AFTER_REPLAY_TIMEOUT, initialization).await??;
+    streams.stop();
+    drop(streams);
     first.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-005
+async fn startup_waits_for_fresh_schema_to_reach_the_selected_replica() {
+    let _replay = REPLAY.lock().await;
+    let mut database = TestDatabase::new()?;
+    let mut config: Config = toml::from_str(&format!(
+        "[database]\nurl = {:?}\n[server]\nidentifier = {:?}",
+        database.url(),
+        support::DEFAULT_TEST_IDENTIFIER,
+    ))?;
+    replica(&mut config);
+    let primary = sqlx::PgPool::connect(database.url()).await?;
+    // Let CREATE DATABASE reach the replica, but apply no backend migrations yet.
+    let read_url = config.database.replica_url.as_ref().unwrap();
+    let read = xmtp_common::wait_for_ok(|| sqlx::PgPool::connect(read_url)).await?;
+    assert!(!allocation_schema_exists(&read).await?);
+    let mut initialization = std::pin::pin!(RunningServer::new(config));
+    with_paused_replay(&read, async {
+        wait_for_replay_pause(&read).await?;
+        let migrated = xmtp_common::wait_for_eq(
+            || async { allocation_schema_exists(&primary).await.unwrap() },
+            true,
+        );
+        tokio::select! {
+            result = &mut initialization => {
+                let mut server = result?;
+                server.stop().await?;
+                panic!("backend initialized before its schema reached the replica");
+            }
+            result = migrated => result?,
+        }
+        assert!(!allocation_schema_exists(&read).await?);
+        // Poll startup long enough to expose the old missing-table failure.
+        match xmtp_common::time::timeout(PAUSED_STARTUP_OBSERVATION, &mut initialization).await {
+            Err(_) => {}
+            Ok(result) => {
+                let mut server = result?;
+                server.stop().await?;
+                panic!("backend initialized while replica replay was paused before migration");
+            }
+        }
+        Ok(())
+    })
+    .await?;
+    let mut server =
+        xmtp_common::time::timeout(STARTUP_AFTER_REPLAY_TIMEOUT, initialization).await??;
+    assert!(
+        sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe("SELECT pg_is_in_recovery()"))
+            .fetch_one(&server.backend.store.read)
+            .await?,
+        "startup must retain the selected replica for reads",
+    );
+    let meta = server.publish(vec![envelope(26, 1)]).await?.remove(0);
+    let response = server
+        .query()
+        .query(api::QueryRequest {
+            queries: vec![support::query_topic(meta.topic.clone().unwrap(), 0)],
+            limit: 1,
+        })
+        .await?
+        .into_inner();
+    assert_eq!(response.envelopes.len(), 1);
+    server.stop().await?;
+    primary.close().await;
+    read.close().await;
+    database.remove()?;
+}
+
+async fn allocation_schema_exists(pool: &sqlx::PgPool) -> support::TestResult<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe(
+        "SELECT to_regclass('public.allocation_boundary') IS NOT NULL",
+    ))
+    .fetch_one(pool)
+    .await?)
+}
+
+async fn wait_for_replay_pause(read: &sqlx::PgPool) -> support::TestResult {
+    // A pause request can return before WAL replay actually stops.
+    xmtp_common::wait_for_eq(
+        || async {
+            sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe(
+                "SELECT pg_get_wal_replay_pause_state() = 'paused'",
+            ))
+            .fetch_one(read)
+            .await
+            .unwrap()
+        },
+        true,
+    )
+    .await?;
+    Ok(())
 }
 
 #[xmtp_common::test(unwrap_try = true)]

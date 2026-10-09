@@ -19,6 +19,9 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
 
 - Do not enable full Nix build logs by default in CI. For explicit debugging, run `nix log <drv-path>` or add `--print-build-logs` to a manual `nix build` command.
 - Pass JavaScript shard flags directly to the `just` recipe. An extra `--` is forwarded to Vitest and prevents sharding.
+- Failed Compose startup retains project logs and container state in
+  `$RUNNER_TEMP/backend-startup-logs`. The Android SDK check uploads these for
+  7 days; retain the same directory when adding diagnostics to other callers.
 
 - The iOS jobs and `test-swift-lifecycle.yml` use disposable native
   services through `dev/nix-shell 'just backend ci COMMAND'`. Each job creates

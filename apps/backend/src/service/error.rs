@@ -25,7 +25,9 @@ impl From<Error> for Status {
             {
                 Some(DbErrorKind::Timeout)
             }
-            Error::Database(sqlx::Error::PoolTimedOut) => Some(DbErrorKind::Timeout),
+            Error::Database(sqlx::Error::PoolTimedOut) | Error::StartupBoundaryTimeout { .. } => {
+                Some(DbErrorKind::Timeout)
+            }
             Error::Invariant(_) | Error::PushExpiryOverflow => Some(DbErrorKind::Invariant),
             Error::Database(sqlx::Error::Database(db))
                 if matches!(db.code().as_deref(), Some("23505" | "23514" | "22003")) =>
@@ -48,6 +50,9 @@ impl From<Error> for Status {
             telemetry::db_error(kind);
         }
         match &error {
+            Error::StartupBoundaryTimeout { .. } => {
+                Self::deadline_exceeded("startup allocation-boundary read timed out")
+            }
             Error::AttachmentSigning(
                 xmtp_attachments_server::SignError::CredentialsUnavailable,
             ) => Self::unavailable("storage credentials unavailable"),

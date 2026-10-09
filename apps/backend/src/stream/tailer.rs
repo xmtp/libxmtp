@@ -12,11 +12,19 @@ use std::{collections::BTreeMap, sync::Arc};
 use tokio::{sync::Notify, task::JoinHandle};
 use tonic::Status;
 use tracing::Instrument;
-use xmtp_common::time::{Duration, Instant, sleep};
+use xmtp_common::{
+    ExponentialBackoff, Retry, RetryableError,
+    time::{Duration, Instant, sleep, timeout},
+};
 
 const GAP_BATCH: usize = 128;
 const GAP_ROWS: i64 = 64;
 const FORWARD_ROWS: i64 = 1_024;
+const STARTUP_SCHEMA_BUDGET: Duration = Duration::from_secs(10);
+const STARTUP_SCHEMA_RETRY_DELAY: Duration = Duration::from_millis(100);
+const STARTUP_SCHEMA_RETRY_JITTER: Duration = Duration::from_millis(25);
+// The hard deadline expires before this attempt ceiling or the strategy's cap.
+const STARTUP_SCHEMA_MAX_RETRIES: usize = 200;
 
 #[cfg(test)]
 mod tests;
@@ -47,7 +55,15 @@ pub(super) async fn start(
     let max_gaps = config.streams.max_gap_ranges;
     let statement_ms = config.database.max_statement_timeout_ms;
     telemetry::tailer_restarted();
-    let first = bootstrap(&primary, &read, wait, interval, statement_ms).await?;
+    let first = bootstrap(
+        &primary,
+        &read,
+        wait,
+        interval,
+        statement_ms,
+        Some(STARTUP_SCHEMA_BUDGET),
+    )
+    .await?;
     registry.ready();
     Ok(tokio::spawn(async move {
         let mut initial = first;
@@ -84,7 +100,8 @@ pub(super) async fn start(
             maintenance.notify_one();
             loop {
                 sleep(interval).await;
-                if let Ok(boundary) = bootstrap(&primary, &read, wait, interval, statement_ms).await
+                if let Ok(boundary) =
+                    bootstrap(&primary, &read, wait, interval, statement_ms, None).await
                 {
                     initial = boundary;
                     break;
@@ -96,7 +113,9 @@ pub(super) async fn start(
 }
 
 /// Establish a new closed boundary and wait for its visibility on the selected
-/// database. No subscriptions may start during this wait.
+/// database. Initial startup alone retries an absent fresh schema. A visible
+/// boundary still waits for its value without a deadline, as does recovery.
+/// No subscriptions may start during these waits.
 #[xmtp_common::span(prefix = "tailer")]
 async fn bootstrap(
     primary: &PgPool,
@@ -104,6 +123,7 @@ async fn bootstrap(
     wait: u64,
     interval: Duration,
     statement_ms: u64,
+    mut startup_budget: Option<Duration>,
 ) -> Result<Recovery, Error> {
     let (boundary, last_attempt) = loop {
         let attempt = Instant::now();
@@ -114,9 +134,10 @@ async fn bootstrap(
     };
     let mut connection = db::dedicated_read(read, statement_ms).await?;
     loop {
-        let mut tx = db::stream::snapshot_connection(&mut connection).await?;
-        let visible = db::stream::boundary(&mut tx).await?;
-        tx.commit().await?;
+        let visible = match startup_budget.take() {
+            Some(budget) => startup_boundary(&mut connection, budget).await?,
+            None => boundary_snapshot(&mut connection).await?,
+        };
         if visible >= boundary {
             return Ok(Recovery {
                 boundary,
@@ -125,6 +146,63 @@ async fn bootstrap(
             });
         }
         sleep(interval).await;
+    }
+}
+
+/// Read a boundary in a fresh transaction, including after a failed attempt.
+/// Dropping an errored or cancelled transaction queues its rollback before reuse.
+async fn boundary_snapshot(connection: &mut sqlx::PgConnection) -> Result<i64, Error> {
+    let mut tx = db::stream::snapshot_connection(connection).await?;
+    let visible = db::stream::boundary(&mut tx).await?;
+    tx.commit().await?;
+    Ok(visible)
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+struct StartupBoundaryError(Error);
+
+impl RetryableError for StartupBoundaryError {
+    fn is_retryable(&self) -> bool {
+        matches!(&self.0, Error::Database(sqlx::Error::Database(error))
+            if error.code().as_deref() == Some("42P01"))
+    }
+}
+
+/// Bound missing-table retries for the first startup boundary snapshot.
+/// Each attempt begins a new transaction; other errors retain their typed cause.
+/// Success proves the current fresh schema exists, not that later migrations
+/// have replayed on an already initialized replica. Cancellation stops retries.
+async fn startup_boundary(
+    connection: &mut sqlx::PgConnection,
+    budget: Duration,
+) -> Result<i64, Error> {
+    let retry = Retry::builder()
+        .retries(STARTUP_SCHEMA_MAX_RETRIES)
+        .with_strategy(
+            ExponentialBackoff::builder()
+                .duration(STARTUP_SCHEMA_RETRY_DELAY)
+                .multiplier(1)
+                .max_jitter(STARTUP_SCHEMA_RETRY_JITTER)
+                .build(),
+        )
+        .build();
+    match timeout(budget, async {
+        xmtp_common::retry_async!(
+            retry,
+            (async {
+                boundary_snapshot(connection)
+                    .await
+                    .map_err(StartupBoundaryError)
+            })
+        )
+    })
+    .await
+    {
+        Ok(result) => result.map_err(|error| error.0),
+        Err(_) => Err(Error::StartupBoundaryTimeout {
+            timeout_ms: budget.as_millis().try_into().unwrap_or(u64::MAX),
+        }),
     }
 }
 

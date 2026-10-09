@@ -60,6 +60,14 @@ jobs:
       run: dev/nix-shell 'just backend up'
     - name: Check Android SDK compile
       run: dev/nix-shell 'just android check'
+    - name: Retain backend startup diagnostics
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: android-check-backend-startup-logs
+        path: ${{ runner.temp }}/backend-startup-logs
+        if-no-files-found: ignore
+        retention-days: 7
     if: inputs.run-android
   result:
     if: always()
