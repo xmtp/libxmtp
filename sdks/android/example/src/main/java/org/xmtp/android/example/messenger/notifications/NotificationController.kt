@@ -396,26 +396,23 @@ class NotificationController(
         pendingPrivacyWrites.decrementAndGet()
     }
 
+    // Caller cancellation stops await. The owner child keeps pending until it ends.
     internal suspend fun <T> withPrivacyMutation(
         owner: ActiveSession,
+        kind: String = "sdk",
+        admit: (() -> Unit) -> Boolean = { change -> session.admit(owner.key, change) },
         block: suspend () -> T,
-    ): T? {
-        if (session.withCurrent(owner.key) {
-                beginPrivacyWrite()
-                true
-            } != true
-        ) {
-            return null
-        }
-        return try {
-            withContext(NonCancellable) {
-                beforePrivacyWrite("sdk")
-                block()
-            }
-        } finally {
-            endPrivacyWrite()
-        }
-    }
+    ): T? =
+        owner.work
+            .async {
+                if (!admit { beginPrivacyWrite() }) return@async null
+                try {
+                    beforePrivacyWrite(kind)
+                    block()
+                } finally {
+                    endPrivacyWrite()
+                }
+            }.await()
 
     suspend fun setEnabled(
         owner: ActiveSession,
@@ -464,21 +461,16 @@ class NotificationController(
         if (!configured || !admit {}) return
         beforeConversationPreferenceLookup(owner, conversation)
         val key = logicalConversationKey(conversation, owner.client.inboxId())
-        if (!admit { beginPrivacyWrite() }) return
-        try {
-            withContext(NonCancellable) {
-                beforePrivacyWrite("conversation")
+        val changed =
+            withPrivacyMutation(owner, "conversation", admit) {
                 beforeConversationNotificationWrite(conversation)
                 conversation.setNotifications(
                     if (enabled) NotificationOverride.ENABLED else NotificationOverride.DISABLED,
                 )
-                if (!session.accepts(owner.key)) return@withContext
-                if (!preferences.setMuted(owner.key.profileId, key, !enabled, admit)) return@withContext
-            }
-            reconcile(owner)
-        } finally {
-            endPrivacyWrite()
-        }
+                if (!session.accepts(owner.key)) return@withPrivacyMutation false
+                preferences.setMuted(owner.key.profileId, key, !enabled, admit)
+            } == true
+        if (changed) reconcile(owner)
     }
 
     private suspend fun reconcile(owner: ActiveSession) =
