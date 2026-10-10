@@ -235,6 +235,91 @@ class AttachmentRecoveryRaceInstrumentedTest {
             }
         }
 
+    @Test fun publishedDraftCannotReturnThroughAnOldRecoverySnapshot() =
+        runBlocking<Unit> {
+            val fixture = AttachmentTestFixture()
+            val releases = mutableListOf<CompletableDeferred<Unit>>()
+            try {
+                withTimeout(90_000) {
+                    fixture.start()
+                    val publishedIds = mutableListOf<MessageId>()
+                    for (publicationOnly in listOf(false, true)) {
+                        val bytes = "published snapshot $publicationOnly".toByteArray()
+                        val pending =
+                            fixture.client.attachments().create(
+                                AttachmentSource.Bytes(bytes, "published.txt", "text/plain"),
+                            )
+                        pending.upload()
+                        val remote = pending.remoteAttachment()
+                        val nativeFile = File(fixture.client.attachments().localPath(remote))
+                        val selected = fixture.save(remote)
+                        val accepted =
+                            if (publicationOnly) {
+                                val id = fixture.group.sendRemoteAttachment(remote, SendOptions(optimistic = true))
+                                val ref =
+                                    selected.copy(
+                                        acceptedMessageId = id,
+                                        phase = org.xmtp.android.example.messenger.SendPhase.ACCEPTED,
+                                    )
+                                fixture.preferences.saveDraft(fixture.profile.id, ref)
+                                fixture.secrets.delete(fixture.profile.id, checkNotNull(ref.descriptorSecretRef))
+                                id
+                            } else {
+                                null
+                            }
+                        val entered = CompletableDeferred<Unit>()
+                        val release = CompletableDeferred<Unit>().also { releases += it }
+                        val recovery = fixture.coordinator()
+                        recovery.afterRecoverySnapshot = {
+                            entered.complete(Unit)
+                            release.await()
+                        }
+                        val recovering = async { recovery.recover() }
+                        withTimeout(30_000) { entered.await() }
+                        val publisher = fixture.coordinator()
+                        if (publicationOnly) {
+                            publisher.retryPublication(selected.draftId, fixture.group) { }
+                        } else {
+                            publisher.send(selected.draftId, fixture.group) { }
+                        }
+                        val messages = fixture.group.messages(null)
+                        val id = accepted ?: messages.single().id
+                        publishedIds += id
+                        assertEquals(publishedIds.toSet(), messages.map { it.id }.toSet())
+                        assertTrue(messages.all { it.deliveryStatus == DeliveryStatus.PUBLISHED })
+                        assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
+                        assertNull(fixture.secrets.read(fixture.profile.id, checkNotNull(selected.descriptorSecretRef)))
+                        assertArrayEquals(bytes, nativeFile.readBytes())
+                        assertTrue(
+                            fixture.client
+                                .attachments()
+                                .listPending()
+                                .isEmpty(),
+                        )
+                        release.complete(Unit)
+                        recovering.await()
+                        assertTrue(
+                            "Old recovery cannot restore a published draft card: retry=$publicationOnly",
+                            recovery.cards.value.isEmpty(),
+                        )
+                        assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
+                        assertEquals(
+                            publishedIds.toSet(),
+                            fixture.group
+                                .messages(null)
+                                .map { it.id }
+                                .toSet(),
+                        )
+                        assertEquals(0, publisher.retainedDiscardMarkers())
+                    }
+                    println("$proofPrefix stage=published-snapshot send=true accepted-retry=true no-card-revival=true")
+                }
+            } finally {
+                releases.forEach { it.complete(Unit) }
+                fixture.close()
+            }
+        }
+
     @Test fun damagedDescriptorDoesNotBlockHealthyActionsOrGuessOrphanOwnership() =
         runBlocking<Unit> {
             val fixture = AttachmentTestFixture()

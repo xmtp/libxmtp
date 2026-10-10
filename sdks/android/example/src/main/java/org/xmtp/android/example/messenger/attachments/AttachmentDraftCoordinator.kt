@@ -90,6 +90,13 @@ class AttachmentDraftCoordinator(
         }
     }
 
+    private suspend fun updateRecovered(
+        draft: SendDraftRef,
+        card: AttachmentCardState,
+    ) {
+        preferences.admitDraftSnapshot(key.profileId, draft) { update(card) }
+    }
+
     private suspend fun descriptor(draft: SendDraftRef): RemoteAttachment =
         withContext(Dispatchers.IO) {
             val ref = checkNotNull(draft.descriptorSecretRef)
@@ -361,17 +368,21 @@ class AttachmentDraftCoordinator(
                     var remote: RemoteAttachment? = null
                     try {
                         if (draft.acceptedMessageId != null) {
-                            update(card(draft, null, "Message accepted. Retry publication in the chat."))
+                            updateRecovered(
+                                draft,
+                                card(draft, null, "Message accepted. Retry publication in the chat."),
+                            )
                             continue
                         }
                         remote = descriptor(draft)
                         known += remote
                         if (draftNeedsReview(draft)) {
-                            update(card(draft, remote, "Review send outcome"))
+                            updateRecovered(draft, card(draft, remote, "Review send outcome"))
                         } else {
                             val status = attachments.pending(remote).status()
                             checkCurrent()
-                            update(
+                            updateRecovered(
+                                draft,
                                 card(
                                     draft,
                                     remote,
@@ -388,7 +399,8 @@ class AttachmentDraftCoordinator(
                     } catch (
                         error: Throwable,
                     ) {
-                        update(
+                        updateRecovered(
+                            draft,
                             card(
                                 draft,
                                 remote,

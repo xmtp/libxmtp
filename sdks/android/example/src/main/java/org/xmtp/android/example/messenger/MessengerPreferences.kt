@@ -332,8 +332,8 @@ class MessengerPreferences internal constructor(
         position = true,
     )
 
-    suspend fun drafts(profile: String): List<SendDraftRef> {
-        val array = JSONArray(get("$profile/drafts") ?: "[]")
+    private fun draftEntries(encoded: String?): List<SendDraftRef> {
+        val array = JSONArray(encoded ?: "[]")
         return (
             0 until
                 array
@@ -360,6 +360,19 @@ class MessengerPreferences internal constructor(
                             ),
                     )
                 }
+        }
+    }
+
+    suspend fun drafts(profile: String): List<SendDraftRef> = draftEntries(get("$profile/drafts"))
+
+    // The callback is synchronous. It must not read storage or call the SDK.
+    internal suspend fun admitDraftSnapshot(
+        profile: String,
+        snapshot: SendDraftRef,
+        change: () -> Unit,
+    ) {
+        store.edit { values ->
+            if (snapshot in draftEntries(values[stringPreferencesKey("$profile/drafts")])) change()
         }
     }
 
@@ -445,18 +458,7 @@ class MessengerPreferences internal constructor(
             beforeDraftAdmission()
             accepted =
                 admit {
-                    val array = JSONArray(values[stringPreferencesKey("$profile/drafts")] ?: "[]")
-                    val entries =
-                        (0 until array.length()).map { index ->
-                            val item = array.getJSONObject(index)
-                            SendDraftRef(
-                                item.getString("id"),
-                                item.getString("conversation"),
-                                item.optString("secret").takeIf(String::isNotEmpty),
-                                item.optString("accepted").takeIf(String::isNotEmpty),
-                                SendPhase.valueOf(item.getString("phase")),
-                            )
-                        }
+                    val entries = draftEntries(values[stringPreferencesKey("$profile/drafts")])
                     val updated = JSONArray()
                     transform(entries).forEach {
                         updated.put(
