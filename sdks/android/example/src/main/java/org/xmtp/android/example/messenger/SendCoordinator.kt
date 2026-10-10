@@ -36,16 +36,13 @@ class SendCoordinator(
 
     fun knowsAccepted(id: String) = knownAcceptances.containsKey(id)
 
-    suspend fun recoverAccepted(
-        key: SessionKey,
-        client: SDKClient,
-    ) {
+    suspend fun recoverAccepted(key: SessionKey) {
         for ((draftId, entry) in knownAcceptances.entries.toList()) {
             if (entry.profile != key.profileId || isInFlight(draftId)) continue
             if (!accepts(key)) return
-            val retained = messageRead(client, entry.commit.messageId)
+            val drafts = preferences.drafts(key.profileId)
             if (!accepts(key)) return
-            if (retained == null || preferences.drafts(key.profileId).none { it.draftId == draftId }) {
+            if (drafts.none { it.draftId == draftId }) {
                 knownAcceptances.remove(draftId, entry)
                 continue
             }

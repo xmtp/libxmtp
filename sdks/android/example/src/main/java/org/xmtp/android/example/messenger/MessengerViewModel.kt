@@ -900,7 +900,7 @@ class MessengerViewModel(
     }
 
     private suspend fun refreshUnknown(owner: ActiveSession) {
-        sends.recoverAccepted(owner.key, owner.client)
+        sends.recoverAccepted(owner.key)
         val unknown =
             session.preferences
                 .drafts(
