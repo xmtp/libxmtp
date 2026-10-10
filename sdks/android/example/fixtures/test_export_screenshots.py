@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Check the actual private export and integration command with host processes."""
+
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import export_screenshots as proof
+
+ROOT = Path(__file__).resolve().parents[4]
+PNG = proof.PNG + b"fixture image"
+
+
+class ScreenshotExportTest(unittest.TestCase):
+    def test_only_named_fixture_files_are_exported_then_private_files_are_removed(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as home:
+            output = Path(home)
+            (output / "setup.png").write_bytes(b"old screenshot")
+            (output / "unrelated.txt").write_text("keep")
+
+            def owned(serial, *arguments):
+                calls.append(arguments)
+                if arguments[0] == "sh":
+                    return b"scale-start.png\n"
+                return PNG if arguments[0] == "head" else b""
+
+            with patch.object(proof, "owned", side_effect=owned):
+                self.assertEqual(1, proof.export("emulator-fixture", output))
+            self.assertEqual(PNG, (output / "scale-start.png").read_bytes())
+            self.assertFalse((output / "setup.png").exists())
+            self.assertEqual("keep", (output / "unrelated.txt").read_text())
+            self.assertEqual(
+                (
+                    "head",
+                    "-c",
+                    str(proof.LIMIT + 1),
+                    "files/xmtp-messenger-proof/scale-start.png",
+                ),
+                calls[1],
+            )
+            self.assertEqual(("rm", "-rf", "files/xmtp-messenger-proof"), calls[-1])
+
+    def test_unknown_filename_is_never_read_or_exported(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as home:
+
+            def owned(serial, *arguments):
+                calls.append(arguments)
+                return b"profile.json\n" if arguments[0] == "sh" else PNG
+
+            with patch.object(proof, "owned", side_effect=owned):
+                with self.assertRaisesRegex(ValueError, "Unknown or duplicate"):
+                    proof.export("emulator-fixture", Path(home))
+            self.assertFalse(any(call[0] == "head" for call in calls))
+            self.assertFalse((Path(home) / "profile.json").exists())
+            self.assertEqual(("rm", "-rf", proof.PRIVATE), calls[-1])
+
+    def test_invalid_png_fails_and_still_cleans_owned_files(self):
+        for image in (b"not PNG", PNG + bytes(proof.LIMIT)):
+            with self.subTest(size=len(image)), tempfile.TemporaryDirectory() as home:
+                calls = []
+
+                def owned(serial, *arguments):
+                    calls.append(arguments)
+                    return b"scale-start.png\n" if arguments[0] == "sh" else image
+
+                with patch.object(proof, "owned", side_effect=owned):
+                    with self.assertRaisesRegex(ValueError, "Invalid fixture PNG"):
+                        proof.export("emulator-fixture", Path(home))
+                self.assertEqual(("rm", "-rf", proof.PRIVATE), calls[-1])
+
+    def test_read_failure_survives_cleanup_failure_and_cleanup_is_attempted(self):
+        first = OSError("fixture read failed")
+        calls = []
+        with tempfile.TemporaryDirectory() as home:
+
+            def owned(serial, *arguments):
+                calls.append(arguments)
+                if arguments[0] == "sh":
+                    return b"scale-start.png\n"
+                raise (
+                    first
+                    if arguments[0] == "head"
+                    else RuntimeError("fixture cleanup failed")
+                )
+
+            with patch.object(proof, "owned", side_effect=owned):
+                with self.assertRaises(OSError) as failure:
+                    proof.export("emulator-fixture", Path(home))
+            self.assertIs(first, failure.exception)
+            self.assertEqual(("rm", "-rf", proof.PRIVATE), calls[-1])
+            self.assertIn("RuntimeError", first.__notes__[0])
+
+    def test_actual_recipe_retains_private_artifacts_for_export_then_removes_them(self):
+        recipe = (ROOT / "sdks/android/android.just").read_text()
+        line = next(
+            line
+            for line in recipe.splitlines()
+            if "example/fixtures/metadata_backend.py" in line and "bash -euc" in line
+        )
+        body = line.split("bash -euc '", 1)[1].removesuffix("'")
+        with tempfile.TemporaryDirectory() as home:
+            fixture = Path(home)
+            android = fixture / "android"
+            binaries = fixture / "bin"
+            binaries.mkdir()
+            private = fixture / "private"
+            private.mkdir()
+            (private / "scale-start.png").write_bytes(PNG)
+            installed = fixture / "installed"
+            installed.touch()
+            scripts = android / "example/fixtures"
+            scripts.mkdir(parents=True)
+            shutil.copyfile(Path(proof.__file__), scripts / "export_screenshots.py")
+            gradle = android / "gradlew"
+            gradle.write_text(
+                f"#!{sys.executable}\n"
+                + """import os, pathlib, shutil, sys
+home = pathlib.Path(os.environ["SCREENSHOT_FIXTURE_HOME"])
+if "-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true" not in sys.argv:
+    (home / "installed").unlink()
+    shutil.rmtree(home / "private")
+sys.exit(int(os.environ.get("FIXTURE_TEST_STATUS", "0")))
+"""
+            )
+            gradle.chmod(0o755)
+            adb = binaries / "adb"
+            adb.write_text(
+                f"#!{sys.executable}\n"
+                + """import os, pathlib, shutil, sys
+home = pathlib.Path(os.environ["SCREENSHOT_FIXTURE_HOME"])
+args = sys.argv[3:]
+if args[0] == "reverse": sys.exit(0)
+assert args[:3] == ["exec-out", "run-as", "org.xmtp.android.example"]
+if not (home / "installed").exists(): sys.exit(1)
+args = args[3:]
+if args[0] == "sh":
+    print("\\n".join(path.name for path in (home / "private").iterdir()))
+elif args[0] == "head":
+    assert args[3].startswith("files/xmtp-messenger-proof/")
+    sys.stdout.buffer.write((home / "private" / pathlib.Path(args[3]).name).read_bytes())
+elif args == ["rm", "-rf", "files/xmtp-messenger-proof"]:
+    shutil.rmtree(home / "private")
+else: raise AssertionError(args)
+"""
+            )
+            adb.chmod(0o755)
+            environment = dict(
+                os.environ,
+                SCREENSHOT_FIXTURE_HOME=home,
+                PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                ANDROID_SERIAL="emulator-fixture",
+            )
+            for key in (
+                "XMTP_METADATA_BACKEND_PORT",
+                "XMTP_BACKEND_PORT",
+                "XMTP_S3_PORT",
+                "XMTP_ANDROID_S3_GATE_PORT",
+                "XMTP_TOXIPROXY_PORT",
+                "XMTP_TOXIPROXY_API_PORT",
+                "XMTP_ANDROID_UNSUPPORTED_BACKEND_PORT",
+            ):
+                environment[key] = "1234"
+            for key in (
+                "XMTP_METADATA_BACKEND_URL",
+                "XMTP_BACKEND_TOXIC_URL",
+                "XMTP_TOXIPROXY_API",
+                "XMTP_ANDROID_UNSUPPORTED_BACKEND_URL",
+            ):
+                environment[key] = "http://127.0.0.1:1234"
+            command = body.replace("{{ root }}", home).replace("{{ args }}", "")
+            output = fixture / "sdks/android/example/build/screenshots/scale-start.png"
+            for status, image in (
+                (0, PNG),
+                (7, PNG),
+                (7, b"invalid PNG"),
+                (0, b"invalid PNG"),
+            ):
+                with self.subTest(test_status=status, valid=image == PNG):
+                    private.mkdir(exist_ok=True)
+                    (private / "scale-start.png").write_bytes(image)
+                    installed.touch()
+                    environment["FIXTURE_TEST_STATUS"] = str(status)
+                    result = subprocess.run(
+                        ["bash", "-euc", command],
+                        cwd=android,
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                        timeout=10,
+                    )
+                    expected = status if status else 0 if image == PNG else 1
+                    self.assertEqual(
+                        expected, result.returncode, result.stdout + result.stderr
+                    )
+                    if image == PNG:
+                        self.assertEqual(PNG, output.read_bytes())
+                    else:
+                        self.assertFalse(output.exists())
+                    self.assertFalse(
+                        private.exists(), "Owned private screenshot survived export"
+                    )
+
+
+if __name__ == "__main__":
+    unittest.main()
