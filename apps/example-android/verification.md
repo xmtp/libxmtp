@@ -325,3 +325,40 @@ no shared proxy mutation occurred.
 Post-push parent repairs can advance F. Final parent sync and a fresh integration
 review remain open before PR submission. Full Linux performance and real
 Firebase delivery remain pending; this checkpoint claims neither result.
+
+## Relocation submission proof, 2026-10-10
+
+The move consumes pushed F `27ca931436cd1aa68134986c67184791397399ac`.
+The tested G source is `f06e99a220d5779331a35cdbdb96655934fc80d1`.
+All 158 Android host and shared source files match F byte for byte, with no
+missing or extra source. Fixture and performance scripts retain the parent
+behavior after their root, recipe, and output paths change.
+
+| Check | Result and scope |
+| --- | --- |
+| Strict app builds | Debug, release, shared UI, test APK, and build-only Firebase graph pass. |
+| Host tests | 70 tests pass in each app variant; zero failures, errors, or skips. |
+| Native packages | Both SDK AARs and both app APKs pass JNI stripping for all four ABIs with matched S source `11c39dc2` and release contract `e6e65a3d`. |
+| Configuration | 133 actual host cases pass, including eight moved selection/path cases and seven private-export fixtures. |
+| Failure controls | Missing APK retention, an old export path, and a column listing each fail at an intended assertion with zero test errors; restored selection/path cases pass. Earlier routing, package, and XML controls remain retained. |
+| Moved native boundary | 16 cases pass on the owned ARM64 API 34 emulator. They cover launch, sessions, metadata, recovery, rollback, accepted-ID commit, password input, state reads, scale, and the attachment card. |
+| Private export | Ten actual PNG files export and decode at 320×640. Nine are scale screens. The owned private proof directory is removed. No public image is added. |
+| Actual CREATE interruption | SIGINT, SIGTERM, and uncertain command result each remove their exact committed fixture database. |
+| Cleanup | The owned emulator home, fixture containers/network, and exact catalogue/CREATE databases are absent. The S3 gate is removed. The full proxy JSON is unchanged, with zero shared writes. |
+
+Native XML, PNG hashes, CREATE results, and cleanup proof are retained in
+`.cache/relocation/27ca-native-results`. Live process IDs were not captured;
+the post-cleanup process scan found no owned wrapper, emulator, or metadata
+backend. Source maps, host XML, and control logs remain under
+`.cache/relocation/`.
+
+Fresh independent review is required before first submission. Current-head
+Linux performance and CI remain separate pending gates. The earlier F635
+measurement pass is not a result for this source. Real Firebase delivery and
+manual TalkBack remain unverified.
+
+Lower-stack round40 repairs are pending for accepted-ID recovery when lookup
+returns null and for test flag restoration when scale setup throws. The two
+product decisions about mixed pending display and a proposed SDK attachment
+download policy remain open. They do not change this relocation's published
+interfaces or establish that the full stack is ready.
