@@ -44,14 +44,23 @@ def stop(process):
     if process is None:
         return
     try:
+        if os.getpgid(process.pid) != process.pid:
+            raise ValueError("The fixture process does not own its process group.")
+    except ProcessLookupError:
+        pass
+    try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
     try:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired:
+        pass
+    try:
         os.killpg(process.pid, signal.SIGKILL)
-        process.wait(timeout=5)
+    except ProcessLookupError:
+        pass
+    process.wait(timeout=5)
 
 
 @contextmanager
