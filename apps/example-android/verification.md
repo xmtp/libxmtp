@@ -357,8 +357,25 @@ Linux performance and CI remain separate pending gates. The earlier F635
 measurement pass is not a result for this source. Real Firebase delivery and
 manual TalkBack remain unverified.
 
-Lower-stack round40 repairs are pending for accepted-ID recovery when lookup
-returns null and for test flag restoration when scale setup throws. The two
-product decisions about mixed pending display and a proposed SDK attachment
-download policy remain open. They do not change this relocation's published
-interfaces or establish that the full stack is ready.
+The two product decisions about mixed pending display and a proposed SDK
+attachment download policy remain open. They do not change this relocation's
+published interfaces or establish that the full stack is ready.
+
+## Parent and routing update, 2026-10-10
+
+G now consumes pushed F `2d6d16c0cf5155e506d6855e385613f92199facf`.
+All 158 moved source files match this parent. Its four-file delta carries the
+accepted-ID recovery fix, its native test, the mapped caller, and the scale
+setup flag fix. SDK source `11c39dc2` and release contract `e6e65a3d` are unchanged.
+The strict moved build and both 70-case host variants pass on this source.
+The parent has native two-case failure/restoration proof for the accepted-ID
+fix and causal resource proof for the scale flag fix. The earlier moved
+16-case runtime and fresh relocation review remain scoped to F27ca.
+
+Round41 finding `PRRT_kwDOI5fJCc6rCjoE` is confirmed at G042556 and on the
+rebased source. SDK Gradle properties and wrapper files were unknown inputs,
+so the selector enabled every gate. The shared Android input filter now
+includes the SDK Gradle tree, root properties, and wrapper scripts. Nine
+selector/path tests verify Android and app compatibility selection without
+unrelated platform jobs. The old filter causes seven intended assertion
+failures with zero test errors; the restored filter passes all nine cases.

@@ -138,6 +138,39 @@ class SelectionTest(unittest.TestCase):
                 ):
                     self.assertTrue(result["checks"][check], check)
 
+    def test_sdk_gradle_inputs_select_only_android_compatibility(self):
+        for path in (
+            "sdks/android/gradle/toolchain.properties",
+            "sdks/android/gradle/wrapper/gradle-wrapper.properties",
+            "sdks/android/gradle/wrapper/gradle-wrapper.jar",
+            "sdks/android/gradle/verification-metadata.xml",
+            "sdks/android/gradle/android-ndk.gradle",
+            "sdks/android/gradle.properties",
+            "sdks/android/gradlew",
+            "sdks/android/gradlew.bat",
+        ):
+            with self.subTest(path=path):
+                result = select([path])
+                self.assert_app(result)
+                for check in (
+                    "lint_android",
+                    "test_android",
+                    "test_android_consumers",
+                    "test_android_platform",
+                    "test_sdk_staging",
+                    "check_bindings_android",
+                ):
+                    self.assertTrue(result["checks"][check], check)
+                for check in (
+                    "check_rust",
+                    "test_workspace",
+                    "test_node",
+                    "test_browser",
+                    "test_ios",
+                    "check_bindings_ios",
+                ):
+                    self.assertFalse(result["checks"][check], check)
+
     def test_mixed_changes_keep_sdk_platform_checks(self):
         result = select(
             [
