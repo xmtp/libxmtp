@@ -13,7 +13,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.ExampleApp
+import org.xmtp.android.example.messenger.metadata.MetadataEditorController
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.metadata.*
 import uniffi.xmtp_sdk.*
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
@@ -37,6 +39,19 @@ class MessengerViewModel(
             session::accepts,
             session::admit,
         )
+    private val metadataUi = MutableStateFlow(MetadataEditorState())
+    val metadataState: StateFlow<MetadataEditorState> = metadataUi
+    private val metadataMutex = Mutex()
+
+    private data class MetadataBinding(
+        val key: SessionKey,
+        val token: Long,
+        val conversationId: String,
+        val controller: MetadataEditorController,
+    )
+
+    @Volatile private var metadataBinding: MetadataBinding? = null
+    private var metadataJob: Job? = null
     private val reads = Semaphore(4)
     private val projection = Mutex()
     private val cache =
@@ -113,7 +128,10 @@ class MessengerViewModel(
         }
         viewModelScope.launch {
             session.active.collect { owner ->
-                synchronized(screenLock) { screenCounter.incrementAndGet() }
+                synchronized(screenLock) {
+                    screenCounter.incrementAndGet()
+                    clearMetadata()
+                }
                 conversation = null
                 logicalKey = null
                 cache
@@ -137,6 +155,7 @@ class MessengerViewModel(
                                         screen = Screen.CONVERSATIONS,
                                         backend = owner.profile.backend,
                                         inbox = inbox,
+                                        features = FeatureAvailability(metadata = true),
                                     )
                                 projection.withLock {
                                     beforeActiveRefresh(owner)
@@ -876,6 +895,7 @@ class MessengerViewModel(
     private fun navigate(screen: Screen) {
         synchronized(screenLock) {
             screenCounter.incrementAndGet()
+            clearMetadata()
             atNewest = false
             ui.update { currentUi ->
                 currentUi.copy(
@@ -885,7 +905,7 @@ class MessengerViewModel(
             }
         }
         if (screen == Screen.CONVERSATIONS || screen ==
-            Screen.CONVERSATION_SETTINGS
+            Screen.CONVERSATION_SETTINGS || screen == Screen.GROUP_FIELDS || screen == Screen.MY_FIELDS
         ) {
             dispatch(
                 MessengerAction.Refresh,
@@ -965,6 +985,7 @@ class MessengerViewModel(
                 )
             }
         }
+        refreshMetadata(owner)
         featureRefresh(
             owner,
             conversation,
@@ -1842,6 +1863,68 @@ class MessengerViewModel(
                 ui.update { currentUi -> currentUi.copy(settings = settings) }
             }
         }
+    }
+
+    private fun clearMetadata() {
+        metadataJob?.cancel()
+        metadataJob = null
+        metadataBinding = null
+        metadataUi.value = MetadataEditorState(busy = true)
+    }
+
+    private suspend fun refreshMetadata(owner: ActiveSession) {
+        if (!viewModelScope.isActive || ui.value.screen !in listOf(Screen.GROUP_FIELDS, Screen.MY_FIELDS)) return
+        val chat = conversation ?: return
+        val token = screenGeneration
+        owner.work
+            .async {
+                metadataMutex.withLock {
+                    if (!valid(owner, token)) return@withLock
+                    try {
+                        var binding = metadataBinding
+                        if (binding?.key != owner.key ||
+                            binding.token != token || binding.conversationId != chat.id()
+                        ) {
+                            val offered = reads.withPermit { owner.client.serverConfiguration().applicationComponents }
+                            if (!valid(owner, token)) return@withLock
+                            val controller =
+                                MetadataEditorController(chat, owner.client.inboxId(), {
+                                    val current = viewModelScope.isActive && acceptsScreen(owner.key, token)
+                                    current && conversation?.id() == chat.id()
+                                }, offered, reads)
+                            binding = MetadataBinding(owner.key, token, chat.id(), controller)
+                            onCurrentScreen(owner, token) {
+                                metadataBinding = binding
+                                metadataJob?.cancel()
+                                metadataJob =
+                                    viewModelScope.launch {
+                                        controller.state.collect { state ->
+                                            onCurrentScreen(owner, token) { metadataUi.value = state }
+                                        }
+                                    }
+                            }
+                        }
+                        binding.controller.refresh()
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                        onCurrentScreen(owner, token) {
+                            metadataUi.value =
+                                metadataUi.value.copy(
+                                    busy = false,
+                                    error = "${error.javaClass.simpleName}: ${error.message ?: error}",
+                                )
+                        }
+                    }
+                }
+            }.await()
+    }
+
+    fun editMetadata(edit: MetadataEdit) {
+        if (!viewModelScope.isActive) return
+        val binding = metadataBinding ?: return
+        val owner = session.active.value ?: return
+        if (!acceptsScreen(binding.key, binding.token) || owner.key != binding.key) return
+        owner.work.launch { binding.controller.edit(edit) }
     }
 
     fun currentConversation(): Conversation? = conversation
