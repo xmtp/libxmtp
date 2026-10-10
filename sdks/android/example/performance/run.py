@@ -132,6 +132,7 @@ def execute(output, label, backend):
             "rm",
             "-f",
             "files/messenger-performance/result.json",
+            "files/messenger-performance/measurement-progress.jsonl",
         ],
         check=False,
         capture_output=True,
@@ -159,7 +160,14 @@ def execute(output, label, backend):
             for line in logcat.stdout:
                 device_log.write(line)
                 device_log.flush()
-                if "MESSENGER_PERFORMANCE_SEED" in line:
+                if any(
+                    marker in line
+                    for marker in (
+                        "MESSENGER_PERFORMANCE_SEED",
+                        "MESSENGER_PERFORMANCE_READY",
+                        "MESSENGER_PERFORMANCE_MEASUREMENT",
+                    )
+                ):
                     print(line.rstrip(), flush=True)
 
         reader = threading.Thread(target=record_progress, daemon=True)
@@ -176,7 +184,7 @@ def execute(output, label, backend):
     connected = ANDROID / "example/build/outputs/androidTest-results/connected"
     if connected.exists():
         shutil.copytree(connected, output / f"{label}-connected", dirs_exist_ok=True)
-    for name in ("seed-progress", "readiness-progress"):
+    for name in ("seed-progress", "readiness-progress", "measurement-progress"):
         progress = subprocess.run(
             [
                 "adb",

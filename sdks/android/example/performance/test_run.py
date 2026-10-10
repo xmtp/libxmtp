@@ -118,9 +118,12 @@ class PerformanceGateTest(unittest.TestCase):
 
 
 class DeviceInvocationTest(unittest.TestCase):
-    def test_failed_device_run_retains_seed_and_readiness_progress(self):
+    def test_failed_device_run_retains_seed_readiness_and_measurement_progress(self):
         progress = '{"group":0,"expectedPublished":256,"status":"failed"}\n'
         readiness = '{"phase":"restored-owner","event":"failed","failureClass":"TimeoutCancellationException"}\n'
+        measurement = (
+            '{"run":5,"olderMs":468.4,"olderSdkMs":465.0,"olderMappingMs":3.0}\n'
+        )
 
         def execute_process(arguments, **options):
             if arguments[0] != "adb":
@@ -129,6 +132,12 @@ class DeviceInvocationTest(unittest.TestCase):
                 return subprocess.CompletedProcess(arguments, 0, stdout=progress)
             if arguments[-1] == "files/messenger-performance/readiness-progress.jsonl":
                 return subprocess.CompletedProcess(arguments, 0, stdout=readiness)
+            if (
+                arguments[-1]
+                == "files/messenger-performance/measurement-progress.jsonl"
+                and "cat" in arguments
+            ):
+                return subprocess.CompletedProcess(arguments, 0, stdout=measurement)
             return subprocess.CompletedProcess(arguments, 1, stdout="")
 
         with tempfile.TemporaryDirectory() as directory:
@@ -151,6 +160,9 @@ class DeviceInvocationTest(unittest.TestCase):
             )
             self.assertEqual(
                 readiness, (output / "green-readiness-progress.jsonl").read_text()
+            )
+            self.assertEqual(
+                measurement, (output / "green-measurement-progress.jsonl").read_text()
             )
 
     def test_every_pass_retains_the_installed_app_for_result_and_dataset_reuse(self):

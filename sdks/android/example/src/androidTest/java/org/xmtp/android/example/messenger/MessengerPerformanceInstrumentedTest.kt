@@ -34,6 +34,7 @@ class MessengerPerformanceInstrumentedTest {
     private val manifest get() = File(root, "workload.json")
     private val seedProgress get() = File(root, "seed-progress.jsonl")
     private val readinessProgress get() = File(root, "readiness-progress.jsonl")
+    private val measurementProgress get() = File(root, "measurement-progress.jsonl")
     private val secrets by lazy { SecureSecretStore(context) }
 
     private fun recordReadiness(
@@ -444,19 +445,32 @@ class MessengerPerformanceInstrumentedTest {
                 val olderSamples = mutableListOf<Double>()
                 val listSamples = mutableListOf<Double>()
                 val tieRuns = JSONArray()
+                measurementProgress.writeText("")
                 var run = 0
                 while (firstSamples.size < 30 && run < 200) {
                     lateinit var first: HistoryWindow<Message>
+                    var firstSdkMs = 0.0
+                    var firstMappingMs = 0.0
                     val firstMs =
                         measured {
+                            val queryStarted = SystemClock.elapsedRealtimeNanos()
                             first = viewModel.performancePage(heavy, null)
+                            val mappingStarted = SystemClock.elapsedRealtimeNanos()
+                            firstSdkMs = (mappingStarted - queryStarted) / 1_000_000.0
                             first.rows.map { it.toRow(own) }
+                            firstMappingMs = (SystemClock.elapsedRealtimeNanos() - mappingStarted) / 1_000_000.0
                         }
                     lateinit var older: HistoryWindow<Message>
+                    var olderSdkMs = 0.0
+                    var olderMappingMs = 0.0
                     val olderMs =
                         measured {
+                            val queryStarted = SystemClock.elapsedRealtimeNanos()
                             older = viewModel.performancePage(heavy, checkNotNull(first.last))
+                            val mappingStarted = SystemClock.elapsedRealtimeNanos()
+                            olderSdkMs = (mappingStarted - queryStarted) / 1_000_000.0
                             older.rows.map { it.toRow(own) }
+                            olderMappingMs = (SystemClock.elapsedRealtimeNanos() - mappingStarted) / 1_000_000.0
                         }
                     assertNull(first.notice)
                     assertNull(older.notice)
@@ -473,6 +487,24 @@ class MessengerPerformanceInstrumentedTest {
                                 },
                             )
                         }
+                    val measurement =
+                        JSONObject()
+                            .put("run", run)
+                            .put("warmup", run < 5)
+                            .put("firstRows", first.rows.size)
+                            .put("olderRows", older.rows.size)
+                            .put("olderBoundaryUsed", first.last != null)
+                            .put("firstMs", firstMs)
+                            .put("firstSdkMs", firstSdkMs)
+                            .put("firstMappingMs", firstMappingMs)
+                            .put("olderMs", olderMs)
+                            .put("olderSdkMs", olderSdkMs)
+                            .put("olderMappingMs", olderMappingMs)
+                            .put("listMs", listMs)
+                            .put("transcriptSample", run >= 5 && first.rows.size == 50 && older.rows.size == 50)
+                            .put("listSample", run >= 5 && listSamples.size < 30)
+                    measurementProgress.appendText("$measurement\n")
+                    println("MESSENGER_PERFORMANCE_MEASUREMENT $measurement")
                     // Record nonordinary pages separately from the required 50-row samples.
                     if (first.rows.size != 50 || older.rows.size != 50) {
                         tieRuns.put(

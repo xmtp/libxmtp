@@ -46,6 +46,14 @@ row counts, state flags and exception classes. It excludes error messages,
 credentials, keys, payloads and profile identifiers. Failed runs retain this
 file beside the seed progress. A readiness timeout is not a measured budget result.
 
+`measurement-progress.jsonl` records each warmup and measured iteration. It
+separates the actual SDK page call from row mapping and retains the original
+overall durations. Row counts, opaque-boundary use and sample flags are recorded;
+message bodies, IDs and keys are excluded. Records are written after the timers.
+The original five warmups, thirty ordinary samples and every budget still apply.
+Segment timings diagnose the original gate; they cannot replace its overall
+durations or exclude SDK work. Failed runs retain this file for attribution.
+
 Fixture preparation uses public Welcome and group sync calls. It also drains
 fixture texts through the public sequential Flow before normal AppSession
 restore. The test observes the complete production app callback after reopen.
