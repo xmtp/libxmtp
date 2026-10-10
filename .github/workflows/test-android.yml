@@ -264,7 +264,6 @@ jobs:
           target/sdk-packages/android/xmtp-sdk.aar
           target/sdk-packages/android/sdk-contract.json
   messenger-performance:
-    if: inputs.run-platform
     name: Messenger local query and heap budgets (API 34 x86_64)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 240
@@ -306,7 +305,7 @@ jobs:
           sdks/android/example/build/outputs/androidTest-results/connected/
           ${{ runner.temp }}/messenger-performance-emulator/
   results:
-    name: Require selected Android checks
+    name: Require Android checks
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 1
     if: always()
@@ -314,9 +313,10 @@ jobs:
     - unit-tests
     - min-sdk-smoke
     - integration-tests
+    - check-android
+    - android-stage
     - messenger-performance
     steps:
     - env:
-        PASSED: ${{ (!(inputs.run-unit || inputs.run-consumers) || needs.unit-tests.result == 'success') && (!inputs.run-platform ||
-          (needs.min-sdk-smoke.result == 'success' && needs.integration-tests.result == 'success' && needs.messenger-performance.result == 'success')) }}
+        PASSED: ${{ needs.unit-tests.result == 'success' && needs.min-sdk-smoke.result == 'success' && needs.integration-tests.result == 'success' && needs.check-android.result == 'success' && needs.android-stage.result == 'success' && needs.messenger-performance.result == 'success' }}
       run: test "$PASSED" = true
