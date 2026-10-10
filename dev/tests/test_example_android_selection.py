@@ -356,7 +356,12 @@ class CommandPathTest(unittest.TestCase):
             fixture = root / "apps/example-android/fixtures/metadata_backend.py"
             fixture.parent.mkdir(parents=True, exist_ok=True)
             fixture.write_text(
-                "import subprocess,sys\nassert sys.argv[1] == '--backend'\nassert '/apps/example-android/.build/metadata-backend/' in sys.argv[2]\nassert sys.argv[3] == '--'\nsys.exit(subprocess.call(sys.argv[4:]))\n"
+                "import os,subprocess,sys\nassert sys.argv[1] == '--backend'\nassert '/apps/example-android/.build/metadata-backend/' in sys.argv[2]\nassert sys.argv[3] == '--'\nsys.exit(subprocess.call(sys.argv[4:], env=dict(os.environ, FIXTURE_ADMITTED='true')))\n"
+            )
+            admission = root / "apps/example-android/performance/target.py"
+            admission.parent.mkdir(parents=True, exist_ok=True)
+            admission.write_text(
+                "import os\nassert os.environ.get('FIXTURE_ADMITTED') == 'true'\nwith open(os.environ['STAGE_LOG'], 'a') as stream: stream.write('admission\\n')\n"
             )
             executable(
                 "apps/example-android/gradlew",
@@ -430,6 +435,7 @@ class CommandPathTest(unittest.TestCase):
             self.assertIn(
                 "metadataBackendUrl=http://127.0.0.1:15151", commands[2]["args"]
             )
+            self.assertIn("metadataBackendOwned=true", commands[2]["args"])
             self.assertIn(
                 "android.injected.androidTest.leaveApksInstalledAfterRun=true",
                 commands[2]["args"],
@@ -455,6 +461,7 @@ class CommandPathTest(unittest.TestCase):
             self.assertNotIn("/sdcard/", screenshot_calls)
             self.assertFalse((root / "sdks/android/app").exists())
             self.assertEqual((root / "stages.txt").read_text().count("bindings\n"), 4)
+            self.assertEqual((root / "stages.txt").read_text().count("admission\n"), 1)
 
 
 if __name__ == "__main__":

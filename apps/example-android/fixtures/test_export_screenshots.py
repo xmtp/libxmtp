@@ -244,7 +244,7 @@ class ScreenshotExportTest(unittest.TestCase):
             scripts = android / "fixtures"
             scripts.mkdir(parents=True)
             shutil.copyfile(Path(proof.__file__), scripts / "export_screenshots.py")
-            admission = android / "example/performance"
+            admission = android / "performance"
             admission.mkdir(parents=True)
             (admission / "target.py").write_text(
                 "import os, sys\nsys.exit(0 if os.environ.get('FIXTURE_ADMITTED') == 'true' else 12)\n"

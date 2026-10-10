@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 import yaml
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class BenchmarkPolicyTest(unittest.TestCase):
@@ -36,7 +36,7 @@ class BenchmarkPolicyTest(unittest.TestCase):
         benchmark = manual["jobs"]["messenger-performance"]
         self.assertEqual("blacksmith-16vcpu-ubuntu-2404", benchmark["runs-on"])
         commands = [step.get("run", "") for step in benchmark["steps"]]
-        self.assertIn("dev/nix-shell 'just android example-performance'", commands)
+        self.assertIn("dev/nix-shell 'just example-android performance'", commands)
         self.assertFalse(
             any(
                 "example-performance" in step.get("run", "")

@@ -76,6 +76,9 @@ the same time. Caller environment values can select an existing stack.
 The recipe also starts a catalogue backend with its own database and listeners.
 The Android shell supplies the pinned PostgreSQL client and health probe. The
 fixture passes `metadataBackendUrl` to instrumentation and forwards that port.
+The route checks the private lease with `performance/target.py` before Gradle
+starts and passes `metadataBackendOwned=true`. Group settings tests accept only
+that owned loopback target. Keep both admission checks after a source move.
 It keeps shared backend URLs for the other tests. It removes only its database
 and process groups on success, failure or cancellation. Set
 `XMTP_METADATA_LOG_DIR` to retain backend logs at a selected path. The local
@@ -103,6 +106,8 @@ eviction and requires its named assertion to fail. It restores the same source
 and measures the same dataset again. Seed progress and `seedMs` stay in the
 proof logs. The fixed job timeout is provisional until measured seed progress
 sets the final limit. Host validator tests also run under `lint-config`.
+`performance-check` selects the default Nix shell for its YAML policy tests.
+It starts no backend, device, or SDK build.
 Seed checkpoints use one `workload-seed-progress.jsonl` artifact. Each pass records
 its workload identity and whether it reused an existing manifest. Do not present
 retained seed checkpoints as a new per-pass seed.
