@@ -20,6 +20,17 @@ class MessengerRaceInstrumentedTest {
 
     private suspend fun until(check: () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
 
+    private suspend fun until(
+        stage: String,
+        check: () -> Boolean,
+    ) {
+        try {
+            until(check)
+        } catch (error: TimeoutCancellationException) {
+            throw AssertionError("Stage: $stage", error)
+        }
+    }
+
     private suspend fun connect(): ActiveSession {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
@@ -37,8 +48,8 @@ class MessengerRaceInstrumentedTest {
     private suspend fun cleanup() =
         withContext(NonCancellable) {
             model.lookupConversation = { owner, id -> owner.client.conversations.getById(id) }
-            model.historyRead = { chat, options -> chat.messages(options) }
-            model.historyCount = { chat, options -> chat.countMessages(options) }
+            model.historyPageRead = { chat, options, before, after -> chat.historyPage(options, before, after) }
+            model.onOpenFinished = {}
             if (model.session.active.value != null) model.session.deleteAccount()
             model.session.signOut()
             AndroidStreamLifecycle.enabled = true
@@ -110,76 +121,175 @@ class MessengerRaceInstrumentedTest {
             }
         }
 
-    @Test fun restoredWindowUsesRawCoverageAndStopsAtUnretainedTie() =
+    @Test fun sdkRawContinuationReachesReadableRowsAfterAnEmptyPrefix() =
         runBlocking {
             try {
                 val owner = connect()
-                // Isolate this history read from unrelated refresh signals.
                 model.session.onInvalidated = {}
                 model.session.onMessage = { _, _ -> }
-                val group = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "Restore"))
-                val templateId = group.sendText("template")
-                val template = checkNotNull(owner.client.conversations.getMessageById(templateId))
-                var rawSize = 501
-
-                fun records() =
-                    (0 until rawSize).map { index ->
-                        Message(
-                            template.data.copy(
-                                id = index.toString(16).padStart(64, '0'),
-                                sentAt = Timestamp(10),
-                                insertedAt = Timestamp(index.toLong()),
-                            ),
-                        )
-                    }
-                model.historyRead = { chat, options ->
-                    if (chat.id() != group.id()) {
-                        chat.messages(options)
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Raw coverage"),
+                    )
+                val ids = (0 until 250).map { group.sendText("Raw $it", SendOptions(optimistic = true)) }
+                group.publishMessages()
+                assertEquals(250uL, group.countMessages(publishedSelection()))
+                val missing = ids.takeLast(200).toSet()
+                val calls =
+                    java.util.concurrent.atomic
+                        .AtomicInteger()
+                model.historyPageRead = { chat, options, before, after ->
+                    val page = chat.historyPage(options, before, after)
+                    if (chat.id() != group.id() || options.limit != 50u) {
+                        page
                     } else {
-                        records()
-                            .filter { options.sentBefore == null || it.sentAt.ns < options.sentBefore!!.ns }
-                            .take(checkNotNull(options.limit).toInt())
-                            .filterIndexed { index, _ -> rawSize != 80 || index != 5 }
+                        calls.incrementAndGet()
+                        val readable = page.messages.filter { it.id !in missing }
+                        val skipped = (page.messages.size - readable.size).toUInt()
+                        page.copy(messages = readable, skippedCount = page.skippedCount + skipped)
                     }
                 }
-                model.historyCount = { chat, options ->
-                    if (chat.id() != group.id()) {
-                        chat.countMessages(options)
-                    } else {
-                        records()
-                            .count {
-                                (options.sentBefore == null || it.sentAt.ns < options.sentBefore!!.ns) &&
-                                    (options.sentAfter == null || it.sentAt.ns > options.sentAfter!!.ns)
-                            }.toULong()
-                    }
-                }
-                val saved = ScrollAnchor("0".repeat(64), 10, 7, false)
-                model.session.preferences.saveAnchor(owner.key.profileId, group.id(), saved)
+                val opened = CompletableDeferred<Unit>()
+                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
-                until {
-                    model.state.value.historyNotice
-                        ?.contains("More history") == true
-                }
-                assertFalse(model.state.value.hasOlder)
+                withTimeout(30_000) { opened.await() }
+                assertEquals(4, calls.get())
                 assertTrue(
                     model.state.value.messages
                         .isEmpty(),
                 )
+                assertTrue(model.state.value.hasOlder)
+                assertTrue(
+                    model.state.value.historyNotice
+                        ?.contains("cannot be read") == true,
+                )
+                println("SDK_PAGE_PROOF stage=empty-prefix-raw-continuation")
                 model.dispatch(MessengerAction.LoadOlder)
-                until {
-                    model.state.value.historyNotice
-                        ?.contains("More history") == true
+                until("readable page after raw prefix") {
+                    model.state.value.messages.size == 50 || !model.state.value.hasOlder
                 }
+                assertEquals(
+                    ids.take(50).asReversed(),
+                    model.state.value.messages
+                        .map { it.id },
+                )
+                assertFalse(model.state.value.hasOlder)
+                assertEquals(5, calls.get())
+                println("SDK_PAGE_PROOF stage=readable-page-after-empty-prefix")
+            } finally {
+                cleanup()
+            }
+        }
+
+    @Test fun nativeSdkPagesReachFiveHundredAndOneRowsWithBoundedCache() =
+        runBlocking {
+            try {
+                val owner = connect()
+                model.session.onInvalidated = {}
+                model.session.onMessage = { _, _ -> }
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "SDK pages"),
+                    )
+                val ids = (0 until 501).map { group.sendText("Page $it", SendOptions(optimistic = true)) }
+                group.publishMessages()
+                assertEquals(501uL, group.countMessages(publishedSelection()))
+                val opened = CompletableDeferred<Unit>()
+                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                withTimeout(30_000) { opened.await() }
+                assertEquals(
+                    ids.takeLast(50).asReversed(),
+                    model.state.value.messages
+                        .map { it.id },
+                )
+                val seen =
+                    model.state.value.messages
+                        .map { it.id }
+                        .toMutableSet()
+                var oldest =
+                    model.state.value.messages
+                        .last()
+                        .id
+                while (model.state.value.hasOlder) {
+                    val row =
+                        model.state.value.messages
+                            .last()
+                    model.dispatch(MessengerAction.Viewport(ScrollAnchor(row.id, row.sentAtNs, 0, false), false))
+                    until("SDK viewport position") {
+                        model.state.value.anchor
+                            ?.messageId == row.id
+                    }
+                    model.dispatch(MessengerAction.LoadOlder)
+                    until("next real SDK page") {
+                        model.state.value.messages
+                            .lastOrNull()
+                            ?.id != oldest || !model.state.value.hasOlder
+                    }
+                    oldest =
+                        model.state.value.messages
+                            .last()
+                            .id
+                    seen.addAll(
+                        model.state.value.messages
+                            .map { it.id },
+                    )
+                    assertTrue(model.state.value.messages.size <= 500)
+                    assertNull(model.state.value.historyNotice)
+                }
+                assertEquals(ids.toSet(), seen)
+                assertEquals(501, seen.size)
+                assertEquals(ids.first(), oldest)
+                println("SDK_PAGE_PROOF stage=real-sdk-501-no-gaps-cache-bound")
+            } finally {
+                cleanup()
+            }
+        }
+
+    @Test fun deletedNativeAnchorUsesItsRetainedTupleAndTheNextNewerRow() =
+        runBlocking {
+            try {
+                val owner = connect()
+                model.session.onInvalidated = {}
+                model.session.onMessage = { _, _ -> }
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Deleted boundary"),
+                    )
+                val ids = (0 until 160).map { group.sendText("Anchor $it", SendOptions(optimistic = true)) }
+                group.publishMessages()
+                assertEquals(160uL, group.countMessages(publishedSelection()))
+                val anchor = checkNotNull(owner.client.conversations.getMessageById(ids[79]))
+                val saved = ScrollAnchor(anchor.id, anchor.sentAt.ns, 23, false, checkNotNull(anchor.deliveryCursor))
+                model.session.preferences.saveAnchor(owner.key.profileId, group.id(), saved)
+                owner.client.conversations.deleteMessageLocally(anchor.id)
+                assertNull(owner.client.conversations.getMessageById(anchor.id))
+                val opened = CompletableDeferred<Unit>()
+                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                withTimeout(30_000) { opened.await() }
+                val restored = checkNotNull(model.state.value.anchor)
+                assertEquals(ids[80], restored.messageId)
+                assertEquals(0, restored.offsetPx)
+                assertFalse(restored.wasAtNewest)
+                assertNotNull(restored.deliveryCursor)
+                assertEquals("Position changed", model.state.value.historyNotice)
+                assertFalse(
+                    model.state.value.messages
+                        .any { it.id == anchor.id },
+                )
                 assertTrue(
                     model.state.value.messages
-                        .isEmpty(),
+                        .any { it.id == ids[78] },
                 )
-                rawSize = 80
-                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
-                model.dispatch(MessengerAction.OpenConversation(group.id()))
-                until { model.state.value.messages.size == 79 }
-                assertFalse(model.state.value.hasOlder)
-                assertNull(model.state.value.historyNotice)
+                assertTrue(
+                    model.state.value.messages
+                        .any { it.id == ids[80] },
+                )
+                println("SDK_PAGE_PROOF stage=deleted-sdk-boundary-next-newer")
             } finally {
                 cleanup()
             }
@@ -203,15 +313,13 @@ class MessengerRaceInstrumentedTest {
                 assertEquals(650, native.map { it.sentAt.ns }.toSet().size)
                 val anchor = checkNotNull(owner.client.conversations.getMessageById(ids[99]))
                 val removed = ids[89]
-                val saved = ScrollAnchor(anchor.id, anchor.sentAt.ns, 17, false)
+                val saved = ScrollAnchor(anchor.id, anchor.sentAt.ns, 17, false, anchor.deliveryCursor)
                 model.session.preferences.saveAnchor(owner.key.profileId, group.id(), saved)
+                val opened = CompletableDeferred<Unit>()
+                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
-                until {
-                    model.state.value.messages
-                        .any { it.id == anchor.id } &&
-                        model.state.value.anchor
-                            ?.offsetPx == 17
-                }
+                withTimeout(30_000) { opened.await() }
+                assertEquals("Retained native SDK anchor", saved, model.state.value.anchor)
                 assertTrue(
                     model.state.value.messages
                         .any { it.id == removed && !it.deleted },
@@ -242,11 +350,22 @@ class MessengerRaceInstrumentedTest {
                 assertTrue(model.state.value.hasOlder)
                 assertNull(model.state.value.historyNotice)
                 println("REFRESH_PROOF stage=retained-anchor-and-current-removal")
-                model.dispatch(MessengerAction.LoadOlder)
-                until {
-                    model.state.value.messages
-                        .any { it.id == ids[0] }
+                while (model.state.value.hasOlder) {
+                    val oldest =
+                        model.state.value.messages
+                            .last()
+                            .id
+                    model.dispatch(MessengerAction.LoadOlder)
+                    until {
+                        model.state.value.messages
+                            .lastOrNull()
+                            ?.id != oldest || !model.state.value.hasOlder
+                    }
                 }
+                assertTrue(
+                    model.state.value.messages
+                        .any { it.id == ids[0] },
+                )
                 assertTrue(
                     model.state.value.messages
                         .any { it.id == anchor.id },
