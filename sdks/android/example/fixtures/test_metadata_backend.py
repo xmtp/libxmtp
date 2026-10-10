@@ -7,6 +7,9 @@ import subprocess
 import tempfile
 import time
 import unittest
+from urllib.parse import quote, urlsplit
+
+from metadata_backend import psql_connection
 
 
 FIXTURE = Path(__file__).with_name("metadata_backend.py")
@@ -16,9 +19,10 @@ class MetadataBackendFixtureTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        self.password = "fixture:password\\with@marks%"
         self.env = dict(
             os.environ,
-            DATABASE_URL="postgres://test:test@127.0.0.1:1/shared",
+            DATABASE_URL=f"postgres://test:{quote(self.password, safe='')}@127.0.0.1:1/shared",
             XMTP_DATABASE_URL="postgres://test:test@127.0.0.1:1/shared_alias",
             XMTP_REPLICA_URL="postgres://test:test@127.0.0.1:1/shared_replica",
             XMTP_S3_URL="http://127.0.0.1:2",
@@ -27,15 +31,31 @@ class MetadataBackendFixtureTest(unittest.TestCase):
             XMTP_ANDROID_BACKEND_URL="http://10.0.2.2:3",
             XMTP_METADATA_LOG_DIR=str(self.root / "logs"),
             FIXTURE_LEDGER=str(self.root / "ledger"),
+            FIXTURE_PASSWORD=self.password,
+            PGPASSWORD="caller-password-must-not-override-uri",
         )
         self.env["PATH"] = str(self.root) + os.pathsep + self.env["PATH"]
         self.executable(
             "psql",
-            """import os,sys,time
+            """import os,sys,time,stat
 from pathlib import Path
+from urllib.parse import parse_qsl,urlsplit
+connection=next(value for value in sys.argv if value.startswith(('postgres://','postgresql://')))
+assert urlsplit(connection).password is None, 'Password in psql argv'
+assert not any(key == 'password' for key,value in parse_qsl(urlsplit(connection).query)), 'Password parameter in psql argv'
+assert '--no-password' in sys.argv
+passfile=Path(os.environ['PGPASSFILE'])
+assert stat.S_IMODE(passfile.stat().st_mode) == 0o600
+assert stat.S_IMODE(passfile.parent.stat().st_mode) == 0o700
+password=os.environ['FIXTURE_PASSWORD'].replace('\\\\','\\\\\\\\').replace(':','\\\\:')
+assert passfile.read_text() == '*:*:*:*:' + password + '\\n'
+assert 'PGPASSWORD' not in os.environ
+assert not any(name in os.environ for name in ('DATABASE_URL','XMTP_DATABASE_URL','XMTP_REPLICA_URL'))
 statement=sys.argv[-1]
 state=Path(os.environ['FIXTURE_LEDGER'] + '.database')
-with open(os.environ['FIXTURE_LEDGER'], 'a') as out: out.write(statement + '\\n')
+with open(os.environ['FIXTURE_LEDGER'], 'a') as out:
+    out.write('PSQL_PASSFILE ' + str(passfile) + '\\n')
+    out.write(statement + '\\n')
 if statement.startswith('SELECT'):
     print('t' if state.exists() else 'f')
 elif statement.startswith('CREATE'):
@@ -124,6 +144,11 @@ sys.exit(int(os.environ.get('CHILD_STATUS','0')))
         self.assertEqual(create.split('"')[1], drop.split('"')[1])
         self.assertTrue(create.split('"')[1].startswith("messenger_metadata_"))
         self.assertNotIn('"shared"', drop)
+        for line in ledger:
+            if line.startswith("PSQL_PASSFILE "):
+                passfile = Path(line.removeprefix("PSQL_PASSFILE "))
+                self.assertFalse(passfile.exists())
+                self.assertFalse(passfile.parent.exists())
         return ledger
 
     def test_failed_command_preserves_status_and_cleans_owned_resources(self):
@@ -137,6 +162,52 @@ sys.exit(int(os.environ.get('CHILD_STATUS','0')))
         out, error = process.communicate(timeout=15)
         self.assertEqual(0, process.returncode, (out, error))
         self.assertIn("CHILD_READY", self.check_cleanup())
+
+    def test_every_psql_call_uses_a_private_passfile_without_argv_password(self):
+        process = self.start()
+        out, error = process.communicate(timeout=15)
+        self.assertEqual(0, process.returncode, (out, error))
+        ledger = self.check_cleanup()
+        passfiles = [
+            Path(line.removeprefix("PSQL_PASSFILE "))
+            for line in ledger
+            if line.startswith("PSQL_PASSFILE ")
+        ]
+        self.assertEqual(4, len(passfiles))
+        self.assertEqual(1, len(set(passfiles)))
+        self.assertFalse(passfiles[0].exists())
+        self.assertFalse(passfiles[0].parent.exists())
+
+    def test_psql_password_options_escape_and_cleanup(self):
+        with self.assertRaisesRegex(ValueError, "PostgreSQL URI"):
+            with psql_connection("password=not-a-uri", self.env):
+                self.fail("Non-URI credentials reached psql arguments")
+        cases = (
+            (
+                f"postgres://user:{quote(self.password, safe='')}@127.0.0.1:1/shared?sslmode=require&application_name=fixture%2Bproof",
+                self.password,
+                "sslmode=require&application_name=fixture%2Bproof",
+            ),
+            (
+                "postgres://user:old@127.0.0.1:1/shared?password=new%3A%5Cvalue&sslmode=disable&passfile=/caller-file",
+                "new:\\value",
+                "sslmode=disable",
+            ),
+        )
+        for database, password, query in cases:
+            with self.subTest(query=query):
+                with psql_connection(database, self.env) as (command, env):
+                    self.assertIsNone(urlsplit(command[-1]).password)
+                    self.assertEqual(query, urlsplit(command[-1]).query)
+                    self.assertEqual("/shared", urlsplit(command[-1]).path)
+                    passfile = Path(env["PGPASSFILE"])
+                    escaped = password.replace("\\", "\\\\").replace(":", "\\:")
+                    self.assertEqual("*:*:*:*:" + escaped + "\n", passfile.read_text())
+                    self.assertEqual(0o600, passfile.stat().st_mode & 0o777)
+                    self.assertEqual(0o700, passfile.parent.stat().st_mode & 0o777)
+                    self.assertNotIn("PGPASSWORD", env)
+                self.assertFalse(passfile.exists())
+                self.assertFalse(passfile.parent.exists())
 
     def test_backend_startup_failure_drops_only_owned_database(self):
         process = self.start(FAIL_BACKEND="1")

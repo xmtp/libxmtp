@@ -73,8 +73,8 @@ metadata-fixture-create-test: _metadata-backend
   {{ _env }} && python3.11 -B example/fixtures/test_metadata_create.py --backend '{{ root }}/sdks/android/.build/metadata-backend/bin/xmtp-backend'
 
 # Check owned database and process cleanup with local stubs.
-metadata-fixture-test:
-  python3.11 -B example/fixtures/test_metadata_backend.py
+metadata-fixture-test *args:
+  python3.11 -B example/fixtures/test_metadata_backend.py {{ args }}
 
 # Run app instrumentation with owned S3, catalogue and emulator scopes.
 example-test-integration *args: build _metadata-backend
