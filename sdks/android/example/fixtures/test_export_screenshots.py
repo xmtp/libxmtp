@@ -17,6 +17,70 @@ PNG = proof.PNG + b"fixture image"
 
 
 class ScreenshotExportTest(unittest.TestCase):
+    def test_real_android_columnar_listing_is_avoided_by_direct_canonical_argv(self):
+        observed = (
+            "scale-app_settings.png           scale-create.png        scale-my_fields.png\n"
+            "scale-conversation_settings.png  scale-drafts.png        scale-start.png\n"
+            "scale-conversations.png          scale-group_fields.png  scale-timeline.png\n"
+        )
+        names = observed.split()
+        calls = []
+
+        def process(arguments, **options):
+            calls.append(arguments)
+            command = arguments[6:]
+            if command == ["ls", "-1", proof.PRIVATE]:
+                stdout = ("\n".join(names) + "\n").encode()
+            elif command[0] == "sh" or command[0] == "ls":
+                stdout = observed.encode()
+            else:
+                stdout = PNG if command[0] == "head" else b""
+            return subprocess.CompletedProcess(arguments, 0, stdout=stdout, stderr=b"")
+
+        with (
+            tempfile.TemporaryDirectory() as home,
+            patch.object(proof.subprocess, "run", side_effect=process),
+        ):
+            try:
+                self.assertEqual(9, proof.export("emulator-fixture", Path(home)))
+            except ValueError:
+                self.fail(
+                    "Exporter did not request one canonical fixture name per line"
+                )
+            self.assertEqual(set(names), {path.name for path in Path(home).iterdir()})
+        self.assertEqual(["ls", "-1", proof.PRIVATE], calls[0][6:])
+
+    def test_absent_directory_is_empty_only_when_the_owned_app_can_prove_absence(self):
+        for accessible in (True, False):
+            with (
+                self.subTest(accessible=accessible),
+                tempfile.TemporaryDirectory() as home,
+            ):
+                first = subprocess.CalledProcessError(1, ["ls"])
+                calls = []
+
+                def owned(serial, *arguments):
+                    calls.append(arguments)
+                    if arguments[0] == "ls":
+                        raise first
+                    if arguments[0] == "test" and not accessible:
+                        raise subprocess.CalledProcessError(1, ["run-as"])
+                    return b""
+
+                with patch.object(proof, "owned", side_effect=owned):
+                    if accessible:
+                        self.assertEqual(
+                            0, proof.export("emulator-fixture", Path(home))
+                        )
+                    else:
+                        with self.assertRaises(
+                            subprocess.CalledProcessError
+                        ) as failure:
+                            proof.export("emulator-fixture", Path(home))
+                        self.assertIs(first, failure.exception)
+                self.assertEqual(("test", "!", "-e", proof.PRIVATE), calls[1])
+                self.assertEqual(("rm", "-rf", proof.PRIVATE), calls[-1])
+
     def test_only_named_fixture_files_are_exported_then_private_files_are_removed(self):
         calls = []
         with tempfile.TemporaryDirectory() as home:
@@ -26,7 +90,7 @@ class ScreenshotExportTest(unittest.TestCase):
 
             def owned(serial, *arguments):
                 calls.append(arguments)
-                if arguments[0] == "sh":
+                if arguments[0] == "ls":
                     return b"scale-start.png\n"
                 return PNG if arguments[0] == "head" else b""
 
@@ -52,7 +116,7 @@ class ScreenshotExportTest(unittest.TestCase):
 
             def owned(serial, *arguments):
                 calls.append(arguments)
-                return b"profile.json\n" if arguments[0] == "sh" else PNG
+                return b"profile.json\n" if arguments[0] == "ls" else PNG
 
             with patch.object(proof, "owned", side_effect=owned):
                 with self.assertRaisesRegex(ValueError, "Unknown or duplicate"):
@@ -68,7 +132,7 @@ class ScreenshotExportTest(unittest.TestCase):
 
                 def owned(serial, *arguments):
                     calls.append(arguments)
-                    return b"scale-start.png\n" if arguments[0] == "sh" else image
+                    return b"scale-start.png\n" if arguments[0] == "ls" else image
 
                 with patch.object(proof, "owned", side_effect=owned):
                     with self.assertRaisesRegex(ValueError, "Invalid fixture PNG"):
@@ -82,7 +146,7 @@ class ScreenshotExportTest(unittest.TestCase):
 
             def owned(serial, *arguments):
                 calls.append(arguments)
-                if arguments[0] == "sh":
+                if arguments[0] == "ls":
                     return b"scale-start.png\n"
                 raise (
                     first
@@ -140,7 +204,7 @@ if args[0] == "reverse": sys.exit(0)
 assert args[:3] == ["exec-out", "run-as", "org.xmtp.android.example"]
 if not (home / "installed").exists(): sys.exit(1)
 args = args[3:]
-if args[0] == "sh":
+if args == ["ls", "-1", "files/xmtp-messenger-proof"]:
     print("\\n".join(path.name for path in (home / "private").iterdir()))
 elif args[0] == "head":
     assert args[3].startswith("files/xmtp-messenger-proof/")
