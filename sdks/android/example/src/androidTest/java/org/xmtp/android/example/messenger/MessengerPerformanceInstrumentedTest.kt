@@ -341,7 +341,8 @@ class MessengerPerformanceInstrumentedTest {
             val session = application.session
             val store = ViewModelStore()
             try {
-                session.signOut()
+                // Instrumentation starts a fresh foreground manager. Explicit stop blocks automatic restore.
+                assertNull("Performance instrumentation requires a fresh foreground manager", session.active.value)
                 val workload = if (manifest.exists()) JSONObject(manifest.readText()) else seed()
                 assertEquals(profile.backend, workload.getString("backend"))
                 session.preferences.setActive(
