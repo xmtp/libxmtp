@@ -183,11 +183,10 @@ fun reactionRows(
             )
         }
 
+internal fun Message.standardContent(): MessageContent? = (content as? SDKMessageContent.Standard)?.value
+
 fun Message.toRow(own: InboxId): MessageRow {
-    val standard =
-        (
-            content as? SDKMessageContent.Standard
-        )?.value
+    val standard = standardContent()
     val time =
         sentAt.date
             .atZone(

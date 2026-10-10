@@ -38,6 +38,8 @@ dev/nix-shell 'just android example-check'
 dev/nix-shell 'just android example-test-integration'
 dev/nix-shell 'just android example-test-release-integration'
 dev/nix-shell 'just android example-support-fixture'
+dev/nix-shell 'just android example-performance-check'
+dev/nix-shell 'just android example-performance'
 dev/nix-shell 'just android metadata-fixture-test'
 dev/nix-shell 'just android metadata-fixture-test MetadataBackendFixtureTest.test_every_psql_call_uses_a_private_passfile_without_argv_password'
 dev/nix-shell 'just android metadata-fixture-smoke'
@@ -113,6 +115,14 @@ in `example-shared/src/commonMain`. `example-test` runs host/shared unit tests.
 `test-integration` selects `:library:connectedCheck` for SDK instrumentation.
 It does not select the app test task. `example-test-integration` runs app
 instrumentation in the owned emulator scope.
+Test screenshots use app-private `files/xmtp-messenger-proof`. The integration
+recipe retains the APK until it exports only the named fixture PNG files to
+`example/build/screenshots`, then removes only the owned private proof directory.
+Export errors fail the route; an earlier instrumentation failure keeps its status.
+The export and cleanup process fixtures run under `lint-config` without a device.
+Listing, absence and cleanup commands use `adb shell -T` for remote exit status.
+Binary PNG reads use `exec-out`. A missing directory is empty only when the
+installed app can prove its absence. An inaccessible app fails the export.
 It forwards the current worktree backend and S3 ports for signed loopback URLs.
 The app test scope owns a loopback TCP relay for S3 GET response admission.
 `example-io-fixture` checks its listener startup and teardown without a device.
@@ -152,6 +162,23 @@ services through `10.0.2.2`. Attachments use the backend's advertised loopback U
 Set `XMTP_ANDROID_BACKEND_URL` to use a test relay or another reachable endpoint.
 The integration recipe uses `adb reverse` for `XMTP_S3_PORT`; it must match the
 backend attachment URL. Tests set `allowPrivateNetwork = true` for this fixture.
+
+The performance recipe requires Linux x86_64 with KVM. It owns an API 34
+x86_64 emulator with four CPUs and 4096 MiB RAM. It seeds 1000 conversations
+and 100000 Published messages through public SDK sends. It runs five warmups
+and 30 measured samples, checks heap and cache bounds, then removes cache
+eviction and requires its named assertion to fail. It restores the same source
+and measures the same dataset again. Seed progress and `seedMs` stay in the
+proof logs. The fixed job timeout is provisional until measured seed progress
+sets the final limit. Host validator tests also run under `lint-config`.
+Seed checkpoints use one `workload-seed-progress.jsonl` artifact. Each pass records
+its workload identity and whether it reused an existing manifest. Do not present
+retained seed checkpoints as a new per-pass seed.
+See `example/performance/README.md` for budgets and retained proof files.
+The route starts a disposable catalogue/backend fixture with its own database,
+listener and process session. Only its generated loopback URL and active private
+lease are admitted. Caller `XMTP_BACKEND_URL` overrides cannot select the workload
+target. Do not add an arbitrary backend argument or remote opt-in.
 
 ## Tests and lifecycle
 

@@ -357,6 +357,7 @@ class MessengerViewModel(
     ) -> Unit = { chat, value -> chat.updateConsentState(value) }
     internal var onConsentFinished: () -> Unit = {}
     internal var listGroupStateRead: suspend (Group) -> GroupState = { group -> group.state() }
+    internal var onGroupActionFinished: (MessengerAction) -> Unit = {}
     internal var historyPageRead: suspend (
         Conversation,
         ListMessagesOptions,
@@ -1193,7 +1194,28 @@ class MessengerViewModel(
             ) {
                 ui.update { currentUi -> currentUi.copy(conversations = rows) }
             }
+            rows
         }
+
+    internal suspend fun performanceList(owner: ActiveSession): List<ConversationRow> =
+        projection.withLock {
+            check(session.active.value === owner && session.accepts(owner.key))
+            refreshList(owner)
+        }
+
+    internal suspend fun performancePage(
+        chat: Conversation,
+        before: MessageHistoryPosition?,
+    ) = historyPages(chat).older(before)
+
+    internal fun performanceRetain(
+        id: String,
+        page: HistoryWindow<Message>,
+    ): List<Message> = cache.append(id, page, null).rows
+
+    internal fun performanceCacheRows(ids: List<String>) = ids.sumOf { cache.get(it)?.rows?.size ?: 0 }
+
+    internal fun performanceClearCache() = cache.clear()
 
     internal var onOpenFinished: (String) -> Unit = {}
     private val openAttemptCounter = AtomicLong()
@@ -1883,15 +1905,10 @@ class MessengerViewModel(
                 }
             }
         } finally {
-            if (valid(
-                    owner,
-                    token,
-                )
-            ) {
-                refreshSettings(
-                    owner,
-                    token,
-                )
+            try {
+                if (valid(owner, token)) refreshSettings(owner, token)
+            } finally {
+                onGroupActionFinished(action)
             }
         }
     }
