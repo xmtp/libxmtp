@@ -103,10 +103,14 @@ class SessionFence {
     @Volatile private var generation = 0L
 
     @Volatile private var profileId: String? = null
+    private var automaticRestoreAllowed = true
+    private var explicitReservation = false
 
     @Synchronized fun replace(profile: String?): SessionKey? {
         generation += 1
         profileId = profile
+        automaticRestoreAllowed = profile != null
+        explicitReservation = profile != null
         return profile?.let {
             SessionKey(
                 it,
@@ -116,6 +120,16 @@ class SessionFence {
     }
 
     @Synchronized fun reserve(): Long {
+        automaticRestoreAllowed = true
+        explicitReservation = true
+        generation += 1
+        profileId = null
+        return generation
+    }
+
+    /** A saved account cannot replace a sign-out or reset request. */
+    @Synchronized fun reserveRestore(): Long? {
+        if (!automaticRestoreAllowed || explicitReservation) return null
         generation += 1
         profileId = null
         return generation
@@ -125,8 +139,13 @@ class SessionFence {
 
     @Synchronized fun reserveRestoreIfCurrent(expected: Long): Long? {
         if (generation != expected || profileId != null) return null
-        generation += 1
-        return generation
+        return reserveRestore()
+    }
+
+    @Synchronized fun releaseRestore(key: SessionKey): Boolean {
+        if (!accepts(key)) return false
+        profileId = null
+        return true
     }
 
     @Synchronized fun bind(
