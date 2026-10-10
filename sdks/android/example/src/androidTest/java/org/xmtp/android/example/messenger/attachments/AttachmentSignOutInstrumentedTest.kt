@@ -37,6 +37,7 @@ class AttachmentSignOutInstrumentedTest {
             val enabled = AndroidStreamLifecycle.enabled
             val sender = AttachmentTestFixture()
             val session = model.session
+            val unregister = session.unregisterNotifications
             val draining = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             val stopped = CountDownLatch(1)
@@ -134,6 +135,11 @@ class AttachmentSignOutInstrumentedTest {
                     }
                     context.grantUriPermission(target, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     assertTrue(canRead(uri))
+                    var readableBeforeUnregister: Boolean? = null
+                    session.unregisterNotifications = { client ->
+                        readableBeforeUnregister = canRead(uri)
+                        unregister(client)
+                    }
                     val held = CompletableDeferred<Unit>()
                     val worker =
                         owner.work.launch {
@@ -158,8 +164,18 @@ class AttachmentSignOutInstrumentedTest {
                         }
                     withTimeout(30_000) { draining.await() }
                     assertNull(session.active.value)
-                    assertTrue("Existing external grant stays readable during the held owner drain", canRead(uri))
+                    assertEquals(
+                        "The external grant is revoked before notification unregister",
+                        false,
+                        readableBeforeUnregister,
+                    )
+                    assertFalse("Sign out revokes the external grant before the held owner drain", canRead(uri))
                     assertArrayEquals(bytes, exported.readBytes())
+                    assertFalse(session.preferences.signedIn())
+                    assertTrue(session.preferences.pendingExportCleanup().contains(owner.key.profileId))
+                    // A delayed launch can grant the captured intent after the first revoke.
+                    context.grantUriPermission(target, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    assertTrue("The post-drain pass must also revoke a late grant", canRead(uri))
                     val originalModel = model
                     val oldActivity = compose.activity
                     val recreated = CompletableDeferred<MainActivity>()
@@ -191,13 +207,14 @@ class AttachmentSignOutInstrumentedTest {
                     File(directory, exported.name).writeBytes(bytes)
                     assertFalse("The old external UID grant cannot read a same-path replacement", canRead(uri))
                     println(
-                        "ATTACHMENT_SIGN_OUT_PROOF external-uid=true host-detached=true exports-removed=true grant-revoked=true",
+                        "ATTACHMENT_SIGN_OUT_PROOF external-uid=true early-revoke=true late-grant=true host-detached=true exports-removed=true grant-revoked=true",
                     )
                 }
             } finally {
                 release.complete(Unit)
                 callback?.let(lifecycle::removeLifecycleCallback)
                 if (bound) context.unbindService(checkNotNull(connection))
+                session.unregisterNotifications = unregister
                 withContext(NonCancellable) {
                     exportRoot?.let {
                         AttachmentFiles.revokeProfile(context, it.name)

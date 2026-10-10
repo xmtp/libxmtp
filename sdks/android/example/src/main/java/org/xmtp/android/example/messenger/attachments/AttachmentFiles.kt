@@ -24,25 +24,41 @@ class AttachmentFiles(
     private val client: SDKClient,
     private val accepts: (SessionKey) -> Boolean,
 ) {
-    private val verified = java.util.concurrent.ConcurrentHashMap<String, DownloadedAttachment>()
+    private val verified = VerifiedAttachmentCache<DownloadedAttachment>()
+    internal val retained = verified.retained
+    internal var beforeDownloadAdmission: suspend () -> Unit = {}
+    internal var beforeOpenCopy: suspend () -> Unit = {}
+    internal var beforeSaveCopy: suspend () -> Unit = {}
+
+    internal fun clearVerified() = verified.clear()
 
     private fun checkCurrent() = check(accepts(key)) { "The session changed" }
 
     suspend fun download(
         messageId: String,
         remote: RemoteAttachment,
+        admission: () -> Boolean = { true },
     ): DownloadedAttachment {
         checkCurrent()
+        check(admission()) { "The file view changed" }
+        val generation = verified.generation()
         val downloaded = client.attachments().download(remote)
+        beforeDownloadAdmission()
         checkCurrent()
-        verified[messageId] = downloaded
+        check(verified.admit(generation, messageId, downloaded, admission)) { "The file view changed" }
         return downloaded
     }
 
     suspend fun preview(messageId: String): Bitmap? =
+        preview(
+            checkNotNull(verified[messageId]) {
+                "Download the file first"
+            },
+        )
+
+    internal suspend fun preview(downloaded: DownloadedAttachment): Bitmap? =
         withContext(Dispatchers.IO) {
             checkCurrent()
-            val downloaded = checkNotNull(verified[messageId]) { "Download the file first" }
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(downloaded.path, bounds)
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
@@ -55,10 +71,21 @@ class AttachmentFiles(
             bitmap.takeIf { current }
         }
 
+    internal fun verifiedResult(messageId: String): DownloadedAttachment? =
+        if (accepts(key)) verified[messageId] else null
+
     suspend fun openIntent(messageId: String): Intent =
-        withContext(Dispatchers.IO) {
+        openIntent(
+            checkNotNull(verifiedResult(messageId)) {
+                "Download the file first"
+            },
+        )
+
+    internal suspend fun openIntent(downloaded: DownloadedAttachment): Intent {
+        checkCurrent()
+        beforeOpenCopy()
+        return withContext(Dispatchers.IO) {
             checkCurrent()
-            val downloaded = checkNotNull(verified[messageId]) { "Download the file first" }
             val directory = profileDirectory(context, key.profileId)
             check(directory.isDirectory || directory.mkdirs()) { "Cannot create the export directory" }
             // The remote filename does not enter the path.
@@ -82,27 +109,36 @@ class AttachmentFiles(
                 throw error
             }
         }
+    }
 
     suspend fun save(
         messageId: String,
         destination: Uri,
-    ) = withContext(Dispatchers.IO) {
+    ) = save(checkNotNull(verifiedResult(messageId)) { "Download the file first" }, destination)
+
+    internal suspend fun save(
+        downloaded: DownloadedAttachment,
+        destination: Uri,
+    ) {
         checkCurrent()
-        val downloaded = checkNotNull(verified[messageId]) { "Download the file first" }
-        File(downloaded.path).inputStream().use { input ->
-            val target =
-                context.contentResolver.openOutputStream(destination, "wt")
-                    ?: error("Cannot write the selected destination")
-            target.use { output ->
-                PrivateFileStager.copy(input, output, ULong.MAX_VALUE)
+        beforeSaveCopy()
+        withContext(Dispatchers.IO) {
+            checkCurrent()
+            File(downloaded.path).inputStream().use { input ->
+                val target =
+                    context.contentResolver.openOutputStream(destination, "wt")
+                        ?: error("Cannot write the selected destination")
+                target.use { output ->
+                    PrivateFileStager.copy(input, output, ULong.MAX_VALUE)
+                }
             }
+            checkCurrent()
         }
-        checkCurrent()
     }
 
     fun filename(messageId: String) = verified[messageId]?.filename ?: "File"
 
-    fun isDownloaded(messageId: String) = verified.containsKey(messageId)
+    fun isDownloaded(messageId: String) = messageId in retained.value
 
     companion object {
         fun profileDirectory(
@@ -113,7 +149,7 @@ class AttachmentFiles(
             return File(context.filesDir, "messenger-exports/$profileId")
         }
 
-        /** Call after all profile file actions have stopped, before reset removes files. */
+        /** Revoke before owner drain, then repeat before the export files are removed. */
         fun revokeProfile(
             context: Context,
             profileId: String,

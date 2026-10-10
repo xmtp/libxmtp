@@ -57,6 +57,14 @@ class AttachmentHost(
     internal var beforeWatchRefresh: suspend () -> Unit = {}
     internal var onWatchFinished: () -> Unit = {}
     internal var beforeSupportAdmission: suspend (Boolean, Long) -> Unit = { _, _ -> }
+
+    internal fun verifiedMessageIds() =
+        services
+            ?.files
+            ?.retained
+            ?.value
+            .orEmpty()
+
     private val pick =
         activity.registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             val request = requests.picker.also { requests.picker = null }
@@ -79,10 +87,10 @@ class AttachmentHost(
                     val active = work.active
                     check(active.key == request.key)
                     val remote = readableRemote(active, request.value)
-                    work.services.files.download(request.value, remote)
+                    val downloaded = work.services.files.download(request.value, remote) { current(work) }
                     readableRemote(active, request.value)
                     check(!closed && model.acceptsScreen(request.key, request.token)) { "The screen changed" }
-                    work.services.files.save(request.value, uri)
+                    work.services.files.save(downloaded, uri)
                 }
             }
         }
@@ -121,6 +129,7 @@ class AttachmentHost(
         }
         activity.lifecycleScope.launch {
             session.active.collectLatest { active ->
+                services?.files?.clearVerified()
                 drafts.value = emptyList()
                 downloads.value = emptyMap()
                 previews.value = emptyMap()
@@ -156,6 +165,7 @@ class AttachmentHost(
             model.state.collect {
                 if (token != model.screenToken()) {
                     token = model.screenToken()
+                    services?.files?.clearVerified()
                     downloads.value = emptyMap()
                     previews.value = emptyMap()
                     error.value = null
@@ -166,6 +176,7 @@ class AttachmentHost(
 
     fun close() {
         closed = true
+        services?.files?.clearVerified()
         model.featureAction = previousAction
         model.featureRefresh = previousRefresh
     }
@@ -313,13 +324,18 @@ class AttachmentHost(
                     if (model.acceptsScreen(active.key, token)) downloads.update { it + (action.messageId to starting) }
                     try {
                         beforeDownload()
-                        val downloaded = work.services.files.download(action.messageId, remote)
+                        val downloaded = work.services.files.download(action.messageId, remote) { current(work) }
                         readableRemote(active, action.messageId)
-                        val bitmap = work.services.files.preview(action.messageId)
-                        if (model.acceptsScreen(active.key, token)) {
+                        val bitmap = work.services.files.preview(downloaded)
+                        if (current(work) && work.services.files.isDownloaded(id)) {
                             val completeName = downloaded.filename ?: "File"
                             val complete = AttachmentCardState(id, completeName, "Verified", canOpen = true)
-                            downloads.update { it + (action.messageId to complete) }
+                            downloads.update { states ->
+                                states.filter { (id, state) ->
+                                    !state.canOpen || work.services.files.isDownloaded(id)
+                                } +
+                                    (action.messageId to complete)
+                            }
                             if (bitmap != null) {
                                 previews.update { images ->
                                     val updated = (images - action.messageId) + (action.messageId to bitmap)
@@ -332,6 +348,11 @@ class AttachmentHost(
                             beforeDownloadRefresh()
                         } else {
                             bitmap?.recycle()
+                            if (current(work)) {
+                                downloads.update { states ->
+                                    if (states[id] === starting) states - id else states
+                                }
+                            }
                         }
                     } catch (failure: CancellationException) {
                         if (current(work)) {
@@ -359,11 +380,14 @@ class AttachmentHost(
             }
 
             is AttachmentAction.Open -> {
+                val active = session.active.value ?: return
+                val bound = services?.takeIf { it.key == active.key } ?: return
+                val downloaded = bound.files.verifiedResult(action.messageId) ?: return
                 perform { work ->
                     val active = work.active
                     val token = work.token
                     readableRemote(active, action.messageId)
-                    val intent = work.services.files.openIntent(action.messageId)
+                    val intent = work.services.files.openIntent(downloaded)
                     readableRemote(active, action.messageId)
                     withContext(Dispatchers.Main) {
                         val current = !closed && model.acceptsScreen(active.key, token)
@@ -403,7 +427,16 @@ class AttachmentHost(
     @Composable fun Message(row: MessageRow) {
         if (!row.attachment || row.deleted) return
         val cached = downloads.collectAsState().value[row.id]
-        val state = cached ?: AttachmentCardState(row.id, row.text, "File", canDownload = true)
+        val retained =
+            services
+                ?.files
+                ?.retained
+                ?.collectAsState()
+                ?.value
+                .orEmpty()
+        val state =
+            cached?.takeIf { !it.canOpen || row.id in retained }
+                ?: AttachmentCardState(row.id, row.text, "File", canDownload = true)
         val bitmap = previews.collectAsState().value[row.id]
         val conversationId =
             model.state

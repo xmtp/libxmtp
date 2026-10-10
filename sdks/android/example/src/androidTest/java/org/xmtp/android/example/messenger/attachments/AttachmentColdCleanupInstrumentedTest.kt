@@ -41,6 +41,8 @@ class AttachmentColdCleanupInstrumentedTest {
             val message = session.onMessage
             val sender = AttachmentTestFixture()
             val releaseDrain = CompletableDeferred<Unit>()
+            val persisted = CompletableDeferred<Unit>()
+            val releaseRevoke = CompletableDeferred<Unit>()
             var connection: ServiceConnection? = null
             var bound = false
             var directory: File? = null
@@ -180,12 +182,17 @@ class AttachmentColdCleanupInstrumentedTest {
                         // Finish the initial empty startup before testing the separate awaited path.
                         val waiting = if (startupOnly) null else AppSession(context)
                         waiting?.awaitStartupExportCleanup()
+                        session.beforeImmediateExportRevoke = { profile ->
+                            assertEquals(owner.key.profileId, profile)
+                            persisted.complete(Unit)
+                            releaseRevoke.await()
+                        }
                         stopping = async(Dispatchers.IO) { runCatching { session.signOut() } }
-                        withTimeout(30_000) { held.await() }
+                        withTimeout(30_000) { persisted.await() }
                         assertFalse(session.preferences.signedIn())
                         assertEquals(setOf(owner.key.profileId), session.preferences.pendingExportCleanup())
                         assertArrayEquals(bytes, exported.readBytes())
-                        assertTrue("The actual external grant remains before withheld cleanup", canRead(uri))
+                        assertTrue("The durable death gap is held before immediate revocation", canRead(uri))
                         val database = owner.paths.database
                         assertTrue(database.exists())
                         // Startup reconstructs after persistence.
@@ -208,6 +215,8 @@ class AttachmentColdCleanupInstrumentedTest {
                         // Only the test removes its own private draft after all preservation assertions.
                         cleanupOwnedDraft()
                         cleanupOwnedDraft = {}
+                        releaseRevoke.complete(Unit)
+                        withTimeout(30_000) { held.await() }
                         releaseDrain.complete(Unit)
                         worker.join()
                         assertTrue(checkNotNull(stopping).await().isSuccess)
@@ -220,13 +229,16 @@ class AttachmentColdCleanupInstrumentedTest {
                             try {
                                 cleanupOwnedDraft()
                             } finally {
+                                releaseRevoke.complete(Unit)
                                 releaseDrain.complete(Unit)
                             }
                         }
                     }
                 }
             } finally {
+                releaseRevoke.complete(Unit)
                 releaseDrain.complete(Unit)
+                session.beforeImmediateExportRevoke = {}
                 if (bound) context.unbindService(checkNotNull(connection))
                 withContext(NonCancellable) {
                     stopping?.await()

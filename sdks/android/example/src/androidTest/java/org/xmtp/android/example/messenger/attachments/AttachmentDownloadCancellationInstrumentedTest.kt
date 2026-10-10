@@ -11,6 +11,7 @@ import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
 import org.xmtp.android.example.shared.MessengerAction
+import org.xmtp.android.example.shared.Screen
 import uniffi.xmtp_sdk.*
 import java.io.File
 
@@ -26,6 +27,8 @@ class AttachmentDownloadCancellationInstrumentedTest {
     @Test fun cancelledSdkDownloadIsNotARetryableFailureCard() = runBlocking<Unit> { runCancellation("io") }
 
     @Test fun cancellationAfterVerificationKeepsTheVerifiedActions() = runBlocking<Unit> { runCancellation("verified") }
+
+    @Test fun navigationClearsVerifiedMetadataAndKeepsSdkBytes() = runBlocking<Unit> { runCancellation("screen") }
 
     private suspend fun runCancellation(stage: String) =
         coroutineScope {
@@ -93,10 +96,37 @@ class AttachmentDownloadCancellationInstrumentedTest {
                     assertArrayEquals(bytes, path.readBytes())
                     compose.onNodeWithText("Verified").assertIsDisplayed()
                 }
-                downloading.cancel()
+                if (stage == "screen") {
+                    assertEquals(setOf(id), host.verifiedMessageIds())
+                    model.dispatch(MessengerAction.Navigate(Screen.APP_SETTINGS))
+                    until { !model.acceptsScreen(owner.key, token) }
+                    compose.waitForIdle()
+                    assertTrue("Navigation removes all verified metadata", host.verifiedMessageIds().isEmpty())
+                } else {
+                    downloading.cancel()
+                }
                 gate.release()
                 release.complete(Unit)
                 withTimeout(30_000) { downloading.join() }
+                if (stage == "screen") {
+                    val returned = CompletableDeferred<Unit>()
+                    model.onOpenFinished = { if (it == chat.id()) returned.complete(Unit) }
+                    model.dispatch(MessengerAction.OpenConversation(chat.id()))
+                    withTimeout(30_000) { returned.await() }
+                    until {
+                        model.state.value.messages
+                            .any { it.id == id }
+                    }
+                    assertTrue(host.verifiedMessageIds().isEmpty())
+                    compose.onNodeWithText("Download").assertIsDisplayed()
+                    compose.onNodeWithText("Open").assertDoesNotExist()
+                    compose.onNodeWithText("Save").assertDoesNotExist()
+                    assertArrayEquals(bytes, path.readBytes())
+                    println(
+                        "ATTACHMENT_VERIFIED_NAVIGATION_PROOF metadata-cleared=true sdk-file-kept=true download-action=true",
+                    )
+                    return@coroutineScope
+                }
                 assertTrue(model.acceptsScreen(owner.key, token))
                 compose.waitUntil(5_000) {
                     compose.onAllNodesWithText("Downloading").fetchSemanticsNodes().isEmpty()

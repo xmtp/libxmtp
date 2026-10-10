@@ -113,10 +113,13 @@ class AppSession(
                 block,
             )
 
-    private suspend fun markSignedOutForCleanup() {
+    private suspend fun markSignedOutForCleanup(): String? {
         val profile = (activeState.value ?: stopping ?: opening)?.key?.profileId ?: preferences.active()?.id
         preferences.beginExportCleanup(profile)
+        return profile
     }
+
+    internal var beforeImmediateExportRevoke: suspend (String) -> Unit = {}
 
     private fun clearExportFiles(profileId: String) {
         AttachmentFiles.revokeProfile(context, profileId)
@@ -571,10 +574,18 @@ class AppSession(
         beforeSessionStopLock()
         operation.withLock {
             if (!fence.isReserved(stopGeneration)) return@withLock
-            markSignedOutForCleanup()
+            val cleanupProfile = markSignedOutForCleanup()
             val owner =
                 activeState.value
             withContext(NonCancellable) {
+                cleanupProfile?.let { profile ->
+                    beforeImmediateExportRevoke(profile)
+                    try {
+                        AttachmentFiles.revokeProfile(context, profile)
+                    } catch (_: Exception) {
+                        // The journal and final cleanup retain the retry after owner drain.
+                    }
+                }
                 try {
                     owner?.client?.let {
                         unregisterNotifications(it)
