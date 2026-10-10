@@ -132,6 +132,109 @@ class AttachmentRecoveryRaceInstrumentedTest {
             }
         }
 
+    @Test fun completedDiscardMarkersExpireAfterSharedSnapshotsFinish() =
+        runBlocking<Unit> {
+            val fixture = AttachmentTestFixture()
+            val releaseSend = CompletableDeferred<Unit>()
+            val releaseAssign = CompletableDeferred<Unit>()
+            val releaseRecovery = CompletableDeferred<Unit>()
+            try {
+                withTimeout(90_000) {
+                    fixture.start()
+                    val attachments = fixture.client.attachments()
+                    val bytes = "held snapshot bytes".toByteArray()
+                    val first = attachments.create(AttachmentSource.Bytes(bytes, "first.txt", "text/plain"))
+                    val remote = first.remoteAttachment()
+                    val assigned = fixture.save(remote)
+                    val second = attachments.create(AttachmentSource.Bytes(bytes, "second.txt", "text/plain"))
+                    val secondRemote = second.remoteAttachment()
+                    val setup = fixture.coordinator()
+                    setup.recover()
+                    val unassigned =
+                        fixture.preferences
+                            .drafts(
+                                fixture.profile.id,
+                            ).single { it.conversationKey.isEmpty() }
+                    val firstFile = File(attachments.localPath(remote))
+                    val secondFile = File(attachments.localPath(secondRemote))
+                    assertArrayEquals(bytes, firstFile.readBytes())
+                    assertArrayEquals(bytes, secondFile.readBytes())
+                    assertEquals(2, attachments.listPending().size)
+                    val sender = fixture.coordinator()
+                    val assigner = fixture.coordinator()
+                    val recovery = fixture.coordinator()
+                    val disposer = fixture.coordinator()
+                    val sendEntered = CompletableDeferred<Unit>()
+                    val assignEntered = CompletableDeferred<Unit>()
+                    val recoveryEntered = CompletableDeferred<Unit>()
+                    sender.beforeUploadPhaseSave = {
+                        sendEntered.complete(Unit)
+                        releaseSend.await()
+                    }
+                    assigner.afterAssignSnapshot = {
+                        assignEntered.complete(Unit)
+                        releaseAssign.await()
+                    }
+                    recovery.afterRecoverySnapshot = {
+                        recoveryEntered.complete(Unit)
+                        releaseRecovery.await()
+                    }
+                    val sending = async { runCatching { sender.send(assigned.draftId, fixture.group) { } } }
+                    val assigning = async { runCatching { assigner.assign(unassigned.draftId, fixture.group.id()) } }
+                    val recovering = async { recovery.recover() }
+                    withTimeout(30_000) {
+                        sendEntered.await()
+                        assignEntered.await()
+                        recoveryEntered.await()
+                    }
+                    disposer.discard(assigned.draftId)
+                    disposer.discard(unassigned.draftId)
+                    assertFalse(firstFile.exists())
+                    assertFalse(secondFile.exists())
+                    assertTrue(attachments.listPending().isEmpty())
+                    assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
+                    val heldMarkers = disposer.retainedDiscardMarkers()
+                    releaseSend.complete(Unit)
+                    assertTrue(sending.await().isFailure)
+                    assertTrue(
+                        "The old sender cannot recreate a deleted draft",
+                        fixture.preferences.drafts(fixture.profile.id).isEmpty(),
+                    )
+                    releaseAssign.complete(Unit)
+                    assertTrue(assigning.await().isFailure)
+                    assertTrue(
+                        "The old assigner cannot recreate a deleted draft",
+                        fixture.preferences.drafts(fixture.profile.id).isEmpty(),
+                    )
+                    assertEquals("Recovery still owns both old snapshots", 2, disposer.retainedDiscardMarkers())
+                    releaseRecovery.complete(Unit)
+                    recovering.await()
+                    assertTrue("The old recovery cannot re-add discarded cards", recovery.cards.value.isEmpty())
+                    assertEquals("Held snapshots retain the completed discard markers", 2, heldMarkers)
+                    assertEquals(
+                        "All readers finished; no process discard marker remains",
+                        0,
+                        disposer.retainedDiscardMarkers(),
+                    )
+                    assertTrue(fixture.preferences.drafts(fixture.profile.id).isEmpty())
+                    assertNull(fixture.secrets.read(fixture.profile.id, checkNotNull(assigned.descriptorSecretRef)))
+                    assertNull(fixture.secrets.read(fixture.profile.id, checkNotNull(unassigned.descriptorSecretRef)))
+                    assertFalse(firstFile.exists())
+                    assertFalse(secondFile.exists())
+                    assertTrue(attachments.listPending().isEmpty())
+                    assertTrue(fixture.group.messages(null).isEmpty())
+                    fixture.coordinator().recover()
+                    assertEquals(0, fixture.coordinator().retainedDiscardMarkers())
+                    println("$proofPrefix stage=shared-snapshot-retirement no-revival=true no-retained-marker=true")
+                }
+            } finally {
+                releaseSend.complete(Unit)
+                releaseAssign.complete(Unit)
+                releaseRecovery.complete(Unit)
+                fixture.close()
+            }
+        }
+
     @Test fun damagedDescriptorDoesNotBlockHealthyActionsOrGuessOrphanOwnership() =
         runBlocking<Unit> {
             val fixture = AttachmentTestFixture()
