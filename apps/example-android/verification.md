@@ -279,3 +279,13 @@ The exact fixture from E `fdc331bda8fdd8efd50d8333da11a79dc88d0e4b` now models a
 new process with a new SessionFence. Only that test file changed. Production
 session source still matches the intermediate F base. The full host rerun and
 real four-ABI package build remain in progress at this checkpoint.
+
+The fresh-process fixture rerun passes 52 tests in each of Debug and Release,
+with zero failures, errors, or skips. Full configuration and Markdown checks
+pass again. The real APK check found that the new app root did not apply the
+existing Nix NDK path/revision configuration. The old build produced `.symtab`
+in the APK's SDK JNI library and failed inspection. SDK and app roots now apply
+one shared `gradle/android-ndk.gradle` script. Both actual app APKs pass after
+restoration. SDK assembly builds both AAR variants; both pass JNI inspection.
+All four Android native targets built successfully. Matched Kotlin generation
+and final four-ABI package staging remain pending.
