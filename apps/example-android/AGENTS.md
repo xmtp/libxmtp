@@ -96,6 +96,10 @@ and measures the same dataset again. Seed progress and `seedMs` stay in the
 proof logs. The fixed job timeout is provisional until measured seed progress
 sets the final limit. Host validator tests also run under `lint-config`.
 See `performance/README.md` for budgets and retained proof files.
+The route starts a disposable catalogue/backend fixture with its own database,
+listener and process session. Only its generated loopback URL and active private
+lease are admitted. Caller `XMTP_BACKEND_URL` overrides cannot select the workload
+target. Do not add an arbitrary backend argument or remote opt-in.
 
 ## Verification
 
