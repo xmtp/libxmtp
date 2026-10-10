@@ -7,16 +7,29 @@ import androidx.activity.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.xmtp.android.example.messenger.MessengerViewModel
 import org.xmtp.android.example.messenger.ReactionPickerHost
+import org.xmtp.android.example.messenger.attachments.AttachmentHost
 import org.xmtp.android.example.shared.MessengerScreens
+import org.xmtp.android.example.shared.Screen
 
 class MainActivity : ComponentActivity() {
     private val model: MessengerViewModel by viewModels()
+    internal lateinit var attachments: AttachmentHost
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        attachments = AttachmentHost(this, model)
         setContent {
             val state = model.state.collectAsStateWithLifecycle().value
-            ReactionPickerHost(state, model::dispatch) { action -> MessengerScreens(state, action) }
+            ReactionPickerHost(state, model::dispatch) { action ->
+                MessengerScreens(
+                    state,
+                    action,
+                    extraScreen = { screen -> if (screen == Screen.DRAFTS) attachments.Recovery() },
+                    composerExtra = { attachments.Composer() },
+                    messageExtra = { row -> attachments.Message(row) },
+                )
+            }
         }
     }
 
@@ -28,5 +41,10 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         model.foreground(false)
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        attachments.close()
+        super.onDestroy()
     }
 }

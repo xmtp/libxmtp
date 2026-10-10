@@ -23,6 +23,7 @@ class SendCoordinator(
     internal var messageRead: suspend (SDKClient, MessageId) -> Message? = { client, id ->
         client.conversations.getMessageById(id)
     }
+    internal var afterQueueDraftCommit: suspend () -> Unit = {}
 
     private val activeDrafts =
         ConcurrentHashMap.newKeySet<String>()
@@ -83,20 +84,27 @@ class SendCoordinator(
             "This draft is already being sent"
         }
         try {
-            val prepared =
-                preferences
-                    .saveDraft(
-                        key.profileId,
-                        draft
-                            .copy(
-                                phase =
-                                    SendPhase.QUEUEING,
-                            ),
-                        admit = { change -> admit(key, change) },
-                    )
+            val (prepared, previous) =
+                preferences.prepareQueueDraft(key.profileId, draft) { change ->
+                    var scoped = false
+                    val accepted =
+                        admit(key) {
+                            if (admission()) {
+                                change()
+                                scoped = true
+                            }
+                        }
+                    accepted && scoped
+                }
             if (!prepared) throw kotlinx.coroutines.CancellationException("Session changed before queue admission")
+            afterQueueDraftCommit()
             if (!accepts(key) || !admission()) {
-                preferences.removeDraft(key.profileId, draft.draftId, admit = { change -> admit(key, change) })
+                preferences.rejectQueueDraft(
+                    key.profileId,
+                    draft.copy(phase = SendPhase.QUEUEING),
+                    previous,
+                    admit = { change -> admit(key, change) },
+                )
                 throw kotlinx.coroutines.CancellationException("Action scope changed before send")
             }
             val id = send()
