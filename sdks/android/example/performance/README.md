@@ -1,5 +1,12 @@
 # Messenger performance proof
 
+Run benchmarks only after an explicit request. The workflow owner is
+`benchmark-example-android.yml` with `workflow_dispatch`; it has no automatic
+event or reusable-workflow entry point. The explicit Just command remains.
+Normal app tests exclude the workload class unless the runner sets
+`android.testInstrumentationRunnerArguments.messengerPerformance=true`.
+Host runner validators stay in normal config tests and execute no workload.
+
 This runner measures local SDK queries and the app row projection. It does not
 measure client startup, network publication, object transfer, or frame timing.
 Do not use its host tests as evidence of device performance.
@@ -137,7 +144,7 @@ backend URL argument or remote opt-in. Instrumentation rejects missing admission
 and noncanonical loopback targets before SDK creation. The fixture owns backend,
 database and child teardown. The recipe sets API 34 and the fixed CPU/RAM flags,
 forwards only that backend's port, and runs the owned emulator scope.
-The Linux CI job retains all existing SDK platform and
+The manual Linux workflow is separate from the normal SDK platform and
 app integration gates. Its 210-minute step and 240-minute job limits are
 provisional. Set the final timeout from observed seed progress and `seedMs`.
 Do not reduce the dataset to fit a timeout.

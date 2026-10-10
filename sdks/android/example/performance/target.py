@@ -70,3 +70,7 @@ def disposable_backend():
     if ancestor != lease["ownerPid"]:
         raise ValueError("Disposable backend owner is not the runner's ancestor")
     return backend
+
+
+if __name__ == "__main__":
+    disposable_backend()

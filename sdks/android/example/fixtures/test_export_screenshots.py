@@ -244,11 +244,18 @@ class ScreenshotExportTest(unittest.TestCase):
             scripts = android / "example/fixtures"
             scripts.mkdir(parents=True)
             shutil.copyfile(Path(proof.__file__), scripts / "export_screenshots.py")
+            admission = android / "example/performance"
+            admission.mkdir(parents=True)
+            (admission / "target.py").write_text(
+                "import os, sys\nsys.exit(0 if os.environ.get('FIXTURE_ADMITTED') == 'true' else 12)\n"
+            )
             gradle = android / "gradlew"
             gradle.write_text(
                 f"#!{sys.executable}\n"
                 + """import os, pathlib, shutil, sys
 home = pathlib.Path(os.environ["SCREENSHOT_FIXTURE_HOME"])
+(home / "gradle-started").touch()
+if "-Pandroid.testInstrumentationRunnerArguments.metadataBackendOwned=true" not in sys.argv: sys.exit(12)
 if "-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true" not in sys.argv:
     (home / "installed").unlink()
     shutil.rmtree(home / "private")
@@ -284,6 +291,7 @@ else: raise AssertionError(args)
             environment = dict(
                 os.environ,
                 SCREENSHOT_FIXTURE_HOME=home,
+                FIXTURE_ADMITTED="true",
                 PATH=str(binaries) + os.pathsep + os.environ["PATH"],
                 ANDROID_SERIAL="emulator-fixture",
             )
@@ -336,6 +344,22 @@ else: raise AssertionError(args)
                     self.assertFalse(
                         private.exists(), "Owned private screenshot survived export"
                     )
+            (fixture / "gradle-started").unlink()
+            environment["FIXTURE_ADMITTED"] = "false"
+            result = subprocess.run(
+                ["bash", "-euc", command],
+                cwd=android,
+                env=environment,
+                capture_output=True,
+                timeout=10,
+            )
+            self.assertEqual(
+                12, result.returncode, "Missing owned lease reached the app test"
+            )
+            self.assertFalse(
+                (fixture / "gradle-started").exists(),
+                "Gradle ran before owned admission",
+            )
 
 
 if __name__ == "__main__":

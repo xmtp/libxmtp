@@ -115,6 +115,18 @@ class DisposableTargetTest(unittest.TestCase):
                 run.run(Path(self.home.name), False)
             execute.assert_not_called()
 
+    def test_integration_admission_cli_rejects_missing_lease(self):
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).with_name("target.py"))],
+            env={},
+            capture_output=True,
+        )
+        self.assertNotEqual(
+            0,
+            result.returncode,
+            "Owned integration admission CLI accepted a missing lease",
+        )
+
 
 class DisposableRecipeTest(unittest.TestCase):
     def test_actual_recipe_uses_generated_fixture_route_and_preserves_fixed_shape(self):

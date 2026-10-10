@@ -179,8 +179,11 @@ dev/nix-shell 'just spec-check'
 ```
 
 Keep the selected API 23 and all-ABI package jobs. The app instrumentation
-recipe must own its emulator, fixture process, forwarding, and teardown. Add
-the fixed performance job without replacing an existing library gate.
+recipe must own its emulator, fixture process, forwarding, and teardown.
+Benchmarks are explicit-only. Keep the fixed job in the workflow_dispatch-only
+`benchmark-example-android.yml`; normal Android CI has no benchmark dependency.
+Normal app tests exclude the workload unless `messengerPerformance=true` is set.
+Host runner validators remain automatic and run no workload.
 
 ## Evidence that cannot be inferred
 

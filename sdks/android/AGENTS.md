@@ -164,6 +164,20 @@ Set `XMTP_ANDROID_BACKEND_URL` to use a test relay or another reachable endpoint
 The integration recipe uses `adb reverse` for `XMTP_S3_PORT`; it must match the
 backend attachment URL. Tests set `allowPrivateNetwork = true` for this fixture.
 
+Benchmarks run only after an explicit request through
+`.github/workflows/benchmark-example-android.yml` (`workflow_dispatch`) or
+`dev/nix-shell 'just android example-performance'`. Normal Android CI has no
+benchmark job. Normal app instrumentation excludes the workload class unless
+`android.testInstrumentationRunnerArguments.messengerPerformance=true` is set.
+Host runner validators remain automatic.
+
+The display proof helper requires API 31 for shell input/output channels. It
+checks each exit status and setup/restore readbacks, and keeps the original error
+if restoration also fails. App minSdk27 and library API23 gates do not change.
+Restore size and density before the saved font key. Require 250 ms of exact
+readbacks within 5 seconds. Reapply only the saved font command after a late
+configuration write. Do not treat an unset key as equal to `1.0`.
+
 The performance recipe requires Linux x86_64 with KVM. It owns an API 34
 x86_64 emulator with four CPUs and 4096 MiB RAM. It seeds 1000 conversations
 and 100000 Published messages through public SDK sends. It runs five warmups

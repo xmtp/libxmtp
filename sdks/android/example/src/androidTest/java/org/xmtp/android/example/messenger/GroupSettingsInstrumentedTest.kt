@@ -10,14 +10,34 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.shared.*
 import uniffi.xmtp_sdk.*
 
 /** Mutations enter through the real shared settings and ViewModel. */
 class GroupSettingsInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    val compose = createAndroidComposeRule<MainActivity>()
+    private lateinit var backend: String
+
+    @get:Rule val admitted =
+        org.junit.rules.RuleChain
+            .outerRule(
+                org.junit.rules.TestRule { base, _ ->
+                    object : org.junit.runners.model.Statement() {
+                        override fun evaluate() {
+                            val arguments =
+                                androidx.test.platform.app.InstrumentationRegistry
+                                    .getArguments()
+                            backend =
+                                ownedMetadataBackend(
+                                    arguments.getString("metadataBackendUrl"),
+                                    arguments.getString("metadataBackendOwned"),
+                                )
+                            base.evaluate()
+                        }
+                    }
+                },
+            ).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
     private val peers = mutableListOf<SDKClient>()
     private val readers = mutableListOf<Job>()
@@ -43,7 +63,7 @@ class GroupSettingsInstrumentedTest {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
             model.session.signOut()
-            model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
+            model.session.connect(backend, "", true)
             val owner = checkNotNull(model.session.active.value)
             until("The app did not publish its real session") { model.state.value.inbox == owner.client.inboxId() }
         }
@@ -83,7 +103,7 @@ class GroupSettingsInstrumentedTest {
                 compose.activity,
                 generateLocalSigner(),
                 ClientOptions(
-                    backend = BackendSource.Options(BackendOptions(url = BuildConfig.XMTP_BACKEND_URL)),
+                    backend = BackendSource.Options(BackendOptions(url = backend)),
                     storage = StorageOptions(location = StorageLocation.InMemory),
                     deviceSync = false,
                 ),

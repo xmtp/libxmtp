@@ -28,64 +28,12 @@ class ScreenScaleInstrumentedTest {
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
     private val captured = mutableSetOf<Screen>()
 
-    private fun shell(command: String): String =
-        InstrumentationRegistry
-            .getInstrumentation()
-            .uiAutomation
-            .executeShellCommand(command)
-            .use { descriptor ->
-                android.os.ParcelFileDescriptor
-                    .AutoCloseInputStream(
-                        descriptor,
-                    ).bufferedReader()
-                    .use { it.readText().trim() }
-            }
-
     @get:Rule val rules: TestRule =
         RuleChain
             .outerRule(
                 TestRule { base, _ ->
                     object : Statement() {
-                        override fun evaluate() {
-                            val scale = shell("settings get system font_scale")
-                            val size =
-                                shell("wm size")
-                                    .lineSequence()
-                                    .firstOrNull { it.startsWith("Override size:") }
-                                    ?.substringAfter(':')
-                                    ?.trim()
-                            val density =
-                                shell("wm density")
-                                    .lineSequence()
-                                    .firstOrNull { it.startsWith("Override density:") }
-                                    ?.substringAfter(':')
-                                    ?.trim()
-                            val restore = screenDisplayRestoreCommands(scale, size, density)
-                            try {
-                                shell("wm size 320x640")
-                                shell("wm density 160")
-                                shell("settings put system font_scale 2.0")
-                                base.evaluate()
-                            } finally {
-                                var failure: Throwable? = null
-                                for (command in restore) {
-                                    try {
-                                        shell(command)
-                                    } catch (error: Throwable) {
-                                        if (failure ==
-                                            null
-                                        ) {
-                                            failure = error
-                                        } else if (failure !==
-                                            error
-                                        ) {
-                                            failure?.addSuppressed(error)
-                                        }
-                                    }
-                                }
-                                failure?.let { throw it }
-                            }
-                        }
+                        override fun evaluate() = withScreenDisplay(::checkedScreenShell) { base.evaluate() }
                     }
                 },
             ).around(compose)
