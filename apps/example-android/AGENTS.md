@@ -47,6 +47,9 @@ recipe retains the APK until it exports only the named fixture PNG files to
 `app/build/screenshots`, then removes only the owned private proof directory.
 Export errors fail the route. An earlier instrumentation failure keeps its status.
 The export and cleanup process fixtures run under `lint-config` without a device.
+Listing, absence and cleanup commands use `adb shell -T` for remote exit status.
+Binary PNG reads use `exec-out`. A missing directory is empty only when the
+installed app can prove its absence. An inaccessible app fails the export.
 It forwards the current worktree backend and S3 ports for signed loopback URLs.
 The app test scope owns a loopback TCP relay for S3 GET response admission.
 `io-fixture` checks its listener startup and teardown without a device.
@@ -95,6 +98,9 @@ eviction and requires its named assertion to fail. It restores the same source
 and measures the same dataset again. Seed progress and `seedMs` stay in the
 proof logs. The fixed job timeout is provisional until measured seed progress
 sets the final limit. Host validator tests also run under `lint-config`.
+Seed checkpoints use one `workload-seed-progress.jsonl` artifact. Each pass records
+its workload identity and whether it reused an existing manifest. Do not present
+retained seed checkpoints as a new per-pass seed.
 See `performance/README.md` for budgets and retained proof files.
 The route starts a disposable catalogue/backend fixture with its own database,
 listener and process session. Only its generated loopback URL and active private

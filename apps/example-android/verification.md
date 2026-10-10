@@ -379,3 +379,39 @@ includes the SDK Gradle tree, root properties, and wrapper scripts. Nine
 selector/path tests verify Android and app compatibility selection without
 unrelated platform jobs. The old filter causes seven intended assertion
 failures with zero test errors; the restored filter passes all nine cases.
+
+## Final parent and exporter update, 2026-10-10
+
+G consumes F `ce906d323d350c6b1156578df00dd155448c6b2c`. All 158 moved app and
+shared source files match this parent byte for byte. The exporter matches F
+byte for byte. The performance runner differs only in four relocation paths.
+The parent repair preserves remote command errors and records seed evidence
+with its workload identity. It does not change native code, timers, or budgets.
+
+The earlier local F707 checks use SDK source `13513024` and release contract
+`6f754f78`: strict app builds, all four ABI package checks, and 72 host tests in
+each app variant pass. Three actual CREATE cleanup cases, disposable target
+admission and health, and one native metadata roundtrip also pass. The metadata
+route then failed in the old exporter. That failed route remains recorded.
+
+On rebased G `1b987ff11b1372330a3b0930f16f774bfeb8f620`, the actual moved
+exporter returns zero for an installed app with no private proof directory.
+It removes stale owned host PNGs and keeps an unrelated file. An inaccessible
+app still raises the original remote error. The owned app, output directory,
+emulator home, and emulator process are removed. This small check does not
+repeat the metadata test, backend workload, or screenshot suite.
+
+The first rebased configuration check failed because G's recipe test used an
+old fake-device listing command. The fake now requires `shell -T` for listing
+and cleanup, and `exec-out` for binary PNG reads. The old production exporter
+fails this actual recipe test; the restored exporter passes all nine path and
+selection cases. The final configuration run includes the parent exporter and
+performance host cases. Proof files remain in `.cache/relocation/ce906-*` and
+`.cache/relocation/final-export-*`.
+
+CI artifact `11665637758` belongs to remote G `39d7315`, before this parent
+update. Its normal performance run passes the fixed 1000-group and
+100000-message workload. The cache failure-control run hits the older-transcript
+timing limit before the required cache assertion. The runner rejects that
+result and no restored pass runs. A separate kache stop timeout is recorded.
+Final CI and full Linux performance on the new parent remain required.
