@@ -86,7 +86,7 @@ example-test-release-integration *args: build
 
 # Check the fixed performance report validator without a device.
 example-performance-check:
-  python3.11 -B -m unittest discover -s example/performance -p 'test_*.py' -v
+  NIX_DEVSHELL=default ../../dev/nix-shell 'python3.11 -B -m unittest discover -s example/performance -p "test_*.py" -v'
 
 # Run the complete workload and cache failure control in the owned Linux API 34 scope.
 example-performance output="example/build/performance": build _metadata-backend

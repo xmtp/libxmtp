@@ -26,17 +26,22 @@ internal fun screenShellOutput(
     return raw.substring(0, position).trim()
 }
 
-internal fun readScreenDisplay(shell: (String) -> String): ScreenDisplay {
+internal fun readScreenDisplay(
+    shell: (String) -> String,
+    effective: Boolean = false,
+): ScreenDisplay {
     val rawScale = shell("settings get system font_scale")
 
     fun overrideValue(
         command: String,
         label: String,
-    ) = shell(command)
-        .lineSequence()
-        .firstOrNull { it.startsWith(label) }
-        ?.substringAfter(':')
-        ?.trim()
+    ): String? {
+        val lines = shell(command).lineSequence().toList()
+        val selected =
+            lines.firstOrNull { it.startsWith(label) }
+                ?: if (effective) lines.firstOrNull { it.startsWith(label.replace("Override", "Physical")) } else null
+        return selected?.substringAfter(':')?.trim()
+    }
     val size = overrideValue("wm size", "Override size:")
     val density = overrideValue("wm density", "Override density:")
     screenDisplayRestoreCommands(rawScale, size, density)
@@ -68,7 +73,7 @@ internal fun withScreenDisplay(
         shell("wm density 160")
         shell("settings put system font_scale 2.0")
         check(
-            readScreenDisplay(shell) == ScreenDisplay("2.0", "320x640", "160"),
+            readScreenDisplay(shell, effective = true) == ScreenDisplay("2.0", "320x640", "160"),
         ) { "Display setup readback did not match" }
         body()
     } catch (error: Throwable) {

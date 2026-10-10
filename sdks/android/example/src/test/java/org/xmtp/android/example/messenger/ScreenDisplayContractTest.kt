@@ -4,6 +4,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ScreenDisplayContractTest {
+    @Test fun physicalDefaultsCountOnlyWhenTheyEqualTheExactTarget() {
+        var scale = "1.0"
+        var physicalSize = "320x640"
+
+        fun shell(command: String): String {
+            when (command) {
+                "settings get system font_scale" -> return scale
+                "wm size" -> return "Physical size: $physicalSize"
+                "wm density" -> return "Physical density: 160"
+                "settings put system font_scale 2.0" -> scale = "2.0"
+                "settings put system font_scale 1.0" -> scale = "1.0"
+            }
+            return ""
+        }
+        var entered = false
+        withScreenDisplay(::shell) { entered = true }
+        assertTrue("Exact physical defaults were rejected without overrides", entered)
+        assertEquals("1.0", scale)
+        assertEquals(ScreenDisplay("1.0", null, null), readScreenDisplay(::shell))
+        physicalSize = "321x640"
+        val error =
+            assertThrows(IllegalStateException::class.java) {
+                withScreenDisplay(::shell) { fail("Wrong physical size reached body") }
+            }
+        assertEquals("Display setup readback did not match", error.message)
+    }
+
     @Test fun actualShellExitIsRequired() {
         fun execute(command: String): String {
             val process = ProcessBuilder("sh").start()

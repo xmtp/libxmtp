@@ -52,6 +52,9 @@ dev/nix-shell 'just android docs'
 dev/nix-shell 'just android docs-generated'
 ```
 
+`example-performance-check` selects the default Nix shell for the host validators.
+That shell includes Python and PyYAML. This command does not run the workload.
+
 `docs` keeps the full native preparation path. CI uses `docs-generated` for
 the reference build. It selects the current release-profile
 `xmtp-sdk-generated-kotlin` output and gives Dokka its Kotlin, runtime, Android,
