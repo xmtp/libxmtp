@@ -106,6 +106,7 @@ lint-config: lint-treefmt
     python3.11 dev/tests/test_android_emulator_start.py
     python3.11 dev/tests/test_docker_startup.py
     python3.11 -B sdks/android/example/fixtures/test_metadata_backend.py
+    python3.11 -B sdks/android/example/fixtures/test_export_screenshots.py
     python3.11 -B -m unittest discover -s sdks/android/example/performance -p 'test_*.py' -v
     python3.11 nix/lib/test-android-emulator-platform.py
 
