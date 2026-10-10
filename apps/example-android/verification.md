@@ -289,3 +289,39 @@ one shared `gradle/android-ndk.gradle` script. Both actual app APKs pass after
 restoration. SDK assembly builds both AAR variants; both pass JNI inspection.
 All four Android native targets built successfully. Matched Kotlin generation
 and final four-ABI package staging remain pending.
+
+## Final F262 moved-source and runtime checkpoint — 2026-10-09
+
+G `08bafbf7a5b1dd9fe9ecbabe946609ae091f1a8a` is based on F
+`262f9366fd81c144fe7a668d5187fb5a27a1fce8`. All 140 moved host/shared source
+files match F bytes. This includes the SDK history adapter/cache, deletion
+predicate, fresh-process fixture, and PerformanceSeedCheckpoint helper.
+The runner keeps SDKTranscriptCache as its active eviction control. The old
+TimestampBuckets source is only the explicit rejected-target fixture. Moved
+paths retain APK installation, seed checkpoint JSONL, same-dataset controls,
+500 rows, three caches, four reads, and all stated performance budgets.
+
+Strict Debug/Release/shared/test-APK build and actual APK JNI inspection pass.
+Host suites pass 56 tests per variant with no failures, errors, or skips.
+Configuration, Markdown, and all ten performance-tool tests pass. Kotlin
+generation and matched four-ABI Android staging pass. Both SDK AAR variants
+pass JNI inspection. Current proof logs are in `.cache/relocation`.
+
+The moved native smoke passes four cases with zero failures, errors, or skips:
+MainActivity launch, both SessionLifecycle profile/reset cases, and the real
+operator-catalogue roundtrip through two SDK clients. The first attempt failed
+one fixture assertion because the test environment set both profile URLs to
+the same loopback value. The corrected environment uses the expected emulator
+URL for BuildConfig and loopback as the fixture's second URL. The app source
+is unchanged. The restored four-case suite passes.
+
+XML is retained at `.cache/relocation/native-restored-results`; the exact source,
+head, and cleanup record is `.cache/relocation/native-restored-proof.json`.
+Both owned Android homes are removed. The catalogue config, backend process,
+owned unsupported fixture, and S3 gate are removed. PostgreSQL reports zero
+remaining messenger_metadata fixture databases. The runtime lease is released;
+no shared proxy mutation occurred.
+
+Post-push parent repairs can advance F. Final parent sync and a fresh integration
+review remain open before PR submission. Full Linux performance and real
+Firebase delivery remain pending; this checkpoint claims neither result.
