@@ -7,9 +7,10 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 from urllib.parse import quote, urlsplit
 
-from metadata_backend import psql_connection
+from metadata_backend import psql_connection, stop
 
 
 FIXTURE = Path(__file__).with_name("metadata_backend.py")
@@ -37,7 +38,7 @@ class MetadataBackendFixtureTest(unittest.TestCase):
         self.env["PATH"] = str(self.root) + os.pathsep + self.env["PATH"]
         self.executable(
             "psql",
-            """import os,sys,time,stat
+            """import os,sys,time,stat,subprocess
 from pathlib import Path
 from urllib.parse import parse_qsl,urlsplit
 connection=next(value for value in sys.argv if value.startswith(('postgres://','postgresql://')))
@@ -67,6 +68,12 @@ elif statement.startswith('CREATE'):
     if os.environ.get('UNCERTAIN_CREATE'): sys.exit(8)
 elif statement.startswith('DROP'):
     assert statement.split('"')[1] == state.read_text()
+    descendant=Path(os.environ['FIXTURE_LEDGER'] + '.descendant')
+    if descendant.exists():
+        pid,group=map(int,descendant.read_text().split())
+        status=subprocess.run(['ps','-p',str(pid),'-o','stat='],capture_output=True,text=True).stdout.strip()
+        if status and not status.startswith('Z'):
+            with open(os.environ['FIXTURE_LEDGER'],'a') as out: out.write('DESCENDANT_RUNNING_AT_DROP\\n')
     state.unlink()
 """,
         )
@@ -94,7 +101,7 @@ while True: time.sleep(.05)
         )
         self.child = self.executable(
             "child",
-            """import os,sys,time
+            """import os,sys,time,subprocess
 from pathlib import Path
 from urllib.parse import urlsplit
 assert os.environ['XMTP_ANDROID_BACKEND_URL'] == 'http://10.0.2.2:3'
@@ -107,6 +114,12 @@ assert os.environ['XMTP_DATABASE_URL'] == os.environ['DATABASE_URL']
 assert os.environ['XMTP_REPLICA_URL'] == os.environ['DATABASE_URL']
 assert os.environ['XMTP_METADATA_BACKEND_URL'] == 'http://127.0.0.1:' + os.environ['XMTP_METADATA_BACKEND_PORT']
 with open(os.environ['FIXTURE_LEDGER'], 'a') as out: out.write('CHILD_READY\\n')
+if os.environ.get('SPAWN_DESCENDANT'):
+    subprocess.Popen([sys.executable,'-c',"import os,signal,time; from pathlib import Path; signal.signal(signal.SIGTERM,signal.SIG_IGN); Path(os.environ['FIXTURE_LEDGER']+'.descendant').write_text(str(os.getpid())+' '+str(os.getpgrp())); time.sleep(60)"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    deadline=time.monotonic()+5
+    while not Path(os.environ['FIXTURE_LEDGER']+'.descendant').exists():
+        assert time.monotonic()<deadline, 'Descendant did not become ready'
+        time.sleep(.01)
 if os.environ.get('WAIT_CHILD'):
     while True: time.sleep(.05)
 time.sleep(.1)
@@ -177,6 +190,44 @@ sys.exit(int(os.environ.get('CHILD_STATUS','0')))
         self.assertEqual(1, len(set(passfiles)))
         self.assertFalse(passfiles[0].exists())
         self.assertFalse(passfiles[0].parent.exists())
+
+    def test_exited_leader_does_not_leave_descendant_running_at_database_drop(self):
+        process = self.start(SPAWN_DESCENDANT="1")
+        descendant = self.root / "ledger.descendant"
+        try:
+            out, error = process.communicate(timeout=15)
+            self.assertEqual(0, process.returncode, (out, error))
+            pid, group = map(int, descendant.read_text().split())
+            self.assertNotEqual(pid, group)
+            ledger = self.check_cleanup()
+            self.assertNotIn("DESCENDANT_RUNNING_AT_DROP", ledger)
+            state = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "stat="],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertTrue(not state or state.startswith("Z"), state)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate(timeout=15)
+            if descendant.exists():
+                pid, group = map(int, descendant.read_text().split())
+                try:
+                    if os.getpgid(pid) == group:
+                        os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_stop_rejects_a_process_that_does_not_own_its_group(self):
+        process = Mock(pid=123)
+        with (
+            patch("metadata_backend.os.getpgid", return_value=456),
+            patch("metadata_backend.os.killpg") as kill,
+        ):
+            with self.assertRaisesRegex(ValueError, "does not own"):
+                stop(process)
+            kill.assert_not_called()
 
     def test_psql_password_options_escape_and_cleanup(self):
         with self.assertRaisesRegex(ValueError, "PostgreSQL URI"):

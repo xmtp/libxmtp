@@ -7,6 +7,10 @@ The database, listeners and backend process belong to this run. The runner
 removes them after success, command failure or cancellation. Backend logs remain
 at the printed path.
 
+Cleanup stops the owned process group even if its leader already exited.
+It sends SIGKILL to remaining members after the leader's TERM wait. It rejects
+a live process that does not own its group and never uses a global process kill.
+
 Run from the repository root:
 
 ```sh
