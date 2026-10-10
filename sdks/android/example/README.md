@@ -72,19 +72,22 @@ until a later committed state changes it.
 
 ## Local history limits
 
-The first page loads 50 rows, with complete timestamp buckets when a boundary
-has ties. Raw matching counts prove coverage. An unconvertible stored row can
-shorten the returned list; a short list alone does not prove completion. The app
-stops visibly when the current SDK cannot cover a bucket within its 501-row query
-limit. It never advances past an unretained member of that bucket.
+Published history uses SDK pages of 50 raw rows. The SDK orders by sent time,
+then local delivery sequence. The app preserves that order and uses opaque SDK
+positions for older and newer queries. A short or empty converted list does not
+prove completion. Raw continuation can advance past unreadable rows. A notice
+shows conversion loss. Each operation uses at most four history reads; Load more
+continues from the last consumed raw position.
 
 The cache keeps three transcripts and at most 500 published rows per transcript.
 Queued and failed messages have a separate 50-row recovery page. Use Older pending
 messages and Newest pending messages to change this page. Refresh reads the selected
-page again. A visible notice stops a timestamp tie that exceeds 50 rows. Retained positions
-restore the message key and pixel offset. After eviction, the app makes one
-bounded timestamp query. If the key is absent, it selects a surviving row at
-offset zero and shows Position changed.
+page again. A visible notice stops a pending timestamp tie that exceeds 50 rows.
+Saved positions retain the message key, pixel offset and SDK tuple. Refresh
+reads the window around that tuple. A deleted anchor still has a valid query
+boundary. The app selects the next surviving newer row, then an older row, at
+offset zero and shows Position changed. A rejected cursor clears the saved
+position and opens the newest page. Published ties have no timestamp-bucket stop.
 
 Unread counts use retained incoming Published text, Markdown, reply and remote attachment
 rows with an insertion timestamp greater than the local read marker. Equal

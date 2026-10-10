@@ -263,9 +263,16 @@ class MessengerPreferences(
                         .getInt("px"),
                     o
                         .getBoolean("newest"),
+                    o.optString("cursor").takeIf { cursor -> cursor.isNotEmpty() },
                 )
             }
         }
+
+    suspend fun clearAnchor(
+        profile: String,
+        conversation: String,
+        admit: (() -> Unit) -> Boolean,
+    ) = put("$profile/scroll/$conversation", null, admit, position = true)
 
     suspend fun saveAnchor(
         profile: String,
@@ -290,6 +297,9 @@ class MessengerPreferences(
             ).put(
                 "newest",
                 value.wasAtNewest,
+            ).put(
+                "cursor",
+                value.deliveryCursor,
             ).toString(),
         admit,
         position = true,

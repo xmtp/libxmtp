@@ -54,6 +54,7 @@ data class ScrollAnchor(
     val sentAtNs: Long,
     val offsetPx: Int,
     val wasAtNewest: Boolean,
+    val deliveryCursor: String? = null,
 )
 
 data class ConversationSettings(

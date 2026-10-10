@@ -40,14 +40,7 @@ class MessengerViewModel(
     private val reads = Semaphore(4)
     private val projection = Mutex()
     private val cache =
-        TranscriptCache<Message>(
-            {
-                it.id
-            },
-            {
-                it.sentAt.ns
-            },
-        )
+        SDKTranscriptCache<Message>({ it.id }, { it.historyPosition() })
 
     @Volatile private var selectedBackend = BuildConfig.XMTP_BACKEND_URL.trim().trimEnd('/')
     private val screenLock = Any()
@@ -60,7 +53,7 @@ class MessengerViewModel(
 
     @Volatile private var conversation: Conversation? = null
     private var logicalKey: String? = null
-    private var nextBefore: Long? = null
+    private var nextBefore: MessageHistoryPosition? = null
     private var recoveryUpper: Long? = null
     private var recoveryNext: Long? = null
 
@@ -278,14 +271,12 @@ class MessengerViewModel(
         ConsentState,
     ) -> Unit = { chat, value -> chat.updateConsentState(value) }
     internal var onConsentFinished: () -> Unit = {}
-    internal var historyRead: suspend (
+    internal var historyPageRead: suspend (
         Conversation,
         ListMessagesOptions,
-    ) -> List<Message> = { chat, options -> chat.messages(options) }
-    internal var historyCount: suspend (
-        Conversation,
-        ListMessagesOptions,
-    ) -> ULong = { chat, options -> chat.countMessages(options) }
+        MessageHistoryPosition?,
+        MessageHistoryPosition?,
+    ) -> MessageHistoryPage = { chat, options, before, after -> chat.historyPage(options, before, after) }
 
     private val backendProbeCounter = AtomicLong()
     private var backendProbeJob: Job? = null
@@ -1048,11 +1039,14 @@ class MessengerViewModel(
                                             ),
                                         )
                                 val last =
-                                    chat
-                                        .messages(
-                                            publishedSelection()
-                                                .copy(limit = 1u),
-                                        ).firstOrNull()
+                                    historyPageRead(
+                                        chat,
+                                        publishedSelection()
+                                            .copy(limit = 1u),
+                                        null,
+                                        null,
+                                    ).messages
+                                        .firstOrNull()
                                         ?.toRow(
                                             owner.client
                                                 .inboxId(),
@@ -1159,11 +1153,11 @@ class MessengerViewModel(
         projection.withLock {
             if (!valid(owner, token)) return
             val cached = cache.get(id)
-            if (cached != null && anchor != null && cached.any { it.id == anchor.messageId }) {
+            if (cached != null && anchor != null && cached.rows.any { it.id == anchor.messageId }) {
                 onCurrentScreen(owner, token) {
-                    val cachedRows = cached.map { it.toRow(owner.client.inboxId()) }
+                    val cachedRows = cached.rows.map { it.toRow(owner.client.inboxId()) }
                     ui.update { currentUi -> currentUi.copy(messages = cachedRows, anchor = anchor) }
-                    nextBefore = cached.lastOrNull()?.sentAt?.ns
+                    nextBefore = cached.last
                 }
                 refreshTimeline(owner, token, true)
             } else if (anchor != null && !anchor.wasAtNewest) {
@@ -1174,24 +1168,19 @@ class MessengerViewModel(
         }
     }
 
-    private suspend fun page(
-        chat: Conversation,
-        before: Long?,
-    ) = TimestampBuckets<Message>({ it.sentAt.ns }).load(
-        before,
-        read = { upper, limit ->
-            historyRead(
-                chat,
-                publishedSelection().copy(sentBefore = upper?.let(::Timestamp), limit = limit.toUInt()),
-            )
-        },
-        count = { upper, lower ->
-            historyCount(
-                chat,
-                publishedSelection().copy(sentBefore = upper?.let(::Timestamp), sentAfter = lower?.let(::Timestamp)),
-            )
-        },
-    )
+    private fun historyPages(chat: Conversation) =
+        SDKHistoryPages<Message>(
+            readableRow = { it.content !is MessageContent.DeletedMessage },
+        ) { direction, before, after ->
+            reads.withPermit {
+                historyPageRead(
+                    chat,
+                    publishedSelection().copy(limit = 50u, direction = direction),
+                    before,
+                    after,
+                ).queryPage()
+            }
+        }
 
     private suspend fun overlay(chat: Conversation): BucketPage<Message> =
         pendingMessagePage(recoveryUpper, read = { recoveryRead(chat, it) }, count = { chat.countMessages(it) })
@@ -1205,225 +1194,126 @@ class MessengerViewModel(
         )
     }
 
+    private fun timelineRows(
+        owner: ActiveSession,
+        published: List<Message>,
+        queued: List<Message>,
+    ) = (published + queued)
+        .distinctBy { it.id }
+        .sortedByDescending { it.sentAt.ns }
+        .map { it.toRow(owner.client.inboxId()) }
+
+    private fun anchorForWindow(
+        owner: ActiveSession,
+        saved: ScrollAnchor?,
+        window: HistoryWindow<Message>,
+    ): RestoredPosition {
+        val readable = { row: Message -> !row.toRow(owner.client.inboxId()).deleted }
+        if (saved == null || saved.wasAtNewest || window.changed) {
+            val row = window.rows.firstOrNull(readable)
+            return RestoredPosition(
+                row?.let {
+                    ScrollAnchor(it.id, it.sentAt.ns, 0, window.atNewest, it.deliveryCursor)
+                },
+                window.changed,
+            )
+        }
+        val match = window.rows.firstOrNull { it.id == saved.messageId && readable(it) }
+        if (match != null) {
+            return RestoredPosition(
+                saved.copy(sentAtNs = match.sentAt.ns, deliveryCursor = match.deliveryCursor),
+                false,
+            )
+        }
+        val replacement =
+            window.rows.take(window.newerCount).lastOrNull(readable)
+                ?: window.rows.drop(window.newerCount).firstOrNull(readable)
+        return RestoredPosition(
+            replacement?.let { ScrollAnchor(it.id, it.sentAt.ns, 0, false, it.deliveryCursor) },
+            true,
+        )
+    }
+
     private suspend fun refreshTimeline(
         owner: ActiveSession,
         token: Long,
         preserve: Boolean,
     ) {
+        val saved = ui.value.anchor.takeIf { preserve && it?.wasAtNewest == false }
+        refreshWindow(owner, token, saved)
+    }
+
+    private suspend fun refreshWindow(
+        owner: ActiveSession,
+        token: Long,
+        saved: ScrollAnchor?,
+    ) {
         val chat = conversation ?: return
-        val previous =
-            if (preserve) {
-                cache
-                    .get(
-                        chat
-                            .id(),
-                    ).orEmpty()
-            } else {
-                emptyList()
-            }
-        val oldest =
-            previous.minOfOrNull {
-                it.sentAt.ns
-            }
-        val intervalFits =
-            oldest == null || historyCount(
-                chat,
-                publishedSelection().copy(
-                    sentAfter = if (oldest == Long.MIN_VALUE) null else Timestamp(oldest - 1),
-                ),
-            ) <= 500uL
-        // Reread the retained range when the newer interval exceeds the cache bound.
-        val upper =
-            if (preserve && ui.value.anchor?.wasAtNewest == false && !intervalFits) {
-                previous.maxOfOrNull { it.sentAt.ns }?.let {
-                    if (it == Long.MAX_VALUE) null else it + 1
-                }
-            } else {
-                null
-            }
-        var result = page(chat, upper)
-        val rows =
-            result.rows
-                .toMutableList()
-        while (result.notice == null &&
-            !result
-                .complete && rows.size < 500 && oldest != null && (
-                result.nextBeforeNs ?: Long.MIN_VALUE
-            ) > oldest
-        ) {
-            result =
-                page(
-                    chat,
-                    result.nextBeforeNs,
-                )
-            rows
-                .addAll(
-                    result.rows,
-                )
+        var boundary = saved?.deliveryCursor?.let { MessageHistoryPosition(Timestamp(saved.sentAtNs), it) }
+        if (saved != null && boundary == null) {
+            // Migrate only a readable old anchor. A deleted row cannot supply a boundary.
+            val row = owner.client.conversations.getMessageById(saved.messageId)
+            if (row != null && !row.toRow(owner.client.inboxId()).deleted) boundary = row.historyPosition()
         }
+        if (!valid(owner, token)) return
+        var changed = saved != null && boundary == null
+        val result =
+            try {
+                val pages = historyPages(chat)
+                if (boundary == null) pages.older() else pages.around(boundary)
+            } catch (error: XmtpException.InvalidArgument) {
+                if (boundary == null) throw error
+                val key = logicalKey ?: return
+                session.preferences.clearAnchor(
+                    owner.key.profileId,
+                    key,
+                ) { change -> admitPosition(owner, token, false, change) }
+                if (!valid(owner, token)) return
+                changed = true
+                historyPages(chat).older()
+            }
         val queued = overlay(chat)
-        if (!valid(
-                owner,
-                token,
-            ) || chat
-                .id() != conversation?.id()
-        ) {
-            return
-        }
-        val window =
-            onCurrentScreen(owner, token) {
-                val kept =
-                    cache.retainPage(
-                        chat.id(),
-                        emptyList(),
-                        result.copy(rows = rows),
-                        ui.value.anchor?.messageId,
-                    )
-                nextBefore = kept.nextBeforeNs
-                val newestId = rows.maxByOrNull { it.sentAt.ns }?.id
-                newestLoaded = upper == null && (newestId == null || kept.rows.any { it.id == newestId })
-                kept
-            } ?: return
-        val retained = window.rows
-        val previousAnchor =
-            ui.value.anchor.takeIf {
-                preserve
-            }
-        val position =
-            previousAnchor?.let {
-                restoreAnchor(
-                    it,
-                    retained.map { row ->
-                        row
-                            .toRow(
-                                owner.client
-                                    .inboxId(),
-                            )
-                    },
-                )
-            }
-        val positionLost = position?.changed == true
-        val restoredAnchor =
-            if (!preserve) {
-                retained
-                    .firstOrNull()
-                    ?.let {
-                        ScrollAnchor(
-                            it.id,
-                            it.sentAt.ns,
-                            0,
-                            true,
-                        )
-                    }
-            } else {
-                position?.anchor
-            }
-        val consent =
-            conversationState(chat).consentState
-        if (!valid(
-                owner,
-                token,
-            )
-        ) {
-            return
-        }
+        val consent = conversationState(chat).consentState
+        if (!valid(owner, token) || chat.id() != conversation?.id()) return
         onCurrentScreen(owner, token) {
+            val window = cache.put(chat.id(), result, saved?.messageId)
+            nextBefore = window.last
+            newestLoaded = window.atNewest
+            val position = anchorForWindow(owner, saved, window)
             ui.update { currentUi ->
                 currentUi
                     .copy(
-                        messages =
-                            (retained + queued.rows)
-                                .associateBy {
-                                    it.id
-                                }.values
-                                .sortedWith(
-                                    compareByDescending<Message> {
-                                        it.sentAt.ns
-                                    }.thenBy {
-                                        it.id
-                                    },
-                                ).map {
-                                    it
-                                        .toRow(
-                                            owner.client
-                                                .inboxId(),
-                                        )
-                                },
-                        historyNotice =
-                            window.notice ?: if (positionLost) {
-                                "Position changed"
-                            } else {
-                                null
-                            },
-                        hasOlder =
-                            !window
-                                .complete && window.notice == null,
-                        conversationUnknown =
-                            consent ==
-                                ConsentState.UNKNOWN,
-                        anchor = restoredAnchor,
+                        messages = timelineRows(owner, window.rows, queued.rows),
+                        historyNotice = window.notice ?: if (changed || position.changed) "Position changed" else null,
+                        hasOlder = window.hasOlder,
+                        conversationUnknown = consent == ConsentState.UNKNOWN,
+                        anchor = position.anchor,
                     ).withRecovery(queued)
                     .refreshReply()
             }
         }
-        markRead(
-            owner,
-            token,
-        )
+        markRead(owner, token)
     }
 
     private suspend fun loadOlder(
         owner: ActiveSession,
         token: Long,
     ) {
-        if (ui.value.historyNotice?.startsWith("More history") == true) return
+        if (!ui.value.hasOlder) return
         val chat = conversation ?: return
-        val result =
-            page(
-                chat,
-                nextBefore,
-            )
+        val page = historyPages(chat).older(nextBefore)
         val queued = overlay(chat)
-        if (!valid(
-                owner,
-                token,
-            )
-        ) {
-            return
-        }
-        val window =
-            onCurrentScreen(owner, token) {
-                val before = cache.get(chat.id()).orEmpty()
-                val newestId = before.firstOrNull()?.id
-                val kept = cache.retainPage(chat.id(), before, result, ui.value.anchor?.messageId)
-                nextBefore = kept.nextBeforeNs
-                newestLoaded = newestLoaded && (newestId == null || kept.rows.any { it.id == newestId })
-                kept
-            } ?: return
-        val rows = window.rows
+        if (!valid(owner, token) || chat.id() != conversation?.id()) return
         onCurrentScreen(owner, token) {
+            val window = cache.append(chat.id(), page, ui.value.anchor?.messageId)
+            nextBefore = window.last
+            newestLoaded = window.atNewest
             ui.update { currentUi ->
                 currentUi
                     .copy(
-                        messages =
-                            (rows + queued.rows)
-                                .associateBy {
-                                    it.id
-                                }.values
-                                .sortedByDescending {
-                                    it.sentAt.ns
-                                }.map {
-                                    it
-                                        .toRow(
-                                            owner.client
-                                                .inboxId(),
-                                        )
-                                },
-                        historyNotice =
-                            window.notice,
-                        hasOlder =
-                            !window
-                                .complete && window.notice == null,
+                        messages = timelineRows(owner, window.rows, queued.rows),
+                        historyNotice = window.notice,
+                        hasOlder = window.hasOlder,
                     ).withRecovery(queued)
                     .refreshReply()
             }
@@ -1434,48 +1324,7 @@ class MessengerViewModel(
         owner: ActiveSession,
         token: Long,
         saved: ScrollAnchor,
-    ) {
-        val chat = conversation ?: return
-        val before = if (saved.sentAtNs == Long.MAX_VALUE) null else saved.sentAtNs + 1
-        val result = page(chat, before)
-        val queued = overlay(chat)
-        if (!valid(owner, token)) return
-        if (result.rows.isEmpty() && result.notice == null) {
-            refreshTimeline(owner, token, false)
-            onCurrentScreen(owner, token) {
-                ui.update { currentUi ->
-                    currentUi.copy(historyNotice = "Position changed")
-                }
-            }
-            return
-        }
-        val window =
-            onCurrentScreen(owner, token) {
-                cache.retainPage(chat.id(), emptyList(), result, saved.messageId).also {
-                    nextBefore = it.nextBeforeNs
-                    newestLoaded = false
-                }
-            } ?: return
-        val retained = window.rows
-        val position = restoreAnchor(saved, retained.map { it.toRow(owner.client.inboxId()) })
-        onCurrentScreen(owner, token) {
-            ui.update { currentUi ->
-                currentUi
-                    .copy(
-                        messages =
-                            (retained + queued.rows).sortedByDescending { it.sentAt.ns }.map {
-                                it.toRow(
-                                    owner.client.inboxId(),
-                                )
-                            },
-                        anchor = position.anchor,
-                        historyNotice = window.notice ?: if (position.changed) "Position changed" else null,
-                        hasOlder = !window.complete && window.notice == null,
-                    ).withRecovery(queued)
-                    .refreshReply()
-            }
-        }
-    }
+    ) = refreshWindow(owner, token, saved)
 
     private fun MessengerState.refreshReply(): MessengerState {
         val parent = messages.firstOrNull { it.id == replyTo && !it.deleted }
@@ -1517,11 +1366,19 @@ class MessengerViewModel(
         }
         if (!admitPosition(owner, token, false) { atNewest = action.atNewest }) return
         val key = logicalKey ?: return
+        val published =
+            conversation
+                ?.id()
+                ?.let { cache.get(it) }
+                ?.rows
+                ?.firstOrNull { it.id == action.anchor.messageId } ?: return@withLock
+        val cursor = published.deliveryCursor ?: return@withLock
+        val anchor = action.anchor.copy(sentAtNs = published.sentAt.ns, deliveryCursor = cursor)
         session.preferences
             .saveAnchor(
                 owner.key.profileId,
                 key,
-                action.anchor,
+                anchor,
                 admit = { change -> admitPosition(owner, token, false, change) },
             )
         if (valid(
@@ -1530,7 +1387,7 @@ class MessengerViewModel(
             )
         ) {
             onCurrentScreen(owner, token) {
-                ui.update { currentUi -> currentUi.copy(anchor = action.anchor) }
+                ui.update { currentUi -> currentUi.copy(anchor = anchor) }
             }
             markRead(
                 owner,
