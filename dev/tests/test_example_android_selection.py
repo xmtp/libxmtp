@@ -273,9 +273,9 @@ class CommandPathTest(unittest.TestCase):
                 "  sh) printf 'setup.png\\n' ;;\n"
                 "  head) printf '\\211PNG\\r\\n\\032\\nfixture-image' ;;\n"
                 '  rm) test "${@: -1}" = files/xmtp-messenger-proof ;;\n'
-                '  *) exit 1 ;;\n'
-                ' esac\n'
-                'fi\n',
+                "  *) exit 1 ;;\n"
+                " esac\n"
+                "fi\n",
             )
             for name in ("attachment-io-proxy", "unsupported-backend"):
                 executable("apps/example-android/dev/" + name, 'exec "$@"\n')

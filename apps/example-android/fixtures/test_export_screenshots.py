@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import export_screenshots as proof
 
-ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(__file__).resolve().parents[3]
 PNG = proof.PNG + b"fixture image"
 
 
@@ -224,11 +224,11 @@ class ScreenshotExportTest(unittest.TestCase):
             self.assertIn("RuntimeError", first.__notes__[0])
 
     def test_actual_recipe_retains_private_artifacts_for_export_then_removes_them(self):
-        recipe = (ROOT / "sdks/android/android.just").read_text()
+        recipe = (ROOT / "apps/example-android/example-android.just").read_text()
         line = next(
             line
             for line in recipe.splitlines()
-            if "example/fixtures/metadata_backend.py" in line and "bash -euc" in line
+            if "fixtures/metadata_backend.py" in line and "bash -euc" in line
         )
         body = line.split("bash -euc '", 1)[1].removesuffix("'")
         with tempfile.TemporaryDirectory() as home:
@@ -241,7 +241,7 @@ class ScreenshotExportTest(unittest.TestCase):
             (private / "scale-start.png").write_bytes(PNG)
             installed = fixture / "installed"
             installed.touch()
-            scripts = android / "example/fixtures"
+            scripts = android / "fixtures"
             scripts.mkdir(parents=True)
             shutil.copyfile(Path(proof.__file__), scripts / "export_screenshots.py")
             gradle = android / "gradlew"
@@ -305,7 +305,9 @@ else: raise AssertionError(args)
             ):
                 environment[key] = "http://127.0.0.1:1234"
             command = body.replace("{{ root }}", home).replace("{{ args }}", "")
-            output = fixture / "sdks/android/example/build/screenshots/scale-start.png"
+            output = (
+                fixture / "apps/example-android/app/build/screenshots/scale-start.png"
+            )
             for status, image in (
                 (0, PNG),
                 (7, PNG),
