@@ -347,130 +347,137 @@ class AppSession(
         beforeBoundConnectOperation(key)
         withOperation(operationHeld) {
             if (!accepts(key)) return
-            check(
-                preferences
-                    .reset()
-                    ?.profileId !=
-                    profile.id,
-            ) {
-                "Finish local reset before connecting"
-            }
-            markSignedOutForCleanup()
-            closeCurrent()
-            recoverExportCleanup()
-            val saved =
-                profile
-                    .copy(allowPrivateNetwork = allowPrivateNetwork)
-            preferences
-                .setActive(saved)
-            if (credential != null) {
-                secrets
-                    .write(
-                        saved.id,
-                        "credential",
-                        credential
-                            .toByteArray(),
-                    )
-            }
-            val wallet =
-                secrets
-                    .read(
-                        saved.id,
-                        "wallet",
-                    ) ?: SecureRandom()
-                    .generateSeed(32)
-                    .also {
-                        secrets
-                            .write(
-                                saved.id,
-                                "wallet",
-                                it,
-                            )
-                    }
-            val encryption =
-                secrets
-                    .read(
-                        saved.id,
-                        "database-key",
-                    ) ?: SecureRandom()
-                    .generateSeed(32)
-                    .also {
-                        secrets
-                            .write(
-                                saved.id,
-                                "database-key",
-                                it,
-                            )
-                    }
-            val paths =
-                saved
-                    .paths(
-                        context.filesDir,
-                    )
-            check(
-                paths.database.parentFile!!
-                    .isDirectory ||
-                    paths.database.parentFile!!
-                        .mkdirs(),
-            )
-            check(
-                paths.attachments
-                    .isDirectory ||
-                    paths.attachments
-                        .mkdirs(),
-            )
-            val source = sessionCredentials.forProfile(saved.id, key)
-            val options =
-                ClientOptions(
-                    backend =
-                        BackendSource
-                            .Options(
-                                BackendOptions(
-                                    url = url,
-                                    credentials = source,
-                                ),
-                            ),
-                    storage =
-                        StorageOptions(
-                            location =
-                                StorageLocation
-                                    .Explicit(
-                                        paths.database.absolutePath,
-                                        paths.attachments.absolutePath,
-                                    ),
-                            encryptionKey = encryption,
-                        ),
-                    allowOffline =
-                        saved.inboxId != null,
-                    attachments = AttachmentOptions(allowPrivateNetwork = allowPrivateNetwork),
-                )
-            val signer = localSignerFromPrivateKey(wallet)
-            if (!prepareStoredNotifications(saved, key, paths, options)) return
-            beforeClientBuild(url)
-            val client =
-                if (saved.inboxId != null && saved.identity != null) {
-                    SDKClient
-                        .build(
-                            context,
-                            PublicIdentity(
-                                saved.identity,
-                                PublicIdentityKind.ETHEREUM,
-                            ),
-                            options,
-                            saved.inboxId,
-                        )
-                } else {
-                    SDKClient
-                        .create(
-                            context,
-                            signer,
-                            options,
-                        )
-                }
-            val pending = ActiveSession(key, saved, paths, client)
-            opening = pending
+            var retryableProfile: BackendProfile? = null
             var published = false
             try {
+                retryableProfile =
+                    if (reservedGeneration != null && preferences.signedIn()) {
+                        preferences.active()?.takeIf { it.id == profile.id }
+                    } else {
+                        null
+                    }
+                check(
+                    preferences
+                        .reset()
+                        ?.profileId !=
+                        profile.id,
+                ) {
+                    "Finish local reset before connecting"
+                }
+                markSignedOutForCleanup()
+                closeCurrent()
+                recoverExportCleanup()
+                val saved =
+                    profile
+                        .copy(allowPrivateNetwork = allowPrivateNetwork)
+                preferences
+                    .setActive(saved)
+                if (credential != null) {
+                    secrets
+                        .write(
+                            saved.id,
+                            "credential",
+                            credential
+                                .toByteArray(),
+                        )
+                }
+                val wallet =
+                    secrets
+                        .read(
+                            saved.id,
+                            "wallet",
+                        ) ?: SecureRandom()
+                        .generateSeed(32)
+                        .also {
+                            secrets
+                                .write(
+                                    saved.id,
+                                    "wallet",
+                                    it,
+                                )
+                        }
+                val encryption =
+                    secrets
+                        .read(
+                            saved.id,
+                            "database-key",
+                        ) ?: SecureRandom()
+                        .generateSeed(32)
+                        .also {
+                            secrets
+                                .write(
+                                    saved.id,
+                                    "database-key",
+                                    it,
+                                )
+                        }
+                val paths =
+                    saved
+                        .paths(
+                            context.filesDir,
+                        )
+                check(
+                    paths.database.parentFile!!
+                        .isDirectory ||
+                        paths.database.parentFile!!
+                            .mkdirs(),
+                )
+                check(
+                    paths.attachments
+                        .isDirectory ||
+                        paths.attachments
+                            .mkdirs(),
+                )
+                val source = sessionCredentials.forProfile(saved.id, key)
+                val options =
+                    ClientOptions(
+                        backend =
+                            BackendSource
+                                .Options(
+                                    BackendOptions(
+                                        url = url,
+                                        credentials = source,
+                                    ),
+                                ),
+                        storage =
+                            StorageOptions(
+                                location =
+                                    StorageLocation
+                                        .Explicit(
+                                            paths.database.absolutePath,
+                                            paths.attachments.absolutePath,
+                                        ),
+                                encryptionKey = encryption,
+                            ),
+                        allowOffline =
+                            saved.inboxId != null,
+                        attachments = AttachmentOptions(allowPrivateNetwork = allowPrivateNetwork),
+                    )
+                val signer = localSignerFromPrivateKey(wallet)
+                if (!prepareStoredNotifications(saved, key, paths, options)) return
+                beforeClientBuild(url)
+                val client =
+                    if (saved.inboxId != null && saved.identity != null) {
+                        SDKClient
+                            .build(
+                                context,
+                                PublicIdentity(
+                                    saved.identity,
+                                    PublicIdentityKind.ETHEREUM,
+                                ),
+                                options,
+                                saved.inboxId,
+                            )
+                    } else {
+                        SDKClient
+                            .create(
+                                context,
+                                signer,
+                                options,
+                            )
+                    }
+                val pending = ActiveSession(key, saved, paths, client)
+                opening = pending
                 if (!accepts(key)) return
                 val opened =
                     saved
@@ -504,7 +511,28 @@ class AppSession(
                     } == true
                 if (published) opening = null
             } finally {
-                if (!published) withContext(NonCancellable) { closeCurrent(unregister = false) }
+                if (!published) {
+                    withContext(NonCancellable) {
+                        try {
+                            closeCurrent(unregister = false)
+                        } finally {
+                            if (reservedGeneration != null) {
+                                try {
+                                    retryableProfile?.let { selected ->
+                                        preferences.commitSession(selected) { change ->
+                                            withCurrent(key) {
+                                                change()
+                                                true
+                                            } == true
+                                        }
+                                    }
+                                } finally {
+                                    fence.releaseRestore(key)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
