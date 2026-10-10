@@ -298,16 +298,22 @@ class CommandPathTest(unittest.TestCase):
             )
             executable(
                 "bin/adb",
-                'if [[ "$3" == exec-out ]]; then\n'
-                ' test "$4" = run-as\n'
-                ' test "$5" = org.xmtp.android.example\n'
+                'if [[ "$3" == shell || "$3" == exec-out ]]; then\n'
                 ' printf "%s\\n" "$*" >> "$SCREENSHOT_LOG"\n'
-                ' case "$6" in\n'
-                '  ls) if [[ "$7" == -1 ]]; then\n'
+                ' mode="$3"\n'
+                " shift 3\n"
+                ' if [[ "$mode" == shell ]]; then test "$1" = -T; shift; fi\n'
+                ' test "$1" = run-as\n'
+                ' test "$2" = org.xmtp.android.example\n'
+                ' case "$3" in\n'
+                '  ls) test "$mode" = shell\n'
+                '      if [[ "$4" == -1 ]]; then\n'
                 "       printf 'setup.png\\n'\n"
                 "      else printf 'setup.png  conversations.png\\n'; fi ;;\n"
-                "  head) printf '\\211PNG\\r\\n\\032\\nfixture-image' ;;\n"
-                '  rm) test "${@: -1}" = files/xmtp-messenger-proof ;;\n'
+                '  head) test "$mode" = exec-out\n'
+                "        printf '\\211PNG\\r\\n\\032\\nfixture-image' ;;\n"
+                '  rm) test "$mode" = shell\n'
+                '      test "${@: -1}" = files/xmtp-messenger-proof ;;\n'
                 "  *) exit 1 ;;\n"
                 " esac\n"
                 "fi\n",
@@ -403,9 +409,14 @@ class CommandPathTest(unittest.TestCase):
                 ).is_file()
             )
             screenshot_calls = (root / "screenshots.txt").read_text()
-            self.assertIn("run-as org.xmtp.android.example head", screenshot_calls)
             self.assertIn(
-                "run-as org.xmtp.android.example rm -rf files/xmtp-messenger-proof",
+                "shell -T run-as org.xmtp.android.example ls -1", screenshot_calls
+            )
+            self.assertIn(
+                "exec-out run-as org.xmtp.android.example head", screenshot_calls
+            )
+            self.assertIn(
+                "shell -T run-as org.xmtp.android.example rm -rf files/xmtp-messenger-proof",
                 screenshot_calls,
             )
             self.assertNotIn("/sdcard/", screenshot_calls)
