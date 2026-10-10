@@ -34,6 +34,28 @@ pub struct DeliveryCursor {
     pub delivery_sequence: u64,
 }
 
+/// A chronological boundary that remains valid after its message is deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryPosition {
+    pub sent_at_ns: i64,
+    pub cursor: DeliveryCursor,
+}
+
+/// A consumed raw prefix and its read positions. No sentinel body is loaded.
+#[derive(Debug)]
+pub struct HistoryPageRows {
+    pub rows: Vec<AppVisibleMessageRow>,
+    pub first_position: Option<HistoryPosition>,
+    pub last_position: Option<HistoryPosition>,
+    pub has_more: bool,
+    #[cfg(test)]
+    pub candidate_keys: usize,
+    #[cfg(test)]
+    pub base_bodies_loaded: usize,
+    #[cfg(test)]
+    pub physical_groups: usize,
+}
+
 /// Random lease token that fences every default-delivery progress write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeliveryOwner(pub [u8; 16]);
@@ -95,6 +117,31 @@ pub trait QueryDelivery: ConnectionExt + Sized {
                 resolve_group_scope(conn, requested)
             })
         })?)
+    }
+
+    /// Read one chronological page without changing reader progress.
+    fn history_page_rows(
+        &self,
+        group_id: &GroupId,
+        query: &MsgQueryArgs,
+    ) -> Result<HistoryPageRows, StorageError> {
+        self.raw_query(|conn| {
+            Ok(conn
+                .transaction(|conn| super::group_message::read_history_page(conn, group_id, query)))
+        })?
+    }
+
+    /// Read pending recovery rows without changing delivery state.
+    fn recovery_page_rows(
+        &self,
+        group_id: &GroupId,
+        query: &super::group_message::RecoveryQueryArgs,
+    ) -> Result<super::group_message::RecoveryPageRows, StorageError> {
+        self.raw_query(|conn| {
+            Ok(conn.transaction(|conn| {
+                super::group_message::read_recovery_page(conn, group_id, query)
+            }))
+        })?
     }
 
     /// Read history and nullable cursors from one database snapshot.
@@ -595,7 +642,7 @@ pub(crate) fn assign_sequence(
     Ok(Some(sequence as u64))
 }
 
-fn database_id(conn: &mut diesel::SqliteConnection) -> Result<[u8; 16], StorageError> {
+pub(crate) fn database_id(conn: &mut diesel::SqliteConnection) -> Result<[u8; 16], StorageError> {
     preferences::table
         .find(PREFERENCES_ID)
         .select(preferences::stream_database_id)
@@ -615,7 +662,7 @@ fn current_cursor(conn: &mut diesel::SqliteConnection) -> Result<DeliveryCursor,
     })
 }
 
-fn validate_cursor(
+pub(crate) fn validate_cursor(
     conn: &mut diesel::SqliteConnection,
     cursor: DeliveryCursor,
 ) -> Result<(), StorageError> {
@@ -831,7 +878,7 @@ fn read_app_rows(
         .collect())
 }
 
-fn resolve_group_scope(
+pub(crate) fn resolve_group_scope(
     conn: &mut diesel::SqliteConnection,
     requested: &[GroupId],
 ) -> diesel::QueryResult<ResolvedGroupScope> {

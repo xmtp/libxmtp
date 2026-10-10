@@ -8,6 +8,9 @@ use xmtp_db::DbQuery;
 use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
 
+mod page;
+pub use page::{EnrichedHistoryPage, EnrichedRecoveryPage};
+
 impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,

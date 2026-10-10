@@ -2,12 +2,15 @@ mod connection_state;
 mod conversation_reader;
 pub(crate) mod cursor;
 mod history;
+mod recovery;
+pub use recovery::{MessageRecoveryPage, MessageRecoveryPosition};
+pub(crate) use recovery::{lift_recovery_page, recovery_query};
 mod message_reader;
 
 pub use connection_state::ConnectionState;
 pub use conversation_reader::ConversationReader;
-pub use history::MessageHistorySnapshot;
-pub(crate) use history::history_snapshot;
+pub use history::{MessageHistoryPage, MessageHistoryPosition, MessageHistorySnapshot};
+pub(crate) use history::{history_error, history_snapshot, lift_page, page_query};
 pub use message_reader::MessageReader;
 
 #[cfg(test)]

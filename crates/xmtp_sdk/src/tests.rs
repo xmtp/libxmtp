@@ -1,11 +1,13 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+mod history_pages;
 mod history_snapshot;
 mod reader_ack_cancellation;
 mod reader_admission;
 mod reader_cancellation_regressions;
 mod reader_restored;
 mod reader_selection;
+mod recovery_pages;
 
 use std::sync::{
     Arc,

@@ -31,6 +31,12 @@ pub enum EnrichMessageError {
     DbConnection(#[from] xmtp_db::ConnectionError),
 }
 
+impl From<xmtp_db::diesel::result::Error> for EnrichMessageError {
+    fn from(error: xmtp_db::diesel::result::Error) -> Self {
+        Self::Storage(error.into())
+    }
+}
+
 impl RetryableError for EnrichMessageError {
     fn is_retryable(&self) -> bool {
         match self {

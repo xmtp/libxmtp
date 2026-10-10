@@ -116,6 +116,7 @@ const DELIVERY_CURSOR_FIELDS: &[(&str, &str)] = &[
     ("MessageReaderOptions", "from"),
     ("ConversationMessageReaderOptions", "from"),
     ("MessageData", "deliveryCursor"),
+    ("MessageHistoryPosition", "deliveryCursor"),
 ];
 const DELIVERY_CURSOR_RESULTS: &[(&str, &str)] = &[("Conversations", "beginningDeliveryCursor")];
 
