@@ -6,16 +6,18 @@
   ...
 }:
 let
-  inherit (lib.fileset) unions fileFilter;
+  inherit (lib.fileset) fileFilter;
   inherit (xmtp) craneLib;
   root = ./../..;
   rust-toolchain = p: xmtp.mkToolchain p [ ] [ "llvm-tools-preview" ];
   rust = craneLib.overrideToolchain rust-toolchain;
 
-  src = lib.fileset.toSource {
-    inherit root;
-    fileset = unions [
-      xmtp.filesets.libraries
+  # The default members and their dev-dependencies. Other apps stay stubs.
+  src = xmtp.filesets.mkClosureSource rust {
+    roots = xmtp.filesets.defaultMembers;
+    dev = true;
+    extra = [
+      (root + /.config/nextest.toml)
       # db snapshots
       (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
       (fileFilter (file: file.hasExt "json") (root + /crates))
@@ -43,6 +45,10 @@ rust.cargoNextest (
   commonArgs
   // {
     inherit src cargoArtifacts;
+    cargoVendorDir = xmtp.base.mkCargoVendorDir rust;
+    # Crane would read these from the dummy source during evaluation.
+    pname = "cargo-package";
+    version = xmtp.mkVersion rust;
     doCheck = true;
     DATABASE_URL = "postgres://xmtp:xmtp@localhost:55432/xmtp_backend";
     pnameSuffix = "nextest";

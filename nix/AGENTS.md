@@ -32,6 +32,14 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 - SDK compiler sources use a dummy workspace and restore the selected local
   dependency graph. Keep embedded SDK data and bindgen templates in the real
   compiler source. Provenance wrappers keep the complete source identity.
+- Checks that compile some packages use `xmtp.filesets.mkClosureSource`. It
+  restores the Cargo path-dependency closure of its roots over the dummy
+  workspace. `dev = true` adds the roots' dev-dependencies and test data. In
+  `lib/filesets.nix`, add a new data file that a package compiles in to
+  `compileData`, a file that `test-utils` code reads to `testUtilsData`, and a
+  file that only the package's tests read to `testData`. After a source change,
+  show with `nix eval --raw .#<output>.drvPath` that an unrelated edit keeps the
+  path and a relevant edit changes it.
 - Crane reads `Cargo.lock` and the version from its source during evaluation.
   A derivation that builds from a dummy source passes `version` and
   `cargoVendorDir = xmtp.base.mkCargoVendorDir rust`. Check an output with

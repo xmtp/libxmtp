@@ -12,20 +12,31 @@
   ...
 }:
 let
-  inherit (lib.fileset) unions fileFilter;
+  inherit (lib.fileset) fileFilter;
   inherit (xmtp) craneLib base;
-  inherit (craneLib.fileset) commonCargoSources;
   root = ./../..;
   rust-toolchain = p: xmtp.mkToolchain p [ "wasm32-unknown-unknown" ] [ "llvm-tools-preview" ];
   rust = craneLib.overrideToolchain rust-toolchain;
 
-  src = lib.fileset.toSource {
-    inherit root;
-    fileset = unions [
-      xmtp.filesets.libraries
-      # Include SDK sources so the full workspace resolves
-      # with --locked. crane replaces source with dummies for buildDepsOnly.
-      (commonCargoSources (root + /crates/xmtp_sdk))
+  wasmCrates = [
+    "xmtp_mls"
+    "xmtp_cryptography"
+    "xmtp_common"
+    "xmtp_api"
+    "xmtp_id"
+    "xmtp_db"
+    "xmtp_api_backend"
+    "xmtp_content_types"
+    "xmtp_attachments"
+    "xmtp_sdk"
+  ];
+
+  # The tested crates and their dev-dependencies. Other members stay stubs.
+  src = xmtp.filesets.mkClosureSource rust {
+    roots = map (name: root + "/crates/${name}") wasmCrates;
+    dev = true;
+    extra = [
+      (root + /.config/nextest.toml)
       # db snapshots
       (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
       (fileFilter (file: file.hasExt "json") (root + /crates))
@@ -50,7 +61,7 @@ let
     CARGO_PROFILE = "wasm-test";
   };
 
-  wasmPackages = "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_backend -p xmtp_content_types -p xmtp_attachments -p xmtp_sdk";
+  wasmPackages = lib.concatMapStringsSep " " (name: "-p ${name}") wasmCrates;
 
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
     (removeAttrs commonArgs [ "src" ])
@@ -63,6 +74,7 @@ rust.cargoNextest (
   commonArgs
   // {
     inherit src cargoArtifacts;
+    cargoVendorDir = base.mkCargoVendorDir rust;
     inherit (xmtp.shellCommon.wasmEnv)
       CHROMEDRIVER
       RSTEST_TIMEOUT
@@ -85,6 +97,7 @@ rust.cargoNextest (
       ++ lib.optionals stdenv.isLinux [ chromium ];
 
     pname = "wasm";
+    version = xmtp.mkVersion rust;
     doInstallCargoArtifacts = false;
     partitions = 1;
     partitionType = "count";
