@@ -119,6 +119,50 @@ class PerformanceGateTest(unittest.TestCase):
 
 
 class DeviceInvocationTest(unittest.TestCase):
+    def test_later_unavailable_or_different_seed_reads_keep_first_workload_evidence(
+        self,
+    ):
+        original = '{"phase":"group-tail","group":999,"status":"complete"}\n'
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            identity = {"workloadId": "fixture-1", "seedMs": 1000}
+            progress = subprocess.CompletedProcess([], 0, stdout=original)
+            run.seed_evidence(output, "green", identity, progress, False)
+            unavailable = subprocess.CompletedProcess(
+                [], 1, stdout="remote read failed"
+            )
+            run.seed_evidence(output, "red-cache", identity, unavailable, True)
+            self.assertEqual(
+                original,
+                (output / "workload-seed-progress.jsonl").read_text(),
+                "Later failed read erased seed evidence",
+            )
+            metadata = json.loads((output / "red-cache-workload.json").read_text())
+            self.assertEqual("unavailable", metadata["seedReadStatus"])
+            self.assertEqual("fixture-1", metadata["retainedWorkloadId"])
+            cases = [
+                (
+                    identity,
+                    subprocess.CompletedProcess([], 0, stdout="different seed\n"),
+                ),
+                ({"workloadId": "other-fixture", "seedMs": 1000}, progress),
+            ]
+            for report, read in cases:
+                with self.subTest(report=report, stdout=read.stdout):
+                    with self.assertRaisesRegex(
+                        ValueError, "differs from the retained workload"
+                    ):
+                        run.seed_evidence(output, "restored", report, read, True)
+                    self.assertEqual(
+                        original, (output / "workload-seed-progress.jsonl").read_text()
+                    )
+                    self.assertEqual(
+                        "different",
+                        json.loads((output / "restored-workload.json").read_text())[
+                            "seedReadStatus"
+                        ],
+                    )
+
     def test_failed_device_run_retains_seed_readiness_and_measurement_progress(self):
         progress = '{"group":0,"expectedPublished":256,"status":"failed"}\n'
         readiness = '{"phase":"restored-owner","event":"failed","failureClass":"TimeoutCancellationException"}\n'
@@ -157,13 +201,109 @@ class DeviceInvocationTest(unittest.TestCase):
             self.assertEqual({}, report)
             self.assertEqual(["receipt barrier"], failures)
             self.assertEqual(
-                progress, (output / "green-seed-progress.jsonl").read_text()
+                progress, (output / "workload-seed-progress.jsonl").read_text()
             )
             self.assertEqual(
                 readiness, (output / "green-readiness-progress.jsonl").read_text()
             )
             self.assertEqual(
                 measurement, (output / "green-measurement-progress.jsonl").read_text()
+            )
+
+    def test_one_workload_seed_keeps_identity_and_reuse_attribution_across_passes(self):
+        progress = '{"phase":"group-tail","group":999,"status":"complete"}\n'
+        label = "green"
+
+        def process(arguments, **options):
+            if arguments[0] != "adb":
+                return subprocess.CompletedProcess(arguments, 0)
+            if arguments[-1] == "files/messenger-performance/workload.json":
+                return subprocess.CompletedProcess(
+                    arguments, int(label == "green"), stdout=""
+                )
+            if "cat" in arguments:
+                data = (
+                    progress
+                    if arguments[-1].endswith("seed-progress.jsonl")
+                    else json.dumps(result())
+                    if arguments[-1].endswith("result.json")
+                    else ""
+                )
+                return subprocess.CompletedProcess(arguments, 0, stdout=data)
+            return subprocess.CompletedProcess(arguments, 0, stdout="")
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            with (
+                patch.dict(run.os.environ, {"ANDROID_SERIAL": "emulator-5560"}),
+                patch.object(run, "ANDROID", output / "android"),
+                patch.object(run.subprocess, "run", side_effect=process),
+                patch.object(
+                    run.subprocess, "Popen", return_value=MagicMock(stdout=iter(()))
+                ),
+                patch.object(run, "result_failures", return_value=[]),
+            ):
+                for label in ("green", "red-cache", "restored"):
+                    (output / f"{label}-seed-progress.jsonl").write_text(
+                        "old labeled seed"
+                    )
+                    run.execute(output, label, "http://fixture")
+                    self.assertFalse(
+                        (output / f"{label}-seed-progress.jsonl").exists(),
+                        "Reused seed was published as per-pass progress",
+                    )
+                    self.assertEqual(
+                        progress, (output / "workload-seed-progress.jsonl").read_text()
+                    )
+                    identity = json.loads(
+                        (output / f"{label}-workload.json").read_text()
+                    )
+                    self.assertEqual("fixture-1", identity["workloadId"])
+                    self.assertEqual(1000, identity["seedMs"])
+                    self.assertEqual(
+                        label != "green", identity["manifestPresentBeforeInvocation"]
+                    )
+                    if label != "green":
+                        self.assertEqual(
+                            "reused existing seed",
+                            identity["seedAttribution"],
+                            "Retained workload checkpoints were marked as new",
+                        )
+                self.assertEqual(1, len(list(output.glob("*seed-progress.jsonl"))))
+
+    def test_failed_invocation_cannot_republish_previous_readiness(self):
+        stale = '{"phase":"restored-owner","event":"complete"}\n'
+        state = {"files/messenger-performance/readiness-progress.jsonl": stale}
+
+        def process(arguments, **options):
+            if arguments[0] != "adb":
+                return subprocess.CompletedProcess(arguments, 1)
+            if "rm" in arguments:
+                for name in arguments:
+                    state.pop(name, None)
+            return subprocess.CompletedProcess(
+                arguments,
+                0 if arguments[-1] in state else 1,
+                stdout=state.get(arguments[-1], ""),
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            with (
+                patch.dict(run.os.environ, {"ANDROID_SERIAL": "emulator-5560"}),
+                patch.object(run, "ANDROID", output / "android"),
+                patch.object(run.subprocess, "run", side_effect=process),
+                patch.object(
+                    run.subprocess, "Popen", return_value=MagicMock(stdout=iter(()))
+                ),
+                patch.object(run, "result_failures", return_value=["setup failed"]),
+            ):
+                code, _, _ = run.execute(output, "restored", "http://fixture")
+            self.assertEqual(1, code)
+            self.assertEqual(
+                "",
+                (output / "restored-readiness-progress.jsonl").read_text(),
+                "Previous readiness was republished after setup failure",
             )
 
     def test_every_pass_retains_the_installed_app_for_result_and_dataset_reuse(self):

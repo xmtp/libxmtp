@@ -17,6 +17,65 @@ PNG = proof.PNG + b"fixture image"
 
 
 class ScreenshotExportTest(unittest.TestCase):
+    def test_captured_remote_exit_distinguishes_absent_directory_from_inaccessible_app(
+        self,
+    ):
+        for accessible in (True, False):
+            with (
+                self.subTest(accessible=accessible),
+                tempfile.TemporaryDirectory() as home,
+            ):
+                calls = []
+
+                def process(arguments, **options):
+                    calls.append(arguments)
+                    command = arguments[arguments.index(proof.APP) + 1 :]
+                    raw = arguments[3] == "exec-out"
+                    missing = (
+                        f"ls: {proof.PRIVATE}: No such file or directory\n".encode()
+                    )
+                    denied = f"run-as: unknown package: {proof.APP}\n".encode()
+                    # Captured Android transport behavior: exec-out returns 0
+                    # and puts remote errors in stdout; shell-v2 separates them.
+                    error = (
+                        denied
+                        if not accessible
+                        else missing
+                        if command[0] == "ls"
+                        else b""
+                    )
+                    status = 0 if raw or not error else 1
+                    stdout, stderr = (error, b"") if raw else (b"", error)
+                    if status and options.get("check"):
+                        raise subprocess.CalledProcessError(
+                            status, arguments, output=stdout, stderr=stderr
+                        )
+                    return subprocess.CompletedProcess(
+                        arguments, status, stdout=stdout, stderr=stderr
+                    )
+
+                with patch.object(proof.subprocess, "run", side_effect=process):
+                    if accessible:
+                        try:
+                            self.assertEqual(
+                                0, proof.export("emulator-fixture", Path(home))
+                            )
+                        except ValueError:
+                            self.fail(
+                                "Absent directory error was parsed as a screenshot name"
+                            )
+                    else:
+                        with self.assertRaises(
+                            subprocess.CalledProcessError
+                        ) as failure:
+                            proof.export("emulator-fixture", Path(home))
+                        self.assertIn(b"unknown package", failure.exception.stderr)
+                self.assertFalse(list(Path(home).iterdir()))
+                self.assertEqual(
+                    ["rm", "-rf", proof.PRIVATE],
+                    calls[-1][calls[-1].index(proof.APP) + 1 :],
+                )
+
     def test_real_android_columnar_listing_is_avoided_by_direct_canonical_argv(self):
         observed = (
             "scale-app_settings.png           scale-create.png        scale-my_fields.png\n"
@@ -28,7 +87,7 @@ class ScreenshotExportTest(unittest.TestCase):
 
         def process(arguments, **options):
             calls.append(arguments)
-            command = arguments[6:]
+            command = arguments[arguments.index(proof.APP) + 1 :]
             if command == ["ls", "-1", proof.PRIVATE]:
                 stdout = ("\n".join(names) + "\n").encode()
             elif command[0] == "sh" or command[0] == "ls":
@@ -48,7 +107,10 @@ class ScreenshotExportTest(unittest.TestCase):
                     "Exporter did not request one canonical fixture name per line"
                 )
             self.assertEqual(set(names), {path.name for path in Path(home).iterdir()})
-        self.assertEqual(["ls", "-1", proof.PRIVATE], calls[0][6:])
+        self.assertEqual(
+            ["ls", "-1", proof.PRIVATE], calls[0][calls[0].index(proof.APP) + 1 :]
+        )
+        self.assertEqual(["shell", "-T"], calls[0][3:5])
 
     def test_absent_directory_is_empty_only_when_the_owned_app_can_prove_absence(self):
         for accessible in (True, False):
@@ -201,9 +263,13 @@ sys.exit(int(os.environ.get("FIXTURE_TEST_STATUS", "0")))
 home = pathlib.Path(os.environ["SCREENSHOT_FIXTURE_HOME"])
 args = sys.argv[3:]
 if args[0] == "reverse": sys.exit(0)
-assert args[:3] == ["exec-out", "run-as", "org.xmtp.android.example"]
+if args[0] == "shell":
+    assert args[:4] == ["shell", "-T", "run-as", "org.xmtp.android.example"]
+    args = args[4:]
+else:
+    assert args[:3] == ["exec-out", "run-as", "org.xmtp.android.example"]
+    args = args[3:]
 if not (home / "installed").exists(): sys.exit(1)
-args = args[3:]
 if args == ["ls", "-1", "files/xmtp-messenger-proof"]:
     print("\\n".join(path.name for path in (home / "private").iterdir()))
 elif args[0] == "head":
