@@ -270,7 +270,9 @@ class CommandPathTest(unittest.TestCase):
                 ' test "$5" = org.xmtp.android.example\n'
                 ' printf "%s\\n" "$*" >> "$SCREENSHOT_LOG"\n'
                 ' case "$6" in\n'
-                "  sh) printf 'setup.png\\n' ;;\n"
+                '  ls) if [[ "$7" == -1 ]]; then\n'
+                "       printf 'setup.png\\n'\n"
+                "      else printf 'setup.png  conversations.png\\n'; fi ;;\n"
                 "  head) printf '\\211PNG\\r\\n\\032\\nfixture-image' ;;\n"
                 '  rm) test "${@: -1}" = files/xmtp-messenger-proof ;;\n'
                 "  *) exit 1 ;;\n"
