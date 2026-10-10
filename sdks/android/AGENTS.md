@@ -37,6 +37,11 @@ dev/nix-shell 'just android example-check'
 dev/nix-shell 'just android example-test-integration'
 dev/nix-shell 'just android example-test-release-integration'
 dev/nix-shell 'just android example-support-fixture'
+dev/nix-shell 'just android metadata-fixture-test'
+dev/nix-shell 'just android metadata-fixture-test MetadataBackendFixtureTest.test_every_psql_call_uses_a_private_passfile_without_argv_password'
+dev/nix-shell 'just android metadata-fixture-smoke'
+dev/nix-shell 'just android metadata-fixture-create-test'
+dev/nix-shell 'just android metadata-fixture-create-test --case late-database-replacement'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
@@ -128,7 +133,16 @@ forwards it and supplies `unsupportedBackendUrl`. The fixture removes only its
 owned containers and network and retains its logs after success or failure.
 Run this route alone when using a shared stack; no other proxy test can run at
 the same time. Caller environment values can select an existing stack.
-Start the backend before app instrumentation. Keep SDK package and consumer tests.
+The recipe also starts a catalogue backend with its own database and listeners.
+The Android shell supplies the pinned PostgreSQL client and health probe. The
+fixture passes `metadataBackendUrl` to instrumentation and forwards that port.
+It keeps shared backend URLs for the other tests. It removes only its database
+and process groups on success, failure or cancellation. Set
+`XMTP_METADATA_LOG_DIR` to retain backend logs at a selected path. The local
+`metadata-fixture-test` recipe checks cleanup with process stubs; `lint-config`
+also runs it. `metadata-fixture-smoke` checks real backend startup and cleanup
+without an emulator. Start the backend before app instrumentation. Keep SDK package
+and consumer tests.
 
 Run `dev/nix-shell 'just backend up'`. The library test BuildConfig reads backend
 and anvil ports from the worktree environment. The emulator reaches these
@@ -187,3 +201,12 @@ message reader fails with `XmtpException.ConsumerOwned`. Explicit `from` cursors
 permit independent replay/live readers that do not advance default progress. Use the
 generated reader options for scopes, filters, and replay. Keep typed errors and
 `ULong` values.
+
+`metadata-fixture-create-test` needs the current PostgreSQL service. It sends
+SIGINT and SIGTERM after a real CREATE commits but before its command returns.
+It also checks uncertain database and role CREATE results, competing CREATE
+actors, and permission rejection. The metadata fixture SQL caller needs
+`CREATEDB` and `CREATEROLE`, or superuser permission. Each fixture generation
+creates a private `NOLOGIN` owner role and grants its membership only to the
+caller. Cleanup requires the role OID and generation marker. The proof removes
+only its own exact UUID databases and roles. This does not use an emulator.
