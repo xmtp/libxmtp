@@ -101,6 +101,8 @@ path_groups:
   # suites through the merge run, not on pull requests.
   sdk_core:
     - "crates/xmtp_sdk/**"
+    # The SDK products are Rust builds, so workspace dependency changes reach them.
+    - "{Cargo.toml,Cargo.lock}"
     - "apps/xmtp_sdk_bindgen/**"
     - "nix/package/xmtp-sdk{,-native,-node-runtime}.nix"
     - "nix/package/libffi-zig-cross.site"

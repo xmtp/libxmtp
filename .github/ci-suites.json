@@ -783,6 +783,7 @@
         "nix/{js,js-node}.nix",
         "sdks/js.just",
         "sdks/{node,browser,agent}/**",
+        "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ]
     },
@@ -826,6 +827,7 @@
         "sdks/browser/test/platform/**",
         "sdks/js.just",
         "sdks/{node,browser}/package.json",
+        "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ]
     },
@@ -873,6 +875,7 @@
         "nix/{js,js-node}.nix",
         "sdks/js.just",
         "sdks/node/**",
+        "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ]
     },
@@ -920,6 +923,7 @@
         "nix/{js,js-node}.nix",
         "sdks/js.just",
         "sdks/{node,agent}/**",
+        "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ]
     },
@@ -967,6 +971,7 @@
         "nix/{js,js-node}.nix",
         "sdks/browser/**",
         "sdks/js.just",
+        "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ]
     },
@@ -1014,6 +1019,7 @@
         "nix/{js,js-node}.nix",
         "sdks/browser/**",
         "sdks/js.just",
+        "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ]
     },
@@ -1064,6 +1070,7 @@
         "sdks/agent/src/**",
         "sdks/js.just",
         "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}",
+        "{Cargo.toml,Cargo.lock}",
         "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}",
         "!sdks/agent/src/**/*.test.ts"
       ]
@@ -1112,6 +1119,7 @@
         "nix/package/{backend,backend-ci}.nix",
         "nix/shells/ios.nix",
         "sdks/ios/**",
+        "{Cargo.toml,Cargo.lock}",
         "{Package.swift,Package.resolved,.spi.yml}"
       ]
     },
@@ -1158,6 +1166,7 @@
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
         "nix/shells/android.nix",
         "sdks/android/**",
+        "{Cargo.toml,Cargo.lock}",
         "!docs/**"
       ]
     }
