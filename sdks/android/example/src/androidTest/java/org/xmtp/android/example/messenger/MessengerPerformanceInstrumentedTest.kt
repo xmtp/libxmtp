@@ -368,10 +368,14 @@ class MessengerPerformanceInstrumentedTest {
                 )
                 val heavy = checkNotNull(owner.conversations.getById(ids.getString(0)))
                 val own = owner.inboxId()
-                var maxHistoryReadRows = 0
-                val productionRead = viewModel.historyRead
-                viewModel.historyRead = { chat, selection ->
-                    productionRead(chat, selection).also { maxHistoryReadRows = maxOf(maxHistoryReadRows, it.size) }
+                var maxHistoryReadRows = 0L
+                val productionRead = viewModel.historyPageRead
+                viewModel.historyPageRead = { chat, selection, before, after ->
+                    assertTrue("Published SDK page request exceeds 50 rows", checkNotNull(selection.limit) <= 50u)
+                    productionRead(chat, selection, before, after).also {
+                        maxHistoryReadRows =
+                            maxOf(maxHistoryReadRows, it.messages.size.toLong() + it.skippedCount.toLong())
+                    }
                 }
                 assertEquals("Seed replay resumed before measurement", startupReplayRows, replayRows.get())
                 assertEquals("A seed callback is still running", 0, replayHandling.get())
@@ -381,16 +385,16 @@ class MessengerPerformanceInstrumentedTest {
                 val tieRuns = JSONArray()
                 var run = 0
                 while (firstSamples.size < 30 && run < 200) {
-                    lateinit var first: BucketPage<Message>
+                    lateinit var first: HistoryWindow<Message>
                     val firstMs =
                         measured {
                             first = viewModel.performancePage(heavy, null)
                             first.rows.map { it.toRow(own) }
                         }
-                    lateinit var older: BucketPage<Message>
+                    lateinit var older: HistoryWindow<Message>
                     val olderMs =
                         measured {
-                            older = viewModel.performancePage(heavy, first.nextBeforeNs)
+                            older = viewModel.performancePage(heavy, checkNotNull(first.last))
                             older.rows.map { it.toRow(own) }
                         }
                     assertNull(first.notice)
@@ -408,7 +412,7 @@ class MessengerPerformanceInstrumentedTest {
                                 },
                             )
                         }
-                    // Complete timestamp buckets can require a larger query. Keep them separate.
+                    // Record nonordinary pages separately from the required 50-row samples.
                     if (first.rows.size != 50 || older.rows.size != 50) {
                         tieRuns.put(
                             JSONObject()
@@ -434,16 +438,16 @@ class MessengerPerformanceInstrumentedTest {
                 var currentRows = emptyList<MessageRow>()
                 for (index in 0 until 10) {
                     val chat = checkNotNull(owner.conversations.getById(ids.getString(index)))
-                    var before: Long? = null
+                    var before: MessageHistoryPosition? = null
                     var loaded = 0
                     do {
                         val page = viewModel.performancePage(chat, before)
                         maxPageRows = maxOf(maxPageRows, page.rows.size)
                         assertNull(page.notice)
                         assertTrue(page.rows.isNotEmpty())
-                        before = page.nextBeforeNs
+                        before = page.last
                         loaded += page.rows.size
-                        val retained = viewModel.performanceRetain(chat.id(), page.rows)
+                        val retained = viewModel.performanceRetain(chat.id(), page)
                         currentRows = retained.map { it.toRow(own) }
                         maxRows = maxOf(maxRows, retained.size)
                         val visitedIds = (0 until 10).map { ids.getString(it) }
@@ -453,6 +457,7 @@ class MessengerPerformanceInstrumentedTest {
                                 maxCacheTranscripts,
                                 visitedIds.count { viewModel.performanceCacheRows(listOf(it)) > 0 },
                             )
+                        assertNotNull("SDK history continuation is missing", before)
                     } while (loaded < 1_000)
                 }
                 val heapAfter = gcHeap()
@@ -508,7 +513,7 @@ class MessengerPerformanceInstrumentedTest {
                 assertTrue("Ten transcripts exceed 64 MiB heap delta", heapDelta <= 64L * 1024 * 1024)
                 assertTrue("Transcript row cap was removed", maxRows <= 500)
                 assertTrue("Published page row cap was removed", maxPageRows <= 500)
-                assertTrue("History read sentinel bound was removed", maxHistoryReadRows <= 501)
+                assertTrue("Published SDK page read bound was removed", maxHistoryReadRows <= 50)
                 assertTrue("Transcript cache trimming was removed", maxCacheRows <= 1_500 && maxCacheTranscripts <= 3)
             } finally {
                 try {

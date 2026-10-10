@@ -76,7 +76,7 @@ def validate(report):
         ("maxTranscriptRows", 500),
         ("maxCacheRows", 1500),
         ("maxPageRows", 500),
-        ("maxHistoryReadRows", 501),
+        ("maxHistoryReadRows", 50),
     ):
         if (
             metric not in report
@@ -247,19 +247,27 @@ def run(output, backend, red_control):
     print(f"Performance proof saved to {output}")
 
 
-def cache_red_control(output, backend, report):
-    source = (
-        ANDROID
-        / "example/src/main/java/org/xmtp/android/example/messenger/TimestampBuckets.kt"
-    )
-    original = source.read_text()
+def remove_published_cache_eviction(original):
+    prefix, marker, cache = original.partition("class SDKTranscriptCache<")
+    if not marker:
+        raise ValueError("Cannot identify production SDKTranscriptCache")
     weakened, count = re.subn(
-        r"while\s*\(entries\.size\s*>\s*3\)\s*\{\s*entries\s*\.remove\(\s*entries\.keys\s*\.first\(\),?\s*\)\s*\}",
+        r"while\s*\(entries\.size\s*>\s*3\)\s*entries\.remove\(entries\.keys\.first\(\)\)",
         "// The performance red control removes production cache eviction.",
-        original,
+        cache,
     )
     if count != 1:
         raise ValueError("Cannot identify the production cache eviction statement")
+    return prefix + marker + weakened
+
+
+def cache_red_control(output, backend, report):
+    source = (
+        ANDROID
+        / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
+    )
+    original = source.read_text()
+    weakened = remove_published_cache_eviction(original)
     (output / "red-cache.patch").write_text(
         "".join(
             difflib.unified_diff(

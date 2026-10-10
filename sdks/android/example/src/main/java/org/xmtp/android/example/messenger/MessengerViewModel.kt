@@ -1205,15 +1205,15 @@ class MessengerViewModel(
 
     internal suspend fun performancePage(
         chat: Conversation,
-        before: Long?,
-    ) = page(chat, before)
+        before: MessageHistoryPosition?,
+    ) = historyPages(chat).older(before)
 
     internal fun performanceRetain(
         id: String,
-        rows: List<Message>,
-    ): List<Message> = cache.put(id, cache.get(id).orEmpty() + rows)
+        page: HistoryWindow<Message>,
+    ): List<Message> = cache.append(id, page, null).rows
 
-    internal fun performanceCacheRows(ids: List<String>) = ids.sumOf { cache.get(it)?.size ?: 0 }
+    internal fun performanceCacheRows(ids: List<String>) = ids.sumOf { cache.get(it)?.rows?.size ?: 0 }
 
     internal fun performanceClearCache() = cache.clear()
 
