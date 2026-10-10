@@ -16,7 +16,7 @@ class AttachmentInterruptionInstrumentedTest {
         runBlocking {
             val proxy = HeldUploadProxy()
             val fixture = AttachmentTestFixture()
-            try {
+            proxy.preservingEnabled(fixture::close) {
                 proxy.release()
                 proxy.enabled(true)
                 withTimeout(120_000) {
@@ -48,12 +48,6 @@ class AttachmentInterruptionInstrumentedTest {
                     )
                     assertTrue(fixture.group.messages(null).isEmpty())
                 }
-            } finally {
-                withContext(NonCancellable) {
-                    proxy.release()
-                    proxy.enabled(true)
-                    fixture.close()
-                }
             }
         }
 
@@ -61,7 +55,7 @@ class AttachmentInterruptionInstrumentedTest {
         runBlocking {
             val proxy = HeldUploadProxy()
             val fixture = AttachmentTestFixture()
-            try {
+            proxy.preservingEnabled(fixture::close) {
                 proxy.release()
                 proxy.enabled(true)
                 withTimeout(180_000) {
@@ -99,12 +93,6 @@ class AttachmentInterruptionInstrumentedTest {
                             .single()
                             .deliveryStatus,
                     )
-                }
-            } finally {
-                withContext(NonCancellable) {
-                    proxy.release()
-                    proxy.enabled(true)
-                    fixture.close()
                 }
             }
         }

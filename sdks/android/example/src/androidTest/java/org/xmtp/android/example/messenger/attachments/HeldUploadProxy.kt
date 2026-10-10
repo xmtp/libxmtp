@@ -3,6 +3,7 @@ package org.xmtp.android.example.messenger.attachments
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -34,11 +35,26 @@ internal class HeldUploadProxy {
             require(
                 status in 200..299 || (method == "DELETE" && status == 404),
             ) { "Proxy control failed: HTTP $status" }
-            if (status < 400) connection.inputStream.close() else connection.errorStream?.close()
+            if (status < 400) {
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                connection.errorStream?.close()
+                ""
+            }
         } finally {
             connection.disconnect()
         }
     }
+
+    suspend fun <T> preservingEnabled(
+        cleanup: suspend () -> Unit,
+        block: suspend () -> T,
+    ): T =
+        ProxyStateScope(
+            readEnabled = { JSONObject(request("/proxies/backend", "GET")).getBoolean("enabled") },
+            writeEnabled = ::enabled,
+            releaseHold = ::release,
+        ).run(cleanup, block)
 
     suspend fun hold() =
         request(
