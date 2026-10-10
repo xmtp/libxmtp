@@ -2,6 +2,21 @@ package org.xmtp.android.example.messenger
 
 import kotlinx.coroutines.withTimeout
 
+internal fun disposablePerformanceBackend(
+    url: String?,
+    admission: String?,
+): String {
+    require(admission == "true") { "Performance requires an owned disposable backend" }
+    val parsed = java.net.URI(requireNotNull(url) { "Missing disposable backend URL" })
+    require(
+        parsed.scheme == "http" && parsed.host == "127.0.0.1" && parsed.port in 1..65535 &&
+            parsed.rawUserInfo == null && parsed.rawPath.isNullOrEmpty() &&
+            parsed.rawQuery == null && parsed.rawFragment == null &&
+            url == "http://127.0.0.1:${parsed.port}",
+    ) { "Invalid disposable backend URL" }
+    return url
+}
+
 /** Stop fixture sends until the receiver has processed the published text count. */
 internal suspend fun verifySeedCheckpoint(
     expected: ULong,

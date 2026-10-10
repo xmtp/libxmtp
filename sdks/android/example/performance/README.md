@@ -118,13 +118,18 @@ Run from the repository root. The host gate needs no device or backend:
 
 ```sh
 dev/nix-shell 'just android example-performance-check'
-# Linux x86_64 with KVM and the current backend:
+# Linux x86_64 with KVM and local worktree services:
 dev/nix-shell 'just android example-performance'
 ```
 
-The Android recipe stages matched bindings, loads the worktree backend URL,
-sets API 34 and the fixed CPU/RAM flags, forwards the backend port, and runs the
-owned emulator scope. The Linux CI job retains all existing SDK platform and
+The Android recipe stages matched bindings and starts an owned disposable
+backend with a unique database, listener and process session. The runner admits
+only its private active lease and generated loopback URL. It has no arbitrary
+backend URL argument or remote opt-in. Instrumentation rejects missing admission
+and noncanonical loopback targets before SDK creation. The fixture owns backend,
+database and child teardown. The recipe sets API 34 and the fixed CPU/RAM flags,
+forwards only that backend's port, and runs the owned emulator scope.
+The Linux CI job retains all existing SDK platform and
 app integration gates. Its 210-minute step and 240-minute job limits are
 provisional. Set the final timeout from observed seed progress and `seedMs`.
 Do not reduce the dataset to fit a timeout.

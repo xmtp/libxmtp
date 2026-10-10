@@ -89,8 +89,8 @@ example-performance-check:
   python3.11 -B -m unittest discover -s example/performance -p 'test_*.py' -v
 
 # Run the complete workload and cache failure control in the owned Linux API 34 scope.
-example-performance output="example/build/performance": build
-  {{ _env }} && NIX_ANDROID_EMULATOR_API=34 NIX_ANDROID_EMULATOR_FLAGS="-no-snapshot -no-window -gpu swiftshader_indirect -noaudio -cores 4 -memory 4096 -partition-size 16384" run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_BACKEND_PORT tcp:$XMTP_BACKEND_PORT; exec python3.11 -B example/performance/run.py --output "{{output}}" --backend "$XMTP_BACKEND_URL" --red-control'
+example-performance output="example/build/performance": build _metadata-backend
+  {{ _env }} && NIX_ANDROID_EMULATOR_API=34 NIX_ANDROID_EMULATOR_FLAGS="-no-snapshot -no-window -gpu swiftshader_indirect -noaudio -cores 4 -memory 4096 -partition-size 16384" python3.11 -B example/fixtures/metadata_backend.py --backend '{{ root }}/sdks/android/.build/metadata-backend/bin/xmtp-backend' -- run-test-emulator -- bash -euc 'adb -s "$ANDROID_SERIAL" reverse tcp:$XMTP_METADATA_BACKEND_PORT tcp:$XMTP_METADATA_BACKEND_PORT; exec python3.11 -B example/performance/run.py --output "{{output}}" --red-control'
 
 # Run integration tests (requires emulator)
 test-integration: build

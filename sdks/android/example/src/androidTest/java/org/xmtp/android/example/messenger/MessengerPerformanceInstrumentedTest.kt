@@ -62,17 +62,23 @@ class MessengerPerformanceInstrumentedTest {
         println("MESSENGER_PERFORMANCE_READY $record")
     }
 
+    private val backendUrl get() =
+        disposablePerformanceBackend(
+            arguments.getString("performanceBackendUrl"),
+            arguments.getString("performanceDisposableBackend"),
+        )
+
     private val profile get() =
         BackendProfile(
             "performance",
-            checkNotNull(arguments.getString("performanceBackendUrl")),
+            backendUrl,
         )
 
     private fun options(label: String) =
         ClientOptions(
             backend =
                 BackendSource.Options(
-                    BackendOptions(url = checkNotNull(arguments.getString("performanceBackendUrl"))),
+                    BackendOptions(url = backendUrl),
                 ),
             storage =
                 StorageOptions(

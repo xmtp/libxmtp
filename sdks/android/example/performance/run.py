@@ -15,6 +15,7 @@ import threading
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from target import disposable_backend
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -126,6 +127,7 @@ def execute(output, label, backend):
         "--no-daemon",
         f"-Pandroid.testInstrumentationRunnerArguments.class={TEST_CLASS}",
         "-Pandroid.testInstrumentationRunnerArguments.messengerPerformance=true",
+        "-Pandroid.testInstrumentationRunnerArguments.performanceDisposableBackend=true",
         f"-Pandroid.testInstrumentationRunnerArguments.performanceBackendUrl={backend}",
     ]
     subprocess.run(
@@ -227,7 +229,8 @@ def execute(output, label, backend):
     return run.returncode, report, result_failures(snapshot)
 
 
-def run(output, backend, red_control):
+def run(output, red_control):
+    backend = disposable_backend()
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         raise ValueError("Run this proof on a Linux x86_64 host")
     if not os.environ.get("ANDROID_SERIAL", "").startswith("emulator-"):
@@ -239,6 +242,23 @@ def run(output, backend, red_control):
         raise ValueError("Set emulator flags -cores 4 -memory 4096")
     output.mkdir(parents=True, exist_ok=True)
     environment = {
+        "disposableBackend": {
+            key: value
+            for key, value in json.loads(
+                Path(os.environ["XMTP_METADATA_BACKEND_LEASE"]).read_text()
+            ).items()
+            if key
+            in (
+                "formatVersion",
+                "url",
+                "port",
+                "database",
+                "serverPid",
+                "groupPid",
+                "ownerPid",
+                "uid",
+            )
+        },
         "host": platform.uname()._asdict(),
         "emulatorFlags": flags,
         "commit": command(
@@ -324,11 +344,10 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--backend", required=True)
     parser.add_argument("--red-control", action="store_true")
     arguments = parser.parse_args()
     try:
-        run(arguments.output.resolve(), arguments.backend, arguments.red_control)
+        run(arguments.output.resolve(), arguments.red_control)
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
         print(f"Performance proof failed: {error}", file=sys.stderr)
         return 1
