@@ -15,6 +15,7 @@ dev/nix-shell 'just example-android metadata-fixture-test'
 dev/nix-shell 'just example-android metadata-fixture-test MetadataBackendFixtureTest.test_every_psql_call_uses_a_private_passfile_without_argv_password'
 dev/nix-shell 'just example-android metadata-fixture-smoke'
 dev/nix-shell 'just example-android metadata-fixture-create-test'
+dev/nix-shell 'just example-android metadata-fixture-create-test --case late-database-replacement'
 dev/nix-shell 'just example-android performance-check'
 dev/nix-shell 'just example-android performance'
 ```
@@ -121,3 +122,11 @@ API 23, and all-ABI proofs stay in their SDK workflows.
 `just lint-config` runs fixture, performance-tool, CI-routing, and command-path
 regressions. Preserve their failure controls and the runtime proof ledger in
 `verification.md`. A source move does not establish a new runtime proof.
+
+`metadata-fixture-create-test` needs the current PostgreSQL service. It checks
+CREATE interruption, uncertain CREATE results, competing CREATE actors, and
+permission rejection. The SQL caller needs `CREATEDB` and `CREATEROLE`, or
+superuser permission. Each generation creates a private `NOLOGIN` owner role
+and grants membership only to the caller. Cleanup requires the role OID and
+generation marker. The test removes only its own exact UUID databases and roles.
+It does not use an emulator.
