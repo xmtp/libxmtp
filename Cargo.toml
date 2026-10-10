@@ -12,6 +12,7 @@ exclude = [
   "apps/android",
   "apps/cli",
   "apps/docs",
+  "apps/example-android",
   "apps/web-chat",
 ]
 

@@ -11,6 +11,7 @@ _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 # Compile both app variants, shared UI and app instrumentation under strict verification.
 check *args: build
   ./gradlew -p . :example:assembleDebug :example:assembleRelease :example:assembleDebugAndroidTest :example-shared:assembleDebug :example-shared:assembleRelease {{ args }} --dependency-verification=strict --no-daemon
+  python3.11 -B {{ root }}/sdks/android/dev/check-native-packages.py app/build/outputs/apk/debug/example-debug.apk app/build/outputs/apk/release/example-release-unsigned.apk
 
 # Run app host and shared screen unit tests with matched native bindings.
 test *args: build _test-host

@@ -13,7 +13,7 @@ check: build _test-host
   {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . build --dependency-verification=strict --no-daemon --stacktrace
   just android check-packages
 
-# Verify JNI stripping in the built debug and release AARs and example APKs.
+# Verify JNI stripping in the built debug and release AARs.
 check-packages:
   python3 -B ./dev/check-native-packages.py
 

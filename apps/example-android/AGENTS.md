@@ -32,6 +32,7 @@ Keep the application ID and private profile paths unchanged.
 `check` compiles Debug, Release, shared targets, and the app test APK with strict
 verification. `test` stages matched bindings and the host JNI library before
 host tests. A host test pass does not prove Android package loading.
+`check` also checks JNI stripping and dynamic symbols in both app APKs.
 The Off Firebase graph uses `app/gradle.lockfile`. The configured graph uses
 `app/firebase-gradle.lockfile`. Supply `XMTP_FIREBASE_CONFIG` or place the
 private file at `app/google-services.json`. Do not commit it.
