@@ -121,9 +121,7 @@ class DisposableRecipeTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[3]
         source = (root / "apps/example-android/example-android.just").read_text()
         line = (
-            source.split('performance output="app/build/performance":', 1)[
-                1
-            ]
+            source.split('performance output="app/build/performance":', 1)[1]
             .splitlines()[1]
             .strip()
         )
