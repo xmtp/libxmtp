@@ -59,7 +59,7 @@ Pages are separate snapshots. Refresh affected loaded windows after late
 arrival, expiry, archive restore, or lost events. Retain the query boundaries
 and the visible anchor position so deletion can select surviving neighbors.
 
-Pending and failed rows remain available through the existing status query.
+Pending and failed rows use the recovery page below.
 A history page does not resend them.
 
 ## Query cost
@@ -74,3 +74,35 @@ and local delivery sequence.
 The implementation and record declarations are in
 [src/delivery/history.rs](src/delivery/history.rs). The database selector is in
 [history_page.rs](../xmtp_db/src/encrypted_store/group_message/history_page.rs).
+
+## Pending recovery pages
+
+`Group.messageRecoveryPage` and `Dm.messageRecoveryPage` select retained Failed
+and Unpublished messages. The three optional arguments are `options`, `before`,
+and `after`. The default is ascending sent time, then raw immutable message ID,
+with limit 50 and no kind filter. The app can request Application and descending
+order. An explicit Failed or Unpublished status selects one status. Published,
+InsertedAt sort, and zero limits are input errors.
+
+`MessageRecoveryPosition` holds exact `sentAt` and opaque `messageCursor`.
+`MessageRecoveryPage` holds `messages`, `firstPosition`, `lastPosition`,
+`hasMore`, and `skippedCount`. These positions cover consumed raw keys. They
+remain present after conversion loss, even when no message ID can be converted.
+Continue from `lastPosition`; use `hasMore` to detect remaining keys.
+
+Bounds compare strict `(sentAt, raw ID)` tuples in either direction. Keep the
+SDK-issued token unchanged. It binds the raw key to the database UUID. A deleted
+or published boundary remains usable. Another database or a whole-database
+restore rejects the token. Each call uses one read snapshot; separate calls
+need a normal refresh to include newly queued rows.
+
+The pending index covers group, sent time, and raw ID with a literal pending
+status predicate. Each physical DM source selects at most L+1 keys. A bounded
+merge retains L keys and loads at most L base bodies. Enrichment uses each row's
+physical source group and retains SDK order. Recovery does not acquire a default
+reader lease, acknowledge messages, or allocate delivery numbers. Retry publishes
+the accepted stored message ID through `publishMessage`.
+
+The record and token code is in [recovery.rs](src/delivery/recovery.rs).
+The selector is in
+[recovery_page.rs](../xmtp_db/src/encrypted_store/group_message/recovery_page.rs).

@@ -523,6 +523,33 @@ macro_rules! common_conversation {
                 .await
             }
 
+            /// Read Failed and Unpublished rows in sent-time and raw ID order.
+            /// Defaults are ascending order, no kind filter, and limit 50.
+            /// Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+            /// and zero limits fail. Other filters apply before the limit.
+            /// Before and after are strict tuple bounds in either direction.
+            /// Keep message_cursor opaque. Deleted and published boundaries remain valid.
+            /// Raw positions and skipped_count cover rows that fail conversion.
+            /// This query does not acquire a reader lease or allocate delivery numbers.
+            #[uniffi::method(default(options = None, before = None, after = None))]
+            pub async fn message_recovery_page(
+                &self,
+                options: Option<crate::ListMessagesOptions>,
+                before: Option<crate::MessageRecoveryPosition>,
+                after: Option<crate::MessageRecoveryPosition>,
+            ) -> Result<crate::MessageRecoveryPage, XmtpError> {
+                let query = crate::delivery::recovery_query(options, before, after)?;
+                let group = self.inner.clone();
+                let client_key = self.client_key;
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    let page = group
+                        .find_recovery_page_with_stored(&query)
+                        .map_err(crate::delivery::history_error)?;
+                    Ok(crate::delivery::lift_recovery_page(page, client_key))
+                })
+                .await
+            }
+
             pub async fn message_history_snapshot(
                 &self,
                 limit: u32,

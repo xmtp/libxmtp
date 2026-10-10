@@ -2,6 +2,9 @@ mod connection_state;
 mod conversation_reader;
 pub(crate) mod cursor;
 mod history;
+mod recovery;
+pub use recovery::{MessageRecoveryPage, MessageRecoveryPosition};
+pub(crate) use recovery::{lift_recovery_page, recovery_query};
 mod message_reader;
 
 pub use connection_state::ConnectionState;

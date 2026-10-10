@@ -3626,6 +3626,18 @@ public protocol DmProtocol: AnyObject, Sendable {
 
     func messageReader(options: ConversationMessageReaderOptions?) async throws  -> MessageReader
 
+    /**
+     * Read Failed and Unpublished rows in sent-time and raw ID order.
+     * Defaults are ascending order, no kind filter, and limit 50.
+     * Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+     * and zero limits fail. Other filters apply before the limit.
+     * Before and after are strict tuple bounds in either direction.
+     * Keep message_cursor opaque. Deleted and published boundaries remain valid.
+     * Raw positions and skipped_count cover rows that fail conversion.
+     * This query does not acquire a reader lease or allocate delivery numbers.
+     */
+    func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage
+
     func messages(options: ListMessagesOptions?) async throws  -> [Message]
 
     /**
@@ -4065,6 +4077,33 @@ open func messageReader(options: ConversationMessageReaderOptions? = nil)async t
             cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
             freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
             liftFunc: FfiConverterTypeMessageReader_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Read Failed and Unpublished rows in sent-time and raw ID order.
+     * Defaults are ascending order, no kind filter, and limit 50.
+     * Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+     * and zero limits fail. Other filters apply before the limit.
+     * Before and after are strict tuple bounds in either direction.
+     * Keep message_cursor opaque. Deleted and published boundaries remain valid.
+     * Raw positions and skipped_count cover rows that fail conversion.
+     * This query does not acquire a reader lease or allocate delivery numbers.
+     */
+open func messageRecoveryPage(options: ListMessagesOptions? = nil, before: MessageRecoveryPosition? = nil, after: MessageRecoveryPosition? = nil)async throws  -> MessageRecoveryPage  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_dm_message_recovery_page(
+                        self.uniffiCloneHandle(),FfiConverterOptionTypeListMessagesOptions.lower(options),FfiConverterOptionTypeMessageRecoveryPosition.lower(before),FfiConverterOptionTypeMessageRecoveryPosition.lower(after)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMessageRecoveryPage_lift,
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
@@ -5138,6 +5177,18 @@ public protocol GroupProtocol: AnyObject, Sendable {
 
     func messageReader(options: ConversationMessageReaderOptions?) async throws  -> MessageReader
 
+    /**
+     * Read Failed and Unpublished rows in sent-time and raw ID order.
+     * Defaults are ascending order, no kind filter, and limit 50.
+     * Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+     * and zero limits fail. Other filters apply before the limit.
+     * Before and after are strict tuple bounds in either direction.
+     * Keep message_cursor opaque. Deleted and published boundaries remain valid.
+     * Raw positions and skipped_count cover rows that fail conversion.
+     * This query does not acquire a reader lease or allocate delivery numbers.
+     */
+    func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage
+
     func messages(options: ListMessagesOptions?) async throws  -> [Message]
 
     /**
@@ -5740,6 +5791,33 @@ open func messageReader(options: ConversationMessageReaderOptions? = nil)async t
             cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
             freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
             liftFunc: FfiConverterTypeMessageReader_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Read Failed and Unpublished rows in sent-time and raw ID order.
+     * Defaults are ascending order, no kind filter, and limit 50.
+     * Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+     * and zero limits fail. Other filters apply before the limit.
+     * Before and after are strict tuple bounds in either direction.
+     * Keep message_cursor opaque. Deleted and published boundaries remain valid.
+     * Raw positions and skipped_count cover rows that fail conversion.
+     * This query does not acquire a reader lease or allocate delivery numbers.
+     */
+open func messageRecoveryPage(options: ListMessagesOptions? = nil, before: MessageRecoveryPosition? = nil, after: MessageRecoveryPosition? = nil)async throws  -> MessageRecoveryPage  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_group_message_recovery_page(
+                        self.uniffiCloneHandle(),FfiConverterOptionTypeListMessagesOptions.lower(options),FfiConverterOptionTypeMessageRecoveryPosition.lower(before),FfiConverterOptionTypeMessageRecoveryPosition.lower(after)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeMessageRecoveryPage_lift,
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
@@ -13591,6 +13669,163 @@ public func FfiConverterTypeMessageReceived_lift(_ buf: RustBuffer) throws -> Me
 #endif
 public func FfiConverterTypeMessageReceived_lower(_ value: MessageReceived) -> RustBuffer {
     return FfiConverterTypeMessageReceived.lower(value)
+}
+
+
+/**
+ * A chronological pending page and the raw prefix it consumed.
+ */
+public struct MessageRecoveryPage: Equatable, Hashable {
+    /**
+     * Pending rows have no cursor until publication. An existing committed cursor is retained.
+     */
+    public var messages: [Message]
+    /**
+     * First consumed raw key, even when its message cannot be converted.
+     */
+    public var firstPosition: MessageRecoveryPosition?
+    /**
+     * Last consumed raw key. Use it for continuation in the same direction.
+     */
+    public var lastPosition: MessageRecoveryPosition?
+    /**
+     * An extra matching key exists. Its base body was not loaded or consumed.
+     */
+    public var hasMore: Bool
+    /**
+     * Consumed raw rows minus converted messages.
+     */
+    public var skippedCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Pending rows have no cursor until publication. An existing committed cursor is retained.
+         */messages: [Message],
+        /**
+         * First consumed raw key, even when its message cannot be converted.
+         */firstPosition: MessageRecoveryPosition?,
+        /**
+         * Last consumed raw key. Use it for continuation in the same direction.
+         */lastPosition: MessageRecoveryPosition?,
+        /**
+         * An extra matching key exists. Its base body was not loaded or consumed.
+         */hasMore: Bool,
+        /**
+         * Consumed raw rows minus converted messages.
+         */skippedCount: UInt32) {
+        self.messages = messages
+        self.firstPosition = firstPosition
+        self.lastPosition = lastPosition
+        self.hasMore = hasMore
+        self.skippedCount = skippedCount
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageRecoveryPage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageRecoveryPage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageRecoveryPage {
+        return
+            try MessageRecoveryPage(
+                messages: FfiConverterSequenceTypeMessage.read(from: &buf),
+                firstPosition: FfiConverterOptionTypeMessageRecoveryPosition.read(from: &buf),
+                lastPosition: FfiConverterOptionTypeMessageRecoveryPosition.read(from: &buf),
+                hasMore: FfiConverterBool.read(from: &buf),
+                skippedCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageRecoveryPage, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeMessage.write(value.messages, into: &buf)
+        FfiConverterOptionTypeMessageRecoveryPosition.write(value.firstPosition, into: &buf)
+        FfiConverterOptionTypeMessageRecoveryPosition.write(value.lastPosition, into: &buf)
+        FfiConverterBool.write(value.hasMore, into: &buf)
+        FfiConverterUInt32.write(value.skippedCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRecoveryPage_lift(_ buf: RustBuffer) throws -> MessageRecoveryPage {
+    return try FfiConverterTypeMessageRecoveryPage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRecoveryPage_lower(_ value: MessageRecoveryPage) -> RustBuffer {
+    return FfiConverterTypeMessageRecoveryPage.lower(value)
+}
+
+
+/**
+ * A sent-time boundary with an opaque database-local raw message key.
+ * The boundary remains valid after deletion or publication of the row.
+ */
+public struct MessageRecoveryPosition: Equatable, Hashable {
+    public var sentAt: Timestamp
+    public var messageCursor: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sentAt: Timestamp, messageCursor: String) {
+        self.sentAt = sentAt
+        self.messageCursor = messageCursor
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MessageRecoveryPosition: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageRecoveryPosition: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageRecoveryPosition {
+        return
+            try MessageRecoveryPosition(
+                sentAt: FfiConverterTypeTimestamp.read(from: &buf),
+                messageCursor: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageRecoveryPosition, into buf: inout [UInt8]) {
+        FfiConverterTypeTimestamp.write(value.sentAt, into: &buf)
+        FfiConverterString.write(value.messageCursor, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRecoveryPosition_lift(_ buf: RustBuffer) throws -> MessageRecoveryPosition {
+    return try FfiConverterTypeMessageRecoveryPosition.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageRecoveryPosition_lower(_ value: MessageRecoveryPosition) -> RustBuffer {
+    return FfiConverterTypeMessageRecoveryPosition.lower(value)
 }
 
 
@@ -25056,6 +25291,30 @@ fileprivate struct FfiConverterOptionTypeMessageReaderOptions: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeMessageRecoveryPosition: FfiConverterRustBuffer {
+    typealias SwiftType = MessageRecoveryPosition?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMessageRecoveryPosition.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMessageRecoveryPosition.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeMetadataFieldDescriptor: FfiConverterRustBuffer {
     typealias SwiftType = MetadataFieldDescriptor?
 
@@ -28920,6 +29179,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_dm_message_reader() != 16038) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_dm_message_recovery_page() != 28719) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_dm_messages() != 55325) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29095,6 +29357,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_message_reader() != 32244) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_group_message_recovery_page() != 12885) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_method_group_messages() != 9628) {

@@ -7,6 +7,7 @@ mod reader_admission;
 mod reader_cancellation_regressions;
 mod reader_restored;
 mod reader_selection;
+mod recovery_pages;
 
 use std::sync::{
     Arc,

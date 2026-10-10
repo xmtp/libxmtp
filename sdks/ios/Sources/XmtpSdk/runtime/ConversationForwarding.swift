@@ -126,6 +126,13 @@ public extension Conversation {
         }
     }
 
+    func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage {
+        switch self {
+        case .group(let group): return try await group.messageRecoveryPage(options: options, before: before, after: after)
+        case .dm(let dm): return try await dm.messageRecoveryPage(options: options, before: before, after: after)
+        }
+    }
+
     func messages(options: ListMessagesOptions?) async throws  -> [Message] {
         switch self {
         case .group(let group): return try await group.messages(options: options)

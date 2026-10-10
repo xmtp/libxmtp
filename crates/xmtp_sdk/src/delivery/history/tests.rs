@@ -14,7 +14,7 @@ fn raw_position(index: i64) -> HistoryPosition {
     }
 }
 
-fn consumed(index: i64, readable: bool) -> EnrichedStoredMessage {
+pub(in crate::delivery) fn consumed(index: i64, readable: bool) -> EnrichedStoredMessage {
     let stored = StoredGroupMessage {
         id: index.to_be_bytes().repeat(4),
         group_id: vec![1; 16].try_into().unwrap(),

@@ -131,6 +131,19 @@ pub trait QueryDelivery: ConnectionExt + Sized {
         })?
     }
 
+    /// Read pending recovery rows without changing delivery state.
+    fn recovery_page_rows(
+        &self,
+        group_id: &GroupId,
+        query: &super::group_message::RecoveryQueryArgs,
+    ) -> Result<super::group_message::RecoveryPageRows, StorageError> {
+        self.raw_query(|conn| {
+            Ok(conn.transaction(|conn| {
+                super::group_message::read_recovery_page(conn, group_id, query)
+            }))
+        })?
+    }
+
     /// Read history and nullable cursors from one database snapshot.
     // implements: PROC-050
     fn app_visible_message_rows(

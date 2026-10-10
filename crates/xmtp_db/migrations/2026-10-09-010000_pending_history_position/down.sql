@@ -1,0 +1,1 @@
+DROP INDEX group_messages_pending_history_position;

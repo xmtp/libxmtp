@@ -933,6 +933,10 @@ macro_rules! apply_message_filters {
     }};
 }
 
+mod page;
+mod recovery_page;
+pub(crate) use recovery_page::read_recovery_page;
+pub use recovery_page::{RecoveryPageRows, RecoveryPosition, RecoveryQueryArgs};
 mod history_page;
 pub(crate) use history_page::read_history_page;
 

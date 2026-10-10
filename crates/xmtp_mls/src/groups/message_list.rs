@@ -8,58 +8,13 @@ use xmtp_db::DbQuery;
 use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
 
-pub struct EnrichedHistoryPage {
-    pub messages: Vec<EnrichedStoredMessage>,
-    pub first_position: Option<xmtp_db::delivery::HistoryPosition>,
-    pub last_position: Option<xmtp_db::delivery::HistoryPosition>,
-    pub has_more: bool,
-}
+mod page;
+pub use page::{EnrichedHistoryPage, EnrichedRecoveryPage};
 
 impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    /// Read base rows and raw coverage in one database snapshot.
-    pub fn find_history_page_with_stored(
-        &self,
-        query: &MsgQueryArgs,
-    ) -> Result<EnrichedHistoryPage, EnrichMessageError> {
-        use xmtp_db::delivery::QueryDelivery;
-        let conn = self.context.db();
-        let page = conn.history_page_rows(
-            &self.group_id,
-            &filter_out_hidden_message_types_from_query(query),
-        )?;
-        let positions: std::collections::HashMap<_, _> = page
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(index, row)| (row.stored.id.clone(), (index, row.cursor)))
-            .collect();
-        let mut sources: std::collections::HashMap<_, Vec<_>> = std::collections::HashMap::new();
-        for row in page.rows {
-            sources
-                .entry(row.stored.group_id)
-                .or_default()
-                .push(row.stored);
-        }
-        let mut messages = Vec::with_capacity(positions.len());
-        for (group_id, rows) in sources {
-            messages.extend(enrich_messages_with_stored(&conn, &group_id, rows)?);
-        }
-        // Relations use the physical source. Display order uses the selected raw keys.
-        messages.sort_by_key(|message| positions[&message.stored.id].0);
-        for message in &mut messages {
-            message.delivery_cursor = positions[&message.stored.id].1;
-        }
-        Ok(EnrichedHistoryPage {
-            messages,
-            first_position: page.first_position,
-            last_position: page.last_position,
-            has_more: page.has_more,
-        })
-    }
-
     #[xmtp_common::mls_span]
     pub fn find_messages_v2(
         &self,

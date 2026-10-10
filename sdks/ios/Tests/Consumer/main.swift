@@ -40,3 +40,11 @@ func consumeHistoryPageForms(_ group: Group, _ dm: Dm) async throws {
 	let cursor: String? = position?.deliveryCursor
 	precondition(timestamp == nil || cursor != nil)
 }
+
+func consumeRecoveryPageForms(_ group: Group, _ dm: Dm) async throws {
+	let page: MessageRecoveryPage = try await group.messageRecoveryPage()
+	_ = try await dm.messageRecoveryPage()
+	let position: MessageRecoveryPosition? = page.lastPosition
+	_ = try await group.messageRecoveryPage(options: ListMessagesOptions(limit: 50), before: position)
+	_ = try await dm.messageRecoveryPage(after: position)
+}

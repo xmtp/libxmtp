@@ -1,55 +1,19 @@
+#[cfg(test)]
+use super::page::BEFORE_BODIES;
+use super::page::{load_bodies, select_keys};
 use super::*;
 use crate::delivery::{
     AppVisibleMessageRow, HistoryPageRows, HistoryPosition, database_id, resolve_group_scope,
     validate_cursor,
 };
 use crate::{StorageError, stream_storage::StreamStorageError};
-use std::cmp::Ordering;
-use std::collections::{BinaryHeap, VecDeque};
+use std::collections::VecDeque;
 
-const BODY_QUERY_BATCH: usize = 500;
-
-#[cfg(test)]
-thread_local! {
-    static BEFORE_BODIES: std::cell::RefCell<Option<Box<dyn FnMut()>>> = const { std::cell::RefCell::new(None) };
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 struct Key {
-    id: Vec<u8>,
     sent_at_ns: i64,
     delivery_sequence: i64,
-}
-
-#[derive(Debug)]
-struct Head {
-    key: Key,
-    source: usize,
-    ascending: bool,
-}
-
-impl PartialEq for Head {
-    fn eq(&self, other: &Self) -> bool {
-        (self.key.sent_at_ns, self.key.delivery_sequence)
-            == (other.key.sent_at_ns, other.key.delivery_sequence)
-    }
-}
-impl Eq for Head {}
-impl PartialOrd for Head {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl Ord for Head {
-    fn cmp(&self, other: &Self) -> Ordering {
-        let order = (self.key.sent_at_ns, self.key.delivery_sequence)
-            .cmp(&(other.key.sent_at_ns, other.key.delivery_sequence));
-        if self.ascending {
-            order.reverse()
-        } else {
-            order
-        }
-    }
+    id: Vec<u8>,
 }
 
 macro_rules! key_query {
@@ -128,32 +92,7 @@ pub(crate) fn read_history_page(
     }
     #[cfg(test)]
     let candidate_keys = sources.iter().map(VecDeque::len).sum();
-    let mut heap = BinaryHeap::new();
-    for (source, rows) in sources.iter_mut().enumerate() {
-        if let Some(key) = rows.pop_front() {
-            heap.push(Head {
-                key,
-                source,
-                ascending,
-            });
-        }
-    }
-    let mut selected = Vec::new();
-    while (selected.len() as i64) < selector_limit {
-        let Some(head) = heap.pop() else { break };
-        selected.push(head.key);
-        if let Some(key) = sources[head.source].pop_front() {
-            heap.push(Head {
-                key,
-                source: head.source,
-                ascending,
-            });
-        }
-    }
-    let has_more = selected.len() as i64 > limit;
-    if has_more {
-        selected.pop();
-    }
+    let (selected, has_more) = select_keys(sources, limit, ascending);
     let position = |key: &Key| HistoryPosition {
         sent_at_ns: key.sent_at_ns,
         cursor: crate::delivery::DeliveryCursor {
@@ -163,36 +102,17 @@ pub(crate) fn read_history_page(
     };
     let first_position = selected.first().map(&position);
     let last_position = selected.last().map(&position);
+    let ids = selected
+        .iter()
+        .map(|key| key.id.as_slice())
+        .collect::<Vec<_>>();
+    let mut stored = load_bodies(conn, &ids)?;
     #[cfg(test)]
-    BEFORE_BODIES.with_borrow_mut(|hook| {
-        if let Some(hook) = hook.as_mut() {
-            hook();
-        }
-    });
-    let mut stored = HashMap::new();
-    #[cfg(test)]
-    let mut base_bodies_loaded = 0;
-    for batch in selected.chunks(BODY_QUERY_BATCH) {
-        let ids = batch
-            .iter()
-            .map(|key| key.id.as_slice())
-            .collect::<Vec<_>>();
-        for message in dsl::group_messages
-            .filter(dsl::id.eq_any(ids))
-            .select(StoredGroupMessage::as_select())
-            .load::<StoredGroupMessage>(conn)?
-        {
-            #[cfg(test)]
-            {
-                base_bodies_loaded += 1;
-            }
-            stored.insert(message.id.clone(), message);
-        }
-    }
+    let base_bodies_loaded = stored.len();
     let rows = selected
         .into_iter()
         .map(|key| {
-            let stored = stored
+            let (stored, _) = stored
                 .remove(&key.id)
                 .ok_or(diesel::result::Error::NotFound)?;
             Ok(AppVisibleMessageRow {

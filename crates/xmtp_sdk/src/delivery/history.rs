@@ -124,7 +124,7 @@ pub(crate) fn lift_page(
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 pub(crate) fn history_error(
     error: xmtp_mls::messages::enrichment::EnrichMessageError,

@@ -1,10 +1,10 @@
+use super::super::page::Explain;
 use super::*;
 use crate::delivery::{DeliveryScope, QueryDelivery};
 use crate::group::tests::generate_group;
 use crate::group_message::tests::generate_message;
 use crate::{Store, StoreOrIgnore, TestDb, XmtpTestDb};
-use diesel::query_builder::{AstPass, Query, QueryFragment, QueryId};
-use diesel::sql_types::{Integer, Text};
+use diesel::sql_types::Integer;
 
 fn args(limit: i64, direction: SortDirection) -> MsgQueryArgs {
     MsgQueryArgs {
@@ -229,22 +229,6 @@ async fn history_page_cursor_validation_and_no_acknowledgement() {
     old.history_after = Some(position);
     assert!(db.history_page_rows(&group.id, &old).is_err());
 }
-
-struct Explain<T>(T);
-impl<T> QueryId for Explain<T> {
-    type QueryId = ();
-    const HAS_STATIC_QUERY_ID: bool = false;
-}
-impl<T> Query for Explain<T> {
-    type SqlType = (Integer, Integer, Integer, Text);
-}
-impl<T: QueryFragment<Sqlite>> QueryFragment<Sqlite> for Explain<T> {
-    fn walk_ast<'b>(&'b self, mut pass: AstPass<'_, 'b, Sqlite>) -> diesel::QueryResult<()> {
-        pass.push_sql("EXPLAIN QUERY PLAN ");
-        self.0.walk_ast(pass)
-    }
-}
-impl<T> RunQueryDsl<diesel::SqliteConnection> for Explain<T> {}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn history_page_indexed_seek_and_stitched_dm_body_bound() {

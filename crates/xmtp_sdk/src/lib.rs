@@ -107,7 +107,7 @@ use delivery as reader;
 #[cfg(not(feature = "pure-only"))]
 pub use delivery::{
     ConnectionState, ConversationReader, MessageHistoryPage, MessageHistoryPosition,
-    MessageHistorySnapshot, MessageReader,
+    MessageHistorySnapshot, MessageReader, MessageRecoveryPage, MessageRecoveryPosition,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use diagnostics::{ApiStats, Diagnostics, IdentityStats};
