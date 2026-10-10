@@ -1,6 +1,5 @@
 package org.xmtp.android.example.messenger.attachments
 
-import android.content.ContentValues
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.provider.MediaStore
@@ -28,20 +27,27 @@ class AttachmentCardInstrumentedTest {
 
     private suspend fun until(check: () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
 
+    private fun publicCaptureCount(): Int =
+        compose.activity.contentResolver
+            .query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Images.Media._ID),
+                "${MediaStore.Images.Media.DISPLAY_NAME} = ? AND ${MediaStore.Images.Media.RELATIVE_PATH} = ?",
+                arrayOf("attachment-card-verified.png", "Pictures/XmtpMessengerProof/"),
+                null,
+            )?.use { it.count } ?: 0
+
     private fun screenshot() {
         val bitmap = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
-        val resolver = compose.activity.contentResolver
-        val values =
-            ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "attachment-card-verified.png")
-                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/XmtpMessengerProof")
-                put(MediaStore.Images.Media.IS_PENDING, 1)
+        try {
+            val directory = File(compose.activity.filesDir, "xmtp-messenger-proof")
+            check(directory.isDirectory || directory.mkdirs())
+            File(directory, "attachment-card-verified.png").outputStream().use {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
             }
-        val uri = checkNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values))
-        checkNotNull(resolver.openOutputStream(uri)).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
-        bitmap.recycle()
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     @Test fun verifiedDownloadUpdatesTheRealCardBeforeParentRefresh() =
@@ -117,7 +123,17 @@ class AttachmentCardInstrumentedTest {
                 compose.onNodeWithText("Save").assertIsDisplayed()
                 compose.onNodeWithContentDescription("blue.png").assertIsDisplayed()
                 println("FILE_CARD_PROOF stage=verified-actions-and-preview parent-refresh=held message=$id")
+                val privateCapture =
+                    File(compose.activity.filesDir, "xmtp-messenger-proof/attachment-card-verified.png")
+                check(!privateCapture.exists() || privateCapture.delete())
+                val publicCaptures = publicCaptureCount()
                 screenshot()
+                assertTrue("The card proof is stored only in the private fixture directory", privateCapture.isFile)
+                assertArrayEquals(
+                    byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a),
+                    privateCapture.inputStream().use { input -> ByteArray(8).also { input.read(it) } },
+                )
+                assertEquals("The card proof does not add a public image", publicCaptures, publicCaptureCount())
             } finally {
                 release.complete(Unit)
                 host.beforeDownloadRefresh = {}
