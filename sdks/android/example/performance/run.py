@@ -91,24 +91,31 @@ def command(arguments, **kwargs):
     return subprocess.run(arguments, check=True, text=True, **kwargs)
 
 
-def result_failures():
+def result_failures(connected):
     failures = []
-    for path in (ANDROID / "example/build/outputs/androidTest-results/connected").rglob(
-        "*.xml"
-    ):
+    selected = 0
+    for path in connected.rglob("*.xml"):
         tree = ET.parse(path)
         for case in tree.iter("testcase"):
             if case.get("classname") == TEST_CLASS:
+                selected += 1
                 for child in case:
                     if child.tag in ("failure", "error"):
                         failures.append(
                             (child.get("message", "") + " " + (child.text or ""))
                         )
+    if selected != 1:
+        return [f"Expected one current performance test XML, found {selected}"]
     return failures
 
 
 def execute(output, label, backend):
     serial = os.environ["ANDROID_SERIAL"]
+    connected = ANDROID / "example/build/outputs/androidTest-results/connected"
+    snapshot = output / f"{label}-connected"
+    for directory in (connected, snapshot):
+        if directory.exists():
+            shutil.rmtree(directory)
     invocation = [
         str(ANDROID / "gradlew"),
         "-p",
@@ -181,9 +188,8 @@ def execute(output, label, backend):
             logcat.terminate()
             logcat.wait(timeout=10)
             reader.join(timeout=10)
-    connected = ANDROID / "example/build/outputs/androidTest-results/connected"
     if connected.exists():
-        shutil.copytree(connected, output / f"{label}-connected", dirs_exist_ok=True)
+        shutil.copytree(connected, snapshot)
     for name in ("seed-progress", "readiness-progress", "measurement-progress"):
         progress = subprocess.run(
             [
@@ -218,7 +224,7 @@ def execute(output, label, backend):
     )
     report = json.loads(read.stdout) if read.returncode == 0 else {}
     (output / f"{label}.json").write_text(json.dumps(report, indent=2) + "\n")
-    return run.returncode, report, result_failures()
+    return run.returncode, report, result_failures(snapshot)
 
 
 def run(output, backend, red_control):
