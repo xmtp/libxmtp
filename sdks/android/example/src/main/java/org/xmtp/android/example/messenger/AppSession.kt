@@ -152,6 +152,7 @@ class AppSession(
             preferences::completeExportCleanup,
         ).run()
     internal var beforeAutomaticProfileLookup: suspend () -> Unit = {}
+    internal var beforeBoundConnectOperation: suspend (SessionKey) -> Unit = {}
 
     suspend fun restore() {
         val restoreIntent = fence.currentGeneration()
@@ -210,25 +211,25 @@ class AppSession(
             if (!pushDatabaseExists(paths)) return@withLock null
             val encryption = secrets.read(profile.id, "database-key") ?: return@withLock null
             val key = fence.bind(profile.id, generation) ?: return@withLock null
-            val source = pushCredential(profile.id, key)
-            val backend = BackendSource.Options(BackendOptions(profile.backend, credentials = source))
-            val location = StorageLocation.Explicit(paths.database.absolutePath, paths.attachments.absolutePath)
-            val storage = StorageOptions(location = location, encryptionKey = encryption)
-            val options =
-                ClientOptions(
-                    backend = backend,
-                    storage = storage,
-                    allowOffline = true,
-                    attachments = AttachmentOptions(allowPrivateNetwork = profile.allowPrivateNetwork),
-                )
-            val publicIdentity = PublicIdentity(identity, PublicIdentityKind.ETHEREUM)
-            if (!prepareStoredNotifications(profile, key, paths, options)) return@withLock null
-            beforeClientBuild(url)
-            val client = SDKClient.build(context, publicIdentity, options, inbox)
-            val owner = ActiveSession(key, profile, paths, client)
-            opening = owner
             var published = false
             try {
+                val source = pushCredential(profile.id, key)
+                val backend = BackendSource.Options(BackendOptions(profile.backend, credentials = source))
+                val location = StorageLocation.Explicit(paths.database.absolutePath, paths.attachments.absolutePath)
+                val storage = StorageOptions(location = location, encryptionKey = encryption)
+                val options =
+                    ClientOptions(
+                        backend = backend,
+                        storage = storage,
+                        allowOffline = true,
+                        attachments = AttachmentOptions(allowPrivateNetwork = profile.allowPrivateNetwork),
+                    )
+                val publicIdentity = PublicIdentity(identity, PublicIdentityKind.ETHEREUM)
+                if (!prepareStoredNotifications(profile, key, paths, options)) return@withLock null
+                beforeClientBuild(url)
+                val client = SDKClient.build(context, publicIdentity, options, inbox)
+                val owner = ActiveSession(key, profile, paths, client)
+                opening = owner
                 val selected = preferences.active()?.id
                 if (!preferences.signedIn() || preferences.reset() != null) return@withLock null
                 if (selected != profile.id) return@withLock null
@@ -245,7 +246,15 @@ class AppSession(
                     null
                 }
             } finally {
-                if (!published) withContext(NonCancellable) { closeCurrent(unregister = false) }
+                if (!published) {
+                    withContext(NonCancellable) {
+                        try {
+                            closeCurrent(unregister = false)
+                        } finally {
+                            fence.releaseRestore(key)
+                        }
+                    }
+                }
             }
         }
 
@@ -349,6 +358,7 @@ class AppSession(
                     profile.id,
                     openingGeneration,
                 ) ?: return
+        beforeBoundConnectOperation(key)
         withOperation(operationHeld) {
             if (!accepts(key)) return
             check(

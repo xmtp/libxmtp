@@ -1751,10 +1751,16 @@ class MessengerViewModel(
         action: MessengerAction,
     ) {
         val owner = origin.owner ?: return
-        notifications.withPrivacyMutation(owner) { mutateGroupWithinPrivacy(origin, action) }
+        if (action is MessengerAction.AddMember || action is MessengerAction.RemoveMember ||
+            action == MessengerAction.RequestRemoval
+        ) {
+            notifications.withPrivacyMutation(owner) { mutateGroupOwned(origin, action) }
+        } else {
+            mutateGroupOwned(origin, action)
+        }
     }
 
-    private suspend fun mutateGroupWithinPrivacy(
+    private suspend fun mutateGroupOwned(
         origin: ActionOrigin,
         action: MessengerAction,
     ) {
