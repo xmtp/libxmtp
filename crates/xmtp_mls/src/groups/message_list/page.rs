@@ -1,5 +1,8 @@
 use super::*;
-use xmtp_db::delivery::{AppVisibleMessageRow, QueryDelivery};
+use xmtp_db::{
+    delivery::{AppVisibleMessageRow, QueryDelivery},
+    group_message::RecoveryQueryArgs,
+};
 
 pub struct EnrichedMessagePage<P> {
     pub messages: Vec<EnrichedStoredMessage>,
@@ -10,6 +13,11 @@ pub struct EnrichedMessagePage<P> {
 
 pub type EnrichedHistoryPage = EnrichedMessagePage<xmtp_db::delivery::HistoryPosition>;
 pub type EnrichedRecoveryPage = EnrichedMessagePage<xmtp_db::group_message::RecoveryPosition>;
+
+fn visible_recovery_query(mut query: RecoveryQueryArgs) -> RecoveryQueryArgs {
+    query.messages = filter_out_hidden_message_types_from_query(&query.messages);
+    query
+}
 
 fn enrich_page_rows(
     conn: &impl DbQuery,
@@ -62,13 +70,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     // implements: DMS-009
     pub fn find_recovery_page_with_stored(
         &self,
-        query: &xmtp_db::group_message::RecoveryQueryArgs,
+        query: RecoveryQueryArgs,
     ) -> Result<EnrichedRecoveryPage, EnrichMessageError> {
         let conn = self.context.db();
-        let query = xmtp_db::group_message::RecoveryQueryArgs {
-            messages: filter_out_hidden_message_types_from_query(&query.messages),
-            ..query.clone()
-        };
+        let query = visible_recovery_query(query);
         let page = conn.recovery_page_rows(&self.group_id, &query)?;
         Ok(EnrichedRecoveryPage {
             messages: enrich_page_rows(&conn, page.rows)?,
@@ -78,3 +83,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

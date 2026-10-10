@@ -543,7 +543,7 @@ macro_rules! common_conversation {
                 let client_key = self.client_key;
                 on_sdk_worker(self.inner.context.clone(), async move {
                     let page = group
-                        .find_recovery_page_with_stored(&query)
+                        .find_recovery_page_with_stored(query)
                         .map_err(crate::delivery::history_error)?;
                     Ok(crate::delivery::lift_recovery_page(page, client_key))
                 })
