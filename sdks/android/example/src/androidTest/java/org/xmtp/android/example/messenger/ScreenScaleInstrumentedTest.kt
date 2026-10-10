@@ -60,19 +60,30 @@ class ScreenScaleInstrumentedTest {
                                     .firstOrNull { it.startsWith("Override density:") }
                                     ?.substringAfter(':')
                                     ?.trim()
-                            shell("wm size 320x640")
-                            shell("wm density 160")
-                            shell("settings put system font_scale 2.0")
+                            val restore = screenDisplayRestoreCommands(scale, size, density)
                             try {
+                                shell("wm size 320x640")
+                                shell("wm density 160")
+                                shell("settings put system font_scale 2.0")
                                 base.evaluate()
                             } finally {
-                                if (scale == "null") {
-                                    shell("settings delete system font_scale")
-                                } else {
-                                    shell("settings put system font_scale $scale")
+                                var failure: Throwable? = null
+                                for (command in restore) {
+                                    try {
+                                        shell(command)
+                                    } catch (error: Throwable) {
+                                        if (failure ==
+                                            null
+                                        ) {
+                                            failure = error
+                                        } else if (failure !==
+                                            error
+                                        ) {
+                                            failure?.addSuppressed(error)
+                                        }
+                                    }
                                 }
-                                shell(if (density == null) "wm density reset" else "wm density $density")
-                                shell(if (size == null) "wm size reset" else "wm size $size")
+                                failure?.let { throw it }
                             }
                         }
                     }

@@ -192,13 +192,17 @@ class DeviceInvocationTest(unittest.TestCase):
 
 
 class CacheFailureControlTest(unittest.TestCase):
-    def test_rejects_the_legacy_pending_cache_as_the_published_boundary(self):
-        legacy = (
+    def test_requires_the_actual_published_cache_class(self):
+        actual = (
             run.ANDROID
-            / "example/src/main/java/org/xmtp/android/example/messenger/TimestampBuckets.kt"
+            / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
         ).read_text()
+        unrelated = actual.replace(
+            "class SDKTranscriptCache<", "class UnrelatedTranscriptCache<"
+        )
+        self.assertNotEqual(actual, unrelated)
         with self.assertRaisesRegex(ValueError, "SDKTranscriptCache"):
-            run.remove_published_cache_eviction(legacy)
+            run.remove_published_cache_eviction(unrelated)
 
     def test_restores_production_source_after_interruption(self):
         production = (
