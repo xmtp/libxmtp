@@ -24,7 +24,7 @@ String androidBackendURL() {
 
 android {
     namespace 'org.xmtp.android.example'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "org.xmtp.android.example"

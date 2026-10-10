@@ -51,6 +51,22 @@ core library desugaring on in the library and app consumers, with pinned
 `com.android.tools:desugar_jdk_libs:2.1.5`. Dependency locks and SHA256 Gradle
 verification metadata cover the final resolved graph.
 
+The example keeps API 27 as its minimum and JVM 17. `:example-shared` has an
+Android KMP target. Compose UI goes in `commonMain`; SDK and Android objects
+stay in the host. The shared module's Android instrumented test source set has
+a positive SDK/UI compile fixture. Its SDK dependency is test only. The example
+keeps its legacy runtime graph until the real UI is connected.
+`assemble` compiles the shared target and test APK, existing app, and app test APK with
+strict dependency verification. The Android unit CI job also runs `assemble`.
+The pinned build uses AGP 8.10.1, Kotlin and its Compose compiler 2.2.20,
+Compose Multiplatform 1.8.2, and Gradle 8.11.1. Nix provides API 35 for all
+three modules. Keep the SDK minimum at API 23 and desugar_jdk_libs at 2.1.5.
+Refresh each resolved graph with `--refresh-dependencies --write-locks --write-verification-metadata sha256`
+in the Android Nix shell, then verify the normal strict build.
+Keep parent POM checksums even when the parent has no dependency lock entry.
+Check strict resolution with `--refresh-dependencies` to test fresh metadata.
+AGP updates also need the published Linux AAPT2 checksum for CI.
+
 `test-min-sdk` requires a Linux x86_64 runner. It loads release JNI and checks
 generated `Instant` and `Date` conversions on API 23. It also creates public
 clients with explicit and in-memory storage, then closes them. It also cancels a
@@ -107,6 +123,8 @@ Specific native inputs select API 23 smoke, API 34 integration, and all-ABI
 AAR staging. Direct reusable calls keep unit, consumer, and platform checks
 by default. Host JVM tests retain the matched host library and fast JNI
 bindings. They do not replace the selected emulator or all-ABI proofs.
+The negative consumer check requires a compiler error at each invalid call.
+It uses Kotlin 2.2.20 diagnostic names and prints the log if a check fails.
 
 Instrumentation has no foreground Activity. Its fixtures disable
 `AndroidStreamLifecycle.enabled`, resume native streams, and restore the flag.

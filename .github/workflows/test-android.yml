@@ -94,6 +94,10 @@ jobs:
       env:
         NIX_DEVSHELL: android
       run: dev/nix-shell 'just android test'
+    - name: Compile app and shared UI
+      env:
+        NIX_DEVSHELL: android
+      run: dev/nix-shell 'just android assemble'
     - name: Check Kotlin consumers
       env:
         NIX_DEVSHELL: android

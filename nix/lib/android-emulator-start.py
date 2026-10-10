@@ -95,6 +95,8 @@ def run_command(args, deadline, emulator=None, timeout=COMMAND_TIMEOUT, env=None
                     output.seek(0)
                     return process.returncode, output.read().decode(errors="replace")
                 if time.monotonic() >= command_deadline:
+                    if command_deadline == deadline:
+                        raise StartupFailure("Emulator startup deadline exceeded")
                     raise StartupFailure(f"Startup command timed out: {' '.join(args)}")
                 time.sleep(POLL_INTERVAL)
         finally:
