@@ -33,7 +33,33 @@ class MessengerPerformanceInstrumentedTest {
     private val root get() = File(context.filesDir, "messenger-performance")
     private val manifest get() = File(root, "workload.json")
     private val seedProgress get() = File(root, "seed-progress.jsonl")
+    private val readinessProgress get() = File(root, "readiness-progress.jsonl")
     private val secrets by lazy { SecureSecretStore(context) }
+
+    private fun recordReadiness(
+        phase: String,
+        event: String,
+        model: MessengerViewModel,
+        started: Long,
+        failure: Throwable? = null,
+    ) {
+        val state = model.state.value
+        val session = (context as ExampleApp).session
+        val record =
+            JSONObject()
+                .put("phase", phase)
+                .put("event", event)
+                .put("elapsedMs", SystemClock.elapsedRealtime() - started)
+                .put("ownerPresent", session.active.value != null)
+                .put("screen", state.screen.name)
+                .put("conversationRows", state.conversations.size)
+                .put("pendingReset", state.pendingReset)
+                .put("sessionErrorClass", reportedFailureClass(session.error.value))
+                .put("vmErrorClass", reportedFailureClass(state.error))
+                .put("failureClass", failure?.javaClass?.simpleName)
+        readinessProgress.appendText("$record\n")
+        println("MESSENGER_PERFORMANCE_READY $record")
+    }
 
     private val profile get() =
         BackendProfile(
@@ -325,6 +351,8 @@ class MessengerPerformanceInstrumentedTest {
                     ),
                 )
                 session.preferences.setSignedIn(true)
+                readinessProgress.writeText("")
+                val readinessStarted = SystemClock.elapsedRealtime()
                 val replayRows = AtomicInteger()
                 val replayHandling = AtomicInteger()
                 val lastReplayFinished = AtomicLong(SystemClock.elapsedRealtimeNanos())
@@ -346,9 +374,27 @@ class MessengerPerformanceInstrumentedTest {
                         }
                     }
                 // Normal restore owns the client and activates its generation guard.
-                val active = withTimeout(120_000) { session.active.filterNotNull().first() }
+                recordReadiness("initial-vm", "state", viewModel, readinessStarted)
+                val active =
+                    awaitPerformanceReady(
+                        wait = { session.active.filterNotNull().first() },
+                        report = {
+                            event,
+                            error,
+                            ->
+                            recordReadiness("restored-owner", event, viewModel, readinessStarted, error)
+                        },
+                    )
                 assertTrue(session.accepts(active.key))
-                withTimeout(120_000) { viewModel.state.first { it.conversations.size == 50 } }
+                awaitPerformanceReady(
+                    wait = { viewModel.state.first { it.conversations.size == 50 } },
+                    report = {
+                        event,
+                        error,
+                        ->
+                        recordReadiness("first-list-50", event, viewModel, readinessStarted, error)
+                    },
+                )
                 // Verify the fixture drain through the real app callback before timing.
                 lastReplayFinished.set(SystemClock.elapsedRealtimeNanos())
                 withTimeout(30_000) {

@@ -39,6 +39,13 @@ The host runner saves this file even when instrumentation fails. No successful
 receipt cursor is invented: public sync returns no cursor. This pacing is
 fixture preparation; its complete Linux seed result remains pending.
 
+The test records the initial ViewModel state and separate start, completion,
+or failure markers for restored-owner and first-list readiness. Both waits keep
+their 120-second deadline. `readiness-progress.jsonl` contains screen names,
+row counts, state flags and exception classes. It excludes error messages,
+credentials, keys, payloads and profile identifiers. Failed runs retain this
+file beside the seed progress. A readiness timeout is not a measured budget result.
+
 Fixture preparation uses public Welcome and group sync calls. It also drains
 fixture texts through the public sequential Flow before normal AppSession
 restore. The test observes the complete production app callback after reopen.
