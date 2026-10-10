@@ -1,7 +1,10 @@
 package org.xmtp.android.example.messenger
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -15,9 +18,11 @@ private val Context
 
 /** Small references only
 . Message bodies stay in SDK storage. */
-class MessengerPreferences(
-    context: Context,
+class MessengerPreferences internal constructor(
+    private val store: DataStore<Preferences>,
 ) {
+    constructor(context: Context) : this(context.applicationContext.messengerDataStore)
+
     internal var beforeDraftCommit: suspend () -> Unit = {}
     internal var beforeSessionCommit: suspend () -> Unit = {}
     internal var sessionCommitAccepted: (BackendProfile) -> Unit = {}
@@ -56,9 +61,6 @@ class MessengerPreferences(
         }
         return accepted
     }
-
-    private val store =
-        context.applicationContext.messengerDataStore
 
     private suspend fun get(key: String) =
         store.data
@@ -176,6 +178,30 @@ class MessengerPreferences(
             value
                 .toString(),
         )
+
+    suspend fun beginExportCleanup(profileId: String?) {
+        store.edit { values ->
+            values[stringPreferencesKey("signed-in")] = "false"
+            if (profileId != null) {
+                val key = stringSetPreferencesKey("pending-export-cleanup")
+                values[key] = values[key].orEmpty() + profileId
+            }
+        }
+    }
+
+    suspend fun pendingExportCleanup(): Set<String> =
+        store.data
+            .first()[stringSetPreferencesKey("pending-export-cleanup")]
+            .orEmpty()
+            .toSet()
+
+    suspend fun completeExportCleanup(profileId: String) {
+        store.edit { values ->
+            val key = stringSetPreferencesKey("pending-export-cleanup")
+            val remaining = values[key].orEmpty() - profileId
+            if (remaining.isEmpty()) values.remove(key) else values[key] = remaining
+        }
+    }
 
     suspend fun reset(): ResetRecord? =
         get("reset")?.let {
