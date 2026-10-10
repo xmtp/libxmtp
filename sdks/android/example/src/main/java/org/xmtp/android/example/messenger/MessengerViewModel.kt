@@ -623,8 +623,8 @@ class MessengerViewModel(
                                                 owner.client,
                                                 chat,
                                                 admission = { acceptsOrigin(origin) },
+                                                onStored = { accepted = true },
                                                 onAccepted = {
-                                                    accepted = true
                                                     onCurrentScreen(owner, token) {
                                                         val sameReply = ui.value.replyTo == origin.replyId
                                                         val replyId = ui.value.replyTo.takeUnless { sameReply }
@@ -899,6 +899,7 @@ class MessengerViewModel(
     }
 
     private suspend fun refreshUnknown(owner: ActiveSession) {
+        sends.recoverAccepted(owner.key, owner.client)
         val unknown =
             session.preferences
                 .drafts(
@@ -910,7 +911,8 @@ class MessengerViewModel(
                         !sends
                             .isInFlight(
                                 it.draftId,
-                            )
+                            ) &&
+                        !sends.knowsAccepted(it.draftId)
                 }.map {
                     UnknownSendRow(
                         it.draftId,

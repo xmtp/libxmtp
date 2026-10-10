@@ -1,8 +1,6 @@
 package org.xmtp.android.example.messenger
 
-import android.content.ContentValues
 import android.graphics.Bitmap
-import android.provider.MediaStore
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.emoji2.emojipicker.EmojiPickerView
@@ -100,16 +98,11 @@ class MessengerUxInstrumentedTest {
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val bitmap = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-        val resolver = instrumentation.targetContext.contentResolver
-        val values =
-            ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "$name.png")
-                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/XmtpMessengerProof")
-            }
-        val uri = checkNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values))
-        checkNotNull(resolver.openOutputStream(uri)).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        bitmap.recycle()
+        try {
+            writeProofScreenshot(instrumentation.targetContext, name, bitmap)
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private suspend fun connect(): ActiveSession {

@@ -27,6 +27,32 @@ class SendCoordinator(
     private val activeDrafts =
         ConcurrentHashMap.newKeySet<String>()
 
+    private data class KnownAcceptance(
+        val profile: String,
+        val commit: AcceptedMessageCommit,
+    )
+
+    private val knownAcceptances = ConcurrentHashMap<String, KnownAcceptance>()
+
+    fun knowsAccepted(id: String) = knownAcceptances.containsKey(id)
+
+    suspend fun recoverAccepted(
+        key: SessionKey,
+        client: SDKClient,
+    ) {
+        for ((draftId, entry) in knownAcceptances.entries.toList()) {
+            if (entry.profile != key.profileId || isInFlight(draftId)) continue
+            if (!accepts(key)) return
+            val retained = messageRead(client, entry.commit.messageId)
+            if (!accepts(key)) return
+            if (retained == null || preferences.drafts(key.profileId).none { it.draftId == draftId }) {
+                knownAcceptances.remove(draftId, entry)
+                continue
+            }
+            if (entry.commit.finish()) knownAcceptances.remove(draftId, entry)
+        }
+    }
+
     fun isInFlight(id: String) =
         activeDrafts
             .contains(id)
@@ -45,6 +71,7 @@ class SendCoordinator(
             ),
         admission: () -> Boolean = { true },
         onAccepted: (MessageId) -> Unit = {},
+        onStored: (MessageId) -> Unit = {},
         reconcile: suspend (Message) -> Unit,
         send: suspend () -> MessageId,
     ): MessageId {
@@ -78,20 +105,25 @@ class SendCoordinator(
             val id = send()
             // Acceptance belongs to this profile even when navigation cancels the caller.
             withContext(NonCancellable) {
-                onAccepted(id)
-                if (accepts(key)) {
-                    preferences
-                        .saveDraft(
-                            key.profileId,
-                            draft
-                                .copy(
-                                    phase =
-                                        SendPhase.ACCEPTED,
-                                    acceptedMessageId = id,
-                                ),
-                            admit = { change -> admit(key, change) },
-                        )
-                }
+                val acceptedDraft = draft.copy(phase = SendPhase.ACCEPTED, acceptedMessageId = id)
+                val entry =
+                    KnownAcceptance(
+                        key.profileId,
+                        AcceptedMessageCommit(
+                            id,
+                            persist = { preferences.saveAcceptedDraft(key.profileId, acceptedDraft) },
+                            verify = {
+                                preferences.drafts(key.profileId).any {
+                                    it.draftId == draft.draftId && it.phase == SendPhase.ACCEPTED &&
+                                        it.acceptedMessageId == id
+                                }
+                            },
+                            acknowledge = { onAccepted(id) },
+                        ),
+                    )
+                knownAcceptances[draft.draftId] = entry
+                onStored(id)
+                if (entry.commit.finish()) knownAcceptances.remove(draft.draftId, entry)
             }
             if (!accepts(key)) return id
             client.conversations

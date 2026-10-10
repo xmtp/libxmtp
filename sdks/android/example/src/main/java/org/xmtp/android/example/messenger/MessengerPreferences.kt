@@ -354,6 +354,29 @@ class MessengerPreferences(
         },
     ) = mutateDrafts(profile, admit) { entries -> entries.filterNot { it.draftId == id } }
 
+    suspend fun saveAcceptedDraft(
+        profile: String,
+        draft: SendDraftRef,
+    ): Boolean {
+        var matched = false
+        mutateDrafts(profile, { change ->
+            change()
+            true
+        }) { entries ->
+            entries.map { current ->
+                if (current.draftId == draft.draftId && current.conversationKey == draft.conversationKey &&
+                    (current.phase == SendPhase.QUEUEING || current.acceptedMessageId == draft.acceptedMessageId)
+                ) {
+                    matched = true
+                    current.copy(phase = SendPhase.ACCEPTED, acceptedMessageId = draft.acceptedMessageId)
+                } else {
+                    current
+                }
+            }
+        }
+        return matched
+    }
+
     private suspend fun mutateDrafts(
         profile: String,
         admit: (() -> Unit) -> Boolean,
