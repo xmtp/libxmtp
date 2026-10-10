@@ -1,6 +1,10 @@
 # GitHub workflows
 
 Validate workflow edits with `dev/nix-shell 'just lint-config'`.
+Messenger benchmarks run only through `benchmark-example-android.yml` with
+`workflow_dispatch`, or the explicit Android Just command. Do not add benchmark
+jobs or dependencies to normal test workflows. Keep host runner validators in
+normal config tests.
 
 SDK release tags use `GH_APP_ID` and `GH_APP_PK` for the release App.
 The App installation must grant Contents write and Workflows write.

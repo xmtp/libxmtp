@@ -1581,7 +1581,7 @@ private fun MessagePopover(
                 it.inboxId
             },
         ) { row ->
-            Column {
+            Column(Modifier.testTag("settings-member-${row.inboxId}")) {
                 Text(
                     row.inboxId,
                 )

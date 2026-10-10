@@ -62,6 +62,7 @@ shared:
   - "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env,kache-ci-config,kache-ci-policy,kache-darwin-wrapper}"
 
 neutral:
+  - ".github/workflows/benchmark-example-android.yml"
   - "**/{AGENTS,CLAUDE}.md"
   - ".github/**/*.md"
   - "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md"

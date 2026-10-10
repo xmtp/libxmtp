@@ -263,3 +263,18 @@ jobs:
         path: |
           target/sdk-packages/android/xmtp-sdk.aar
           target/sdk-packages/android/sdk-contract.json
+  results:
+    name: Require Android checks
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 1
+    if: always()
+    needs:
+    - unit-tests
+    - min-sdk-smoke
+    - integration-tests
+    - check-android
+    - android-stage
+    steps:
+    - env:
+        PASSED: ${{ needs.unit-tests.result == 'success' && needs.min-sdk-smoke.result == 'success' && needs.integration-tests.result == 'success' && needs.check-android.result == 'success' && needs.android-stage.result == 'success' }}
+      run: test "$PASSED" = true

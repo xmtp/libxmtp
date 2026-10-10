@@ -25,6 +25,7 @@ String androidBackendURL() {
 
 // The release test mode changes signing and instrumentation only, not DEBUG or resources.
 boolean releaseTransportTests = providers.gradleProperty('xmtpExampleReleaseTests').map { it.toBoolean() }.getOrElse(false)
+boolean messengerBenchmark = providers.gradleProperty('android.testInstrumentationRunnerArguments.messengerPerformance').map { it == 'true' }.getOrElse(false)
 
 android {
     namespace 'org.xmtp.android.example'
@@ -41,6 +42,9 @@ android {
         buildConfigField "String", "XMTP_BACKEND_URL", "\"${androidBackendURL()}\""
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        if (!messengerBenchmark) {
+            testInstrumentationRunnerArguments notClass: 'org.xmtp.android.example.messenger.MessengerPerformanceInstrumentedTest'
+        }
         vectorDrawables {
             useSupportLibrary true
         }
