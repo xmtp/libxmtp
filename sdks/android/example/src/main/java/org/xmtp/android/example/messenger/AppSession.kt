@@ -124,6 +124,23 @@ class AppSession(
         check(!exports.exists() || exports.deleteRecursively()) { "Cannot clear file exports" }
     }
 
+    // Startup needs only local storage. A failure keeps the journal for an awaited retry.
+    private val startupExportCleanup =
+        scope.launch {
+            try {
+                replayExportCleanup()
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Throwable) {
+                errorState.value = failure.message ?: "Cannot clear file exports"
+            }
+        }
+
+    internal suspend fun awaitStartupExportCleanup() = startupExportCleanup.join()
+
+    // Call outside operation. Callers that hold operation use recoverExportCleanup.
+    internal suspend fun replayExportCleanup() = operation.withLock { recoverExportCleanup() }
+
     private suspend fun recoverExportCleanup() =
         ExportCleanupReplay(
             preferences::pendingExportCleanup,
