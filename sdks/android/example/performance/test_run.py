@@ -6,6 +6,7 @@ import subprocess
 import unittest
 from pathlib import Path
 import tempfile
+import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock, patch
 import run
 from run import validate
@@ -204,6 +205,88 @@ class DeviceInvocationTest(unittest.TestCase):
 
 
 class CacheFailureControlTest(unittest.TestCase):
+    def test_stale_named_xml_cannot_approve_an_unrelated_current_failure(self):
+        actual = (
+            run.ANDROID
+            / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
+        ).read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            android = output / "android"
+            source = (
+                android
+                / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
+            )
+            source.parent.mkdir(parents=True)
+            source.write_text(actual)
+            connected = android / "example/build/outputs/androidTest-results/connected"
+            snapshot = output / "red-cache-connected"
+
+            def xml(folder, name, failure):
+                folder.mkdir(parents=True, exist_ok=True)
+                suite = ET.Element("testsuite")
+                case = ET.SubElement(suite, "testcase", classname=run.TEST_CLASS)
+                ET.SubElement(case, "failure").text = failure
+                ET.ElementTree(suite).write(folder / name)
+
+            xml(connected, "stale.xml", "Transcript cache trimming was removed")
+            xml(snapshot, "stale.xml", "Transcript cache trimming was removed")
+            red = result()
+            red.update(maxCacheRows=5000, maxCacheTranscripts=10)
+            invocations = []
+
+            def process(arguments, **options):
+                if arguments[0] != "adb":
+                    invocations.append(arguments)
+                    if len(invocations) > 1:
+                        self.fail(
+                            "Stale XML incorrectly advanced the control to restored"
+                        )
+                    xml(connected, "current.xml", "Unrelated current failure")
+                    return subprocess.CompletedProcess(arguments, 1)
+                if arguments[-1] == "files/messenger-performance/result.json":
+                    return subprocess.CompletedProcess(
+                        arguments, 0, stdout=json.dumps(red)
+                    )
+                return subprocess.CompletedProcess(arguments, 1, stdout="")
+
+            with (
+                patch.dict(run.os.environ, {"ANDROID_SERIAL": "emulator-5560"}),
+                patch.object(run, "ANDROID", android),
+                patch.object(run.subprocess, "run", side_effect=process),
+                patch.object(
+                    run.subprocess, "Popen", return_value=MagicMock(stdout=iter(()))
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "broken production cache"):
+                    run.cache_red_control(output, "http://fixture", result())
+            self.assertEqual(1, len(invocations))
+            self.assertEqual(actual, source.read_text())
+            self.assertEqual(
+                [" Unrelated current failure"], run.result_failures(snapshot)
+            )
+            self.assertFalse((connected / "stale.xml").exists())
+            self.assertFalse((snapshot / "stale.xml").exists())
+
+    def test_missing_or_duplicate_current_performance_xml_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            connected = Path(directory)
+            self.assertEqual(
+                ["Expected one current performance test XML, found 0"],
+                run.result_failures(connected),
+            )
+            suite = ET.Element("testsuite")
+            for _ in range(2):
+                case = ET.SubElement(suite, "testcase", classname=run.TEST_CLASS)
+                ET.SubElement(
+                    case, "failure"
+                ).text = "Transcript cache trimming was removed"
+            ET.ElementTree(suite).write(connected / "duplicates.xml")
+            self.assertEqual(
+                ["Expected one current performance test XML, found 2"],
+                run.result_failures(connected),
+            )
+
     def test_requires_the_actual_published_cache_class(self):
         actual = (
             run.ANDROID
