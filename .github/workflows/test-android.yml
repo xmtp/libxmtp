@@ -103,12 +103,10 @@ jobs:
         NIX_DEVSHELL: android
       run: dev/nix-shell 'just android check-consumers'
     - name: Run Messenger unit tests
-      if: inputs.run-unit
       env:
         NIX_DEVSHELL: android
       run: dev/nix-shell 'just android example-test'
     - name: Check Messenger build variants
-      if: inputs.run-unit
       env:
         NIX_DEVSHELL: android
       run: dev/nix-shell 'just android example-check'
