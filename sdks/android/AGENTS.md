@@ -36,6 +36,7 @@ dev/nix-shell 'just android example-test'
 dev/nix-shell 'just android example-check'
 dev/nix-shell 'just android example-test-integration'
 dev/nix-shell 'just android example-test-release-integration'
+dev/nix-shell 'just android example-support-fixture'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
@@ -106,12 +107,27 @@ in `example-shared/src/commonMain`. `example-test` runs host/shared unit tests.
 It does not select the app test task. `example-test-integration` runs app
 instrumentation in the owned emulator scope.
 It forwards the current worktree backend and S3 ports for signed loopback URLs.
+The app test scope owns a loopback TCP relay for S3 GET response admission.
+`example-io-fixture` checks its listener startup and teardown without a device.
+It preserves real S3 content and signed headers, with no connection reuse.
+The cancellation test controls only
+this relay. Its wrapper removes the listener and connections after the child
+scope exits. It does not change backend or shared fault-proxy configuration.
 `example-test-release-integration` tests the actual release build with temporary
 local test signing. It keeps DEBUG=false and the release resources. It forwards
 the backend port for the release loopback connection. The Gradle property
 `xmtpExampleReleaseTests=true` selects this test mode. It does not change URL
 admission. Run both host variants with
 `dev/nix-shell 'just android example-test :example:testReleaseUnitTest'`.
+It also forwards the backend proxy and its API. It supplies the `toxicBackendUrl`
+and `toxiproxyApi` runner arguments from the worktree environment. Attachment
+interruption tests change only their named toxic and restore the backend proxy.
+The app integration route also starts an owned disposable PostgreSQL/backend
+fixture with no attachment target. Docker assigns its published port. The route
+forwards it and supplies `unsupportedBackendUrl`. The fixture removes only its
+owned containers and network and retains its logs after success or failure.
+Run this route alone when using a shared stack; no other proxy test can run at
+the same time. Caller environment values can select an existing stack.
 Start the backend before app instrumentation. Keep SDK package and consumer tests.
 
 Run `dev/nix-shell 'just backend up'`. The library test BuildConfig reads backend

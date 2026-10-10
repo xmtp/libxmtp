@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.example.exampleStorageLocation
+import org.xmtp.android.example.messenger.attachments.AttachmentFiles
+import org.xmtp.android.example.messenger.attachments.ExportCleanupReplay
 import uniffi.xmtp_sdk.*
 import java.io.File
 import java.security.SecureRandom
@@ -111,9 +113,45 @@ class AppSession(
                 block,
             )
 
+    private suspend fun markSignedOutForCleanup() {
+        val profile = (activeState.value ?: stopping ?: opening)?.key?.profileId ?: preferences.active()?.id
+        preferences.beginExportCleanup(profile)
+    }
+
+    private fun clearExportFiles(profileId: String) {
+        AttachmentFiles.revokeProfile(context, profileId)
+        val exports = AttachmentFiles.profileDirectory(context, profileId)
+        check(!exports.exists() || exports.deleteRecursively()) { "Cannot clear file exports" }
+    }
+
+    // Startup needs only local storage. A failure keeps the journal for an awaited retry.
+    private val startupExportCleanup =
+        scope.launch {
+            try {
+                replayExportCleanup()
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Throwable) {
+                errorState.value = failure.message ?: "Cannot clear file exports"
+            }
+        }
+
+    internal suspend fun awaitStartupExportCleanup() = startupExportCleanup.join()
+
+    // Call outside operation. Callers that hold operation use recoverExportCleanup.
+    internal suspend fun replayExportCleanup() = operation.withLock { recoverExportCleanup() }
+
+    private suspend fun recoverExportCleanup() =
+        ExportCleanupReplay(
+            preferences::pendingExportCleanup,
+            ::clearExportFiles,
+            preferences::completeExportCleanup,
+        ).run()
+
     suspend fun restore() {
         val restoreIntent = fence.currentGeneration()
         operation.withLock {
+            recoverExportCleanup()
             preferences
                 .reset()
                 ?.let {
@@ -185,9 +223,9 @@ class AppSession(
             ) {
                 "Finish local reset before connecting"
             }
-            preferences
-                .setSignedIn(false)
+            markSignedOutForCleanup()
             closeCurrent()
+            recoverExportCleanup()
             val saved =
                 profile
                     .copy(allowPrivateNetwork = allowPrivateNetwork)
@@ -513,8 +551,12 @@ class AppSession(
                 try {
                     beforeEnd(owner)
                 } finally {
-                    owner.client
-                        .end()
+                    try {
+                        clearExportFiles(owner.key.profileId)
+                        preferences.completeExportCleanup(owner.key.profileId)
+                    } finally {
+                        owner.client.end()
+                    }
                 }
                 stopping = null
             }
@@ -529,8 +571,7 @@ class AppSession(
         beforeSessionStopLock()
         operation.withLock {
             if (!fence.isReserved(stopGeneration)) return@withLock
-            preferences
-                .setSignedIn(false)
+            markSignedOutForCleanup()
             val owner =
                 activeState.value
             withContext(NonCancellable) {
@@ -543,6 +584,7 @@ class AppSession(
                 }
                 try {
                     closeCurrent()
+                    recoverExportCleanup()
                 } finally {
                     preferences
                         .active()
@@ -563,8 +605,7 @@ class AppSession(
         beforeSessionStopLock()
         operation.withLock {
             if (!fence.isReserved(stopGeneration)) return@withLock
-            preferences
-                .setSignedIn(false)
+            markSignedOutForCleanup()
             var record =
                 preferences
                     .reset()
@@ -650,8 +691,7 @@ class AppSession(
                     ),
                     ResetPhase.STOPPING,
                 )
-            preferences
-                .setSignedIn(false)
+            markSignedOutForCleanup()
             preferences
                 .saveReset(record)
             recoverReset(record)
@@ -696,6 +736,7 @@ class AppSession(
         if (record.phase ==
             ResetPhase.DATABASE_REMOVED
         ) {
+            AttachmentFiles.revokeProfile(context, record.profileId)
             cleanup
                 .removeFiles(record)
             record =

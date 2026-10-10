@@ -1,7 +1,10 @@
 package org.xmtp.android.example.messenger
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -15,13 +18,16 @@ private val Context
 
 /** Small references only
 . Message bodies stay in SDK storage. */
-class MessengerPreferences(
-    context: Context,
+class MessengerPreferences internal constructor(
+    private val store: DataStore<Preferences>,
 ) {
+    constructor(context: Context) : this(context.applicationContext.messengerDataStore)
+
     internal var beforeDraftCommit: suspend () -> Unit = {}
     internal var beforeSessionCommit: suspend () -> Unit = {}
     internal var sessionCommitAccepted: (BackendProfile) -> Unit = {}
     internal var beforePositionCommit: suspend (String) -> Unit = {}
+    internal var beforeDraftAdmission: suspend () -> Unit = {}
     internal var positionCommitFinished: (String, Boolean) -> Unit = { _, _ -> }
 
     suspend fun commitSession(
@@ -55,9 +61,6 @@ class MessengerPreferences(
         }
         return accepted
     }
-
-    private val store =
-        context.applicationContext.messengerDataStore
 
     private suspend fun get(key: String) =
         store.data
@@ -175,6 +178,30 @@ class MessengerPreferences(
             value
                 .toString(),
         )
+
+    suspend fun beginExportCleanup(profileId: String?) {
+        store.edit { values ->
+            values[stringPreferencesKey("signed-in")] = "false"
+            if (profileId != null) {
+                val key = stringSetPreferencesKey("pending-export-cleanup")
+                values[key] = values[key].orEmpty() + profileId
+            }
+        }
+    }
+
+    suspend fun pendingExportCleanup(): Set<String> =
+        store.data
+            .first()[stringSetPreferencesKey("pending-export-cleanup")]
+            .orEmpty()
+            .toSet()
+
+    suspend fun completeExportCleanup(profileId: String) {
+        store.edit { values ->
+            val key = stringSetPreferencesKey("pending-export-cleanup")
+            val remaining = values[key].orEmpty() - profileId
+            if (remaining.isEmpty()) values.remove(key) else values[key] = remaining
+        }
+    }
 
     suspend fun reset(): ResetRecord? =
         get("reset")?.let {
@@ -305,8 +332,8 @@ class MessengerPreferences(
         position = true,
     )
 
-    suspend fun drafts(profile: String): List<SendDraftRef> {
-        val array = JSONArray(get("$profile/drafts") ?: "[]")
+    private fun draftEntries(encoded: String?): List<SendDraftRef> {
+        val array = JSONArray(encoded ?: "[]")
         return (
             0 until
                 array
@@ -333,6 +360,19 @@ class MessengerPreferences(
                             ),
                     )
                 }
+        }
+    }
+
+    suspend fun drafts(profile: String): List<SendDraftRef> = draftEntries(get("$profile/drafts"))
+
+    // The callback is synchronous. It must not read storage or call the SDK.
+    internal suspend fun admitDraftSnapshot(
+        profile: String,
+        snapshot: SendDraftRef,
+        change: () -> Unit,
+    ) {
+        store.edit { values ->
+            if (snapshot in draftEntries(values[stringPreferencesKey("$profile/drafts")])) change()
         }
     }
 
@@ -377,6 +417,36 @@ class MessengerPreferences(
         return matched
     }
 
+    internal suspend fun prepareQueueDraft(
+        profile: String,
+        draft: SendDraftRef,
+        admit: (() -> Unit) -> Boolean,
+    ): Pair<Boolean, SendDraftRef?> {
+        var prepared = false
+        var previous: SendDraftRef? = null
+        mutateDrafts(profile, admit) { entries ->
+            previous = entries.firstOrNull { it.draftId == draft.draftId }
+            if (draft.descriptorSecretRef != null && previous != draft) {
+                entries
+            } else {
+                prepared = true
+                entries.filterNot { it.draftId == draft.draftId } + draft.copy(phase = SendPhase.QUEUEING)
+            }
+        }
+        return prepared to previous
+    }
+
+    internal suspend fun rejectQueueDraft(
+        profile: String,
+        queued: SendDraftRef,
+        previous: SendDraftRef?,
+        admit: (() -> Unit) -> Boolean,
+    ) = mutateDrafts(profile, admit) { entries ->
+        entries.mapNotNull { entry ->
+            if (entry != queued) entry else previous?.takeIf { it.descriptorSecretRef != null }
+        }
+    }
+
     private suspend fun mutateDrafts(
         profile: String,
         admit: (() -> Unit) -> Boolean,
@@ -385,20 +455,10 @@ class MessengerPreferences(
         var accepted = false
         store.edit { values ->
             beforeDraftCommit()
+            beforeDraftAdmission()
             accepted =
                 admit {
-                    val array = JSONArray(values[stringPreferencesKey("$profile/drafts")] ?: "[]")
-                    val entries =
-                        (0 until array.length()).map { index ->
-                            val item = array.getJSONObject(index)
-                            SendDraftRef(
-                                item.getString("id"),
-                                item.getString("conversation"),
-                                item.optString("secret").takeIf(String::isNotEmpty),
-                                item.optString("accepted").takeIf(String::isNotEmpty),
-                                SendPhase.valueOf(item.getString("phase")),
-                            )
-                        }
+                    val entries = draftEntries(values[stringPreferencesKey("$profile/drafts")])
                     val updated = JSONArray()
                     transform(entries).forEach {
                         updated.put(
