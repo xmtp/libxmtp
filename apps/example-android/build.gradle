@@ -22,6 +22,7 @@ group = "org.xmtp"
 // Configure Spotless for all subprojects
 subprojects {
     apply plugin: 'com.diffplug.spotless'
+    apply from: rootProject.file('../../sdks/android/gradle/android-ndk.gradle')
 
     dependencyLocking {
         lockAllConfigurations()

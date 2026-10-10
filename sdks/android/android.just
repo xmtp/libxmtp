@@ -17,9 +17,9 @@ check: build _test-host
 check-packages:
   python3 -B ./dev/check-native-packages.py
 
-# Compile the SDK and its instrumented tests.
+# Compile both SDK variants and its instrumented tests.
 assemble: build
-  ./gradlew -p . :library:assembleDebug :library:assembleDebugAndroidTest  --dependency-verification=strict --no-daemon
+  ./gradlew -p . :library:assembleDebug :library:assembleRelease :library:assembleDebugAndroidTest --dependency-verification=strict --no-daemon
 
 # Run Spotless and SDK Android Lint.
 lint: build
