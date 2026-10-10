@@ -142,6 +142,12 @@ class SessionFence {
         return reserveRestore()
     }
 
+    @Synchronized fun releaseRestore(key: SessionKey): Boolean {
+        if (!accepts(key)) return false
+        profileId = null
+        return true
+    }
+
     @Synchronized fun bind(
         profile: String,
         reserved: Long,

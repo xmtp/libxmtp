@@ -7,6 +7,20 @@ import java.io.File
 import java.nio.file.Files
 
 class SessionBoundaryTest {
+    @Test fun failedRestoreReleasesOnlyItsOwnBinding() {
+        val fence = SessionFence()
+        val first = checkNotNull(fence.bind("saved", checkNotNull(fence.reserveRestore())))
+        assertTrue(fence.releaseRestore(first))
+        assertFalse(fence.accepts(first))
+        val retried =
+            checkNotNull(fence.bind("saved", checkNotNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))))
+        assertTrue(fence.accepts(retried))
+        val chosen = checkNotNull(fence.bind("chosen", fence.reserve()))
+        assertFalse(fence.releaseRestore(retried))
+        assertTrue(fence.accepts(chosen))
+        assertNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
+    }
+
     @Test fun savedRestoreCannotReserveAfterANewerConnectionIntent() {
         val fence = SessionFence()
         val savedIntent = fence.currentGeneration()
