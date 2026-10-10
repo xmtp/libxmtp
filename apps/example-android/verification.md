@@ -165,15 +165,17 @@ Run from the repository root, inside Nix:
 
 ```sh
 dev/nix-shell 'just android assemble'
+dev/nix-shell 'just example-android check'
+dev/nix-shell 'just example-android lint'
 dev/nix-shell 'just android check'
 dev/nix-shell 'just android lint'
 dev/nix-shell 'just android test'
 dev/nix-shell 'just android check-consumers'
-dev/nix-shell 'just android example-test'
+dev/nix-shell 'just example-android test'
 dev/nix-shell 'just android test-integration'
-dev/nix-shell 'just android example-test-integration'
-dev/nix-shell 'just android example-performance-check'
-dev/nix-shell 'just android example-performance'
+dev/nix-shell 'just example-android test-integration'
+dev/nix-shell 'just example-android performance-check'
+dev/nix-shell 'just example-android performance'
 dev/nix-shell 'just lint-config'
 dev/nix-shell 'just spec-check'
 ```
@@ -224,7 +226,7 @@ The relocation is on branch `codex/move-example-android`. This is not the final
 F source freeze. Final history-page integration and the new performance cache
 control remain with their upstream owners.
 
-All 137 host/shared source files from this base have identical bytes at their
+At checkpoint `aa509bf85f`, all 137 host/shared source files from this base had identical bytes at their
 new paths. The package remains `org.xmtp.android.example`. The host is in
 `apps/example-android/app`; the shared module is in `apps/example-android/shared`.
 Runtime storage paths are unchanged. The app Gradle root maps the local SDK
@@ -263,3 +265,17 @@ source until the final new-cache control and path map arrive.
 Pending: final F freeze and source map, final rebase, new-cache control,
 independent review, moved native setup/launch/fixture proof, and fixed Linux
 performance proof. The relocation PR is not open at this checkpoint.
+
+The intermediate source review found three wiring defects: Cargo selected the
+new non-Rust app directory, the SDK package validator still selected old APK
+paths, and the active final command list used removed recipes. The fixes exclude
+the app from Cargo, keep SDK AAR checks in the SDK root, check both moved APKs
+in the app recipe, and update the command list. The command-path test exercises
+both package inventories. Restoring the old SDK APK path or dropping app APK
+inspection fails its intended assertion; restoring each fix passes.
+
+The inherited host test expected restore in the same process after sign-out.
+The exact fixture from E `fdc331bda8fdd8efd50d8333da11a79dc88d0e4b` now models a
+new process with a new SessionFence. Only that test file changed. Production
+session source still matches the intermediate F base. The full host rerun and
+real four-ABI package build remain in progress at this checkpoint.

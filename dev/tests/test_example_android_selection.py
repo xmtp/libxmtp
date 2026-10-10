@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 import yaml
 
@@ -224,6 +225,25 @@ class CommandPathTest(unittest.TestCase):
                 path.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body)
                 path.chmod(0o755)
 
+            checker = root / "sdks/android/dev/check-native-packages.py"
+            checker.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / "sdks/android/dev/check-native-packages.py", checker)
+            # These archives prove path selection. Real packages use the NDK reader.
+            for name in (
+                "sdks/android/library/build/outputs/aar/library-debug.aar",
+                "sdks/android/library/build/outputs/aar/library-release.aar",
+                "apps/example-android/app/build/outputs/apk/debug/example-debug.apk",
+                "apps/example-android/app/build/outputs/apk/release/example-release-unsigned.apk",
+            ):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(path, "w") as archive:
+                    archive.writestr("jni/arm64-v8a/libxmtp_sdk.so", b"path-fixture")
+            executable(
+                "ndk/toolchains/llvm/prebuilt/fixture/bin/llvm-readelf",
+                "printf ' [1] .dynsym\\n [2] .dynstr\\n'\n",
+            )
+
             executable("dev/nix-shell", 'exec bash -euc "$1"\n')
             executable("dev/worktree-env", "true\n")
             executable(
@@ -264,6 +284,7 @@ class CommandPathTest(unittest.TestCase):
                 PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
                 COMMAND_LOG=str(root / "commands.jsonl"),
                 STAGE_LOG=str(root / "stages.txt"),
+                ANDROID_NDK_HOME=str(root / "ndk"),
             )
             for recipe in (
                 "check",
@@ -285,6 +306,25 @@ class CommandPathTest(unittest.TestCase):
                     capture_output=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                if recipe == "check":
+                    self.assertIn("example-debug.apk", result.stdout)
+                    self.assertIn("example-release-unsigned.apk", result.stdout)
+            result = subprocess.run(
+                [
+                    "just",
+                    "--justfile",
+                    str(root / "justfile"),
+                    "android",
+                    "check-packages",
+                ],
+                cwd=root,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("library-debug.aar", result.stdout)
+            self.assertNotIn("example-debug.apk", result.stdout)
             commands = [
                 json.loads(line)
                 for line in (root / "commands.jsonl").read_text().splitlines()
