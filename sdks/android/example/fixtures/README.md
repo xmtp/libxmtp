@@ -28,6 +28,12 @@ The child command receives `DATABASE_URL`, `XMTP_DATABASE_URL` and
 `XMTP_REPLICA_URL` for the owned database. The backend and S3 HTTP endpoints
 stay available for the app tests. These environment values are not a sandbox.
 
+Every PostgreSQL command removes the URI password from its arguments. If the
+URI has a password, the command reads it from an owned `PGPASSFILE` with mode
+0600 in a mode 0700 directory. The runner removes that file after cleanup.
+Other connection settings stay the same. This uses the
+[PostgreSQL password file](https://www.postgresql.org/docs/18/libpq-pgpass.html).
+
 Select the metadata test with:
 
 ```sh

@@ -12,6 +12,8 @@ import sys
 import tempfile
 import time
 
+from metadata_backend import psql_connection
+
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--backend", required=True)
@@ -23,20 +25,22 @@ fixture = Path(__file__).with_name("metadata_backend.py")
 database = os.environ["DATABASE_URL"]
 
 
+def query(statement):
+    with psql_connection(database, os.environ, psql) as (command, env):
+        return subprocess.run(
+            [*command, "-At", "-v", "ON_ERROR_STOP=1", "-c", statement],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+
 def exists(name):
     assert name.startswith("messenger_metadata_") and len(name) == 51
     assert all(ch in "0123456789abcdef" for ch in name[19:])
-    output = subprocess.run(
-        [
-            psql,
-            database,
-            "-At",
-            "-c",
-            f"SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = '{name}')",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
+    output = query(
+        f"SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = '{name}')"
     )
     return output.stdout.strip() == "t"
 
@@ -109,14 +113,4 @@ sys.exit(status)
                 process.kill()
                 process.communicate(timeout=10)
             if name is not None and exists(name):
-                subprocess.run(
-                    [
-                        psql,
-                        database,
-                        "-v",
-                        "ON_ERROR_STOP=1",
-                        "-c",
-                        f'DROP DATABASE "{name}" WITH (FORCE)',
-                    ],
-                    check=True,
-                )
+                query(f'DROP DATABASE "{name}" WITH (FORCE)')

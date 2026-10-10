@@ -2,6 +2,7 @@
 """Run one app test command with an owned catalogue backend and database."""
 
 import argparse
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -11,7 +12,7 @@ import subprocess
 import tempfile
 import time
 import tomllib
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 import uuid
 
 
@@ -53,9 +54,59 @@ def stop(process):
         process.wait(timeout=5)
 
 
+@contextmanager
+def psql_connection(database, environment, executable="psql"):
+    parsed = urlsplit(database)
+    if parsed.scheme not in ("postgres", "postgresql"):
+        raise ValueError("DATABASE_URL must be a PostgreSQL URI.")
+    password = unquote(parsed.password) if parsed.password is not None else None
+    query = []
+    for parameter in parsed.query.split("&"):
+        key, separator, value = parameter.partition("=")
+        if unquote(key) == "password":
+            if not separator:
+                raise ValueError("The PostgreSQL password parameter needs a value.")
+            password = unquote(value)
+        else:
+            query.append(parameter)
+    authority = parsed.netloc
+    if parsed.password is not None:
+        user, host = authority.rsplit("@", 1)
+        authority = user.split(":", 1)[0] + "@" + host
+    if password is not None:
+        query = [
+            item for item in query if unquote(item.partition("=")[0]) != "passfile"
+        ]
+    connection = urlunsplit(parsed._replace(netloc=authority, query="&".join(query)))
+    with tempfile.TemporaryDirectory(prefix="metadata-psql-") as directory:
+        env = dict(environment)
+        for name in ("DATABASE_URL", "XMTP_DATABASE_URL", "XMTP_REPLICA_URL"):
+            env.pop(name, None)
+        if password is not None:
+            if "\n" in password or "\r" in password:
+                raise ValueError("A PostgreSQL passfile cannot contain a line break.")
+            passfile = Path(directory) / "password"
+            with open(
+                passfile, "x", opener=lambda path, flags: os.open(path, flags, 0o600)
+            ) as out:
+                out.write(
+                    "*:*:*:*:"
+                    + password.replace("\\", "\\\\").replace(":", "\\:")
+                    + "\n"
+                )
+            env["PGPASSFILE"] = str(passfile)
+            env.pop("PGPASSWORD", None)
+        yield [executable, "--no-password", connection], env
+
+
 def run(backend, command, environment=None):
     env = dict(environment or os.environ)
     database = env["DATABASE_URL"]
+    with psql_connection(database, env) as (psql, psql_env):
+        return _run_owned(backend, command, env, database, psql, psql_env)
+
+
+def _run_owned(backend, command, env, database, psql, psql_env):
     # This runner changes no shared database or service configuration.
     for name in ("XMTP_S3_URL", "XMTP_S3_BASE_URL"):
         if not env.get(name):
@@ -92,8 +143,7 @@ def run(backend, command, environment=None):
     def database_exists():
         result = subprocess.run(
             [
-                "psql",
-                database,
+                *psql,
                 "-At",
                 "-v",
                 "ON_ERROR_STOP=1",
@@ -101,6 +151,7 @@ def run(backend, command, environment=None):
                 f"SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = '{name}')",
             ],
             check=True,
+            env=psql_env,
             timeout=30,
             text=True,
             capture_output=True,
@@ -117,14 +168,14 @@ def run(backend, command, environment=None):
         try:
             subprocess.run(
                 [
-                    "psql",
-                    database,
+                    *psql,
                     "-v",
                     "ON_ERROR_STOP=1",
                     "-c",
                     f'CREATE DATABASE "{name}"',
                 ],
                 check=True,
+                env=psql_env,
                 timeout=30,
                 stdout=subprocess.DEVNULL,
                 start_new_session=True,
@@ -199,14 +250,14 @@ def run(backend, command, environment=None):
             if create_attempted and database_exists():
                 subprocess.run(
                     [
-                        "psql",
-                        database,
+                        *psql,
                         "-v",
                         "ON_ERROR_STOP=1",
                         "-c",
                         f'DROP DATABASE "{name}" WITH (FORCE)',
                     ],
                     check=True,
+                    env=psql_env,
                     timeout=30,
                     stdout=subprocess.DEVNULL,
                 )
