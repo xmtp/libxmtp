@@ -1,0 +1,163 @@
+name: Test Android example
+'on':
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  unit-tests:
+    name: Unit tests and builds (Messenger)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: android
+        gradle-disk: 'true'
+        docker-builder: 'true'
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+        kache-scope: nix-only
+        kache-readonly: 'true'
+    - uses: taiki-e/install-action@just
+    - name: Start backend
+      env:
+        NIX_DEVSHELL: android
+      run: dev/nix-shell 'just backend up'
+    - name: Run Messenger unit tests
+      env:
+        NIX_DEVSHELL: android
+      run: dev/nix-shell 'just example-android test'
+    - name: Check Messenger build variants
+      env:
+        NIX_DEVSHELL: android
+      run: dev/nix-shell 'just example-android check'
+  integration-tests:
+    name: Integration tests (Messenger)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: android
+        gradle-disk: 'true'
+        docker-builder: 'true'
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+        kache-scope: nix-only
+        kache-readonly: 'true'
+    - uses: taiki-e/install-action@just
+    - name: Start backend
+      env:
+        NIX_DEVSHELL: android
+      run: dev/nix-shell 'just backend up'
+    - name: Enable KVM
+      run: 'echo ''KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+
+        sudo udevadm control --reload-rules
+
+        sudo udevadm trigger --name-match=kvm
+
+        '
+    - name: Run Messenger integration tests
+      timeout-minutes: 30
+      env:
+        NIX_DEVSHELL: android
+        XMTP_METADATA_LOG_DIR: ${{ runner.temp }}/messenger-metadata-backend
+        NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/messenger-emulator-startup
+        NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192
+      run: dev/nix-shell 'just example-android test-integration'
+    - name: Run Messenger release transport tests
+      env:
+        NIX_DEVSHELL: android
+        NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/messenger-release-emulator
+        NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192
+      run: dev/nix-shell 'just example-android test-release-integration'
+    - name: Upload failed Messenger test reports
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: messenger-integration-failures
+        retention-days: 7
+        if-no-files-found: ignore
+        path: |
+          apps/example-android/app/build/outputs/androidTest-results/connected/**/*.xml
+          apps/example-android/app/build/outputs/androidTest-results/connected/**/*.txt
+          apps/example-android/app/build/reports/androidTests/**
+          apps/example-android/app/build/screenshots/**
+          ${{ runner.temp }}/messenger-metadata-backend/
+          ${{ runner.temp }}/messenger-emulator-startup/
+          ${{ runner.temp }}/messenger-release-emulator/
+        include-hidden-files: 'true'
+  messenger-performance:
+    name: Messenger local query and heap budgets (API 34 x86_64)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 240
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: android
+        gradle-disk: 'true'
+        docker-builder: 'true'
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+        kache-scope: nix-only
+        kache-readonly: 'true'
+    - uses: taiki-e/install-action@just
+    - name: Start backend
+      env:
+        NIX_DEVSHELL: android
+      run: dev/nix-shell 'just backend up'
+    - name: Enable KVM
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+    - name: Run the fixed workload and cache failure control
+      timeout-minutes: 210
+      env:
+        NIX_DEVSHELL: android
+        NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/messenger-performance-emulator
+      run: dev/nix-shell 'just example-android performance'
+    - name: Upload performance proof
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: messenger-api34-performance
+        retention-days: 7
+        if-no-files-found: ignore
+        include-hidden-files: 'true'
+        path: |
+          apps/example-android/app/build/performance/
+          apps/example-android/app/build/outputs/androidTest-results/connected/
+          ${{ runner.temp }}/messenger-performance-emulator/
+  results:
+    name: Require Android example checks
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 1
+    if: always()
+    needs:
+    - unit-tests
+    - integration-tests
+    - messenger-performance
+    steps:
+    - env:
+        PASSED: ${{ needs.unit-tests.result == 'success' && needs.integration-tests.result == 'success' && needs.messenger-performance.result == 'success' }}
+      run: test "$PASSED" = true

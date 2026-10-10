@@ -132,7 +132,7 @@ def _run_owned(backend, command, env, database, psql, psql_env):
     env.setdefault("XMTP_CHAIN_31337_URL", env.get("ANVIL_URL", ""))
     env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
     fixture = Path(__file__).resolve().parent
-    root = fixture.parents[3]
+    root = fixture.parents[2]
     create_attempted = False
     creating = False
     pending_signal = None

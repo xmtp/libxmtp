@@ -54,6 +54,12 @@ jobs:
     permissions:
       contents: read
     secrets: inherit
+  lint_example_android:
+    if: contains(fromJSON(inputs.suites), 'lint_example_android')
+    uses: ./.github/workflows/lint-example-android.yml
+    permissions:
+      contents: read
+    secrets: inherit
   required:
     name: Require selected suites
     if: always()
@@ -67,6 +73,7 @@ jobs:
     - docs_quality
     - lint_ios
     - lint_android
+    - lint_example_android
     steps:
     - name: Check that every selected suite passed
       env:

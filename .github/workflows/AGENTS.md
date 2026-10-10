@@ -43,6 +43,11 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   The iOS `tests` job runs `just ios test skip-lifecycle`, so it does not
   repeat the lifecycle.
 
+- `test-example-android.yml` owns app build, host, integration, release transport,
+  and performance checks. `lint-example-android.yml` owns app lint. Register
+  both suites in `.github/ci-suites.yml`. App-only changes do not select SDK
+  checks; SDK and shared toolchain changes select app compatibility checks.
+
 ## CI selection
 
 `.github/ci-suites.yml` declares every CI suite: its workflow, `path_filters` (globs, Cargo

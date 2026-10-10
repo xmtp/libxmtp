@@ -1,6 +1,6 @@
 pluginManagement {
     def pins = new Properties()
-    file('gradle/toolchain.properties').withInputStream { pins.load(it) }
+    file('../../sdks/android/gradle/toolchain.properties').withInputStream { pins.load(it) }
     resolutionStrategy.eachPlugin {
         def version = pins.getProperty("plugin.${requested.id.id}")
         if (version) useVersion(version)
@@ -19,5 +19,13 @@ dependencyResolutionManagement {
         maven { url 'https://jitpack.io' }
     }
 }
-rootProject.name = "xmtp-android"
-include ':library'
+rootProject.name = "xmtp-messenger"
+include ':example'
+include ':example-shared'
+project(':example').projectDir = file('app')
+project(':example-shared').projectDir = file('shared')
+includeBuild('../../sdks/android') {
+    dependencySubstitution {
+        substitute module('org.xmtp:android') using project(':library')
+    }
+}

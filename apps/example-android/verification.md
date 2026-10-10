@@ -165,15 +165,17 @@ Run from the repository root, inside Nix:
 
 ```sh
 dev/nix-shell 'just android assemble'
+dev/nix-shell 'just example-android check'
+dev/nix-shell 'just example-android lint'
 dev/nix-shell 'just android check'
 dev/nix-shell 'just android lint'
 dev/nix-shell 'just android test'
 dev/nix-shell 'just android check-consumers'
-dev/nix-shell 'just android example-test'
+dev/nix-shell 'just example-android test'
 dev/nix-shell 'just android test-integration'
-dev/nix-shell 'just android example-test-integration'
-dev/nix-shell 'just android example-performance-check'
-dev/nix-shell 'just android example-performance'
+dev/nix-shell 'just example-android test-integration'
+dev/nix-shell 'just example-android performance-check'
+dev/nix-shell 'just example-android performance'
 dev/nix-shell 'just lint-config'
 dev/nix-shell 'just spec-check'
 ```
@@ -216,3 +218,200 @@ zero failures/errors/skips at F52e1 (37.003 seconds native;51 seconds Gradle).
 `pr-f-nine-screen-final/` contains the actual nine final images. Root/F viewed
 Settings without the modal. `pr-f-visual-final-cleanup.json` records exact source
 and owned cleanup/lease release. No Group3 or unchanged full-suite repeat ran.
+
+## Task 10 relocation checkpoint — 2026-10-09
+
+The intermediate base is PR F commit `453fb17a7991ced63344714c6e44d60938462425`.
+The relocation is on branch `codex/move-example-android`. This is not the final
+F source freeze. Final history-page integration and the new performance cache
+control remain with their upstream owners.
+
+At checkpoint `aa509bf85f`, all 137 host/shared source files from this base had identical bytes at their
+new paths. The package remains `org.xmtp.android.example`. The host is in
+`apps/example-android/app`; the shared module is in `apps/example-android/shared`.
+Runtime storage paths are unchanged. The app Gradle root maps the local SDK
+module through an explicit composite build. SDK version pins, wrapper files,
+and the dependency verification inventory have one source in `sdks/android`.
+
+| Check | Intermediate result |
+| --- | --- |
+| Strict Off Debug/Release, shared targets, and app test APK | Pass |
+| Strict configured Firebase build graph with build-only configuration | Pass; no Firebase delivery proof |
+| SDK assembly after removal of app-only root plugins | Pass |
+| Existing CI selector tests | 20 pass |
+| New app/SDK/shared/mixed/docs selection and command-path tests | 8 pass |
+| Full configuration checks | Pass with local repository tool dependencies |
+| SDK package-script tests | Pass |
+| Tiny NDK probes for four ABIs | Pass; these are not SDK JNI packages |
+| Markdown and spec checks | Pass; spec check has 34 existing warnings |
+
+The nine routing/path controls removed the app exclusions, dropped app
+compatibility for SDK inputs, dropped the mixed SDK platform route, made app
+docs unknown, disabled unknown-path fallback, disabled the draft mask, accepted
+a skipped performance job, removed the app from the aggregate gate, or restored
+the old screenshot path. Each control failed an intended assertion. Each
+restored test passed. Local logs are kept in `.cache/relocation`.
+
+Removing the local SDK composite mapping failed the actual app check recipe at
+dependency resolution for `org.xmtp:android`. Restoring the mapping passed the
+strict Off app check.
+
+Earlier proof on remote F `a229aee004` includes 50 host tests per variant,
+SDK public consumer checks, SDK/app lint, seven metadata fixture tests, and
+eight performance-tool tests. These checks must be repeated after the final
+source rebase. The old performance cache control is retained only as historical
+source until the final new-cache control and path map arrive.
+
+Pending: final F freeze and source map, final rebase, new-cache control,
+independent review, moved native setup/launch/fixture proof, and fixed Linux
+performance proof. The relocation PR is not open at this checkpoint.
+
+The intermediate source review found three wiring defects: Cargo selected the
+new non-Rust app directory, the SDK package validator still selected old APK
+paths, and the active final command list used removed recipes. The fixes exclude
+the app from Cargo, keep SDK AAR checks in the SDK root, check both moved APKs
+in the app recipe, and update the command list. The command-path test exercises
+both package inventories. Restoring the old SDK APK path or dropping app APK
+inspection fails its intended assertion; restoring each fix passes.
+
+The inherited host test expected restore in the same process after sign-out.
+The exact fixture from E `fdc331bda8fdd8efd50d8333da11a79dc88d0e4b` now models a
+new process with a new SessionFence. Only that test file changed. Production
+session source still matches the intermediate F base. The full host rerun and
+real four-ABI package build remain in progress at this checkpoint.
+
+The fresh-process fixture rerun passes 52 tests in each of Debug and Release,
+with zero failures, errors, or skips. Full configuration and Markdown checks
+pass again. The real APK check found that the new app root did not apply the
+existing Nix NDK path/revision configuration. The old build produced `.symtab`
+in the APK's SDK JNI library and failed inspection. SDK and app roots now apply
+one shared `gradle/android-ndk.gradle` script. Both actual app APKs pass after
+restoration. SDK assembly builds both AAR variants; both pass JNI inspection.
+All four Android native targets built successfully. Matched Kotlin generation
+and final four-ABI package staging remain pending.
+
+## Final F262 moved-source and runtime checkpoint — 2026-10-09
+
+G `08bafbf7a5b1dd9fe9ecbabe946609ae091f1a8a` is based on F
+`262f9366fd81c144fe7a668d5187fb5a27a1fce8`. All 140 moved host/shared source
+files match F bytes. This includes the SDK history adapter/cache, deletion
+predicate, fresh-process fixture, and PerformanceSeedCheckpoint helper.
+The runner keeps SDKTranscriptCache as its active eviction control. The old
+TimestampBuckets source is only the explicit rejected-target fixture. Moved
+paths retain APK installation, seed checkpoint JSONL, same-dataset controls,
+500 rows, three caches, four reads, and all stated performance budgets.
+
+Strict Debug/Release/shared/test-APK build and actual APK JNI inspection pass.
+Host suites pass 56 tests per variant with no failures, errors, or skips.
+Configuration, Markdown, and all ten performance-tool tests pass. Kotlin
+generation and matched four-ABI Android staging pass. Both SDK AAR variants
+pass JNI inspection. Current proof logs are in `.cache/relocation`.
+
+The moved native smoke passes four cases with zero failures, errors, or skips:
+MainActivity launch, both SessionLifecycle profile/reset cases, and the real
+operator-catalogue roundtrip through two SDK clients. The first attempt failed
+one fixture assertion because the test environment set both profile URLs to
+the same loopback value. The corrected environment uses the expected emulator
+URL for BuildConfig and loopback as the fixture's second URL. The app source
+is unchanged. The restored four-case suite passes.
+
+XML is retained at `.cache/relocation/native-restored-results`; the exact source,
+head, and cleanup record is `.cache/relocation/native-restored-proof.json`.
+Both owned Android homes are removed. The catalogue config, backend process,
+owned unsupported fixture, and S3 gate are removed. PostgreSQL reports zero
+remaining messenger_metadata fixture databases. The runtime lease is released;
+no shared proxy mutation occurred.
+
+Post-push parent repairs can advance F. Final parent sync and a fresh integration
+review remain open before PR submission. Full Linux performance and real
+Firebase delivery remain pending; this checkpoint claims neither result.
+
+## Relocation submission proof, 2026-10-10
+
+The move consumes pushed F `27ca931436cd1aa68134986c67184791397399ac`.
+The tested G source is `f06e99a220d5779331a35cdbdb96655934fc80d1`.
+All 158 Android host and shared source files match F byte for byte, with no
+missing or extra source. Fixture and performance scripts retain the parent
+behavior after their root, recipe, and output paths change.
+
+| Check | Result and scope |
+| --- | --- |
+| Strict app builds | Debug, release, shared UI, test APK, and build-only Firebase graph pass. |
+| Host tests | 70 tests pass in each app variant; zero failures, errors, or skips. |
+| Native packages | Both SDK AARs and both app APKs pass JNI stripping for all four ABIs with matched S source `11c39dc2` and release contract `e6e65a3d`. |
+| Configuration | 133 actual host cases pass, including eight moved selection/path cases and seven private-export fixtures. |
+| Failure controls | Missing APK retention, an old export path, and a column listing each fail at an intended assertion with zero test errors; restored selection/path cases pass. Earlier routing, package, and XML controls remain retained. |
+| Moved native boundary | 16 cases pass on the owned ARM64 API 34 emulator. They cover launch, sessions, metadata, recovery, rollback, accepted-ID commit, password input, state reads, scale, and the attachment card. |
+| Private export | Ten actual PNG files export and decode at 320×640. Nine are scale screens. The owned private proof directory is removed. No public image is added. |
+| Actual CREATE interruption | SIGINT, SIGTERM, and uncertain command result each remove their exact committed fixture database. |
+| Cleanup | The owned emulator home, fixture containers/network, and exact catalogue/CREATE databases are absent. The S3 gate is removed. The full proxy JSON is unchanged, with zero shared writes. |
+
+Native XML, PNG hashes, CREATE results, and cleanup proof are retained in
+`.cache/relocation/27ca-native-results`. Live process IDs were not captured;
+the post-cleanup process scan found no owned wrapper, emulator, or metadata
+backend. Source maps, host XML, and control logs remain under
+`.cache/relocation/`.
+
+Fresh independent review is required before first submission. Current-head
+Linux performance and CI remain separate pending gates. The earlier F635
+measurement pass is not a result for this source. Real Firebase delivery and
+manual TalkBack remain unverified.
+
+The two product decisions about mixed pending display and a proposed SDK
+attachment download policy remain open. They do not change this relocation's
+published interfaces or establish that the full stack is ready.
+
+## Parent and routing update, 2026-10-10
+
+G now consumes pushed F `2d6d16c0cf5155e506d6855e385613f92199facf`.
+All 158 moved source files match this parent. Its four-file delta carries the
+accepted-ID recovery fix, its native test, the mapped caller, and the scale
+setup flag fix. SDK source `11c39dc2` and release contract `e6e65a3d` are unchanged.
+The strict moved build and both 70-case host variants pass on this source.
+The parent has native two-case failure/restoration proof for the accepted-ID
+fix and causal resource proof for the scale flag fix. The earlier moved
+16-case runtime and fresh relocation review remain scoped to F27ca.
+
+Round41 finding `PRRT_kwDOI5fJCc6rCjoE` is confirmed at G042556 and on the
+rebased source. SDK Gradle properties and wrapper files were unknown inputs,
+so the selector enabled every gate. The shared Android input filter now
+includes the SDK Gradle tree, root properties, and wrapper scripts. Nine
+selector/path tests verify Android and app compatibility selection without
+unrelated platform jobs. The old filter causes seven intended assertion
+failures with zero test errors; the restored filter passes all nine cases.
+
+## Final parent and exporter update, 2026-10-10
+
+G consumes F `ce906d323d350c6b1156578df00dd155448c6b2c`. All 158 moved app and
+shared source files match this parent byte for byte. The exporter matches F
+byte for byte. The performance runner differs only in four relocation paths.
+The parent repair preserves remote command errors and records seed evidence
+with its workload identity. It does not change native code, timers, or budgets.
+
+The earlier local F707 checks use SDK source `13513024` and release contract
+`6f754f78`: strict app builds, all four ABI package checks, and 72 host tests in
+each app variant pass. Three actual CREATE cleanup cases, disposable target
+admission and health, and one native metadata roundtrip also pass. The metadata
+route then failed in the old exporter. That failed route remains recorded.
+
+On rebased G `1b987ff11b1372330a3b0930f16f774bfeb8f620`, the actual moved
+exporter returns zero for an installed app with no private proof directory.
+It removes stale owned host PNGs and keeps an unrelated file. An inaccessible
+app still raises the original remote error. The owned app, output directory,
+emulator home, and emulator process are removed. This small check does not
+repeat the metadata test, backend workload, or screenshot suite.
+
+The first rebased configuration check failed because G's recipe test used an
+old fake-device listing command. The fake now requires `shell -T` for listing
+and cleanup, and `exec-out` for binary PNG reads. The old production exporter
+fails this actual recipe test; the restored exporter passes all nine path and
+selection cases. The final configuration run includes the parent exporter and
+performance host cases. Proof files remain in `.cache/relocation/ce906-*` and
+`.cache/relocation/final-export-*`.
+
+CI artifact `11665637758` belongs to remote G `39d7315`, before this parent
+update. Its normal performance run passes the fixed 1000-group and
+100000-message workload. The cache failure-control run hits the older-transcript
+timing limit before the required cache assertion. The runner rejects that
+result and no restored pass runs. A separate kache stop timeout is recorded.
+Final CI and full Linux performance on the new parent remain required.

@@ -16,8 +16,6 @@ SDK_ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = [
     SDK_ROOT / "library/build/outputs/aar/library-debug.aar",
     SDK_ROOT / "library/build/outputs/aar/library-release.aar",
-    SDK_ROOT / "example/build/outputs/apk/debug/example-debug.apk",
-    SDK_ROOT / "example/build/outputs/apk/release/example-release-unsigned.apk",
 ]
 
 

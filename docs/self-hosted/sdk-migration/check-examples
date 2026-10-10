@@ -45,8 +45,8 @@ case "${1:-}" in
       exit 1
     }
     # The example app is a separate module, so it sees only the public API.
-    place Migration.kt sdks/android/example/src/main/java/MigrationGuide.kt
-    NIX_DEVSHELL=android dev/nix-shell "sdks/android/gradlew -p sdks/android :example:compileDebugKotlin --no-daemon -q"
+    place Migration.kt apps/example-android/app/src/main/java/MigrationGuide.kt
+    NIX_DEVSHELL=android dev/nix-shell "apps/example-android/gradlew -p apps/example-android :example:compileDebugKotlin --no-daemon -q"
     ;;
   *)
     echo "Expected node, browser, swift, or kotlin" >&2

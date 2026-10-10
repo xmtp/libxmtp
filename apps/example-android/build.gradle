@@ -3,25 +3,26 @@ buildscript {
 }
 
 plugins {
+    id 'com.android.application' apply false
     id 'com.android.library' apply false
     id 'org.jetbrains.kotlin.android' apply false
-    id 'io.github.gradle-nexus.publish-plugin'
-    id "org.jetbrains.dokka" apply false
+    id 'org.jetbrains.kotlin.multiplatform' apply false
+    id 'org.jetbrains.kotlin.plugin.compose' apply false
+    id 'org.jetbrains.compose' apply false
     id 'com.diffplug.spotless' apply false
 }
 
 def pins = new Properties()
-file('gradle/toolchain.properties').withInputStream { pins.load(it) }
+file('../../sdks/android/gradle/toolchain.properties').withInputStream { pins.load(it) }
 rootProject.ext.androidToolchain = pins
 
 group = "org.xmtp"
-// version is read from gradle.properties
+// The SDK composite build owns the SDK release version.
 
 // Configure Spotless for all subprojects
 subprojects {
     apply plugin: 'com.diffplug.spotless'
-
-    apply from: rootProject.file('gradle/android-ndk.gradle')
+    apply from: rootProject.file('../../sdks/android/gradle/android-ndk.gradle')
 
     dependencyLocking {
         lockAllConfigurations()
@@ -45,17 +46,6 @@ subprojects {
             trimTrailingWhitespace()
             leadingTabsToSpaces()
             endWithNewline()
-        }
-    }
-}
-
-nexusPublishing {
-    repositories {
-        sonatype {
-            nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
-            username = System.getenv("MAVEN_USERNAME")
-            password = System.getenv("MAVEN_PASSWORD")
-            stagingProfileId = System.getenv("MAVEN_PROFILE_ID")
         }
     }
 }

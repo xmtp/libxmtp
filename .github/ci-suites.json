@@ -251,11 +251,52 @@
         ".github/workflows/lint-android.yml"
       ],
       "paths": [
-        "**/*.{gradle,kts}",
         "nix/android-packages.nix",
         "nix/lib/android-*",
         "nix/shells/android.nix",
         "sdks/android/**",
+        "!docs/**"
+      ]
+    },
+    "lint_example_android": {
+      "phase": "lint",
+      "workflow": "lint-example-android.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/lint-example-android.yml"
+      ],
+      "paths": [
+        "apps/example-android/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_sdk/**",
+        "nix/android-packages.nix",
+        "nix/lib/android-*",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/node-packages.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/shells/android.nix",
+        "sdks/android/**",
+        "{Cargo.toml,Cargo.lock}",
+        "!**/*.md",
         "!docs/**"
       ]
     },
@@ -1149,7 +1190,6 @@
         ".github/workflows/test-android.yml"
       ],
       "paths": [
-        "**/*.{gradle,kts}",
         "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_attachments_server/**",
@@ -1169,6 +1209,53 @@
         "nix/shells/android.nix",
         "sdks/android/**",
         "{Cargo.toml,Cargo.lock}",
+        "!docs/**"
+      ]
+    },
+    "test_example_android": {
+      "phase": "test",
+      "workflow": "test-example-android.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-example-android.yml"
+      ],
+      "paths": [
+        "apps/backend/**",
+        "apps/example-android/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_sdk/**",
+        "dev/{docker,backend}/**",
+        "nix/android-packages.nix",
+        "nix/lib/android-*",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/musl-docker.nix",
+        "nix/node-packages.nix",
+        "nix/package/backend.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/shells/android.nix",
+        "sdks/android/**",
+        "{Cargo.toml,Cargo.lock}",
+        "!**/*.md",
         "!docs/**"
       ]
     }

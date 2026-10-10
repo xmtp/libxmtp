@@ -76,8 +76,8 @@ android {
 }
 
 dependencies {
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
-    implementation project(':library')
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:${rootProject.ext.androidToolchain.getProperty('desugar')}"
+    implementation 'org.xmtp:android'
     implementation project(':example-shared')
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycle_version"
     implementation "androidx.lifecycle:lifecycle-runtime-compose:$lifecycle_version"

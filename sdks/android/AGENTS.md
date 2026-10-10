@@ -13,14 +13,15 @@ directory.
 
 Run from the repository root. Each recipe uses the Android Nix shell.
 Build tools use normal parallelism and preserve caller job settings.
-Gradle uses a 4 GiB heap for the combined SDK and example build.
+Gradle uses a 4 GiB heap in both SDK and app roots.
 When `ANDROID_NDK_HOME` is set, all Android modules use that NDK path and its
 `Pkg.Revision` for native library stripping. Keep the path and version matched.
-`check` also runs `check-packages` on the debug and release AARs and example APKs.
+SDK `check` also runs `check-packages` on the debug and release AARs.
+The separate app `check` validates the moved Debug and Release APKs.
 The artifact check rejects static symbol and debug sections and requires the
 dynamic symbol sections in every packaged SDK JNI library. It uses NDK `llvm-readelf`.
 The format and lint recipes use strict dependency verification and stop their Gradle daemons.
-The lint recipe checks both the SDK and the example app.
+The lint recipe checks the SDK. Use the app lint recipe for the example.
 The dependency locks include the pinned Spotless formatter graph.
 The config check tests settings service startup and clock failure before emulator tests.
 
@@ -33,17 +34,6 @@ dev/nix-shell 'just android lint'
 dev/nix-shell 'just android format'
 dev/nix-shell 'just android test'
 dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifecycleTest'
-dev/nix-shell 'just android example-test'
-dev/nix-shell 'just android example-check'
-dev/nix-shell 'just android example-test-integration'
-dev/nix-shell 'just android example-test-release-integration'
-dev/nix-shell 'just android example-support-fixture'
-dev/nix-shell 'just android example-performance-check'
-dev/nix-shell 'just android example-performance'
-dev/nix-shell 'just android metadata-fixture-test'
-dev/nix-shell 'just android metadata-fixture-test MetadataBackendFixtureTest.test_every_psql_call_uses_a_private_passfile_without_argv_password'
-dev/nix-shell 'just android metadata-fixture-smoke'
-dev/nix-shell 'just android metadata-fixture-create-test'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
@@ -63,25 +53,14 @@ core library desugaring on in the library and app consumers, with pinned
 `com.android.tools:desugar_jdk_libs:2.1.5`. Dependency locks and SHA256 Gradle
 verification metadata cover the final resolved graph.
 
-The example keeps API 27 as its minimum and JVM 17. `:example-shared` has an
-Android KMP target. Compose UI goes in `commonMain`; SDK and Android objects
-stay in the host. The app uses the shared screens and Compose compiler plugin.
-The shared module has no SDK or core library desugaring dependency. Its source
-uses Compose and app data types. The SDK and app keep pinned desugaring for
-generated timestamps.
-`assemble` compiles the SDK, shared target, app, and SDK/app test APKs with strict
-dependency verification. `example-check` also compiles debug and release app
-and shared targets, plus the app test APK. It accepts Gradle resolution options.
-The optional configured Firebase graph uses `example/firebase-gradle.lockfile`.
-The normal build uses `example/gradle.lockfile`. The Android unit CI job runs `assemble`.
-The pinned build uses AGP 8.10.1, Kotlin and its Compose compiler 2.2.20,
-Compose Multiplatform 1.8.2, and Gradle 8.11.1. Nix provides API 35 for all
-three modules. Keep the SDK minimum at API 23 and desugar_jdk_libs at 2.1.5.
-Refresh each resolved graph with `--refresh-dependencies --write-locks --write-verification-metadata sha256`
-in the Android Nix shell, then verify the normal strict build.
-Keep parent POM checksums even when the parent has no dependency lock entry.
-Check strict resolution with `--refresh-dependencies` to test fresh metadata.
-AGP updates also need the published Linux AAPT2 checksum for CI.
+The Messenger app is at [apps/example-android](../../apps/example-android).
+Its Gradle root, recipes, and fixture rules are in that directory. SDK recipes
+build and test only the SDK. SDK changes also select app compatibility CI.
+
+The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
+shared SHA256 dependency verification inventory. The app root reads these
+inputs. Refresh locks and checksums in the Android Nix shell, then run strict
+SDK and app checks. Keep parent POM checksums and Linux AAPT2 checksums.
 
 `test-min-sdk` requires a Linux x86_64 runner. It loads release JNI and checks
 generated `Instant` and `Date` conversions on API 23. It also creates public
@@ -110,75 +89,10 @@ these existing matched bindings and accepts Gradle test filters.
 
 ## Local services
 
-The Messenger app has an Android host in `example` and shared Compose screens
-in `example-shared/src/commonMain`. `example-test` runs host/shared unit tests.
-`test-integration` selects `:library:connectedCheck` for SDK instrumentation.
-It does not select the app test task. `example-test-integration` runs app
-instrumentation in the owned emulator scope.
-Test screenshots use app-private `files/xmtp-messenger-proof`. The integration
-recipe retains the APK until it exports only the named fixture PNG files to
-`example/build/screenshots`, then removes only the owned private proof directory.
-Export errors fail the route; an earlier instrumentation failure keeps its status.
-The export and cleanup process fixtures run under `lint-config` without a device.
-Listing, absence and cleanup commands use `adb shell -T` for remote exit status.
-Binary PNG reads use `exec-out`. A missing directory is empty only when the
-installed app can prove its absence. An inaccessible app fails the export.
-It forwards the current worktree backend and S3 ports for signed loopback URLs.
-The app test scope owns a loopback TCP relay for S3 GET response admission.
-`example-io-fixture` checks its listener startup and teardown without a device.
-It preserves real S3 content and signed headers, with no connection reuse.
-The cancellation test controls only
-this relay. Its wrapper removes the listener and connections after the child
-scope exits. It does not change backend or shared fault-proxy configuration.
-`example-test-release-integration` tests the actual release build with temporary
-local test signing. It keeps DEBUG=false and the release resources. It forwards
-the backend port for the release loopback connection. The Gradle property
-`xmtpExampleReleaseTests=true` selects this test mode. It does not change URL
-admission. Run both host variants with
-`dev/nix-shell 'just android example-test :example:testReleaseUnitTest'`.
-It also forwards the backend proxy and its API. It supplies the `toxicBackendUrl`
-and `toxiproxyApi` runner arguments from the worktree environment. Attachment
-interruption tests change only their named toxic and restore the backend proxy.
-The app integration route also starts an owned disposable PostgreSQL/backend
-fixture with no attachment target. Docker assigns its published port. The route
-forwards it and supplies `unsupportedBackendUrl`. The fixture removes only its
-owned containers and network and retains its logs after success or failure.
-Run this route alone when using a shared stack; no other proxy test can run at
-the same time. Caller environment values can select an existing stack.
-The recipe also starts a catalogue backend with its own database and listeners.
-The Android shell supplies the pinned PostgreSQL client and health probe. The
-fixture passes `metadataBackendUrl` to instrumentation and forwards that port.
-It keeps shared backend URLs for the other tests. It removes only its database
-and process groups on success, failure or cancellation. Set
-`XMTP_METADATA_LOG_DIR` to retain backend logs at a selected path. The local
-`metadata-fixture-test` recipe checks cleanup with process stubs; `lint-config`
-also runs it. `metadata-fixture-smoke` checks real backend startup and cleanup
-without an emulator. Start the backend before app instrumentation. Keep SDK package
-and consumer tests.
-
-Run `dev/nix-shell 'just backend up'`. The library test BuildConfig reads backend
-and anvil ports from the worktree environment. The emulator reaches these
-services through `10.0.2.2`. Attachments use the backend's advertised loopback URL.
-Set `XMTP_ANDROID_BACKEND_URL` to use a test relay or another reachable endpoint.
-The integration recipe uses `adb reverse` for `XMTP_S3_PORT`; it must match the
-backend attachment URL. Tests set `allowPrivateNetwork = true` for this fixture.
-
-The performance recipe requires Linux x86_64 with KVM. It owns an API 34
-x86_64 emulator with four CPUs and 4096 MiB RAM. It seeds 1000 conversations
-and 100000 Published messages through public SDK sends. It runs five warmups
-and 30 measured samples, checks heap and cache bounds, then removes cache
-eviction and requires its named assertion to fail. It restores the same source
-and measures the same dataset again. Seed progress and `seedMs` stay in the
-proof logs. The fixed job timeout is provisional until measured seed progress
-sets the final limit. Host validator tests also run under `lint-config`.
-Seed checkpoints use one `workload-seed-progress.jsonl` artifact. Each pass records
-its workload identity and whether it reused an existing manifest. Do not present
-retained seed checkpoints as a new per-pass seed.
-See `example/performance/README.md` for budgets and retained proof files.
-The route starts a disposable catalogue/backend fixture with its own database,
-listener and process session. Only its generated loopback URL and active private
-lease are admitted. Caller `XMTP_BACKEND_URL` overrides cannot select the workload
-target. Do not add an arbitrary backend argument or remote opt-in.
+Run `dev/nix-shell 'just backend up'`. SDK instrumentation selects only
+`:library:connectedCheck`. App instrumentation uses the separate app recipe.
+The library BuildConfig reads worktree backend and anvil ports. Attachments
+use the advertised loopback URL with scoped reverse forwarding.
 
 ## Tests and lifecycle
 
@@ -230,8 +144,3 @@ message reader fails with `XmtpException.ConsumerOwned`. Explicit `from` cursors
 permit independent replay/live readers that do not advance default progress. Use the
 generated reader options for scopes, filters, and replay. Keep typed errors and
 `ULong` values.
-
-`metadata-fixture-create-test` needs the current PostgreSQL service. It sends
-SIGINT and SIGTERM after a real CREATE commits but before its command returns.
-It also checks a committed CREATE with a failed command result. It verifies and
-removes only each run's exact UUID database. This does not use an emulator.

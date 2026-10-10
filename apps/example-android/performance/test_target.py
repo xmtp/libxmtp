@@ -118,19 +118,17 @@ class DisposableTargetTest(unittest.TestCase):
 
 class DisposableRecipeTest(unittest.TestCase):
     def test_actual_recipe_uses_generated_fixture_route_and_preserves_fixed_shape(self):
-        root = Path(__file__).resolve().parents[4]
-        source = (root / "sdks/android/android.just").read_text()
+        root = Path(__file__).resolve().parents[3]
+        source = (root / "apps/example-android/example-android.just").read_text()
         line = (
-            source.split('example-performance output="example/build/performance":', 1)[
-                1
-            ]
+            source.split('performance output="app/build/performance":', 1)[1]
             .splitlines()[1]
             .strip()
         )
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            fixture = home / "example/fixtures"
-            performance = home / "example/performance"
+            fixture = home / "fixtures"
+            performance = home / "performance"
             binaries = home / "bin"
             for path in (fixture, performance, binaries):
                 path.mkdir(parents=True)
