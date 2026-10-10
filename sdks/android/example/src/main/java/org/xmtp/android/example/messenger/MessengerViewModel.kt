@@ -54,8 +54,8 @@ class MessengerViewModel(
     @Volatile private var conversation: Conversation? = null
     private var logicalKey: String? = null
     private var nextBefore: MessageHistoryPosition? = null
-    private var recoveryUpper: Long? = null
-    private var recoveryNext: Long? = null
+    private var recoveryUpper: MessageRecoveryPosition? = null
+    private var recoveryNext: MessageRecoveryPosition? = null
 
     @Volatile private var atNewest = false
 
@@ -328,8 +328,13 @@ class MessengerViewModel(
     internal var actionMessageRead: suspend (ActiveSession, String) -> Message? = { owner, id ->
         owner.client.conversations.getMessageById(id)
     }
-    internal var recoveryRead: suspend (Conversation, ListMessagesOptions) -> List<Message> = { chat, options ->
-        chat.messages(options)
+    internal var recoveryRead: suspend (
+        Conversation,
+        ListMessagesOptions,
+        MessageRecoveryPosition?,
+        MessageRecoveryPosition?,
+    ) -> MessageRecoveryPage = { chat, options, before, after ->
+        chat.recoveryPage(options, before, after)
     }
 
     internal suspend fun awaitStartupRestore() {
@@ -1184,15 +1189,15 @@ class MessengerViewModel(
             }
         }
 
-    private suspend fun overlay(chat: Conversation): BucketPage<Message> =
-        pendingMessagePage(recoveryUpper, read = { recoveryRead(chat, it) }, count = { chat.countMessages(it) })
+    private suspend fun overlay(chat: Conversation): PendingMessagePage =
+        pendingMessagePage(recoveryUpper) { options, before, after -> recoveryRead(chat, options, before, after) }
 
-    private fun MessengerState.withRecovery(page: BucketPage<Message>): MessengerState {
-        recoveryNext = page.nextBeforeNs
+    private fun MessengerState.withRecovery(page: PendingMessagePage): MessengerState {
+        recoveryNext = page.last
         return copy(
-            hasOlderRecovery = !page.complete && page.notice == null,
+            hasOlderRecovery = page.hasOlder,
             recoveryAtNewest = recoveryUpper == null,
-            recoveryNotice = page.notice?.replace("history", "pending messages"),
+            recoveryNotice = page.notice,
         )
     }
 

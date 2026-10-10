@@ -34,7 +34,8 @@ class MessengerFeedbackInstrumentedTest {
     private suspend fun cleanup(profiles: List<BackendProfile>) =
         withContext(NonCancellable) {
             model.session.beforeSavedRestoreConnect = {}
-            model.recoveryRead = { chat, options -> chat.messages(options) }
+            model.recoveryRead = { chat, options, before, after -> chat.recoveryPage(options, before, after) }
+            model.onQueuedActionFinished = {}
             if (model.session.active.value != null) model.session.deleteAccount()
             for (profile in profiles.distinctBy { it.id }) {
                 if (model.session.preferences
@@ -118,6 +119,153 @@ class MessengerFeedbackInstrumentedTest {
             }
         }
 
+    @Test fun nativePendingPagesKeepHeldBoundsAndRetryTheRetainedId() =
+        runBlocking {
+            val owned = mutableListOf<BackendProfile>()
+            try {
+                AndroidStreamLifecycle.enabled = false
+                resumeStreams()
+                model.session.signOut()
+                model.session.connect(
+                    BuildConfig.XMTP_BACKEND_URL,
+                    "",
+                    localAttachmentNetwork(BuildConfig.XMTP_BACKEND_URL),
+                )
+                val owner = checkNotNull(model.session.active.value)
+                owned.add(owner.profile)
+                val group = owner.client.conversations.createGroup(
+                    emptyList(),
+                    CreateGroupOptions(name = "Pending recovery pages"),
+                )
+                val chat = Conversation.Group(group)
+                val accepted = (1..80).map {
+                    group.sendText("Retained pending $it", SendOptions(optimistic = true))
+                }
+                val selection = publishedSelection().copy(deliveryStatus = null, limit = 50u)
+                val newest = chat.recoveryPage(selection)
+                val older = chat.recoveryPage(selection, checkNotNull(newest.lastPosition))
+                assertEquals(50, newest.messages.size)
+                assertEquals(30, older.messages.size)
+                assertTrue(newest.hasMore)
+                assertFalse(older.hasMore)
+                assertEquals(accepted.toSet(), (newest.messages + older.messages).map { it.id }.toSet())
+                assertEquals(0u, newest.skippedCount + older.skippedCount)
+
+                suspend fun act(action: MessengerAction) {
+                    val completed = CompletableDeferred<Unit>()
+                    model.onQueuedActionFinished = { if (it == action) completed.complete(Unit) }
+                    model.dispatch(action)
+                    until("completed $action") { completed.isCompleted }
+                    model.onQueuedActionFinished = {}
+                }
+                act(MessengerAction.OpenConversation(group.id()))
+                assertEquals(newest.messages.map { it.id }, model.state.value.messages.map { it.id })
+                assertTrue(model.state.value.hasOlderRecovery)
+                act(MessengerAction.LoadOlderRecovery)
+                assertEquals(older.messages.map { it.id }, model.state.value.messages.map { it.id })
+                assertFalse(model.state.value.recoveryAtNewest)
+                assertFalse(model.state.value.hasOlderRecovery)
+
+                val boundaryId = newest.messages.last().id
+                chat.publishMessage(boundaryId)
+                val afterBoundaryPublication = chat.recoveryPage(selection, newest.lastPosition)
+                assertEquals(older.messages.map { it.id }, afterBoundaryPublication.messages.map { it.id })
+                val seen = java.util.concurrent.CopyOnWriteArrayList<MessageRecoveryPosition?>()
+                model.recoveryRead = { current, options, before, after ->
+                    seen.add(before)
+                    current.recoveryPage(options, before, after)
+                }
+                act(MessengerAction.Refresh)
+                assertEquals(listOf(newest.lastPosition), seen.toList())
+                assertTrue(model.state.value.messages.any { it.id == boundaryId })
+                assertEquals(
+                    older.messages.map { it.id },
+                    model.state.value.messages.filter { it.id != boundaryId }.map { it.id },
+                )
+                assertFalse(model.state.value.recoveryAtNewest)
+
+                val retried = older.messages.last().id
+                act(MessengerAction.RetrySend(retried))
+                until("retained native ID published") {
+                    owner.client.conversations.getMessageById(retried)?.deliveryStatus == DeliveryStatus.PUBLISHED
+                }
+                assertEquals(2uL, chat.countMessages(publishedSelection()))
+                assertEquals(78uL, chat.countMessages(selection.copy(deliveryStatus = DeliveryStatus.UNPUBLISHED)))
+                assertEquals(retried, owner.client.conversations.getMessageById(retried)?.id)
+                act(MessengerAction.Refresh)
+                val remaining = chat.recoveryPage(selection, newest.lastPosition)
+                assertEquals(29, remaining.messages.size)
+                assertEquals(
+                    remaining.messages.map { it.id },
+                    model.state.value.messages.filter { it.id != boundaryId && it.id != retried }.map { it.id },
+                )
+                println("PENDING_RECOVERY_PROOF stage=actual-eighty-pending-held-boundary-retained-id-retry")
+            } finally {
+                cleanup(owned)
+            }
+        }
+
+    @Test fun emptyNativePendingProjectionKeepsRawContinuationAfterFourReads() =
+        runBlocking {
+            val owned = mutableListOf<BackendProfile>()
+            try {
+                AndroidStreamLifecycle.enabled = false
+                resumeStreams()
+                model.session.signOut()
+                model.session.connect(
+                    BuildConfig.XMTP_BACKEND_URL,
+                    "",
+                    localAttachmentNetwork(BuildConfig.XMTP_BACKEND_URL),
+                )
+                val owner = checkNotNull(model.session.active.value)
+                owned.add(owner.profile)
+                val group = owner.client.conversations.createGroup(
+                    emptyList(),
+                    CreateGroupOptions(name = "Raw pending continuation"),
+                )
+                val accepted = (1..201).map {
+                    group.sendText("Raw pending $it", SendOptions(optimistic = true))
+                }
+                val chat = Conversation.Group(group)
+                val selection = publishedSelection().copy(deliveryStatus = null, limit = 50u)
+                var raw = chat.recoveryPage(selection)
+                repeat(4) { raw = chat.recoveryPage(selection, checkNotNull(raw.lastPosition)) }
+                assertEquals(1, raw.messages.size)
+                val retained = raw.messages.single().id
+                assertTrue(accepted.contains(retained))
+                val calls = java.util.concurrent.CopyOnWriteArrayList<MessageRecoveryPage>()
+                // Simulate an unreadable prefix after real SDK reads. Keep every consumed raw position.
+                model.recoveryRead = { current, options, before, after ->
+                    val page = current.recoveryPage(options, before, after)
+                    calls.add(page)
+                    val readable = page.messages.filter { it.id == retained }
+                    page.copy(
+                        messages = readable,
+                        skippedCount = page.skippedCount + (page.messages.size - readable.size).toUInt(),
+                    )
+                }
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                until("four raw pending pages and continuation") {
+                    model.state.value.recoveryNotice != null && model.state.value.hasOlderRecovery
+                }
+                assertEquals("Recovery has its own four-read budget", 4, calls.size)
+                assertTrue(model.state.value.messages.isEmpty())
+                assertEquals(200, calls.sumOf { it.messages.size })
+                compose.onNodeWithText("Older pending messages").assertIsEnabled()
+                model.dispatch(MessengerAction.LoadOlderRecovery)
+                until("readable native pending row after raw prefix") {
+                    model.state.value.messages.map { it.id } == listOf(retained)
+                }
+                assertEquals(5, calls.size)
+                assertFalse(model.state.value.hasOlderRecovery)
+                assertEquals(1, calls.last().messages.size)
+                assertEquals(retained, calls.last().messages.single().id)
+                println("PENDING_RECOVERY_PROOF stage=actual-201-pages-scripted-200-projection-loss-raw-continuation")
+            } finally {
+                cleanup(owned)
+            }
+        }
+
     @Test fun partialPendingReadShowsANoticeAndKeepsTheNativeReadableMessage() =
         runBlocking {
             val owned = mutableListOf<BackendProfile>()
@@ -148,7 +296,15 @@ class MessengerFeedbackInstrumentedTest {
                         .map { it.id }
                         .toSet()
                 assertEquals(setOf(missing, retained), nativeIds)
-                model.recoveryRead = { chat, options -> chat.messages(options).filter { it.id != missing } }
+                // Simulate one conversion loss after the real SDK page read. Keep its raw bounds.
+                model.recoveryRead = { chat, options, before, after ->
+                    val page = chat.recoveryPage(options, before, after)
+                    val readable = page.messages.filter { it.id != missing }
+                    page.copy(
+                        messages = readable,
+                        skippedCount = page.skippedCount + (page.messages.size - readable.size).toUInt(),
+                    )
+                }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 until("partial pending UI") {
                     val current = model.state.value

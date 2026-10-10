@@ -82,7 +82,10 @@ continues from the last consumed raw position.
 The cache keeps three transcripts and at most 500 published rows per transcript.
 Queued and failed messages have a separate 50-row recovery page. Use Older pending
 messages and Newest pending messages to change this page. Refresh reads the selected
-page again. A visible notice stops a pending timestamp tie that exceeds 50 rows.
+page again. Recovery uses sent time and an opaque message-ID boundary, so tied rows
+remain reachable. Each recovery operation uses at most four SDK page reads. Raw
+continuation can advance through an empty converted page. A conversion-loss notice
+keeps the next pending page available.
 Saved positions retain the message key, pixel offset and SDK tuple. Refresh
 reads the window around that tuple. A deleted anchor still has a valid query
 boundary. The app selects the next surviving newer row, then an older row, at
