@@ -90,6 +90,7 @@ class AcceptanceAndCredentialInstrumentedTest {
         withContext(NonCancellable) {
             model.session.preferences.beforeDraftCommit = {}
             model.onQueuedActionFinished = {}
+            model.sends.messageRead = { client, id -> client.conversations.getMessageById(id) }
             model.inspectBackend = { url ->
                 val source = BackendSource.Options(BackendOptions(url = url))
                 SDKClient.fetchServerConfiguration(source)
@@ -143,8 +144,38 @@ class AcceptanceAndCredentialInstrumentedTest {
                 // A newer edit must survive acknowledgment of the older accepted request.
                 val composer = compose.onNode(hasSetTextAction() and hasText("SDK accepted body"))
                 composer.performTextReplacement("new draft edit")
+                // Only this hook returns null. The SDK row above and below is real.
+                val lookups = AtomicInteger()
+                model.sends.messageRead = { _, _ ->
+                    lookups.incrementAndGet()
+                    null
+                }
+                val refreshFinished = CompletableDeferred<Unit>()
+                model.onQueuedActionFinished = {
+                    if (it == MessengerAction.Refresh) refreshFinished.complete(Unit)
+                }
                 model.session.preferences.beforeDraftCommit = {}
                 model.dispatch(MessengerAction.Refresh)
+                until("acceptance refresh finished with forced null lookup") { refreshFinished.isCompleted }
+                val recovered =
+                    model.session.preferences
+                        .drafts(owner.key.profileId)
+                        .single()
+                assertEquals(
+                    "The independent SDK lookup still finds this row",
+                    id,
+                    owner.client.conversations
+                        .getMessageById(id)
+                        ?.id,
+                )
+                println("ACCEPTANCE_PROOF stage=actual-sdk-row-present-forced-null-hook phase=${recovered.phase}")
+                assertEquals(
+                    "The SDK-issued ID must survive an unavailable projection",
+                    id,
+                    recovered.acceptedMessageId,
+                )
+                assertEquals(SendPhase.ACCEPTED, recovered.phase)
+                assertEquals("Accepted-ID commit must not require a message lookup", 0, lookups.get())
                 until("verified accepted reference and request acknowledgment") {
                     model.state.value.textSendResult
                         ?.accepted == true &&
@@ -156,6 +187,7 @@ class AcceptanceAndCredentialInstrumentedTest {
                 compose.onNode(hasSetTextAction() and hasText("new draft edit")).assertExists()
                 compose.onNodeWithText("Send").assertIsEnabled()
                 assertEquals(listOf(id), Conversation.Group(group).messages(selection).map { it.id })
+                model.sends.messageRead = { client, messageId -> client.conversations.getMessageById(messageId) }
                 model.dispatch(MessengerAction.RetrySend(id))
                 until("retained native ID published") {
                     owner.client.conversations
@@ -164,7 +196,7 @@ class AcceptanceAndCredentialInstrumentedTest {
                 }
                 assertEquals(listOf(id), Conversation.Group(group).messages(publishedSelection()).map { it.id })
                 assertEquals(0uL, Conversation.Group(group).countMessages(selection))
-                println("ACCEPTANCE_PROOF stage=commit-failure-verified-id-no-duplicate")
+                println("ACCEPTANCE_PROOF stage=forced-null-lookup-commit-verified-id-no-duplicate")
             } finally {
                 cleanup()
             }
@@ -207,6 +239,13 @@ class AcceptanceAndCredentialInstrumentedTest {
                         .isEmpty(),
                 )
                 assertNotNull(owner.client.conversations.getMessageById(id))
+                model.sends.recoverAccepted(owner.key)
+                assertFalse("Explicit discard clears the staged acceptance", model.sends.knowsAccepted(draft.draftId))
+                assertTrue(
+                    model.session.preferences
+                        .drafts(owner.key.profileId)
+                        .isEmpty(),
+                )
                 model.session.deleteAccount()
                 assertFalse(
                     "An accepted update must not insert a reset reference",
