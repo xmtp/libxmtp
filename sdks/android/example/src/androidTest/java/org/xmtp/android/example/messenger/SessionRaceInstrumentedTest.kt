@@ -203,6 +203,8 @@ class SessionRaceInstrumentedTest {
             val session = AppSession(context)
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
+            val invalidated = CompletableDeferred<Unit>()
+            session.onSessionInvalidated = { invalidated.complete(Unit) }
             val unregistering = CompletableDeferred<Unit>()
             val allowUnregister = CompletableDeferred<Unit>()
             var peer: SDKClient? = null
@@ -215,7 +217,7 @@ class SessionRaceInstrumentedTest {
                     val body = (message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text
                     if (body?.v1 == "Unacknowledged callback") {
                         entered.complete(Unit)
-                        release.await()
+                        withContext(NonCancellable) { release.await() }
                     }
                 }
                 peer =
@@ -238,9 +240,10 @@ class SessionRaceInstrumentedTest {
                     allowUnregister.await()
                 }
                 signingOut = async(Dispatchers.IO) { session.signOut() }
-                unregistering.await()
+                invalidated.await()
                 assertFalse(session.accepts(owner.key))
                 release.complete(Unit)
+                unregistering.await()
                 val replay =
                     withTimeout(30_000) {
                         var message: Message? = null

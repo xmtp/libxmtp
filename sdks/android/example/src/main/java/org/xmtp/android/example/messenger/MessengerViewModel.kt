@@ -6,6 +6,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -25,6 +26,7 @@ class MessengerViewModel(
 ) : AndroidViewModel(application) {
     val session =
         (application as ExampleApp).session
+    val notifications = (application as ExampleApp).notifications
     private val ui =
         MutableStateFlow(
             MessengerState(
@@ -94,6 +96,29 @@ class MessengerViewModel(
     }
 
     init {
+        featureRefresh = { owner, _ -> owner.work.async { notifications.refreshStatus(owner) }.await() }
+        viewModelScope.launch {
+            kotlinx.coroutines.flow
+                .combine(notifications.status, notifications.enabled) { status, enabled ->
+                    status to
+                        enabled
+                }.collect { (status, enabled) ->
+                    val owner = session.active.value
+                    if (owner !=
+                        null
+                    ) {
+                        session.withCurrent(owner.key) {
+                            ui.update { currentUi ->
+                                currentUi.copy(notificationStatus = status, notificationsEnabled = enabled)
+                            }
+                        }
+                    } else {
+                        ui.update { currentUi ->
+                            currentUi.copy(notificationStatus = status, notificationsEnabled = false)
+                        }
+                    }
+                }
+        }
         session.onMessage = {
             owner,
             message,
@@ -155,7 +180,13 @@ class MessengerViewModel(
                                         screen = Screen.CONVERSATIONS,
                                         backend = owner.profile.backend,
                                         inbox = inbox,
-                                        features = FeatureAvailability(metadata = true),
+                                        features =
+                                            FeatureAvailability(
+                                                metadata = true,
+                                                notifications = notifications.configured,
+                                            ),
+                                        notificationStatus = notifications.status.value,
+                                        notificationsEnabled = notifications.enabled.value,
                                     )
                                 projection.withLock {
                                     beforeActiveRefresh(owner)
@@ -263,11 +294,27 @@ class MessengerViewModel(
             }
     }
 
+    suspend fun openPush(intent: android.content.Intent) {
+        if (!notifications.configured || !intent.hasExtra("push-profile")) return
+        val owner = session.restoreForPush() ?: return
+        val route = notifications.tap(intent) ?: return
+        if (route.profile != owner.key.profileId) return
+        val inbox = session.withCurrent(owner.key) { owner.client.inboxId() } ?: return
+        withTimeoutOrNull(10_000) { state.first { it.inbox == inbox } } ?: return
+        session.withCurrent(owner.key) {
+            if (route.conversation != null) {
+                dispatch(MessengerAction.OpenConversation(route.conversation))
+            } else {
+                dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+            }
+        }
+    }
+
     internal var beforeFeaturesUiUpdate: () -> Unit = {}
 
     fun setFeatures(value: FeatureAvailability) {
         beforeFeaturesUiUpdate()
-        ui.update { currentUi -> currentUi.copy(features = value) }
+        ui.update { currentUi -> currentUi.copy(features = value.copy(notifications = notifications.configured)) }
     }
 
     internal fun setAttachmentAvailability(
@@ -291,6 +338,7 @@ class MessengerViewModel(
     fun foreground(value: Boolean) {
         synchronized(screenLock) { foreground = value }
         if (value) {
+            notifications.permissionChanged()
             dispatch(
                 MessengerAction.Refresh,
             )
@@ -807,10 +855,13 @@ class MessengerViewModel(
                                     val chat = origin.chat ?: return@launch
                                     try {
                                         requireOrigin(origin)
-                                        writeConsent(
-                                            chat,
-                                            if (action.allowed) ConsentState.ALLOWED else ConsentState.DENIED,
-                                        )
+                                        notifications.withPrivacyMutation(owner) {
+                                            requireOrigin(origin)
+                                            writeConsent(
+                                                chat,
+                                                if (action.allowed) ConsentState.ALLOWED else ConsentState.DENIED,
+                                            )
+                                        }
                                         val current =
                                             session.withCurrent(owner.key) {
                                                 synchronized(screenLock) {
@@ -859,7 +910,22 @@ class MessengerViewModel(
 
                                 is MessengerAction.Feature,
                                 -> {
-                                    featureAction(action)
+                                    when (action.name) {
+                                        "app-notifications" -> {
+                                            notifications.setEnabled(owner, action.value == "true")
+                                        }
+
+                                        "conversation-notifications" -> {
+                                            setConversationNotifications(
+                                                origin,
+                                                action.value == "true",
+                                            )
+                                        }
+
+                                        else -> {
+                                            featureAction(action)
+                                        }
+                                    }
                                 }
 
                                 else -> {
@@ -1658,7 +1724,43 @@ class MessengerViewModel(
         if (!acceptsOrigin(origin)) throw CancellationException("Action scope changed")
     }
 
+    internal var beforeConversationNotificationAction: suspend () -> Unit = {}
+
+    private suspend fun setConversationNotifications(
+        origin: ActionOrigin,
+        enabled: Boolean,
+    ) {
+        val owner = origin.owner ?: return
+        val chat = origin.chat ?: return
+        beforeConversationNotificationAction()
+        notifications.setConversationEnabled(owner, chat, enabled) { change ->
+            onCurrentScreen(owner, origin.token) {
+                if (origin.chat?.id() == conversation?.id()) {
+                    change()
+                    true
+                } else {
+                    false
+                }
+            } == true
+        }
+        projection.withLock { if (acceptsOrigin(origin)) refreshLoaded(owner) }
+    }
+
     private suspend fun mutateGroup(
+        origin: ActionOrigin,
+        action: MessengerAction,
+    ) {
+        val owner = origin.owner ?: return
+        if (action is MessengerAction.AddMember || action is MessengerAction.RemoveMember ||
+            action == MessengerAction.RequestRemoval
+        ) {
+            notifications.withPrivacyMutation(owner) { mutateGroupOwned(origin, action) }
+        } else {
+            mutateGroupOwned(origin, action)
+        }
+    }
+
+    private suspend fun mutateGroupOwned(
         origin: ActionOrigin,
         action: MessengerAction,
     ) {

@@ -19,7 +19,8 @@ When `ANDROID_NDK_HOME` is set, all Android modules use that NDK path and its
 `check` also runs `check-packages` on the debug and release AARs and example APKs.
 The artifact check rejects static symbol and debug sections and requires the
 dynamic symbol sections in every packaged SDK JNI library. It uses NDK `llvm-readelf`.
-The format recipe uses strict dependency verification and stops its Gradle daemon.
+The format and lint recipes use strict dependency verification and stop their Gradle daemons.
+The lint recipe checks both the SDK and the example app.
 The dependency locks include the pinned Spotless formatter graph.
 The config check tests settings service startup and clock failure before emulator tests.
 
@@ -68,7 +69,9 @@ uses Compose and app data types. The SDK and app keep pinned desugaring for
 generated timestamps.
 `assemble` compiles the SDK, shared target, app, and SDK/app test APKs with strict
 dependency verification. `example-check` also compiles debug and release app
-and shared targets, plus the app test APK. The Android unit CI job runs `assemble`.
+and shared targets, plus the app test APK. It accepts Gradle resolution options.
+The optional configured Firebase graph uses `example/firebase-gradle.lockfile`.
+The normal build uses `example/gradle.lockfile`. The Android unit CI job runs `assemble`.
 The pinned build uses AGP 8.10.1, Kotlin and its Compose compiler 2.2.20,
 Compose Multiplatform 1.8.2, and Gradle 8.11.1. Nix provides API 35 for all
 three modules. Keep the SDK minimum at API 23 and desugar_jdk_libs at 2.1.5.

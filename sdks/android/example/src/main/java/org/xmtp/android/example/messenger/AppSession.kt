@@ -10,6 +10,9 @@ import org.xmtp.android.example.messenger.attachments.AttachmentFiles
 import org.xmtp.android.example.messenger.attachments.ExportCleanupReplay
 import uniffi.xmtp_sdk.*
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.NoSuchFileException
+import java.nio.file.attribute.BasicFileAttributes
 import java.security.SecureRandom
 import java.util.UUID
 
@@ -41,6 +44,7 @@ class AppSession(
             this.context,
         )
     private val fence = SessionFence()
+    private val sessionCredentials = SessionCredentials(fence) { profile -> secrets.read(profile, "credential") }
     private val scope =
         CoroutineScope(
             SupervisorJob() +
@@ -83,12 +87,13 @@ class AppSession(
     }
     var beforeEnd: suspend (ActiveSession) -> Unit = {
     }
-    var unregisterNotifications: suspend (SDKClient) -> Unit = {
-        it
-            .disableNotifications()
-    }
+    var unregisterNotifications: suspend (SDKClient) -> Unit = {}
+    internal var onNotificationAdmissionChanged: (ActiveSession) -> Unit = {}
 
     internal var onSessionInvalidated: () -> Unit = {}
+    var beforeProfileRemoval: suspend (String) -> Unit = {}
+    var needsNotificationPreflight: suspend (String) -> Boolean = { false }
+    var stopStoredNotifications: suspend (ActiveSession) -> Unit = {}
 
     fun admit(
         key: SessionKey,
@@ -148,35 +153,159 @@ class AppSession(
             preferences::completeExportCleanup,
         ).run()
 
+    internal var beforeAutomaticProfileLookup: suspend () -> Unit = {}
+    internal var beforeBoundConnectOperation: suspend (SessionKey) -> Unit = {}
+
     suspend fun restore() {
         val restoreIntent = fence.currentGeneration()
-        operation.withLock {
-            recoverExportCleanup()
-            preferences
-                .reset()
-                ?.let {
+        val saved =
+            operation.withLock {
+                recoverExportCleanup()
+                activeState.value?.let { owner ->
+                    withCurrent(owner.key) { if (messageJob == null) startReaders(owner) }
+                    return
+                }
+                preferences.reset()?.let {
                     recoverReset(it)
                     return
                 }
+                if (!preferences.signedIn()) return
+                preferences.active() ?: return
+            }
+        val url = validatedBackendUrl(saved.backend)
+        beforeSavedRestoreConnect(saved)
+        currentCoroutineContext().ensureActive()
+        operation.withLock {
+            activeState.value?.let { owner ->
+                withCurrent(owner.key) { if (messageJob == null) startReaders(owner) }
+                return
+            }
+            preferences.reset()?.let {
+                recoverReset(it)
+                return
+            }
+            val generation = fence.reserveRestoreIfCurrent(restoreIntent) ?: return
+            if (!preferences.signedIn()) return
+            if (preferences.active()?.id != saved.id) return
+            connectWithGeneration(
+                url,
+                null,
+                localAttachmentNetwork(url),
+                generation,
+                operationHeld = true,
+            )
         }
-        if (preferences
-                .signedIn()
-        ) {
-            preferences
-                .active()
-                ?.let {
-                    val url = validatedBackendUrl(it.backend)
-                    beforeSavedRestoreConnect(it)
-                    currentCoroutineContext().ensureActive()
-                    val generation = fence.reserveRestoreIfCurrent(restoreIntent) ?: return
-                    connectWithGeneration(
-                        url,
-                        null,
-                        localAttachmentNetwork(url),
-                        generation,
+    }
+
+    /** Open the saved account for local push reads without default collectors. */
+    suspend fun restoreForPush(): ActiveSession? {
+        replayExportCleanup()
+        return operation.withLock {
+            activeState.value?.let { return@withLock it.takeIf { owner -> accepts(owner.key) } }
+            if (stopping != null || opening != null) return@withLock null
+            val generation = fence.reserveRestore() ?: return@withLock null
+            if (!preferences.signedIn() || preferences.reset() != null) return@withLock null
+            val selected = preferences.active() ?: return@withLock null
+            val url = validatedBackendUrl(selected.backend)
+            val profile = selected.copy(backend = url, allowPrivateNetwork = localAttachmentNetwork(url))
+            val inbox = profile.inboxId ?: return@withLock null
+            val identity = profile.identity ?: return@withLock null
+            val paths = profile.paths(context.filesDir)
+            if (!pushDatabaseExists(paths)) return@withLock null
+            val encryption = secrets.read(profile.id, "database-key") ?: return@withLock null
+            val key = fence.bind(profile.id, generation) ?: return@withLock null
+            var published = false
+            try {
+                val source = sessionCredentials.forProfile(profile.id, key)
+                val backend = BackendSource.Options(BackendOptions(profile.backend, credentials = source))
+                val location = StorageLocation.Explicit(paths.database.absolutePath, paths.attachments.absolutePath)
+                val storage = StorageOptions(location = location, encryptionKey = encryption)
+                val options =
+                    ClientOptions(
+                        backend = backend,
+                        storage = storage,
+                        allowOffline = true,
+                        attachments = AttachmentOptions(allowPrivateNetwork = profile.allowPrivateNetwork),
                     )
+                val publicIdentity = PublicIdentity(identity, PublicIdentityKind.ETHEREUM)
+                if (!prepareStoredNotifications(profile, key, paths, options)) return@withLock null
+                beforeClientBuild(url)
+                val client = SDKClient.build(context, publicIdentity, options, inbox)
+                val owner = ActiveSession(key, profile, paths, client)
+                opening = owner
+                val selected = preferences.active()?.id
+                if (!preferences.signedIn() || preferences.reset() != null) return@withLock null
+                if (selected != profile.id) return@withLock null
+                beforeOpeningListener(owner)
+                startEvents(owner)
+                published = withCurrent(key) {
+                    activeState.value = owner
+                    true
+                } == true
+                if (published) {
+                    opening = null
+                    owner
+                } else {
+                    null
                 }
+            } finally {
+                if (!published) {
+                    withContext(NonCancellable) {
+                        try {
+                            closeCurrent(unregister = false)
+                        } finally {
+                            fence.releaseRestore(key)
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    /** Clear old notification state before a normal task runner can renew it. */
+    private suspend fun prepareStoredNotifications(
+        profile: BackendProfile,
+        key: SessionKey,
+        paths: ProfilePaths,
+        options: ClientOptions,
+    ): Boolean {
+        val url = validatedBackendUrl(profile.backend)
+        val inbox = profile.inboxId ?: return accepts(key)
+        val identity = profile.identity ?: return accepts(key)
+        if (!needsNotificationPreflight(profile.id) || !pushDatabaseExists(paths)) return accepts(key)
+        if (!accepts(key)) return false
+        val workers = options.workers ?: WorkerOptions()
+        val intervals =
+            workers.intervals.filter { it.kind != WorkerKind.TASK_RUNNER } +
+                WorkerInterval(WorkerKind.TASK_RUNNER, intervalNs = null, jitterNs = null, enabled = false)
+        val quietOptions = options.copy(workers = workers.copy(intervals = intervals))
+        beforeClientBuild(url)
+        val client =
+            SDKClient.build(
+                context,
+                PublicIdentity(identity, PublicIdentityKind.ETHEREUM),
+                quietOptions,
+                inbox,
+            )
+        val owner = ActiveSession(key, profile, paths, client)
+        opening = owner
+        try {
+            if (accepts(key)) stopStoredNotifications(owner)
+        } finally {
+            withContext(NonCancellable) { closeCurrent(unregister = false) }
+        }
+        return accepts(key)
+    }
+
+    private fun pushDatabaseExists(paths: ProfilePaths): Boolean {
+        val database = paths.database.toPath()
+        val attributes =
+            try {
+                Files.readAttributes(database, BasicFileAttributes::class.java)
+            } catch (_: NoSuchFileException) {
+                return false
+            }
+        return attributes.isRegularFile && Files.isReadable(database)
     }
 
     suspend fun connect(
@@ -190,10 +319,12 @@ class AppSession(
         credential: String?,
         allowPrivateNetwork: Boolean,
         reservedGeneration: Long?,
+        operationHeld: Boolean = false,
     ) {
         val url = validatedBackendUrl(backend)
         val openingGeneration = reservedGeneration ?: fence.reserve()
         if (!fence.isReserved(openingGeneration)) return
+        if (reservedGeneration != null) beforeAutomaticProfileLookup()
         val profile =
             preferences
                 .profiles()
@@ -213,163 +344,140 @@ class AppSession(
                     profile.id,
                     openingGeneration,
                 ) ?: return
-        operation.withLock {
+        beforeBoundConnectOperation(key)
+        withOperation(operationHeld) {
             if (!accepts(key)) return
-            check(
-                preferences
-                    .reset()
-                    ?.profileId !=
-                    profile.id,
-            ) {
-                "Finish local reset before connecting"
-            }
-            markSignedOutForCleanup()
-            closeCurrent()
-            recoverExportCleanup()
-            val saved =
-                profile
-                    .copy(allowPrivateNetwork = allowPrivateNetwork)
-            preferences
-                .setActive(saved)
-            if (credential != null) {
-                secrets
-                    .write(
-                        saved.id,
-                        "credential",
-                        credential
-                            .toByteArray(),
-                    )
-            }
-            val wallet =
-                secrets
-                    .read(
-                        saved.id,
-                        "wallet",
-                    ) ?: SecureRandom()
-                    .generateSeed(32)
-                    .also {
-                        secrets
-                            .write(
-                                saved.id,
-                                "wallet",
-                                it,
-                            )
-                    }
-            val encryption =
-                secrets
-                    .read(
-                        saved.id,
-                        "database-key",
-                    ) ?: SecureRandom()
-                    .generateSeed(32)
-                    .also {
-                        secrets
-                            .write(
-                                saved.id,
-                                "database-key",
-                                it,
-                            )
-                    }
-            val paths =
-                saved
-                    .paths(
-                        context.filesDir,
-                    )
-            check(
-                paths.database.parentFile!!
-                    .isDirectory ||
-                    paths.database.parentFile!!
-                        .mkdirs(),
-            )
-            check(
-                paths.attachments
-                    .isDirectory ||
-                    paths.attachments
-                        .mkdirs(),
-            )
-            val source =
-                if (secrets
-                        .read(
-                            saved.id,
-                            "credential",
-                        )?.isNotEmpty() == true
-                ) {
-                    object : CredentialSource {
-                        override suspend fun credential(): Credential {
-                            if (!accepts(key)) {
-                                throw CredentialException
-                                    .Failed()
-                            }
-                            val value =
-                                secrets
-                                    .read(
-                                        saved.id,
-                                        "credential",
-                                    )?.toString(
-                                        Charsets.UTF_8,
-                                    ) ?: throw CredentialException
-                                    .Failed()
-                            return Credential(
-                                name = null,
-                                value = value,
-                                expiresAtSeconds =
-                                    Long.MAX_VALUE,
-                            )
-                        }
-                    }
-                } else {
-                    null
-                }
-            val options =
-                ClientOptions(
-                    backend =
-                        BackendSource
-                            .Options(
-                                BackendOptions(
-                                    url = url,
-                                    credentials = source,
-                                ),
-                            ),
-                    storage =
-                        StorageOptions(
-                            location =
-                                StorageLocation
-                                    .Explicit(
-                                        paths.database.absolutePath,
-                                        paths.attachments.absolutePath,
-                                    ),
-                            encryptionKey = encryption,
-                        ),
-                    allowOffline =
-                        saved.inboxId != null,
-                    attachments = AttachmentOptions(allowPrivateNetwork = allowPrivateNetwork),
-                )
-            val signer = localSignerFromPrivateKey(wallet)
-            beforeClientBuild(url)
-            val client =
-                if (saved.inboxId != null && saved.identity != null) {
-                    SDKClient
-                        .build(
-                            context,
-                            PublicIdentity(
-                                saved.identity,
-                                PublicIdentityKind.ETHEREUM,
-                            ),
-                            options,
-                            saved.inboxId,
-                        )
-                } else {
-                    SDKClient
-                        .create(
-                            context,
-                            signer,
-                            options,
-                        )
-                }
-            val pending = ActiveSession(key, saved, paths, client)
-            opening = pending
+            var retryableProfile: BackendProfile? = null
             var published = false
             try {
+                retryableProfile =
+                    if (reservedGeneration != null && preferences.signedIn()) {
+                        preferences.active()?.takeIf { it.id == profile.id }
+                    } else {
+                        null
+                    }
+                check(
+                    preferences
+                        .reset()
+                        ?.profileId !=
+                        profile.id,
+                ) {
+                    "Finish local reset before connecting"
+                }
+                markSignedOutForCleanup()
+                closeCurrent()
+                recoverExportCleanup()
+                val saved =
+                    profile
+                        .copy(allowPrivateNetwork = allowPrivateNetwork)
+                preferences
+                    .setActive(saved)
+                if (credential != null) {
+                    secrets
+                        .write(
+                            saved.id,
+                            "credential",
+                            credential
+                                .toByteArray(),
+                        )
+                }
+                val wallet =
+                    secrets
+                        .read(
+                            saved.id,
+                            "wallet",
+                        ) ?: SecureRandom()
+                        .generateSeed(32)
+                        .also {
+                            secrets
+                                .write(
+                                    saved.id,
+                                    "wallet",
+                                    it,
+                                )
+                        }
+                val encryption =
+                    secrets
+                        .read(
+                            saved.id,
+                            "database-key",
+                        ) ?: SecureRandom()
+                        .generateSeed(32)
+                        .also {
+                            secrets
+                                .write(
+                                    saved.id,
+                                    "database-key",
+                                    it,
+                                )
+                        }
+                val paths =
+                    saved
+                        .paths(
+                            context.filesDir,
+                        )
+                check(
+                    paths.database.parentFile!!
+                        .isDirectory ||
+                        paths.database.parentFile!!
+                            .mkdirs(),
+                )
+                check(
+                    paths.attachments
+                        .isDirectory ||
+                        paths.attachments
+                            .mkdirs(),
+                )
+                val source = sessionCredentials.forProfile(saved.id, key)
+                val options =
+                    ClientOptions(
+                        backend =
+                            BackendSource
+                                .Options(
+                                    BackendOptions(
+                                        url = url,
+                                        credentials = source,
+                                    ),
+                                ),
+                        storage =
+                            StorageOptions(
+                                location =
+                                    StorageLocation
+                                        .Explicit(
+                                            paths.database.absolutePath,
+                                            paths.attachments.absolutePath,
+                                        ),
+                                encryptionKey = encryption,
+                            ),
+                        allowOffline =
+                            saved.inboxId != null,
+                        attachments = AttachmentOptions(allowPrivateNetwork = allowPrivateNetwork),
+                    )
+                val signer = localSignerFromPrivateKey(wallet)
+                if (!prepareStoredNotifications(saved, key, paths, options)) return
+                beforeClientBuild(url)
+                val client =
+                    if (saved.inboxId != null && saved.identity != null) {
+                        SDKClient
+                            .build(
+                                context,
+                                PublicIdentity(
+                                    saved.identity,
+                                    PublicIdentityKind.ETHEREUM,
+                                ),
+                                options,
+                                saved.inboxId,
+                            )
+                    } else {
+                        SDKClient
+                            .create(
+                                context,
+                                signer,
+                                options,
+                            )
+                    }
+                val pending = ActiveSession(key, saved, paths, client)
+                opening = pending
                 if (!accepts(key)) return
                 val opened =
                     saved
@@ -385,31 +493,7 @@ class AppSession(
                 val owner = pending.copy(profile = opened)
                 opening = owner
                 beforeOpeningListener(owner)
-                // Register events before exposing the session for initial local reads.
-                client
-                    .startListener(
-                        EventFilter(
-                            kinds =
-                                EventKind.entries,
-                        ),
-                    ) { event ->
-                        if (accepts(key)) {
-                            try {
-                                onEvent(
-                                    owner,
-                                    event,
-                                )
-                                onInvalidated(owner)
-                            } catch (error: Throwable) {
-                                if (error is CancellationException) throw error
-                                if (accepts(key)) {
-                                    errorState.value =
-                                        error
-                                            .toString()
-                                }
-                            }
-                        }
-                    }
+                startEvents(owner)
                 if (!accepts(key)) return
                 val committed =
                     preferences.commitSession(opened) { change ->
@@ -427,9 +511,71 @@ class AppSession(
                     } == true
                 if (published) opening = null
             } finally {
-                if (!published) withContext(NonCancellable) { closeCurrent() }
+                if (!published) {
+                    withContext(NonCancellable) {
+                        try {
+                            closeCurrent(unregister = false)
+                        } finally {
+                            if (reservedGeneration != null) {
+                                try {
+                                    retryableProfile?.let { selected ->
+                                        preferences.commitSession(selected) { change ->
+                                            withCurrent(key) {
+                                                change()
+                                                true
+                                            } == true
+                                        }
+                                    }
+                                } finally {
+                                    fence.releaseRestore(key)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+
+    private suspend inline fun <T> withOperation(
+        alreadyHeld: Boolean,
+        action: () -> T,
+    ): T = if (alreadyHeld) action() else operation.withLock { action() }
+
+    private suspend fun startEvents(owner: ActiveSession) {
+        val key = owner.key
+        val client = owner.client
+        // Register events before exposing the session for initial local reads.
+        client
+            .startListener(
+                EventFilter(
+                    kinds =
+                        EventKind.entries,
+                ),
+            ) { event ->
+                if (accepts(key)) {
+                    try {
+                        if (event is ClientEvent.ConsentChanged || event is ClientEvent.ConversationRemoved ||
+                            event is ClientEvent.ConversationMembershipChanged ||
+                            event is ClientEvent.ConversationPaused
+                        ) {
+                            onNotificationAdmissionChanged(owner)
+                        }
+                        onEvent(
+                            owner,
+                            event,
+                        )
+                        onInvalidated(owner)
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                        if (accepts(key)) {
+                            errorState.value =
+                                error
+                                    .toString()
+                        }
+                    }
+                }
+            }
     }
 
     private fun startReaders(owner: ActiveSession) {
@@ -533,7 +679,7 @@ class AppSession(
             }
         }
 
-    private suspend fun closeCurrent() {
+    private suspend fun closeCurrent(unregister: Boolean = true) {
         messageJob?.cancelAndJoin()
         messageJob = null
         conversationJob?.cancelAndJoin()
@@ -549,6 +695,11 @@ class AppSession(
                     .coroutineContext[Job]
                     ?.cancelAndJoin()
                 try {
+                    try {
+                        if (unregister) unregisterNotifications(owner.client)
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                    }
                     beforeEnd(owner)
                 } finally {
                     try {
@@ -572,16 +723,7 @@ class AppSession(
         operation.withLock {
             if (!fence.isReserved(stopGeneration)) return@withLock
             markSignedOutForCleanup()
-            val owner =
-                activeState.value
             withContext(NonCancellable) {
-                try {
-                    owner?.client?.let {
-                        unregisterNotifications(it)
-                    }
-                } catch (_: Exception) {
-                    // Signed-out state already blocks late push.
-                }
                 try {
                     closeCurrent()
                     recoverExportCleanup()
@@ -748,6 +890,7 @@ class AppSession(
             preferences
                 .saveReset(record)
         }
+        beforeProfileRemoval(record.profileId)
         preferences
             .removeProfile(
                 record.profileId,

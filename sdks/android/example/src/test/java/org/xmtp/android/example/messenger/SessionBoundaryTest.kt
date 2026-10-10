@@ -7,18 +7,35 @@ import java.io.File
 import java.nio.file.Files
 
 class SessionBoundaryTest {
+    @Test fun failedRestoreReleasesOnlyItsOwnBinding() {
+        val fence = SessionFence()
+        val first = checkNotNull(fence.bind("saved", checkNotNull(fence.reserveRestore())))
+        assertTrue(fence.releaseRestore(first))
+        assertFalse(fence.accepts(first))
+        val retried =
+            checkNotNull(fence.bind("saved", checkNotNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))))
+        assertTrue(fence.accepts(retried))
+        val chosen = checkNotNull(fence.bind("chosen", fence.reserve()))
+        assertFalse(fence.releaseRestore(retried))
+        assertTrue(fence.accepts(chosen))
+        assertNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
+    }
+
     @Test fun savedRestoreCannotReserveAfterANewerConnectionIntent() {
         val fence = SessionFence()
         val savedIntent = fence.currentGeneration()
         val selectedIntent = fence.reserve()
         assertNull(fence.reserveRestoreIfCurrent(savedIntent))
+        assertNull(fence.reserveRestoreIfCurrent(selectedIntent))
         val selected = checkNotNull(fence.bind("selected", selectedIntent))
         assertTrue(fence.accepts(selected))
         assertNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
         assertTrue(fence.accepts(selected))
         fence.replace(null)
-        val fresh = checkNotNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
-        assertNotNull(fence.bind("saved", fresh))
+        assertNull(fence.reserveRestoreIfCurrent(fence.currentGeneration()))
+        val restarted = SessionFence()
+        val fresh = checkNotNull(restarted.reserveRestoreIfCurrent(restarted.currentGeneration()))
+        assertNotNull(restarted.bind("saved", fresh))
     }
 
     @get:Rule val temp = TemporaryFolder()
@@ -78,6 +95,21 @@ class SessionBoundaryTest {
             fence
                 .accepts(current),
         )
+    }
+
+    @Test fun automaticRestoreCannotReplaceSignOutOrAUserConnection() {
+        val fence = SessionFence()
+        val saved = checkNotNull(fence.reserveRestore())
+        val old = checkNotNull(fence.bind("a", saved))
+        fence.replace(null)
+        assertNull(fence.reserveRestore())
+        assertFalse(fence.accepts(old))
+        val selected = fence.reserve()
+        assertNull(fence.reserveRestore())
+        val current = checkNotNull(fence.bind("b", selected))
+        assertTrue(fence.accepts(current))
+        assertNull(fence.reserveRestore())
+        assertNull(fence.bind("a", saved))
     }
 
     @Test fun coldResetRemovesDatabaseSidecarsAndOwnedFilesOnly() {

@@ -117,6 +117,8 @@ data class MessengerState(
     val settings: ConversationSettings = ConversationSettings(),
     val unknownSends: List<UnknownSendRow> = emptyList(),
     val features: FeatureAvailability = FeatureAvailability(),
+    val notificationStatus: String = "Off: Firebase is not configured",
+    val notificationsEnabled: Boolean = false,
 )
 
 sealed interface MessengerAction {

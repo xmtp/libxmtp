@@ -41,6 +41,7 @@ class BackendTransportInstrumentedTest {
             var local: BackendProfile? = null
             var remote: BackendProfile? = null
             var recreated: AppSession? = null
+            var localRecreated: AppSession? = null
             var sdkStarts = 0
             var originalProfileIds = emptySet<String>()
             try {
@@ -79,9 +80,12 @@ class BackendTransportInstrumentedTest {
                 println("TRANSPORT_PROOF stage=remote-connect-rejected-before-profile-secret-sdk")
                 session.signOut()
                 session.preferences.setSignedIn(true)
-                session.restore()
+                val localSession = AppSession(context)
+                localRecreated = localSession
+                localSession.beforeClientBuild = session.beforeClientBuild
+                localSession.restore()
                 assertEquals(2, sdkStarts)
-                val restored = checkNotNull(session.active.value)
+                val restored = checkNotNull(localSession.active.value)
                 assertEquals(inbox, restored.client.inboxId())
                 assertTrue(restored.profile.allowPrivateNetwork)
                 assertTrue(
@@ -90,7 +94,7 @@ class BackendTransportInstrumentedTest {
                         .any { it.id() == groupId },
                 )
                 println("TRANSPORT_PROOF stage=actual-local-native-connect-and-restore")
-                session.signOut()
+                localSession.signOut()
                 remote = BackendProfile(UUID.randomUUID().toString(), "http://saved-remote.example.test")
                 session.preferences.setActive(checkNotNull(remote))
                 session.preferences.setSignedIn(true)
@@ -114,6 +118,8 @@ class BackendTransportInstrumentedTest {
                 withContext(NonCancellable) {
                     session.beforeClientBuild = {}
                     recreated?.beforeClientBuild = {}
+                    localRecreated?.beforeClientBuild = {}
+                    localRecreated?.signOut()
                     recreated?.signOut()
                     session.signOut()
                     local?.let {
