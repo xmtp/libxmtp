@@ -32,6 +32,10 @@ dev/nix-shell 'just android lint'
 dev/nix-shell 'just android format'
 dev/nix-shell 'just android test'
 dev/nix-shell 'just android test-unit --tests uniffi.xmtp_sdk.AndroidStreamLifecycleTest'
+dev/nix-shell 'just android example-test'
+dev/nix-shell 'just android example-check'
+dev/nix-shell 'just android example-test-integration'
+dev/nix-shell 'just android example-test-release-integration'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
@@ -53,11 +57,13 @@ verification metadata cover the final resolved graph.
 
 The example keeps API 27 as its minimum and JVM 17. `:example-shared` has an
 Android KMP target. Compose UI goes in `commonMain`; SDK and Android objects
-stay in the host. The shared module's Android instrumented test source set has
-a positive SDK/UI compile fixture. Its SDK dependency is test only. The example
-keeps its legacy runtime graph until the real UI is connected.
-`assemble` compiles the shared target and test APK, existing app, and app test APK with
-strict dependency verification. The Android unit CI job also runs `assemble`.
+stay in the host. The app uses the shared screens and Compose compiler plugin.
+The shared module has no SDK or core library desugaring dependency. Its source
+uses Compose and app data types. The SDK and app keep pinned desugaring for
+generated timestamps.
+`assemble` compiles the SDK, shared target, app, and SDK/app test APKs with strict
+dependency verification. `example-check` also compiles debug and release app
+and shared targets, plus the app test APK. The Android unit CI job runs `assemble`.
 The pinned build uses AGP 8.10.1, Kotlin and its Compose compiler 2.2.20,
 Compose Multiplatform 1.8.2, and Gradle 8.11.1. Nix provides API 35 for all
 three modules. Keep the SDK minimum at API 23 and desugar_jdk_libs at 2.1.5.
@@ -93,6 +99,20 @@ when Gradle runs directly through `dev/nix-shell`. The `test-unit` recipe uses
 these existing matched bindings and accepts Gradle test filters.
 
 ## Local services
+
+The Messenger app has an Android host in `example` and shared Compose screens
+in `example-shared/src/commonMain`. `example-test` runs host/shared unit tests.
+`test-integration` selects `:library:connectedCheck` for SDK instrumentation.
+It does not select the app test task. `example-test-integration` runs app
+instrumentation in the owned emulator scope.
+It forwards the current worktree backend and S3 ports for signed loopback URLs.
+`example-test-release-integration` tests the actual release build with temporary
+local test signing. It keeps DEBUG=false and the release resources. It forwards
+the backend port for the release loopback connection. The Gradle property
+`xmtpExampleReleaseTests=true` selects this test mode. It does not change URL
+admission. Run both host variants with
+`dev/nix-shell 'just android example-test :example:testReleaseUnitTest'`.
+Start the backend before app instrumentation. Keep SDK package and consumer tests.
 
 Run `dev/nix-shell 'just backend up'`. The library test BuildConfig reads backend
 and anvil ports from the worktree environment. The emulator reaches these

@@ -15,11 +15,9 @@ kotlin {
         commonMain.dependencies {
             implementation compose.runtime
             implementation compose.foundation
+            implementation compose.animation
             implementation compose.material3
             implementation compose.ui
-        }
-        androidInstrumentedTest.dependencies {
-            implementation project(':library')
         }
     }
 }
@@ -31,12 +29,7 @@ android {
         minSdk 27
     }
     compileOptions {
-        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-}
-
-dependencies {
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 }
