@@ -45,8 +45,9 @@ NAMES = {
 
 
 def owned(serial, *arguments):
+    transport = ["exec-out"] if arguments[0] == "head" else ["shell", "-T"]
     return subprocess.run(
-        ["adb", "-s", serial, "exec-out", "run-as", APP, *arguments],
+        ["adb", "-s", serial, *transport, "run-as", APP, *arguments],
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

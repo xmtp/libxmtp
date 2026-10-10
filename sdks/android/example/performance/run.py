@@ -3,6 +3,7 @@
 
 import argparse
 import difflib
+import hashlib
 import json
 import math
 import os
@@ -110,8 +111,78 @@ def result_failures(connected):
     return failures
 
 
+def seed_evidence(output, label, report, progress, reused_seed):
+    path = output / "workload-seed-progress.jsonl"
+    identity_path = output / "workload-seed.json"
+    current = progress.stdout.encode() if progress.returncode == 0 else b""
+    current_hash = hashlib.sha256(current).hexdigest() if current else None
+    if not path.exists() or not path.stat().st_size:
+        path.write_bytes(current)
+        identity_path.write_text(
+            json.dumps(
+                {
+                    "workloadId": report.get("workloadId"),
+                    "seedMs": report.get("seedMs"),
+                    "capturedBy": label,
+                    "seedProgressSha256": hashlib.sha256(current).hexdigest(),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+    retained = json.loads(identity_path.read_text())
+    retained_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    if retained_hash != retained["seedProgressSha256"]:
+        raise ValueError("Retained workload seed artifact changed")
+    different = bool(current and current_hash != retained_hash) or any(
+        report.get(key) is not None
+        and retained.get(key) is not None
+        and report[key] != retained[key]
+        for key in ("workloadId", "seedMs")
+    )
+    metadata = {
+        "workloadId": report.get("workloadId"),
+        "seedMs": report.get("seedMs"),
+        "retainedWorkloadId": retained.get("workloadId"),
+        "seedProgressArtifact": path.name,
+        "seedProgressSha256": retained_hash,
+        "currentSeedReadSha256": current_hash,
+        "seedReadStatus": "different"
+        if different
+        else "available"
+        if current
+        else "unavailable",
+        "manifestPresentBeforeInvocation": reused_seed,
+        "seedAttribution": "reused existing seed"
+        if reused_seed
+        else "no existing manifest before invocation",
+    }
+    (output / f"{label}-workload.json").write_text(
+        json.dumps(metadata, indent=2) + "\n"
+    )
+    if different:
+        raise ValueError("Current seed evidence differs from the retained workload")
+
+
 def execute(output, label, backend):
     serial = os.environ["ANDROID_SERIAL"]
+    (output / f"{label}-seed-progress.jsonl").unlink(missing_ok=True)
+    manifest = subprocess.run(
+        [
+            "adb",
+            "-s",
+            serial,
+            "shell",
+            "-T",
+            "run-as",
+            APP_ID,
+            "test",
+            "-f",
+            "files/messenger-performance/workload.json",
+        ],
+        capture_output=True,
+    )
+    reused_seed = manifest.returncode == 0
     connected = ANDROID / "example/build/outputs/androidTest-results/connected"
     snapshot = output / f"{label}-connected"
     for directory in (connected, snapshot):
@@ -141,6 +212,7 @@ def execute(output, label, backend):
             "rm",
             "-f",
             "files/messenger-performance/result.json",
+            "files/messenger-performance/readiness-progress.jsonl",
             "files/messenger-performance/measurement-progress.jsonl",
         ],
         check=False,
@@ -207,9 +279,12 @@ def execute(output, label, backend):
             text=True,
             capture_output=True,
         )
-        (output / f"{label}-{name}.jsonl").write_text(
-            progress.stdout if progress.returncode == 0 else ""
-        )
+        if name == "seed-progress":
+            seed_progress = progress
+        else:
+            (output / f"{label}-{name}.jsonl").write_text(
+                progress.stdout if progress.returncode == 0 else ""
+            )
     read = subprocess.run(
         [
             "adb",
@@ -226,6 +301,7 @@ def execute(output, label, backend):
     )
     report = json.loads(read.stdout) if read.returncode == 0 else {}
     (output / f"{label}.json").write_text(json.dumps(report, indent=2) + "\n")
+    seed_evidence(output, label, report, seed_progress, reused_seed)
     return run.returncode, report, result_failures(snapshot)
 
 
@@ -241,6 +317,8 @@ def run(output, red_control):
     ):
         raise ValueError("Set emulator flags -cores 4 -memory 4096")
     output.mkdir(parents=True, exist_ok=True)
+    for name in ("workload-seed-progress.jsonl", "workload-seed.json"):
+        (output / name).unlink(missing_ok=True)
     environment = {
         "disposableBackend": {
             key: value

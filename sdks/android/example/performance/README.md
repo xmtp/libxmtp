@@ -35,7 +35,15 @@ the unsynced text count at most 256. SDK receipt cursors can include metadata;
 they are not text counts. Each checkpoint records counts and send, publication,
 sync and count durations in app-private `seed-progress.jsonl` and stdout. A
 failed SDK barrier records its typed target, receipt and processing progress.
-The host runner saves this file even when instrumentation fails. No successful
+The host runner saves this file as `workload-seed-progress.jsonl`, even when
+instrumentation fails. Each pass has a `*-workload.json` reference with the
+workload UUID, seed duration, artifact hash and manifest presence before launch.
+An existing manifest is marked `reused existing seed`. Seed checkpoints are not
+named as per-pass progress. Readiness is cleared before each invocation; readiness
+and measurement files keep their pass labels. The first nonempty seed artifact
+is retained. Later failed reads are marked unavailable. A different seed hash or
+workload identity fails with explicit metadata and preserves the first artifact.
+No successful
 receipt cursor is invented: public sync returns no cursor. This pacing is
 fixture preparation; its complete Linux seed result remains pending.
 
