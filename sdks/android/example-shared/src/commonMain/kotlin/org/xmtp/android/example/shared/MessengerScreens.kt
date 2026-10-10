@@ -490,6 +490,10 @@ fun MessengerScreens(
                 label = {
                     Text("Credential")
                 },
+                keyboardOptions =
+                    androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                    ),
                 visualTransformation =
                     androidx.compose.ui.text.input
                         .PasswordVisualTransformation(),

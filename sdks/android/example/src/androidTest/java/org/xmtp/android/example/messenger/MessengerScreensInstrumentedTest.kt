@@ -1,7 +1,5 @@
 package org.xmtp.android.example.messenger
-import android.content.ContentValues
 import android.graphics.Bitmap
-import android.provider.MediaStore
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
@@ -30,60 +28,11 @@ class MessengerScreensInstrumentedTest {
                     .uiAutomation
                     .takeScreenshot(),
             )
-        val resolver =
-            compose.activity.contentResolver
-        val values =
-            ContentValues().apply {
-                put(
-                    MediaStore.Images.Media.DISPLAY_NAME,
-                    "$name.png",
-                )
-                put(
-                    MediaStore.Images.Media.MIME_TYPE,
-                    "image/png",
-                )
-                put(
-                    MediaStore.Images.Media.RELATIVE_PATH,
-                    "Pictures/XmtpMessengerProof",
-                )
-                put(
-                    MediaStore.Images.Media.IS_PENDING,
-                    1,
-                )
-            }
-        val uri =
-            checkNotNull(
-                resolver
-                    .insert(
-                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                        values,
-                    ),
-            )
-        checkNotNull(
-            resolver
-                .openOutputStream(uri),
-        ).use {
-            bitmap
-                .compress(
-                    Bitmap.CompressFormat.PNG,
-                    100,
-                    it,
-                )
+        try {
+            writeProofScreenshot(compose.activity, name, bitmap)
+        } finally {
+            bitmap.recycle()
         }
-        resolver
-            .update(
-                uri,
-                ContentValues().apply {
-                    put(
-                        MediaStore.Images.Media.IS_PENDING,
-                        0,
-                    )
-                },
-                null,
-                null,
-            )
-        bitmap
-            .recycle()
     }
 
     private fun visible(text: String) {
