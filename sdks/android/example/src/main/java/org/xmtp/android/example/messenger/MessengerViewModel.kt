@@ -1170,7 +1170,9 @@ class MessengerViewModel(
 
     private fun historyPages(chat: Conversation) =
         SDKHistoryPages<Message>(
-            readableRow = { it.content !is MessageContent.DeletedMessage },
+            readableRow = {
+                (it.content as? SDKMessageContent.Standard)?.value !is MessageContent.DeletedMessage
+            },
         ) { direction, before, after ->
             reads.withPermit {
                 historyPageRead(

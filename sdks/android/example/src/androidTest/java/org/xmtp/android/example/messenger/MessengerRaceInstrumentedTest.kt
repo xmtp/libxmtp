@@ -295,6 +295,81 @@ class MessengerRaceInstrumentedTest {
             }
         }
 
+    @Test fun deletedSdkPlaceholdersCannotBlockNewestAnchorFallback() =
+        runBlocking {
+            try {
+                val owner = connect()
+                model.session.onInvalidated = {}
+                model.session.onMessage = { _, _ -> }
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Deleted placeholders"),
+                    )
+                val ids = (0 until 160).map { group.sendText("Placeholder $it", SendOptions(optimistic = true)) }
+                group.publishMessages()
+                assertEquals(160uL, group.countMessages(publishedSelection()))
+                val anchor = checkNotNull(owner.client.conversations.getMessageById(ids[79]))
+                val saved = ScrollAnchor(anchor.id, anchor.sentAt.ns, 23, false, checkNotNull(anchor.deliveryCursor))
+                val position = MessageHistoryPosition(anchor.sentAt, checkNotNull(anchor.deliveryCursor))
+                for (id in ids.subList(30, 130)) group.deleteMessage(id)
+                group.publishMessages()
+                val newer =
+                    group.messageHistoryPage(
+                        publishedSelection().copy(limit = 50u, direction = MessageOrder.ASCENDING),
+                        null,
+                        position,
+                    )
+                val older = group.messageHistoryPage(publishedSelection().copy(limit = 50u), newer.firstPosition, null)
+                for (page in listOf(newer, older)) {
+                    assertEquals(50, page.messages.size)
+                    assertTrue(
+                        page.messages.all {
+                            (it.content as? SDKMessageContent.Standard)?.value is MessageContent.DeletedMessage
+                        },
+                    )
+                    assertNotNull(page.firstPosition)
+                    assertNotNull(page.lastPosition)
+                    assertEquals(0u, page.skippedCount)
+                }
+                model.session.preferences.saveAnchor(owner.key.profileId, group.id(), saved)
+                val reads =
+                    java.util.concurrent.atomic
+                        .AtomicInteger()
+                model.historyPageRead = { chat, options, before, after ->
+                    if (chat.id() == group.id() && options.limit == 50u) reads.incrementAndGet()
+                    chat.historyPage(options, before, after)
+                }
+                val opened = CompletableDeferred<Unit>()
+                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                withTimeout(30_000) { opened.await() }
+                assertEquals("Native deleted placeholders require a newest-page read", 3, reads.get())
+                val restored = checkNotNull(model.state.value.anchor)
+                assertEquals(ids.last(), restored.messageId)
+                assertEquals(0, restored.offsetPx)
+                assertTrue(restored.wasAtNewest)
+                assertEquals("Position changed", model.state.value.historyNotice)
+                assertEquals(
+                    ids.takeLast(50).asReversed(),
+                    model.state.value.messages
+                        .map { it.id },
+                )
+                assertTrue(
+                    model.state.value.messages
+                        .filter { it.id in ids.subList(30, 130) }
+                        .all { it.deleted },
+                )
+                assertTrue(
+                    model.state.value.messages
+                        .none { it.id == anchor.id },
+                )
+                println("SDK_PAGE_PROOF stage=decoded-deletion-placeholder-newest-fallback")
+            } finally {
+                cleanup()
+            }
+        }
+
     @Test fun refreshRereadsRetainedNativeWindowAfterMoreThanFiveHundredNewerRows() =
         runBlocking {
             try {
