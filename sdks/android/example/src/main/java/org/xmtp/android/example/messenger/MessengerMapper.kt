@@ -145,18 +145,15 @@ private fun messageText(content: MessageContent): String =
         }
     }
 
+/** Keep the SDK list order for equal sent times. */
 fun reactionRows(
     records: List<ReactionMessage>,
     own: InboxId,
 ): List<ReactionUi> =
     records
-        .sortedWith(
-            compareBy<ReactionMessage> {
-                it.sentAt.ns
-            }.thenBy {
-                it.id
-            },
-        ).groupBy {
+        .sortedBy {
+            it.sentAt.ns
+        }.groupBy {
             Triple(
                 it.senderInboxId,
                 it.reaction.content,

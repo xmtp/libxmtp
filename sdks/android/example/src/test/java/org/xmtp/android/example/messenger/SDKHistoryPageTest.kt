@@ -153,7 +153,7 @@ class SDKHistoryPageTest {
     @Test fun sdkCacheKeepsOnlyThreeTranscriptsAndUsesRetainedBoundariesAfterTrim() {
         val raw = rows(600)
         val cache = SDKTranscriptCache<Stored>({ it.id }, { it.position })
-        val page = HistoryWindow(raw, raw.first().position, raw.last().position, false, true)
+        val page = HistoryWindow(raw.flatMap { listOf(it, it) }, raw.first().position, raw.last().position, false, true)
         val kept = cache.put("a", page, raw[300].id)
         assertEquals(raw.subList(50, 550), kept.rows)
         assertEquals(raw[549].position.deliveryCursor, kept.last!!.deliveryCursor)
