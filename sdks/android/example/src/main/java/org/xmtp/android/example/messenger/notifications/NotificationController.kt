@@ -289,6 +289,7 @@ class NotificationController(
         }
 
     private suspend fun receiveLocal(data: Map<String, String>): Boolean {
+        session.replayExportCleanup()
         if (!configured || !permission() || parsePush(data) == null) return false
         val profile = session.preferences.active() ?: return false
         if (!session.preferences.signedIn() ||

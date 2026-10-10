@@ -155,6 +155,7 @@ class AppSession(
             ::clearExportFiles,
             preferences::completeExportCleanup,
         ).run()
+
     internal var beforeAutomaticProfileLookup: suspend () -> Unit = {}
     internal var beforeBoundConnectOperation: suspend (SessionKey) -> Unit = {}
 
@@ -200,8 +201,9 @@ class AppSession(
     }
 
     /** Open the saved account for local push reads without default collectors. */
-    suspend fun restoreForPush(): ActiveSession? =
-        operation.withLock {
+    suspend fun restoreForPush(): ActiveSession? {
+        replayExportCleanup()
+        return operation.withLock {
             activeState.value?.let { return@withLock it.takeIf { owner -> accepts(owner.key) } }
             if (stopping != null || opening != null) return@withLock null
             val generation = fence.reserveRestore() ?: return@withLock null
@@ -261,6 +263,7 @@ class AppSession(
                 }
             }
         }
+    }
 
     /** Clear old notification state before a normal task runner can renew it. */
     private suspend fun prepareStoredNotifications(
