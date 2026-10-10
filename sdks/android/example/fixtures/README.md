@@ -7,9 +7,11 @@ The database, listeners and backend process belong to this run. The runner
 removes them after success, command failure or cancellation. Backend logs remain
 at the printed path.
 
-Cleanup stops the owned process group even if its leader already exited.
-It sends SIGKILL to remaining members after the leader's TERM wait. It rejects
-a live process that does not own its group and never uses a global process kill.
+An internal keeper retains the process-group identity after the command exits.
+Command status is reported separately; no poll or wait reaps the keeper before
+the final group signal. Cleanup sends TERM, waits for the command, then sends
+KILL and reaps the keeper. Owner-channel closure also stops its owned group.
+Cleanup never uses a process-table scan or a global process kill.
 
 Run from the repository root:
 
@@ -31,6 +33,16 @@ changed. Set `XMTP_METADATA_LOG_DIR` to keep logs at a selected path.
 The child command receives `DATABASE_URL`, `XMTP_DATABASE_URL` and
 `XMTP_REPLICA_URL` for the owned database. The backend and S3 HTTP endpoints
 stay available for the app tests. These environment values are not a sandbox.
+Decoded `dbname` query parameters are removed from the owned URL so they cannot
+override the UUID database path. Other connection options stay intact.
+
+After backend health succeeds, the child receives `XMTP_METADATA_BACKEND_LEASE`.
+It names a mode 0600 JSON file in the mode 0700 fixture directory. Its
+`formatVersion`, `url`, `port`, `database`, `serverPid`, `groupPid`, `ownerPid`
+and `uid` fields identify the ready disposable target without credentials.
+`groupPid` is the retained keeper/session; `serverPid` is the backend command.
+The descriptor is removed when the fixture scope exits. The performance runner
+uses this record to admit only the owned target.
 
 Every PostgreSQL command removes the URI password from its arguments. If the
 URI has a password, the command reads it from an owned `PGPASSFILE` with mode

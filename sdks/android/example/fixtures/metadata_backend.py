@@ -3,6 +3,7 @@
 
 import argparse
 from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
 import re
@@ -14,6 +15,8 @@ import time
 import tomllib
 from urllib.parse import unquote, urlsplit, urlunsplit
 import uuid
+
+from process_group import OwnedProcess
 
 
 def port():
@@ -43,24 +46,9 @@ def config_text(source, catalogue, listener, metrics):
 def stop(process):
     if process is None:
         return
-    try:
-        if os.getpgid(process.pid) != process.pid:
-            raise ValueError("The fixture process does not own its process group.")
-    except ProcessLookupError:
-        pass
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    process.wait(timeout=5)
+    if not isinstance(process, OwnedProcess):
+        raise ValueError("The fixture process does not own a retained group lease.")
+    process.stop()
 
 
 @contextmanager
@@ -108,6 +96,16 @@ def psql_connection(database, environment, executable="psql"):
         yield [executable, "--no-password", connection], env
 
 
+def owned_database_url(database, name):
+    parsed = urlsplit(database)
+    query = "&".join(
+        parameter
+        for parameter in parsed.query.split("&")
+        if unquote(parameter.partition("=")[0]) != "dbname"
+    )
+    return urlunsplit(parsed._replace(path="/" + name, query=query))
+
+
 def run(backend, command, environment=None):
     env = dict(environment or os.environ)
     database = env["DATABASE_URL"]
@@ -121,8 +119,7 @@ def _run_owned(backend, command, env, database, psql, psql_env):
         if not env.get(name):
             raise ValueError(f"{name} is required from the worktree environment.")
     name = "messenger_metadata_" + uuid.uuid4().hex
-    parsed = urlsplit(database)
-    owned_url = urlunsplit(parsed._replace(path="/" + name))
+    owned_url = owned_database_url(database, name)
     listener, metrics = port(), port()
     env.update(
         DATABASE_URL=owned_url, XMTP_DATABASE_URL=owned_url, XMTP_REPLICA_URL=owned_url
@@ -214,12 +211,11 @@ def _run_owned(backend, command, env, database, psql, psql_env):
             logs.mkdir(parents=True, exist_ok=True)
             print(f"Metadata fixture logs: {logs}", flush=True)
             with (logs / "backend.log").open("w") as log:
-                server = subprocess.Popen(
+                server = OwnedProcess(
                     [backend, "--config-file", str(config)],
                     env=env,
                     stdout=log,
                     stderr=subprocess.STDOUT,
-                    start_new_session=True,
                 )
                 deadline = time.monotonic() + 60
                 while True:
@@ -248,7 +244,25 @@ def _run_owned(backend, command, env, database, psql, psql_env):
                             f"Metadata backend did not become ready; see {logs}"
                         )
                     time.sleep(0.1)
-                child = subprocess.Popen(command, env=child_env, start_new_session=True)
+                lease = Path(directory) / "lease.json"
+                with open(
+                    lease, "x", opener=lambda path, flags: os.open(path, flags, 0o600)
+                ) as out:
+                    json.dump(
+                        {
+                            "formatVersion": 1,
+                            "url": child_env["XMTP_METADATA_BACKEND_URL"],
+                            "port": listener,
+                            "database": name,
+                            "serverPid": server.command_pid,
+                            "groupPid": server.pid,
+                            "ownerPid": os.getpid(),
+                            "uid": os.getuid(),
+                        },
+                        out,
+                    )
+                child_env["XMTP_METADATA_BACKEND_LEASE"] = str(lease)
+                child = OwnedProcess(command, env=child_env)
                 return child.wait()
     finally:
         for signum in previous:

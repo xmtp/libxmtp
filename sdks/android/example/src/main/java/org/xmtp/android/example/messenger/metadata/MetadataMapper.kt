@@ -75,8 +75,8 @@ object MetadataMapper {
     private fun known(p: MetadataPolicy): Boolean =
         when (p) {
             is MetadataPolicy.Base -> p.v1 !is MetadataBasePolicy.Unknown
-            is MetadataPolicy.And -> p.v1.all(::known)
-            is MetadataPolicy.Any -> p.v1.all(::known)
+            is MetadataPolicy.And -> p.v1.isNotEmpty() && p.v1.all(::known)
+            is MetadataPolicy.Any -> p.v1.isNotEmpty() && p.v1.all(::known)
         }
 
     fun field(
