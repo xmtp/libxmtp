@@ -118,14 +118,17 @@ class PerformanceGateTest(unittest.TestCase):
 
 
 class DeviceInvocationTest(unittest.TestCase):
-    def test_failed_device_run_retains_seed_checkpoint_progress(self):
+    def test_failed_device_run_retains_seed_and_readiness_progress(self):
         progress = '{"group":0,"expectedPublished":256,"status":"failed"}\n'
+        readiness = '{"phase":"restored-owner","event":"failed","failureClass":"TimeoutCancellationException"}\n'
 
         def execute_process(arguments, **options):
             if arguments[0] != "adb":
                 return subprocess.CompletedProcess(arguments, 1)
             if arguments[-1] == "files/messenger-performance/seed-progress.jsonl":
                 return subprocess.CompletedProcess(arguments, 0, stdout=progress)
+            if arguments[-1] == "files/messenger-performance/readiness-progress.jsonl":
+                return subprocess.CompletedProcess(arguments, 0, stdout=readiness)
             return subprocess.CompletedProcess(arguments, 1, stdout="")
 
         with tempfile.TemporaryDirectory() as directory:
@@ -145,6 +148,9 @@ class DeviceInvocationTest(unittest.TestCase):
             self.assertEqual(["receipt barrier"], failures)
             self.assertEqual(
                 progress, (output / "green-seed-progress.jsonl").read_text()
+            )
+            self.assertEqual(
+                readiness, (output / "green-readiness-progress.jsonl").read_text()
             )
 
     def test_every_pass_retains_the_installed_app_for_result_and_dataset_reuse(self):
