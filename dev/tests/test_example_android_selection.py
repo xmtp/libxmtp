@@ -228,6 +228,11 @@ class CommandPathTest(unittest.TestCase):
             checker = root / "sdks/android/dev/check-native-packages.py"
             checker.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / "sdks/android/dev/check-native-packages.py", checker)
+            exporter = root / "apps/example-android/fixtures/export_screenshots.py"
+            exporter.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(
+                ROOT / "apps/example-android/fixtures/export_screenshots.py", exporter
+            )
             # These archives prove path selection. Real packages use the NDK reader.
             for name in (
                 "sdks/android/library/build/outputs/aar/library-debug.aar",
@@ -260,7 +265,17 @@ class CommandPathTest(unittest.TestCase):
             )
             executable(
                 "bin/adb",
-                'if [[ "$3" == pull ]]; then touch "${@: -1}/fixture.png"; fi\n',
+                'if [[ "$3" == exec-out ]]; then\n'
+                ' test "$4" = run-as\n'
+                ' test "$5" = org.xmtp.android.example\n'
+                ' printf "%s\\n" "$*" >> "$SCREENSHOT_LOG"\n'
+                ' case "$6" in\n'
+                "  sh) printf 'setup.png\\n' ;;\n"
+                "  head) printf '\\211PNG\\r\\n\\032\\nfixture-image' ;;\n"
+                '  rm) test "${@: -1}" = files/xmtp-messenger-proof ;;\n'
+                '  *) exit 1 ;;\n'
+                ' esac\n'
+                'fi\n',
             )
             for name in ("attachment-io-proxy", "unsupported-backend"):
                 executable("apps/example-android/dev/" + name, 'exec "$@"\n')
@@ -284,6 +299,7 @@ class CommandPathTest(unittest.TestCase):
                 PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
                 COMMAND_LOG=str(root / "commands.jsonl"),
                 STAGE_LOG=str(root / "stages.txt"),
+                SCREENSHOT_LOG=str(root / "screenshots.txt"),
                 ANDROID_NDK_HOME=str(root / "ndk"),
             )
             for recipe in (
@@ -340,13 +356,24 @@ class CommandPathTest(unittest.TestCase):
             self.assertIn(
                 "metadataBackendUrl=http://127.0.0.1:15151", commands[2]["args"]
             )
+            self.assertIn(
+                "android.injected.androidTest.leaveApksInstalledAfterRun=true",
+                commands[2]["args"],
+            )
             self.assertIn(":example:connectedReleaseAndroidTest", commands[3]["args"])
             self.assertEqual(commands[2]["port"], "15150")
             self.assertTrue(
                 (
-                    root / "apps/example-android/app/build/screenshots/fixture.png"
+                    root / "apps/example-android/app/build/screenshots/setup.png"
                 ).is_file()
             )
+            screenshot_calls = (root / "screenshots.txt").read_text()
+            self.assertIn("run-as org.xmtp.android.example head", screenshot_calls)
+            self.assertIn(
+                "run-as org.xmtp.android.example rm -rf files/xmtp-messenger-proof",
+                screenshot_calls,
+            )
+            self.assertNotIn("/sdcard/", screenshot_calls)
             self.assertFalse((root / "sdks/android/app").exists())
             self.assertEqual((root / "stages.txt").read_text().count("bindings\n"), 4)
 

@@ -42,6 +42,11 @@ private file at `app/google-services.json`. Do not commit it.
 The Android host is in `app`. Shared Compose screens are in `shared/src/commonMain`.
 `test` runs host and shared unit tests. `test-integration` runs app instrumentation
 in the owned emulator scope.
+Test screenshots use app-private `files/xmtp-messenger-proof`. The integration
+recipe retains the APK until it exports only the named fixture PNG files to
+`app/build/screenshots`, then removes only the owned private proof directory.
+Export errors fail the route. An earlier instrumentation failure keeps its status.
+The export and cleanup process fixtures run under `lint-config` without a device.
 It forwards the current worktree backend and S3 ports for signed loopback URLs.
 The app test scope owns a loopback TCP relay for S3 GET response admission.
 `io-fixture` checks its listener startup and teardown without a device.
