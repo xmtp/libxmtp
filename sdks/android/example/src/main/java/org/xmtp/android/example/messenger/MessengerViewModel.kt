@@ -271,6 +271,7 @@ class MessengerViewModel(
         ConsentState,
     ) -> Unit = { chat, value -> chat.updateConsentState(value) }
     internal var onConsentFinished: () -> Unit = {}
+    internal var listGroupStateRead: suspend (Group) -> GroupState = { group -> group.state() }
     internal var historyPageRead: suspend (
         Conversation,
         ListMessagesOptions,
@@ -952,7 +953,7 @@ class MessengerViewModel(
         )
     }
 
-    private suspend fun refreshList(owner: ActiveSession) =
+    internal suspend fun refreshList(owner: ActiveSession) =
         coroutineScope {
             val unknown =
                 ui.value.unknownTab
@@ -1004,13 +1005,14 @@ class MessengerViewModel(
                                 )
                             }
                             reads.withPermit {
-                                val state = conversationState(chat)
+                                val groupState =
+                                    (chat as? Conversation.Group)?.let { listGroupStateRead(it.group) }
+                                val state = groupState?.common ?: conversationState(chat)
                                 val title =
                                     when (chat) {
                                         is Conversation.Group,
                                         -> {
-                                            chat.group
-                                                .state()
+                                            checkNotNull(groupState)
                                                 .name
                                                 .ifBlank {
                                                     "Group"
