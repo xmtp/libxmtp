@@ -61,9 +61,14 @@ def export(serial, output):
         output.mkdir(parents=True, exist_ok=True)
         for name in NAMES:
             (output / name).unlink(missing_ok=True)
-        listing = owned(
-            serial, "sh", "-c", f"if test -d {PRIVATE}; then ls {PRIVATE}; fi"
-        )
+        try:
+            listing = owned(serial, "ls", "-1", PRIVATE)
+        except subprocess.CalledProcessError as error:
+            try:
+                owned(serial, "test", "!", "-e", PRIVATE)
+            except BaseException:
+                raise error
+            listing = b""
         names = listing.decode("utf-8").splitlines()
         if len(names) != len(set(names)) or not set(names) <= NAMES:
             raise ValueError("Unknown or duplicate fixture screenshot name")
