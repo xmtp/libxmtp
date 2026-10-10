@@ -46,26 +46,31 @@ class PendingMessagePagesTest {
 
     @Test fun tiedPendingRowsKeepSdkOrderAndReachEveryIdThroughBoundedPages() =
         runBlocking {
-            val rows = (501 downTo 1).map {
-                storedMessage(it, if (it % 2 == 0) DeliveryStatus.FAILED else DeliveryStatus.UNPUBLISHED, timeNs = 777)
-            }
+            val rows =
+                (501 downTo 1).map {
+                    storedMessage(
+                        it,
+                        if (it % 2 == 0) DeliveryStatus.FAILED else DeliveryStatus.UNPUBLISHED,
+                        timeNs = 777,
+                    )
+                }
             val offsets = rows.indices.associate { position(it) to it }
             var calls = 0
             val read: suspend (ListMessagesOptions, MessageRecoveryPosition?, MessageRecoveryPosition?) ->
-                MessageRecoveryPage = { options, before, after ->
-                    assertSelection(options)
-                    assertNull(after)
-                    calls += 1
-                    val start = before?.let { checkNotNull(offsets[it]) + 1 } ?: 0
-                    val selected = rows.drop(start).take(50)
-                    MessageRecoveryPage(
-                        selected,
-                        position(start),
-                        position(start + selected.size - 1),
-                        start + selected.size < rows.size,
-                        0u,
-                    )
-                }
+            MessageRecoveryPage = { options, before, after ->
+                assertSelection(options)
+                assertNull(after)
+                calls += 1
+                val start = before?.let { checkNotNull(offsets[it]) + 1 } ?: 0
+                val selected = rows.drop(start).take(50)
+                MessageRecoveryPage(
+                    selected,
+                    position(start),
+                    position(start + selected.size - 1),
+                    start + selected.size < rows.size,
+                    0u,
+                )
+            }
             val visible = mutableListOf<String>()
             var before: MessageRecoveryPosition? = null
             do {
@@ -84,29 +89,29 @@ class PendingMessagePagesTest {
             var calls = 0
             val bounds = mutableListOf<MessageRecoveryPosition?>()
             val read: suspend (ListMessagesOptions, MessageRecoveryPosition?, MessageRecoveryPosition?) ->
-                MessageRecoveryPage = { options, before, after ->
-                    assertSelection(options)
-                    assertNull(after)
-                    bounds += before
-                    calls += 1
-                    if (calls <= 4) {
-                        MessageRecoveryPage(
-                            emptyList(),
-                            position((calls - 1) * 50),
-                            position(calls * 50 - 1),
-                            true,
-                            50u,
-                        )
-                    } else {
-                        MessageRecoveryPage(
-                            listOf(storedMessage(1, DeliveryStatus.FAILED)),
-                            position(200),
-                            position(200),
-                            false,
-                            0u,
-                        )
-                    }
+            MessageRecoveryPage = { options, before, after ->
+                assertSelection(options)
+                assertNull(after)
+                bounds += before
+                calls += 1
+                if (calls <= 4) {
+                    MessageRecoveryPage(
+                        emptyList(),
+                        position((calls - 1) * 50),
+                        position(calls * 50 - 1),
+                        true,
+                        50u,
+                    )
+                } else {
+                    MessageRecoveryPage(
+                        listOf(storedMessage(1, DeliveryStatus.FAILED)),
+                        position(200),
+                        position(200),
+                        false,
+                        0u,
+                    )
                 }
+            }
             val empty = pendingMessagePage(null, read)
             assertEquals("The first operation uses four recovery calls", 4, calls)
             assertTrue(empty.rows.isEmpty())
@@ -124,13 +129,14 @@ class PendingMessagePagesTest {
         runBlocking {
             val retained = storedMessage(7, DeliveryStatus.UNPUBLISHED)
             var calls = 0
-            val page = pendingMessagePage(null) { options, before, after ->
-                assertSelection(options)
-                assertNull(before)
-                assertNull(after)
-                calls += 1
-                MessageRecoveryPage(listOf(retained), position(0), position(49), true, 49u)
-            }
+            val page =
+                pendingMessagePage(null) { options, before, after ->
+                    assertSelection(options)
+                    assertNull(before)
+                    assertNull(after)
+                    calls += 1
+                    MessageRecoveryPage(listOf(retained), position(0), position(49), true, 49u)
+                }
             assertEquals(1, calls)
             assertEquals(listOf("7"), page.rows.map { it.id })
             assertNotNull("Conversion loss stays visible", page.notice)
@@ -144,16 +150,17 @@ class PendingMessagePagesTest {
             val requested = mutableListOf<MessageRecoveryPosition?>()
             var removed = false
             val read: suspend (ListMessagesOptions, MessageRecoveryPosition?, MessageRecoveryPosition?) ->
-                MessageRecoveryPage = { options, before, after ->
-                    assertSelection(options)
-                    assertEquals(upper, before)
-                    assertNull(after)
-                    requested += before
-                    val rows = (100 downTo 51).filter { !removed || it != 80 }.map {
+            MessageRecoveryPage = { options, before, after ->
+                assertSelection(options)
+                assertEquals(upper, before)
+                assertNull(after)
+                requested += before
+                val rows =
+                    (100 downTo 51).filter { !removed || it != 80 }.map {
                         storedMessage(it, DeliveryStatus.UNPUBLISHED, timeNs = 777)
                     }
-                    MessageRecoveryPage(rows, position(50), position(99), true, 0u)
-                }
+                MessageRecoveryPage(rows, position(50), position(99), true, 0u)
+            }
             val initial = pendingMessagePage(upper, read)
             removed = true
             val refreshed = pendingMessagePage(upper, read)
