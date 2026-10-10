@@ -597,6 +597,80 @@ class MetadataEditorTest {
             )
         }
 
+    private fun malformedPolicies() =
+        listOf(
+            MetadataPolicy.And(emptyList()),
+            MetadataPolicy.Any(emptyList()),
+            MetadataPolicy.And(listOf(allow, MetadataPolicy.Any(emptyList()))),
+            MetadataPolicy.Any(listOf(allow, MetadataPolicy.And(emptyList()))),
+        )
+
+    @Test fun emptyAndAnyPoliciesAreUnsupportedAtEveryDepth() {
+        val field = descriptor(0xc001, MetadataComponentType.String)
+        for (policy in malformedPolicies()) {
+            for (permissions in listOf(
+                field.permissions.copy(insert = policy),
+                field.permissions.copy(update = policy),
+                field.permissions.copy(delete = policy),
+            )) {
+                val mapped = MetadataMapper.field(field.copy(permissions = permissions), null)
+                assertFalse(mapped.editable)
+                assertFalse(mapped.canWrite)
+            }
+        }
+        for (policy in listOf(
+            MetadataPolicy.Base(MetadataBasePolicy.Deny),
+            MetadataPolicy.And(listOf(allow)),
+            MetadataPolicy.Any(listOf(MetadataPolicy.And(listOf(allow)), allow)),
+        )) {
+            assertTrue(
+                MetadataMapper.field(field.copy(permissions = field.permissions.copy(update = policy)), null).editable,
+            )
+        }
+    }
+
+    @Test fun malformedPoliciesDoNotReachGroupOrOwnSdkWrites() =
+        runBlocking {
+            for (policy in malformedPolicies()) {
+                for (user in listOf(false, true)) {
+                    val group = RecordingGroup()
+                    val type =
+                        if (user) {
+                            MetadataComponentType.Map(
+                                MetadataKeyType.INBOX_ID,
+                                MetadataScalarType.STRING,
+                            )
+                        } else {
+                            MetadataComponentType.String
+                        }
+                    val field =
+                        descriptor(0xc001, type, user).let {
+                            it.copy(permissions = it.permissions.copy(update = policy))
+                        }
+                    group.fields = listOf(field)
+                    val controller = MetadataEditorController(Conversation.Group(group), own, { true })
+                    controller.refresh()
+                    assertFalse(
+                        controller.state.value.fields
+                            .single()
+                            .editable,
+                    )
+                    assertTrue(group.reads.isEmpty())
+                    val id = FieldUiId(field.field.componentId)
+                    controller.edit(
+                        if (user) MetadataEdit.Own(mapOf(id to "blocked")) else MetadataEdit.Scalar(id, "blocked"),
+                    )
+                    assertTrue(group.mutations.isEmpty())
+                    assertTrue(group.userWrites.isEmpty())
+                    assertTrue(
+                        controller.state.value.error
+                            .orEmpty()
+                            .contains("Unsupported"),
+                    )
+                }
+            }
+        }
+
     @Test fun offeredMissingFieldDoesNotCreateARegistryEntry() =
         runBlocking {
             val group = RecordingGroup()
