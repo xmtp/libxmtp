@@ -32,6 +32,10 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   contract. It also checks the owned loopback listeners and metrics endpoint.
   It does not pass a cache-write token to setup-nix, and fork pull requests
   skip it. Service logs are retained for 7 days.
+- The Linux job in `test-backend.yml` builds `.#backend-tests.x86_64-linux`.
+  The derivation starts its own PostgreSQL primary, streaming replica, and
+  VersityGW in the build sandbox, so the job starts no Docker services. Cachix
+  keeps a passed result. A run with unchanged inputs does not test again.
 - `test-xdbg.yml` owns the observability check. It runs xdbg against the
   Docker stack, so backend changes also select the xdbg suite.
 - `test-ios.yml` owns the Swift lifecycle checks (`just ios test-lifecycle`)

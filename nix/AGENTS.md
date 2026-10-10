@@ -49,6 +49,12 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 It supports one command on an isolated macOS runner. It does not add services
 to development shells. Run `dev/nix-shell 'just backend ci COMMAND'`.
 
+`backend-tests.<system>` runs the backend tests and the SQLx metadata check in
+the build sandbox. `package/backend-tests.sh` starts a PostgreSQL primary, a
+streaming replica, and VersityGW on free loopback ports. Linux runs all tests.
+Darwin skips the tests that need the system TLS trust service or fast replica
+replay. Build it with `nix build --no-link .#backend-tests.<system>`.
+
 ## Generated SDK preparation
 
 `xmtp-sdk-generated` includes the native, worker, and pure roots with matched

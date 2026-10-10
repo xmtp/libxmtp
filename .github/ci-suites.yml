@@ -260,6 +260,8 @@ suites:
       # apps/backend tests embed these files.
       - "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}"
       - path_group: native_backend
+      - "nix/{ci-checks,package/backend-tests}.nix"
+      - "nix/package/backend-tests.sh"
   test_validation:
     phase: test
     workflow: test-validation.yml
