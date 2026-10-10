@@ -13,10 +13,11 @@ directory.
 
 Run from the repository root. Each recipe uses the Android Nix shell.
 Build tools use normal parallelism and preserve caller job settings.
-Gradle uses a 4 GiB heap for the combined SDK and example build.
+Gradle uses a 4 GiB heap in both SDK and app roots.
 When `ANDROID_NDK_HOME` is set, all Android modules use that NDK path and its
 `Pkg.Revision` for native library stripping. Keep the path and version matched.
-`check` also runs `check-packages` on the debug and release AARs and example APKs.
+SDK `check` also runs `check-packages` on the debug and release AARs.
+The separate app `check` validates the moved Debug and Release APKs.
 The artifact check rejects static symbol and debug sections and requires the
 dynamic symbol sections in every packaged SDK JNI library. It uses NDK `llvm-readelf`.
 The format and lint recipes use strict dependency verification and stop their Gradle daemons.
