@@ -44,6 +44,7 @@ class AppSession(
             this.context,
         )
     private val fence = SessionFence()
+    private val sessionCredentials = SessionCredentials(fence) { profile -> secrets.read(profile, "credential") }
     private val scope =
         CoroutineScope(
             SupervisorJob() +
@@ -213,7 +214,7 @@ class AppSession(
             val key = fence.bind(profile.id, generation) ?: return@withLock null
             var published = false
             try {
-                val source = pushCredential(profile.id, key)
+                val source = sessionCredentials.forProfile(profile.id, key)
                 val backend = BackendSource.Options(BackendOptions(profile.backend, credentials = source))
                 val location = StorageLocation.Explicit(paths.database.absolutePath, paths.attachments.absolutePath)
                 val storage = StorageOptions(location = location, encryptionKey = encryption)
@@ -302,24 +303,6 @@ class AppSession(
                 return false
             }
         return attributes.isRegularFile && Files.isReadable(database)
-    }
-
-    private suspend fun pushCredential(
-        profile: String,
-        key: SessionKey,
-    ): CredentialSource? {
-        if (secrets.read(profile, "credential")?.isNotEmpty() != true) return null
-        return object : CredentialSource {
-            override suspend fun credential(): Credential {
-                if (!accepts(key)) throw CredentialException.Failed()
-                val bytes = secrets.read(profile, "credential") ?: throw CredentialException.Failed()
-                return Credential(
-                    name = null,
-                    value = bytes.toString(Charsets.UTF_8),
-                    expiresAtSeconds = Long.MAX_VALUE,
-                )
-            }
-        }
     }
 
     suspend fun connect(
@@ -433,39 +416,7 @@ class AppSession(
                     paths.attachments
                         .mkdirs(),
             )
-            val source =
-                if (secrets
-                        .read(
-                            saved.id,
-                            "credential",
-                        )?.isNotEmpty() == true
-                ) {
-                    object : CredentialSource {
-                        override suspend fun credential(): Credential {
-                            if (!accepts(key)) {
-                                throw CredentialException
-                                    .Failed()
-                            }
-                            val value =
-                                secrets
-                                    .read(
-                                        saved.id,
-                                        "credential",
-                                    )?.toString(
-                                        Charsets.UTF_8,
-                                    ) ?: throw CredentialException
-                                    .Failed()
-                            return Credential(
-                                name = null,
-                                value = value,
-                                expiresAtSeconds =
-                                    Long.MAX_VALUE,
-                            )
-                        }
-                    }
-                } else {
-                    null
-                }
+            val source = sessionCredentials.forProfile(saved.id, key)
             val options =
                 ClientOptions(
                     backend =
