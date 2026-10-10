@@ -1,0 +1,560 @@
+#!/usr/bin/env python3
+"""Compile .github/ci-suites.yml into the files that CI reads.
+
+Commands:
+  generate          Write .github/ci-suites.json and the {lint,test}-generated.yml workflows.
+  check             Fail when the generated files are stale or the declaration is wrong.
+  explain PATH...   Show which suites each path selects.
+  replay [N] [REF]  Replay the last N first-parent commits of REF as pull requests.
+"""
+
+from __future__ import annotations
+
+import collections
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tomllib
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+DECLARATION = ".github/ci-suites.yml"
+MANIFEST = ".github/ci-suites.json"
+GENERATED_WORKFLOWS = {
+    "lint": ".github/workflows/lint-generated.yml",
+    "test": ".github/workflows/test-generated.yml",
+}
+WORKFLOWS = ".github/workflows"
+SUITE_KEYS = {
+    "phase",
+    "workflow",
+    "run_on",
+    "disable_on_forks",
+    "secrets",
+    "permissions",
+    "covered_by",
+    "kache",
+    "path_filters",
+}
+FILTER_KEYS = {"cargo_package", "path_group"}
+EVENT_KINDS = ("draft_pr_push", "ready_pr_push", "merge")
+TOP_KEYS = {"version", "on_deleted_path", "shared", "neutral", "path_groups", "suites"}
+# covered_by is the only optional suite key.
+REQUIRED_SUITE_KEYS = SUITE_KEYS - {"covered_by"}
+KACHE_SECRETS = ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY")
+GATE_RUNNER = "blacksmith-4vcpu-ubuntu-2404"
+PERMISSION_LEVELS = {"none": 0, "read": 1, "write": 2}
+
+
+def load_selector():
+    loader = importlib.machinery.SourceFileLoader("ci_select", str(ROOT / "dev/ci-select"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+class DeclarationError(Exception):
+    pass
+
+
+# --- Cargo graph -------------------------------------------------------------
+
+
+class CargoGraph:
+    """Path dependencies between workspace members, read from Cargo.toml files."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        manifest = tomllib.loads((root / "Cargo.toml").read_text())
+        workspace = manifest["workspace"]
+        self.workspace_dependencies = workspace.get("dependencies", {})
+        self.patches = manifest.get("patch", {}).get("crates-io", {})
+        self.members = self._expand(workspace["members"])
+        self.default_members = self._expand(workspace.get("default-members", []))
+        self.by_name = {}
+        self.manifests = {}
+        for member in self.members:
+            data = tomllib.loads((root / member / "Cargo.toml").read_text())
+            self.manifests[member] = data
+            self.by_name[data["package"]["name"]] = member
+
+    def _expand(self, patterns):
+        found = []
+        for pattern in patterns:
+            for path in sorted(self.root.glob(pattern)):
+                if (path / "Cargo.toml").is_file():
+                    found.append(path.relative_to(self.root).as_posix())
+        return found
+
+    def _relative(self, path: Path) -> str:
+        return Path(os.path.normpath(path)).relative_to(self.root).as_posix()
+
+    def _tables(self, manifest, dev):
+        kinds = ("dependencies", "build-dependencies") + (("dev-dependencies",) if dev else ())
+        tables = [manifest.get(kind, {}) for kind in kinds]
+        for target in manifest.get("target", {}).values():
+            tables.extend(target.get(kind, {}) for kind in kinds)
+        return tables
+
+    def dependencies(self, member, dev=False):
+        found = set()
+        for table in self._tables(self.manifests[member], dev):
+            for name, spec in table.items():
+                base = self.root / member
+                if isinstance(spec, dict) and spec.get("workspace"):
+                    spec = self.workspace_dependencies.get(name, {})
+                    base = self.root
+                package = spec.get("package", name) if isinstance(spec, dict) else name
+                if isinstance(spec, dict) and "path" in spec:
+                    found.add(self._relative(base / spec["path"]))
+                elif "path" in self.patches.get(package, {}):
+                    found.add(self._relative(self.root / self.patches[package]["path"]))
+        return found
+
+    def closure(self, roots):
+        start = []
+        for root in roots:
+            if root == "@default-members":
+                start.extend(self.default_members)
+            elif root in self.by_name:
+                start.append(self.by_name[root])
+            else:
+                raise DeclarationError(f"Unknown Cargo package: {root}")
+        # Cargo builds dev-dependencies only for the packages under test.
+        queue = [dep for member in start for dep in self.dependencies(member, dev=True)]
+        seen = set(start)
+        while queue:
+            member = queue.pop()
+            if member in seen:
+                continue
+            seen.add(member)
+            if member in self.manifests:
+                queue.extend(self.dependencies(member) - seen)
+        return sorted(seen)
+
+
+# --- Workflows ---------------------------------------------------------------
+
+
+def local_uses(document):
+    """Yield local `uses:` targets anywhere in a workflow or action file."""
+    if isinstance(document, dict):
+        for key, value in document.items():
+            if key == "uses" and isinstance(value, str) and value.startswith("./"):
+                yield value[2:]
+            else:
+                yield from local_uses(value)
+    elif isinstance(document, list):
+        for item in document:
+            yield from local_uses(item)
+
+
+def kache_values(document):
+    if isinstance(document, dict):
+        for key, value in document.items():
+            if key == "with" and isinstance(value, dict) and "kache-scope" in value:
+                yield str(value["kache-scope"])
+            yield from kache_values(value)
+    elif isinstance(document, list):
+        for item in document:
+            yield from kache_values(item)
+
+
+def kache_scopes(value):
+    """Turn a workflow value into scopes; an expression without literals is `*`."""
+    if "${{" not in value:
+        return {value}
+    # `cond && 'a' || 'b'` yields a or b; the literal in the condition is not a scope.
+    literals = re.findall(r"(?:&&|\|\|)\s*'([^']+)'", value)
+    if literals:
+        return set(literals)
+    return {re.sub(r"\$\{\{.*?\}\}", "*", value)}
+
+
+def workflow_closure(root: Path, workflow: str):
+    """The workflow file plus every local workflow and action it uses."""
+    files, scopes, queue, seen = [], set(), [workflow], set()
+    while queue:
+        target = queue.pop()
+        if target in seen:
+            continue
+        seen.add(target)
+        path = root / target
+        if path.is_dir():
+            files.append(f"{target}/**")
+            path = next((path / n for n in ("action.yml", "action.yaml") if (path / n).exists()), None)
+            if path is None:
+                continue
+        elif path.is_file():
+            files.append(target)
+        else:
+            raise DeclarationError(f"Missing workflow or action: {target}")
+        document = yaml.safe_load(path.read_text())
+        for value in kache_values(document):
+            scopes |= kache_scopes(value)
+        queue.extend(local_uses(document))
+    return sorted(files), scopes
+
+
+# --- Compile -----------------------------------------------------------------
+
+
+def as_list(value, where):
+    if value is None:
+        return []
+    if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
+        raise DeclarationError(f"{where} must be a list of strings")
+    return value
+
+
+def expand_filters(filters, groups, where, stack=()):
+    """Return the Cargo packages and globs that a path_filters list names."""
+    if not isinstance(filters, list):
+        raise DeclarationError(f"{where} must be a list")
+    packages, globs = [], []
+    for item in filters:
+        if isinstance(item, str):
+            globs.append(item)
+            continue
+        if not isinstance(item, dict) or len(item) != 1 or set(item) - FILTER_KEYS:
+            raise DeclarationError(
+                f"{where} has an unknown filter {item!r}; use a glob, cargo_package, or path_group"
+            )
+        (kind, value), = item.items()
+        if kind == "cargo_package":
+            packages += [value] if isinstance(value, str) else as_list(value, f"{where}.cargo_package")
+        elif value in stack:
+            raise DeclarationError(f"path_group {value} includes itself")
+        elif value not in groups:
+            raise DeclarationError(f"{where} uses unknown path_group {value}")
+        else:
+            more_packages, more_globs = expand_filters(
+                groups[value], groups, f"path_groups.{value}", stack + (value,)
+            )
+            packages += more_packages
+            globs += more_globs
+    return packages, globs
+
+
+def compile_declaration(root: Path = ROOT, declaration=None):
+    data = declaration if declaration is not None else yaml.safe_load((root / DECLARATION).read_text())
+    # Every key except covered_by is explicit. Nothing has a default.
+    if not isinstance(data, dict) or set(data) != TOP_KEYS:
+        raise DeclarationError(f"The declaration needs exactly these keys: {sorted(TOP_KEYS)}")
+    if data["version"] != 1:
+        raise DeclarationError("Unsupported declaration version")
+    graph = CargoGraph(root)
+    groups = data["path_groups"]
+    suites = {}
+    for name, suite in data["suites"].items():
+        if not REQUIRED_SUITE_KEYS <= set(suite) <= SUITE_KEYS:
+            missing = sorted(REQUIRED_SUITE_KEYS - set(suite))
+            extra = sorted(set(suite) - SUITE_KEYS)
+            raise DeclarationError(f"Suite {name} is missing keys {missing} or has unknown keys {extra}")
+        if suite["phase"] not in ("lint", "test") or not isinstance(suite["workflow"], str):
+            raise DeclarationError(f"Suite {name} needs a phase (lint or test) and a workflow")
+        run_on = as_list(suite["run_on"], f"{name}.run_on")
+        if not run_on or set(run_on) - set(EVENT_KINDS):
+            raise DeclarationError(f"Suite {name} run_on must use {', '.join(EVENT_KINDS)}")
+        if not isinstance(suite["disable_on_forks"], bool):
+            raise DeclarationError(f"Suite {name} disable_on_forks must be true or false")
+        if suite["secrets"] not in ("inherit", "kache"):
+            raise DeclarationError(f"Suite {name} secrets must be inherit or kache")
+        permissions = suite["permissions"]
+        if not isinstance(permissions, dict) or not permissions or any(
+            value not in ("read", "write", "none") for value in permissions.values()
+        ):
+            raise DeclarationError(f"Suite {name} permissions must map scopes to read, write, or none")
+        if "covered_by" in suite and not isinstance(suite["covered_by"], str):
+            raise DeclarationError(f"Suite {name} covered_by must be a suite name")
+        cargo, paths = expand_filters(suite["path_filters"], groups, f"{name}.path_filters")
+        crates = graph.closure(sorted(set(cargo))) if cargo else []
+        if crates:
+            paths += ["Cargo.toml", "Cargo.lock"]
+        workflow_files, scopes = workflow_closure(root, f"{WORKFLOWS}/{suite['workflow']}")
+        declared = set(as_list(suite["kache"], f"{name}.kache"))
+        if declared != scopes:
+            raise DeclarationError(
+                f"Suite {name} declares Kache scopes {sorted(declared)}, "
+                f"but its workflows use {sorted(scopes)}"
+            )
+        suites[name] = {
+            "phase": suite["phase"],
+            "workflow": suite["workflow"],
+            "run_on": [kind for kind in EVENT_KINDS if kind in run_on],
+            "disable_on_forks": suite["disable_on_forks"],
+            "secrets": suite["secrets"],
+            "permissions": permissions,
+            "covered_by": suite.get("covered_by"),
+            "kache": sorted(declared),
+            "cargo_roots": sorted(set(cargo)),
+            "crates": [f"{c}/**" for c in crates],
+            "workflow_files": workflow_files,
+            "paths": sorted({p for p in paths if not p.startswith("!")})
+            + sorted({p for p in paths if p.startswith("!")}),
+        }
+    for name, suite in suites.items():
+        if suite["covered_by"] and suite["covered_by"] not in suites:
+            raise DeclarationError(f"Suite {name} is covered by unknown suite {suite['covered_by']}")
+        # A cycle would drop every suite in it, even from merge runs.
+        seen, cover = {name}, suite["covered_by"]
+        while cover:
+            if cover in seen:
+                raise DeclarationError(f"Suite {name} is in a covered_by cycle")
+            seen.add(cover)
+            cover = suites[cover]["covered_by"]
+    on_deleted = as_list(data["on_deleted_path"], "on_deleted_path")
+    if not on_deleted or set(on_deleted) - set(suites):
+        raise DeclarationError("on_deleted_path must name one or more suites")
+    return {
+        "generated_by": "dev/ci-suites generate. Edit .github/ci-suites.yml instead.",
+        "on_deleted_path": on_deleted,
+        "shared": as_list(data["shared"], "shared"),
+        "neutral": as_list(data["neutral"], "neutral"),
+        "suites": suites,
+    }
+
+
+def render_manifest(manifest):
+    return json.dumps(manifest, indent=2) + "\n"
+
+
+def render_workflow(manifest, phase):
+    """One job per suite in the phase, plus a job that requires every selected suite to pass."""
+    suites = {n: s for n, s in manifest["suites"].items() if s["phase"] == phase}
+    lines = [
+        "# Generated by dev/ci-suites from .github/ci-suites.yml. Do not edit.",
+        f"name: {phase.capitalize()} suites",
+        "on:",
+        "  workflow_call:",
+        "    inputs:",
+        "      suites:",
+        "        description: JSON list of the suites to run.",
+        "        type: string",
+        "        required: true",
+        "permissions:",
+        "  contents: read",
+        "jobs:",
+    ]
+    for name, suite in suites.items():
+        lines += [
+            f"  {name}:",
+            f"    if: contains(fromJSON(inputs.suites), '{name}')",
+            f"    uses: ./{WORKFLOWS}/{suite['workflow']}",
+            "    permissions:",
+        ]
+        lines += [f"      {key}: {value}" for key, value in suite["permissions"].items()]
+        if suite["secrets"] == "inherit":
+            lines.append("    secrets: inherit")
+        else:
+            lines.append("    secrets:")
+            lines += [f"      {s}: ${{{{ secrets.{s} }}}}" for s in KACHE_SECRETS]
+    lines += [
+        "  required:",
+        "    name: Require selected suites",
+        "    if: always()",
+        f"    runs-on: {GATE_RUNNER}",
+        "    timeout-minutes: 5",
+        "    needs:",
+    ]
+    lines += [f"    - {name}" for name in suites]
+    lines += [
+        "    steps:",
+        "    - name: Check that every selected suite passed",
+        "      env:",
+        "        SELECTED: ${{ inputs.suites }}",
+        "        RESULTS: ${{ toJSON(needs) }}",
+        "      run: |",
+        "        jq -en \\",
+        '          --argjson selected "$SELECTED" \\',
+        '          --argjson results "$RESULTS" \\',
+        "          '$selected | all(.[]; $results[.].result == \"success\")'",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def outputs(manifest):
+    files = {MANIFEST: render_manifest(manifest)}
+    for phase, path in GENERATED_WORKFLOWS.items():
+        files[path] = render_workflow(manifest, phase)
+    return files
+
+
+# --- Validation --------------------------------------------------------------
+
+
+def tracked_files(root: Path = ROOT):
+    output = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, check=True
+    ).stdout
+    return sorted(p for p in output.decode().split("\0") if p)
+
+
+def brace_variants(pattern):
+    """Each alternative of each top-level brace group, with the other groups kept.
+
+    A pattern is stale when one alternative can never match, even though another
+    alternative in the same group does.
+    """
+    groups = [(m.start(), m.end()) for m in re.finditer(r"\{[^{}]*\}", pattern)]
+    if not groups:
+        return [pattern]
+    variants = []
+    for start, end in groups:
+        for option in pattern[start + 1 : end - 1].split(","):
+            variants.append(pattern[:start] + option + pattern[end:])
+    return variants
+
+
+def validate(manifest, root: Path = ROOT, files=None):
+    selector = load_selector()
+    errors = []
+    for name, suite in manifest["suites"].items():
+        document = yaml.safe_load((root / WORKFLOWS / suite["workflow"]).read_text())
+        # YAML 1.1 reads the `on` key as True.
+        triggers = document.get("on", document.get(True))
+        if not isinstance(triggers, dict) or "workflow_call" not in triggers:
+            errors.append(f"{name}: {suite['workflow']} is not a reusable workflow")
+        elif (triggers["workflow_call"] or {}).get("inputs"):
+            errors.append(f"{name}: {suite['workflow']} must not take inputs")
+        if suite["secrets"] == "kache":
+            declared = ((triggers or {}).get("workflow_call") or {}).get("secrets") or {}
+            missing = [s for s in KACHE_SECRETS if s not in declared]
+            if missing:
+                errors.append(f"{name}: {suite['workflow']} must declare workflow_call secrets {missing}")
+    ci_document = yaml.safe_load((root / WORKFLOWS / "ci.yml").read_text())
+    ci = ci_document["jobs"]
+    for phase, path in GENERATED_WORKFLOWS.items():
+        callers = [job for job in ci.values() if job.get("uses") == f"./{path}"]
+        if len(callers) != 1:
+            errors.append(f"ci.yml must call {path} once")
+            continue
+        # GitHub rejects the whole run when a called job asks for more than its caller grants.
+        granted = callers[0].get("permissions", ci_document.get("permissions", {}))
+        for name, suite in manifest["suites"].items():
+            if suite["phase"] != phase:
+                continue
+            for scope, level in suite["permissions"].items():
+                have = granted.get(scope, "none") if isinstance(granted, dict) else granted
+                if PERMISSION_LEVELS[level] > PERMISSION_LEVELS.get(have, 2):
+                    errors.append(f"{name}: needs {scope}: {level}, but ci.yml grants {phase} suites {have}")
+    files = tracked_files(root) if files is None else files
+    rules = selector.Rules(manifest)
+    unknown = [f for f in files if not rules.known(f)]
+    if unknown:
+        errors.append("Tracked files that no rule names:\n  " + "\n  ".join(unknown))
+    patterns = [("shared", p) for p in manifest["shared"]]
+    patterns += [("neutral", p) for p in manifest["neutral"]]
+    for name, suite in manifest["suites"].items():
+        patterns += [(name, p.lstrip("!")) for p in suite["paths"]]
+    stale = sorted(
+        {
+            f"{owner}: {variant}"
+            for owner, pattern in patterns
+            for variant in brace_variants(pattern)
+            if not any(selector.glob_match(variant, f) for f in files)
+        }
+    )
+    if stale:
+        errors.append("Patterns that match no tracked file:\n  " + "\n  ".join(stale))
+    return errors
+
+
+# --- Commands ----------------------------------------------------------------
+
+
+def command_generate():
+    for path, text in outputs(compile_declaration()).items():
+        (ROOT / path).write_text(text)
+        print(f"Wrote {path}")
+
+
+def command_check():
+    try:
+        manifest = compile_declaration()
+    except DeclarationError as error:
+        sys.exit(f"error: {error}")
+    errors = []
+    for path, text in outputs(manifest).items():
+        if not (ROOT / path).exists() or (ROOT / path).read_text() != text:
+            errors.append(f"{path} is stale. Run: dev/ci-suites generate")
+    errors += validate(manifest)
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    if errors:
+        sys.exit(1)
+    print("CI suite declaration is valid and the generated files are current.")
+
+
+def command_explain(paths):
+    selector = load_selector()
+    rules = selector.Rules(json.loads((ROOT / MANIFEST).read_text()))
+    for path in paths:
+        if rules.shared(path):
+            verdict = "shared (every suite)"
+        elif not rules.known(path):
+            verdict = "unknown (every suite)"
+        else:
+            verdict = ", ".join(rules.suites_for(path)) or "no suite"
+            if rules.neutral(path):
+                verdict += " (neutral)"
+        print(f"{path}: {verdict}")
+
+
+def command_replay(count=100, ref="origin/self-hosted"):
+    selector = load_selector()
+    log = subprocess.run(
+        ["git", "-C", str(ROOT), "log", "--first-parent", f"-{count}", "--format=%H", ref],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    payload = {
+        "repository": {"full_name": "r"},
+        "pull_request": {"draft": False, "head": {"repo": {"full_name": "r"}}},
+    }
+    full, selected = 0, collections.Counter()
+    reasons, causes = collections.Counter(), collections.Counter()
+    for sha in log:
+        files = subprocess.run(
+            ["git", "-C", str(ROOT), "diff-tree", "--no-commit-id", "--name-only", "-r", f"{sha}^", sha],
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+        result = selector.select_suites(files, "pull_request", payload, "success", len(files))
+        full += bool(result["reasons"])
+        reasons.update(result["reasons"])
+        causes.update(result["shared_paths"] + result["unknown_paths"])
+        selected.update(result["suites"]["lint"] + result["suites"]["test"])
+    total = len(log)
+    print(f"{total} commits, {full} full runs ({100 * full / total:.0f}%), reasons {dict(reasons)}")
+    print("Most common full-run paths:", ", ".join(f"{p} ({n})" for p, n in causes.most_common(10)))
+    for name in sorted(selector.SUITES, key=lambda n: -selected[n]):
+        print(f"  {name:20} {100 * selected[name] / total:5.0f}%")
+
+
+def main(argv):
+    if not argv:
+        sys.exit(__doc__)
+    command, rest = argv[0], argv[1:]
+    if command == "generate":
+        command_generate()
+    elif command == "check":
+        command_check()
+    elif command == "explain" and rest:
+        command_explain(rest)
+    elif command == "replay":
+        command_replay(int(rest[0]) if rest else 100, *rest[1:2])
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

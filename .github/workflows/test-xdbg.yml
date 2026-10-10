@@ -21,3 +21,28 @@ jobs:
         run: nix build --no-link .#cargo-clippy.x86_64-linux.xdbg
       - name: Warm sticky disk with build deps
         run: dev/ci/warm-deps .#cargo-clippy.x86_64-linux.xdbg
+  observe:
+    name: Observability check
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          kache: "false"
+      - uses: taiki-e/install-action@just
+      # `just backend up` builds and loads the backend image first.
+      # The check builds xdbg as a traffic client.
+      - name: Verify observability
+        run: |
+          just backend up
+          just backend observe-check
+      - name: Backend logs and cleanup
+        if: always()
+        run: |
+          just backend logs || true
+          just backend down

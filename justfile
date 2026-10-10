@@ -96,6 +96,8 @@ lint-js-source:
 
 # Config linting: TOML, Nix, and shell scripts.
 lint-config: lint-treefmt
+    python3.11 -B dev/ci-suites check
+    python3.11 -B dev/tests/test_ci_suites.py
     python3.11 -B dev/tests/test_ci_select.py
     python3.11 -B dev/agents/test_kache_env.py
     python3.11 dev/tests/test_android_release.py

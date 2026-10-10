@@ -32,8 +32,8 @@ lint:
 format:
     swiftformat .
 
-# Lifecycle checks: reader teardown and the listener gate. The Swift job in
-# test-swift-lifecycle.yml runs them with `test-lifecycle`. test-ios.yml runs
+# Lifecycle checks: reader teardown and the listener gate. The swift job in
+# test-ios.yml runs them with `test-lifecycle`. Its tests job runs
 # `test skip-lifecycle`, so one CI run does not run them twice on macOS.
 _lifecycle_tests := "'XmtpSdkTests\\.(ReaderTeardownTests|ListenerGateTests)'"
 

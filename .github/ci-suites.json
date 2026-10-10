@@ -1,0 +1,1174 @@
+{
+  "generated_by": "dev/ci-suites generate. Edit .github/ci-suites.yml instead.",
+  "on_deleted_path": [
+    "lint_config"
+  ],
+  "shared": [
+    "{flake.nix,flake.lock,rust-toolchain.toml,justfile}",
+    ".cargo/**",
+    "proto/**",
+    "nix/lib/{base,default,filesets,mkToolchain,mkVersion,patches,shell-common}.nix",
+    "nix/lib/packages/{kache,rtk}.nix",
+    "nix/shells/{local,rust}.nix",
+    "nix/apps.nix",
+    ".github/{ci-suites.yml,ci-suites.json}",
+    ".github/workflows/{ci,lint-generated,test-generated}.yml",
+    ".github/actions/setup-nix/**",
+    "dev/{ci-select,ci-suites,nix-shell,worktree-env,agent-run,kache-env,kache-ci-config,kache-ci-policy,kache-darwin-wrapper}"
+  ],
+  "neutral": [
+    "**/{AGENTS,CLAUDE}.md",
+    ".github/**/*.md",
+    "{README,CONTRIBUTING,ONBOARDING,TEST_SCENARIOS}.md",
+    "{LICENSE,.envrc,.gitignore,.git-blame-ignore-revs,.gitattributes,.dockerignore,codecov.yml,om.yaml,cliff.toml}",
+    "{.agents,.claude,.codex,.devcontainer,.macroscope,.murmur,.vscode,.zed}/**",
+    "{img,diagrams}/**",
+    "apps/.gitkeep",
+    ".github/{CODEOWNERS,dependabot.yml}",
+    ".github/ISSUE_TEMPLATE/**",
+    "dev/{fly,tls,test}/**",
+    "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}",
+    "dev/{nix-up,nix-down,nix-status,nix-cache-up,ci-failure-markers}",
+    "dev/{ci,nix}/**"
+  ],
+  "suites": {
+    "lint_workspace": {
+      "phase": "lint",
+      "workflow": "lint-workspace.yml",
+      "run_on": [
+        "draft_pr_push",
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/lint-workspace.yml"
+      ],
+      "paths": [
+        "**/Cargo.toml",
+        ".config/hakari.toml",
+        "apps/{chaos,db_tools,error_glossary,keepalive-probe,xmtp_debug}/**",
+        "crates/xmtp-workspace-hack/**",
+        "{Cargo.lock,rustfmt.toml,.clippy.toml,.taplo.toml,deny.toml}",
+        "{crates,apps}/**/*.rs"
+      ]
+    },
+    "lint_js": {
+      "phase": "lint",
+      "workflow": "lint-js.yml",
+      "run_on": [
+        "draft_pr_push",
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/lint-js.yml"
+      ],
+      "paths": [
+        "apps/{cli,web-chat,docs}/**",
+        "dev/js/**",
+        "dev/release-tools/**",
+        "nix/lib/packages/pnpm.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/js.just",
+        "sdks/{node,browser,agent}/**",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ]
+    },
+    "lint_config": {
+      "phase": "lint",
+      "workflow": "lint-config.yml",
+      "run_on": [
+        "draft_pr_push",
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/lint-config.yml"
+      ],
+      "paths": [
+        "**/*.{nix,py,sh,toml,kt,kts,swift}",
+        ".github/**",
+        "dev/{tests,agents,specs,release-tools}/**",
+        "nix/fmt.nix",
+        "{.editorconfig,sdks/ios/.swiftformat}"
+      ]
+    },
+    "lint_proto": {
+      "phase": "lint",
+      "workflow": "lint-proto.yml",
+      "run_on": [
+        "draft_pr_push",
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/lint-proto.yml"
+      ],
+      "paths": [
+        "proto/**"
+      ]
+    },
+    "docs_quality": {
+      "phase": "lint",
+      "workflow": "docs-quality.yml",
+      "run_on": [
+        "draft_pr_push",
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "kache",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/docs-quality.yml"
+      ],
+      "paths": [
+        "**/*.md",
+        "dev/js/**",
+        "dev/js/sdk-package",
+        "nix/docs.nix",
+        "nix/lib/packages/pnpm.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/*/package.json",
+        "sdks/agent/src/**",
+        "sdks/js.just",
+        "{apps/docs,docs}/**",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ]
+    },
+    "lint_ios": {
+      "phase": "lint",
+      "workflow": "lint-ios.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/lint-ios.yml"
+      ],
+      "paths": [
+        "dev/check-apple-toolchain",
+        "nix/lib/ios-env.nix",
+        "nix/lib/packages/{swiftformat,swiftlint}.nix",
+        "nix/package/ios.nix",
+        "nix/shells/ios.nix",
+        "sdks/ios/**",
+        "{Package.swift,Package.resolved,.spi.yml}"
+      ]
+    },
+    "lint_android": {
+      "phase": "lint",
+      "workflow": "lint-android.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/lint-android.yml"
+      ],
+      "paths": [
+        "**/*.{gradle,kts}",
+        "nix/android-packages.nix",
+        "nix/lib/android-*",
+        "nix/shells/android.nix",
+        "sdks/android/**",
+        "!docs/**"
+      ]
+    },
+    "check_rust": {
+      "phase": "test",
+      "workflow": "check-rust.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "kache",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "rust-clippy-native",
+        "rust-clippy-wasm"
+      ],
+      "cargo_roots": [
+        "@default-members",
+        "xmtp-sdk-bindgen"
+      ],
+      "crates": [
+        "apps/backend/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_api/**",
+        "crates/xmtp_api_backend/**",
+        "crates/xmtp_api_grpc/**",
+        "crates/xmtp_archive/**",
+        "crates/xmtp_attachments/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_common/**",
+        "crates/xmtp_configuration/**",
+        "crates/xmtp_content_types/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_db/**",
+        "crates/xmtp_events/**",
+        "crates/xmtp_id/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**",
+        "crates/xmtp_mls/**",
+        "crates/xmtp_mls_common/**",
+        "crates/xmtp_mls_validation/**",
+        "crates/xmtp_proto/**",
+        "crates/xmtp_push_types/**",
+        "crates/xmtp_sdk/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/check-rust.yml"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "{.clippy.toml,dev/wasm.just,nix/shells/wasm.nix}"
+      ]
+    },
+    "check_sdk_unit": {
+      "phase": "test",
+      "workflow": "check-sdk-unit.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "kache",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "sdk-tests-debug"
+      ],
+      "cargo_roots": [
+        "xmtp_sdk"
+      ],
+      "crates": [
+        "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_api/**",
+        "crates/xmtp_api_backend/**",
+        "crates/xmtp_api_grpc/**",
+        "crates/xmtp_archive/**",
+        "crates/xmtp_attachments/**",
+        "crates/xmtp_common/**",
+        "crates/xmtp_configuration/**",
+        "crates/xmtp_content_types/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_db/**",
+        "crates/xmtp_events/**",
+        "crates/xmtp_id/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**",
+        "crates/xmtp_mls/**",
+        "crates/xmtp_mls_common/**",
+        "crates/xmtp_mls_validation/**",
+        "crates/xmtp_proto/**",
+        "crates/xmtp_push_types/**",
+        "crates/xmtp_sdk/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/check-sdk-unit.yml"
+      ],
+      "paths": [
+        ".config/nextest.toml",
+        "Cargo.lock",
+        "Cargo.toml",
+        "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
+        "dev/{docker,backend}/**",
+        "nix/musl-docker.nix",
+        "nix/package/backend.nix"
+      ]
+    },
+    "test_backend": {
+      "phase": "test",
+      "workflow": "test-backend.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "backend-tests-debug"
+      ],
+      "cargo_roots": [
+        "xmtp_backend"
+      ],
+      "crates": [
+        "apps/backend/**",
+        "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_common/**",
+        "crates/xmtp_configuration/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_events/**",
+        "crates/xmtp_id/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**",
+        "crates/xmtp_mls_common/**",
+        "crates/xmtp_mls_validation/**",
+        "crates/xmtp_proto/**",
+        "crates/xmtp_push_types/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-backend.yml"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
+        "dev/backend/**",
+        "dev/docker/s3/**",
+        "dev/{docker,backend}/**",
+        "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}",
+        "nix/musl-docker.nix",
+        "nix/package/backend.nix",
+        "nix/package/{backend,backend-ci}.nix"
+      ]
+    },
+    "test_validation": {
+      "phase": "test",
+      "workflow": "test-validation.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "cargo_roots": [
+        "xmtp_id",
+        "xmtp_mls_validation",
+        "xmtp_proto"
+      ],
+      "crates": [
+        "crates/xmtp_common/**",
+        "crates/xmtp_configuration/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_events/**",
+        "crates/xmtp_id/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**",
+        "crates/xmtp_mls_common/**",
+        "crates/xmtp_mls_validation/**",
+        "crates/xmtp_proto/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-validation.yml"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "{dev/check-validation,nix/package/validation-check.nix,nix/ci-checks.nix}"
+      ]
+    },
+    "test_workspace": {
+      "phase": "test",
+      "workflow": "test-workspace.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "cargo_roots": [
+        "@default-members"
+      ],
+      "crates": [
+        "apps/backend/**",
+        "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_api/**",
+        "crates/xmtp_api_backend/**",
+        "crates/xmtp_api_grpc/**",
+        "crates/xmtp_archive/**",
+        "crates/xmtp_attachments/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_common/**",
+        "crates/xmtp_configuration/**",
+        "crates/xmtp_content_types/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_db/**",
+        "crates/xmtp_events/**",
+        "crates/xmtp_id/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**",
+        "crates/xmtp_mls/**",
+        "crates/xmtp_mls_common/**",
+        "crates/xmtp_mls_validation/**",
+        "crates/xmtp_proto/**",
+        "crates/xmtp_push_types/**",
+        "crates/xmtp_sdk/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-workspace.yml"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
+        "dev/{docker,backend}/**",
+        "nix/musl-docker.nix",
+        "nix/package/backend.nix",
+        "{.config/nextest.toml,webdriver.json}",
+        "{nix/package/nextest.nix,nix/ci-checks.nix,dev/check-ephemeral-backend}"
+      ]
+    },
+    "test_keepalive": {
+      "phase": "test",
+      "workflow": "test-keepalive-probe.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "cargo_roots": [
+        "keepalive-probe"
+      ],
+      "crates": [
+        "apps/keepalive-probe/**",
+        "crates/xmtp_common/**",
+        "crates/xmtp_configuration/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_events/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**",
+        "crates/xmtp_proto/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-keepalive-probe.yml"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "{nix/package/keepalive-probe-check.nix,nix/ci-checks.nix}"
+      ]
+    },
+    "test_wasm": {
+      "phase": "test",
+      "workflow": "test-wasm.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "cargo_roots": [
+        "xmtp_api",
+        "xmtp_api_backend",
+        "xmtp_attachments",
+        "xmtp_common",
+        "xmtp_content_types",
+        "xmtp_cryptography",
+        "xmtp_db",
+        "xmtp_id",
+        "xmtp_mls",
+        "xmtp_sdk"
+      ],
+      "crates": [
+        "apps/backend/**",
+        "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_api/**",
+        "crates/xmtp_api_backend/**",
+        "crates/xmtp_api_grpc/**",
+        "crates/xmtp_archive/**",
+        "crates/xmtp_attachments/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_common/**",
+        "crates/xmtp_configuration/**",
+        "crates/xmtp_content_types/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_db/**",
+        "crates/xmtp_events/**",
+        "crates/xmtp_id/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**",
+        "crates/xmtp_mls/**",
+        "crates/xmtp_mls_common/**",
+        "crates/xmtp_mls_validation/**",
+        "crates/xmtp_proto/**",
+        "crates/xmtp_push_types/**",
+        "crates/xmtp_sdk/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-wasm.yml"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
+        "dev/{docker,backend}/**",
+        "nix/musl-docker.nix",
+        "nix/package/backend.nix",
+        "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix}",
+        "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
+      ]
+    },
+    "test_xdbg": {
+      "phase": "test",
+      "workflow": "test-xdbg.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [],
+      "cargo_roots": [
+        "xdbg"
+      ],
+      "crates": [
+        "apps/xmtp_debug/**",
+        "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_api/**",
+        "crates/xmtp_api_backend/**",
+        "crates/xmtp_api_grpc/**",
+        "crates/xmtp_archive/**",
+        "crates/xmtp_attachments/**",
+        "crates/xmtp_common/**",
+        "crates/xmtp_configuration/**",
+        "crates/xmtp_content_types/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_db/**",
+        "crates/xmtp_events/**",
+        "crates/xmtp_id/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**",
+        "crates/xmtp_mls/**",
+        "crates/xmtp_mls_common/**",
+        "crates/xmtp_mls_validation/**",
+        "crates/xmtp_proto/**",
+        "crates/xmtp_push_types/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-xdbg.yml"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
+        "dev/{docker,backend}/**",
+        "nix/ci-checks.nix",
+        "nix/musl-docker.nix",
+        "nix/package/backend.nix",
+        "nix/package/xdbg{,-check}.nix"
+      ]
+    },
+    "docs_rust": {
+      "phase": "test",
+      "workflow": "docs-rust-reference.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "kache",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": "docs_site",
+      "kache": [
+        "rust-reference"
+      ],
+      "cargo_roots": [
+        "@default-members",
+        "error_glossary"
+      ],
+      "crates": [
+        "apps/backend/**",
+        "apps/error_glossary/**",
+        "crates/xmtp-workspace-hack/**",
+        "crates/xmtp_api/**",
+        "crates/xmtp_api_backend/**",
+        "crates/xmtp_api_grpc/**",
+        "crates/xmtp_archive/**",
+        "crates/xmtp_attachments/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_common/**",
+        "crates/xmtp_configuration/**",
+        "crates/xmtp_content_types/**",
+        "crates/xmtp_cryptography/**",
+        "crates/xmtp_db/**",
+        "crates/xmtp_events/**",
+        "crates/xmtp_id/**",
+        "crates/xmtp_logging/**",
+        "crates/xmtp_macro/**",
+        "crates/xmtp_mls/**",
+        "crates/xmtp_mls_common/**",
+        "crates/xmtp_mls_validation/**",
+        "crates/xmtp_proto/**",
+        "crates/xmtp_push_types/**",
+        "crates/xmtp_sdk/**"
+      ],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/docs-rust-reference.yml"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "{docs/error_glossary.md,dev/gen-error-glossary}"
+      ]
+    },
+    "check_types": {
+      "phase": "test",
+      "workflow": "check-types.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "kache",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "sdk-products-debug"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/check-types.yml"
+      ],
+      "paths": [
+        "apps/xmtp_sdk_bindgen/**",
+        "apps/{cli,web-chat,docs}/**",
+        "crates/xmtp_sdk/**",
+        "dev/js/**",
+        "dev/release-tools/**",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/pnpm.nix",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/node-packages.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/js.just",
+        "sdks/{node,browser,agent}/**",
+        "{Cargo.toml,Cargo.lock}",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ]
+    },
+    "check_sdk": {
+      "phase": "test",
+      "workflow": "check-sdk-products.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "kache",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "sdk-products-debug"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/check-sdk-products.yml"
+      ],
+      "paths": [
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_sdk/**",
+        "dev/js/**",
+        "nix/check-sdk-products.py",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/pnpm.nix",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/node-packages.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/browser/test/platform/**",
+        "sdks/js.just",
+        "sdks/{node,browser}/package.json",
+        "{Cargo.toml,Cargo.lock}",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ]
+    },
+    "test_node": {
+      "phase": "test",
+      "workflow": "test-node-sdk.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "sdk-native-debug"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-node-sdk.yml"
+      ],
+      "paths": [
+        "apps/backend/**",
+        "apps/cli/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_sdk/**",
+        "dev/js/**",
+        "dev/{docker,backend}/**",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/pnpm.nix",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/musl-docker.nix",
+        "nix/node-packages.nix",
+        "nix/package/backend.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/js.just",
+        "sdks/node/**",
+        "{Cargo.toml,Cargo.lock}",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ]
+    },
+    "test_agent": {
+      "phase": "test",
+      "workflow": "test-agent-sdk.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "sdk-native-debug"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-agent-sdk.yml"
+      ],
+      "paths": [
+        "apps/backend/**",
+        "apps/cli/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_sdk/**",
+        "dev/js/**",
+        "dev/{docker,backend}/**",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/pnpm.nix",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/musl-docker.nix",
+        "nix/node-packages.nix",
+        "nix/package/backend.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/js.just",
+        "sdks/{node,agent}/**",
+        "{Cargo.toml,Cargo.lock}",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ]
+    },
+    "test_browser": {
+      "phase": "test",
+      "workflow": "test-browser-sdk.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "sdk-products-debug"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-browser-sdk.yml"
+      ],
+      "paths": [
+        "apps/backend/**",
+        "apps/web-chat/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_sdk/**",
+        "dev/js/**",
+        "dev/{docker,backend}/**",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/pnpm.nix",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/musl-docker.nix",
+        "nix/node-packages.nix",
+        "nix/package/backend.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/browser/**",
+        "sdks/js.just",
+        "{Cargo.toml,Cargo.lock}",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ]
+    },
+    "test_sdk_platform": {
+      "phase": "test",
+      "workflow": "test-sdk-platform.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "sdk-browser-conformance",
+        "sdk-products-debug"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-sdk-platform.yml"
+      ],
+      "paths": [
+        "apps/backend/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_sdk/**",
+        "dev/js/**",
+        "dev/{docker,backend}/**",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/pnpm.nix",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/musl-docker.nix",
+        "nix/node-packages.nix",
+        "nix/package/backend.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/browser/**",
+        "sdks/js.just",
+        "{Cargo.toml,Cargo.lock}",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
+      ]
+    },
+    "docs_site": {
+      "phase": "test",
+      "workflow": "deploy-docs.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read",
+        "pages": "write",
+        "id-token": "write"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only",
+        "rust-reference",
+        "sdk-products-debug"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-js/**",
+        ".github/actions/setup-nix/**",
+        ".github/workflows/deploy-docs.yml",
+        ".github/workflows/docs-rust-reference.yml"
+      ],
+      "paths": [
+        "apps/docs/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_sdk/**",
+        "dev/js/**",
+        "docs/**",
+        "nix/docs.nix",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/pnpm.nix",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/node-packages.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/{js,js-node}.nix",
+        "sdks/agent/src/**",
+        "sdks/js.just",
+        "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}",
+        "{Cargo.toml,Cargo.lock}",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}",
+        "!sdks/agent/src/**/*.test.ts"
+      ]
+    },
+    "test_ios": {
+      "phase": "test",
+      "workflow": "test-ios.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": true,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "bindings-check-*",
+        "nix-only"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-ios.yml"
+      ],
+      "paths": [
+        "apps/backend/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_sdk/**",
+        "dev/backend/**",
+        "dev/check-apple-toolchain",
+        "dev/docker/s3/**",
+        "nix/lib/ios-env.nix",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/{swiftformat,swiftlint}.nix",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/node-packages.nix",
+        "nix/package/ios.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/package/{backend,backend-ci}.nix",
+        "nix/shells/ios.nix",
+        "sdks/ios/**",
+        "{Cargo.toml,Cargo.lock}",
+        "{Package.swift,Package.resolved,.spi.yml}"
+      ]
+    },
+    "test_android": {
+      "phase": "test",
+      "workflow": "test-android.yml",
+      "run_on": [
+        "ready_pr_push",
+        "merge"
+      ],
+      "disable_on_forks": false,
+      "secrets": "inherit",
+      "permissions": {
+        "contents": "read"
+      },
+      "covered_by": null,
+      "kache": [
+        "nix-only",
+        "sdk-android-release"
+      ],
+      "cargo_roots": [],
+      "crates": [],
+      "workflow_files": [
+        ".github/actions/setup-nix/**",
+        ".github/workflows/test-android.yml"
+      ],
+      "paths": [
+        "**/*.{gradle,kts}",
+        "apps/backend/**",
+        "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
+        "crates/xmtp_sdk/**",
+        "dev/{docker,backend}/**",
+        "nix/android-packages.nix",
+        "nix/lib/android-*",
+        "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
+        "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
+        "nix/musl-docker.nix",
+        "nix/node-packages.nix",
+        "nix/package/backend.nix",
+        "nix/package/libffi-zig-cross.site",
+        "nix/package/node.nix",
+        "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/shells/android.nix",
+        "sdks/android/**",
+        "{Cargo.toml,Cargo.lock}",
+        "!docs/**"
+      ]
+    }
+  }
+}

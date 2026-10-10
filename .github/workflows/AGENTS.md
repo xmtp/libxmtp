@@ -23,58 +23,73 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   `$RUNNER_TEMP/backend-startup-logs`. The Android SDK check uploads these for
   7 days; retain the same directory when adding diagnostics to other callers.
 
-- The iOS jobs and `test-swift-lifecycle.yml` use disposable native
-  services through `dev/nix-shell 'just backend ci COMMAND'`. Each job creates
-  its own database and S3 bucket. Failed-job-only reruns do not need a
-  deployment job.
-- Keep the `ci.yml` selector's Swift and native input routes current when
-  native setup inputs change.
-  `test-native-backend.yml` checks wrapper cleanup and the real S3 contract.
-  It also checks the owned loopback listeners and metrics endpoint. Backend
-  source and build-input changes select this job, and it gates aggregate
-  `Test`. The native acceptance job has no cache-write token.
-  Service logs are retained for 7 days.
-- Selected iOS and Android jobs gate aggregate `Test` in `ci.yml`.
-  `test-swift-lifecycle.yml` owns the Swift lifecycle checks (`just ios test-lifecycle`)
+- The jobs in `test-ios.yml` use disposable native services through
+  `dev/nix-shell 'just backend ci COMMAND'`. Each job creates its own database
+  and S3 bucket. Failed-job-only reruns do not need a deployment job.
+- Keep the `native_backend` and `swift` path groups in `.github/ci-suites.yml`
+  current when native setup inputs change.
+  The `native` job in `test-backend.yml` checks wrapper cleanup and the real S3
+  contract. It also checks the owned loopback listeners and metrics endpoint.
+  It does not pass a cache-write token to setup-nix, and fork pull requests
+  skip it. Service logs are retained for 7 days.
+- `test-xdbg.yml` owns the observability check. It runs xdbg against the
+  Docker stack, so backend changes also select the xdbg suite.
+- `test-ios.yml` owns the Swift lifecycle checks (`just ios test-lifecycle`)
   and Swift consumer checks. `test-android.yml` owns Kotlin consumer checks.
-  `test-ios` runs `just ios test skip-lifecycle`, so it does not repeat the lifecycle.
+  The iOS `tests` job runs `just ios test skip-lifecycle`, so it does not
+  repeat the lifecycle.
 
 ## CI selection
 
-`ci.yml` owns required Lint and Test. Its pinned dorny filters use PR changed
-files or the push event's before SHA. `.github/ci-paths.yml` names filters after
-checks. `dev/ci-select` reads Dorny's `changes` output and builds one plan for
-scheduling and result gates. PRs with more than 3,000 changed files, unavailable
-detection, unknown paths, and shared inputs select all checks. The PR file total
-comes from event metadata or the PR API. Rename-expanded path counts do not
-select full validation. Empty diffs are valid.
-The job summary lists matched filters, full-run reasons, shared and unknown
-paths, policy exclusions, selected checks, and required jobs. Lists show up to
-200 entries. JSON path data goes through standard input to preserve quotes and
-line breaks and avoid environment size limits.
-The static source and runtime routers use fail-fast matrices and require the
-selected child result. Selected skipped, failed, cancelled, or missing jobs
-cannot pass. Direct reusable calls default to all checks.
+`.github/ci-suites.yml` declares every CI suite: its workflow, `path_filters` (globs, Cargo
+packages, and path groups), Kache scopes, and policy (`run_on`, `disable_on_forks`,
+`secrets`, `permissions`, `covered_by`). Every suite key except `covered_by` is
+required; nothing has a default. Edit only that file. Then run
+`dev/nix-shell 'python3.11 dev/ci-suites generate'` and commit the generated
+`.github/ci-suites.json`, `lint-generated.yml`, and `test-generated.yml`.
+`just lint-config` runs `dev/ci-suites check`. It fails on stale generated
+files, a wrong Kache scope, a suite workflow that takes inputs, a tracked file
+that no rule names, and a pattern that matches no tracked file.
+`dev/ci-suites explain PATH...` shows what a path selects.
+`dev/ci-suites replay [N] [REF]` replays recent commits as pull requests.
 
-Explicit draft PRs run only path-selected source checks and docs quality.
-Their aggregates are named `Draft lint` and `Draft checks`; they do not produce
-the merge check names `Lint` and `Test`. Ready transitions restore normal
-selection. Missing draft state, pushes, and manual runs use the normal policy.
+Each suite is one reusable workflow without inputs. It runs all of its jobs.
+`ci.yml` lists the changed files with a pinned dorny step, and
+`dev/ci-select` selects the suites. `ci.yml` then calls `lint-generated.yml`
+with the selected lint suites and `test-generated.yml` with the selected test
+suites. Each generated workflow has one job per suite and a `required` job.
+That job fails when a selected suite did not succeed, including when it was
+skipped. The `Lint` and `Test` jobs in `ci.yml` pass only when detection and
+their call succeed. Branch protection on `main` requires them by name.
+
+Pull request pushes run the suites whose inputs changed. Draft pushes run only
+suites with `draft_pr_push` in `run_on`; their aggregates are named `Draft lint`
+and `Draft checks`. A merge to `main` or `self-hosted` runs every suite with
+`merge` in `run_on`. A manual run runs every suite. These cases also run every
+eligible suite: a shared input, a path that no rule names, more than 3,000
+changed files, and unavailable detection. Rename-expanded path counts do not
+select a full run. Empty diffs are valid. Fork pull requests skip suites with
+`disable_on_forks`. A suite with `covered_by` does not run when its cover runs.
+A `neutral` file selects a suite only through a repository-wide glob that
+starts with `**/`, such as `**/*.md` or the formatter's file types. A pull
+request that deletes or renames a file also runs the `on_deleted_path`
+suites, because `dev/ci-suites check` can then find a pattern that names no
+file. A new pull request push cancels the older run; merge runs are not
+cancelled.
+
+The job summary lists the full-run reasons, matched suites, shared and unknown
+paths, policy exclusions, and the selected suites. Lists show up to 200
+entries. JSON path data goes through standard input to preserve quotes and
+line breaks and avoid environment size limits.
+
 Draft Cargo-Deny checks run for Cargo lock/manifests, deny configuration, or
 scanner workflow changes. Ready PRs keep all four Cargo-Deny checks.
-
 Source lint does not generate SDK products or run compiler checks. Test owns
-full types, full lint, Clippy, SDK and runtime checks. Pure Rust PRs omit host
-language checks; post-merge runs retain language units and consumers. Platform
-packaging uses native inputs. Full docs use `docs/`, the docs app, examples, and
-public API inputs. Files under `docs/` select docs builds and are excluded from
-shared inputs.
-`sdks/js.just` selects Node, Browser, and Agent SDK checks, including generated
-JS SDK products. Gradle and Kotlin build scripts select Android checks only;
-copies under `docs/` select docs builds. Android build scripts do not select public API docs.
-The standalone Rust reference keeps rustdoc and glossary checks for Rust changes.
-Automatic PR backend image checks use amd64; two-architecture publication runs
-only on main, self-hosted, tag pushes, or reusable calls.
+full types, full lint, Clippy, SDK and runtime checks. Pull requests that only
+change Rust core crates omit the SDK and mobile suites; the merge run covers
+them. The standalone Rust reference keeps rustdoc and glossary checks for Rust
+changes. Automatic PR backend image checks use amd64; two-architecture
+publication runs only on main, self-hosted, tag pushes, or reusable calls.
 
 All CI commands select a targeted Nix shell. Full root Nix warming still builds
 all outputs and dependencies, including the default developer shell. Kache is
@@ -99,8 +114,9 @@ environment. Do not create a reader environment.
 Existing deployment jobs retain their environments and use reader access.
 Tags, dispatches, and jobs that build a selected ref cannot write. Source lint,
 docs quality and composition, Nix output warming, and manual recovery are
-readers. Keep the native backend acceptance job free of cache writer keys and
-pass only its reader pair through the reusable workflow call.
+readers. The backend suite uses `secrets: inherit`. Keep the native backend
+acceptance job free of cache writer keys: pass only the Kache reader pair to
+its setup-nix step, and do not reference other secrets in that job.
 
 When adding an enabled caller, pass both optional Kache secrets through every
 reusable call in its chain. Declare them under `workflow_call.secrets` when a
