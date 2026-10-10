@@ -608,13 +608,27 @@ class ScreenScaleInstrumentedTest {
                 capture(Screen.DRAFTS)
                 assertEquals("Every screen needs an observed bounds/scroll pass", Screen.entries.toSet(), captured)
             } finally {
-                try {
-                    model.onGroupActionFinished = {}
-                    reader?.cancelAndJoin()
-                    withContext(NonCancellable) {
-                        peer?.end()
-                        if (model.session.active.value != null) model.session.deleteAccount()
+                var failure: Throwable? = null
+
+                suspend fun attempt(step: suspend () -> Unit) {
+                    try {
+                        step()
+                    } catch (error: Throwable) {
+                        if (failure == null) {
+                            failure = error
+                        } else if (failure !== error) {
+                            failure?.addSuppressed(error)
+                        }
                     }
+                }
+                try {
+                    withContext(NonCancellable) {
+                        attempt { model.onGroupActionFinished = {} }
+                        attempt { reader?.cancelAndJoin() }
+                        attempt { peer?.end() }
+                        attempt { if (model.session.active.value != null) model.session.deleteAccount() }
+                    }
+                    failure?.let { throw it }
                 } finally {
                     AndroidStreamLifecycle.enabled = lifecycle
                 }

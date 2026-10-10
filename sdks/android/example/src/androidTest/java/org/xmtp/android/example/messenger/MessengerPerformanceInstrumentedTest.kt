@@ -259,10 +259,24 @@ class MessengerPerformanceInstrumentedTest {
                 .put("messages", total)
                 .also { manifest.writeText(it.toString()) }
         } finally {
-            withContext(NonCancellable) {
-                sender?.end()
-                receiver.end()
+            var failure: Throwable? = null
+
+            suspend fun attempt(step: suspend () -> Unit) {
+                try {
+                    step()
+                } catch (error: Throwable) {
+                    if (failure == null) {
+                        failure = error
+                    } else if (failure !== error) {
+                        failure?.addSuppressed(error)
+                    }
+                }
             }
+            withContext(NonCancellable) {
+                attempt { sender?.end() }
+                attempt { receiver.end() }
+            }
+            failure?.let { throw it }
         }
     }
 
@@ -516,13 +530,27 @@ class MessengerPerformanceInstrumentedTest {
                 assertTrue("Published SDK page read bound was removed", maxHistoryReadRows <= 50)
                 assertTrue("Transcript cache trimming was removed", maxCacheRows <= 1_500 && maxCacheTranscripts <= 3)
             } finally {
+                var failure: Throwable? = null
+
+                suspend fun attempt(step: suspend () -> Unit) {
+                    try {
+                        step()
+                    } catch (error: Throwable) {
+                        if (failure == null) {
+                            failure = error
+                        } else if (failure !== error) {
+                            failure?.addSuppressed(error)
+                        }
+                    }
+                }
                 try {
                     withContext(NonCancellable) {
-                        withContext(Dispatchers.Main) { store.clear() }
-                        session.onMessage = { _, _ -> }
-                        session.onInvalidated = {}
-                        session.signOut()
+                        attempt { withContext(Dispatchers.Main) { store.clear() } }
+                        attempt { session.onMessage = { _, _ -> } }
+                        attempt { session.onInvalidated = {} }
+                        attempt { session.signOut() }
                     }
+                    failure?.let { throw it }
                 } finally {
                     AndroidStreamLifecycle.enabled = previousLifecycle
                 }
