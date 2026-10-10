@@ -67,6 +67,7 @@ rust.buildPackage (
   // targetArgs
   // {
     inherit src cargoArtifacts;
+    cargoVendorDir = xmtp.base.mkCargoVendorDir rust;
     pname = "xmtp-backend";
     version = xmtp.mkVersion rust;
     cargoExtraArgs = "--locked -p xmtp_backend --bin xmtp-backend";

@@ -32,6 +32,10 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 - SDK compiler sources use a dummy workspace and restore the selected local
   dependency graph. Keep embedded SDK data and bindgen templates in the real
   compiler source. Provenance wrappers keep the complete source identity.
+- Crane reads `Cargo.lock` and the version from its source during evaluation.
+  A derivation that builds from a dummy source passes `version` and
+  `cargoVendorDir = xmtp.base.mkCargoVendorDir rust`. Check an output with
+  `nix eval --option allow-import-from-derivation false --raw .#<output>.drvPath`.
 
 `backend-ci` packages disposable PostgreSQL, VersityGW, and the native backend.
 It supports one command on an isolated macOS runner. It does not add services
