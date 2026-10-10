@@ -5,6 +5,7 @@ use xmtp_db::group_message::{RecoveryPosition, RecoveryQueryArgs};
 const PREFIX: &str = "mc1_";
 const IDENTITY_BYTES: usize = 16;
 const DEFAULT_PAGE_LIMIT: u32 = 50;
+const ENCODED_CHUNK_BYTES: usize = 4096;
 
 /// A sent-time boundary with an opaque database-local raw message key.
 /// The boundary remains valid after deletion or publication of the row.
@@ -39,22 +40,36 @@ fn encode(position: RecoveryPosition) -> MessageRecoveryPosition {
 }
 
 fn parse(value: MessageRecoveryPosition) -> Result<RecoveryPosition, XmtpError> {
-    let text = value
-        .message_cursor
-        .strip_prefix(PREFIX)
-        .ok_or_else(super::cursor::invalid)?;
-    let bytes = URL_SAFE_NO_PAD
-        .decode(text)
-        .map_err(|_| super::cursor::invalid())?;
-    if bytes.len() < IDENTITY_BYTES || URL_SAFE_NO_PAD.encode(&bytes) != text {
+    if !value.message_cursor.starts_with(PREFIX) {
         return Err(super::cursor::invalid());
     }
+    // Reuse the caller's buffer. Raw stored IDs have no fixed length limit.
+    let mut bytes = value.message_cursor.into_bytes();
+    let mut decoded = [0; ENCODED_CHUNK_BYTES / 4 * 3];
+    let mut read = PREFIX.len();
+    let mut written = 0;
+    while read < bytes.len() {
+        let end = (read + ENCODED_CHUNK_BYTES).min(bytes.len());
+        // Full chunks end at a base64 quartet. The last chunk checks trailing bits.
+        let count = URL_SAFE_NO_PAD
+            .decode_slice(&bytes[read..end], &mut decoded)
+            .map_err(|_| super::cursor::invalid())?;
+        bytes[written..written + count].copy_from_slice(&decoded[..count]);
+        written += count;
+        read = end;
+    }
+    if written < IDENTITY_BYTES {
+        return Err(super::cursor::invalid());
+    }
+    let database_id = bytes[..IDENTITY_BYTES]
+        .try_into()
+        .map_err(|_| super::cursor::invalid())?;
+    bytes.copy_within(IDENTITY_BYTES..written, 0);
+    bytes.truncate(written - IDENTITY_BYTES);
     Ok(RecoveryPosition {
         sent_at_ns: value.sent_at.0,
-        database_id: bytes[..IDENTITY_BYTES]
-            .try_into()
-            .map_err(|_| super::cursor::invalid())?,
-        message_id: bytes[IDENTITY_BYTES..].to_vec(),
+        database_id,
+        message_id: bytes,
     })
 }
 

@@ -3,6 +3,38 @@ use crate::{DeliveryStatus, ListMessagesOptions, MessageKind, MessageSortBy};
 use xmtp_mls::groups::message_list::EnrichedRecoveryPage;
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn recovery_cursor_reuses_input_buffer_and_checks_chunk_boundaries() {
+    for length in [1024 * 1024, 0, 1, 2, 3, 3055, 3056, 3057, 3058, 3059] {
+        let expected = RecoveryPosition {
+            sent_at_ns: -10,
+            database_id: [1; 16],
+            message_id: (0..length).map(|index| (index % 256) as u8).collect(),
+        };
+        let token = encode(expected.clone());
+        let pointer = token.message_cursor.as_ptr();
+        let capacity = token.message_cursor.capacity();
+        let position = parse(token)?;
+        assert_eq!(position, expected);
+        assert_eq!(position.message_id.as_ptr(), pointer);
+        assert_eq!(position.message_id.capacity(), capacity);
+    }
+    let position = RecoveryPosition {
+        sent_at_ns: 0,
+        database_id: [0; 16],
+        message_id: vec![0; 3057],
+    };
+    for suffix in ["=", "!", "AAA"] {
+        let mut token = encode(position.clone());
+        token.message_cursor.push_str(suffix);
+        assert!(matches!(parse(token), Err(XmtpError::InvalidCursor(_))));
+    }
+    let mut token = encode(position);
+    // One unused trailing bit is set after a full decode chunk.
+    token.message_cursor.replace_range(4101..4102, "B");
+    assert!(matches!(parse(token), Err(XmtpError::InvalidCursor(_))));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn recovery_page_conversion_keeps_raw_positions_and_sentinel() {
     for readable_count in [0, 1, 49, 50] {
         let first = RecoveryPosition {
