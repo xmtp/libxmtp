@@ -69,6 +69,11 @@ class AttachmentPublicationInstrumentedTest {
                 val ref = "attachment-$draftId"
                 val draft = SendDraftRef(draftId, chat.id(), ref, id, SendPhase.ACCEPTED)
                 session.secrets.write(owner.key.profileId, ref, AttachmentDescriptor.encode(pending.remoteAttachment()))
+                val retainedIds =
+                    session.preferences
+                        .drafts(owner.key.profileId)
+                        .map { it.draftId }
+                        .toSet()
                 session.preferences.saveDraft(owner.key.profileId, draft)
                 session.secrets.delete(owner.key.profileId, ref)
                 assertEquals(
@@ -93,7 +98,12 @@ class AttachmentPublicationInstrumentedTest {
                     delay(50)
                 }
                 assertTrue("The recovery action publishes the stored MessageId", published)
-                until("reference-cleanup") { session.preferences.drafts(owner.key.profileId).isEmpty() }
+                until("reference-cleanup") {
+                    session.preferences
+                        .drafts(owner.key.profileId)
+                        .map { it.draftId }
+                        .toSet() == retainedIds
+                }
                 assertEquals(listOf(id), chat.messages(null).map { it.id })
                 assertEquals(Screen.DRAFTS, model.state.value.screen)
                 compose.onNodeWithText("Retry publication").assertDoesNotExist()
