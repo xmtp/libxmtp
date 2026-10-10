@@ -121,9 +121,12 @@ services+=("$!")
 wait_for 'PostgreSQL replica' pg_isready --host=127.0.0.1 --port="$replica_port" --username=xmtp
 
 export XMTP_S3_URL="http://127.0.0.1:$s3_port"
-mkdir -p "$state/objects"
+# The Linux build directory has no extended attributes, so VersityGW keeps
+# its bucket and object metadata in sidecar files.
+mkdir -p "$state/objects" "$state/s3-metadata"
 env -i PATH="$PATH" HOME="$state" ROOT_ACCESS_KEY=xmtps3 ROOT_SECRET_KEY=xmtps3secret \
-  versitygw --port "127.0.0.1:$s3_port" --cors-allow-origin '*' posix "$state/objects" \
+  versitygw --port "127.0.0.1:$s3_port" --cors-allow-origin '*' \
+  posix --sidecar "$state/s3-metadata" "$state/objects" \
   >"$state/s3.log" 2>&1 </dev/null &
 services+=("$!")
 
