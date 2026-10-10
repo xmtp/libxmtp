@@ -102,6 +102,14 @@ jobs:
       env:
         NIX_DEVSHELL: android
       run: dev/nix-shell 'just android check-consumers'
+    - name: Run Messenger unit tests
+      env:
+        NIX_DEVSHELL: android
+      run: dev/nix-shell 'just android example-test'
+    - name: Check Messenger build variants
+      env:
+        NIX_DEVSHELL: android
+      run: dev/nix-shell 'just android example-check'
   integration-tests:
     name: Integration Tests (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -145,6 +153,13 @@ jobs:
         NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192 -verbose
           -show-kernel
       run: dev/nix-shell 'just android test-integration'
+    - name: Run Messenger integration tests
+      timeout-minutes: 30
+      env:
+        NIX_DEVSHELL: android
+        NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/messenger-emulator-startup
+        NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192
+      run: dev/nix-shell 'just android example-test-integration'
     - name: Upload failed Android test reports
       if: failure()
       uses: actions/upload-artifact@v7
@@ -152,13 +167,15 @@ jobs:
         name: android-integration-failures
         retention-days: 7
         if-no-files-found: ignore
-        path: 'sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
-
+        path: |
+          sdks/android/example/build/outputs/androidTest-results/connected/**/*.xml
+          sdks/android/example/build/outputs/androidTest-results/connected/**/*.txt
+          sdks/android/example/build/reports/androidTests/**
+          sdks/android/example/build/screenshots/**
+          sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
           sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
-
           ${{ runner.temp }}/android-emulator-startup/
-
-          '
+          ${{ runner.temp }}/messenger-emulator-startup/
         include-hidden-files: 'true'
   check-android:
     runs-on: blacksmith-16vcpu-ubuntu-2404
