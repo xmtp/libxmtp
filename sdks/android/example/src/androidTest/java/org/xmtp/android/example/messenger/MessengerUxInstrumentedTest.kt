@@ -135,9 +135,12 @@ class MessengerUxInstrumentedTest {
                 val remote = "http://probe.example.test"
                 val finished = CompletableDeferred<Unit>()
                 var queries = 0
-                model.inspectBackend = {
-                    queries += 1
-                    error("Remote HTTP reached the SDK configuration probe")
+                model.inspectBackend = { url ->
+                    if (url == remote) {
+                        queries += 1
+                        error("Remote HTTP reached the SDK configuration probe")
+                    }
+                    SDKClient.fetchServerConfiguration(BackendSource.Options(BackendOptions(url = url)))
                 }
                 model.onBackendProbeFinished = { _, url -> if (url == remote) finished.complete(Unit) }
                 model.dispatch(MessengerAction.InspectBackend(remote))

@@ -11,6 +11,7 @@ class SDKHistoryPageTest {
     private data class Stored(
         val id: String,
         val position: MessageHistoryPosition,
+        val text: String = "original",
     )
 
     private fun rows(size: Int) =
@@ -149,6 +150,60 @@ class SDKHistoryPageTest {
                     .id,
             )
         }
+
+    @Test fun anchoredRefreshKeepsBothLoadedSidesAndUpdatesTheQueriedRange() {
+        val raw = rows(300)
+        val cache = SDKTranscriptCache<Stored>({ it.id }, { it.position })
+        cache.put("chat", HistoryWindow(raw, raw.first().position, raw.last().position, false, true), raw[150].id)
+        val inserted = Stored("new-row", MessageHistoryPosition(Timestamp(10), "opaque-new"))
+        val refreshed =
+            raw
+                .subList(100, 201)
+                .filter { it.id != raw[140].id }
+                .map {
+                    if (it.id == raw[130].id) it.copy(text = "updated") else it
+                }.toMutableList()
+                .apply { add(20, inserted) }
+        val kept =
+            cache.refresh(
+                "chat",
+                HistoryWindow(refreshed, refreshed.first().position, refreshed.last().position, true, false),
+                raw[150].id,
+            )
+        assertEquals(raw.take(100) + refreshed + raw.drop(201), kept.rows)
+        assertEquals(raw.first().position, kept.first)
+        assertEquals(raw.last().position, kept.last)
+        assertTrue(kept.atNewest)
+        assertFalse(kept.hasOlder)
+        assertEquals("updated", kept.rows.single { it.id == raw[130].id }.text)
+        assertFalse(kept.rows.any { it.id == raw[140].id })
+    }
+
+    @Test fun anchoredRefreshStillBoundsTheRetainedRangeAndKeepsItsContinuation() {
+        val raw = rows(600)
+        val cache = SDKTranscriptCache<Stored>({ it.id }, { it.position })
+        val initial =
+            cache.put(
+                "chat",
+                HistoryWindow(raw, raw.first().position, raw.last().position, false, true),
+                raw[300].id,
+            )
+        val inserted = Stored("new-row", MessageHistoryPosition(Timestamp(10), "opaque-new"))
+        val refreshed = raw.subList(250, 351).toMutableList().apply { add(20, inserted) }
+        val kept =
+            cache.refresh(
+                "chat",
+                HistoryWindow(refreshed, refreshed.first().position, refreshed.last().position, true, false),
+                raw[300].id,
+            )
+        val merged = initial.rows.take(200) + refreshed + initial.rows.drop(301)
+        assertEquals(merged.drop(1).take(500), kept.rows)
+        assertEquals(500, kept.rows.size)
+        assertEquals(raw[51].position, kept.first)
+        assertEquals(raw[549].position, kept.last)
+        assertTrue(kept.hasOlder)
+        assertFalse(kept.atNewest)
+    }
 
     @Test fun sdkCacheKeepsOnlyThreeTranscriptsAndUsesRetainedBoundariesAfterTrim() {
         val raw = rows(600)

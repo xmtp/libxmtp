@@ -4,6 +4,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BackendTransportTest {
+    @Test fun backendQueriesCannotStoreOrDisplayCredentials() {
+        for (url in listOf(
+            "https://backend.example/?token=secret",
+            "https://backend.example/api?access_token=secret",
+            "https://backend.example/?",
+            "http://localhost:5050/?token=secret",
+        )) {
+            assertTrue(
+                "Rejected query: $url",
+                runCatching {
+                    validatedBackendUrl(url)
+                }.exceptionOrNull() is IllegalArgumentException,
+            )
+        }
+        assertEquals("https://backend.example/api", validatedBackendUrl("https://backend.example/api"))
+    }
+
     @Test fun remoteTransportRequiresHttpsAndLocalRoutesUseLiteralHosts() {
         for (url in listOf(
             "https://example.com",

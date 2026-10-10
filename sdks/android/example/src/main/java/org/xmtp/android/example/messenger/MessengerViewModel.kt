@@ -1287,7 +1287,12 @@ class MessengerViewModel(
         val consent = conversationState(chat).consentState
         if (!valid(owner, token) || chat.id() != conversation?.id()) return
         onCurrentScreen(owner, token) {
-            val window = cache.put(chat.id(), result, saved?.messageId)
+            val window =
+                if (saved != null && !changed) {
+                    cache.refresh(chat.id(), result, saved.messageId)
+                } else {
+                    cache.put(chat.id(), result, saved?.messageId)
+                }
             nextBefore = window.last
             newestLoaded = window.atNewest
             val position = anchorForWindow(owner, saved, window)

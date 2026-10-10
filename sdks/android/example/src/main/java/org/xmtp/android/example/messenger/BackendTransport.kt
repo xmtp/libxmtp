@@ -22,10 +22,10 @@ internal fun validatedBackendUrl(backend: String): String {
         "Use a valid HTTP or HTTPS backend URL"
     }
     require(
-        uri.rawUserInfo == null && uri.rawFragment == null &&
+        uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null &&
             uri.rawAuthority?.endsWith(':') == false && (uri.port == -1 || uri.port in 1..65535),
     ) {
-        "Use a backend URL without credentials, a fragment, or an invalid port"
+        "Use a backend URL without credentials, a query, a fragment, or an invalid port"
     }
     require(uri.scheme.equals("https", ignoreCase = true) || uri.host.lowercase() in localDevelopmentHosts) {
         "Use HTTPS for a remote backend"

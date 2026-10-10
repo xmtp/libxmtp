@@ -154,4 +154,32 @@ class SDKTranscriptCache<T>(
             anchorId,
         )
     }
+
+    /** Refresh an overlapping SDK range without discarding loaded rows outside it. */
+    fun refresh(
+        key: String,
+        page: HistoryWindow<T>,
+        anchorId: String?,
+    ): HistoryWindow<T> {
+        val previous = entries[key] ?: return put(key, page, anchorId)
+        if (page.changed) return put(key, page, anchorId)
+        val refreshedIds = page.rows.map(id).toSet()
+        val first = previous.rows.indexOfFirst { id(it) in refreshedIds }
+        val last = previous.rows.indexOfLast { id(it) in refreshedIds }
+        if (first < 0) return previous
+        val prefix = previous.rows.take(first)
+        val suffix = previous.rows.drop(last + 1)
+        return put(
+            key,
+            page.copy(
+                rows = prefix + page.rows + suffix,
+                first = if (prefix.isEmpty()) page.first else previous.first,
+                last = if (suffix.isEmpty()) page.last else previous.last,
+                hasOlder = if (suffix.isEmpty()) page.hasOlder else previous.hasOlder,
+                atNewest = if (prefix.isEmpty()) page.atNewest else previous.atNewest,
+                notice = page.notice ?: previous.notice,
+            ),
+            anchorId,
+        )
+    }
 }

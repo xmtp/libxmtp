@@ -370,6 +370,58 @@ class MessengerRaceInstrumentedTest {
             }
         }
 
+    @Test fun anchoredRefreshPreservesEveryLoadedNativeMessage() =
+        runBlocking {
+            try {
+                val owner = connect()
+                model.session.onInvalidated = {}
+                model.session.onMessage = { _, _ -> }
+                val group =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Loaded range"),
+                    )
+                val ids = (0 until 200).map { group.sendText("Loaded $it", SendOptions(optimistic = true)) }
+                group.publishMessages()
+                val opened = CompletableDeferred<Unit>()
+                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                withTimeout(30_000) { opened.await() }
+                while (model.state.value.hasOlder) {
+                    val size = model.state.value.messages.size
+                    model.dispatch(MessengerAction.LoadOlder)
+                    until { model.state.value.messages.size > size || !model.state.value.hasOlder }
+                }
+                assertEquals(
+                    ids.asReversed(),
+                    model.state.value.messages
+                        .map { it.id },
+                )
+                val anchor = checkNotNull(owner.client.conversations.getMessageById(ids[100]))
+                val saved = ScrollAnchor(anchor.id, anchor.sentAt.ns, 17, false, anchor.deliveryCursor)
+                model.dispatch(MessengerAction.Viewport(saved, false))
+                until { model.state.value.anchor == saved }
+                group.deleteMessage(ids[110])
+                group.publishMessages()
+                model.dispatch(MessengerAction.Refresh)
+                until {
+                    model.state.value.messages
+                        .any { it.id == ids[110] && it.deleted }
+                }
+                assertEquals(
+                    "An anchored refresh must keep both loaded sides",
+                    ids.asReversed(),
+                    model.state.value.messages
+                        .map { it.id },
+                )
+                assertEquals(saved, model.state.value.anchor)
+                assertFalse(model.state.value.hasOlder)
+                println("REFRESH_PROOF stage=anchored-multiple-pages-retained count=200")
+            } finally {
+                cleanup()
+            }
+        }
+
     @Test fun refreshRereadsRetainedNativeWindowAfterMoreThanFiveHundredNewerRows() =
         runBlocking {
             try {
