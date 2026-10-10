@@ -722,6 +722,7 @@ mod tests {
         };
         assert_eq!(has_index("group_messages_sent_at_sort")?, 1);
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 0);
+        assert_eq!(has_index("group_messages_group_reference")?, 0);
 
         EncryptedMessageStore::new(database)?;
         connection.raw_query(|conn| {
@@ -730,6 +731,7 @@ mod tests {
         assert_eq!(has_index("group_messages_sent_at_sort")?, 0);
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 1);
         assert_eq!(has_index("group_messages_pending_history_position")?, 1);
+        assert_eq!(has_index("group_messages_group_reference")?, 1);
         let latest = connection.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)
