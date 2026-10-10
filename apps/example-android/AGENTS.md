@@ -90,7 +90,11 @@ Set `XMTP_ANDROID_BACKEND_URL` to use a test relay or another reachable endpoint
 The integration recipe uses `adb reverse` for `XMTP_S3_PORT`; it must match the
 backend attachment URL. Tests set `allowPrivateNetwork = true` for this fixture.
 
-The performance recipe requires Linux x86_64 with KVM. It owns an API 34
+The performance recipe requires Linux x86_64 with KVM. Run it only by explicit
+command or the manual
+`benchmark-example-android.yml` workflow. Normal tests and CI exclude its
+instrumentation class unless `messengerPerformance=true` is explicitly set.
+It owns an API 34
 x86_64 emulator with four CPUs and 4096 MiB RAM. It seeds 1000 conversations
 and 100000 Published messages through public SDK sends. It runs five warmups
 and 30 measured samples, checks heap and cache bounds, then removes cache
@@ -109,7 +113,8 @@ target. Do not add an arbitrary backend argument or remote opt-in.
 
 ## Verification
 
-CI uses `test-example-android.yml` and `lint-example-android.yml`. SDK input
+CI uses `test-example-android.yml` and `lint-example-android.yml`. Benchmark
+workloads are not part of these suites. SDK input
 changes also select these compatibility gates. SDK package, public consumer,
 API 23, and all-ABI proofs stay in their SDK workflows.
 

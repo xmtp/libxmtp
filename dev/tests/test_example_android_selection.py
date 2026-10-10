@@ -170,7 +170,7 @@ class SelectionTest(unittest.TestCase):
     def test_app_jobs_require_every_child_and_generated_gate(self):
         self.assert_child_gate(
             ".github/workflows/test-example-android.yml",
-            ("unit-tests", "integration-tests", "messenger-performance"),
+            ("unit-tests", "integration-tests"),
         )
         for phase, suite in (
             ("lint", "lint_example_android"),
@@ -224,6 +224,51 @@ class SelectionTest(unittest.TestCase):
             "just android test-min-sdk",
         ):
             self.assertIn(command, text)
+
+
+class BenchmarkPolicyTest(unittest.TestCase):
+    def test_benchmarks_are_manual_and_absent_from_normal_ci(self):
+        manual_path = ROOT / ".github/workflows/benchmark-example-android.yml"
+        manual = yaml.safe_load(manual_path.read_text())
+        self.assertEqual(set(manual.get("on", manual.get(True))), {"workflow_dispatch"})
+        benchmark = "just example-android performance"
+        self.assertIn(benchmark, json.dumps(manual))
+        self.assertNotIn(
+            "benchmark-example-android.yml",
+            {suite["workflow"] for suite in SELECTOR.SUITES.values()},
+        )
+        workloads = re.compile(
+            r"cargo\s+bench\b|just\s+sdk\s+bench(?=[\s'\"])|"
+            r"just\s+example-android\s+performance(?=[\s'\"])"
+        )
+        for path in (ROOT / ".github/workflows").glob("*.yml"):
+            document = yaml.safe_load(path.read_text())
+            triggers = document.get("on", document.get(True))
+            if triggers and set(triggers) == {"workflow_dispatch"}:
+                continue
+            with self.subTest(workflow=path.name):
+                self.assertIsNone(workloads.search(json.dumps(document)))
+                self.assertNotIn(
+                    "./.github/workflows/benchmark-example-android.yml",
+                    json.dumps(document),
+                )
+
+    def test_normal_instrumentation_excludes_the_benchmark_class(self):
+        build = (ROOT / "apps/example-android/app/build.gradle").read_text()
+        self.assertIn(
+            "providers.gradleProperty('android.testInstrumentationRunnerArguments.messengerPerformance').map { it == 'true' }.getOrElse(false)",
+            build,
+        )
+        self.assertRegex(
+            build,
+            r"if \(!performanceTests\)\s*\{\s*testInstrumentationRunnerArguments notClass: "
+            r"'org.xmtp.android.example.messenger.MessengerPerformanceInstrumentedTest'",
+        )
+        runner = (ROOT / "apps/example-android/performance/run.py").read_text()
+        self.assertIn(
+            "-Pandroid.testInstrumentationRunnerArguments.messengerPerformance=true",
+            runner,
+        )
 
 
 class CommandPathTest(unittest.TestCase):

@@ -129,6 +129,11 @@ they do not permit a smaller measured workload.
 
 ## Commands
 
+Benchmark workloads run only by explicit command or the manual
+`benchmark-example-android.yml` workflow. Normal tests and CI do not run them.
+The normal instrumentation graph excludes the benchmark class. The explicit
+runner sets `messengerPerformance=true` to admit it.
+
 Run from the repository root. The host gate needs no device or backend:
 
 ```sh
@@ -144,8 +149,8 @@ backend URL argument or remote opt-in. Instrumentation rejects missing admission
 and noncanonical loopback targets before SDK creation. The fixture owns backend,
 database and child teardown. The recipe sets API 34 and the fixed CPU/RAM flags,
 forwards only that backend's port, and runs the owned emulator scope.
-The manual Linux workflow is separate from the normal SDK platform and
-app integration gates. Its 210-minute step and 240-minute job limits are
+The manual Linux benchmark job is separate from SDK platform and app
+integration checks. Its 210-minute step and 240-minute job limits are
 provisional. Set the final timeout from observed seed progress and `seedMs`.
 Do not reduce the dataset to fit a timeout.
 
