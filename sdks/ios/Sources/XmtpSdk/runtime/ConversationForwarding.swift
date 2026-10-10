@@ -105,6 +105,13 @@ public extension Conversation {
         }
     }
 
+    func messageHistoryPage(options: ListMessagesOptions?, before: MessageHistoryPosition?, after: MessageHistoryPosition?) async throws  -> MessageHistoryPage {
+        switch self {
+        case .group(let group): return try await group.messageHistoryPage(options: options, before: before, after: after)
+        case .dm(let dm): return try await dm.messageHistoryPage(options: options, before: before, after: after)
+        }
+    }
+
     func messageHistorySnapshot(limit: UInt32) async throws  -> MessageHistorySnapshot {
         switch self {
         case .group(let group): return try await group.messageHistorySnapshot(limit: limit)
@@ -116,6 +123,13 @@ public extension Conversation {
         switch self {
         case .group(let group): return try await group.messageReader(options: options)
         case .dm(let dm): return try await dm.messageReader(options: options)
+        }
+    }
+
+    func messageRecoveryPage(options: ListMessagesOptions?, before: MessageRecoveryPosition?, after: MessageRecoveryPosition?) async throws  -> MessageRecoveryPage {
+        switch self {
+        case .group(let group): return try await group.messageRecoveryPage(options: options, before: before, after: after)
+        case .dm(let dm): return try await dm.messageRecoveryPage(options: options, before: before, after: after)
         }
     }
 

@@ -1,0 +1,108 @@
+# Chronological history pages
+
+`Group.messageHistoryPage` and `Dm.messageHistoryPage` read retained Published
+messages. They order by sent time, then immutable local delivery sequence.
+The default direction is ascending and the default limit is 50. Use descending
+order to read the newest page or older history.
+
+The records are:
+
+- `MessageHistoryPosition`: exact `sentAt` and opaque `deliveryCursor`.
+- `MessageHistoryPage`: `messages`, `firstPosition`, `lastPosition`, `hasMore`,
+  and `skippedCount`.
+
+Keep every cursor unchanged. The SDK validates its database identity and local
+position. A saved position remains a valid query boundary after its message is
+deleted. A whole-database restore or another database rejects that cursor.
+
+## Select a page
+
+The three arguments are existing `ListMessagesOptions`, optional `before`, and
+optional `after`. Generated callers may omit all three.
+
+- `before` selects strict tuple less-than. Use it for older descending pages.
+- `after` selects strict tuple greater-than. Use it for newer ascending pages.
+- Both bounds select an open interval. Equal or reversed bounds give an empty
+  page after cursor validation.
+- Explicit limits use the positive UInt32 domain. Zero is an input error.
+- None or SentAt sort is accepted. InsertedAt is an input error.
+- None or Published status is accepted. Failed and Unpublished are input errors.
+- Existing kind, content, sender, time and expiry filters apply before the limit.
+
+The new page method leaves existing `messages`, `countMessages`, and
+`messageHistorySnapshot` behavior unchanged. It leaves reader leases and
+acknowledgement progress unchanged.
+
+## Continue through conversion loss
+
+`firstPosition` and `lastPosition` describe consumed raw rows in output order.
+They can exist when `messages` is empty. `skippedCount` reports consumed rows
+that could not be converted. Show that state to the user.
+
+Use `hasMore` to test whether another matching key exists. Continue from
+`lastPosition` in the same direction. The extra key that establishes `hasMore`
+is unconsumed and has no loaded base body. Its position is not a continuation.
+A short or empty `messages` list is not an exhaustion test.
+
+For example, a page can consume 50 rows and return zero readable messages. If
+it has more rows, its SDK-issued `lastPosition` still lets the next page reach
+the remaining readable messages.
+
+## Retain the display order
+
+Preserve the order returned by each SDK page. Use message IDs for identity
+merges. Use SDK positions for query boundaries. Do not decode or sort cursor
+strings. Sent time stays primary, so old backfills remain older even when their
+local delivery sequence is newer. Equal-time order is client-local.
+
+Pages are separate snapshots. Refresh affected loaded windows after late
+arrival, expiry, archive restore, or lost events. Retain the query boundaries
+and the visible anchor position so deletion can select surviving neighbors.
+
+Pending and failed rows use the recovery page below.
+A history page does not resend them.
+
+## Query cost
+
+The SDK resolves the physical groups of a stitched DM in the read transaction.
+With limit L and K physical groups, it reads at most K*(L+1) candidate keys,
+merges the ordered keys, and loads at most L base bodies. Deletions, replies and
+reactions use each selected message's physical source group. Enrichment keeps
+the merged page order and positions. The query index covers group, sent time
+and local delivery sequence.
+
+The implementation and record declarations are in
+[src/delivery/history.rs](src/delivery/history.rs). The database selector is in
+[history_page.rs](../xmtp_db/src/encrypted_store/group_message/history_page.rs).
+
+## Pending recovery pages
+
+`Group.messageRecoveryPage` and `Dm.messageRecoveryPage` select retained Failed
+and Unpublished messages. The three optional arguments are `options`, `before`,
+and `after`. The default is ascending sent time, then raw immutable message ID,
+with limit 50 and no kind filter. The app can request Application and descending
+order. An explicit Failed or Unpublished status selects one status. Published,
+InsertedAt sort, and zero limits are input errors.
+
+`MessageRecoveryPosition` holds exact `sentAt` and opaque `messageCursor`.
+`MessageRecoveryPage` holds `messages`, `firstPosition`, `lastPosition`,
+`hasMore`, and `skippedCount`. These positions cover consumed raw keys. They
+remain present after conversion loss, even when no message ID can be converted.
+Continue from `lastPosition`; use `hasMore` to detect remaining keys.
+
+Bounds compare strict `(sentAt, raw ID)` tuples in either direction. Keep the
+SDK-issued token unchanged. It binds the raw key to the database UUID. A deleted
+or published boundary remains usable. Another database or a whole-database
+restore rejects the token. Each call uses one read snapshot; separate calls
+need a normal refresh to include newly queued rows.
+
+The pending index covers group, sent time, and raw ID with a literal pending
+status predicate. Each physical DM source selects at most L+1 keys. A bounded
+merge retains L keys and loads at most L base bodies. Enrichment uses each row's
+physical source group and retains SDK order. Recovery does not acquire a default
+reader lease, acknowledge messages, or allocate delivery numbers. Retry publishes
+the accepted stored message ID through `publishMessage`.
+
+The record and token code is in [recovery.rs](src/delivery/recovery.rs).
+The selector is in
+[recovery_page.rs](../xmtp_db/src/encrypted_store/group_message/recovery_page.rs).

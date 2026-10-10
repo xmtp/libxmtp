@@ -39,8 +39,8 @@ _lifecycle_tests := "'XmtpSdkTests\\.(ReaderTeardownTests|ListenerGateTests)'"
 
 # Run Swift tests on macOS. XMTP_BACKEND_URL selects the backend.
 # `skip-lifecycle` leaves out the tests that `test-lifecycle` runs.
-test mode="all":
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q {{ if mode == "skip-lifecycle" { "--skip " + _lifecycle_tests } else if mode == "all" { "" } else { error("mode must be all or skip-lifecycle") } }}
+test mode="all" *args="":
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel -q {{ if mode == "skip-lifecycle" { "--skip " + _lifecycle_tests } else if mode == "all" { "" } else { error("mode must be all or skip-lifecycle") } }} {{ args }}
 
 # Run only the lifecycle checks on macOS. XMTP_BACKEND_URL selects the backend.
 test-lifecycle:

@@ -18,7 +18,7 @@ dev/nix-shell 'just ios test skip-lifecycle' # The same, without the lifecycle c
 dev/nix-shell 'just ios test-lifecycle'     # Only ReaderTeardownTests and ListenerGateTests.
 dev/nix-shell 'just ios test-simulator "platform=iOS Simulator,name=iPhone 17"'
 dev/nix-shell 'just ios docs'
-NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XmtpSdkTests.RecordCodecTests/testRemoteAttachmentLength'
+dev/nix-shell 'just ios test all --filter XmtpSdkTests.RecordCodecTests/testRemoteAttachmentLength'
 NIX_DEVSHELL=ios dev/nix-shell 'ruby sdks/ios/script/test_podspec.rb'
 dev/nix-shell 'python3 sdks/ios/script/test_recipes.py'
 ```
@@ -28,6 +28,7 @@ same Ruby runtime as CocoaPods. It checks source selection, invalid receipts,
 and simulator exclusions. It does not install or download a pod.
 
 The recipe test checks the real Just commands without compiling the SDK.
+The `test` recipe forwards extra Swift test arguments after its mode.
 
 `check-consumer` stages a consumer package of the root package under
 `target/sdk-ios-consumer`. It runs `Tests/Consumer/main.swift` as a bare

@@ -494,6 +494,62 @@ macro_rules! common_conversation {
                 .await
             }
 
+            /// Read Published history by sent time, then immutable local delivery order.
+            /// Defaults are ascending order and limit 50. Messenger uses descending
+            /// order for newest and older pages. Explicit limits must be positive.
+            /// None or SentAt sort is accepted; InsertedAt and pending statuses fail.
+            /// All other selection filters apply before the page limit.
+            /// Before is strict tuple less-than; after is strict tuple greater-than.
+            /// Direction never changes those meanings. Deleted boundaries stay valid.
+            /// First/last positions cover consumed raw rows, even after conversion loss.
+            /// A sentinel key sets has_more without loading its base body.
+            /// This query does not acquire a reader lease or acknowledge messages.
+            #[uniffi::method(default(options = None, before = None, after = None))]
+            pub async fn message_history_page(
+                &self,
+                options: Option<crate::ListMessagesOptions>,
+                before: Option<crate::MessageHistoryPosition>,
+                after: Option<crate::MessageHistoryPosition>,
+            ) -> Result<crate::MessageHistoryPage, XmtpError> {
+                let query = crate::delivery::page_query(options, before, after)?;
+                let group = self.inner.clone();
+                let client_key = self.client_key;
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    let page = group
+                        .find_history_page_with_stored(&query)
+                        .map_err(crate::delivery::history_error)?;
+                    Ok(crate::delivery::lift_page(page, client_key))
+                })
+                .await
+            }
+
+            /// Read Failed and Unpublished rows in sent-time and raw ID order.
+            /// Defaults are ascending order, no kind filter, and limit 50.
+            /// Explicit Failed or Unpublished is accepted. Published, InsertedAt,
+            /// and zero limits fail. Other filters apply before the limit.
+            /// Before and after are strict tuple bounds in either direction.
+            /// Keep message_cursor opaque. Deleted and published boundaries remain valid.
+            /// Raw positions and skipped_count cover rows that fail conversion.
+            /// This query does not acquire a reader lease or allocate delivery numbers.
+            #[uniffi::method(default(options = None, before = None, after = None))]
+            pub async fn message_recovery_page(
+                &self,
+                options: Option<crate::ListMessagesOptions>,
+                before: Option<crate::MessageRecoveryPosition>,
+                after: Option<crate::MessageRecoveryPosition>,
+            ) -> Result<crate::MessageRecoveryPage, XmtpError> {
+                let query = crate::delivery::recovery_query(options, before, after)?;
+                let group = self.inner.clone();
+                let client_key = self.client_key;
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    let page = group
+                        .find_recovery_page_with_stored(query)
+                        .map_err(crate::delivery::history_error)?;
+                    Ok(crate::delivery::lift_recovery_page(page, client_key))
+                })
+                .await
+            }
+
             pub async fn message_history_snapshot(
                 &self,
                 limit: u32,

@@ -1,0 +1,1 @@
+DROP INDEX group_messages_group_reference;
