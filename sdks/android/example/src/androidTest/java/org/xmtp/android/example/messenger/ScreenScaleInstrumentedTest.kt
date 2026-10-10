@@ -420,10 +420,10 @@ class ScreenScaleInstrumentedTest {
             val backend = checkNotNull(InstrumentationRegistry.getArguments().getString("metadataBackendUrl"))
             val lifecycle = AndroidStreamLifecycle.enabled
             AndroidStreamLifecycle.enabled = false
-            resumeStreams()
             var peer: SDKClient? = null
             var reader: Job? = null
             try {
+                resumeStreams()
                 model.session.signOut()
                 until("Start did not appear after sign out") { model.state.value.screen == Screen.START }
                 input("Backend URL", backend)
