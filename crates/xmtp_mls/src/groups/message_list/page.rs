@@ -16,6 +16,9 @@ pub struct EnrichedMessagePage<P> {
 pub type EnrichedHistoryPage = EnrichedMessagePage<xmtp_db::delivery::HistoryPosition>;
 pub type EnrichedRecoveryPage = EnrichedMessagePage<xmtp_db::group_message::RecoveryPosition>;
 
+// A row can add one parent ID to the deletion query. Leave room for other binds.
+const PAGE_ENRICHMENT_BATCH: usize = 250;
+
 #[cfg(test)]
 thread_local! {
     static BEFORE_ENRICHMENT: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
@@ -58,7 +61,16 @@ fn enrich_page_rows(
     }
     let mut messages = Vec::with_capacity(positions.len());
     for (group_id, rows) in sources {
-        messages.extend(enrich_messages_with_stored(conn, &group_id, rows)?);
+        let mut rows = rows.into_iter();
+        while rows.len() > PAGE_ENRICHMENT_BATCH {
+            let batch = rows.by_ref().take(PAGE_ENRICHMENT_BATCH).collect();
+            messages.extend(enrich_messages_with_stored(conn, &group_id, batch)?);
+        }
+        messages.extend(enrich_messages_with_stored(
+            conn,
+            &group_id,
+            rows.collect(),
+        )?);
     }
     // Relations use the physical source. Display order uses the selected raw keys.
     messages.sort_by_key(|message| positions[&message.stored.id].0);
