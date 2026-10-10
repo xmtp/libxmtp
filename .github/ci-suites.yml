@@ -121,11 +121,13 @@ path_groups:
     - "dev/check-apple-toolchain"
   android:
     - "sdks/android/**"
-    - "**/*.{gradle,kts}"
     - "nix/lib/android-*"
     - "nix/shells/android.nix"
     - "nix/android-packages.nix"
     - "!docs/**"
+  example_android:
+    - "apps/example-android/**"
+    - "!**/*.md"
   js_packages:
     - "sdks/{node,browser,agent}/**"
     - "apps/{cli,web-chat,docs}/**"
@@ -221,6 +223,18 @@ suites:
     kache: [nix-only]
     path_filters:
       - path_group: android
+  lint_example_android:
+    phase: lint
+    workflow: lint-example-android.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: [nix-only]
+    path_filters:
+      - path_group: example_android
+      - path_group: android
+      - path_group: sdk_core
 
   # --- Rust ------------------------------------------------------------------
   check_rust:
@@ -471,4 +485,17 @@ suites:
     path_filters:
       - path_group: sdk_core
       - path_group: android
+      - path_group: docker_backend
+  test_example_android:
+    phase: test
+    workflow: test-example-android.yml
+    run_on: [ready_pr_push, merge]
+    disable_on_forks: false
+    secrets: inherit
+    permissions: {contents: read}
+    kache: [nix-only]
+    path_filters:
+      - path_group: example_android
+      - path_group: android
+      - path_group: sdk_core
       - path_group: docker_backend

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the CI selector with app, SDK, and shared input paths."""
+"""Execute CI selection and required gates for the moved Android app."""
 
 import importlib.machinery
 import importlib.util
@@ -16,66 +16,22 @@ import zipfile
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def flatten(items):
-    for item in items:
-        if isinstance(item, list):
-            yield from flatten(item)
-        else:
-            yield item
+LOADER = importlib.machinery.SourceFileLoader(
+    "example_ci_select", str(ROOT / "dev/ci-select")
+)
+SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
+SELECTOR = importlib.util.module_from_spec(SPEC)
+LOADER.exec_module(SELECTOR)
 
 
 def expression(source, values):
     source = source.strip().removeprefix("${{").removesuffix("}}")
     source = source.replace("||", " or ").replace("&&", " and ")
-    source = re.sub(r"(?<![\'\"])\btrue\b(?![\'\"])", "True", source)
-    source = re.sub(r"(?<![\'\"])\bfalse\b(?![\'\"])", "False", source)
     source = re.sub(r"[\w-]+(?:\.[\w-]+)+", lambda m: repr(values[m[0]]), source)
-    return str(bool(eval(source, {"__builtins__": {}}, {}))).lower()
+    return bool(eval(source, {"__builtins__": {}}, {}))
 
 
 def select(paths, *, draft=False, event="pull_request", available=True):
-    filters = yaml.safe_load((ROOT / ".github/ci-paths.yml").read_text())
-    # Node's glob matcher supports the braces and ** patterns used by these filters.
-    # Apply the action's some-with-excludes rule to each changed file.
-    matcher = subprocess.run(
-        [
-            "node",
-            "--input-type=module",
-            "-e",
-            """
-import { matchesGlob } from 'node:path';
-let data = ''; for await (const part of process.stdin) data += part;
-const { paths, filters } = JSON.parse(data);
-const result = Object.fromEntries(Object.entries(filters).map(([key, patterns]) => {
-  const included = patterns.filter(p => !p.startsWith('!'));
-  const excluded = patterns.filter(p => p.startsWith('!')).map(p => p.slice(1));
-  return [key, paths.filter(path => included.some(p => matchesGlob(path, p)) &&
-    !excluded.some(p => matchesGlob(path, p)))];
-}));
-process.stdout.write(JSON.stringify(result));
-""",
-        ],
-        input=json.dumps(
-            {
-                "paths": paths,
-                "filters": {k: list(flatten(v)) for k, v in filters.items()},
-            }
-        ),
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    matches = json.loads(matcher.stdout)
-    outputs = {"changes": json.dumps([k for k, v in matches.items() if v])}
-    outputs.update({k + "_files": json.dumps(v) for k, v in matches.items()})
-    loader = importlib.machinery.SourceFileLoader(
-        "ci_select", str(ROOT / "dev/ci-select")
-    )
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    selector = importlib.util.module_from_spec(spec)
-    loader.exec_module(selector)
     payload = {
         "repository": {"full_name": "xmtp/libxmtp"},
         "pull_request": {
@@ -83,15 +39,15 @@ process.stdout.write(JSON.stringify(result));
             "head": {"repo": {"full_name": "xmtp/libxmtp"}},
         },
     }
-    return selector.select_checks(
-        outputs, event, payload, "success" if available else "failure", len(paths)
-    )["plan"]
+    return SELECTOR.select_suites(
+        paths, event, payload, "success" if available else "failure", len(paths)
+    )
 
 
 class SelectionTest(unittest.TestCase):
     def assert_app(self, result):
-        self.assertIn("lint-example-android", result["lint_jobs"])
-        self.assertIn("test-example-android", result["test_jobs"])
+        self.assertIn("lint_example_android", result["suites"]["lint"])
+        self.assertIn("test_example_android", result["suites"]["test"])
 
     def test_app_inputs_select_app_without_sdk_platform_or_bindings(self):
         for path in (
@@ -107,15 +63,15 @@ class SelectionTest(unittest.TestCase):
             with self.subTest(path=path):
                 result = select([path])
                 self.assert_app(result)
-                for check in (
+                self.assertEqual(result["unknown_paths"], [])
+                for suite in (
                     "test_android",
-                    "test_android_consumers",
-                    "test_android_platform",
-                    "test_sdk_staging",
-                    "check_bindings_android",
+                    "check_sdk",
+                    "check_sdk_unit",
                     "test_bindings",
                 ):
-                    self.assertFalse(result["checks"][check], check)
+                    self.assertNotIn(suite, result["suites"]["test"])
+                self.assertNotIn("lint_android", result["suites"]["lint"])
 
     def test_sdk_native_and_shared_changes_keep_compatibility(self):
         for path in (
@@ -129,14 +85,7 @@ class SelectionTest(unittest.TestCase):
             with self.subTest(path=path):
                 result = select([path])
                 self.assert_app(result)
-                for check in (
-                    "test_android",
-                    "test_android_consumers",
-                    "test_android_platform",
-                    "test_sdk_staging",
-                    "check_bindings_android",
-                ):
-                    self.assertTrue(result["checks"][check], check)
+                self.assertIn("test_android", result["suites"]["test"])
 
     def test_sdk_gradle_inputs_select_only_android_compatibility(self):
         for path in (
@@ -152,24 +101,17 @@ class SelectionTest(unittest.TestCase):
             with self.subTest(path=path):
                 result = select([path])
                 self.assert_app(result)
-                for check in (
-                    "lint_android",
-                    "test_android",
-                    "test_android_consumers",
-                    "test_android_platform",
-                    "test_sdk_staging",
-                    "check_bindings_android",
-                ):
-                    self.assertTrue(result["checks"][check], check)
-                for check in (
+                self.assertEqual(result["unknown_paths"], [])
+                self.assertIn("lint_android", result["suites"]["lint"])
+                self.assertIn("test_android", result["suites"]["test"])
+                for suite in (
                     "check_rust",
                     "test_workspace",
                     "test_node",
                     "test_browser",
                     "test_ios",
-                    "check_bindings_ios",
                 ):
-                    self.assertFalse(result["checks"][check], check)
+                    self.assertNotIn(suite, result["suites"]["test"])
 
     def test_mixed_changes_keep_sdk_platform_checks(self):
         result = select(
@@ -179,7 +121,7 @@ class SelectionTest(unittest.TestCase):
             ]
         )
         self.assert_app(result)
-        self.assertTrue(result["checks"]["test_android_platform"])
+        self.assertIn("test_android", result["suites"]["test"])
 
     def test_documentation_does_not_select_runtime_checks(self):
         for path in (
@@ -189,53 +131,99 @@ class SelectionTest(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 result = select([path])
-                self.assertFalse(result["checks"]["test_example_android"])
-                self.assertFalse(result["checks"]["test_android_platform"])
-                self.assertTrue(result["checks"]["docs_quality"])
+                self.assertNotIn("test_example_android", result["suites"]["test"])
+                self.assertNotIn("test_android", result["suites"]["test"])
+                self.assertIn("docs_quality", result["suites"]["lint"])
 
     def test_unknown_or_failed_detection_selects_all_gates(self):
         for result in (select(["new-unknown-file"]), select([], available=False)):
             self.assert_app(result)
-            self.assertTrue(result["checks"]["test_android_platform"])
+            self.assertIn("test_android", result["suites"]["test"])
 
     def test_draft_keeps_source_policy_and_push_keeps_app_gate(self):
         result = select(
             ["apps/example-android/app/src/main/java/Screen.kt"], draft=True
         )
-        self.assertFalse(result["checks"]["test_example_android"])
-        self.assertTrue(result["checks"]["lint_config"])
-        self.assert_app(
-            select(["apps/example-android/app/src/main/java/Screen.kt"], event="push")
-        )
+        self.assertNotIn("test_example_android", result["suites"]["test"])
+        self.assertNotIn("lint_example_android", result["suites"]["lint"])
+        self.assertIn("lint_config", result["suites"]["lint"])
+        self.assert_app(select([], event="push"))
 
-    def test_app_jobs_require_every_child_and_gate_ci(self):
-        workflow = yaml.safe_load(
-            (ROOT / ".github/workflows/test-example-android.yml").read_text()
-        )
+    def assert_child_gate(self, path, required):
+        workflow = yaml.safe_load((ROOT / path).read_text())
         gate = workflow["jobs"]["results"]
-        required = ("unit-tests", "integration-tests", "messenger-performance")
         self.assertEqual(set(gate["needs"]), set(required))
         predicate = gate["steps"][0]["env"]["PASSED"]
+        self.assertNotIn("inputs.", predicate)
         values = {f"needs.{job}.result": "success" for job in required}
-        self.assertEqual(expression(predicate, values), "true")
+        self.assertTrue(expression(predicate, values))
         for job in required:
             for status in ("skipped", "failure", "cancelled", ""):
                 with self.subTest(job=job, status=status):
-                    self.assertEqual(
+                    self.assertFalse(
                         expression(
                             predicate, dict(values, **{f"needs.{job}.result": status})
-                        ),
-                        "false",
+                        )
                     )
-        ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-        for name, job in ci["jobs"].items():
-            if name in ("lint", "test"):
-                self.assertIn(
-                    "lint-example-android"
-                    if name == "lint"
-                    else "test-example-android",
-                    job["needs"],
+        return workflow
+
+    def test_app_jobs_require_every_child_and_generated_gate(self):
+        self.assert_child_gate(
+            ".github/workflows/test-example-android.yml",
+            ("unit-tests", "integration-tests", "messenger-performance"),
+        )
+        for phase, suite in (
+            ("lint", "lint_example_android"),
+            ("test", "test_example_android"),
+        ):
+            workflow = yaml.safe_load(
+                (ROOT / f".github/workflows/{phase}-generated.yml").read_text()
+            )
+            jobs = workflow["jobs"]
+            self.assertIn(suite, jobs["required"]["needs"])
+            self.assertEqual(
+                jobs[suite]["uses"], f"./.github/workflows/{phase}-example-android.yml"
+            )
+            self.assertIn(f"'{suite}'", jobs[suite]["if"])
+            gate = jobs["required"]["steps"][0]["run"]
+            for state, expected in (
+                ("success", 0),
+                ("failure", 1),
+                ("skipped", 1),
+                ("cancelled", 1),
+            ):
+                result = subprocess.run(
+                    ["bash", "-c", gate],
+                    env=os.environ
+                    | {
+                        "SELECTED": json.dumps([suite]),
+                        "RESULTS": json.dumps({suite: {"result": state}}),
+                    },
+                    capture_output=True,
+                    text=True,
                 )
+                self.assertEqual(result.returncode, expected, (phase, state))
+
+    def test_sdk_gate_keeps_staging_consumers_and_minimum_platform(self):
+        workflow = self.assert_child_gate(
+            ".github/workflows/test-android.yml",
+            (
+                "unit-tests",
+                "min-sdk-smoke",
+                "integration-tests",
+                "check-android",
+                "android-stage",
+            ),
+        )
+        text = json.dumps(workflow)
+        for command in (
+            "just android check",
+            "just sdk mobile-stage android",
+            "just sdk mobile-build android",
+            "just android check-consumers",
+            "just android test-min-sdk",
+        ):
+            self.assertIn(command, text)
 
 
 class CommandPathTest(unittest.TestCase):
