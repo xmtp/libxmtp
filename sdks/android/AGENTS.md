@@ -41,6 +41,7 @@ dev/nix-shell 'just android metadata-fixture-test'
 dev/nix-shell 'just android metadata-fixture-test MetadataBackendFixtureTest.test_every_psql_call_uses_a_private_passfile_without_argv_password'
 dev/nix-shell 'just android metadata-fixture-smoke'
 dev/nix-shell 'just android metadata-fixture-create-test'
+dev/nix-shell 'just android metadata-fixture-create-test --case late-database-replacement'
 dev/nix-shell 'just android test-integration'
 dev/nix-shell 'just android test-min-sdk'
 dev/nix-shell 'just android check-consumers'
@@ -203,5 +204,9 @@ generated reader options for scopes, filters, and replay. Keep typed errors and
 
 `metadata-fixture-create-test` needs the current PostgreSQL service. It sends
 SIGINT and SIGTERM after a real CREATE commits but before its command returns.
-It also checks a committed CREATE with a failed command result. It verifies and
-removes only each run's exact UUID database. This does not use an emulator.
+It also checks uncertain database and role CREATE results, competing CREATE
+actors, and permission rejection. The metadata fixture SQL caller needs
+`CREATEDB` and `CREATEROLE`, or superuser permission. Each fixture generation
+creates a private `NOLOGIN` owner role and grants its membership only to the
+caller. Cleanup requires the role OID and generation marker. The proof removes
+only its own exact UUID databases and roles. This does not use an emulator.

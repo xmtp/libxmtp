@@ -119,6 +119,8 @@ def _run_owned(backend, command, env, database, psql, psql_env):
         if not env.get(name):
             raise ValueError(f"{name} is required from the worktree environment.")
     name = "messenger_metadata_" + uuid.uuid4().hex
+    owner = "messenger_metadata_owner_" + uuid.uuid4().hex
+    generation = uuid.uuid4().hex
     owned_url = owned_database_url(database, name)
     listener, metrics = port(), port()
     env.update(
@@ -134,6 +136,8 @@ def _run_owned(backend, command, env, database, psql, psql_env):
     fixture = Path(__file__).resolve().parent
     root = fixture.parents[3]
     create_attempted = False
+    owner_oid = None
+    owner_attempted = False
     creating = False
     pending_signal = None
     server = child = None
@@ -146,7 +150,7 @@ def _run_owned(backend, command, env, database, psql, psql_env):
         else:
             raise KeyboardInterrupt(signum)
 
-    def database_exists():
+    def query(statement):
         result = subprocess.run(
             [
                 *psql,
@@ -154,7 +158,7 @@ def _run_owned(backend, command, env, database, psql, psql_env):
                 "-v",
                 "ON_ERROR_STOP=1",
                 "-c",
-                f"SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = '{name}')",
+                statement,
             ],
             check=True,
             env=psql_env,
@@ -162,23 +166,75 @@ def _run_owned(backend, command, env, database, psql, psql_env):
             text=True,
             capture_output=True,
         )
-        return result.stdout.strip() == "t"
+        return result.stdout.strip()
+
+    def database_exists():
+        return (
+            query(f"SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = '{name}')")
+            == "t"
+        )
+
+    def owned_role_oid():
+        value = query(
+            f"SELECT oid FROM pg_roles WHERE rolname = '{owner}' "
+            f"AND shobj_description(oid, 'pg_authid') = '{generation}'"
+        )
+        return int(value) if value else None
+
+    def owns_database():
+        return (
+            owner_oid is not None
+            and query(
+                f"SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = '{name}' "
+                f"AND datdba = {owner_oid})"
+            )
+            == "t"
+        )
 
     for signum in (signal.SIGINT, signal.SIGTERM):
         previous[signum] = signal.signal(signum, interrupted)
     try:
+        if (
+            query(
+                "SELECT rolsuper OR (rolcreaterole AND rolcreatedb) "
+                "FROM pg_roles WHERE rolname = CURRENT_USER"
+            )
+            != "t"
+        ):
+            raise RuntimeError("The metadata fixture needs CREATEDB and CREATEROLE.")
         if database_exists():
             raise RuntimeError("The allocated fixture database already exists.")
         creating = True
-        create_attempted = True
+        owner_attempted = True
         try:
+            # One transaction binds the private role to this generation.
             subprocess.run(
                 [
                     *psql,
                     "-v",
                     "ON_ERROR_STOP=1",
                     "-c",
-                    f'CREATE DATABASE "{name}"',
+                    f'CREATE ROLE "{owner}" NOLOGIN; '
+                    f"COMMENT ON ROLE \"{owner}\" IS '{generation}'; "
+                    f'GRANT "{owner}" TO CURRENT_USER',
+                ],
+                check=True,
+                env=psql_env,
+                timeout=30,
+                stdout=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            owner_oid = owned_role_oid()
+            if owner_oid is None:
+                raise RuntimeError("The fixture role ownership is not established.")
+            create_attempted = True
+            subprocess.run(
+                [
+                    *psql,
+                    "-v",
+                    "ON_ERROR_STOP=1",
+                    "-c",
+                    f'CREATE DATABASE "{name}" OWNER "{owner}"',
                 ],
                 check=True,
                 env=psql_env,
@@ -270,15 +326,39 @@ def _run_owned(backend, command, env, database, psql, psql_env):
         try:
             stop(child)
             stop(server)
-            if create_attempted and database_exists():
+            if owner_attempted:
+                retained_oid = owned_role_oid()
+                if owner_oid is None:
+                    owner_oid = retained_oid
+                elif retained_oid != owner_oid:
+                    raise RuntimeError("The fixture role identity changed.")
+            if create_attempted and owns_database():
+                try:
+                    subprocess.run(
+                        [
+                            *psql,
+                            "-v",
+                            "ON_ERROR_STOP=1",
+                            "-c",
+                            f'SET ROLE "{owner}"',
+                            "-c",
+                            f'DROP DATABASE "{name}" WITH (FORCE)',
+                        ],
+                        check=True,
+                        env=psql_env,
+                        timeout=30,
+                        stdout=subprocess.DEVNULL,
+                    )
+                except subprocess.CalledProcessError:
+                    # The server can reject a foreign replacement after admission.
+                    if owns_database():
+                        raise
+            if owner_oid is not None:
+                if owned_role_oid() != owner_oid or owns_database():
+                    raise RuntimeError("The fixture role is not safe to remove.")
+                # DROP ROLE fails closed if another database still owns it.
                 subprocess.run(
-                    [
-                        *psql,
-                        "-v",
-                        "ON_ERROR_STOP=1",
-                        "-c",
-                        f'DROP DATABASE "{name}" WITH (FORCE)',
-                    ],
+                    [*psql, "-v", "ON_ERROR_STOP=1", "-c", f'DROP ROLE "{owner}"'],
                     check=True,
                     env=psql_env,
                     timeout=30,

@@ -90,7 +90,17 @@ is forbidden, even when a different member has no own entry in that map.
 The app shows the committed value and disables later controls.
 
 The runner defers signals through CREATE completion and verifies the exact
-allocated database on uncertain command failure. Cleanup ignores further
+allocated database on uncertain command failure. Its SQL caller needs
+`CREATEDB` and `CREATEROLE`, or superuser permission. The runner creates one
+private `NOLOGIN` role per generation. A role and its private marker are created
+in one transaction. Membership is granted only to the fixture caller so that
+a caller without superuser permission can assign the database owner.
+The role OID and marker identify the database owner. A name collision does not
+permit cleanup of the competing database or role. An uncertain committed
+CREATE is recovered from the same ownership evidence. The runner removes the
+database with the private owner's permission, so a foreign replacement also
+fails the database server's ownership check at DROP. The runner removes the
+role only after its database is absent. Cleanup ignores further
 SIGINT/SIGTERM until its owned processes and database are removed. It never
 claims an already existing allocated name. Local signal tests send real signals
 during the CREATE process.

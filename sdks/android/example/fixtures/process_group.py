@@ -156,7 +156,11 @@ def keeper(control, status, command):
         signal.signal(signum, lambda *_: None)
 
     def report(value):
-        os.write(status, (json.dumps(value) + "\n").encode())
+        try:
+            os.write(status, (json.dumps(value) + "\n").encode())
+        except BrokenPipeError:
+            # Owner exit closes the reader. Control EOF still owns cleanup.
+            pass
 
     try:
         child = subprocess.Popen(command)
