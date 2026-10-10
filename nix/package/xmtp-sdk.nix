@@ -13,6 +13,7 @@ let
   sdkSource = sources.sdk rust;
   mkProvenance = pkgs.callPackage ../lib/sdk-provenance.nix { };
   common = xmtp.base.commonArgs // {
+    cargoVendorDir = xmtp.base.mkCargoVendorDir rust;
     version = xmtp.mkVersion rust;
     doNotPostBuildInstallCargoBinaries = true;
   };
@@ -110,6 +111,7 @@ let
         // {
           pname = "xmtp-sdk-ios-${target}";
           src = sources.sdk iosRust;
+          cargoVendorDir = xmtp.base.mkCargoVendorDir iosRust;
           CARGO_BUILD_TARGET = target;
           __noChroot = true;
           cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (

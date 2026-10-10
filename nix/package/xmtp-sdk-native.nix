@@ -42,6 +42,7 @@ let
         xmtp.base.commonArgs.nativeBuildInputs ++ lib.optionals isGnu [ cargo-zigbuild ];
       version = xmtp.mkVersion rust;
       src = source;
+      cargoVendorDir = xmtp.base.mkCargoVendorDir rust;
       cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
         special
         // {

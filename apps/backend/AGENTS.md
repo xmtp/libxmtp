@@ -16,6 +16,7 @@ dev/nix-shell 'just backend schema'                    # regenerate public confi
 dev/nix-shell 'just backend test'
 dev/nix-shell 'just backend test --lib config'         # one module
 dev/nix-shell 'just backend test --lib https_passthrough' # HTTPS streaming ingress check
+nix build --no-link .#backend-tests.<system>          # tests and SQL check, disposable services, no Docker
 dev/nix-shell 'just backend image'                     # host architecture image
 dev/nix-shell 'just backend image aarch64'            # explicit architecture image
 dev/nix-shell 'just backend observe-check'             # client operations, shared trace, metrics, Grafana

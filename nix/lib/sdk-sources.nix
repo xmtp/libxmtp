@@ -2,94 +2,25 @@
 let
   root = ./../..;
   inherit (lib.fileset) unions fileFilter toSource;
-  cargoSources = xmtp.craneLib.fileset.commonCargoSources;
-  workspaceManifest = builtins.fromTOML (builtins.readFile (root + /Cargo.toml));
-  workspaceDependencies = workspaceManifest.workspace.dependencies;
-  patches = workspaceManifest.patch."crates-io";
-  dependencyTables =
-    manifest:
-    [
-      (manifest.dependencies or { })
-      (manifest.build-dependencies or { })
-    ]
-    ++ lib.concatMap (target: [
-      (target.dependencies or { })
-      (target.build-dependencies or { })
-    ]) (builtins.attrValues (manifest.target or { }));
-  localDependencies =
-    path: manifest:
-    lib.concatMap (
-      table:
-      lib.concatLists (
-        lib.mapAttrsToList (
-          name: value:
-          let
-            inherited = builtins.isAttrs value && (value.workspace or false);
-            dependency = if inherited then workspaceDependencies.${name} else value;
-            package = if builtins.isAttrs dependency then dependency.package or name else name;
-            patch = patches.${package} or { };
-            base = if inherited then root else path;
-          in
-          if builtins.isAttrs dependency && dependency ? path then
-            [ { key = toString (base + "/${dependency.path}"); } ]
-          else if patch ? path then
-            [ { key = toString (root + "/${patch.path}"); } ]
-          else
-            [ ]
-        ) table
-      )
-    ) (dependencyTables manifest);
-  asPath = key: root + (lib.removePrefix (toString root) key);
-  closure =
-    package:
-    map (entry: asPath entry.key) (
-      builtins.genericClosure {
-        startSet = [ { key = toString package; } ];
-        operator =
-          entry:
-          localDependencies (asPath entry.key) (
-            builtins.fromTOML (builtins.readFile "${entry.key}/Cargo.toml")
-          );
-      }
-    );
-  sdkCrates = closure (root + /crates/xmtp_sdk);
-  bindgenCrates = closure (root + /apps/xmtp_sdk_bindgen);
   workspaceSource = toSource {
     inherit root;
     fileset = xmtp.filesets.workspace;
   };
-  embedded = [
-    (root + /proto)
-    (root + /crates/xmtp_db/migrations)
-    (root + /crates/xmtp_attachments/src/address-registry.txt)
-    (root + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
-    (root + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
-  ];
-  restored =
-    crates: extra:
-    toSource {
-      inherit root;
-      fileset = unions (
-        [ (root + /Cargo.toml) ]
-        ++ map cargoSources crates
-        ++ map (crate: fileFilter (file: lib.hasSuffix ".sql" file.name) crate) crates
-        ++ extra
-      );
-    };
-  sdkInputs = restored sdkCrates embedded;
-  bindgenInputs = restored bindgenCrates [
-    (root + /apps/xmtp_sdk_bindgen/templates)
-    (root + /apps/xmtp_sdk_bindgen/src/swift_event_fixture.swift)
-    (root + /apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.ts)
-  ];
-  mkCompileSource =
-    rust: inputs:
-    rust.mkDummySrc {
-      src = workspaceSource;
-      extraDummyScript = ''
-        cp --recursive --remove-destination ${inputs}/. $out/
-      '';
-    };
+  # Compiler sources restore the selected local dependency graph over a dummy
+  # workspace. The closure adds the data files that its packages compile in.
+  sdkClosure = {
+    roots = [ (root + /crates/xmtp_sdk) ];
+  };
+  bindgenClosure = {
+    roots = [ (root + /apps/xmtp_sdk_bindgen) ];
+    extra = [
+      (root + /apps/xmtp_sdk_bindgen/templates)
+      (root + /apps/xmtp_sdk_bindgen/src/swift_event_fixture.swift)
+      (root + /apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.ts)
+    ];
+  };
+  sdkInputs = xmtp.filesets.closureSource sdkClosure;
+  bindgenInputs = xmtp.filesets.closureSource bindgenClosure;
   generationInputs =
     language:
     toSource {
@@ -150,6 +81,6 @@ in
     sdkInputs
     bindgenInputs
     ;
-  sdk = rust: mkCompileSource rust sdkInputs;
-  bindgen = rust: mkCompileSource rust bindgenInputs;
+  sdk = rust: xmtp.filesets.mkClosureSource rust sdkClosure;
+  bindgen = rust: xmtp.filesets.mkClosureSource rust bindgenClosure;
 }

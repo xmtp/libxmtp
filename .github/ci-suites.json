@@ -423,8 +423,10 @@
         "dev/{docker,backend}/**",
         "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}",
         "nix/musl-docker.nix",
+        "nix/package/backend-tests.sh",
         "nix/package/backend.nix",
-        "nix/package/{backend,backend-ci}.nix"
+        "nix/package/{backend,backend-ci}.nix",
+        "nix/{ci-checks,package/backend-tests}.nix"
       ]
     },
     "test_validation": {

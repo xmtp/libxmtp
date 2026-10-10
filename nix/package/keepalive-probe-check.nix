@@ -6,7 +6,6 @@
 # build before they land on main.
 {
   xmtp,
-  lib,
   stdenv,
 }:
 let
@@ -17,10 +16,10 @@ let
     p: xmtp.mkToolchain p [ stdenv.hostPlatform.rust.rustcTarget ] [ "clippy-preview" ];
   rust = craneLib.overrideToolchain rust-toolchain;
 
-  # `workspace` covers every member so cargo --locked can resolve all manifests and targets.
-  src = lib.fileset.toSource {
-    inherit root;
-    fileset = xmtp.filesets.workspace;
+  # Other members stay stubs so cargo --locked can resolve the workspace.
+  src = xmtp.filesets.mkClosureSource rust {
+    roots = [ (root + /apps/keepalive-probe) ];
+    dev = true;
   };
 
   cargoArtifacts = base.mkCargoArtifacts rust false null;
@@ -29,6 +28,7 @@ rust.cargoClippy (
   base.commonArgs
   // {
     inherit src cargoArtifacts;
+    cargoVendorDir = base.mkCargoVendorDir rust;
     pname = "keepalive-probe";
     version = xmtp.mkVersion rust;
     cargoExtraArgs = "--locked --all-targets -p keepalive-probe";

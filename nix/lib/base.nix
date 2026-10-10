@@ -78,6 +78,13 @@ let
 
   };
 
+  # Crane reads the lock file and the version from `src` during evaluation.
+  # A dummy source is a derivation, so derivations that build from one pass
+  # these values directly. Evaluation then needs no import from derivation and
+  # works for another system. Git checkouts use the toolchain's Cargo, so the
+  # vendor directory comes from the caller's Crane library.
+  mkCargoVendorDir = rust: rust.vendorCargoDeps { cargoLock = ./../../Cargo.lock; };
+
   # Make cargo artifacts for a derivation building rust code
   # "rust" is the rust toolchain to use (native or host)
   # "test" is whether to use "test-utils" feature
@@ -104,7 +111,9 @@ let
       (removeAttrs commonArgs [ "src" ])
       // {
         inherit dummySrc;
+        cargoVendorDir = mkCargoVendorDir rust;
         pname = "cargo-package";
+        version = xmtp.mkVersion rust;
         buildPhaseCargoCommand = "cargo build ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
         doInstallCargoArtifacts = true;
       }
@@ -116,6 +125,7 @@ in
   inherit
     depsFileset
     commonArgs
+    mkCargoVendorDir
     mkCargoArtifacts
     ;
 }

@@ -9,6 +9,9 @@
 #     `default-members`. They build fine in the standard sandbox; they live
 #     here so the per-PR workflows (e.g. test-xdbg.yml) can target them
 #     explicitly without enrolling them in `om ci run`.
+#   - backend-tests: the backend test suite with disposable PostgreSQL and
+#     VersityGW services. It runs in the standard sandbox; test-backend.yml
+#     builds it.
 { lib, withSystem, ... }:
 let
   systems = [
@@ -50,6 +53,14 @@ in
     withSystem system (
       { pkgs, ... }:
       pkgs.callPackage ./package/validation-check.nix { }
+    )
+  );
+
+  flake.backend-tests = lib.genAttrs systems (
+    system:
+    withSystem system (
+      { pkgs, ... }:
+      pkgs.callPackage ./package/backend-tests.nix { }
     )
   );
 }

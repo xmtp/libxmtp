@@ -1,7 +1,6 @@
 # Focused native, wasm, and dependency-isolation checks for xmtp_mls_validation.
 {
   xmtp,
-  lib,
   wasm-bindgen-cli,
   nodejs_24,
   python3,
@@ -13,12 +12,15 @@ let
   rust-toolchain = p: xmtp.mkToolchain p [ "wasm32-unknown-unknown" ] [ ];
   rust = craneLib.overrideToolchain rust-toolchain;
 
-  src = lib.fileset.toSource {
-    inherit root;
-    fileset = lib.fileset.unions [
-      xmtp.filesets.workspace
-      (root + /dev/check-validation)
+  # The tested packages, their dev-dependencies, and the check script.
+  src = xmtp.filesets.mkClosureSource rust {
+    roots = [
+      (root + /crates/xmtp_mls_validation)
+      (root + /crates/xmtp_proto)
+      (root + /crates/xmtp_id)
     ];
+    dev = true;
+    extra = [ (root + /dev/check-validation) ];
   };
 
   commonArgs = base.commonArgs // {
@@ -51,6 +53,7 @@ rust.buildPackage (
   commonArgs
   // {
     inherit src cargoArtifacts;
+    cargoVendorDir = base.mkCargoVendorDir rust;
     pname = "xmtp-mls-validation-check";
     version = xmtp.mkVersion rust;
     nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
