@@ -38,6 +38,7 @@ class AttachmentSignOutInstrumentedTest {
             val sender = AttachmentTestFixture()
             val session = model.session
             val unregister = session.unregisterNotifications
+            val replies = HandlerThread("attachment-grant-proof").apply { start() }
             val draining = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             val stopped = CountDownLatch(1)
@@ -72,6 +73,8 @@ class AttachmentSignOutInstrumentedTest {
                     assertEquals(owner.paths.exports, directory)
                     val exported = directory.listFiles()!!.single()
                     assertArrayEquals(bytes, exported.readBytes())
+                    val lateUri = checkNotNull(files.openIntent("file").data)
+                    assertNotEquals(uri, lateUri)
                     val opened = CompletableDeferred<Pair<Boolean, Int>>()
                     val receiver =
                         object : ResultReceiver(Handler(Looper.getMainLooper())) {
@@ -116,7 +119,7 @@ class AttachmentSignOutInstrumentedTest {
                         val read = CompletableDeferred<Pair<Boolean, Int>>()
                         val response =
                             Messenger(
-                                object : Handler(Looper.getMainLooper()) {
+                                object : Handler(replies.looper) {
                                     override fun handleMessage(message: AndroidMessage) {
                                         read.complete((message.arg1 == 1) to message.data.getInt("uid"))
                                     }
@@ -164,18 +167,14 @@ class AttachmentSignOutInstrumentedTest {
                         }
                     withTimeout(30_000) { draining.await() }
                     assertNull(session.active.value)
-                    assertEquals(
-                        "The external grant is revoked before notification unregister",
-                        false,
-                        readableBeforeUnregister,
-                    )
                     assertFalse("Sign out revokes the external grant before the held owner drain", canRead(uri))
                     assertArrayEquals(bytes, exported.readBytes())
                     assertFalse(session.preferences.signedIn())
                     assertTrue(session.preferences.pendingExportCleanup().contains(owner.key.profileId))
-                    // A delayed launch can grant the captured intent after the first revoke.
-                    context.grantUriPermission(target, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    assertTrue("The post-drain pass must also revoke a late grant", canRead(uri))
+                    // A delayed launch can grant a separate captured intent after the first revoke.
+                    context.grantUriPermission(target, lateUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    assertTrue("The post-drain pass must also revoke a late grant", canRead(lateUri))
+                    assertFalse("The original grant stays denied during the held drain", canRead(uri))
                     val originalModel = model
                     val oldActivity = compose.activity
                     val recreated = CompletableDeferred<MainActivity>()
@@ -201,11 +200,19 @@ class AttachmentSignOutInstrumentedTest {
                         signOut.isSuccess,
                     )
                     worker.join()
+                    assertEquals(
+                        "The original external grant is denied whenever notification unregister runs",
+                        false,
+                        readableBeforeUnregister,
+                    )
                     assertFalse("Sign out removes exported plaintext after the old Host closes", directory.exists())
                     assertFalse(canRead(uri))
+                    assertFalse(canRead(lateUri))
                     directory.mkdirs()
                     File(directory, exported.name).writeBytes(bytes)
+                    File(directory, checkNotNull(lateUri.lastPathSegment)).writeBytes(bytes)
                     assertFalse("The old external UID grant cannot read a same-path replacement", canRead(uri))
+                    assertFalse("The late external UID grant cannot read a same-path replacement", canRead(lateUri))
                     println(
                         "ATTACHMENT_SIGN_OUT_PROOF external-uid=true early-revoke=true late-grant=true host-detached=true exports-removed=true grant-revoked=true",
                     )
@@ -215,14 +222,19 @@ class AttachmentSignOutInstrumentedTest {
                 callback?.let(lifecycle::removeLifecycleCallback)
                 if (bound) context.unbindService(checkNotNull(connection))
                 session.unregisterNotifications = unregister
-                withContext(NonCancellable) {
-                    exportRoot?.let {
-                        AttachmentFiles.revokeProfile(context, it.name)
-                        it.deleteRecursively()
+                try {
+                    withContext(NonCancellable) {
+                        exportRoot?.let {
+                            AttachmentFiles.revokeProfile(context, it.name)
+                            it.deleteRecursively()
+                        }
+                        sender.close()
+                        session.signOut()
+                        AndroidStreamLifecycle.enabled = enabled
                     }
-                    sender.close()
-                    session.signOut()
-                    AndroidStreamLifecycle.enabled = enabled
+                } finally {
+                    replies.quitSafely()
+                    replies.join()
                 }
             }
         }
