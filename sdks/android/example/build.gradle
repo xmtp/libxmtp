@@ -55,7 +55,9 @@ android {
         }
     }
     sourceSets {
+        test { java.srcDir 'src/sharedTest/java' }
         androidTest {
+            java.srcDir 'src/sharedTest/java'
             if (releaseTransportTests) java.srcDir 'src/androidTestRelease/java'
         }
     }
