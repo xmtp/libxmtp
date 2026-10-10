@@ -39,9 +39,14 @@
 #   path_filters      The filters described above, or [].
 #
 # A changed file that matches `shared` runs every suite. A file that matches no
-# rule also runs every suite. A `neutral` file selects only suites with a glob
-# that ends in `.md`.
+# rule also runs every suite. A `neutral` file selects a suite only through a
+# repository-wide glob, which starts with `**/` (for example `**/*.md`).
+# A pull request that deletes or renames a file also runs the suites in
+# `on_deleted_path`, which check that every rule still names real files.
+# A `!` exclusion in a path group applies to the whole suite that uses it.
 version: 1
+
+on_deleted_path: [lint_config]
 
 shared:
   - "{flake.nix,flake.lock,rust-toolchain.toml,justfile}"
@@ -68,16 +73,24 @@ neutral:
   - ".github/ISSUE_TEMPLATE/**"
   - "dev/{fly,tls,test}/**"
   - "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}"
-  - "dev/{nix-up,nix-down,nix-status,nix-cache-up,check-apple-toolchain,ci-failure-markers}"
+  - "dev/{nix-up,nix-down,nix-status,nix-cache-up,ci-failure-markers}"
   - "dev/{ci,nix}/**"
 
 path_groups:
   # Suites that start the Docker stack test against a backend built from source.
   docker_backend:
     - "apps/backend/**"
+    - "crates/xmtp_attachments_server/**"
     - "dev/{docker,backend}/**"
     - "nix/package/backend.nix"
     - "nix/musl-docker.nix"
+  # Suites that run `just backend ci` use the native backend package.
+  native_backend:
+    - "apps/backend/**"
+    - "crates/xmtp_attachments_server/**"
+    - "dev/backend/**"
+    - "dev/docker/s3/**"
+    - "nix/package/{backend,backend-ci}.nix"
   js_workspace:
     - "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
     - "sdks/js.just"
@@ -103,6 +116,7 @@ path_groups:
     - "nix/shells/ios.nix"
     - "nix/package/ios.nix"
     - "nix/lib/packages/{swiftformat,swiftlint}.nix"
+    - "dev/check-apple-toolchain"
   android:
     - "sdks/android/**"
     - "**/*.{gradle,kts}"
@@ -153,8 +167,8 @@ suites:
     kache: [nix-only]
     path_filters:
       # treefmt formats these file types across the repository.
-      - "**/*.{nix,py,sh,bash,toml,kt,swift}"
-      - "{.editorconfig,.swiftformat}"
+      - "**/*.{nix,py,sh,toml,kt,kts,swift}"
+      - "{.editorconfig,sdks/ios/.swiftformat}"
       - ".github/**"
       - "dev/{tests,agents,specs,release-tools}/**"
       - "nix/fmt.nix"
@@ -177,8 +191,10 @@ suites:
     permissions: {contents: read}
     kache: [nix-only]
     path_filters:
+      - path_group: js_workspace
       # markdownlint reads every Markdown file.
       - "**/*.md"
+      - "nix/docs.nix"
       - "{apps/docs,docs}/**"
       - "sdks/agent/src/**"
       - "sdks/*/package.json"
@@ -215,7 +231,7 @@ suites:
     kache: [rust-clippy-native, rust-clippy-wasm]
     path_filters:
       - cargo_package: ["@default-members", xmtp-sdk-bindgen]
-      - "{.clippy.toml,dev/wasm.just}"
+      - "{.clippy.toml,dev/wasm.just,nix/shells/wasm.nix}"
   check_sdk_unit:
     phase: test
     workflow: check-sdk-unit.yml
@@ -227,6 +243,7 @@ suites:
     path_filters:
       - cargo_package: xmtp_sdk
       - path_group: docker_backend
+      - ".config/nextest.toml"
   test_backend:
     phase: test
     workflow: test-backend.yml
@@ -240,7 +257,7 @@ suites:
       - path_group: docker_backend
       # apps/backend tests embed these files.
       - "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}"
-      - "nix/package/backend-ci.nix"
+      - path_group: native_backend
   test_validation:
     phase: test
     workflow: test-validation.yml
@@ -298,7 +315,7 @@ suites:
           - xmtp_sdk
       - path_group: docker_backend
       - "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
-      - "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix}"
+      - "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix}"
   test_xdbg:
     phase: test
     workflow: test-xdbg.yml
@@ -417,12 +434,14 @@ suites:
     permissions: {contents: read, pages: write, id-token: write}
     kache: [nix-only, rust-reference, sdk-products-debug]
     path_filters:
+      - path_group: js_workspace
       - path_group: sdk_core
       - "apps/docs/**"
+      - "nix/docs.nix"
       - "docs/**"
-      - "sdks/{node,browser,agent}/src/**"
+      - "sdks/agent/src/**"
       - "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}"
-      - "!sdks/agent/src/**/*.test.{ts,tsx}"
+      - "!sdks/agent/src/**/*.test.ts"
 
   # --- Mobile ----------------------------------------------------------------
   test_ios:
@@ -436,6 +455,7 @@ suites:
     path_filters:
       - path_group: sdk_core
       - path_group: swift
+      - path_group: native_backend
   test_android:
     phase: test
     workflow: test-android.yml

@@ -23,21 +23,21 @@ Npm dry runs resolve the source but do not create an App token or push a tag.
   `$RUNNER_TEMP/backend-startup-logs`. The Android SDK check uploads these for
   7 days; retain the same directory when adding diagnostics to other callers.
 
-- The iOS jobs and `test-swift-lifecycle.yml` use disposable native
-  services through `dev/nix-shell 'just backend ci COMMAND'`. Each job creates
-  its own database and S3 bucket. Failed-job-only reruns do not need a
-  deployment job.
-- Keep the `ci.yml` selector's Swift and native input routes current when
-  native setup inputs change.
-  `test-native-backend.yml` checks wrapper cleanup and the real S3 contract.
-  It also checks the owned loopback listeners and metrics endpoint. Backend
-  source and build-input changes select this job, and it gates aggregate
-  `Test`. The native acceptance job has no cache-write token.
-  Service logs are retained for 7 days.
-- Selected iOS and Android jobs gate aggregate `Test` in `ci.yml`.
-  `test-swift-lifecycle.yml` owns the Swift lifecycle checks (`just ios test-lifecycle`)
+- The jobs in `test-ios.yml` use disposable native services through
+  `dev/nix-shell 'just backend ci COMMAND'`. Each job creates its own database
+  and S3 bucket. Failed-job-only reruns do not need a deployment job.
+- Keep the `native_backend` and `swift` path groups in `.github/ci-suites.yml`
+  current when native setup inputs change.
+  The `native` job in `test-backend.yml` checks wrapper cleanup and the real S3
+  contract. It also checks the owned loopback listeners and metrics endpoint.
+  It does not pass a cache-write token to setup-nix, and fork pull requests
+  skip it. Service logs are retained for 7 days.
+- `test-xdbg.yml` owns the observability check. It runs xdbg against the
+  Docker stack, so backend changes also select the xdbg suite.
+- `test-ios.yml` owns the Swift lifecycle checks (`just ios test-lifecycle`)
   and Swift consumer checks. `test-android.yml` owns Kotlin consumer checks.
-  `test-ios` runs `just ios test skip-lifecycle`, so it does not repeat the lifecycle.
+  The iOS `tests` job runs `just ios test skip-lifecycle`, so it does not
+  repeat the lifecycle.
 
 ## CI selection
 
@@ -70,6 +70,12 @@ eligible suite: a shared input, a path that no rule names, more than 3,000
 changed files, and unavailable detection. Rename-expanded path counts do not
 select a full run. Empty diffs are valid. Fork pull requests skip suites with
 `disable_on_forks`. A suite with `covered_by` does not run when its cover runs.
+A `neutral` file selects a suite only through a repository-wide glob that
+starts with `**/`, such as `**/*.md` or the formatter's file types. A pull
+request that deletes or renames a file also runs the `on_deleted_path`
+suites, because `dev/ci-suites check` can then find a pattern that names no
+file. A new pull request push cancels the older run; merge runs are not
+cancelled.
 
 The job summary lists the full-run reasons, matched suites, shared and unknown
 paths, policy exclusions, and the selected suites. Lists show up to 200
@@ -108,8 +114,9 @@ environment. Do not create a reader environment.
 Existing deployment jobs retain their environments and use reader access.
 Tags, dispatches, and jobs that build a selected ref cannot write. Source lint,
 docs quality and composition, Nix output warming, and manual recovery are
-readers. Keep the native backend acceptance job free of cache writer keys and
-pass only its reader pair through the reusable workflow call.
+readers. The backend suite uses `secrets: inherit`. Keep the native backend
+acceptance job free of cache writer keys: pass only the Kache reader pair to
+its setup-nix step, and do not reference other secrets in that job.
 
 When adding an enabled caller, pass both optional Kache secrets through every
 reusable call in its chain. Declare them under `workflow_call.secrets` when a

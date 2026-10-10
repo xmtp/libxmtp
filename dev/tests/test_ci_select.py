@@ -47,6 +47,7 @@ def select(
     outcome="success",
     total=1,
     error=None,
+    deleted=(),
 ):
     return SELECTOR.select_suites(
         None if files is None else list(files),
@@ -55,6 +56,7 @@ def select(
         outcome,
         total,
         error,
+        deleted,
     )
 
 
@@ -95,6 +97,24 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(result["reasons"], [])
         self.assertEqual(selected(result), {"docs_quality"})
         self.assertEqual(selected(select(["img/tech-stack.png"])), set())
+
+    def test_neutral_files_reach_repository_wide_globs(self):
+        # treefmt formats shell scripts everywhere, including neutral directories.
+        result = select([".murmur/provisioning.sh"])
+        self.assertEqual(selected(result), {"lint_config"})
+
+    def test_deleted_paths_run_the_declaration_check(self):
+        self.assertNotIn("lint_config", selected(select()))
+        result = select(["docs/guide.md"], deleted=["docs/guide.md"])
+        self.assertIn("lint_config", selected(result))
+        self.assertEqual(result["deleted_paths"], ["docs/guide.md"])
+
+    def test_deleted_fork_is_a_fork(self):
+        payload = event(fork=True)
+        payload["pull_request"]["head"]["repo"] = None
+        result = select(["proto/a.proto"], payload=payload)
+        self.assertTrue(result["fork"])
+        self.assertNotIn("test_ios", selected(result))
 
     def test_shared_input_selects_every_suite_and_records_paths(self):
         result = select(["proto/mls/a.proto", "crates/xmtp_mls/src/client.rs"])
@@ -359,7 +379,9 @@ class WorkflowTests(unittest.TestCase):
         }
         values, text = self.run_select(data)
         self.assertEqual(json.loads(values["test_suites"]), ["docs_site"])
-        self.assertEqual(json.loads(values["lint_suites"]), ["docs_quality"])
+        # The path is not in the checkout, so it counts as deleted.
+        lint = json.loads(values["lint_suites"])
+        self.assertEqual(set(lint), {"docs_quality", "lint_config"})
         self.assertIn("docs_site", text)
         outputs = self.workflow["jobs"]["detect-changes"]["outputs"]
         self.assertEqual(set(outputs), {"lint_suites", "test_suites"})
@@ -401,6 +423,10 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(self.gate(script, env), expected, state)
         env = {"SELECTED": "[]", "RESULTS": json.dumps(results)}
         self.assertEqual(self.gate(script, env), 0)
+
+    def test_only_pull_request_runs_cancel_older_runs(self):
+        cancel = self.workflow["concurrency"]["cancel-in-progress"]
+        self.assertEqual(cancel, "${{ github.event_name == 'pull_request' }}")
 
     def test_required_checks_need_detection_and_their_phase(self):
         for job, call in [("lint", "lint-suites"), ("test", "test-suites")]:

@@ -44,11 +44,12 @@ SUITE_KEYS = {
 }
 FILTER_KEYS = {"cargo_package", "path_group"}
 EVENT_KINDS = ("draft_pr_push", "ready_pr_push", "merge")
-TOP_KEYS = {"version", "shared", "neutral", "path_groups", "suites"}
+TOP_KEYS = {"version", "on_deleted_path", "shared", "neutral", "path_groups", "suites"}
 # covered_by is the only optional suite key.
 REQUIRED_SUITE_KEYS = SUITE_KEYS - {"covered_by"}
 KACHE_SECRETS = ("KACHE_S3_ACCESS_KEY_ID", "KACHE_S3_SECRET_ACCESS_KEY")
 GATE_RUNNER = "blacksmith-4vcpu-ubuntu-2404"
+PERMISSION_LEVELS = {"none": 0, "read": 1, "write": 2}
 
 
 def load_selector():
@@ -302,8 +303,19 @@ def compile_declaration(root: Path = ROOT, declaration=None):
     for name, suite in suites.items():
         if suite["covered_by"] and suite["covered_by"] not in suites:
             raise DeclarationError(f"Suite {name} is covered by unknown suite {suite['covered_by']}")
+        # A cycle would drop every suite in it, even from merge runs.
+        seen, cover = {name}, suite["covered_by"]
+        while cover:
+            if cover in seen:
+                raise DeclarationError(f"Suite {name} is in a covered_by cycle")
+            seen.add(cover)
+            cover = suites[cover]["covered_by"]
+    on_deleted = as_list(data["on_deleted_path"], "on_deleted_path")
+    if not on_deleted or set(on_deleted) - set(suites):
+        raise DeclarationError("on_deleted_path must name one or more suites")
     return {
         "generated_by": "dev/ci-suites generate. Edit .github/ci-suites.yml instead.",
+        "on_deleted_path": on_deleted,
         "shared": as_list(data["shared"], "shared"),
         "neutral": as_list(data["neutral"], "neutral"),
         "suites": suites,
@@ -385,6 +397,22 @@ def tracked_files(root: Path = ROOT):
     return sorted(p for p in output.decode().split("\0") if p)
 
 
+def brace_variants(pattern):
+    """Each alternative of each top-level brace group, with the other groups kept.
+
+    A pattern is stale when one alternative can never match, even though another
+    alternative in the same group does.
+    """
+    groups = [(m.start(), m.end()) for m in re.finditer(r"\{[^{}]*\}", pattern)]
+    if not groups:
+        return [pattern]
+    variants = []
+    for start, end in groups:
+        for option in pattern[start + 1 : end - 1].split(","):
+            variants.append(pattern[:start] + option + pattern[end:])
+    return variants
+
+
 def validate(manifest, root: Path = ROOT, files=None):
     selector = load_selector()
     errors = []
@@ -396,11 +424,27 @@ def validate(manifest, root: Path = ROOT, files=None):
             errors.append(f"{name}: {suite['workflow']} is not a reusable workflow")
         elif (triggers["workflow_call"] or {}).get("inputs"):
             errors.append(f"{name}: {suite['workflow']} must not take inputs")
-    ci = yaml.safe_load((root / WORKFLOWS / "ci.yml").read_text())["jobs"]
-    calls = [job.get("uses") for job in ci.values()]
-    for path in GENERATED_WORKFLOWS.values():
-        if calls.count(f"./{path}") != 1:
+        if suite["secrets"] == "kache":
+            declared = ((triggers or {}).get("workflow_call") or {}).get("secrets") or {}
+            missing = [s for s in KACHE_SECRETS if s not in declared]
+            if missing:
+                errors.append(f"{name}: {suite['workflow']} must declare workflow_call secrets {missing}")
+    ci_document = yaml.safe_load((root / WORKFLOWS / "ci.yml").read_text())
+    ci = ci_document["jobs"]
+    for phase, path in GENERATED_WORKFLOWS.items():
+        callers = [job for job in ci.values() if job.get("uses") == f"./{path}"]
+        if len(callers) != 1:
             errors.append(f"ci.yml must call {path} once")
+            continue
+        # GitHub rejects the whole run when a called job asks for more than its caller grants.
+        granted = callers[0].get("permissions", ci_document.get("permissions", {}))
+        for name, suite in manifest["suites"].items():
+            if suite["phase"] != phase:
+                continue
+            for scope, level in suite["permissions"].items():
+                have = granted.get(scope, "none") if isinstance(granted, dict) else granted
+                if PERMISSION_LEVELS[level] > PERMISSION_LEVELS.get(have, 2):
+                    errors.append(f"{name}: needs {scope}: {level}, but ci.yml grants {phase} suites {have}")
     files = tracked_files(root) if files is None else files
     rules = selector.Rules(manifest)
     unknown = [f for f in files if not rules.known(f)]
@@ -412,9 +456,10 @@ def validate(manifest, root: Path = ROOT, files=None):
         patterns += [(name, p.lstrip("!")) for p in suite["paths"]]
     stale = sorted(
         {
-            f"{owner}: {pattern}"
+            f"{owner}: {variant}"
             for owner, pattern in patterns
-            if not any(selector.glob_match(pattern, f) for f in files)
+            for variant in brace_variants(pattern)
+            if not any(selector.glob_match(variant, f) for f in files)
         }
     )
     if stale:

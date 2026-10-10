@@ -88,6 +88,10 @@ class CompileTests(unittest.TestCase):
             lambda d: d["suites"]["test_xdbg"].update(covered_by=["docs_site"]),
             lambda d: d["suites"]["test_xdbg"].update(covered_by=None),
             lambda d: d.pop("neutral"),
+            lambda d: d.update(on_deleted_path=[]),
+            lambda d: d.update(on_deleted_path=["missing"]),
+            lambda d: d["suites"]["docs_site"].update(covered_by="docs_rust"),
+            lambda d: d["suites"]["test_xdbg"].update(covered_by="test_xdbg"),
             lambda d: d.update(extra=[]),
         ]:
             with self.assertRaises(SUITES.DeclarationError):
@@ -157,6 +161,33 @@ class ValidateTests(unittest.TestCase):
         errors = "\n".join(SUITES.validate(manifest, files=files))
         self.assertIn("new-language/source.xyz", errors)
         self.assertIn("test_xdbg: crates/xmtp_user_preferences/**", errors)
+
+    def test_kache_secrets_need_workflow_declarations(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["test_xdbg"]["secrets"] = "kache"
+        errors = "\n".join(SUITES.validate(manifest))
+        self.assertIn("test-xdbg.yml must declare workflow_call secrets", errors)
+
+    def test_suite_permissions_must_fit_the_caller_grant(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["lint_proto"]["permissions"] = {
+            "contents": "read",
+            "pages": "write",
+        }
+        errors = "\n".join(SUITES.validate(manifest))
+        self.assertIn("lint_proto: needs pages: write", errors)
+        self.assertNotIn("docs_site", errors)
+
+    def test_dead_brace_alternatives_are_stale(self):
+        self.assertEqual(
+            SUITES.brace_variants("a/{b,c}/{d,}.x"),
+            ["a/b/{d,}.x", "a/c/{d,}.x", "a/{b,c}/d.x", "a/{b,c}/.x"],
+        )
+        manifest = copy.deepcopy(self.manifest)
+        manifest["suites"]["test_xdbg"]["paths"].append("{docs,no-such-dir}/**")
+        errors = "\n".join(SUITES.validate(manifest))
+        self.assertIn("test_xdbg: no-such-dir/**", errors)
+        self.assertNotIn("test_xdbg: docs/**", errors)
 
     def test_suite_workflows_must_not_take_inputs(self):
         manifest = copy.deepcopy(self.manifest)

@@ -1,5 +1,8 @@
 {
   "generated_by": "dev/ci-suites generate. Edit .github/ci-suites.yml instead.",
+  "on_deleted_path": [
+    "lint_config"
+  ],
   "shared": [
     "{flake.nix,flake.lock,rust-toolchain.toml,justfile}",
     ".cargo/**",
@@ -25,7 +28,7 @@
     ".github/ISSUE_TEMPLATE/**",
     "dev/{fly,tls,test}/**",
     "dev/{ast-outline,bench,serena,flamegraph,llvm-cov,up,down,direnv-up,direnv-down,docs}",
-    "dev/{nix-up,nix-down,nix-status,nix-cache-up,check-apple-toolchain,ci-failure-markers}",
+    "dev/{nix-up,nix-down,nix-status,nix-cache-up,ci-failure-markers}",
     "dev/{ci,nix}/**"
   ],
   "suites": {
@@ -121,11 +124,11 @@
         ".github/workflows/lint-config.yml"
       ],
       "paths": [
-        "**/*.{nix,py,sh,bash,toml,kt,swift}",
+        "**/*.{nix,py,sh,toml,kt,kts,swift}",
         ".github/**",
         "dev/{tests,agents,specs,release-tools}/**",
         "nix/fmt.nix",
-        "{.editorconfig,.swiftformat}"
+        "{.editorconfig,sdks/ios/.swiftformat}"
       ]
     },
     "lint_proto": {
@@ -181,10 +184,16 @@
       ],
       "paths": [
         "**/*.md",
+        "dev/js/**",
         "dev/js/sdk-package",
+        "nix/docs.nix",
+        "nix/lib/packages/pnpm.nix",
+        "nix/{js,js-node}.nix",
         "sdks/*/package.json",
         "sdks/agent/src/**",
-        "{apps/docs,docs}/**"
+        "sdks/js.just",
+        "{apps/docs,docs}/**",
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}"
       ]
     },
     "lint_ios": {
@@ -210,6 +219,7 @@
         ".github/workflows/lint-ios.yml"
       ],
       "paths": [
+        "dev/check-apple-toolchain",
         "nix/lib/ios-env.nix",
         "nix/lib/packages/{swiftformat,swiftlint}.nix",
         "nix/package/ios.nix",
@@ -304,7 +314,7 @@
       "paths": [
         "Cargo.lock",
         "Cargo.toml",
-        "{.clippy.toml,dev/wasm.just}"
+        "{.clippy.toml,dev/wasm.just,nix/shells/wasm.nix}"
       ]
     },
     "check_sdk_unit": {
@@ -354,9 +364,11 @@
         ".github/workflows/check-sdk-unit.yml"
       ],
       "paths": [
+        ".config/nextest.toml",
         "Cargo.lock",
         "Cargo.toml",
         "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
         "dev/{docker,backend}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix"
@@ -405,11 +417,14 @@
         "Cargo.lock",
         "Cargo.toml",
         "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
+        "dev/backend/**",
+        "dev/docker/s3/**",
         "dev/{docker,backend}/**",
         "docs/{backend-observability.md,schemas/backend-v1.json,specs/OPS-backend-operations.md}",
         "nix/musl-docker.nix",
-        "nix/package/backend-ci.nix",
-        "nix/package/backend.nix"
+        "nix/package/backend.nix",
+        "nix/package/{backend,backend-ci}.nix"
       ]
     },
     "test_validation": {
@@ -503,6 +518,7 @@
         "Cargo.lock",
         "Cargo.toml",
         "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
         "dev/{docker,backend}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
@@ -607,10 +623,11 @@
         "Cargo.lock",
         "Cargo.toml",
         "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
         "dev/{docker,backend}/**",
         "nix/musl-docker.nix",
         "nix/package/backend.nix",
-        "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix}",
+        "{nix/package/wasm-nextest.nix,nix/shells/wasm.nix,nix/ci-checks.nix}",
         "{webdriver.json,.config/nextest.toml,dev/wasm.just}"
       ]
     },
@@ -662,6 +679,7 @@
         "Cargo.lock",
         "Cargo.toml",
         "apps/backend/**",
+        "crates/xmtp_attachments_server/**",
         "dev/{docker,backend}/**",
         "nix/ci-checks.nix",
         "nix/musl-docker.nix",
@@ -838,6 +856,7 @@
         "apps/backend/**",
         "apps/cli/**",
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
         "crates/xmtp_sdk/**",
         "dev/js/**",
         "dev/{docker,backend}/**",
@@ -884,6 +903,7 @@
         "apps/backend/**",
         "apps/cli/**",
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
         "crates/xmtp_sdk/**",
         "dev/js/**",
         "dev/{docker,backend}/**",
@@ -930,6 +950,7 @@
         "apps/backend/**",
         "apps/web-chat/**",
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
         "crates/xmtp_sdk/**",
         "dev/js/**",
         "dev/{docker,backend}/**",
@@ -976,6 +997,7 @@
       "paths": [
         "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
         "crates/xmtp_sdk/**",
         "dev/js/**",
         "dev/{docker,backend}/**",
@@ -1027,17 +1049,23 @@
         "apps/docs/**",
         "apps/xmtp_sdk_bindgen/**",
         "crates/xmtp_sdk/**",
+        "dev/js/**",
         "docs/**",
+        "nix/docs.nix",
         "nix/lib/packages/napi-rs-cli/**",
+        "nix/lib/packages/pnpm.nix",
         "nix/lib/packages/{ubrn,wasm-bindgen-cli}.nix",
         "nix/lib/{sdk-sources,sdk-provenance,napiBuild,napiTarget}.nix",
         "nix/node-packages.nix",
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
-        "sdks/{node,browser,agent}/src/**",
+        "nix/{js,js-node}.nix",
+        "sdks/agent/src/**",
+        "sdks/js.just",
         "sdks/{node,browser,agent}/{package.json,tsconfig.json,typedoc.json}",
-        "!sdks/agent/src/**/*.test.{ts,tsx}"
+        "{package.json,pnpm-lock.yaml,pnpm-workspace.yaml,.node-version,.nvmrc,.oxlintrc.json,.oxfmtrc.json}",
+        "!sdks/agent/src/**/*.test.ts"
       ]
     },
     "test_ios": {
@@ -1064,8 +1092,13 @@
         ".github/workflows/test-ios.yml"
       ],
       "paths": [
+        "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
         "crates/xmtp_sdk/**",
+        "dev/backend/**",
+        "dev/check-apple-toolchain",
+        "dev/docker/s3/**",
         "nix/lib/ios-env.nix",
         "nix/lib/packages/napi-rs-cli/**",
         "nix/lib/packages/{swiftformat,swiftlint}.nix",
@@ -1076,6 +1109,7 @@
         "nix/package/libffi-zig-cross.site",
         "nix/package/node.nix",
         "nix/package/xmtp-sdk{,-native,-node-runtime}.nix",
+        "nix/package/{backend,backend-ci}.nix",
         "nix/shells/ios.nix",
         "sdks/ios/**",
         "{Package.swift,Package.resolved,.spi.yml}"
@@ -1108,6 +1142,7 @@
         "**/*.{gradle,kts}",
         "apps/backend/**",
         "apps/xmtp_sdk_bindgen/**",
+        "crates/xmtp_attachments_server/**",
         "crates/xmtp_sdk/**",
         "dev/{docker,backend}/**",
         "nix/android-packages.nix",

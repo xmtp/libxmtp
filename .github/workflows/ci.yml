@@ -11,7 +11,9 @@ permissions:
   contents: read
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Merge runs are the full-coverage safety net, so a later merge must not
+  # cancel them. A new pull request push replaces the older run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 # .github/ci-suites.yml declares the suites. dev/ci-suites generates
 # lint-generated.yml and test-generated.yml, which have one job per suite.
 jobs:
