@@ -19,8 +19,8 @@ import xml.etree.ElementTree as ET
 from target import disposable_backend
 
 
-ROOT = Path(__file__).resolve().parents[4]
-ANDROID = ROOT / "sdks/android"
+ROOT = Path(__file__).resolve().parents[3]
+ANDROID = ROOT / "apps/example-android"
 APP_ID = "org.xmtp.android.example"
 TEST_CLASS = "org.xmtp.android.example.messenger.MessengerPerformanceInstrumentedTest"
 
@@ -183,7 +183,7 @@ def execute(output, label, backend):
         capture_output=True,
     )
     reused_seed = manifest.returncode == 0
-    connected = ANDROID / "example/build/outputs/androidTest-results/connected"
+    connected = ANDROID / "app/build/outputs/androidTest-results/connected"
     snapshot = output / f"{label}-connected"
     for directory in (connected, snapshot):
         if directory.exists():
@@ -377,7 +377,7 @@ def remove_published_cache_eviction(original):
 def cache_red_control(output, backend, report):
     source = (
         ANDROID
-        / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
+        / "app/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
     )
     original = source.read_text()
     weakened = remove_published_cache_eviction(original)

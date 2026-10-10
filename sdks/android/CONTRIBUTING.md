@@ -69,7 +69,8 @@ After native staging, check the release library and example with frozen
 dependencies:
 
 ```sh
-dev/nix-shell 'cd sdks/android && ./gradlew --dependency-verification strict :library:assembleRelease :example:assembleDebug'
+dev/nix-shell 'just android assemble'
+dev/nix-shell 'just example-android check'
 ```
 
 For an approved dependency change, resolve the affected tasks with
