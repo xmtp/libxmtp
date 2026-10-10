@@ -38,7 +38,7 @@ def result():
         "maxTranscriptRows": 500,
         "maxCacheRows": 1500,
         "maxPageRows": 500,
-        "maxHistoryReadRows": 501,
+        "maxHistoryReadRows": 50,
     }
 
 
@@ -102,7 +102,7 @@ class PerformanceGateTest(unittest.TestCase):
             ("maxTranscriptRows", 501),
             ("maxCacheRows", 1501),
             ("maxPageRows", 501),
-            ("maxHistoryReadRows", 502),
+            ("maxHistoryReadRows", 51),
             ("heapDeltaBytes", 64 * 1024 * 1024 + 1),
             ("maxCacheRows", 0),
             ("maxTranscriptRows", 0),
@@ -143,7 +143,9 @@ class DeviceInvocationTest(unittest.TestCase):
             self.assertEqual(1, code)
             self.assertEqual({}, report)
             self.assertEqual(["receipt barrier"], failures)
-            self.assertEqual(progress, (output / "green-seed-progress.jsonl").read_text())
+            self.assertEqual(
+                progress, (output / "green-seed-progress.jsonl").read_text()
+            )
 
     def test_every_pass_retains_the_installed_app_for_result_and_dataset_reuse(self):
         invocations = []
@@ -184,10 +186,18 @@ class DeviceInvocationTest(unittest.TestCase):
 
 
 class CacheFailureControlTest(unittest.TestCase):
+    def test_rejects_the_legacy_pending_cache_as_the_published_boundary(self):
+        legacy = (
+            run.ANDROID
+            / "example/src/main/java/org/xmtp/android/example/messenger/TimestampBuckets.kt"
+        ).read_text()
+        with self.assertRaisesRegex(ValueError, "SDKTranscriptCache"):
+            run.remove_published_cache_eviction(legacy)
+
     def test_restores_production_source_after_interruption(self):
         production = (
             run.ANDROID
-            / "example/src/main/java/org/xmtp/android/example/messenger/TimestampBuckets.kt"
+            / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
         )
         original = production.read_text()
         with tempfile.TemporaryDirectory() as directory:
@@ -208,7 +218,7 @@ class CacheFailureControlTest(unittest.TestCase):
     ):
         production = (
             run.ANDROID
-            / "example/src/main/java/org/xmtp/android/example/messenger/TimestampBuckets.kt"
+            / "example/src/main/java/org/xmtp/android/example/messenger/SDKHistoryPages.kt"
         )
         original = production.read_text()
         for failure, workload_id, restored_id, accepted in (
@@ -237,6 +247,9 @@ class CacheFailureControlTest(unittest.TestCase):
                 def execute(output, label, backend):
                     if label == "red-cache":
                         self.assertNotEqual(original, source.read_text())
+                        self.assertIn("class SDKTranscriptCache<", source.read_text())
+                        self.assertIn("rows.drop(start).take(500)", source.read_text())
+                        self.assertNotIn("while (entries.size > 3)", source.read_text())
                         return 1, red, [failure]
                     self.assertEqual(original, source.read_text())
                     return 0, restored, []

@@ -76,12 +76,18 @@ is the 29th sorted sample for 30 runs.
 | Published rows retained across cached transcripts | At most 1500 in three transcripts |
 
 The heap run reads at least 1000 messages in each of ten transcripts through
-the production timestamp loader and production cache. It records maximum page,
-transcript, and cache row counts. It also records the actual history read
-size, including the sentinel, with a limit of 501. The observation calls the
-unchanged production read function with its real selection. The heap result
+the production SDK page loader and `SDKTranscriptCache`. Each query uses the
+public SDK page method with its raw `MessageHistoryPosition` continuation.
+Converted rows plus skipped candidates must not exceed the 50-row SDK request.
+The production four-read budget and Published selection remain active. The
+performance hook retains the complete `HistoryWindow` through the production
+cache append method, including raw positions. It does not rebuild boundaries
+from converted messages. It records maximum page, transcript, and cache row
+counts. The observation calls the unchanged production page read with its real
+selection. The heap result
 keeps the last 500 projected UI rows alive and records before/after totals. The red control removes the production cache
-eviction statement. It must fail with `Transcript cache trimming was removed`
+eviction statement in `SDKHistoryPages.kt`. It rejects the pending overlay's
+legacy cache as a control target. It must fail with `Transcript cache trimming was removed`
 and retain more than 1500 cached rows. The host runner restores the exact
 source in a `finally` block. It then rebuilds and repeats the device gate.
 Seeding happens once. A partial workload cannot pass the gate.
