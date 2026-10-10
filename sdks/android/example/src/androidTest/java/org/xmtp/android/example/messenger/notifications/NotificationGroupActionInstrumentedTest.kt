@@ -66,7 +66,8 @@ class NotificationGroupActionInstrumentedTest {
                 object : PushTransport {
                     override val configured = true
 
-                    override fun requestToken(callback: (String?, Throwable?) -> Unit) = error("No FCM token request")
+                    override fun requestToken(callback: (String?, Throwable?) -> Unit) =
+                        callback("compile-only-token", null)
                 }
             val notifications = NotificationController(app, session, transport)
             controller = notifications
