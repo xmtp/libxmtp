@@ -2,6 +2,8 @@ package org.xmtp.android.example.messenger
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.text.InputType
@@ -21,6 +23,8 @@ import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.feature.chat.ChatAction
 import uniffi.xmtp_sdk.*
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class AcceptanceAndCredentialInstrumentedTest {
@@ -77,16 +81,34 @@ class AcceptanceAndCredentialInstrumentedTest {
         }
     }
 
-    private suspend fun chat(): Pair<ActiveSession, Group> {
+    private suspend fun chat(holdActivation: Boolean = false): Pair<ActiveSession, Group> {
+        val currentModel = model
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
-        model.session.signOut()
+        currentModel.session.signOut()
         val backend = BuildConfig.XMTP_BACKEND_URL
-        model.session.connect(backend, "", localAttachmentNetwork(backend))
-        val owner = checkNotNull(model.session.active.value)
-        val options = CreateGroupOptions(name = "Acceptance commit")
-        val group = owner.client.conversations.createGroup(emptyList(), options)
-        model.dispatch(MessengerAction.OpenConversation(group.id()))
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val (owner, group) =
+            try {
+                if (holdActivation) {
+                    Handler(Looper.getMainLooper()).post {
+                        entered.countDown()
+                        release.await()
+                    }
+                }
+                withContext(Dispatchers.IO) {
+                    if (holdActivation) check(entered.await(5, TimeUnit.SECONDS))
+                    currentModel.session.connect(backend, "", localAttachmentNetwork(backend))
+                    val active = checkNotNull(currentModel.session.active.value)
+                    val options = CreateGroupOptions(name = "Acceptance commit")
+                    val created = active.client.conversations.createGroup(emptyList(), options)
+                    currentModel.dispatch(MessengerAction.OpenConversation(created.id()))
+                    active to created
+                }
+            } finally {
+                release.countDown()
+            }
         until("current chat") { model.state.value.conversationId == group.id() && !model.state.value.busy }
         model.foreground(false)
         return owner to group
@@ -119,7 +141,7 @@ class AcceptanceAndCredentialInstrumentedTest {
     @Test fun acceptedCommitFailureKeepsComposerAndRecoversOnlyItsNativeId() =
         runBlocking {
             try {
-                val (owner, group) = chat()
+                val (owner, group) = chat(holdActivation = true)
                 val completed = failAcceptedCommit()
                 compose.onNodeWithText("Message").performTextInput("SDK accepted body")
                 compose.onNodeWithText("Send").performClick()

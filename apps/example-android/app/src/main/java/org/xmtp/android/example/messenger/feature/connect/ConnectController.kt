@@ -103,7 +103,7 @@ internal class ConnectController(
                         backend =
                             action.value,
                         failure =
-                        null,
+                            it.failure.takeUnless { failure -> failure?.code == "server-probe" },
                     )
                 }
                 inspect(action.value)
@@ -144,7 +144,7 @@ internal class ConnectController(
             ConnectAction.Retry -> {
                 val previous =
                     lastAttempt
-                transition {
+                transition(restoring = previous == null) {
                     if (previous == null) {
                         commands.restore()
                     } else {
@@ -187,6 +187,7 @@ internal class ConnectController(
 
     private fun transition(
         reset: Boolean = false,
+        restoring: Boolean = false,
         command: suspend () -> Unit,
     ) {
         val attempt = operations.incrementAndGet()
@@ -209,10 +210,16 @@ internal class ConnectController(
                                     error,
                                     if (reset) {
                                         "Local data removal is not complete. Try again."
+                                    } else if (restoring) {
+                                        "Cannot restore this account. Try again."
                                     } else {
                                         "Cannot connect to this server. Check the address and try again."
                                     },
-                                    if (reset) "reset" else "connect",
+                                    when {
+                                        reset -> "reset"
+                                        restoring -> "restore"
+                                        else -> "connect"
+                                    },
                                 ),
                         )
                     }
@@ -238,7 +245,7 @@ internal class ConnectController(
                 credentialsRequiredFor =
                 null,
                 failure =
-                null,
+                    it.failure.takeUnless { failure -> failure?.code == "server-probe" },
             )
         }
         probeJob?.cancel()
@@ -275,11 +282,12 @@ internal class ConnectController(
                                 credentialsRequiredFor =
                                 null,
                                 failure =
-                                    featureFailure(
-                                        error,
-                                        "Cannot check this server. Try again.",
-                                        "server-probe",
-                                    ),
+                                    it.failure.takeUnless { failure -> failure?.code == "server-probe" }
+                                        ?: featureFailure(
+                                            error,
+                                            "Cannot check this server. Try again.",
+                                            "server-probe",
+                                        ),
                             )
                         }
                     }

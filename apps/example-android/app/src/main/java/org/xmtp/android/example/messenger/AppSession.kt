@@ -117,6 +117,9 @@ class AppSession(
                 block,
             )
 
+    /** Route changes use the same lock as session admission, including while signed out. */
+    internal fun <T> withStateLock(block: () -> T): T = synchronized(fence, block)
+
     private suspend fun markSignedOutForCleanup(): String? {
         val profile = (activeState.value ?: stopping ?: opening)?.key?.profileId ?: preferences.active()?.id
         preferences.beginExportCleanup(profile)

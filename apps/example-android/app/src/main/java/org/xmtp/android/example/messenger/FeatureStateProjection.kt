@@ -196,8 +196,22 @@ internal class FeatureStateProjection(
                 credentialsRequiredFor = connectState.credentialsRequiredFor,
                 inbox = settingsState.inbox,
                 busy =
-                    connectState.busy || listState.busy || chatState.busy ||
-                        createState.busy || groupState.busy || settingsState.busy,
+                    when (route) {
+                        AppRoute.Connect -> connectState.busy
+
+                        AppRoute.Chats, AppRoute.Requests -> listState.busy
+
+                        AppRoute.CreateConversation -> createState.busy
+
+                        is AppRoute.Chat -> chatState.busy
+
+                        is AppRoute.ConversationDetails,
+                        is AppRoute.GroupFields,
+                        is AppRoute.OwnFields,
+                        -> groupState.busy
+
+                        AppRoute.Settings, AppRoute.AttachmentRecovery -> settingsState.busy
+                    },
                 error = failure?.message,
                 pendingReset = connectState.pendingReset || settingsState.pendingReset,
                 readerError = reader?.message,

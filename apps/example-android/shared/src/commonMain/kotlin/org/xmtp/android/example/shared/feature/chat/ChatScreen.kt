@@ -19,6 +19,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
@@ -53,6 +56,8 @@ import kotlin.math.roundToInt
     val selected = state.overlay?.messageId
     var selectedBounds by remember(state.conversationId) { mutableStateOf(Rect.Zero) }
     var composerTop by remember(state.conversationId) { mutableStateOf(Float.POSITIVE_INFINITY) }
+    val composerFocus = remember(state.conversationId) { FocusRequester() }
+    var composerHasFocus by remember(state.conversationId) { mutableStateOf(false) }
     val expanded = state.overlay?.surface == MessageSurface.POPOVER
     val transition = remember(state.conversationId) { MutableTransitionState(false) }
     val currentSelection = state.messages.firstOrNull { it.id == selected && !it.deleted }
@@ -368,30 +373,59 @@ import kotlin.math.roundToInt
                         }
                     }
                 }
-                OutlinedTextField(
-                    androidx.compose.ui.text.input.TextFieldValue(
-                        text,
-                        androidx.compose.ui.text
-                            .TextRange(state.composer.selectionStart, state.composer.selectionEnd),
-                    ),
-                    { value ->
-                        action(ChatAction.ChangeDraft(value.text, value.selection.start, value.selection.end))
-                    },
-                    placeholder = {
-                        Text("Message")
-                    },
-                    modifier =
-                        Modifier
-                            .fillMaxWidth(),
-                    maxLines = 5,
-                    shape = RoundedCornerShape(28.dp),
-                    colors =
-                        OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = Color(0xFFF1F3F7),
-                            focusedContainerColor = Color(0xFFF1F3F7),
-                            unfocusedBorderColor = Color.Transparent,
+                val inputInstanceId = state.composer.inputInstanceId
+                val restoreComposerFocus = composerHasFocus
+                key(inputInstanceId) {
+                    LaunchedEffect(Unit) {
+                        if (restoreComposerFocus) composerFocus.requestFocus()
+                    }
+                    OutlinedTextField(
+                        androidx.compose.ui.text.input.TextFieldValue(
+                            text,
+                            androidx.compose.ui.text.TextRange(
+                                state.composer.selectionStart.coerceIn(0, text.length),
+                                state.composer.selectionEnd.coerceIn(0, text.length),
+                            ),
+                            composition =
+                                state.composer.compositionStart?.let { start ->
+                                    state.composer.compositionEnd?.let { end ->
+                                        androidx.compose.ui.text.TextRange(
+                                            start.coerceIn(0, text.length),
+                                            end.coerceIn(0, text.length),
+                                        )
+                                    }
+                                },
                         ),
-                )
+                        { value ->
+                            action(
+                                ChatAction.ChangeDraft(
+                                    value.text,
+                                    value.selection.start,
+                                    value.selection.end,
+                                    value.composition?.start,
+                                    value.composition?.end,
+                                    inputInstanceId,
+                                ),
+                            )
+                        },
+                        placeholder = {
+                            Text("Message")
+                        },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .focusRequester(composerFocus)
+                                .onFocusChanged { composerHasFocus = it.isFocused },
+                        maxLines = 5,
+                        shape = RoundedCornerShape(28.dp),
+                        colors =
+                            OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = Color(0xFFF1F3F7),
+                                focusedContainerColor = Color(0xFFF1F3F7),
+                                unfocusedBorderColor = Color.Transparent,
+                            ),
+                    )
+                }
             }
             TextButton(
                 {

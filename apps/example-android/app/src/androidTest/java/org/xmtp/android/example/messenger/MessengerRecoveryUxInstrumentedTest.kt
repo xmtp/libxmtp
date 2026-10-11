@@ -141,6 +141,16 @@ class MessengerRecoveryUxInstrumentedTest {
                 val id = checkNotNull(drafts.single().acceptedMessageId)
                 val accepted = checkNotNull(owner.client.conversations.getMessageById(id))
                 assertEquals("accepted body", accepted.toRow(owner.client.inboxId()).text)
+                val composer = model.chat.state.value.composer
+                val projected =
+                    model.state.value.chatState
+                        ?.composer
+                println(
+                    "COMPOSER_PROOF stage=publication-failure-state " +
+                        "length=${composer.text.length} revision=${composer.revision} " +
+                        "submitted=${composer.result?.submittedRevision} " +
+                        "projectedLength=${projected?.text?.length} projectedRevision=${projected?.revision}",
+                )
                 compose.onNode(hasSetTextAction() and hasText("accepted body")).assertDoesNotExist()
                 compose.onNodeWithText("Message").assertExists()
                 model.sends.beforePublish = {}
@@ -203,11 +213,17 @@ class MessengerRecoveryUxInstrumentedTest {
                 val (owner, _) = chat()
                 val saved = owner.profile
                 model.session.signOut()
-                model.session.secrets.write(saved.id, "credential", "retained secret".toByteArray())
                 val restoredGraph = graphRule.replaceGraph()
                 val restoredSession = restoredGraph.session
+                restoredSession.secrets.write(saved.id, "credential", "retained secret".toByteArray())
                 restoredSession.preferences.setSignedIn(true)
-                restoredSession.beforeClientBuild = { throw IOException("Saved restore failed") }
+                val restoreAttempts =
+                    java.util.concurrent.atomic
+                        .AtomicInteger()
+                restoredSession.beforeClientBuild = {
+                    restoreAttempts.incrementAndGet()
+                    throw IOException("Saved restore failed")
+                }
                 val fresh = withContext(Dispatchers.Main) { graphRule.newShell(store) }
                 until("failed actual startup restore") { fresh.connect.state.value.failure != null }
                 compose.runOnUiThread {
@@ -216,6 +232,16 @@ class MessengerRecoveryUxInstrumentedTest {
                     }
                 }
                 compose.onNodeWithText("Backend URL").assertTextContains(saved.backend)
+                compose.onNodeWithText("Retry").performClick()
+                until("second actual restore failure") {
+                    restoreAttempts.get() == 2 && !fresh.connect.state.value.busy &&
+                        fresh.connect.state.value.failure != null
+                }
+                assertEquals(
+                    "restore",
+                    fresh.connect.state.value.failure
+                        ?.code,
+                )
                 restoredSession.beforeClientBuild = {}
                 compose.onNodeWithText("Retry").performClick()
                 until("saved native owner restored by Retry") { restoredSession.active.value != null }

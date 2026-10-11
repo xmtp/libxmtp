@@ -39,9 +39,19 @@ internal class ChatController(
     private val cache = SDKTranscriptCache<Message>({ it.id }, { it.historyPosition() })
     private val draftLock = Any()
     private val composerDrafts = mutableMapOf<Pair<String, String>, ComposerDraft>()
+
+    private data class ActiveSubmission(
+        val sessionKey: SessionKey,
+        val draftId: String,
+    )
+
+    private val activeSubmissions =
+        java.util.concurrent.ConcurrentHashMap
+            .newKeySet<ActiveSubmission>()
     private val requests = AtomicLong()
     private val openAttempts = AtomicLong()
     private val overlayInstances = AtomicLong()
+    private val inputInstances = AtomicLong()
 
     private data class Submission(
         val previous: ComposerDraft,
@@ -138,6 +148,7 @@ internal class ChatController(
         newestLoaded = false
         cache.clear()
         synchronized(draftLock) { composerDrafts.clear() }
+        activeSubmissions.clear()
         ui.value = ChatState()
     }
 
@@ -287,7 +298,8 @@ internal class ChatController(
         var applied = false
         destinations.admit(origin) {
             if (boundKey == owner.key &&
-                destinations.state.value.route == AppRoute.Chat(chat.id())
+                destinations.state.value.route == AppRoute.Chat(chat.id()) &&
+                ui.value.conversationId == chat.id()
             ) {
                 change(
                     owner,
@@ -414,7 +426,10 @@ internal class ChatController(
         }
     }
 
-    private fun composer(draft: ComposerDraft): ComposerState =
+    private fun composer(
+        draft: ComposerDraft,
+        inputInstanceId: Long = inputInstances.incrementAndGet(),
+    ): ComposerState =
         ComposerState(
             text =
                 draft.text,
@@ -438,6 +453,7 @@ internal class ChatController(
                 draft.submittedRevision,
             enabled =
                 draft.draftId == null,
+            inputInstanceId = inputInstanceId,
             result =
                 draft.requestId?.let { request ->
                     draft.acceptedId?.let {
@@ -464,24 +480,27 @@ internal class ChatController(
                 },
         )
 
-    private fun committedComposer(
-        draft: ComposerDraft,
-        result: TextSendResult,
-    ): ComposerState {
+    private fun retainedComposer(draft: ComposerDraft): ComposerState {
         val displayed = ui.value.composer
-        val base =
-            if (displayed.text == draft.text &&
-                displayed.revision == draft.revision
-            ) {
-                displayed
-            } else {
-                composer(draft)
-            }
+        if (displayed.text != draft.text || displayed.revision != draft.revision) return composer(draft)
+        val base = composer(draft, displayed.inputInstanceId)
         return base.copy(
+            selectionStart = displayed.selectionStart,
+            selectionEnd = displayed.selectionEnd,
+            compositionStart = displayed.compositionStart,
+            compositionEnd = displayed.compositionEnd,
             reply =
                 displayed.reply.takeIf {
                     it?.messageId == draft.replyId
                 } ?: base.reply,
+        )
+    }
+
+    private fun committedComposer(
+        draft: ComposerDraft,
+        result: TextSendResult,
+    ): ComposerState =
+        retainedComposer(draft).copy(
             pendingRequestId =
             null,
             submittedRevision =
@@ -491,7 +510,6 @@ internal class ChatController(
             result =
             result,
         )
-    }
 
     fun dispatch(action: ChatAction) {
         when (action) {
@@ -605,195 +623,200 @@ internal class ChatController(
         val chat = conversation ?: return
         val origin = destinations.capture(owner)
         val submission = if (action is ChatAction.SendText) reserve(owner, origin, chat, action) ?: return else null
-        owner.work.launch(Dispatchers.IO) {
-            var sendStarted = false
-            try {
-                beforeQueuedAction(action)
-                requireOrigin(owner, origin, chat)
-                when (action) {
-                    is ChatAction.SendText -> {
-                        sendStarted =
-                            true
-                        send(
-                            owner,
-                            origin,
-                            chat,
-                            action,
-                            checkNotNull(submission),
-                        )
-                    }
-
-                    is ChatAction.RetrySend -> {
-                        sends.retry(
-                            owner.key,
-                            owner.client,
-                            chat,
-                            action.messageId,
-                            admission =
-                                {
-                                    destinations.accepts(origin) &&
-                                        conversation?.id() == chat.id() &&
-                                        destinations.state.value.route == AppRoute.Chat(chat.id())
-                                },
-                        ) {
-                            reconcileFeatureMessage(
+        val actionJob =
+            owner.work.launch(Dispatchers.IO) {
+                var sendStarted = false
+                try {
+                    beforeQueuedAction(action)
+                    requireOrigin(owner, origin, chat)
+                    when (action) {
+                        is ChatAction.SendText -> {
+                            sendStarted =
+                                true
+                            send(
                                 owner,
-                                origin.destinationToken,
-                                it,
+                                origin,
+                                chat,
+                                action,
+                                checkNotNull(submission),
                             )
                         }
-                        if (session.accepts(owner.key)) recoverSubmission(owner, chat.id())
-                        onCurrentScreen(
-                            owner,
-                            origin.destinationToken,
-                        ) {
-                            if (ui.value.failure?.code == "send-publication") {
-                                ui.update {
-                                    it.copy(
-                                        failure =
-                                        null,
+
+                        is ChatAction.RetrySend -> {
+                            sends.retry(
+                                owner.key,
+                                owner.client,
+                                chat,
+                                action.messageId,
+                                admission =
+                                    {
+                                        destinations.accepts(origin) &&
+                                            conversation?.id() == chat.id() &&
+                                            destinations.state.value.route == AppRoute.Chat(chat.id())
+                                    },
+                            ) {
+                                reconcileFeatureMessage(
+                                    owner,
+                                    origin.destinationToken,
+                                    it,
+                                )
+                            }
+                            if (session.accepts(owner.key)) recoverSubmission(owner, chat.id())
+                            onCurrentScreen(
+                                owner,
+                                origin.destinationToken,
+                            ) {
+                                if (ui.value.failure?.code == "send-publication") {
+                                    ui.update {
+                                        it.copy(
+                                            failure =
+                                            null,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        is ChatAction.React -> {
+                            val message =
+                                actionMessageRead(
+                                    owner,
+                                    action.messageId,
+                                ) ?: throw FeatureInputFailure("This message is not available.")
+                            requireOrigin(owner, origin, chat)
+                            if (message.conversationId != chat.id()) {
+                                throw FeatureInputFailure("This message belongs to another chat.")
+                            }
+                            sends.queue(
+                                owner.key,
+                                owner.client,
+                                chat,
+                                admission =
+                                    {
+                                        destinations.accepts(origin) &&
+                                            conversation?.id() == chat.id()
+                                    },
+                                reconcile =
+                                    {
+                                        reconcileFeatureMessage(
+                                            owner,
+                                            origin.destinationToken,
+                                            it,
+                                        )
+                                    },
+                            ) {
+                                requireOrigin(owner, origin, chat)
+                                message.react(
+                                    Reaction(
+                                        action.emoji,
+                                        if (action.remove) ReactionAction.REMOVED else ReactionAction.ADDED,
+                                        ReactionSchema.UNICODE,
+                                    ),
+                                    SendOptions(
+                                        optimistic =
+                                        true,
+                                    ),
+                                )
+                            }
+                            refresh(owner)
+                        }
+
+                        is ChatAction.DeleteMessage -> {
+                            val message =
+                                actionMessageRead(
+                                    owner,
+                                    action.messageId,
+                                ) ?: throw FeatureInputFailure("This message is not available.")
+                            requireOrigin(owner, origin, chat)
+                            if (message.conversationId != chat.id()) {
+                                throw FeatureInputFailure("This message belongs to another chat.")
+                            }
+                            chat.deleteMessage(action.messageId)
+                            refresh(owner)
+                        }
+
+                        is ChatAction.EditFailedSend -> {
+                            val row =
+                                ui.value.messages.firstOrNull {
+                                    it.id == action.messageId &&
+                                        it.mine &&
+                                        it.sendState == MessageSendState.NOT_SENT
+                                } ?: return@launch
+                            changeDraft(ChatAction.ChangeDraft(row.text, row.text.length, row.text.length))
+                        }
+
+                        is ChatAction.Viewport -> {
+                            saveViewport(owner, origin.destinationToken, action)
+                        }
+
+                        ChatAction.LoadOlder -> {
+                            projection.withLock { loadOlder(owner, origin.destinationToken) }
+                        }
+
+                        ChatAction.JumpToLatest -> {
+                            projection.withLock {
+                                refreshTimeline(
+                                    owner,
+                                    origin.destinationToken,
+                                    false,
+                                )
+                            }
+                        }
+
+                        ChatAction.LoadOlderRecovery,
+                        ChatAction.LatestRecovery,
+                        -> {
+                            projection.withLock {
+                                if (destinations.accepts(origin)) {
+                                    recoveryUpper =
+                                        if (action == ChatAction.LatestRecovery) null else recoveryNext
+                                    refreshTimeline(
+                                        owner,
+                                        origin.destinationToken,
+                                        true,
                                     )
                                 }
                             }
                         }
-                    }
 
-                    is ChatAction.React -> {
-                        val message =
-                            actionMessageRead(
-                                owner,
-                                action.messageId,
-                            ) ?: throw FeatureInputFailure("This message is not available.")
-                        requireOrigin(owner, origin, chat)
-                        if (message.conversationId != chat.id()) {
-                            throw FeatureInputFailure("This message belongs to another chat.")
+                        ChatAction.Refresh -> {
+                            refresh(owner)
                         }
-                        sends.queue(
-                            owner.key,
-                            owner.client,
-                            chat,
-                            admission =
-                                {
-                                    destinations.accepts(origin) &&
-                                        conversation?.id() == chat.id()
-                                },
-                            reconcile =
-                                {
-                                    reconcileFeatureMessage(
-                                        owner,
-                                        origin.destinationToken,
-                                        it,
-                                    )
-                                },
-                        ) {
-                            requireOrigin(owner, origin, chat)
-                            message.react(
-                                Reaction(
-                                    action.emoji,
-                                    if (action.remove) ReactionAction.REMOVED else ReactionAction.ADDED,
-                                    ReactionSchema.UNICODE,
-                                ),
-                                SendOptions(
-                                    optimistic =
-                                    true,
-                                ),
-                            )
+
+                        else -> {
+                            Unit
                         }
-                        refresh(owner)
                     }
-
-                    is ChatAction.DeleteMessage -> {
-                        val message =
-                            actionMessageRead(
-                                owner,
-                                action.messageId,
-                            ) ?: throw FeatureInputFailure("This message is not available.")
-                        requireOrigin(owner, origin, chat)
-                        if (message.conversationId != chat.id()) {
-                            throw FeatureInputFailure("This message belongs to another chat.")
-                        }
-                        chat.deleteMessage(action.messageId)
-                        refresh(owner)
-                    }
-
-                    is ChatAction.EditFailedSend -> {
-                        val row =
-                            ui.value.messages.firstOrNull {
-                                it.id == action.messageId &&
-                                    it.mine &&
-                                    it.sendState == MessageSendState.NOT_SENT
-                            } ?: return@launch
-                        changeDraft(ChatAction.ChangeDraft(row.text, row.text.length, row.text.length))
-                    }
-
-                    is ChatAction.Viewport -> {
-                        saveViewport(owner, origin.destinationToken, action)
-                    }
-
-                    ChatAction.LoadOlder -> {
-                        projection.withLock { loadOlder(owner, origin.destinationToken) }
-                    }
-
-                    ChatAction.JumpToLatest -> {
-                        projection.withLock {
-                            refreshTimeline(
-                                owner,
-                                origin.destinationToken,
-                                false,
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    if (destinations.accepts(origin)) {
+                        ui.update {
+                            it.copy(
+                                failure =
+                                    featureFailure(
+                                        error,
+                                        "Cannot complete this message action. Try again.",
+                                        "chat-action",
+                                    ),
                             )
                         }
                     }
-
-                    ChatAction.LoadOlderRecovery,
-                    ChatAction.LatestRecovery,
-                    -> {
-                        projection.withLock {
-                            if (destinations.accepts(origin)) {
-                                recoveryUpper =
-                                    if (action == ChatAction.LatestRecovery) null else recoveryNext
-                                refreshTimeline(
-                                    owner,
-                                    origin.destinationToken,
-                                    true,
-                                )
-                            }
-                        }
-                    }
-
-                    ChatAction.Refresh -> {
-                        refresh(owner)
-                    }
-
-                    else -> {
-                        Unit
-                    }
-                }
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                if (destinations.accepts(origin)) {
-                    ui.update {
-                        it.copy(
-                            failure =
-                                featureFailure(
-                                    error,
-                                    "Cannot complete this message action. Try again.",
-                                    "chat-action",
-                                ),
+                } finally {
+                    if (submission != null &&
+                        !sendStarted
+                    ) {
+                        releaseReservation(
+                            owner,
+                            chat.id(),
+                            submission,
                         )
                     }
+                    onQueuedActionFinished(action)
                 }
-            } finally {
-                if (submission != null &&
-                    !sendStarted
-                ) {
-                    releaseReservation(
-                        owner,
-                        chat.id(),
-                        submission,
-                    )
-                }
-                onQueuedActionFinished(action)
             }
+        if (submission != null) {
+            val active = ActiveSubmission(owner.key, submission.nativeDraft.draftId)
+            actionJob.invokeOnCompletion { activeSubmissions.remove(active) }
         }
     }
 
@@ -853,6 +876,12 @@ internal class ChatController(
 
     private fun changeDraft(action: ChatAction.ChangeDraft) =
         editCurrentChat { owner, id ->
+            if (action.inputInstanceId != null &&
+                action.inputInstanceId != ui.value.composer.inputInstanceId
+            ) {
+                return@editCurrentChat
+            }
+            val inputInstanceId = action.inputInstanceId ?: inputInstances.incrementAndGet()
             val next =
                 synchronized(draftLock) {
                     val old = currentDraft(owner, id)
@@ -883,6 +912,7 @@ internal class ChatController(
                                 action.compositionEnd,
                             revision =
                                 next.revision,
+                            inputInstanceId = inputInstanceId,
                         ),
                 )
             }
@@ -939,6 +969,7 @@ internal class ChatController(
                 }
                 val request = action.requestId.takeIf { it != 0L } ?: requests.incrementAndGet()
                 val nativeDraft = SendDraftRef(UUID.randomUUID().toString(), chat.id())
+                activeSubmissions.add(ActiveSubmission(owner.key, nativeDraft.draftId))
                 composerDrafts[owner.key.profileId to chat.id()] =
                     previous.copy(
                         requestId =
@@ -996,7 +1027,7 @@ internal class ChatController(
                     null,
                 )
             composerDrafts[owner.key.profileId to id] = next
-            if (ui.value.conversationId == id) ui.update { it.copy(composer = composer(next)) }
+            if (ui.value.conversationId == id) ui.update { it.copy(composer = retainedComposer(next)) }
             try {
                 drafts.write(
                     owner.key,
@@ -1350,6 +1381,7 @@ internal class ChatController(
     ) {
         val saved = currentDraft(owner, id)
         val draftId = saved.draftId ?: return
+        if (activeSubmissions.contains(ActiveSubmission(owner.key, draftId))) return
         val references = session.preferences.drafts(owner.key.profileId)
         val reference = references.firstOrNull { it.draftId == draftId }
         val acceptedId = saved.acceptedId ?: reference?.acceptedMessageId
@@ -1474,7 +1506,7 @@ internal class ChatController(
                         ui.update {
                             it.copy(
                                 composer =
-                                    composer(next),
+                                    retainedComposer(next),
                             )
                         }
                     }

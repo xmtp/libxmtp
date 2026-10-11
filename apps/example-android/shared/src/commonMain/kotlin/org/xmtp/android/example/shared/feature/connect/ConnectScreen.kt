@@ -37,7 +37,11 @@ import org.xmtp.android.example.shared.*
     ) {
         state.failure?.message?.takeIf { !state.pendingReset }?.let { message ->
             Notice(message, "Retry") {
-                action(ConnectAction.Connect(backend, connectCredential()))
+                if (state.failure?.code == "restore") {
+                    action(ConnectAction.Retry)
+                } else {
+                    action(ConnectAction.Connect(backend, connectCredential()))
+                }
             }
         }
 

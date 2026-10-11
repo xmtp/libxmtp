@@ -20,6 +20,7 @@ data class ComposerState(
     val enabled: Boolean = true,
     val compositionStart: Int? = null,
     val compositionEnd: Int? = null,
+    val inputInstanceId: Long = 0,
 )
 
 enum class MessageSurface { POPOVER, EMOJI, REACTORS }
@@ -67,6 +68,7 @@ sealed interface ChatAction {
         val selectionEnd: Int,
         val compositionStart: Int? = null,
         val compositionEnd: Int? = null,
+        val inputInstanceId: Long? = null,
     ) : ChatAction
 
     data class SendText(

@@ -16,7 +16,6 @@ import java.io.Closeable
 class RouteOwner(
     private val session: () -> AppSession,
 ) : DestinationScope {
-    private val lock = Any()
     private val mutableState = MutableStateFlow(DestinationState())
     override val state: StateFlow<DestinationState> = mutableState.asStateFlow()
     private val backStack = mutableListOf<AppRoute>()
@@ -24,13 +23,14 @@ class RouteOwner(
     private var savedStateRead = false
     private var boundSessionKey: SessionKey? = null
     private var restoreResolvedFor: SessionKey? = null
+    private var pendingNavigation: PendingNavigation? = null
 
     override fun capture(owner: ActiveSession): DestinationOrigin =
-        synchronized(lock) { DestinationOrigin(owner.key, mutableState.value.token) }
+        session().withStateLock { DestinationOrigin(owner.key, mutableState.value.token) }
 
     override fun accepts(origin: DestinationOrigin): Boolean =
         session().withCurrent(origin.sessionKey) {
-            synchronized(lock) {
+            session().withStateLock {
                 boundSessionKey == origin.sessionKey && mutableState.value.token == origin.destinationToken
             }
         } == true
@@ -41,7 +41,7 @@ class RouteOwner(
     ): Boolean {
         var changed = false
         session().admit(origin.sessionKey) {
-            synchronized(lock) {
+            session().withStateLock {
                 if (boundSessionKey == origin.sessionKey && mutableState.value.token == origin.destinationToken) {
                     change()
                     changed = true
@@ -52,23 +52,57 @@ class RouteOwner(
     }
 
     override fun navigate(route: AppRoute) {
-        synchronized(lock) {
-            restored = null
-            restoreResolvedFor = boundSessionKey
-            val previous = mutableState.value
-            if (route == AppRoute.Connect || route == AppRoute.Chats) {
-                backStack.clear()
-            } else if (previous.route != AppRoute.Connect && previous.route != route) {
-                backStack.add(previous.route)
+        val current = session()
+        while (true) {
+            val owner = current.active.value
+            if (owner == null) {
+                val applied =
+                    session().withStateLock {
+                        if (current.active.value != null) return@withStateLock false
+                        pendingNavigation = null
+                        navigateLocked(route)
+                        true
+                    }
+                if (applied) return
+            } else {
+                current.withCurrent(owner.key) {
+                    session().withStateLock {
+                        if (current.active.value?.key != owner.key) return@withStateLock
+                        if (boundSessionKey != owner.key) {
+                            // Activation still owns binding. Keep the latest request for this generation.
+                            restored = null
+                            pendingNavigation = PendingNavigation(owner.key, route)
+                        } else {
+                            pendingNavigation = null
+                            navigateLocked(route)
+                        }
+                    }
+                }
+                return
             }
-            mutableState.value = DestinationState(route, previous.token + 1)
         }
     }
 
+    private fun navigateLocked(route: AppRoute) {
+        restored = null
+        restoreResolvedFor = boundSessionKey
+        val previous = mutableState.value
+        if (route == AppRoute.Connect || route == AppRoute.Chats) {
+            backStack.clear()
+        } else if (previous.route != AppRoute.Connect && previous.route != route) {
+            backStack.add(previous.route)
+        }
+        mutableState.value = DestinationState(route, previous.token + 1)
+    }
+
     fun back(): Boolean =
-        synchronized(lock) {
+        session().withStateLock {
+            if (pendingNavigation != null) {
+                pendingNavigation = null
+                return@withStateLock true
+            }
             val previous = mutableState.value
-            if (previous.route == AppRoute.Connect || previous.route == AppRoute.Chats) return@synchronized false
+            if (previous.route == AppRoute.Connect || previous.route == AppRoute.Chats) return@withStateLock false
             restored = null
             restoreResolvedFor = boundSessionKey
             val route = backStack.removeLastOrNull() ?: parent(previous.route)
@@ -77,8 +111,9 @@ class RouteOwner(
         }
 
     fun clear() {
-        synchronized(lock) {
+        session().withStateLock {
             restored = null
+            pendingNavigation = null
             boundSessionKey = null
             restoreResolvedFor = null
             backStack.clear()
@@ -89,9 +124,10 @@ class RouteOwner(
     /** An initial signed-out observation must not discard a saved route. */
     fun sessionChanged(owner: ActiveSession?): Boolean {
         if (owner == null) {
-            return synchronized(lock) {
-                if (session().active.value != null) return@synchronized false
-                if (boundSessionKey == null) return@synchronized false
+            return session().withStateLock {
+                if (session().active.value != null) return@withStateLock false
+                pendingNavigation = null
+                if (boundSessionKey == null) return@withStateLock false
                 restored = null
                 boundSessionKey = null
                 restoreResolvedFor = null
@@ -102,13 +138,16 @@ class RouteOwner(
         }
         return session().withCurrent(owner.key) {
             if (session().active.value?.key != owner.key) return@withCurrent false
-            synchronized(lock) {
-                if (boundSessionKey == owner.key) return@synchronized false
-                if (boundSessionKey != null) restored = null
+            session().withStateLock {
+                if (boundSessionKey == owner.key) return@withStateLock false
+                val requested = pendingNavigation?.takeIf { it.key == owner.key }
+                pendingNavigation = null
+                if (boundSessionKey != null || requested != null) restored = null
                 boundSessionKey = owner.key
-                restoreResolvedFor = null
+                restoreResolvedFor = requested?.key
                 backStack.clear()
-                mutableState.value = DestinationState(AppRoute.Connect, mutableState.value.token + 1)
+                mutableState.value =
+                    DestinationState(requested?.route ?: AppRoute.Connect, mutableState.value.token + 1)
                 true
             }
         } == true
@@ -119,7 +158,7 @@ class RouteOwner(
         handle: SavedStateHandle,
         scope: CoroutineScope,
     ): Closeable {
-        synchronized(lock) {
+        session().withStateLock {
             if (!savedStateRead) {
                 savedStateRead = true
                 val profile = handle.get<String>(PROFILE)
@@ -142,10 +181,10 @@ class RouteOwner(
     ): AppRoute? {
         sessionChanged(owner)
         val (candidate, token) =
-            synchronized(lock) {
-                if (restoreResolvedFor == owner.key) return null
+            session().withStateLock {
+                if (restoreResolvedFor == owner.key) return@withStateLock null
                 restored to mutableState.value.token
-            }
+            } ?: return null
         val target =
             if (candidate?.profileId == owner.key.profileId && canOpen(candidate.route)) {
                 candidate.route
@@ -168,22 +207,31 @@ class RouteOwner(
         handle: SavedStateHandle,
         destination: DestinationState,
     ) {
-        val key = synchronized(lock) { boundSessionKey }
+        val key = session().withStateLock { boundSessionKey }
 
         fun writeIfCurrent() {
-            synchronized(lock) {
-                if (restored != null || boundSessionKey != key || mutableState.value != destination) return
+            session().withStateLock {
+                if (restored != null || boundSessionKey != key ||
+                    mutableState.value != destination
+                ) {
+                    return@withStateLock
+                }
                 handle[PROFILE] = key?.profileId
                 handle[KIND] = kind(destination.route)
                 handle[CONVERSATION] = conversationId(destination.route)
             }
         }
-        // Always take the session lock before the route lock.
+        // Saved state and route changes share the session admission lock.
         if (key == null) writeIfCurrent() else session().withCurrent(key) { writeIfCurrent() }
     }
 
     private data class SavedRoute(
         val profileId: String,
+        val route: AppRoute,
+    )
+
+    private data class PendingNavigation(
+        val key: SessionKey,
         val route: AppRoute,
     )
 

@@ -496,7 +496,8 @@ class MetadataEditorTest {
                 controller.edit(MetadataEdit.Scalar(FieldUiId(field.field.componentId), "old form"))
                 assertTrue(group.mutations.isEmpty())
                 assertTrue(
-                    controller.failure?.message
+                    controller.failure
+                        ?.message
                         .orEmpty()
                         .contains("type or policy changed"),
                 )
@@ -589,7 +590,8 @@ class MetadataEditorTest {
             controller.edit(MetadataEdit.Scalar(FieldUiId(policy.field.componentId), "blocked"))
             assertTrue(group.mutations.isEmpty())
             assertTrue(
-                controller.failure?.message
+                controller.failure
+                    ?.message
                     .orEmpty()
                     .contains("Unsupported"),
             )
@@ -662,7 +664,8 @@ class MetadataEditorTest {
                     assertTrue(group.mutations.isEmpty())
                     assertTrue(group.userWrites.isEmpty())
                     assertTrue(
-                        controller.failure?.message
+                        controller.failure
+                            ?.message
                             .orEmpty()
                             .contains("Unsupported"),
                     )
@@ -712,7 +715,8 @@ class MetadataEditorTest {
             controller.edit(MetadataEdit.Own(mapOf(FieldUiId(field.field.componentId) to "00".repeat(8192))))
             assertTrue(group.userWrites.isEmpty())
             assertTrue(
-                controller.failure?.message
+                controller.failure
+                    ?.message
                     .orEmpty()
                     .contains("65536"),
             )
