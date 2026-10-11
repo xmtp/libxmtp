@@ -6,6 +6,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -13,8 +14,12 @@ import org.junit.rules.RuleChain
 import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
+import org.xmtp.android.example.messenger.data.xmtp.ConversationQueries
+import org.xmtp.android.example.messenger.data.xmtp.XmtpQueries
+import org.xmtp.android.example.messenger.feature.conversations.CreateConversationController
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.feature.chat.ChatAction
+import org.xmtp.android.example.shared.feature.conversations.CreateConversationAction
 import uniffi.xmtp_sdk.*
 import java.io.File
 import java.nio.file.Files
@@ -525,8 +530,122 @@ class MessengerReviewInstrumentedTest {
                     assertEquals(bParent, model.state.value.replyTo)
                     println("ACTION_SCOPE_PROOF stage=queued-rejected action=$action")
                 }
+                val createEntered = CompletableDeferred<Unit>()
+                val createRelease = CompletableDeferred<Unit>().also(releases::add)
+                val holdResolution =
+                    java.util.concurrent.atomic
+                        .AtomicBoolean(true)
+                val nativeQueries = XmtpQueries()
+                val createQueries =
+                    object : ConversationQueries by nativeQueries {
+                        override suspend fun resolveInbox(
+                            current: ActiveSession,
+                            address: String,
+                        ): String? {
+                            val resolved = nativeQueries.resolveInbox(current, address)
+                            assertEquals(owner.client.inboxId(), resolved)
+                            if (holdResolution.compareAndSet(true, false)) {
+                                createEntered.complete(Unit)
+                                createRelease.await()
+                            }
+                            return resolved
+                        }
+                    }
+                val createController =
+                    CreateConversationController(
+                        model.session,
+                        createQueries,
+                        Semaphore(4),
+                        graphRule.graph.destinations,
+                    )
+                model.dispatch(MessengerAction.Navigate(Screen.CREATE))
+                until("create destination") { model.state.value.screen == Screen.CREATE }
+                createController.open()
+                createController.dispatch(CreateConversationAction.ChangeRecipients(owner.client.identity().identifier))
+                createController.dispatch(CreateConversationAction.ResolveRecipients)
+                withTimeout(30_000) { createEntered.await() }
+                assertTrue(createController.state.value.busy)
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("leave held create lookup") { model.state.value.screen == Screen.CONVERSATIONS }
+                createRelease.complete(Unit)
+                until("create lookup finished outside destination") { !createController.state.value.busy }
+                assertTrue(
+                    createController.state.value.selectedRecipients
+                        .isEmpty(),
+                )
+                model.dispatch(MessengerAction.Navigate(Screen.CREATE))
+                until("reopen create destination") { model.state.value.screen == Screen.CREATE }
+                createController.open()
+                assertFalse(createController.state.value.busy)
+                createController.dispatch(CreateConversationAction.ResolveRecipients)
+                until("reopened create resolves actual inbox") {
+                    !createController.state.value.busy &&
+                        createController.state.value.selectedRecipients
+                            .any { it.inboxId == owner.client.inboxId() }
+                }
+                assertEquals(
+                    owner.client.inboxId(),
+                    createController.state.value.selectedRecipients
+                        .single()
+                        .inboxId,
+                )
+
+                model.dispatch(MessengerAction.Navigate(Screen.APP_SETTINGS))
+                until("settings destination") { model.state.value.screen == Screen.APP_SETTINGS }
+                val unknown = SendDraftRef(UUID.randomUUID().toString(), a.id(), phase = SendPhase.QUEUEING)
+                model.session.preferences.saveDraft(owner.key.profileId, unknown) { change ->
+                    model.session.admit(owner.key, change)
+                }
+                model.settings.refresh(owner)
+                assertTrue(
+                    model.settings.state.value.unknownSends
+                        .any { it.draftId == unknown.draftId },
+                )
+                val settingsEntered = CompletableDeferred<Unit>()
+                val settingsRelease = CompletableDeferred<Unit>().also(releases::add)
+                model.session.preferences.beforeDraftCommit = {
+                    settingsEntered.complete(Unit)
+                    settingsRelease.await()
+                }
+                model.dispatch(MessengerAction.DiscardUnknownSend(unknown.draftId))
+                withTimeout(30_000) { settingsEntered.await() }
+                assertTrue(model.settings.state.value.busy)
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("leave held settings command") { model.state.value.screen == Screen.CONVERSATIONS }
+                settingsRelease.complete(Unit)
+                until("settings command finished outside destination") { !model.settings.state.value.busy }
+                model.session.preferences.beforeDraftCommit = {}
+                assertTrue(
+                    model.session.preferences
+                        .drafts(owner.key.profileId)
+                        .none { it.draftId == unknown.draftId },
+                )
+                model.dispatch(MessengerAction.Navigate(Screen.APP_SETTINGS))
+                until("reopened settings is ready") {
+                    model.state.value.screen == Screen.APP_SETTINGS && !model.settings.state.value.busy &&
+                        model.settings.state.value.unknownSends
+                            .none { it.draftId == unknown.draftId }
+                }
+                assertEquals(
+                    beforeA,
+                    Conversation
+                        .Group(a)
+                        .messages()
+                        .map { it.id }
+                        .toSet(),
+                )
+                assertEquals(
+                    beforeB,
+                    Conversation
+                        .Group(b)
+                        .messages()
+                        .map { it.id }
+                        .toSet(),
+                )
+                println("ACTION_SCOPE_PROOF stage=create-and-settings-completion-keeps-reopened-owner-ready")
             } finally {
                 releases.forEach { it.complete(Unit) }
+                model.session.preferences.beforeDraftCommit = {}
                 cleanup()
             }
         }
@@ -871,7 +990,10 @@ class MessengerReviewInstrumentedTest {
                 val a = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "Blocked A"))
                 val b = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "Current B"))
                 model.dispatch(MessengerAction.OpenConversation(a.id()))
-                until("open A") { model.state.value.conversationId == a.id() }
+                until("open A with bound consent target") {
+                    model.chat.currentConversation()?.id() == a.id() &&
+                        model.conversations.requestState.value.conversationId == a.id()
+                }
                 val entered = CompletableDeferred<Unit>()
                 val finished = CompletableDeferred<Unit>()
                 model.conversations.writeConsent = { chat, value ->
@@ -881,13 +1003,16 @@ class MessengerReviewInstrumentedTest {
                 }
                 model.conversations.onConsentFinished = { finished.complete(Unit) }
                 model.dispatch(MessengerAction.Consent(false))
-                withTimeout(30_000) { entered.await() }
+                until("held A consent SDK write") { entered.isCompleted }
                 model.dispatch(MessengerAction.OpenConversation(b.id()))
-                until("open B") { model.state.value.conversationId == b.id() }
+                until("open B with bound consent target") {
+                    model.chat.currentConversation()?.id() == b.id() &&
+                        model.conversations.requestState.value.conversationId == b.id()
+                }
                 model.dispatch(MessengerAction.Navigate(Screen.CONVERSATION_SETTINGS))
                 until("settings B") { model.state.value.settings.title == "Current B" }
                 release.complete(Unit)
-                withTimeout(30_000) { finished.await() }
+                until("old A consent SDK write finished") { finished.isCompleted }
                 println("CONSENT_PROOF stage=old-sdk-write-completed screen=${model.state.value.screen}")
                 assertEquals(ConsentState.DENIED, a.state().common.consentState)
                 assertEquals(b.id(), model.state.value.conversationId)
@@ -914,13 +1039,21 @@ class MessengerReviewInstrumentedTest {
                 owner.paths.temp.mkdirs()
                 Files.createSymbolicLink(link.toPath(), sentinel.toPath())
                 model.dispatch(MessengerAction.DeleteAccount)
-                until("failed reset banner") { model.state.value.error != null && model.state.value.pendingReset }
+                until("failed reset banner") {
+                    model.state.value.error != null && model.state.value.pendingReset && !model.state.value.busy
+                }
                 assertNull(model.session.active.value)
                 assertNotNull(model.session.preferences.reset())
                 assertEquals("peer data", sentinel.readText())
-                assertTrue(
-                    model.state.value.error!!
-                        .contains("symbolic link"),
+                assertEquals("Local data removal is not complete. Try again.", model.state.value.error)
+                assertEquals(model.state.value.error, checkNotNull(model.state.value.connectState).failure?.message)
+                assertTrue(checkNotNull(model.state.value.connectState).pendingReset)
+                assertEquals(Screen.START, model.state.value.screen)
+                assertEquals(
+                    ResetPhase.DATABASE_REMOVED,
+                    model.session.preferences
+                        .reset()
+                        ?.phase,
                 )
                 Files.delete(link.toPath())
                 link = null
@@ -941,7 +1074,7 @@ class MessengerReviewInstrumentedTest {
                 )
                 assertEquals("peer data", sentinel.readText())
 
-                // Exercise recovery in a new UI owner with no SDK client.
+                // Exercise recovery in a fresh process graph with no SDK client.
                 model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
                 val cold = checkNotNull(model.session.active.value)
                 model.session.signOut()
@@ -949,9 +1082,16 @@ class MessengerReviewInstrumentedTest {
                 link = File(cold.paths.temp, "cold-reset-blocker")
                 Files.createSymbolicLink(link.toPath(), sentinel.toPath())
                 model.session.preferences.saveReset(cold.paths.resetRecord(cold.profile.id))
+                val previousGraph = graphRule.graph
                 compose.runOnUiThread { compose.activity.viewModelStore.clear() }
+                val freshGraph = graphRule.replaceGraph()
+                assertNotSame(previousGraph, freshGraph)
                 compose.activityRule.scenario.recreate()
+                assertSame(freshGraph.session, model.session)
                 until("cold failed reset banner") { model.state.value.pendingReset && model.state.value.error != null }
+                assertEquals("Cannot restore this account. Try again.", model.state.value.error)
+                assertEquals(model.state.value.error, checkNotNull(model.state.value.connectState).failure?.message)
+                assertTrue(checkNotNull(model.state.value.connectState).pendingReset)
                 assertNull(model.session.active.value)
                 assertEquals(
                     ResetPhase.DATABASE_REMOVED,

@@ -36,20 +36,39 @@ internal class SettingsController(
     val state: StateFlow<SettingsState> = ui
     private val operations = AtomicLong()
 
+    private data class CommandOwner(
+        val key: SessionKey?,
+        val operation: Long,
+        val replacing: Boolean,
+    )
+
+    private val busyCommands = mutableMapOf<Any, CommandOwner>()
+
+    private fun hasBusyCommands(): Boolean {
+        val key = session.active.value?.key
+        val operation = operations.get()
+        return busyCommands.values.any {
+            it.operation == operation && (it.replacing || (key != null && it.key == key))
+        }
+    }
+
     fun clear() {
-        val previous =
-            ui.value
-        ui.value =
-            SettingsState(
-                appearance =
-                    preferences.appearance(),
-                pendingReset =
-                    previous.pendingReset,
-                busy =
-                    previous.busy,
-                failure =
-                    previous.failure,
-            )
+        val appearance = preferences.appearance()
+        session.withStateLock {
+            val previous =
+                ui.value
+            ui.value =
+                SettingsState(
+                    appearance =
+                    appearance,
+                    pendingReset =
+                        previous.pendingReset,
+                    busy =
+                        hasBusyCommands(),
+                    failure =
+                        previous.failure,
+                )
+        }
     }
 
     suspend fun refresh(owner: ActiveSession) {
@@ -74,15 +93,18 @@ internal class SettingsController(
                         it.conversationKey,
                     )
                 }
+        val inbox = owner.client.inboxId()
+        val serverLabel = preferences.label(owner.key.profileId)
+        val appearance = preferences.appearance()
         session.withCurrent(owner.key) {
             ui.update {
                 it.copy(
                     inbox =
-                        owner.client.inboxId(),
+                    inbox,
                     backend =
                         owner.profile.backend,
                     serverLabel =
-                        preferences.label(owner.key.profileId),
+                    serverLabel,
                     notifications =
                         CapabilityUi(
                             notifications.configured,
@@ -95,7 +117,8 @@ internal class SettingsController(
                     unknownSends =
                     unknown,
                     appearance =
-                        preferences.appearance(),
+                    appearance,
+                    busy = hasBusyCommands(),
                 )
             }
         }
@@ -137,15 +160,23 @@ internal class SettingsController(
             return
         }
         val owner = session.active.value
+        val resetting = action == SettingsAction.DeleteLocalData || action == SettingsAction.ResumeReset
         val replacing =
             action == SettingsAction.SignOut ||
                 action == SettingsAction.DeleteLocalData ||
                 action == SettingsAction.ResumeReset
         val origin = owner?.let(destinations::capture)
-        val attempt = if (replacing) operations.incrementAndGet() else operations.get()
+        val attempt =
+            session.withStateLock {
+                if (replacing) operations.incrementAndGet() else operations.get()
+            }
         if (replacing) connect.cancelRestore()
-        (if (replacing) scope else owner?.work ?: scope).launch(Dispatchers.IO) {
-            if (!replacing && (owner == null || origin == null || !destinations.accepts(origin))) return@launch
+        val command = Any()
+        var registered = false
+
+        fun register() {
+            if (attempt != operations.get()) return
+            busyCommands[command] = CommandOwner(owner?.key, attempt, replacing)
             ui.update {
                 it.copy(
                     busy =
@@ -158,84 +189,87 @@ internal class SettingsController(
                             it.pendingReset,
                 )
             }
-            try {
-                when (action) {
-                    is SettingsAction.SetNotifications -> {
-                        notifications.setEnabled(checkNotNull(owner), action.enabled)
-                    }
-
-                    is SettingsAction.DiscardUnknownSend -> {
-                        session.preferences.removeDraft(
-                            checkNotNull(owner).key.profileId,
-                            action.draftId,
-                        ) { change ->
-                            session.admit(
-                                owner.key,
-                                change,
-                            )
+            registered = true
+        }
+        if (replacing) {
+            session.withStateLock { register() }
+        } else if (origin != null) {
+            destinations.admit(origin) { register() }
+        }
+        if (!registered) return
+        val actionJob =
+            (if (replacing) scope else owner?.work ?: scope).launch(Dispatchers.IO) {
+                if (!replacing && (owner == null || origin == null || !destinations.accepts(origin))) return@launch
+                try {
+                    when (action) {
+                        is SettingsAction.SetNotifications -> {
+                            notifications.setEnabled(checkNotNull(owner), action.enabled)
                         }
-                    }
 
-                    SettingsAction.SignOut -> {
-                        commands.signOut()
-                    }
-
-                    SettingsAction.DeleteLocalData,
-                    SettingsAction.ResumeReset,
-                    -> {
-                        commands.deleteAccount()
-                        if (attempt == operations.get()) {
-                            ui.update {
-                                it.copy(
-                                    pendingReset =
-                                    false,
+                        is SettingsAction.DiscardUnknownSend -> {
+                            session.preferences.removeDraft(
+                                checkNotNull(owner).key.profileId,
+                                action.draftId,
+                            ) { change ->
+                                session.admit(
+                                    owner.key,
+                                    change,
                                 )
                             }
                         }
-                    }
 
-                    is SettingsAction.SetAppearance -> {
-                        Unit
+                        SettingsAction.SignOut -> {
+                            commands.signOut()
+                        }
+
+                        SettingsAction.DeleteLocalData,
+                        SettingsAction.ResumeReset,
+                        -> {
+                            commands.deleteAccount()
+                            if (attempt == operations.get()) {
+                                ui.update {
+                                    it.copy(
+                                        pendingReset =
+                                        false,
+                                    )
+                                }
+                            }
+                        }
+
+                        is SettingsAction.SetAppearance -> {
+                            Unit
+                        }
                     }
-                }
-                if (owner != null && session.accepts(owner.key)) refresh(owner)
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                if (attempt == operations.get() &&
-                    (
-                        replacing ||
-                            origin?.let(destinations::accepts) == true
-                    )
-                ) {
-                    ui.update {
-                        it.copy(
-                            failure =
-                                featureFailure(
-                                    error,
-                                    if (it.pendingReset) {
-                                        "Local data removal is not complete. Try again."
-                                    } else {
-                                        "Cannot change this setting. Try again."
-                                    },
-                                    "settings",
-                                ),
+                    if (owner != null && session.accepts(owner.key)) refresh(owner)
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    if (attempt == operations.get() &&
+                        (
+                            replacing ||
+                                origin?.let(destinations::accepts) == true
                         )
+                    ) {
+                        ui.update {
+                            it.copy(
+                                failure =
+                                    featureFailure(
+                                        error,
+                                        if (resetting) {
+                                            "Local data removal is not complete. Try again."
+                                        } else {
+                                            "Cannot change this setting. Try again."
+                                        },
+                                        if (resetting) "reset" else "settings",
+                                    ),
+                            )
+                        }
                     }
                 }
-            } finally {
-                if (attempt == operations.get() &&
-                    (
-                        replacing ||
-                            origin?.let(destinations::accepts) == true
-                    )
-                ) {
-                    ui.update {
-                        it.copy(
-                            busy =
-                            false,
-                        )
-                    }
-                }
+            }
+        actionJob.invokeOnCompletion {
+            session.withStateLock {
+                busyCommands.remove(command)
+                ui.update { it.copy(busy = hasBusyCommands()) }
             }
         }
     }

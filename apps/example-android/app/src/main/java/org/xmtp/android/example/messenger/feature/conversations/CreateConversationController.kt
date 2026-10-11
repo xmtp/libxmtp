@@ -26,23 +26,41 @@ internal class CreateConversationController(
     private val ui = MutableStateFlow(CreateConversationState())
     val state: StateFlow<CreateConversationState> = ui
     private val generation = AtomicLong()
+
+    private data class CommandOwner(
+        val key: SessionKey,
+        val generation: Long,
+    )
+
+    private val busyCommands = mutableMapOf<Any, CommandOwner>()
+
+    private fun hasBusyCommands(): Boolean {
+        val key = session.active.value?.key
+        val currentGeneration = generation.get()
+        return busyCommands.values.any { it.key == key && it.generation == currentGeneration }
+    }
+
     private var pastedIds = emptySet<String>()
     private var excludedPastedIds = emptySet<String>()
 
-    fun clear() {
-        generation.incrementAndGet()
-        pastedIds =
-            emptySet()
-        excludedPastedIds =
-            emptySet()
-        ui.value =
-            CreateConversationState()
-    }
+    fun clear() =
+        session.withStateLock {
+            generation.incrementAndGet()
+            busyCommands.clear()
+            pastedIds =
+                emptySet()
+            excludedPastedIds =
+                emptySet()
+            ui.value =
+                CreateConversationState()
+        }
 
     suspend fun open(group: Boolean = ui.value.group) {
         val owner = session.active.value ?: return
         val origin = destinations.capture(owner)
-        ui.update { it.copy(group = group) }
+        destinations.admit(origin) {
+            ui.update { it.copy(group = group, busy = hasBusyCommands()) }
+        }
         val configuration = reads.withPermit { owner.client.serverConfiguration() }
         val known =
             queries.list(
@@ -279,37 +297,42 @@ internal class CreateConversationController(
         val owner = session.active.value ?: return
         val origin = destinations.capture(owner)
         val token = generation.get()
-        ui.update { it.copy(busy = true, failure = null) }
-        owner.work.launch(Dispatchers.IO) {
-            try {
-                action(owner, origin, token)
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                if (destinations.accepts(origin) &&
-                    generation.get() == token
-                ) {
-                    ui.update {
-                        it.copy(
-                            failure =
-                                featureFailure(
-                                    error,
-                                    "Cannot create this conversation. Check the recipients and try again.",
-                                    "conversation-create",
-                                ),
-                        )
+        val command = Any()
+        var registered = false
+        destinations.admit(origin) {
+            if (generation.get() == token && !hasBusyCommands()) {
+                busyCommands[command] = CommandOwner(owner.key, token)
+                ui.update { it.copy(busy = true, failure = null) }
+                registered = true
+            }
+        }
+        if (!registered) return
+        val actionJob =
+            owner.work.launch(Dispatchers.IO) {
+                try {
+                    action(owner, origin, token)
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    if (destinations.accepts(origin) &&
+                        generation.get() == token
+                    ) {
+                        ui.update {
+                            it.copy(
+                                failure =
+                                    featureFailure(
+                                        error,
+                                        "Cannot create this conversation. Check the recipients and try again.",
+                                        "conversation-create",
+                                    ),
+                            )
+                        }
                     }
                 }
-            } finally {
-                if (destinations.accepts(origin) &&
-                    generation.get() == token
-                ) {
-                    ui.update {
-                        it.copy(
-                            busy =
-                            false,
-                        )
-                    }
-                }
+            }
+        actionJob.invokeOnCompletion {
+            session.withStateLock {
+                busyCommands.remove(command)
+                ui.update { it.copy(busy = hasBusyCommands()) }
             }
         }
     }

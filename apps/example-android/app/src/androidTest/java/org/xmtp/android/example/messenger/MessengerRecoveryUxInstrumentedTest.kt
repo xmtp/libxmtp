@@ -128,11 +128,38 @@ class MessengerRecoveryUxInstrumentedTest {
 
     @Test fun acceptedPublicationFailureClearsOnlyAcceptedTextAndRetriesItsNativeId() =
         runBlocking {
+            val releaseSend = CompletableDeferred<Unit>()
+            val sendEntered = CompletableDeferred<Unit>()
+            val metadataRefreshed = CompletableDeferred<Unit>()
+            val refreshClaimed =
+                java.util.concurrent.atomic
+                    .AtomicBoolean()
             try {
                 val (owner, group) = chat()
+                model.chat.beforeQueuedAction = { action ->
+                    if (action is ChatAction.SendText) {
+                        sendEntered.complete(Unit)
+                        releaseSend.await()
+                    }
+                }
+                graphRule.observers.beforeEvent = { current, event ->
+                    if (current.key == owner.key && sendEntered.isCompleted &&
+                        event is ClientEvent.ConversationMetadataChanged &&
+                        event.metadataChanged.groupId.contentEquals(group.id().hexToByteArray()) &&
+                        refreshClaimed.compareAndSet(false, true)
+                    ) {
+                        model.chat.refresh(current)
+                        metadataRefreshed.complete(Unit)
+                    }
+                }
                 model.sends.beforePublish = { throw IOException("Publication failure after native acceptance") }
                 compose.onNodeWithText("Message").performTextInput("accepted body")
                 compose.onNodeWithText("Send").performClick()
+                withTimeout(30_000) { sendEntered.await() }
+                withContext(Dispatchers.IO) { group.updateName("Active submission recovery") }
+                until("native metadata event refreshed active submission") { metadataRefreshed.isCompleted }
+                graphRule.observers.beforeEvent = { _, _ -> }
+                releaseSend.complete(Unit)
                 until("publication error") {
                     model.chat.state.value.failure
                         ?.code == "send-publication"
@@ -163,6 +190,9 @@ class MessengerRecoveryUxInstrumentedTest {
                 assertEquals(listOf(id), Conversation.Group(group).messages(publishedSelection()).map { it.id })
                 println("COMPOSER_PROOF stage=accepted-publication-error-cleared-body-and-retried-original-id")
             } finally {
+                releaseSend.complete(Unit)
+                model.chat.beforeQueuedAction = {}
+                graphRule.observers.beforeEvent = { _, _ -> }
                 cleanup()
             }
         }

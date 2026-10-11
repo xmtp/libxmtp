@@ -89,7 +89,9 @@ class RouteOwner(
         val previous = mutableState.value
         if (route == AppRoute.Connect || route == AppRoute.Chats) {
             backStack.clear()
-        } else if (previous.route != AppRoute.Connect && previous.route != route) {
+        } else if (previous.route != AppRoute.Connect && previous.route != route &&
+            !(previous.route == AppRoute.CreateConversation && route is AppRoute.Chat)
+        ) {
             backStack.add(previous.route)
         }
         mutableState.value = DestinationState(route, previous.token + 1)

@@ -54,7 +54,89 @@ internal class GroupController(
 
     @Volatile private var metadataBinding: MetadataBinding? = null
     private var metadataJob: Job? = null
-    private val pendingMembers = java.util.concurrent.ConcurrentHashMap<String, GroupAction>()
+
+    private enum class PendingPhase { WAITING, STARTED, ACCEPTED, CHECK_STATE }
+
+    private data class PendingCommand(
+        val token: Any,
+        val action: GroupAction,
+        val phase: PendingPhase,
+    )
+
+    private val pendingMembers = java.util.concurrent.ConcurrentHashMap<String, PendingCommand>()
+    private val pendingLeaveCommand =
+        java.util.concurrent.atomic
+            .AtomicReference<PendingCommand?>()
+
+    private fun memberId(action: GroupAction): String? =
+        when (action) {
+            is GroupAction.AddMember -> action.inboxId
+            is GroupAction.RemoveMember -> action.inboxId
+            is GroupAction.SetAdmin -> action.inboxId
+            else -> null
+        }
+
+    private fun changePending(
+        command: Any,
+        origin: GroupOrigin,
+        action: GroupAction,
+        failed: Boolean,
+        accepted: Boolean = false,
+    ) {
+        session.withStateLock {
+            val id = memberId(action)
+            val pending =
+                if (action == GroupAction.RequestRemoval) {
+                    pendingLeaveCommand.get()
+                } else {
+                    id?.let {
+                        pendingMembers[it]
+                    }
+                }
+            if (pending == null || pending.token !== command) return@withStateLock
+            val next =
+                if (failed && pending.phase == PendingPhase.WAITING) {
+                    null
+                } else {
+                    val phase =
+                        when {
+                            accepted || pending.phase == PendingPhase.ACCEPTED -> PendingPhase.ACCEPTED
+                            failed -> PendingPhase.CHECK_STATE
+                            else -> PendingPhase.STARTED
+                        }
+                    pending.copy(phase = phase)
+                }
+            if (id != null) {
+                if (next == null) pendingMembers.remove(id, pending) else pendingMembers.replace(id, pending, next)
+            } else {
+                pendingLeaveCommand.compareAndSet(pending, next)
+            }
+            if (session.active.value?.key == origin.owner.key && boundKey == origin.owner.key &&
+                conversation?.id() == origin.chat.id()
+            ) {
+                ui.update {
+                    it.copy(
+                        pendingMemberIds = pendingMembers.keys.toList(),
+                        pendingLeave =
+                            pendingLeaveCommand.get() != null ||
+                                it.settings.membership == membershipLabel(MembershipState.PENDING_REMOVE),
+                    )
+                }
+            }
+        }
+    }
+
+    private data class CommandOwner(
+        val key: SessionKey,
+        val conversationId: String,
+    )
+
+    private val busyCommands = java.util.concurrent.ConcurrentHashMap<Any, CommandOwner>()
+
+    private fun hasBusyCommands(
+        key: SessionKey,
+        id: String,
+    ) = busyCommands.values.any { it.key == key && it.conversationId == id }
 
     private data class GroupOrigin(
         val owner: ActiveSession,
@@ -72,6 +154,8 @@ internal class GroupController(
         boundKey =
             null
         pendingMembers.clear()
+        pendingLeaveCommand.set(null)
+        busyCommands.clear()
         clearMetadata()
         ui.value =
             GroupUiState()
@@ -136,6 +220,7 @@ internal class GroupController(
             if (conversation?.id() != id) {
                 clearMetadata()
                 pendingMembers.clear()
+                pendingLeaveCommand.set(null)
                 ui.value =
                     GroupUiState(
                         conversationId =
@@ -144,6 +229,7 @@ internal class GroupController(
             }
             conversation = chat
             boundKey = owner.key
+            ui.update { it.copy(busy = hasBusyCommands(owner.key, id)) }
         }
         refresh(owner)
     }
@@ -285,88 +371,115 @@ internal class GroupController(
                 Unit
             }
         }
-        owner.work.launch(Dispatchers.IO) {
-            try {
-                requireOrigin(origin)
+        val command = Any()
+        var registered = false
+        onCurrentScreen(owner, origin.token) {
+            if (acceptsOrigin(origin)) {
+                busyCommands[command] = CommandOwner(owner.key, chat.id())
                 ui.update { it.copy(busy = true, failure = null) }
-                when (action) {
-                    GroupAction.Refresh -> {
-                        refresh(owner)
-                    }
-
-                    is GroupAction.SetNotifications -> {
-                        setConversationNotifications(origin, action.enabled)
-                    }
-
-                    is GroupAction.SetAlias -> {
-                        preferences.setAlias(
-                            owner.key,
-                            chat.id(),
-                            action.value,
-                        )
-                        onCurrentScreen(
-                            owner,
-                            origin.token,
-                        ) {
-                            ui.update {
-                                it.copy(
-                                    alias =
-                                        action.value.trim(),
-                                    aliasInput =
-                                        action.value.trim(),
-                                )
-                            }
-                        }
-                    }
-
-                    GroupAction.Block -> {
-                        notifications.withPrivacyMutation(owner) {
-                            requireOrigin(origin)
-                            chat.updateConsentState(ConsentState.DENIED)
-                            if (acceptsOrigin(origin)) destinations.navigate(AppRoute.Chats)
-                        }
-                    }
-
-                    else -> {
-                        val memberId =
-                            when (action) {
-                                is GroupAction.AddMember -> action.inboxId
-                                is GroupAction.RemoveMember -> action.inboxId
-                                is GroupAction.SetAdmin -> action.inboxId
-                                else -> null
-                            }
-                        if (memberId != null) {
-                            pendingMembers[memberId] =
-                                action
-                            ui.update {
-                                it.copy(
-                                    pendingMemberIds =
-                                        pendingMembers.keys.toList(),
-                                )
-                            }
-                        }
-                        if (action == GroupAction.RequestRemoval) ui.update { it.copy(pendingLeave = true) }
-                        mutateGroup(origin, action)
-                    }
-                }
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                if (acceptsOrigin(origin)) {
-                    ui.update {
-                        it.copy(
-                            failure =
-                                featureFailure(
-                                    error,
-                                    "Cannot update this conversation. Try again.",
-                                    "group-action",
-                                ),
-                        )
-                    }
-                }
-            } finally {
-                if (acceptsOrigin(origin)) ui.update { it.copy(busy = false) }
-                onGroupActionFinished(action)
+                registered = true
             }
+        }
+        if (!registered) return
+        val actionJob =
+            owner.work.launch(Dispatchers.IO) {
+                try {
+                    requireOrigin(origin)
+                    when (action) {
+                        GroupAction.Refresh -> {
+                            refresh(owner)
+                        }
+
+                        is GroupAction.SetNotifications -> {
+                            setConversationNotifications(origin, action.enabled)
+                        }
+
+                        is GroupAction.SetAlias -> {
+                            preferences.setAlias(
+                                owner.key,
+                                chat.id(),
+                                action.value,
+                            )
+                            onCurrentScreen(
+                                owner,
+                                origin.token,
+                            ) {
+                                ui.update {
+                                    it.copy(
+                                        alias =
+                                            action.value.trim(),
+                                        aliasInput =
+                                            action.value.trim(),
+                                    )
+                                }
+                            }
+                        }
+
+                        GroupAction.Block -> {
+                            notifications.withPrivacyMutation(owner) {
+                                requireOrigin(origin)
+                                chat.updateConsentState(ConsentState.DENIED)
+                                if (acceptsOrigin(origin)) destinations.navigate(AppRoute.Chats)
+                            }
+                        }
+
+                        else -> {
+                            val memberId =
+                                when (action) {
+                                    is GroupAction.AddMember -> action.inboxId
+                                    is GroupAction.RemoveMember -> action.inboxId
+                                    is GroupAction.SetAdmin -> action.inboxId
+                                    else -> null
+                                }
+                            onCurrentScreen(owner, origin.token) {
+                                if (acceptsOrigin(origin)) {
+                                    val pending = PendingCommand(command, action, PendingPhase.WAITING)
+                                    if (memberId != null) pendingMembers[memberId] = pending
+                                    if (action == GroupAction.RequestRemoval) pendingLeaveCommand.set(pending)
+                                    ui.update {
+                                        it.copy(
+                                            pendingMemberIds = pendingMembers.keys.toList(),
+                                            pendingLeave = pendingLeaveCommand.get() != null || it.pendingLeave,
+                                        )
+                                    }
+                                }
+                            }
+                            mutateGroup(origin, action, command)
+                        }
+                    }
+                } catch (error: Throwable) {
+                    changePending(command, origin, action, failed = true)
+                    if (error is CancellationException) throw error
+                    if (acceptsOrigin(origin)) {
+                        ui.update {
+                            it.copy(
+                                failure =
+                                    featureFailure(
+                                        error,
+                                        "Cannot update this conversation. Try again.",
+                                        "group-action",
+                                    ),
+                            )
+                        }
+                    }
+                } finally {
+                    onGroupActionFinished(action)
+                }
+            }
+        actionJob.invokeOnCompletion {
+            session.withCurrent(owner.key) {
+                busyCommands.remove(command)
+                if (boundKey == owner.key && conversation?.id() == chat.id()) {
+                    ui.update { current ->
+                        if (current.conversationId == chat.id()) {
+                            current.copy(busy = hasBusyCommands(owner.key, chat.id()))
+                        } else {
+                            current
+                        }
+                    }
+                }
+            }
+            busyCommands.remove(command)
         }
     }
 
@@ -406,20 +519,22 @@ internal class GroupController(
     private suspend fun mutateGroup(
         origin: GroupOrigin,
         action: GroupAction,
+        command: Any,
     ) {
         val owner = origin.owner
         if (action is GroupAction.AddMember || action is GroupAction.RemoveMember ||
             action == GroupAction.RequestRemoval
         ) {
-            notifications.withPrivacyMutation(owner) { mutateGroupOwned(origin, action) }
+            notifications.withPrivacyMutation(owner) { mutateGroupOwned(origin, action, command) }
         } else {
-            mutateGroupOwned(origin, action)
+            mutateGroupOwned(origin, action, command)
         }
     }
 
     private suspend fun mutateGroupOwned(
         origin: GroupOrigin,
         action: GroupAction,
+        command: Any,
     ) {
         val owner = origin.owner
         val token = origin.token
@@ -435,6 +550,7 @@ internal class GroupController(
                 throw CancellationException("Session changed during group action")
             }
             writeIndex += 1
+            changePending(command, origin, action, failed = false)
         }
         try {
             if (action is GroupAction.SetDisappearing) {
@@ -539,6 +655,10 @@ internal class GroupController(
                     }
                 }
             }
+            changePending(command, origin, action, failed = false, accepted = true)
+        } catch (error: Throwable) {
+            changePending(command, origin, action, failed = true)
+            throw error
         } finally {
             if (valid(owner, token)) refreshSettings(owner, token)
         }
@@ -549,6 +669,10 @@ internal class GroupController(
         token: Long,
     ) {
         val chat = conversation ?: return
+        val (memberPending, leavePending) =
+            session.withStateLock {
+                pendingMembers.toMap() to pendingLeaveCommand.get()
+            }
         val own =
             owner.client
                 .inboxId()
@@ -636,33 +760,48 @@ internal class GroupController(
             )
         ) {
             onCurrentScreen(owner, token) {
+                if (boundKey != owner.key || conversation?.id() != chat.id()) return@onCurrentScreen
                 val completed =
-                    pendingMembers
-                        .filter { (id, action) ->
+                    memberPending
+                        .filter { (id, pending) ->
                             val member = settings.members.firstOrNull { it.inboxId == id }
-                            when (action) {
-                                is GroupAction.AddMember -> {
-                                    member != null
-                                }
+                            val desired =
+                                when (val action = pending.action) {
+                                    is GroupAction.AddMember -> {
+                                        member != null
+                                    }
 
-                                is GroupAction.RemoveMember -> {
-                                    member == null
-                                }
+                                    is GroupAction.RemoveMember -> {
+                                        member == null
+                                    }
 
-                                is GroupAction.SetAdmin -> {
-                                    member != null &&
-                                        (
-                                            member.role == "Admin" ||
-                                                member.role == "Super admin"
-                                        ) == action.admin
-                                }
+                                    is GroupAction.SetAdmin -> {
+                                        member != null &&
+                                            (
+                                                member.role == "Admin" ||
+                                                    member.role == "Super admin"
+                                            ) == action.admin
+                                    }
 
-                                else -> {
-                                    true
+                                    else -> {
+                                        true
+                                    }
                                 }
-                            }
-                        }.keys
-                completed.forEach { pendingMembers.remove(it) }
+                            (pending.phase != PendingPhase.WAITING && desired) ||
+                                pending.phase == PendingPhase.CHECK_STATE
+                        }
+                completed.forEach { (id, pending) -> pendingMembers.remove(id, pending) }
+                if (leavePending != null && group != null &&
+                    (
+                        group.membershipState !in listOf(MembershipState.ALLOWED, MembershipState.PENDING) ||
+                            leavePending.phase == PendingPhase.CHECK_STATE
+                    )
+                ) {
+                    pendingLeaveCommand.compareAndSet(leavePending, null)
+                }
+                val leaveRequested =
+                    pendingLeaveCommand.get() != null &&
+                        group?.membershipState in listOf(MembershipState.ALLOWED, MembershipState.PENDING)
                 ui.update { currentUi ->
                     currentUi.copy(
                         settings =
@@ -683,13 +822,7 @@ internal class GroupController(
                                 currentUi.disappearingInput
                             },
                         pendingMemberIds = pendingMembers.keys.toList(),
-                        pendingLeave =
-                            currentUi.pendingLeave &&
-                                group?.membershipState in
-                                listOf(
-                                    MembershipState.ALLOWED,
-                                    MembershipState.PENDING_REMOVE,
-                                ),
+                        pendingLeave = group?.membershipState == MembershipState.PENDING_REMOVE || leaveRequested,
                         metadata =
                             CapabilityUi(true),
                         notifications =

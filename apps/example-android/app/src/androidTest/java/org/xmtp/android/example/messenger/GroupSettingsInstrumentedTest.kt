@@ -253,12 +253,62 @@ class GroupSettingsInstrumentedTest {
                 model.state.value.settings.members
                     .any { it.inboxId == added && it.role == "Member" },
             )
+            val adminsBeforeRejectedPromotion = group.state().admins.toSet()
+            model.group.beforeGroupWrite = { queued, index ->
+                if (queued == GroupAction.SetAdmin(added, true) && index == 0) {
+                    throw java.io.IOException("Definite promotion rejection before SDK write")
+                }
+            }
+            try {
+                action(GroupAction.SetAdmin(added, true)) { memberButton(added, "Make admin").performClick() }
+            } finally {
+                model.group.beforeGroupWrite = { _, _ -> }
+            }
+            until("Rejected promotion did not finish") { !model.group.state.value.busy }
+            assertEquals(
+                "group-action",
+                model.group.state.value.failure
+                    ?.code,
+            )
+            assertEquals(
+                "Rejected promotion changed native admin set",
+                adminsBeforeRejectedPromotion,
+                group.state().admins.toSet(),
+            )
+            assertFalse("Rejected promotion changed native admins", group.state().admins.contains(added))
+            assertFalse("Rejected promotion retained its marker", added in model.group.state.value.pendingMemberIds)
+            memberButton(added, "Make admin").assertIsEnabled()
             action(GroupAction.SetAdmin(added, true)) { memberButton(added, "Make admin").performClick() }
             assertTrue("Settings did not promote the selected member", group.state().admins.contains(added))
             memberButton(added, "Remove admin").assertIsDisplayed()
             action(GroupAction.SetAdmin(added, false)) { memberButton(added, "Remove admin").performClick() }
             assertFalse("Settings did not demote the selected admin", group.state().admins.contains(added))
             memberButton(added, "Make admin").assertIsDisplayed()
+            val membersBeforeRejectedRemoval = group.members().map { it.inboxId }.toSet()
+            model.group.beforeGroupWrite = { queued, index ->
+                if (queued == GroupAction.RemoveMember(added) && index == 0) {
+                    throw java.io.IOException("Definite member rejection before SDK write")
+                }
+            }
+            try {
+                action(GroupAction.RemoveMember(added)) { memberButton(added, "Remove").performClick() }
+            } finally {
+                model.group.beforeGroupWrite = { _, _ -> }
+            }
+            until("Rejected member removal did not finish") { !model.group.state.value.busy }
+            assertEquals(
+                "group-action",
+                model.group.state.value.failure
+                    ?.code,
+            )
+            assertEquals(
+                "Rejected removal changed native member set",
+                membersBeforeRejectedRemoval,
+                group.members().map { it.inboxId }.toSet(),
+            )
+            assertTrue("Rejected removal changed native members", group.members().any { it.inboxId == added })
+            assertFalse("Rejected removal retained its marker", added in model.group.state.value.pendingMemberIds)
+            memberButton(added, "Remove").assertIsEnabled()
             action(GroupAction.RemoveMember(added)) { memberButton(added, "Remove").performClick() }
             assertFalse("Settings did not remove the selected member", group.members().any { it.inboxId == added })
             assertTrue("Settings removed an unrelated member", group.members().any { it.inboxId == first.inboxId() })
@@ -290,6 +340,40 @@ class GroupSettingsInstrumentedTest {
             readers.forEach { it.cancelAndJoin() }
             creator.end()
             peers.remove(creator)
+            val membershipBeforeRejectedLeave = group.state().membershipState
+            val membersBeforeRejectedLeave = group.members().map { it.inboxId }.toSet()
+            model.group.beforeGroupWrite = { queued, index ->
+                if (queued == GroupAction.RequestRemoval && index == 0) {
+                    throw java.io.IOException("Definite leave rejection before SDK write")
+                }
+            }
+            try {
+                action(GroupAction.RequestRemoval) {
+                    button("Request removal").performScrollTo().performClick()
+                }
+            } finally {
+                model.group.beforeGroupWrite = { _, _ -> }
+            }
+            until("Rejected leave did not finish") { !model.group.state.value.busy }
+            assertEquals(
+                "group-action",
+                model.group.state.value.failure
+                    ?.code,
+            )
+            assertEquals(
+                "Rejected leave changed native membership",
+                membershipBeforeRejectedLeave,
+                group.state().membershipState,
+            )
+            assertEquals(
+                "Rejected leave changed native member set",
+                membersBeforeRejectedLeave,
+                group.members().map { it.inboxId }.toSet(),
+            )
+            assertTrue(group.members().any { it.inboxId == owner.client.inboxId() })
+            assertFalse("Rejected leave retained its marker", model.group.state.value.pendingLeave)
+            assertTrue(model.state.value.settings.canRequestRemoval)
+            button("Request removal").assertIsEnabled()
             action(GroupAction.RequestRemoval) { button("Request removal").performScrollTo().performClick() }
             assertEquals(
                 "The app did not request native removal",

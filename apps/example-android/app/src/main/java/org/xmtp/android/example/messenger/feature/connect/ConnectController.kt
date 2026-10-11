@@ -43,43 +43,41 @@ internal class ConnectController(
                 try {
                     if (operations.get() != 0L) return@launch
                     val saved = session.preferences.active()
-                    if (saved != null &&
-                        session.preferences.signedIn() &&
-                        operations.get() == 0L
-                    ) {
-                        ui.update {
-                            it.copy(
-                                backend =
-                                    saved.backend,
-                                label =
-                                    preferences.label(saved.id),
-                            )
+                    if (saved != null && session.preferences.signedIn()) {
+                        val label = preferences.label(saved.id)
+                        session.withStateLock {
+                            if (operations.get() == 0L) {
+                                ui.update { it.copy(backend = saved.backend, label = label) }
+                            }
                         }
                     }
                     ensureActive()
                     if (operations.get() != 0L) return@launch
                     commands.restore()
-                    if (session.active.value == null &&
-                        session.preferences.profiles().isEmpty() &&
-                        operations.get() == 0L
-                    ) {
+                    if (session.active.value == null && session.preferences.profiles().isEmpty()) {
                         val accounts = legacyAccounts()
-                        ui.update { it.copy(migrationRequired = accounts.isNotEmpty(), migrationAccounts = accounts) }
+                        session.withStateLock {
+                            if (operations.get() == 0L && session.active.value == null) {
+                                ui.update {
+                                    it.copy(migrationRequired = accounts.isNotEmpty(), migrationAccounts = accounts)
+                                }
+                            }
+                        }
                     }
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
                     if (operations.get() == 0L) {
-                        ui.update {
-                            it.copy(
-                                pendingReset =
-                                    session.preferences.reset() != null,
-                                failure =
-                                    featureFailure(
-                                        error,
-                                        "Cannot restore this account. Try again.",
-                                        "restore",
-                                    ),
+                        val pendingReset = session.preferences.reset() != null
+                        val failure =
+                            featureFailure(
+                                error,
+                                "Cannot restore this account. Try again.",
+                                "restore",
                             )
+                        session.withStateLock {
+                            if (operations.get() == 0L) {
+                                ui.update { it.copy(pendingReset = pendingReset, failure = failure) }
+                            }
                         }
                     }
                 }
@@ -91,7 +89,10 @@ internal class ConnectController(
     }
 
     fun cancelRestore() {
-        operations.incrementAndGet()
+        session.withStateLock {
+            operations.incrementAndGet()
+            ui.update { it.copy(busy = false) }
+        }
         restoreJob?.cancel()
     }
 
@@ -190,42 +191,50 @@ internal class ConnectController(
         restoring: Boolean = false,
         command: suspend () -> Unit,
     ) {
-        val attempt = operations.incrementAndGet()
+        val attempt =
+            session.withStateLock {
+                val next = operations.incrementAndGet()
+                ui.update { it.copy(busy = true, pendingReset = reset || it.pendingReset, failure = null) }
+                next
+            }
         restoreJob?.cancel()
         scope.launch(Dispatchers.IO) {
-            ui.update { it.copy(busy = true, pendingReset = reset || it.pendingReset, failure = null) }
             try {
                 if (attempt != operations.get()) return@launch
                 command()
-                if (attempt == operations.get()) {
-                    ui.update { it.copy(pendingReset = false) }
+                session.withStateLock {
+                    if (attempt == operations.get()) ui.update { it.copy(pendingReset = false) }
                 }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
-                if (attempt == operations.get()) {
-                    ui.update {
-                        it.copy(
-                            failure =
-                                featureFailure(
-                                    error,
-                                    if (reset) {
-                                        "Local data removal is not complete. Try again."
-                                    } else if (restoring) {
-                                        "Cannot restore this account. Try again."
-                                    } else {
-                                        "Cannot connect to this server. Check the address and try again."
-                                    },
-                                    when {
-                                        reset -> "reset"
-                                        restoring -> "restore"
-                                        else -> "connect"
-                                    },
-                                ),
-                        )
+                session.withStateLock {
+                    if (attempt == operations.get()) {
+                        ui.update {
+                            it.copy(
+                                failure =
+                                    featureFailure(
+                                        error,
+                                        if (reset) {
+                                            "Local data removal is not complete. Try again."
+                                        } else if (restoring) {
+                                            "Cannot restore this account. Try again."
+                                        } else {
+                                            "Cannot connect to this server. Check the address and try again."
+                                        },
+                                        when {
+                                            reset -> "reset"
+                                            restoring -> "restore"
+                                            else -> "connect"
+                                        },
+                                    ),
+                            )
+                        }
                     }
                 }
             } finally {
-                if (attempt == operations.get()) ui.update { it.copy(busy = false) }
+                session.withStateLock {
+                    if (attempt == operations.get()) ui.update { it.copy(busy = false) }
+                }
             }
         }
     }

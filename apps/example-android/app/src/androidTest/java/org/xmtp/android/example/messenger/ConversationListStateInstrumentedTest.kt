@@ -73,14 +73,20 @@ class ConversationListStateInstrumentedTest {
                 until("initial fifty-group list ready") { model.state.value.conversations.size == 50 }
                 model.projection.beforeActiveRefresh = {}
                 val calls = ConcurrentHashMap<String, AtomicInteger>()
+                val measuredRefresh = CoroutineName("measured-conversation-list-refresh")
                 model.conversations.listGroupStateRead = { group ->
-                    calls.computeIfAbsent(group.id()) { AtomicInteger() }.incrementAndGet()
+                    // Count this command's reads, including its async row reads.
+                    if (currentCoroutineContext()[CoroutineName] == measuredRefresh) {
+                        calls.computeIfAbsent(group.id()) { AtomicInteger() }.incrementAndGet()
+                    }
                     group.state()
                 }
-                model.conversations.refresh(owner)
+                val measuredRows = withContext(measuredRefresh) { model.conversations.refresh(owner) }
                 assertEquals("Each of 50 groups needs one native state call", 50, calls.values.sumOf { it.get() })
                 assertEquals(groups.map { it.id() }.toSet(), calls.keys)
                 assertTrue("No group needs a second native state call", calls.values.all { it.get() == 1 })
+                // Wait for the shell's separate flow to publish this command's rows.
+                until("measured fifty-group shell projection") { model.state.value.conversations == measuredRows }
                 val rows =
                     model.state.value.conversations
                         .associateBy { it.id }
@@ -111,8 +117,9 @@ class ConversationListStateInstrumentedTest {
                 dm.updateConsentState(ConsentState.ALLOWED)
                 groups[49].updateConsentState(ConsentState.DENIED)
                 calls.clear()
-                model.conversations.refresh(owner)
+                val measuredMixedRows = withContext(measuredRefresh) { model.conversations.refresh(owner) }
                 assertEquals("The DM path adds no GroupState read", 49, calls.values.sumOf { it.get() })
+                until("measured mixed shell projection") { model.state.value.conversations == measuredMixedRows }
                 val mixed = model.state.value.conversations
                 assertEquals(50, mixed.size)
                 assertFalse(mixed.any { it.id == groups[49].id() })

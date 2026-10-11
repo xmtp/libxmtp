@@ -37,44 +37,48 @@ class MessengerFeedbackInstrumentedTest {
         }
     }
 
-    private suspend fun cleanup(profiles: List<BackendProfile>) =
-        withContext(NonCancellable) {
-            model.session.beforeSavedRestoreConnect = {}
-            model.chat.recoveryRead = { chat, options, before, after -> chat.recoveryPage(options, before, after) }
-            model.chat.onQueuedActionFinished = {}
-            if (model.session.active.value != null) model.session.deleteAccount()
-            for (profile in profiles.distinctBy { it.id }) {
-                if (model.session.preferences
-                        .profiles()
-                        .any { it.id == profile.id }
-                ) {
-                    model.session.preferences.setActive(profile)
-                    model.session.deleteAccount()
-                }
+    private suspend fun cleanup(
+        profiles: List<BackendProfile>,
+        session: AppSession = model.session,
+    ) = withContext(NonCancellable) {
+        session.beforeSavedRestoreConnect = {}
+        model.chat.recoveryRead = { chat, options, before, after -> chat.recoveryPage(options, before, after) }
+        model.chat.onQueuedActionFinished = {}
+        if (session.active.value != null) session.deleteAccount()
+        for (profile in profiles.distinctBy { it.id }) {
+            if (session.preferences
+                    .profiles()
+                    .any { it.id == profile.id }
+            ) {
+                session.preferences.setActive(profile)
+                session.deleteAccount()
             }
-            model.session.signOut()
-            AndroidStreamLifecycle.enabled = true
         }
+        session.signOut()
+        AndroidStreamLifecycle.enabled = true
+    }
 
     @Test fun delayedStartupCannotReplaceTheUserChosenNativeBackend() =
         runBlocking {
             val store = ViewModelStore()
             val release = CompletableDeferred<Unit>()
             val owned = mutableListOf<BackendProfile>()
+            var session = model.session
             try {
                 AndroidStreamLifecycle.enabled = false
                 resumeStreams()
-                model.session.signOut()
-                model.session.connect(
+                session.signOut()
+                session.connect(
                     BuildConfig.XMTP_BACKEND_URL,
                     "",
                     localAttachmentNetwork(BuildConfig.XMTP_BACKEND_URL),
                 )
-                val saved = checkNotNull(model.session.active.value).profile.also(owned::add)
-                model.session.signOut()
-                model.session.preferences.setSignedIn(true)
+                val saved = checkNotNull(session.active.value).profile.also(owned::add)
+                session.signOut()
+                session = graphRule.replaceGraph().session
+                session.preferences.setSignedIn(true)
                 val entered = CompletableDeferred<Unit>()
-                model.session.beforeSavedRestoreConnect = {
+                session.beforeSavedRestoreConnect = {
                     assertEquals(saved.id, it.id)
                     entered.complete(Unit)
                     withContext(NonCancellable) { release.await() }
@@ -86,11 +90,11 @@ class MessengerFeedbackInstrumentedTest {
                 val selectedUrl = "http://$host:${uri.port}"
                 fresh.dispatch(MessengerAction.Connect(selectedUrl, "selected credential"))
                 until("user chosen native owner") {
-                    model.session.active.value
+                    session.active.value
                         ?.profile
                         ?.backend == selectedUrl
                 }
-                val selected = checkNotNull(model.session.active.value)
+                val selected = checkNotNull(session.active.value)
                 owned.add(selected.profile)
                 val group =
                     selected.client.conversations.createGroup(
@@ -101,25 +105,25 @@ class MessengerFeedbackInstrumentedTest {
                 withTimeout(30_000) { fresh.connect.awaitStartupRestore() }
                 assertEquals(
                     selected.key,
-                    model.session.active.value
+                    session.active.value
                         ?.key,
                 )
-                assertTrue(model.session.accepts(selected.key))
+                assertTrue(session.accepts(selected.key))
                 assertEquals(
                     selectedUrl,
-                    model.session.preferences
+                    session.preferences
                         .active()
                         ?.backend,
                 )
                 assertEquals("Selected backend owner", group.state().name)
-                val credential = model.session.secrets.read(selected.key.profileId, "credential")
+                val credential = session.secrets.read(selected.key.profileId, "credential")
                 assertEquals("selected credential", credential?.toString(Charsets.UTF_8))
                 until("selected backend UI") { fresh.state.value.backend == selectedUrl }
                 println("STARTUP_INTENT_PROOF stage=late-saved-restore-skipped-selected-native-owner-live")
             } finally {
                 release.complete(Unit)
                 store.clear()
-                cleanup(owned)
+                cleanup(owned, session)
             }
         }
 

@@ -6,7 +6,10 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -22,6 +25,9 @@ class MessengerPreferences internal constructor(
     private val store: DataStore<Preferences>,
 ) {
     constructor(context: Context) : this(context.applicationContext.messengerDataStore)
+
+    internal val pendingReset: Flow<Boolean> =
+        store.data.map { values -> values[stringPreferencesKey("reset")] != null }.distinctUntilChanged()
 
     internal var beforeDraftCommit: suspend () -> Unit = {}
     internal var beforeSessionCommit: suspend () -> Unit = {}
