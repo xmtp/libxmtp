@@ -431,8 +431,23 @@ class MessengerScreensInstrumentedTest {
                         it.reaction.content == "😀" && it.reaction.action == ReactionAction.ADDED
                     }
                 }
-                back()
-                compose.onNodeWithText("👍 1").performClick()
+                until("searched emoji reaches the selected native message row") {
+                    graph.chat.state.value.messages.single { it.id == parentId }.reactions.any {
+                        it.emoji == "😀" && it.count == 1 &&
+                            it.reactors.any { reactor -> reactor.inboxId == owner.client.inboxId() }
+                    }
+                }
+                until("searched emoji selection closes its overlay") { graph.chat.state.value.overlay == null }
+                assertEquals(AppRoute.Chat(chatId), graph.destinations.state.value.route)
+                compose.onNodeWithTag("emoji-sheet").assertDoesNotExist()
+
+                fun openThumbReactors() {
+                    val chip = hasText("👍 1") and hasClickAction()
+                    Espresso.closeSoftKeyboard()
+                    compose.onNodeWithTag("message-timeline").performScrollToNode(chip)
+                    compose.onNode(chip).assertIsDisplayed().performClick()
+                }
+                openThumbReactors()
                 compose.onNodeWithTag("reaction-details").assertExists()
                 assertTrue(
                     graph.chat.state.value.messages
@@ -450,7 +465,7 @@ class MessengerScreensInstrumentedTest {
                 compose.onNodeWithTag("reaction-details").assertDoesNotExist()
                 compose.onNodeWithTag("reaction-popover").assertExists()
                 back()
-                compose.onNodeWithText("👍 1").performClick()
+                openThumbReactors()
                 textAction("Remove my reaction").performClick()
                 until("native removal reduced in chip") {
                     graph.chat.state.value.messages
@@ -471,17 +486,15 @@ class MessengerScreensInstrumentedTest {
                     graph.chat.state.value.failure
                         ?.code == "send-publication"
                 }
-                val acceptedId =
-                    checkNotNull(
-                        session.preferences
-                            .drafts(owner.key.profileId)
-                            .single()
-                            .acceptedMessageId,
-                    )
-                assertTrue(
-                    graph.chat.state.value.composer.result
-                        ?.outcome is TextSendOutcome.Accepted,
-                )
+                val acceptedResult = checkNotNull(graph.chat.state.value.composer.result)
+                assertEquals(chatId, acceptedResult.conversationId)
+                assertTrue(acceptedResult.outcome is TextSendOutcome.Accepted)
+                val acceptedId = (acceptedResult.outcome as TextSendOutcome.Accepted).messageId
+                val acceptedDraft =
+                    session.preferences.drafts(owner.key.profileId).single {
+                        it.conversationKey == chatId && it.acceptedMessageId == acceptedId
+                    }
+                assertEquals(acceptedId, acceptedDraft.acceptedMessageId)
                 graph.sends.beforePublish = {}
                 compose
                     .onNode(

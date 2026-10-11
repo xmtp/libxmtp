@@ -85,82 +85,70 @@ class ScreenScaleInstrumentedTest {
     ): SemanticsNodeInteraction {
         closeKeyboard()
         val minimum = 48f * compose.activity.resources.displayMetrics.density
-        var searchBackwards = false
-        repeat(24) {
-            val node = compose.onAllNodes(matcher).fetchSemanticsNodes().singleOrNull()
-            if (node != null) {
-                val bounds = node.touchBoundsInRoot
-                if (bounds.width >= minimum - 1 && bounds.height >= minimum - 1) {
-                    val control = compose.onNode(matcher)
-                    if (control.isDisplayed() && labelsFit(control, siblingLabel)) return control
+        // Cached lazy items can have stale positions. Scan each direction to its edge.
+        for (backwards in listOf(false, true)) {
+            for (attempt in 0 until 96) {
+                val node = compose.onAllNodes(matcher).fetchSemanticsNodes().singleOrNull()
+                if (node != null) {
+                    val bounds = node.touchBoundsInRoot
+                    if (bounds.width >= minimum - 1 && bounds.height >= minimum - 1) {
+                        val control = compose.onNode(matcher)
+                        if (control.isDisplayed() && labelsFit(control, siblingLabel)) return control
+                    }
                 }
-            }
-            val scrolling =
-                compose
-                    .onAllNodes(
-                        SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy) and
-                            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange),
+                val scrolling =
+                    compose
+                        .onAllNodes(
+                            SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy) and
+                                SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange),
+                            useUnmergedTree = true,
+                        ).fetchSemanticsNodes()
+                        .maxByOrNull { it.boundsInRoot.width * it.boundsInRoot.height }
+                assertNotNull("No user scroll path can reveal $matcher on ${model.state.value.screen}", scrolling)
+                val scroll = checkNotNull(scrolling)
+                val interaction =
+                    compose.onNode(
+                        SemanticsMatcher("scroll frame ${scroll.id}") { it.id == scroll.id },
                         useUnmergedTree = true,
-                    ).fetchSemanticsNodes()
-                    .maxByOrNull { it.boundsInRoot.width * it.boundsInRoot.height }
-            assertNotNull("No user scroll path can reveal $matcher on ${model.state.value.screen}", scrolling)
-            val scroll = checkNotNull(scrolling)
-            val interaction =
-                compose.onNode(
-                    SemanticsMatcher("scroll frame ${scroll.id}") { it.id == scroll.id },
-                    useUnmergedTree = true,
-                )
-            val before = scroll.config[SemanticsProperties.VerticalScrollAxisRange].value()
-            val targetTop = node?.takeIf { it.boundsInRoot.width > 0 && it.boundsInRoot.height > 0 }?.positionInRoot?.y
-            val targetBottom = targetTop?.plus(checkNotNull(node).size.height)
-            val backwards = if (targetTop == null) searchBackwards else targetTop < scroll.boundsInRoot.top
-            val gap =
-                when {
-                    backwards && targetTop != null -> {
-                        scroll.boundsInRoot.top - targetTop
-                    }
-
-                    targetBottom != null && targetBottom > scroll.boundsInRoot.bottom -> {
-                        targetBottom -
-                            scroll.boundsInRoot.bottom
-                    }
-
-                    else -> {
-                        scroll.boundsInRoot.height * 0.2f
-                    }
+                    )
+                val before = scroll.config[SemanticsProperties.VerticalScrollAxisRange].value()
+                val distance = (scroll.boundsInRoot.height * 0.2f).coerceAtLeast(32f)
+                interaction.performTouchInput {
+                    val x = width - 4f
+                    val upper = height * 0.4f
+                    val lower = upper + distance
+                    swipe(Offset(x, if (backwards) upper else lower), Offset(x, if (backwards) lower else upper), 750)
                 }
-            val distance = (gap + 16f).coerceIn(32f, scroll.boundsInRoot.height * 0.25f)
-            interaction.performTouchInput {
-                val x = width - 4f
-                val upper = height * 0.4f
-                val lower = upper + distance
-                swipe(Offset(x, if (backwards) upper else lower), Offset(x, if (backwards) lower else upper), 750)
-            }
-            compose.waitForIdle()
-            val after = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
-            val range = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
-            val atEdge = if (backwards) before <= 0f else before >= range.maxValue()
-            if (before == after && atEdge) {
-                searchBackwards = !backwards
-                return@repeat
-            }
-            if (before == after) {
-                println(
-                    "SCALE_UNREACHABLE screen=${model.state.value.screen} matcher=$matcher " +
-                        "node=${node?.boundsInRoot} touch=${node?.touchBoundsInRoot} " +
-                        "sibling=$siblingLabel scroll=${scroll.boundsInRoot}",
-                )
-                if (siblingLabel != null) {
-                    compose.onAllNodes(hasText(siblingLabel), useUnmergedTree = true).fetchSemanticsNodes().forEach {
-                        println("SCALE_SIBLING bounds=${it.boundsInRoot} parent=${it.parent?.id}")
-                    }
+                compose.waitForIdle()
+                val after = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+                val range = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+                val atEdge = if (backwards) before <= 0f else before >= range.maxValue()
+                if (before == after && atEdge) {
+                    break
                 }
-                saveMessengerScreenshot(
-                    compose.activity,
-                    "scale-unreachable-${model.state.value.screen.name.lowercase()}",
-                )
+                if (before == after) {
+                    println(
+                        "SCALE_UNREACHABLE screen=${model.state.value.screen} matcher=$matcher " +
+                            "node=${node?.boundsInRoot} touch=${node?.touchBoundsInRoot} " +
+                            "sibling=$siblingLabel scroll=${scroll.boundsInRoot}",
+                    )
+                    if (siblingLabel != null) {
+                        compose
+                            .onAllNodes(
+                                hasText(siblingLabel),
+                                useUnmergedTree = true,
+                            ).fetchSemanticsNodes()
+                            .forEach {
+                                println("SCALE_SIBLING bounds=${it.boundsInRoot} parent=${it.parent?.id}")
+                            }
+                    }
+                    saveMessengerScreenshot(
+                        compose.activity,
+                        "scale-unreachable-${model.state.value.screen.name.lowercase()}",
+                    )
+                }
+                assertNotEquals("Touch scrolling did not move ${model.state.value.screen}", before, after)
             }
-            assertNotEquals("Touch scrolling did not move ${model.state.value.screen}", before, after)
         }
         val finalNode = compose.onAllNodes(matcher).fetchSemanticsNodes().singleOrNull()
         println(
