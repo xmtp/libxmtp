@@ -43,7 +43,9 @@ jobs:
       env:
         NIX_DEVSHELL: android
         NIX_ANDROID_EMULATOR_LOG_DIR: ${{ runner.temp }}/android-emulator-startup
-        NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192 -verbose
+        # API 23 can corrupt guest pages in the RAM bank above 4 GiB.
+        # Keep its RAM below that bank. The smoke tests fit in 3072 MiB.
+        NIX_ANDROID_EMULATOR_FLAGS: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -memory 3072 -partition-size 8192 -verbose
           -show-kernel
       run: dev/nix-shell 'just android test-min-sdk'
     - name: Upload minimum SDK proof
