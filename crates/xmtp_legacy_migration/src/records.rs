@@ -17,8 +17,8 @@ const GROUP_PAGE: i64 = 64;
 const MAX_ROW_BYTES: i64 = 64 * 1024 * 1024;
 const ELIGIBLE_GROUPS: &str =
     "FROM groups WHERE conversation_type IN (1, 2) AND membership_state IN (1, 2, 3, 5)";
-// Match the pinned legacy deletion authority and deletable content types.
-const ELIGIBLE_MESSAGES: &str = "FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL AND NOT EXISTS (SELECT 1 FROM message_deletions d WHERE d.deleted_message_id=m.id AND d.group_id=m.group_id AND m.content_type IN (1, 6, 7, 8, 9, 10, 12, 15) AND (d.deleted_by_inbox_id=m.sender_inbox_id OR d.is_super_admin_deletion=1))";
+// Deletion authority is stored; content type is decoded after row admission.
+const ELIGIBLE_MESSAGES: &str = "FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL";
 
 #[derive(QueryableByName)]
 struct GroupId {
@@ -58,6 +58,8 @@ struct Group {
 
 #[derive(QueryableByName)]
 struct MessageRow {
+    #[diesel(sql_type = Bool)]
+    deletion_authorized: bool,
     #[diesel(sql_type = Binary)]
     id: Vec<u8>,
     #[diesel(sql_type = Binary)]
@@ -235,12 +237,14 @@ pub(crate) fn export(
         return Err(invalid("stored message row exceeds the 64 MiB byte limit"));
     }
     let query = format!(
-        "SELECT m.id, m.group_id, m.decrypted_message_bytes, m.sent_at_ns, m.sender_installation_id, m.sender_inbox_id, m.delivery_status, m.content_type, m.version_major, m.version_minor, m.authority_id, m.reference_id, m.originator_id, m.sequence_id {ELIGIBLE_MESSAGES} ORDER BY m.id"
+        "SELECT EXISTS(SELECT 1 FROM message_deletions d WHERE d.deleted_message_id=m.id AND d.group_id=m.group_id AND (d.deleted_by_inbox_id=m.sender_inbox_id OR d.is_super_admin_deletion=1)) AS deletion_authorized, m.id, m.group_id, m.decrypted_message_bytes, m.sent_at_ns, m.sender_installation_id, m.sender_inbox_id, m.delivery_status, m.content_type, m.version_major, m.version_minor, m.authority_id, m.reference_id, m.originator_id, m.sequence_id {ELIGIBLE_MESSAGES} ORDER BY m.id"
     );
     let messages = diesel::sql_query(query).load_iter::<MessageRow, DefaultLoadingMode>(conn)?;
     for message in messages {
-        emit(Element::GroupMessage(message?.into_save()?))?;
-        report.message_count += 1;
+        if let Some(message) = message?.into_save()? {
+            emit(Element::GroupMessage(message))?;
+            report.message_count += 1;
+        }
     }
     let oversized = diesel::sql_query(
         "SELECT EXISTS(SELECT 1 FROM consent_records WHERE \
@@ -276,12 +280,39 @@ pub(crate) fn export(
 
 impl MessageRow {
     #[allow(deprecated)]
-    fn into_save(self) -> Result<GroupMessageSave, MigrationError> {
+    fn into_save(self) -> Result<Option<GroupMessageSave>, MigrationError> {
         if self.id.is_empty() || self.group_id.len() != 16 || !matches!(self.delivery_status, 1..=3)
         {
             return Err(invalid(
                 "invalid required message identity or delivery status",
             ));
+        }
+        let encoded_type = match EncodedContent::decode(self.decrypted_message_bytes.as_slice()) {
+            Ok(content) => content.r#type,
+            Err(error) if self.deletion_authorized => {
+                return Err(MigrationError::RecordRead(RecordError::Content(error)));
+            }
+            Err(_) => None,
+        };
+        if self.deletion_authorized {
+            let id = encoded_type
+                .as_ref()
+                .ok_or_else(|| invalid("missing deleted-message content type"))?;
+            if id.authority_id == "xmtp.org"
+                && matches!(
+                    id.type_id.as_str(),
+                    "text"
+                        | "markdown"
+                        | "reply"
+                        | "attachment"
+                        | "remoteStaticAttachment"
+                        | "transactionReference"
+                        | "walletSendCalls"
+                        | "multiRemoteStaticAttachment"
+                )
+            {
+                return Ok(None);
+            }
         }
         let mut save = GroupMessageSave {
             id: self.id,
@@ -301,15 +332,13 @@ impl MessageRow {
             originator_id: Some(self.originator_id),
             content_type: legacy_content_type(self.content_type).to_owned(),
         };
-        if let Ok(content) = EncodedContent::decode(save.decrypted_message_bytes.as_slice())
-            && let Some(id) = content.r#type
-        {
+        if let Some(id) = encoded_type {
             save.authority_id = id.authority_id;
             save.content_type = id.type_id;
             save.version_major = id.version_major as i32;
             save.version_minor = id.version_minor as i32;
         }
-        Ok(save)
+        Ok(Some(save))
     }
 }
 

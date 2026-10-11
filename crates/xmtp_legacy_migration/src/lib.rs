@@ -90,6 +90,8 @@ pub enum OutputError {
 #[derive(Debug, thiserror::Error)]
 pub enum RecordError {
     #[error(transparent)]
+    Content(#[from] prost::DecodeError),
+    #[error(transparent)]
     Database(#[from] diesel::result::Error),
     #[error("{0}")]
     Invalid(&'static str),

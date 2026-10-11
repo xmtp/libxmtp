@@ -53,10 +53,14 @@ fn storage(error: xmtp_db::StorageError) -> MigrationError {
         database::{OpfsSAHError, PlatformStorageError},
     };
     match error {
-        StorageError::Platform(
-            PlatformStorageError::DatabaseInUse
-            | PlatformStorageError::SAH(OpfsSAHError::CreateSyncAccessHandle(_)),
-        ) => MigrationError::SourceBusy,
+        StorageError::Platform(PlatformStorageError::DatabaseInUse) => MigrationError::SourceBusy,
+        StorageError::Platform(PlatformStorageError::SAH(
+            OpfsSAHError::CreateSyncAccessHandle(ref value),
+        )) if matches!(js_sys::Reflect::get(value, &JsValue::from_str("name")),
+                Ok(name) if name.as_string().as_deref() == Some("NoModificationAllowedError")) =>
+        {
+            MigrationError::SourceBusy
+        }
         other => MigrationError::InvalidInput(InputError::Storage(other)),
     }
 }

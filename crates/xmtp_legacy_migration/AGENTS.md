@@ -29,6 +29,6 @@ files for one suffix; do not combine ambiguous source histories.
 Browser preparation uses a private OPFS working copy. Never export the complete
 source into a Vec or deserialize a second full copy in WASM memory.
 
-Keep the pinned legacy deletion authority and content-type checks in SQL before
-row admission. Browser sources with SQLite sidecars must fail before copying;
+Check legacy deletion authority in SQL. Decode content type after the row
+budget check; cached type fields must not reveal a deleted body. Browser sources with SQLite sidecars must fail before copying;
 never open the source with SQLite to recover it.

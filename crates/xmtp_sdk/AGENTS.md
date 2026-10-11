@@ -243,7 +243,7 @@ Migration tests use the normal SDK packages. Node and Agent use their existing
 Vitest suites. Browser fixtures and worker fault checks are in
 `sdks/browser/test/platform/migration`, included by `just sdk test-browser`.
 Run only those checks with `dev/nix-shell 'just sdk test-browser-migration'`
-after `generate` and `stage browser`. They check import, worker ownership,
+after `generate`. The platform runner stages the matched Browser package. They check import, worker ownership,
 failed output, page termination, and source preservation. The small fixture
 worker uses raw legacy bytes and is not part of a public package.
 Swift uses `LegacyMigrationTests` in the normal XCTest target. Kotlin uses

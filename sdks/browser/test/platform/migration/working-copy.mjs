@@ -83,6 +83,7 @@ try {
           } catch (error) {
             return {
               outputFailure: error instanceof sdk.XmtpError.MigrationOutput,
+              invalidInput: error instanceof sdk.XmtpError.InvalidInput,
               error: String(error),
             };
           }
@@ -98,6 +99,11 @@ try {
     assert.ok(
       metrics.every((m) => m.maximum <= 64 * 1024),
       "source read exceeded 64 KiB",
+    );
+    assert.equal(
+      (await prepare("permission")).invalidInput,
+      true,
+      "source permission failure was classified as contention",
     );
     const completed = await page.evaluate(async () =>
       Array.from(

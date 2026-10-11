@@ -9,6 +9,8 @@ const open = FileSystemFileHandle.prototype.createSyncAccessHandle;
 FileSystemFileHandle.prototype.createSyncAccessHandle = async function (
   ...args
 ) {
+  if (phase === "permission")
+    throw new DOMException("Injected source access denial", "NotAllowedError");
   const handle = await open.apply(this, args);
   const read = handle.read.bind(handle);
   handle.read = function (bytes, options) {

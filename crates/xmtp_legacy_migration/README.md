@@ -14,7 +14,7 @@ The isolated metadata decoder reads only the pinned OpenMLS group context. It ke
 
 See [fixture provenance](fixtures/README.md) for source pins and schema coverage, and [normal SDK commands](../xmtp_sdk/AGENTS.md) for build commands.
 
-Message selection applies the pinned legacy deletion rules. It excludes deletable application messages when a matching tombstone names the same group and its recorded deleter is the author or a recorded super admin. Unknown or non-deletable content and unauthorized or mismatched tombstones do not remove history. Deletion records do not change the archive format.
+Message selection applies legacy deletion authority and the encoded content type. It excludes deletable application messages when a matching tombstone names the same group and its recorded deleter is the author or a recorded super admin. Unknown or non-deletable encoded content and unauthorized or mismatched tombstones do not remove history. An unreadable encoded type with an authorized tombstone fails preparation. Deletion records do not change the archive format.
 
 The migration guide is at `apps/docs/src/pages/get-started/data-migration.md`.
 

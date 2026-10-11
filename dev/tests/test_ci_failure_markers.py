@@ -108,6 +108,10 @@ class FailureMarkers(unittest.TestCase):
             ["org.xmtp.android.library.GroupTest > testReadd[API_34] FAILED"],
         )
 
+    def test_typescript_parenthesized_location_keeps_the_diagnostic(self):
+        message = "sdks/agent typecheck: src/migration.test.ts(1,53): error TS2307: Cannot find module '@xmtp/agent-sdk'."
+        self.assertEqual(self.filtered(message + chr(10)), [message])
+
     def test_passing_output_is_empty(self):
         self.assertEqual(
             self.filtered(

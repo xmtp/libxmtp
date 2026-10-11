@@ -2,6 +2,7 @@
 use super::*;
 use crate::tester;
 use diesel::{connection::SimpleConnection, prelude::*};
+use prost::Message as _;
 use xmtp_db::{
     ConnectionExt,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord},
@@ -10,6 +11,7 @@ use xmtp_db::{
     schema::{group_messages, groups},
 };
 use xmtp_legacy_migration::{PrepareMigrationArchiveArgs, prepare_migration_archive};
+use xmtp_proto::xmtp::message_contents::{ContentTypeId, EncodedContent};
 
 const KEY: [u8; 32] = [7; 32];
 const DM: &str = "a06859a4aebe75c970b8875698fbeddb";
@@ -38,7 +40,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
     for id in 20..=24u8 {
         diesel::sql_query("INSERT INTO group_messages(id, group_id, decrypted_message_bytes, sent_at_ns, kind, sender_installation_id, sender_inbox_id, delivery_status, content_type, authority_id, originator_id, sequence_id) SELECT ?, group_id, decrypted_message_bytes, sent_at_ns, kind, sender_installation_id, sender_inbox_id, 2, ?, authority_id, originator_id, sequence_id FROM group_messages WHERE id=?")
             .bind::<diesel::sql_types::Binary, _>(vec![id; 32])
-            .bind::<diesel::sql_types::Integer, _>(if id == 24 { 0 } else { 1 })
+            .bind::<diesel::sql_types::Integer, _>(if id == 20 { 3 } else if id == 24 { 0 } else { 1 })
             .bind::<diesel::sql_types::Binary, _>(vec![1; 32])
             .execute(&mut legacy)?;
         diesel::sql_query("INSERT INTO message_deletions(id, group_id, deleted_message_id, deleted_by_inbox_id, is_super_admin_deletion, deleted_at_ns) SELECT ?, ?, ?, ?, ?, 1700000000000000999")
@@ -49,6 +51,21 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
             .bind::<diesel::sql_types::Bool, _>(id == 21 || id == 23)
             .execute(&mut legacy)?;
     }
+    let non_deletable = EncodedContent {
+        r#type: Some(ContentTypeId {
+            authority_id: "example.test".into(),
+            type_id: "custom".into(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        content: b"opaque non-deletable fixture".to_vec(),
+        ..Default::default()
+    }
+    .encode_to_vec();
+    diesel::sql_query("UPDATE group_messages SET decrypted_message_bytes=? WHERE id=?")
+        .bind::<diesel::sql_types::Binary, _>(&non_deletable)
+        .bind::<diesel::sql_types::Binary, _>(vec![24; 32])
+        .execute(&mut legacy)?;
     drop(legacy);
     let output = directory.path().join("migration.xmtp");
     let report = prepare_migration_archive(PrepareMigrationArchiveArgs {
@@ -141,7 +158,11 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
                 );
                 assert_eq!(
                     hex::encode(message.decrypted_message_bytes),
-                    "0a120a08786d74702e6f7267120474657874180122166d6967726174696f6e20666978747572652074657874"
+                    if message.id == vec![24; 32] {
+                        hex::encode(&non_deletable)
+                    } else {
+                        "0a120a08786d74702e6f7267120474657874180122166d6967726174696f6e20666978747572652074657874".to_owned()
+                    }
                 );
             }
             if let Some((id, message)) = &original {
