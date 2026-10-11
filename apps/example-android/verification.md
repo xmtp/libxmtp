@@ -135,6 +135,34 @@ Required handling uses the real AppGraph. Isolated session protocol tests use
 one explicit test-only collaborator fixture. These controls prove their stated
 contracts. They do not replace the complete installed suite.
 
+#### Recovery regression proof
+
+Commit `63a11d29b4` fixes three recovery paths. A missing request clears its
+confirmation and shows an unavailable message. Retry reopens the current chat
+when no matching native conversation is bound. Initial scroll restoration waits
+for the saved native row, including when the saved anchor arrives after a
+loading placeholder. Later viewport updates do not repeat the initial scroll.
+
+The existing installed journeys cover each path:
+
+| Journey | Source control and observed failure |
+| --- | --- |
+| `MessengerReviewInstrumentedTest.lateBlockedConsentCannotReplaceNewChatSettings` | `architecture-missing-request`: restoring the silent missing-request return keeps the Block confirmation set. |
+| `MessengerRaceInstrumentedTest.suspendedOldOpenCannotReplaceNewChatOrSettings` | `architecture-unbound-chat-retry`: removing route reopening prevents the real Retry button from binding the native chat. |
+| `MessengerRaceInstrumentedTest.anchoredRefreshPreservesEveryLoadedNativeMessage` | `arch-saved-anchor-delayed-history`: removing the restoration gate and row-availability retry changes the first UI viewport's saved native message ID. |
+
+All three journeys pass after source restoration: three tests, no failures,
+errors, or skips in `architecture-review-restored-final/`. That archive records
+the source diff and file hashes. Each control records its exact source, test,
+mutation, failure, and restored hash under `control-runs/`. The scroll journey
+also checks the saved pixel offset and persisted cursor after the exact viewport
+action completes. No test method was added.
+
+Strict builds and both APK JNI checks passed in `check-architecture-review-2.log`.
+The final test source compiled in the installed run. Format and Android lint
+passed in `format-architecture-review-6.log` and
+`lint-architecture-review-final.log`.
+
 ### Stable manual gaps
 
 - Real FCM receipt, background delivery, successful OS posting, and tap need a
