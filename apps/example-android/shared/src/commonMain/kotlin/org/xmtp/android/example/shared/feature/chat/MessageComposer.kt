@@ -70,7 +70,9 @@ internal fun MessageComposer(
                     ) { Icon(AppIcons.Close, "Cancel reply") }
                 }
             }
-            Box(Modifier.weight(1f, fill = false).fillMaxWidth().heightIn(max = 112.dp)) { extra() }
+            if (!state.unknown) {
+                Box(Modifier.weight(1f, fill = false).fillMaxWidth().heightIn(max = 112.dp)) { extra() }
+            }
             Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.Bottom) {
                 if (state.features.attachments &&
                     !state.unknown
@@ -123,6 +125,7 @@ internal fun MessageComposer(
                                 .focusRequester(composerFocus)
                                 .onFocusChanged { composerHasFocus = it.isFocused },
                         placeholder = { Text("Message", style = MaterialTheme.typography.bodyLarge) },
+                        enabled = !state.unknown,
                         textStyle = MaterialTheme.typography.bodyLarge,
                         maxLines = 5,
                         colors =
@@ -140,7 +143,7 @@ internal fun MessageComposer(
                     modifier = Modifier.padding(bottom = 4.dp, end = 4.dp).size(48.dp),
                     enabled =
                         composer.text.isNotBlank() && composer.enabled && composer.pendingRequestId == null &&
-                            !state.busy,
+                            !state.busy && !state.unknown,
                 ) { Icon(AppIcons.Send, "Send message") }
             }
         }

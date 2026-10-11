@@ -216,6 +216,7 @@ fun ChatScreen(
                             state.group && senderStart,
                             selected?.id == row.id,
                             state.composer.reply?.messageId != row.id,
+                            !state.unknown,
                             action,
                             { bubbleBounds[row.id] = it },
                             messageExtra,
@@ -297,6 +298,7 @@ fun ChatScreen(
                         (composerTop - gap).toDp().coerceAtLeast(48.dp)
                     },
                     popupTransition.targetState,
+                    !state.unknown,
                     popupAction,
                 )
             }
@@ -304,13 +306,20 @@ fun ChatScreen(
     }
     val retainedReactors = reactorOverlay
     if (reactorRow != null && retainedReactors != null) {
-        ReactionDetails(reactorRow, retainedReactors.emoji, retainedReactors.instanceId, requestedReactors != null, {
-            if (reactorOverlay?.instanceId == retainedReactors.instanceId &&
-                reactorOverlay?.messageId == retainedReactors.messageId
-            ) {
-                reactorOverlay = null
-            }
-        }) { value ->
+        ReactionDetails(
+            reactorRow,
+            retainedReactors.emoji,
+            retainedReactors.instanceId,
+            requestedReactors != null,
+            !state.unknown,
+            {
+                if (reactorOverlay?.instanceId == retainedReactors.instanceId &&
+                    reactorOverlay?.messageId == retainedReactors.messageId
+                ) {
+                    reactorOverlay = null
+                }
+            },
+        ) { value ->
             val current = latestState.overlay
             if (value is ChatAction.CloseSheet ||
                 (

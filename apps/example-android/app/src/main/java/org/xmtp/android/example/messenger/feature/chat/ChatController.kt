@@ -507,6 +507,15 @@ internal class ChatController(
         )
 
     fun dispatch(action: ChatAction) {
+        if (ui.value.unknown &&
+            (
+                action is ChatAction.SendText || action is ChatAction.React ||
+                    action is ChatAction.RetrySend || action is ChatAction.DeleteMessage ||
+                    action is ChatAction.ShowEmoji || (action is ChatAction.Reply && action.messageId != null)
+            )
+        ) {
+            return
+        }
         when (action) {
             is ChatAction.ChangeDraft -> {
                 changeDraft(action)

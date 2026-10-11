@@ -135,7 +135,7 @@ private fun ReactionPickerContent(
     content: @Composable ((MessengerAction) -> Unit) -> Unit,
 ) {
     val chat = state.toUiState().chat
-    val requestedOverlay = chat.overlay?.takeIf { it.surface == MessageSurface.EMOJI }
+    val requestedOverlay = chat.overlay?.takeIf { it.surface == MessageSurface.EMOJI && !chat.unknown }
     var presentedOverlay by remember(state.inbox, state.conversationId, state.screen) {
         mutableStateOf<org.xmtp.android.example.shared.feature.chat.MessageOverlayState?>(null)
     }
@@ -209,6 +209,7 @@ private fun ReactionPickerContent(
                 activeOverlay.messageId == current.id &&
                 activeOverlay.surface == MessageSurface.EMOJI &&
                 activeOverlay.instanceId == overlay.instanceId &&
+                !activeChat.unknown &&
                 activeChat.messages.any { it.id == current.id && !it.deleted }
             ) {
                 recents.recordSelection(emoji)

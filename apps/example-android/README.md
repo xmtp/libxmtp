@@ -125,6 +125,9 @@ Chats shows accepted conversations. Message requests shows conversations with
 Unknown consent. Accept applies consent in one step. Delete request and Block
 require confirmation. Delete request dismisses the local entry and keeps native
 conversation data. Block changes native consent to Denied.
+Accept is required before composer, send, and outbound message or reaction
+actions. Copy, reactor lists, and Close remain available. Retained outbound
+callbacks also require accepted consent.
 New conversations accept lowercase inbox IDs or Ethereum addresses. Groups
 offer All members and Admins only presets.
 

@@ -662,11 +662,74 @@ class MessengerScreensInstrumentedTest {
                 until("actual request trust state") {
                     graph.chat.state.value.conversationId == requestId && graph.chat.state.value.unknown
                 }
+                val requestDraft = "Reply after explicit acceptance"
+                compose.runOnIdle {
+                    graph.chat.dispatch(ChatAction.ChangeDraft(requestDraft, requestDraft.length, requestDraft.length))
+                }
+                until("request retains its draft") { graph.chat.state.value.composer.text == requestDraft }
+                compose
+                    .onNode(hasText(requestDraft) and hasAnyAncestor(hasTestTag("message-composer")))
+                    .assertIsNotEnabled()
+                    .assertTextEquals(requestDraft)
+                compose.onNodeWithContentDescription("Send message").assertIsNotEnabled().performTouchInput { click() }
+                compose.onNodeWithContentDescription("Add attachment").assertDoesNotExist()
+                compose.waitForIdle()
+                assertEquals(ConsentState.UNKNOWN, conversationState(request).consentState)
+                assertFalse(
+                    "A request must not send the draft before Accept",
+                    request.messages(publishedSelection().copy(deliveryStatus = null)).any {
+                        it.standardContent() == MessageContent.Text(requestDraft)
+                    },
+                )
+                assertEquals(requestDraft, graph.chat.state.value.composer.text)
+                compose.onNode(hasText("A real message request") and hasClickAction()).performClick()
+                compose.onNodeWithTag("reaction-popover").assertIsDisplayed()
+                compose.onNodeWithText("👍").assertIsNotEnabled().performTouchInput { click() }
+                textAction("Reply").assertIsNotEnabled()
+                compose.onNodeWithContentDescription("More reactions").assertIsNotEnabled()
+                textAction("Copy").assertIsEnabled().performClick()
+                compose.waitForIdle()
+                assertEquals(ConsentState.UNKNOWN, conversationState(request).consentState)
+                assertTrue(
+                    "A request must not add a native reaction before Accept",
+                    checkNotNull(owner.client.conversations.getMessageById(requestMessage)).reactions.isEmpty(),
+                )
+                val retainedActionJobs =
+                    compose.runOnIdle {
+                        val parent = checkNotNull(owner.work.coroutineContext[Job])
+                        val activeJobs = parent.children.toSet()
+                        graph.chat.dispatch(ChatAction.React(requestMessage, "😮", false))
+                        parent.children.filter { it !in activeJobs }.toList()
+                    }
+                withTimeout(30_000) { retainedActionJobs.joinAll() }
+                assertEquals(ConsentState.UNKNOWN, conversationState(request).consentState)
+                assertTrue(
+                    "A retained reaction callback must not send before Accept",
+                    checkNotNull(owner.client.conversations.getMessageById(requestMessage)).reactions.isEmpty(),
+                )
                 textAction("Accept").performClick()
                 until(
                     "Accept commits native consent",
                 ) { conversationState(request).consentState == ConsentState.ALLOWED }
                 until("accepted request becomes a chat") { !graph.chat.state.value.unknown }
+                composer().assertIsEnabled().assertTextEquals(requestDraft)
+                compose.onNode(hasText("A real message request") and hasClickAction()).performClick()
+                compose.onNodeWithText("👍").assertIsEnabled().performClick()
+                until("accepted request permits a native reaction") {
+                    checkNotNull(owner.client.conversations.getMessageById(requestMessage)).reactions.any {
+                        it.reaction.content == "👍" && it.reaction.action == ReactionAction.ADDED
+                    }
+                }
+                if (graph.chat.state.value.features.attachments) {
+                    compose.onNodeWithContentDescription("Add attachment").assertIsEnabled()
+                }
+                compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
+                until("accepted request publishes its preserved draft") {
+                    request.messages(publishedSelection()).any {
+                        it.standardContent() == MessageContent.Text(requestDraft)
+                    }
+                }
+                assertEquals(ConsentState.ALLOWED, conversationState(request).consentState)
                 assertEquals(requestMessage, checkNotNull(owner.client.conversations.getMessageById(requestMessage)).id)
                 back()
                 until("accepted request returns to list") { graph.destinations.state.value.route == AppRoute.Requests }

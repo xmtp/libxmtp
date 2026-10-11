@@ -21,6 +21,7 @@ internal fun ReactionDetails(
     emoji: String?,
     instanceId: Long,
     visible: Boolean,
+    outboundEnabled: Boolean,
     onHidden: () -> Unit,
     action: (ChatAction) -> Unit,
 ) {
@@ -67,7 +68,7 @@ internal fun ReactionDetails(
                     action(ChatAction.React(row.id, reaction.emoji, reaction.mine))
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     action(ChatAction.DismissOverlay)
-                }, Modifier.heightIn(min = 48.dp).fillMaxWidth(), enabled = visible) {
+                }, Modifier.heightIn(min = 48.dp).fillMaxWidth(), enabled = visible && outboundEnabled) {
                     Text(if (reaction.mine) "Remove my reaction" else "Add this reaction")
                 }
             }

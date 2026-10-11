@@ -43,6 +43,7 @@ internal fun MessageBubble(
     showSender: Boolean,
     selected: Boolean,
     restoreFocus: Boolean,
+    outboundEnabled: Boolean,
     action: (ChatAction) -> Unit,
     boundsChanged: (Rect) -> Unit,
     extra: @Composable (MessageRow) -> Unit,
@@ -109,7 +110,7 @@ internal fun MessageBubble(
                         translationX = if (reduced) 0f else drag * direction
                         scaleX = lift
                         scaleY = lift
-                    }.pointerInput(row.id, row.deleted, direction, threshold, edge, endEdge) {
+                    }.pointerInput(row.id, row.deleted, outboundEnabled, direction, threshold, edge, endEdge) {
                         fun move(amount: Float) {
                             drag = (drag + amount * direction).coerceIn(0f, threshold * 1.4f)
                             if (drag >= threshold && !armed) {
@@ -121,7 +122,7 @@ internal fun MessageBubble(
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val originalX = bounds.left + down.position.x
-                            if (row.deleted || originalX <= edge ||
+                            if (!outboundEnabled || row.deleted || originalX <= edge ||
                                 windowWidth - originalX <= endEdge
                             ) {
                                 return@awaitEachGesture
@@ -204,6 +205,7 @@ internal fun MessageBubble(
                         TextButton(
                             { action(ChatAction.RetrySend(row.id)) },
                             Modifier.heightIn(min = 48.dp),
+                            enabled = outboundEnabled,
                         ) { Text("Retry") }
                         TextButton(
                             { action(ChatAction.EditFailedSend(row.id)) },
@@ -223,11 +225,21 @@ internal fun MessageBubble(
                         modifier =
                             Modifier.padding(top = 4.dp, end = 4.dp).heightIn(min = 48.dp).combinedClickable(
                                 onClick = { action(ChatAction.ShowReactors(row.id, reaction.emoji)) },
-                                onLongClickLabel = if (reaction.mine) "Remove reaction" else "Add reaction",
-                                onLongClick = {
-                                    action(ChatAction.React(row.id, reaction.emoji, reaction.mine))
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                },
+                                onLongClickLabel =
+                                    if (outboundEnabled) {
+                                        if (reaction.mine) "Remove reaction" else "Add reaction"
+                                    } else {
+                                        null
+                                    },
+                                onLongClick =
+                                    if (outboundEnabled) {
+                                        {
+                                            action(ChatAction.React(row.id, reaction.emoji, reaction.mine))
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        }
+                                    } else {
+                                        null
+                                    },
                             ),
                         shape = RoundedCornerShape(24.dp),
                         color =

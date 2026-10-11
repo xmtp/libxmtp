@@ -24,6 +24,7 @@ internal fun MessageActions(
     row: MessageRow,
     maximumHeight: Dp,
     enabled: Boolean,
+    outboundEnabled: Boolean,
     action: (ChatAction) -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
@@ -38,18 +39,26 @@ internal fun MessageActions(
         Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
             Row {
                 listOf("👍", "❤️", "😂", "😮", "😢").forEach { emoji ->
-                    TextButton(onClick = {
-                        val mine = row.reactions.firstOrNull { it.emoji == emoji }?.mine == true
-                        action(ChatAction.React(row.id, emoji, mine))
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        action(ChatAction.DismissOverlay)
-                    }, modifier = Modifier.size(48.dp), enabled = enabled, contentPadding = PaddingValues(0.dp)) {
+                    TextButton(
+                        onClick = {
+                            val mine = row.reactions.firstOrNull { it.emoji == emoji }?.mine == true
+                            action(ChatAction.React(row.id, emoji, mine))
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            action(ChatAction.DismissOverlay)
+                        },
+                        modifier =
+                            Modifier.size(
+                                48.dp,
+                            ),
+                        enabled = enabled && outboundEnabled,
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
                         Text(emoji, fontSize = with(LocalDensity.current) { (24 / fontScale).sp })
                     }
                 }
                 IconButton({
                     action(ChatAction.ShowEmoji(row.id))
-                }, Modifier.size(48.dp), enabled = enabled) { Icon(AppIcons.More, "More reactions") }
+                }, Modifier.size(48.dp), enabled = enabled && outboundEnabled) { Icon(AppIcons.More, "More reactions") }
             }
             HorizontalDivider(Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
             FlowRow(Modifier.fillMaxWidth()) {
@@ -60,29 +69,34 @@ internal fun MessageActions(
                 TextButton({
                     action(ChatAction.Reply(row.id))
                     action(ChatAction.DismissOverlay)
-                }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Reply") }
+                }, Modifier.heightIn(min = 48.dp), enabled = enabled && outboundEnabled) { Text("Reply") }
                 if (row.mine &&
                     row.sendState == MessageSendState.SENT
                 ) {
                     TextButton(
                         { confirmDelete = true },
                         Modifier.heightIn(min = 48.dp),
-                        enabled = enabled,
+                        enabled = enabled && outboundEnabled,
                     ) { Text("Delete") }
                 }
                 if (row.mine &&
                     (row.sendState == MessageSendState.QUEUED || row.sendState == MessageSendState.NOT_SENT)
                 ) {
-                    TextButton({
-                        action(ChatAction.RetrySend(row.id))
-                        action(ChatAction.DismissOverlay)
-                    }, Modifier.heightIn(min = 48.dp).testTag("message-retry-${row.id}"), enabled = enabled) {
+                    TextButton(
+                        {
+                            action(ChatAction.RetrySend(row.id))
+                            action(ChatAction.DismissOverlay)
+                        },
+                        Modifier.heightIn(min = 48.dp).testTag("message-retry-${row.id}"),
+                        enabled =
+                            enabled && outboundEnabled,
+                    ) {
                         Text("Retry")
                     }
                     TextButton({
                         action(ChatAction.EditFailedSend(row.id))
                         action(ChatAction.DismissOverlay)
-                    }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Edit") }
+                    }, Modifier.heightIn(min = 48.dp), enabled = enabled && outboundEnabled) { Text("Edit") }
                 }
             }
         }
@@ -101,7 +115,12 @@ internal fun MessageActions(
                     confirmDelete = false
                     action(ChatAction.DeleteMessage(row.id))
                     action(ChatAction.DismissOverlay)
-                }) { Text("Delete message", color = MaterialTheme.colorScheme.error) }
+                }, enabled = enabled && outboundEnabled) {
+                    Text(
+                        "Delete message",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             },
             dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } },
         )
