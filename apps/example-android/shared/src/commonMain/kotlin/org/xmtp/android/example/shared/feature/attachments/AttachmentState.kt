@@ -11,7 +11,6 @@ data class AttachmentState(
     val verifiedMessageIds: Set<String> = emptySet(),
     val capability: CapabilityUi = CapabilityUi(),
     val failure: AppFailure? = null,
-    val choice: AttachmentChoiceState? = null,
 )
 
 data class AttachmentChoiceState(

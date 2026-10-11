@@ -50,8 +50,6 @@ internal class AttachmentController(
     val state =
         combine(drafts, downloads, verified, capability, error) { drafts, messages, ids, capability, failure ->
             AttachmentState(drafts, messages, ids, capability, failure)
-        }.combine(choice) { state, choice ->
-            state.copy(choice = choice)
         }.stateIn(scope, SharingStarted.Eagerly, AttachmentState())
 
     private data class Services(
@@ -169,18 +167,6 @@ internal class AttachmentController(
         active: ActiveSession,
         token: Long,
     ) = EffectIdentity(requests.nextId(), active.key, token)
-
-    fun selectFile(selection: AttachmentSelection = AttachmentSelection.FILE) {
-        val conversation = chat.currentConversation() ?: return
-        perform { work ->
-            if (!uploadSupported(work.active)) return@perform
-            if (current(work)) {
-                requests.offer(
-                    AttachmentRequest.Select(identity(work.active, work.token), conversation.id(), selection),
-                )
-            }
-        }
-    }
 
     private fun showChoiceSheet() {
         val conversationId = chat.currentConversation()?.id() ?: return
