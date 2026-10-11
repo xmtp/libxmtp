@@ -37,7 +37,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
         .execute(&mut legacy)?;
     // Keep the pinned legacy deletion authority and content-type rules.
     legacy.batch_execute("PRAGMA foreign_keys=OFF;")?;
-    for id in 20..=24u8 {
+    for id in 20..=26u8 {
         diesel::sql_query("INSERT INTO group_messages(id, group_id, decrypted_message_bytes, sent_at_ns, kind, sender_installation_id, sender_inbox_id, delivery_status, content_type, authority_id, originator_id, sequence_id) SELECT ?, group_id, decrypted_message_bytes, sent_at_ns, kind, sender_installation_id, sender_inbox_id, 2, ?, authority_id, originator_id, sequence_id FROM group_messages WHERE id=?")
             .bind::<diesel::sql_types::Binary, _>(vec![id; 32])
             .bind::<diesel::sql_types::Integer, _>(if id == 20 { 3 } else if id == 24 { 0 } else { 1 })
@@ -47,7 +47,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
             .bind::<diesel::sql_types::Binary, _>(vec![id + 100; 32])
             .bind::<diesel::sql_types::Binary, _>(if id == 23 { vec![0x66; 16] } else { hex::decode(DM)? })
             .bind::<diesel::sql_types::Binary, _>(vec![id; 32])
-            .bind::<diesel::sql_types::Text, _>(if id == 20 || id == 24 { "01".repeat(32) } else { "02".repeat(32) })
+            .bind::<diesel::sql_types::Text, _>(if id == 20 || id == 24 || id >= 25 { "01".repeat(32) } else { "02".repeat(32) })
             .bind::<diesel::sql_types::Bool, _>(id == 21 || id == 23)
             .execute(&mut legacy)?;
     }
@@ -66,6 +66,25 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
         .bind::<diesel::sql_types::Binary, _>(&non_deletable)
         .bind::<diesel::sql_types::Binary, _>(vec![24; 32])
         .execute(&mut legacy)?;
+    // The pinned legacy classifier uses type_id only, including other
+    // authorities and major versions. Current catalogue rules do not apply.
+    for (id, authority, major) in [(25, "custom.example", 1), (26, "xmtp.org", 2)] {
+        let content = EncodedContent {
+            r#type: Some(ContentTypeId {
+                authority_id: authority.into(),
+                type_id: "text".into(),
+                version_major: major,
+                version_minor: 0,
+            }),
+            content: b"deleted legacy text".to_vec(),
+            ..Default::default()
+        }
+        .encode_to_vec();
+        diesel::sql_query("UPDATE group_messages SET decrypted_message_bytes=? WHERE id=?")
+            .bind::<diesel::sql_types::Binary, _>(&content)
+            .bind::<diesel::sql_types::Binary, _>(vec![id; 32])
+            .execute(&mut legacy)?;
+    }
     drop(legacy);
     let output = directory.path().join("migration.xmtp");
     let report = prepare_migration_archive(PrepareMigrationArchiveArgs {

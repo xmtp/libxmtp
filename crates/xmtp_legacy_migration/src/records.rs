@@ -298,19 +298,19 @@ impl MessageRow {
             let id = encoded_type
                 .as_ref()
                 .ok_or_else(|| invalid("missing deleted-message content type"))?;
-            if id.authority_id == "xmtp.org"
-                && matches!(
-                    id.type_id.as_str(),
-                    "text"
-                        | "markdown"
-                        | "reply"
-                        | "attachment"
-                        | "remoteStaticAttachment"
-                        | "transactionReference"
-                        | "walletSendCalls"
-                        | "multiRemoteStaticAttachment"
-                )
-            {
+            // The pinned legacy classifier uses type_id only. Authority and
+            // version must not reveal history hidden by its deletion rules.
+            if matches!(
+                id.type_id.as_str(),
+                "text"
+                    | "markdown"
+                    | "reply"
+                    | "attachment"
+                    | "remoteStaticAttachment"
+                    | "transactionReference"
+                    | "walletSendCalls"
+                    | "multiRemoteStaticAttachment"
+            ) {
                 return Ok(None);
             }
         }

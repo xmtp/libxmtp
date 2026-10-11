@@ -30,5 +30,7 @@ Browser preparation uses a private OPFS working copy. Never export the complete
 source into a Vec or deserialize a second full copy in WASM memory.
 
 Check legacy deletion authority in SQL. Decode content type after the row
-budget check; cached type fields must not reveal a deleted body. Browser sources with SQLite sidecars must fail before copying;
+budget check; cached type fields must not reveal a deleted body. Use the pinned
+legacy type-name classifier, which ignores authority and major version.
+Browser sources with SQLite sidecars must fail before copying;
 never open the source with SQLite to recover it.
