@@ -510,7 +510,8 @@ internal class ConversationsController(
             owner.work.launch {
                 try {
                     beforeConsentDecision(decision)
-                    val chat = queries.find(owner, id) ?: throw FeatureInputFailure("This request is no longer available.")
+                    val chat =
+                        queries.find(owner, id) ?: throw FeatureInputFailure("This request is no longer available.")
                     if (!destinations.accepts(origin) ||
                         requestUi.value.conversationId != id ||
                         routeConversationId() != id
