@@ -261,6 +261,7 @@ class OfflineAndEventsInstrumentedTest {
                         .common.consentState,
                     currentConsent,
                 )
+                group.updateConsentState(ConsentState.ALLOWED)
                 sessionFixture.projection.onMessage = {
                     _,
                     message,
