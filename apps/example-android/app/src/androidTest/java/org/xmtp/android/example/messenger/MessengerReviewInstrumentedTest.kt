@@ -3,6 +3,7 @@ package org.xmtp.android.example.messenger
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.*
 import org.junit.Assert.*
