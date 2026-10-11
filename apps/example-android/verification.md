@@ -1,6 +1,7 @@
 # Messenger verification ledger
 
-The approved app plan uses P1–P35 and V1–V9. These are plan identifiers, not SDK
+The historical app plan uses P1–P35 and V1–V9.
+The redesign plan uses P1–P29. These are plan identifiers, not SDK
 spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
@@ -44,17 +45,17 @@ Counts are declared methods. They include support tests and the manual benchmark
 They do not count assertion statements or parameter rows. Routine Android counts
 include the optional configured-Firebase method; a skip must remain visible.
 
-| Layer | Baseline | PR1 architecture |
-| --- | ---: | ---: |
-| Host JVM | 83 | 77 |
-| Debug host | 1 | 1 |
-| Release host | 1 | 1 |
-| Routine installed Android | 138 | 137 |
-| Manual installed benchmark | 1 | 1 |
-| Release installed Android | 2 | 2 |
-| Fixture process methods | 32 | 32 |
-| Performance support methods | 22 | 22 |
-| **App tree total** | **280** | **273** |
+| Layer | Baseline | PR1 architecture | PR2 design |
+| --- | ---: | ---: | ---: |
+| Host JVM | 83 | 77 | 77 |
+| Debug host | 1 | 1 | 1 |
+| Release host | 1 | 1 | 1 |
+| Routine installed Android | 138 | 137 | 132 |
+| Manual installed benchmark | 1 | 1 | 1 |
+| Release installed Android | 2 | 2 | 2 |
+| Fixture process methods | 32 | 32 | 32 |
+| Performance support methods | 22 | 22 | 22 |
+| **App tree total** | **280** | **273** | **268** |
 
 The six duplicate host methods and one Activity smoke method were removed in
 PR1. The retained native proofs exercise the same contract through real SDK state.
@@ -163,6 +164,44 @@ The final test source compiled in the installed run. Format and Android lint
 passed in `format-architecture-review-6.log` and
 `lint-architecture-review-final.log`.
 
+### Final design evidence
+
+The restored full Debug suite uses source
+`61401309df3d7e69dba1a6a08ad3a9586c779273` with an empty source diff.
+Its archived files match the current source. Other rows retain their named
+tested source scope.
+
+| Proof | Recorded result |
+| --- | --- |
+| Complete current Debug suite | 132 cases: 131 passed, one configured-Firebase skip, zero failures or errors. XML and 27 exported PNGs: `ui-full-restored-final/`. Source/XML checks and PNG hashes: `ui-restored-full-verified.json`. |
+| Current host Debug and Release | `dev/nix-shell 'just example-android test :example:testReleaseUnitTest --rerun-tasks'`: 156 fresh executions passed, zero failures, errors, or skips at `61401309df`. All 266 archived source hashes match. XML: `ui-host-current-final/`. |
+| Current actual Release instrumentation | Two tests passed with no skips at `61401309df`, with an empty source diff. All 266 archived source hashes match. XML: `ui-release-current-final/`. |
+| Current format and Android lint | PASS at `61401309df`. Log: `lint-ui-current-final.log`. Release/host/lint evidence checks: `ui-final-gates-verified.json`. |
+| Actual large-text scale journey | `ScreenScaleInstrumentedTest.allScreensRemainReachableAtDoubleTextScale` passed in `ui-focused-sixth/`. The combined route failed its separate screen method. This is one passing named case, not a passing combined run. |
+| Main screen journey | `MessengerScreensInstrumentedTest.realSessionRendersSetupListMessagesAndSettings` passed at clean `41c370843c671a64b21581b7849473cf2797de2a` in `ui-screens-eighth/`. |
+| Native picker render and retention | The same main screen method passed with the picker fix in `ui-native-picker-square-positive/`. It detected 24 drawn emoji cells and retained the native grid after a state update with unchanged columns. Fourteen screenshots include the four rendered variants. |
+| UI source controls | All 18 controls failed at their intended assertions on the recorded pre-restack source. Target names, XML, patches, source/test hashes, and restoration were checked. Frozen index: `ui-controls-ee7491-summary.json`. This is control proof, not a complete restored suite. |
+
+The initial picker render check failed at `native picker draws visible emoji
+cells` in `ui-native-picker-positive/`. The same test SHA-256
+`994168b7571d57effb60d4b2027b6162fa91f987e42f3f202fc1dcfdf41c848d`
+passed after the host stopped setting an unchanged column count and stopped
+forcing five rows. The passing picker source SHA-256 is
+`9c59c5dc04c889856b3a388f4418366cc6aa9422eb58896002c4d0852bbf3a7d`.
+This positive run used `41c370843c` plus the recorded picker diff before rebase.
+The root agent inspected the full grid and all four variant images from
+`ui-screens-eighth/`. Source hashes and diffs retain the exact run scope.
+
+The complete run at `718f268bb7` had one Retry failure in
+`MessengerRaceInstrumentedTest.suspendedOldOpenCannotReplaceNewChatOrSettings`.
+The general failure banner now dispatches ShellAction.Refresh so Retry can
+reopen an unbound native chat. The same method passes in the complete restored
+run at `61401309df`. That run has no other failure or error.
+
+The root agent inspected the current inline reactions, reply composer, native
+emoji grid, dark Settings, RTL at 200% text, landscape with IME, and wide Chat
+PNGs. The expected controls and content render.
+
 ### Stable manual gaps
 
 - Real FCM receipt, background delivery, successful OS posting, and tap need a
@@ -174,6 +213,11 @@ passed in `format-architecture-review-6.log` and
   and restored same-dataset result need their explicit manual route. Functional
   ARM64 tests and host validators do not prove its timing or heap limits.
 
+- Physical predictive Back from both edges and complete IME/system-bar behavior
+  across OS versions need device proof beyond dispatcher-driven integration.
+- All-screen dark, RTL, landscape, wide-window, long-name, and reduced-motion
+  interaction needs further manual proof. The selected rendered journey above
+  has a smaller scope.
 - Edit-to-preview and test speed have no measured comparison on one machine and
   cache state. Package separation and fewer methods do not establish a speed gain.
 - SDK receipt semantics, typing, presence, calls, invitations, mixed pending
