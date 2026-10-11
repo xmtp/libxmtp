@@ -374,6 +374,84 @@ class MessengerScreensInstrumentedTest {
                 compose.onNodeWithContentDescription("More reactions").performClick()
                 compose.onNodeWithTag("emoji-sheet").assertExists()
                 until("bundled native font") { EmojiCompat.get().loadState == EmojiCompat.LOAD_STATE_SUCCEEDED }
+                var visibleNativeEmoji = 0
+                until("native picker draws visible emoji cells") {
+                    visibleNativeEmoji = 0
+                    Espresso.onView(isAssignableFrom(EmojiPickerView::class.java)).check { view, error ->
+                        if (error != null) throw error
+
+                        fun visit(cell: android.view.View) {
+                            val visible = android.graphics.Rect()
+                            if (cell.javaClass.name == "androidx.emoji2.emojipicker.EmojiView" &&
+                                !cell.contentDescription.isNullOrEmpty() && cell.isShown &&
+                                cell.width > 0 && cell.height > 0 && cell.getGlobalVisibleRect(visible) &&
+                                visible.width() >= cell.width / 2 && visible.height() >= cell.height / 2
+                            ) {
+                                val pixels =
+                                    android.graphics.Bitmap.createBitmap(
+                                        cell.width,
+                                        cell.height,
+                                        android.graphics.Bitmap.Config.ARGB_8888,
+                                    )
+                                try {
+                                    cell.draw(android.graphics.Canvas(pixels))
+                                    var painted = 0
+                                    for (y in 0 until pixels.height) {
+                                        for (x in 0 until pixels.width) {
+                                            if (android.graphics.Color.alpha(pixels.getPixel(x, y)) > 0) painted++
+                                        }
+                                    }
+                                    if (painted >= 32) visibleNativeEmoji++
+                                } finally {
+                                    pixels.recycle()
+                                }
+                            }
+                            if (cell is android.view.ViewGroup) repeat(cell.childCount) { visit(cell.getChildAt(it)) }
+                        }
+                        visit(view)
+                    }
+                    visibleNativeEmoji >= 3
+                }
+                assertTrue("The native picker must draw emoji, not only category headers", visibleNativeEmoji >= 3)
+                println("NATIVE_EMOJI_PROOF visibleDrawnCells=$visibleNativeEmoji")
+
+                fun nativeGrid(): RecyclerView {
+                    var grid: RecyclerView? = null
+                    Espresso.onView(isAssignableFrom(EmojiPickerView::class.java)).check { view, error ->
+                        if (error != null) throw error
+
+                        fun visit(child: android.view.View) {
+                            if (child is RecyclerView &&
+                                child.layoutManager is androidx.recyclerview.widget.GridLayoutManager
+                            ) {
+                                grid = child
+                            }
+                            if (child is android.view.ViewGroup) {
+                                repeat(
+                                    child.childCount,
+                                ) { visit(child.getChildAt(it)) }
+                            }
+                        }
+                        visit(view)
+                    }
+                    return checkNotNull(grid)
+                }
+                val loadedGrid = nativeGrid()
+                compose.onNodeWithTag("emoji-search").performTextInput(" ")
+                until("blank search updates native picker state") {
+                    graph.chat.state.value.overlay
+                        ?.emojiQuery == " "
+                }
+                compose.waitForIdle()
+                assertSame(
+                    "A state update with the same columns must keep the native emoji grid",
+                    loadedGrid,
+                    nativeGrid(),
+                )
+                compose.onNodeWithTag("emoji-search").performTextClearance()
+                compose.waitForIdle()
+                assertSame("Clearing a blank search must keep the native emoji grid", loadedGrid, nativeGrid())
+                Espresso.closeSoftKeyboard()
                 Espresso.onView(isAssignableFrom(EmojiPickerView::class.java)).check { view, error ->
                     if (error != null) throw error
                     val picker = view as EmojiPickerView

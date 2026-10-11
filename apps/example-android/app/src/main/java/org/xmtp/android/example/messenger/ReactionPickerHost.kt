@@ -277,7 +277,6 @@ private fun ReactionPickerContent(
                                     ),
                                 ).apply {
                                     emojiGridColumns = columns
-                                    emojiGridRows = 5f
                                     setRecentEmojiProvider(recents)
                                     setOnEmojiPickedListener { select(it.emoji) }
                                     viewTreeObserver.addOnGlobalLayoutListener {
@@ -287,7 +286,7 @@ private fun ReactionPickerContent(
                                 }
                             },
                             update = { picker ->
-                                picker.emojiGridColumns = columns
+                                if (picker.emojiGridColumns != columns) picker.emojiGridColumns = columns
                                 picker.minimumHeight = with(density) { 240.dp.roundToPx() }
                                 picker.setOnEmojiPickedListener { select(it.emoji) }
                                 tintPicker(picker, background, foreground)
