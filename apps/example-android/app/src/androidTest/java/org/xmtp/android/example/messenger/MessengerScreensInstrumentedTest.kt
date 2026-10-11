@@ -98,6 +98,32 @@ class MessengerScreensInstrumentedTest {
             val queueEntered = CompletableDeferred<Unit>()
             val releaseQueue = CompletableDeferred<Unit>()
             val actionFinished = CompletableDeferred<Unit>()
+
+            suspend fun awaitBarrier(
+                stage: String,
+                signal: Deferred<Unit>,
+            ) {
+                try {
+                    withTimeout(30_000) { signal.await() }
+                } catch (error: TimeoutCancellationException) {
+                    val nativeConsent =
+                        withContext(NonCancellable) {
+                            runCatching {
+                                withTimeout(1_000) { conversationState(request).consentState.toString() }
+                            }.getOrElse { "unavailable:${it.javaClass.simpleName}" }
+                        }
+                    val chat = graph.chat.state.value
+                    throw AssertionError(
+                        "Queued consent barrier timed out: stage=$stage heldReaction=$heldReaction " +
+                            "nativeConsent=$nativeConsent uiUnknown=${chat.unknown} " +
+                            "route=${graph.destinations.state.value.route} " +
+                            "nativeConversation=$requestId uiConversation=${chat.conversationId} " +
+                            "failure=${chat.failure} overlay=${chat.overlay} " +
+                            "actionFinished=${actionFinished.isCompleted} queueEntered=${queueEntered.isCompleted}",
+                        error,
+                    )
+                }
+            }
             graph.sends.afterQueueDraftCommit = {
                 queueEntered.complete(Unit)
                 releaseQueue.await()
@@ -128,11 +154,11 @@ class MessengerScreensInstrumentedTest {
                     composer().performTextReplacement(blockedText)
                     compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
                 }
-                withTimeout(30_000) { queueEntered.await() }
+                awaitBarrier("queueEntered", queueEntered)
                 request.updateConsentState(revokedConsent)
                 assertEquals(revokedConsent, conversationState(request).consentState)
                 releaseQueue.complete(Unit)
-                withTimeout(30_000) { actionFinished.await() }
+                awaitBarrier("actionFinished", actionFinished)
                 assertEquals(
                     "Queued outbound work must preserve revoked native consent",
                     revokedConsent,
