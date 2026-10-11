@@ -232,7 +232,7 @@ The unchanged test SHA-256 is `621be6c13fd9d3f15fbb2fb79ac44a26e553319c0777616ed
 | `ui-request-reaction-controls` | `2c4ceb73e94c7ed2718306f9a123039d31d66ecbe14f6c0bb56f9022b9711939` | `2d86675481ef04126e80058aaf1a00f08c23d70f34380f8fd2521344370a56a0` |
 | `ui-request-retained-reaction-consent` | `23277943a4d9b8dcba5a52d62addc13abd0ba0b0a29a3d13df5134af4524198d` | `642f8f0f83a5dbe411d6d5b26b319ebc2fe1d7f8e1b2c8cf5a92c5f092ee284d` |
 
-The final full Debug suite uses clean source
+The recorded full Debug suite uses clean source
 `706e88b9e5ba65185bceec9831c425bb45ef2fca`: 132 cases, 131 passed, one expected
 configured-Firebase skip, zero failures or errors. XML and 27 exported PNGs are
 in `ui-request-consent-full-restored/`. The consent verifier passed all three
@@ -247,7 +247,68 @@ inspections passed. Spotless and Android lint passed. Evidence is in
 visually inspected. The earlier inspected images retain their baseline scope.
 
 The 156 host and two actual Release passes at `61401309df` remain baseline
-proof. They were not repeated for the later consent repair.
+proof. They were not repeated for the UI consent repair at `706e88b9e5`.
+
+### Live consent admission
+
+Outbound queue, publication retry, and deletion read current native consent
+before their native write. ALLOWED is required. Session and destination checks
+surround that read. Queue checks after preparation, retry after the publication
+wait, and deletion after its message read. Attachment preparation runs before
+the shared queue check, so its last mutex wait cannot bypass live admission.
+
+A rejected queue or preparation/consent-read error rolls back its QUEUEING
+record under NonCancellable and keeps the draft. Rejected retry keeps its
+accepted publication recovery record. Dead attachment command paths and their
+unused projection work are removed.
+
+The existing main screen journey uses two helpers to hold outbound work and
+change real native consent. Its native assertions cover queued text/reaction,
+retry, and deletion rejection before the rendered Accept flow. No test method
+is added. The focused main screen and picker journeys retain their separate
+source/run scope. Earlier full Debug and host results retain their stated
+source scope.
+
+Admission and the native write are separate operations. An independent consent
+change after admission is outside this repair. No atomic guarantee is claimed.
+
+The focused main screen journey passed one test with no failures, errors,
+or skips in `ui-live-consent-positive-third/`. Its recorded scope is c058 plus
+the live-consent repair. The native picker focused journey passed separately
+with unchanged production. Neither focused result is a full-suite result.
+
+The `ui-request-live-native-consent` control failed once at
+`queuedConsentAdmission`, line 136: native consent became ALLOWED instead of
+remaining UNKNOWN. There were zero errors or skips. The restored source and
+archived test hashes retain their control scope. The production source is unchanged.
+
+Restored SendCoordinator SHA-256: `5f1f7136b132c7eb9670e7b2a11377989f325f4056b52fc1c2e65055a0117928`.
+
+Mutant SHA-256: `f9c149ee785241579f79d3987de0e174b55c332f305c7fda1135be82154552ae`.
+
+Archived control test SHA-256: `fa6fdaea158a8e352e25e72eb0fde5fb741f16f0093cd8fe7408a0e5e28e0444`.
+
+Final source is `ebc5756f08d2e89388511d678f3d9a563937c9d2`.
+The complete installed Debug suite has 132 cases: 131 passed, one unchanged
+configured-Firebase skip, zero failures or errors. Fresh host Debug and Release
+tests pass all 156 executions with no skips. Strict Debug/Release/shared/test
+APK builds, both APK JNI checks, Spotless, and Android lint pass. All 266 source
+hashes and the clean head are unchanged across these gates.
+
+The read-only live-consent verifier passes the source control, complete XML,
+and diagnostic equivalence checks. The archived native oracle is line 136 with
+test SHA-256 `fa6fdaea158a8e352e25e72eb0fde5fb741f16f0093cd8fe7408a0e5e28e0444`.
+The final diagnostic test is SHA-256
+`b7932a0f070da3775a73d9d6167bdb5539410ecd37b2d262cdf671a11ae44d39`, with that
+same native oracle at line 162. Removing only the diagnostic awaitBarrier helper
+and restoring the two 30,000 ms waits reproduces the archived test bytes.
+
+Final archives are `ui-live-consent-full-restored-third/`,
+`ui-live-consent-host-final-third/`, and `live-consent-final-gates-third.json`.
+The earlier full runs contain one fixture precondition failure and one queue
+wait timeout; neither receives passing credit. The fixture sets ALLOWED after
+the UNKNOWN lagged-event assertions before its separate early-send phase.
+Actual Release instrumentation remains scoped to the two passes at `61401309df`.
 
 ### Stable manual gaps
 
