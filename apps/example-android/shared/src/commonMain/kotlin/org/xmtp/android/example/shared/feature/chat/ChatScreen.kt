@@ -154,7 +154,7 @@ fun ChatScreen(
                     }
                 }
             } else {
-                Notice(failure.message, "Retry") { action(ChatAction.Refresh) }
+                Notice(failure.message, "Retry") { shellAction(ShellAction.Refresh) }
             }
         }
         state.historyNotice?.let { Notice(it) }
