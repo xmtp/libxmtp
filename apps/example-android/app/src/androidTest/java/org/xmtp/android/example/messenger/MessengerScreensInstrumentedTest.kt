@@ -165,6 +165,7 @@ class MessengerScreensInstrumentedTest {
                         releaseSend.await()
                     }
                 }
+                val jobsBeforeSend = checkNotNull(owner.work.coroutineContext[Job]).children.toSet()
                 compose.runOnIdle {
                     val chat = graphRule.graph.chat
                     val repeated =
@@ -177,7 +178,8 @@ class MessengerScreensInstrumentedTest {
                     chat.dispatch(repeated)
                 }
                 withTimeout(30_000) { sendEntered.await() }
-                val submittedJobs = checkNotNull(owner.work.coroutineContext[Job]).children.toList()
+                val submittedJobs =
+                    checkNotNull(owner.work.coroutineContext[Job]).children.filterNot { it in jobsBeforeSend }.toList()
                 releaseSend.complete(Unit)
                 withTimeout(30_000) { submittedJobs.forEach { it.join() } }
                 graphRule.graph.chat.beforeQueuedAction = {}

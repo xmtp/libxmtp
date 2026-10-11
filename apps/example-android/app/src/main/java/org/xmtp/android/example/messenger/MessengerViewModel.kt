@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import org.xmtp.android.example.messenger.app.AppGraph
+import org.xmtp.android.example.messenger.app.RouteOwner
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.attachments.AttachmentAction
 import org.xmtp.android.example.shared.feature.chat.ChatAction
@@ -271,8 +272,9 @@ internal class MessengerViewModel(
         }
     }
 
-    private fun route(screen: Screen): AppRoute =
-        when (screen) {
+    private fun route(screen: Screen): AppRoute {
+        val conversationId = RouteOwner.conversationId(graph.destinations.state.value.route)
+        return when (screen) {
             Screen.START -> {
                 AppRoute.Connect
             }
@@ -286,12 +288,12 @@ internal class MessengerViewModel(
             }
 
             Screen.TIMELINE -> {
-                chat.state.value.conversationId
+                conversationId
                     ?.let { AppRoute.Chat(it) } ?: AppRoute.Chats
             }
 
             Screen.CONVERSATION_SETTINGS -> {
-                chat.state.value.conversationId
+                conversationId
                     ?.let { AppRoute.ConversationDetails(it) }
                     ?: AppRoute.Chats
             }
@@ -301,12 +303,12 @@ internal class MessengerViewModel(
             }
 
             Screen.GROUP_FIELDS -> {
-                chat.state.value.conversationId
+                conversationId
                     ?.let { AppRoute.GroupFields(it) } ?: AppRoute.Chats
             }
 
             Screen.MY_FIELDS -> {
-                chat.state.value.conversationId
+                conversationId
                     ?.let { AppRoute.OwnFields(it) } ?: AppRoute.Chats
             }
 
@@ -314,4 +316,5 @@ internal class MessengerViewModel(
                 AppRoute.AttachmentRecovery
             }
         }
+    }
 }

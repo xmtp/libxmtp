@@ -347,16 +347,13 @@ import kotlin.math.roundToInt
                     ).testTag("message-composer")
                     .background(Color(0xFFF1F3F7), RoundedCornerShape(28.dp)),
             ) {
-                state.messages.firstOrNull { it.id == state.composer.reply?.messageId && !it.deleted }?.let { parent ->
+                state.composer.reply?.let { reply ->
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            parent.text
-                                .lineSequence()
-                                .firstOrNull()
-                                .orEmpty(),
+                            reply.firstLine,
                             Modifier.weight(1f),
                             color = blue,
                             maxLines = 1,
