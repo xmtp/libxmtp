@@ -18,6 +18,8 @@ import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.notifications.NotificationController
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.feature.chat.ChatAction
+import org.xmtp.android.example.shared.feature.connect.ConnectAction
+import org.xmtp.android.example.shared.feature.connect.ProbeState
 import uniffi.xmtp_sdk.*
 import java.io.IOException
 import java.net.URI
@@ -42,11 +44,11 @@ class MessengerRecoveryUxInstrumentedTest {
         }
     }
 
-    private suspend fun chat(): Pair<ActiveSession, Group> {
+    private suspend fun chat(backend: String = BuildConfig.XMTP_BACKEND_URL): Pair<ActiveSession, Group> {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
         model.session.signOut()
-        model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
+        model.session.connect(backend, "", true)
         val owner = checkNotNull(model.session.active.value)
         until("connected UI") { model.state.value.inbox == owner.client.inboxId() }
         val group =
@@ -240,7 +242,9 @@ class MessengerRecoveryUxInstrumentedTest {
         runBlocking {
             val store = ViewModelStore()
             try {
-                val (owner, _) = chat()
+                val savedBackend = "http://127.0.0.1:${URI(BuildConfig.XMTP_BACKEND_URL).port}"
+                assertNotEquals(BuildConfig.XMTP_BACKEND_URL.trim().trimEnd('/'), savedBackend)
+                val (owner, _) = chat(savedBackend)
                 val saved = owner.profile
                 model.session.signOut()
                 val restoredGraph = graphRule.replaceGraph()
@@ -254,15 +258,44 @@ class MessengerRecoveryUxInstrumentedTest {
                     restoreAttempts.incrementAndGet()
                     throw IOException("Saved restore failed")
                 }
+                val config =
+                    SDKClient.fetchServerConfiguration(
+                        BackendSource.Options(BackendOptions(url = savedBackend)),
+                    )
+                restoredGraph.connect.inspectBackend = { address ->
+                    config.copy(auth = config.auth.copy(enabled = address == savedBackend))
+                }
+                restoredGraph.connect.dispatch(ConnectAction.Inspect(BuildConfig.XMTP_BACKEND_URL))
                 val fresh = withContext(Dispatchers.Main) { graphRule.newShell(store) }
-                until("failed actual startup restore") { fresh.connect.state.value.failure != null }
+                until("failed actual startup restore") {
+                    fresh.connect.state.value.failure
+                        ?.code == "restore"
+                }
+                until("saved server credential probe") {
+                    val state = fresh.connect.state.value
+                    state.backend == savedBackend && state.normalizedBackend == savedBackend &&
+                        state.probe == ProbeState.READY && state.credentialsRequiredFor == savedBackend
+                }
+                fresh.connect.dispatch(ConnectAction.InspectCurrent)
+                assertEquals(savedBackend, fresh.connect.state.value.backend)
+                assertEquals(ProbeState.READY, fresh.connect.state.value.probe)
                 compose.runOnUiThread {
                     compose.activity.setContent {
                         MessengerScreens(fresh.state.collectAsState().value, fresh::dispatch)
                     }
                 }
                 compose.onNodeWithText("Backend URL").assertTextContains(saved.backend)
-                compose.onNodeWithText("Retry").performClick()
+                compose
+                    .onNodeWithText("Credential")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                compose
+                    .onNodeWithText("Retry")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performClick()
                 until("second actual restore failure") {
                     restoreAttempts.get() == 2 && !fresh.connect.state.value.busy &&
                         fresh.connect.state.value.failure != null
@@ -273,7 +306,12 @@ class MessengerRecoveryUxInstrumentedTest {
                         ?.code,
                 )
                 restoredSession.beforeClientBuild = {}
-                compose.onNodeWithText("Retry").performClick()
+                compose
+                    .onNodeWithText("Retry")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performClick()
                 until("saved native owner restored by Retry") { restoredSession.active.value != null }
                 val restored = checkNotNull(restoredSession.active.value)
                 assertEquals(saved.backend, restored.profile.backend)

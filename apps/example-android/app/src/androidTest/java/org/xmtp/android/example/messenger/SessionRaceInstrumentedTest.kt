@@ -207,6 +207,17 @@ class SessionRaceInstrumentedTest {
 
     @Test fun invalidationDuringCallbackDoesNotAcknowledgeWhileUnregisterIsBlocked() =
         runBlocking {
+            // Keep each existing deadline and name the wait that fails.
+            suspend fun <T> atStage(
+                stage: String,
+                action: suspend () -> T,
+            ): T =
+                try {
+                    withTimeout(30_000) { action() }
+                } catch (error: TimeoutCancellationException) {
+                    throw AssertionError("Stage: $stage", error)
+                }
+
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
             val session = graphRule.graph.session
@@ -248,7 +259,7 @@ class SessionRaceInstrumentedTest {
                 peerReader = launch { second.conversations.streamAllMessages().collect { } }
                 val remote = second.conversations.createDm(owner.client.inboxId())
                 val id = remote.sendText("Unacknowledged callback")
-                withTimeout(30_000) { entered.await() }
+                atStage("required handler entry") { entered.await() }
                 withContext(Dispatchers.Main) {
                     oldShellStore.clear()
                     graphRule.newShell(newShellStore)
@@ -256,7 +267,7 @@ class SessionRaceInstrumentedTest {
                 assertSame(owner, session.active.value)
                 assertEquals("Shell replacement adds no required handler", 1, handled.get())
                 val stillOwned =
-                    withTimeout(30_000) {
+                    atStage("default reader ownership after shell replacement") {
                         runCatching {
                             owner.client.conversations
                                 .streamAllMessages()
@@ -275,7 +286,7 @@ class SessionRaceInstrumentedTest {
                 release.complete(Unit)
                 unregistering.await()
                 val replay =
-                    withTimeout(30_000) {
+                    atStage("original native ID replay while unregister is blocked") {
                         var message: Message? = null
                         while (message == null) {
                             try {

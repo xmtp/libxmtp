@@ -41,10 +41,10 @@ class MessengerRaceInstrumentedTest {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
         model.session.signOut()
-        until { model.state.value.screen == Screen.START }
+        until("Connect route after sign-out") { model.state.value.screen == Screen.START }
         model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
         val owner = checkNotNull(model.session.active.value)
-        until {
+        until("Chats projection after native connect") {
             model.state.value.inbox == owner.client.inboxId() && model.state.value.screen == Screen.CONVERSATIONS
         }
         model.foreground(false)
@@ -65,6 +65,18 @@ class MessengerRaceInstrumentedTest {
         runBlocking {
             val release = CompletableDeferred<Unit>()
             val releaseB = CompletableDeferred<Unit>()
+
+            // Keep each existing deadline and name the wait that fails.
+            suspend fun <T> atStage(
+                stage: String,
+                action: suspend () -> T,
+            ): T =
+                try {
+                    withTimeout(30_000) { action() }
+                } catch (error: TimeoutCancellationException) {
+                    throw AssertionError("Stage: $stage", error)
+                }
+
             try {
                 val owner = connect()
                 val a = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "A"))
@@ -98,7 +110,7 @@ class MessengerRaceInstrumentedTest {
                     result
                 }
                 model.dispatch(MessengerAction.OpenConversation(a.id()))
-                withTimeout(30_000) { entered.await() }
+                atStage("old A native lookup entry") { entered.await() }
                 println("OPEN_PROOF stage=old-lookup-blocked attempt=$attemptA")
                 model.dispatch(MessengerAction.OpenConversation(b.id()))
                 try {
@@ -118,20 +130,20 @@ class MessengerRaceInstrumentedTest {
                     throw AssertionError("B settings: screen=$screen title=$title", error)
                 }
                 release.complete(Unit)
-                withTimeout(30_000) { returned.await() }
-                withTimeout(30_000) { completed.await() }
+                atStage("released old A native lookup return") { returned.await() }
+                atStage("old A open completion") { completed.await() }
                 assertEquals(b.id(), model.state.value.conversationId)
                 assertEquals(Screen.CONVERSATION_SETTINGS, model.state.value.screen)
 
                 model.chat.lookupConversation = { current, id -> current.client.conversations.getById(id) }
                 val retainedA = a.sendText("Retained A while B opens")
                 model.dispatch(MessengerAction.OpenConversation(aId))
-                until {
+                until("retained A native transcript") {
                     model.chat.state.value.messages
                         .any { it.id == retainedA } && !model.chat.state.value.busy
                 }
                 model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
-                until { model.state.value.screen == Screen.CONVERSATIONS }
+                until("Chats route before held B lookup") { model.state.value.screen == Screen.CONVERSATIONS }
                 val beforeA =
                     Conversation
                         .Group(
@@ -154,8 +166,8 @@ class MessengerRaceInstrumentedTest {
                     found
                 }
                 model.dispatch(MessengerAction.OpenConversation(bId))
-                withTimeout(30_000) { enteredB.await() }
-                until {
+                atStage("held B native lookup entry") { enteredB.await() }
+                until("loading B hides retained A") {
                     model.state.value.chatState
                         ?.let { it.busy && it.conversationId == bId } == true
                 }
@@ -170,7 +182,7 @@ class MessengerRaceInstrumentedTest {
                             it !in
                                 earlierCommands
                         }.toList()
-                withTimeout(30_000) { attemptedCommands.forEach { it.join() } }
+                atStage("stale destination command completion") { attemptedCommands.forEach { it.join() } }
                 assertEquals(
                     beforeA,
                     Conversation.Group(a).messages(publishedSelection().copy(deliveryStatus = null)).map { it.id },
@@ -180,11 +192,14 @@ class MessengerRaceInstrumentedTest {
                     Conversation.Group(b).messages(publishedSelection().copy(deliveryStatus = null)).map { it.id },
                 )
                 releaseB.complete(Unit)
-                until { model.chat.state.value.conversationId == bId && !model.chat.state.value.busy }
+                until("released B native transcript") {
+                    model.chat.state.value.conversationId == bId &&
+                        !model.chat.state.value.busy
+                }
                 model.chat.lookupConversation = { current, id -> current.client.conversations.getById(id) }
                 compose.onNodeWithText("Message").performTextReplacement("Explicit B send")
                 compose.onNodeWithText("Send").performClick()
-                until {
+                until("explicit B native send") {
                     Conversation.Group(b).messages(publishedSelection()).any {
                         it.standardContent() ==
                             MessageContent.Text("Explicit B send")

@@ -27,6 +27,8 @@ sealed interface ConnectAction {
         val value: String,
     ) : ConnectAction
 
+    data object InspectCurrent : ConnectAction
+
     data class Inspect(
         val backend: String,
     ) : ConnectAction

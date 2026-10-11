@@ -30,6 +30,7 @@ internal class ConnectController(
     private val inspections = AtomicLong()
     private var restoreJob: Job? = null
     private var probeJob: Job? = null
+    private var inspectedDestinationToken: Long? = null
     private var started = false
     private var lastAttempt: Pair<String, String?>? = null
     internal var inspectBackend: suspend (String) -> uniffi.xmtp_sdk.ServerConfiguration = probe::inspect
@@ -48,6 +49,7 @@ internal class ConnectController(
                         session.withStateLock {
                             if (operations.get() == 0L) {
                                 ui.update { it.copy(backend = saved.backend, label = label) }
+                                inspectCurrent()
                             }
                         }
                     }
@@ -99,15 +101,11 @@ internal class ConnectController(
     fun dispatch(action: ConnectAction) {
         when (action) {
             is ConnectAction.ChangeBackend -> {
-                ui.update {
-                    it.copy(
-                        backend =
-                            action.value,
-                        failure =
-                            it.failure.takeUnless { failure -> failure?.code == "server-probe" },
-                    )
-                }
                 inspect(action.value)
+            }
+
+            ConnectAction.InspectCurrent -> {
+                inspectCurrent()
             }
 
             is ConnectAction.Inspect -> {
@@ -239,70 +237,89 @@ internal class ConnectController(
         }
     }
 
-    private fun inspect(backend: String) {
-        val address = backend.trim().trimEnd('/')
-        val attempt = inspections.incrementAndGet()
-        val token = destinations.state.value.token
-        ui.update {
-            it.copy(
-                backend =
-                backend,
-                normalizedBackend =
-                address,
-                probe =
-                    ProbeState.CHECKING,
-                credentialsRequiredFor =
-                null,
-                failure =
-                    it.failure.takeUnless { failure -> failure?.code == "server-probe" },
-            )
-        }
-        probeJob?.cancel()
-        probeJob =
-            scope.launch(Dispatchers.IO) {
-                try {
-                    delay(300)
-                    val result = inspectBackend(validatedBackendUrl(address))
-                    if (attempt == inspections.get() &&
-                        token == destinations.state.value.token &&
-                        destinations.state.value.route == AppRoute.Connect &&
-                        ui.value.normalizedBackend == address
-                    ) {
-                        ui.update {
-                            it.copy(
-                                probe =
-                                    ProbeState.READY,
-                                credentialsRequiredFor =
-                                    address.takeIf {
-                                        result.auth.enabled
-                                    },
-                            )
-                        }
-                    }
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    if (attempt == inspections.get() &&
-                        token == destinations.state.value.token
-                    ) {
-                        ui.update {
-                            it.copy(
-                                probe =
-                                    ProbeState.FAILED,
-                                credentialsRequiredFor =
-                                null,
-                                failure =
-                                    it.failure.takeUnless { failure -> failure?.code == "server-probe" }
-                                        ?: featureFailure(
-                                            error,
-                                            "Cannot check this server. Try again.",
-                                            "server-probe",
-                                        ),
-                            )
-                        }
-                    }
-                } finally {
-                    onBackendProbeFinished(attempt, address)
-                }
+    private fun inspectCurrent() {
+        session.withStateLock {
+            val current = ui.value
+            val destination = destinations.state.value
+            if (destination.route != AppRoute.Connect || current.backend.isBlank()) return@withStateLock
+            val address = current.backend.trim().trimEnd('/')
+            if (inspectedDestinationToken == destination.token && current.normalizedBackend == address &&
+                (current.probe == ProbeState.CHECKING || current.probe == ProbeState.READY)
+            ) {
+                return@withStateLock
             }
+            inspect(current.backend)
+        }
+    }
+
+    private fun inspect(backend: String) {
+        session.withStateLock {
+            val address = backend.trim().trimEnd('/')
+            val attempt = inspections.incrementAndGet()
+            val token = destinations.state.value.token
+            inspectedDestinationToken = token
+            ui.update {
+                it.copy(
+                    backend = backend,
+                    normalizedBackend = address,
+                    probe = ProbeState.CHECKING,
+                    credentialsRequiredFor = null,
+                    failure = it.failure.takeUnless { failure -> failure?.code == "server-probe" },
+                )
+            }
+            probeJob?.cancel()
+            probeJob =
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        delay(300)
+                        val result = inspectBackend(validatedBackendUrl(address))
+                        session.withStateLock {
+                            if (attempt == inspections.get() &&
+                                token == destinations.state.value.token &&
+                                destinations.state.value.route == AppRoute.Connect &&
+                                ui.value.normalizedBackend == address &&
+                                ui.value.backend
+                                    .trim()
+                                    .trimEnd('/') == address
+                            ) {
+                                ui.update {
+                                    it.copy(
+                                        probe = ProbeState.READY,
+                                        credentialsRequiredFor = address.takeIf { result.auth.enabled },
+                                    )
+                                }
+                            }
+                        }
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                        session.withStateLock {
+                            if (attempt == inspections.get() &&
+                                token == destinations.state.value.token &&
+                                destinations.state.value.route == AppRoute.Connect &&
+                                ui.value.normalizedBackend == address &&
+                                ui.value.backend
+                                    .trim()
+                                    .trimEnd('/') == address
+                            ) {
+                                ui.update {
+                                    it.copy(
+                                        probe = ProbeState.FAILED,
+                                        credentialsRequiredFor = null,
+                                        failure =
+                                            it.failure.takeUnless { failure -> failure?.code == "server-probe" }
+                                                ?: featureFailure(
+                                                    error,
+                                                    "Cannot check this server. Try again.",
+                                                    "server-probe",
+                                                ),
+                                    )
+                                }
+                            }
+                        }
+                    } finally {
+                        onBackendProbeFinished(attempt, address)
+                    }
+                }
+        }
     }
 }

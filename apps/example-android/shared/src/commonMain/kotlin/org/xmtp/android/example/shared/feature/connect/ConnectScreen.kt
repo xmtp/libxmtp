@@ -19,7 +19,7 @@ import org.xmtp.android.example.shared.*
     val backend = state.backend
     var credential by remember(backend) { mutableStateOf("") }
     val requiresCredential = state.credentialsRequiredFor == backend.trim().trimEnd('/')
-    LaunchedEffect(Unit) { action(ConnectAction.Inspect(backend)) }
+    LaunchedEffect(Unit) { action(ConnectAction.InspectCurrent) }
 
     fun connectCredential() = credential.takeIf { requiresCredential && it.isNotBlank() }
     Column(
@@ -86,7 +86,6 @@ import org.xmtp.android.example.shared.*
             backend,
             {
                 action(ConnectAction.ChangeBackend(it))
-                action(ConnectAction.Inspect(it))
             },
             label = {
                 Text("Backend URL")
