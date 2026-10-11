@@ -97,6 +97,8 @@ pub async fn prepare_migration_archive(
 }
 
 /// Read only a completed browser archive for the existing byte-based importer.
+/// Archives up to 100 MB (100,000,000 bytes), inclusive, are supported.
+/// A larger archive returns MigrationOutput before its bytes are allocated.
 #[xmtp_macro::sdk_export(wasm_only)]
 pub async fn read_migration_archive(archive_path: String) -> Result<Vec<u8>, XmtpError> {
     xmtp_legacy_migration::read_migration_archive(archive_path)

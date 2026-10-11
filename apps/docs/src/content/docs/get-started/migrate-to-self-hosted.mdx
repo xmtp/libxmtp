@@ -110,10 +110,17 @@ A database created before the transition is rejected with this error:
 This database predates the backend transition. Delete the database file and create a new client.
 ```
 
-The error is not retryable. The SDK leaves the database intact. Export required
-history with the old SDK first. Then use a new storage location, or remove the
-old database through the app's migration flow. The new SDK cannot open it to
-export history and does not provide a conversion API.
+The error is not retryable. The SDK leaves the database intact. Close the old
+client before file operations. Use prepareMigrationArchive from the normal SDK
+package to convert a supported legacy database into an encrypted history archive.
+The converter uses a temporary copy and does not need a client or network access.
+Import that archive through the new client's archives resource. Then use a new
+storage location, or remove the old database through the app's migration flow.
+The normal client cannot open a legacy database directly.
+
+Browser readMigrationArchive loads the completed archive into memory. It accepts
+up to 100 MB (100,000,000 bytes), inclusive, and returns MigrationOutput for a
+larger archive before allocating its bytes. The per-record limit is separate.
 
 A new database creates a new installation. Register it on the new backend.
 After migration, preserve the database and its key between launches to avoid

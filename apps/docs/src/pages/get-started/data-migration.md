@@ -66,7 +66,7 @@ Use the exact legacy database name, including its leading slash if present. `out
 
 ```
 
-Open the destination client after conversion completes. `readMigrationArchive` returns the completed file as bytes for the existing importer:
+Open the destination client after conversion completes. `readMigrationArchive` returns the completed file as bytes for the existing importer. Browser archive read and import run in memory. The reader checks the completed archive size before allocating its bytes. It accepts up to 100 MB (100,000,000 bytes), inclusive. A larger archive returns `MigrationOutput` and leaves the published file unchanged. This limit is separate from the 64 MiB per-row budget. Native file import has no Browser read limit.
 
 ```ts source="legacy-migration-browser.ts" region="migrate"
 

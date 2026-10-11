@@ -120,3 +120,13 @@ Count TEXT as bytes, not characters, including embedded NULs. An absent optional
 field contributes zero bytes. Optional MLS context data has a separate decode
 budget. This is a per-row limit, not a database or archive size limit. Conversion
 does not skip an oversized eligible row.
+
+## 4. Archive byte reads
+
+The Browser SDK supplies completed archive bytes through readMigrationArchive
+for the existing byte-based importer. Its 100 MB archive limit is separate from
+the per-row budget in MIG-007. Native file import does not use this byte reader.
+
+| ID      | Title                   | Requirement                                                                                                                                                                                                                                    | Why                                                                    |
+| ------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| MIG-008 | Archive byte-read limit | When readMigrationArchive is called, the SDK MUST reject a completed archive larger than 100,000,000 bytes with MigrationOutput before allocating its bytes. It MUST NOT reject an archive of exactly 100,000,000 bytes because of its length. | A caller must not allocate an unbounded archive for byte-based import. |

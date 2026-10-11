@@ -55,6 +55,57 @@ try {
     },
     { source, fixture },
   );
+  if (["all", "input"].includes(selected)) {
+    const result = await page.evaluate(async (fixture) => {
+      const { fixtureCall } = await import("./support.mjs");
+      const sdk = await import("/target/sdk-packages/browser/entry.js");
+      const path = "/invalid-setup.db3";
+      const damaged = new Uint8Array(fixture);
+      damaged[100] = 0;
+      await fixtureCall({ operation: "import", path, bytes: damaged });
+      const args = {
+        databasePath: path,
+        archiveKey: new Uint8Array(32).fill(7),
+        outputPath: "invalid-setup.xmtp",
+      };
+      let input;
+      try {
+        await sdk.prepareMigrationArchive(args);
+      } catch (error) {
+        input = error instanceof sdk.XmtpError.InvalidInput;
+      }
+      const after = await fixtureCall({ operation: "export", path });
+      let unpublished;
+      try {
+        await sdk.readMigrationArchive(args.outputPath);
+      } catch (error) {
+        unpublished = error instanceof sdk.XmtpError.MigrationOutput;
+      }
+      const retry = await sdk.prepareMigrationArchive({
+        ...args,
+        databasePath: "/migration-regression.db3",
+      });
+      return {
+        input,
+        unpublished,
+        sourceUnchanged:
+          after.length === damaged.length &&
+          after.every((byte, index) => byte === damaged[index]),
+        retry: retry.messageCount,
+      };
+    }, fixture);
+    assert.equal(
+      result.input,
+      true,
+      "SQLite setup failure was classified as a record read",
+    );
+    assert.equal(result.unpublished, true);
+    assert.equal(result.sourceUnchanged, true);
+    assert.equal(result.retry, 3n);
+    console.log(
+      "SQLite setup: typed input failure, source preservation, no output, and retry passed",
+    );
+  }
   if (["all", "memory"].includes(selected)) {
     const temporary = await mkdtemp(join(tmpdir(), "migration-memory-"));
     const memoryPage = await browser.newPage();

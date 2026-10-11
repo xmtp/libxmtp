@@ -1,5 +1,6 @@
 // Completed objects become visible only when the IndexedDB record commits.
 const storageName = "xmtp-migration-archives";
+const MAX_ARCHIVE_READ_BYTES = 100_000_000;
 function openRecords() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(storageName, 1);
@@ -151,6 +152,7 @@ export async function commitMigrationOutput(output) {
     output.release();
   }
 }
+// implements: MIG-008
 export async function readMigrationOutput(path) {
   return lock(path, async () => {
     const published = await record(path);
@@ -168,6 +170,9 @@ export async function readMigrationOutput(path) {
         "NotFoundError",
       );
     const file = await folder.getFileHandle(published);
-    return new Uint8Array(await (await file.getFile()).arrayBuffer());
+    const archive = await file.getFile();
+    if (archive.size > MAX_ARCHIVE_READ_BYTES)
+      throw new RangeError("Migration archive exceeds the 100 MB read limit");
+    return new Uint8Array(await archive.arrayBuffer());
   });
 }

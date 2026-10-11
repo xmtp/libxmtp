@@ -546,7 +546,7 @@ fn special_source_files_are_rejected_without_blocking() {
         let path = PathBuf::from(path);
         if std::env::var_os(PROBE_DIRECT).is_some() {
             // The caller saw a regular file before this path was replaced.
-            assert!(open_regular_source(&path).is_err());
+            assert!(open_regular_source(&path, true).is_err());
         } else {
             let output = path.parent().unwrap().join("history.xmtp");
             assert!(matches!(
@@ -782,6 +782,45 @@ async fn source_symlinks_preserve_wal_and_salt() {
 }
 
 // verifies: MIG-004
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn symlink_sidecars_are_rejected_before_copying() {
+    for suffix in SIDECARS.iter().filter(|suffix| !suffix.is_empty()) {
+        let (directory, args) = fixture("encrypted.db3");
+        let foreign = tempfile::tempdir()?;
+        let source_sidecar = sidecar(Path::new(&args.database_path), suffix);
+        let foreign_sidecar = foreign.path().join("other-sidecar");
+        if source_sidecar.exists() {
+            fs::rename(&source_sidecar, &foreign_sidecar)?;
+        } else {
+            fs::write(&foreign_sidecar, [])?;
+        }
+        std::os::unix::fs::symlink(&foreign_sidecar, &source_sidecar)?;
+        let before = source_bytes(&args);
+        let foreign_before = fs::read(&foreign_sidecar)?;
+        fs::write(&args.output_path, b"completed archive")?;
+        let before_entries = entries(directory.path());
+        assert!(
+            matches!(
+                prepare_migration_archive(args.clone()).await,
+                Err(MigrationError::InvalidInput(_))
+            ),
+            "symlink sidecar was accepted: {suffix}"
+        );
+        // Also cover a path replaced after the caller inspected its type.
+        assert!(open_regular_source(&source_sidecar, false).is_err());
+        assert!(
+            fs::symlink_metadata(&source_sidecar)?
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(source_bytes(&args), before);
+        assert_eq!(fs::read(&foreign_sidecar)?, foreign_before);
+        assert_eq!(fs::read(&args.output_path)?, b"completed archive");
+        assert_eq!(entries(directory.path()), before_entries);
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn dropped_call_stops_source_copy() {
     struct GatedWriter {

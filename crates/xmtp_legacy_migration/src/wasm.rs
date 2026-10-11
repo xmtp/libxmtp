@@ -100,7 +100,8 @@ pub(crate) async fn prepare(
         .map_err(|error| MigrationError::InvalidInput(InputError::Database(error)))?;
     conn.batch_execute(
         "PRAGMA journal_mode=DELETE; PRAGMA cache_size=-2048; PRAGMA temp_store=FILE;",
-    )?;
+    )
+    .map_err(|error| MigrationError::InvalidInput(InputError::Read(error)))?;
     // Browser cancellation terminates the worker.
     crate::migrations::apply(&mut conn, || Ok(()))?;
     let mut sink = Output(begin_output(&args.output_path).await.map_err(output)?);

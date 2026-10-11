@@ -93,7 +93,12 @@ fn working_copy(
             if target == path {
                 return Err(MigrationError::invalid("output aliases source storage"));
             }
-            match fs::metadata(&path) {
+            let metadata = if suffix.is_empty() {
+                fs::metadata(&path)
+            } else {
+                fs::symlink_metadata(&path)
+            };
+            match metadata {
                 Ok(metadata) if metadata.is_file() => (),
                 Ok(_) => {
                     return Err(MigrationError::invalid(
@@ -105,7 +110,7 @@ fn working_copy(
                 }
                 Err(error) => return Err(input(error)),
             }
-            let file = match open_regular_source(&path) {
+            let file = match open_regular_source(&path, suffix.is_empty()) {
                 Ok(file) => file,
                 Err(error) if error.kind() == io::ErrorKind::NotFound && !suffix.is_empty() => {
                     continue;
@@ -158,17 +163,24 @@ fn working_copy(
     Ok(directory)
 }
 
-fn open_regular_source(path: &Path) -> io::Result<fs::File> {
+fn open_regular_source(path: &Path, follow_symlinks: bool) -> io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         // A path can become a FIFO after the caller checks its type.
-        options.custom_flags(libc::O_NONBLOCK);
+        options.custom_flags(libc::O_NONBLOCK | if follow_symlinks { 0 } else { libc::O_NOFOLLOW });
+    }
+    #[cfg(windows)]
+    if !follow_symlinks {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let file = options.open(path)?;
-    if !file.metadata()?.is_file() {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "source storage is not a regular file",
@@ -264,7 +276,7 @@ fn open_copy(path: &Path, key: Option<&[u8]>) -> Result<SqliteConnection, Migrat
             .map_err(input)?;
         let salt = sidecar(path, ".sqlcipher_salt");
         if salt.exists() {
-            let salt = open_regular_source(&salt).map_err(input)?;
+            let salt = open_regular_source(&salt, false).map_err(input)?;
             check_salt_size(&salt)?;
             let salt = hex::decode(read_salt(salt)?).map_err(input)?;
             if salt.len() != SALT_BYTES {

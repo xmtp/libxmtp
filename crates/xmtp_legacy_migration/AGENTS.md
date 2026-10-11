@@ -34,3 +34,8 @@ budget check; cached type fields must not reveal a deleted body. Use the pinned
 legacy type-name classifier, which ignores authority and major version.
 Browser sources with SQLite sidecars must fail before copying;
 never open the source with SQLite to recover it.
+
+Native sidecars must be regular files. Reject symlinks and use a no-follow open
+to guard against replacement after a type check. Main database symlinks remain
+supported. Browser archive byte reads have a fixed inclusive 100 MB limit and
+check file size before allocation.
