@@ -9,12 +9,78 @@ dependency verification inventory.
 
 This app is for testing and debugging purposes only.
 
+## Code structure
+
+The app keeps two Gradle modules. `app` owns Android and SDK integration.
+`shared` owns display records, typed actions, screen components, and fixed
+preview data. Shared code does not hold SDK objects or Android services.
+
+`ExampleApp` constructs one `AppGraph` per process. The graph supplies these
+owners through constructors:
+
+| Path under `messenger` | Responsibility |
+| --- | --- |
+| `app` | Construct owners and validate navigation. Save route and profile IDs. |
+| `session` | Own client lifetime, sequential readers, and cleanup order. |
+| `feature/connect` | Inspect server capabilities and connect a profile. |
+| `feature/conversations` | Load chats and requests; create conversations. |
+| `feature/chat` | Own composer drafts, send state, history, and message actions. |
+| `feature/group` | Edit group settings, members, and application fields. |
+| `feature/settings` | Own app settings, sign out, and local reset actions. |
+| `feature/attachments` | Own transfers, verified files, and pending device requests. |
+| `data/xmtp` | Implement query interfaces and required message projections. |
+| `data/profile` | Replay durable profile cleanup. |
+| `platform` | Bind device results to a session and navigation request. |
+
+`MessengerViewModel` connects these owners to the Activity. It translates the
+screen API and combines display state. It does not start another message reader
+or own SDK caches. `MainActivity` launches device requests and hosts Compose.
+Activity replacement keeps the graph, transfers, and composer drafts.
+
+Each feature exposes immutable state and typed actions. Add feature behavior to
+its controller and query interface. Add layout to the matching shared screen.
+The fixed feature fixtures let a screen render without a client or backend.
+Keep temporary secrets out of route state, logs, and fixtures.
+
+### Send and restore
+
+A text send first saves a small attempt record. The SDK then saves the message
+locally with `optimistic = true` and returns its ID. The app records that ID and
+publishes the same stored message. Publication retry uses the original ID.
+The attempt record contains references and send phase, not the message body.
+Publication success removes it.
+
+The SDK write and app record write are separate operations. If the SDK returns
+an ID but the app commit fails, the controller retains that ID and completes the
+app commit later. It must not create a second message for the same attempt. If
+the ID is unknown after an interruption, the app preserves the unknown outcome.
+It does not automatically send the text again.
+
+Composer text uses the encrypted profile store. A completed send can clear only
+its matching request and draft revision. A newer edit stays in the composer.
+Saved navigation holds IDs only. Restore checks the active profile and native
+conversation before opening a chat.
+
+The default reader awaits the required message handler before it reads the next
+message. Keep this path sequential: the next SDK read acknowledges the previous
+message. Screen replacement must not remove the handler.
+
+### Tests
+
+Prefer installed integration journeys for user features. They should exercise
+the actual graph, controllers, SDK database, and shared screen. Use narrow tests
+for distinct storage, concurrency, and privacy rules. Test observers are fixed
+when the graph is constructed and always preserve the real handler call.
+When a journey replaces a narrow test, retain its unique assertions before
+removing the old test. Check each new assertion with a plausible weaker
+implementation and restore the source after the failure check.
+
 ## Build and check
 
 Run these commands from the repository root:
 
 ```sh
-dev/nix-shell 'just example-android check'
+dev/nix-shell 'just example-android lint'
 dev/nix-shell 'just example-android check'
 dev/nix-shell 'just example-android test'
 dev/nix-shell 'just backend up'
@@ -59,7 +125,7 @@ Allowed and Unknown tabs use current consent. An Unknown chat has Allow and
 Block actions. New conversations accept lowercase inbox IDs or Ethereum
 addresses. Groups offer All members and Admins only presets.
 
-Messages support text, replies, emoji reactions and remote deletion. “Delivered”
+Messages support text, replies, emoji reactions and remote deletion. “Sent”
 means that the SDK reports Published. It does not mean that a recipient read the
 message. The composer keeps text until the SDK accepts a message ID. A definite
 failure before acceptance keeps the draft. New edits stay in the composer when

@@ -7,6 +7,7 @@ import org.junit.Test
 import org.xmtp.android.example.ExampleApp
 import org.xmtp.android.example.messenger.AppSession
 import org.xmtp.android.example.messenger.BackendProfile
+import org.xmtp.android.example.messenger.TestSessionFixture
 import org.xmtp.android.example.messenger.attachments.AttachmentFiles
 import java.io.File
 import java.util.UUID
@@ -21,7 +22,8 @@ class NotificationExportCleanupInstrumentedTest {
             withTimeout(30_000) {
                 val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
                 (context as ExampleApp).session.awaitStartupExportCleanup()
-                val session = AppSession(context)
+                val sessionFixture = TestSessionFixture(context)
+                val session = sessionFixture.session
                 // The later journal must be handled by the awaited entry, not constructor startup.
                 session.awaitStartupExportCleanup()
                 val profile = BackendProfile(UUID.randomUUID().toString(), "https://example.invalid")
@@ -47,7 +49,12 @@ class NotificationExportCleanupInstrumentedTest {
                                 override fun requestToken(callback: (String?, Throwable?) -> Unit) =
                                     error("Off must not request a token")
                             }
-                        val receiving = NotificationController(context, session, transport)
+                        val receiving =
+                            NotificationController(
+                                context,
+                                session,
+                                transport,
+                            ).also(sessionFixture::bindNotifications)
                         controller = receiving
                         assertFalse(receiving.configured)
                         receiving.permissionGranted = {

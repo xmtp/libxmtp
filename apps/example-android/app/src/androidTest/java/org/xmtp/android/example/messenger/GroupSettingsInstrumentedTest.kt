@@ -10,12 +10,16 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.group.GroupAction
 import uniffi.xmtp_sdk.*
 
 /** Mutations enter through the real shared settings and ViewModel. */
 class GroupSettingsInstrumentedTest {
+    private val graphRule = TestAppGraphRule()
     val compose = createAndroidComposeRule<MainActivity>()
     private lateinit var backend: String
 
@@ -37,7 +41,8 @@ class GroupSettingsInstrumentedTest {
                         }
                     }
                 },
-            ).around(compose)
+            ).around(graphRule)
+            .around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
     private val peers = mutableListOf<SDKClient>()
     private val readers = mutableListOf<Job>()
@@ -85,7 +90,7 @@ class GroupSettingsInstrumentedTest {
             }
             try {
                 withContext(NonCancellable) {
-                    attempt { model.onGroupActionFinished = {} }
+                    attempt { model.group.onGroupActionFinished = {} }
                     readers.forEach { reader -> attempt { reader.cancelAndJoin() } }
                     peers.forEach { peer -> attempt { peer.end() } }
                     attempt { work.cancel() }
@@ -156,17 +161,17 @@ class GroupSettingsInstrumentedTest {
     }
 
     private suspend fun action(
-        expected: MessengerAction,
+        expected: GroupAction,
         click: () -> Unit,
     ) {
         val finished = CompletableDeferred<Unit>()
-        model.onGroupActionFinished = { if (it == expected) finished.complete(Unit) }
+        model.group.onGroupActionFinished = { if (it == expected) finished.complete(Unit) }
         try {
             click()
             withTimeout(30_000) { finished.await() }
             compose.waitForIdle()
         } finally {
-            model.onGroupActionFinished = {}
+            model.group.onGroupActionFinished = {}
         }
     }
 
@@ -188,19 +193,19 @@ class GroupSettingsInstrumentedTest {
             compose.onNodeWithText("Description").performTextReplacement("Persisted description")
             androidx.test.espresso.Espresso
                 .closeSoftKeyboard()
-            action(MessengerAction.UpdateGroup("Edited through settings", "Persisted description")) {
+            action(GroupAction.UpdateGroup("Edited through settings", "Persisted description")) {
                 button("Save").performScrollTo().performClick()
             }
             assertEquals("Settings did not commit the group name", "Edited through settings", group.state().name)
             assertEquals("Settings did not commit the description", "Persisted description", group.state().description)
             assertEquals("Edited through settings", model.state.value.settings.title)
-            action(MessengerAction.SetPreset(true)) { button("Admins only").performScrollTo().performClick() }
+            action(GroupAction.SetPreset(true)) { button("Admins only").performScrollTo().performClick() }
             assertEquals(
                 "Settings did not commit the admin preset",
                 GroupPolicyType.ADMIN_ONLY,
                 group.state().permissions.policyType,
             )
-            action(MessengerAction.SetPreset(false)) { button("All members").performScrollTo().performClick() }
+            action(GroupAction.SetPreset(false)) { button("All members").performScrollTo().performClick() }
             assertEquals(
                 "Settings did not restore the member preset",
                 GroupPolicyType.ALL_MEMBERS,
@@ -212,7 +217,7 @@ class GroupSettingsInstrumentedTest {
                 .performTextReplacement("17")
             androidx.test.espresso.Espresso
                 .closeSoftKeyboard()
-            action(MessengerAction.SetDisappearing(17)) { button("Save duration").performScrollTo().performClick() }
+            action(GroupAction.SetDisappearing(17)) { button("Save duration").performScrollTo().performClick() }
             assertEquals(
                 "Settings did not commit the duration",
                 17_000_000_000L,
@@ -227,7 +232,7 @@ class GroupSettingsInstrumentedTest {
                 .performTextReplacement("0")
             androidx.test.espresso.Espresso
                 .closeSoftKeyboard()
-            action(MessengerAction.SetDisappearing(0)) { button("Save duration").performScrollTo().performClick() }
+            action(GroupAction.SetDisappearing(0)) { button("Save duration").performScrollTo().performClick() }
             val cleared = group.state().common
             assertFalse("Settings did not disable disappearing messages", cleared.isDisappearingEnabled)
             assertEquals("Settings retained the old duration", 0L, cleared.disappearingSettings?.retentionNs)
@@ -242,19 +247,19 @@ class GroupSettingsInstrumentedTest {
             settingsNode(hasText("Inbox ID")).performTextReplacement(added)
             androidx.test.espresso.Espresso
                 .closeSoftKeyboard()
-            action(MessengerAction.AddMember(added)) { button("Add member").performScrollTo().performClick() }
+            action(GroupAction.AddMember(added)) { button("Add member").performScrollTo().performClick() }
             assertTrue("Settings did not add the selected member", group.members().any { it.inboxId == added })
             assertTrue(
                 model.state.value.settings.members
                     .any { it.inboxId == added && it.role == "Member" },
             )
-            action(MessengerAction.SetAdmin(added, true)) { memberButton(added, "Make admin").performClick() }
+            action(GroupAction.SetAdmin(added, true)) { memberButton(added, "Make admin").performClick() }
             assertTrue("Settings did not promote the selected member", group.state().admins.contains(added))
             memberButton(added, "Remove admin").assertIsDisplayed()
-            action(MessengerAction.SetAdmin(added, false)) { memberButton(added, "Remove admin").performClick() }
+            action(GroupAction.SetAdmin(added, false)) { memberButton(added, "Remove admin").performClick() }
             assertFalse("Settings did not demote the selected admin", group.state().admins.contains(added))
             memberButton(added, "Make admin").assertIsDisplayed()
-            action(MessengerAction.RemoveMember(added)) { memberButton(added, "Remove").performClick() }
+            action(GroupAction.RemoveMember(added)) { memberButton(added, "Remove").performClick() }
             assertFalse("Settings did not remove the selected member", group.members().any { it.inboxId == added })
             assertTrue("Settings removed an unrelated member", group.members().any { it.inboxId == first.inboxId() })
             assertFalse(
@@ -285,7 +290,7 @@ class GroupSettingsInstrumentedTest {
             readers.forEach { it.cancelAndJoin() }
             creator.end()
             peers.remove(creator)
-            action(MessengerAction.RequestRemoval) { button("Request removal").performScrollTo().performClick() }
+            action(GroupAction.RequestRemoval) { button("Request removal").performScrollTo().performClick() }
             assertEquals(
                 "The app did not request native removal",
                 MembershipState.PENDING_REMOVE,

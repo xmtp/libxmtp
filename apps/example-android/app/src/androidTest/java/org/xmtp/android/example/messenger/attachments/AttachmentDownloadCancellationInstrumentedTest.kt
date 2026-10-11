@@ -7,6 +7,8 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
@@ -16,7 +18,10 @@ import uniffi.xmtp_sdk.*
 import java.io.File
 
 class AttachmentDownloadCancellationInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(check: suspend () -> Boolean) =
@@ -36,8 +41,8 @@ class AttachmentDownloadCancellationInstrumentedTest {
             val sender = AttachmentTestFixture()
             val gate = HeldS3Responses()
             val session = model.session
-            val invalidated = session.onInvalidated
-            val message = session.onMessage
+            val invalidated = graphRule.observers.beforeInvalidate
+            val message = graphRule.observers.beforeHandle
             val action = CompletableDeferred<Job>()
             val verified = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
@@ -58,34 +63,34 @@ class AttachmentDownloadCancellationInstrumentedTest {
                     )
                 pending.upload()
                 val remote = pending.remoteAttachment()
-                session.onInvalidated = {}
-                session.onMessage = { _, _ -> }
+                graphRule.observers.beforeInvalidate = {}
+                graphRule.observers.beforeHandle = { _, _ -> }
                 val options = CreateGroupOptions(name = "Cancel file")
                 val chat = owner.client.conversations.createGroup(emptyList(), options)
                 val id = chat.sendRemoteAttachment(remote, SendOptions(optimistic = true))
                 chat.publishMessage(id)
                 val opened = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == chat.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == chat.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(chat.id()))
                 withTimeout(30_000) { opened.await() }
                 until {
                     model.state.value.messages
                         .any { it.id == id }
                 }
-                val token = model.screenToken()
+                val token = model.chat.screenToken()
                 val path = File(owner.client.attachments().localPath(remote))
                 assertFalse(path.exists())
-                val host = compose.activity.attachments
-                host.beforeDownload = { action.complete(checkNotNull(currentCoroutineContext()[Job])) }
+                val controller = graphRule.graph.attachments
+                controller.beforeDownload = { action.complete(checkNotNull(currentCoroutineContext()[Job])) }
                 if (stage == "io") {
                     gate.hold()
                 } else {
-                    host.beforeDownloadRefresh = {
+                    controller.beforeDownloadRefresh = {
                         verified.complete(Unit)
                         release.await()
                     }
                 }
-                model.dispatch(MessengerAction.Feature("open-file", id))
+                model.dispatch(MessengerAction.OpenAttachment(id))
                 val downloading = withTimeout(30_000) { action.await() }
                 if (stage == "io") {
                     until { gate.heldGets() > 0 }
@@ -97,11 +102,11 @@ class AttachmentDownloadCancellationInstrumentedTest {
                     compose.onNodeWithText("Verified").assertIsDisplayed()
                 }
                 if (stage == "screen") {
-                    assertEquals(setOf(id), host.verifiedMessageIds())
+                    assertEquals(setOf(id), controller.verifiedMessageIds())
                     model.dispatch(MessengerAction.Navigate(Screen.APP_SETTINGS))
-                    until { !model.acceptsScreen(owner.key, token) }
+                    until { !model.chat.acceptsScreen(owner.key, token) }
                     compose.waitForIdle()
-                    assertTrue("Navigation removes all verified metadata", host.verifiedMessageIds().isEmpty())
+                    assertTrue("Navigation removes all verified metadata", controller.verifiedMessageIds().isEmpty())
                 } else {
                     downloading.cancel()
                 }
@@ -110,14 +115,14 @@ class AttachmentDownloadCancellationInstrumentedTest {
                 withTimeout(30_000) { downloading.join() }
                 if (stage == "screen") {
                     val returned = CompletableDeferred<Unit>()
-                    model.onOpenFinished = { if (it == chat.id()) returned.complete(Unit) }
+                    model.chat.onOpenFinished = { if (it == chat.id()) returned.complete(Unit) }
                     model.dispatch(MessengerAction.OpenConversation(chat.id()))
                     withTimeout(30_000) { returned.await() }
                     until {
                         model.state.value.messages
                             .any { it.id == id }
                     }
-                    assertTrue(host.verifiedMessageIds().isEmpty())
+                    assertTrue(controller.verifiedMessageIds().isEmpty())
                     compose.onNodeWithText("Download").assertIsDisplayed()
                     compose.onNodeWithText("Open").assertDoesNotExist()
                     compose.onNodeWithText("Save").assertDoesNotExist()
@@ -127,7 +132,7 @@ class AttachmentDownloadCancellationInstrumentedTest {
                     )
                     return@coroutineScope
                 }
-                assertTrue(model.acceptsScreen(owner.key, token))
+                assertTrue(model.chat.acceptsScreen(owner.key, token))
                 compose.waitUntil(5_000) {
                     compose.onAllNodesWithText("Downloading").fetchSemanticsNodes().isEmpty()
                 }
@@ -144,11 +149,11 @@ class AttachmentDownloadCancellationInstrumentedTest {
                 println("$proof current-screen=true no-failed-card=true")
             } finally {
                 release.complete(Unit)
-                compose.activity.attachments.beforeDownload = {}
-                compose.activity.attachments.beforeDownloadRefresh = {}
-                model.onOpenFinished = {}
-                session.onInvalidated = invalidated
-                session.onMessage = message
+                graphRule.graph.attachments.beforeDownload = {}
+                graphRule.graph.attachments.beforeDownloadRefresh = {}
+                model.chat.onOpenFinished = {}
+                graphRule.observers.beforeInvalidate = invalidated
+                graphRule.observers.beforeHandle = message
                 withContext(NonCancellable) {
                     gate.release()
                     sender.close()

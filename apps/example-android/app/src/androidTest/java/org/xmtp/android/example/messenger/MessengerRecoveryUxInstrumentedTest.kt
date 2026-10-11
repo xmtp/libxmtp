@@ -10,17 +10,23 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.ExampleApp
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.notifications.NotificationController
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.chat.ChatAction
 import uniffi.xmtp_sdk.*
 import java.io.IOException
 import java.net.URI
 
 class MessengerRecoveryUxInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(
@@ -59,8 +65,8 @@ class MessengerRecoveryUxInstrumentedTest {
             model.session.beforeClientBuild = {}
             model.session.preferences.beforeDraftCommit = {}
             model.sends.beforePublish = {}
-            model.onQueuedActionFinished = {}
-            model.inspectBackend = {
+            model.chat.onQueuedActionFinished = {}
+            model.connect.inspectBackend = {
                 SDKClient.fetchServerConfiguration(BackendSource.Options(BackendOptions(url = it)))
             }
             if (model.session.active.value != null) model.session.deleteAccount()
@@ -80,7 +86,7 @@ class MessengerRecoveryUxInstrumentedTest {
                 compose.onNodeWithText("Send").performClick()
                 until("definite failure result") {
                     model.state.value.textSendResult
-                        ?.accepted == false
+                        ?.outcome is TextSendOutcome.Rejected
                 }
                 compose.onNodeWithText("kept draft").assertExists()
                 assertEquals(0uL, Conversation.Group(group).countMessages(publishedSelection()))
@@ -109,7 +115,7 @@ class MessengerRecoveryUxInstrumentedTest {
                 }
                 until("accepted result") {
                     model.state.value.textSendResult
-                        ?.accepted == true
+                        ?.outcome is TextSendOutcome.Accepted
                 }
                 compose.onNodeWithText("new edit").assertExists()
                 assertEquals(1uL, Conversation.Group(group).countMessages(publishedSelection()))
@@ -128,8 +134,8 @@ class MessengerRecoveryUxInstrumentedTest {
                 compose.onNodeWithText("Message").performTextInput("accepted body")
                 compose.onNodeWithText("Send").performClick()
                 until("publication error") {
-                    model.state.value.error
-                        ?.contains("Publication failure") == true
+                    model.chat.state.value.failure
+                        ?.code == "send-publication"
                 }
                 val drafts = model.session.preferences.drafts(owner.key.profileId)
                 val id = checkNotNull(drafts.single().acceptedMessageId)
@@ -160,15 +166,14 @@ class MessengerRecoveryUxInstrumentedTest {
                     SDKClient.fetchServerConfiguration(
                         BackendSource.Options(BackendOptions(url = BuildConfig.XMTP_BACKEND_URL)),
                     )
-                model.inspectBackend = { config.copy(auth = config.auth.copy(enabled = true)) }
+                model.connect.inspectBackend = { config.copy(auth = config.auth.copy(enabled = true)) }
                 model.dispatch(MessengerAction.InspectBackend(BuildConfig.XMTP_BACKEND_URL))
                 until("credential") { model.state.value.credentialsRequiredFor != null }
                 compose.onNodeWithText("Credential").performTextInput("first secret")
                 model.session.beforeClientBuild = { throw IOException("First connection failed") }
                 compose.onNodeWithText("Connect").performClick()
                 until("connection failure") {
-                    model.state.value.error
-                        ?.contains("First connection failed") == true
+                    model.connect.state.value.failure != null
                 }
                 val url = "http://127.0.0.1:${URI(BuildConfig.XMTP_BACKEND_URL).port}"
                 compose.onNodeWithText("Backend URL").performTextReplacement(url)
@@ -194,41 +199,17 @@ class MessengerRecoveryUxInstrumentedTest {
     @Test fun failedStartupRestoreRetryUsesSavedBackendAndRetainedCredential() =
         runBlocking {
             val store = ViewModelStore()
-            val app = compose.activity.application as ExampleApp
-            val originalSession = app.session
-            val originalNotifications = app.notifications
-            var recreated: AppSession? = null
-            var recreatedNotifications: NotificationController? = null
-
-            fun setAppField(
-                name: String,
-                value: Any,
-            ) {
-                ExampleApp::class.java
-                    .getDeclaredField(name)
-                    .apply { isAccessible = true }
-                    .set(app, value)
-            }
             try {
                 val (owner, _) = chat()
                 val saved = owner.profile
                 model.session.signOut()
                 model.session.secrets.write(saved.id, "credential", "retained secret".toByteArray())
-                model.session.preferences.setSignedIn(true)
-                // A new process has a new session fence and notification controller.
-                val restoredSession = AppSession(app)
-                recreated = restoredSession
-                val restoredNotifications = NotificationController(app, restoredSession)
-                recreatedNotifications = restoredNotifications
-                setAppField("session", restoredSession)
-                setAppField("notifications", restoredNotifications)
+                val restoredGraph = graphRule.replaceGraph()
+                val restoredSession = restoredGraph.session
+                restoredSession.preferences.setSignedIn(true)
                 restoredSession.beforeClientBuild = { throw IOException("Saved restore failed") }
-                val factory = ViewModelProvider.AndroidViewModelFactory.getInstance(app)
-                val fresh = ViewModelProvider(store, factory)[MessengerViewModel::class.java]
-                until("failed actual startup restore") {
-                    fresh.state.value.error
-                        ?.contains("Saved restore failed") == true
-                }
+                val fresh = withContext(Dispatchers.Main) { graphRule.newShell(store) }
+                until("failed actual startup restore") { fresh.connect.state.value.failure != null }
                 compose.runOnUiThread {
                     compose.activity.setContent {
                         MessengerScreens(fresh.state.collectAsState().value, fresh::dispatch)
@@ -246,22 +227,12 @@ class MessengerRecoveryUxInstrumentedTest {
                 println("START_RETRY_PROOF stage=failed-restore-retried-saved-url-and-credential")
             } finally {
                 withContext(NonCancellable) {
-                    try {
-                        store.clear()
-                        recreated?.let { restoredSession ->
-                            restoredSession.beforeClientBuild = {}
-                            try {
-                                if (restoredSession.preferences.active() != null) restoredSession.deleteAccount()
-                            } finally {
-                                restoredSession.signOut()
-                            }
-                        }
-                    } finally {
-                        recreatedNotifications?.close()
-                        setAppField("session", originalSession)
-                        setAppField("notifications", originalNotifications)
-                        cleanup()
-                    }
+                    withContext(Dispatchers.Main) { store.clear() }
+                    val restoredSession = graphRule.graph.session
+                    restoredSession.beforeClientBuild = {}
+                    if (restoredSession.preferences.active() != null) restoredSession.deleteAccount()
+                    restoredSession.signOut()
+                    AndroidStreamLifecycle.enabled = true
                 }
             }
         }

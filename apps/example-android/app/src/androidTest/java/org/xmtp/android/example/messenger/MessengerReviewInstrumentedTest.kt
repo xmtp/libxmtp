@@ -8,9 +8,12 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.chat.ChatAction
 import uniffi.xmtp_sdk.*
 import java.io.File
 import java.nio.file.Files
@@ -20,7 +23,10 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class MessengerReviewInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(
@@ -54,17 +60,19 @@ class MessengerReviewInstrumentedTest {
         withContext(NonCancellable) {
             model.session.preferences.beforePositionCommit = {}
             model.session.preferences.positionCommitFinished = { _, _ -> }
-            model.writeConsent = { chat, value -> chat.updateConsentState(value) }
-            model.onConsentFinished = {}
-            model.beforeQueuedAction = {}
-            model.beforeActiveRefresh = {}
-            model.beforeFeaturesUiUpdate = {}
-            model.beforeGroupWrite = { _, _ -> }
-            model.onQueuedActionFinished = {}
-            model.actionMessageRead = { owner, id -> owner.client.conversations.getMessageById(id) }
+            model.conversations.writeConsent = { chat, value -> chat.updateConsentState(value) }
+            model.conversations.onConsentFinished = {}
+            model.chat.beforeQueuedAction = {}
+            model.projection.beforeActiveRefresh = {}
+            model.group.beforeGroupWrite = { _, _ -> }
+            model.group.onGroupActionFinished = {}
+            model.conversations.beforeConsentDecision = {}
+            model.chat.onQueuedActionFinished = {}
+            model.chat.actionMessageRead = { owner, id -> owner.client.conversations.getMessageById(id) }
+            model.chat.historyPageRead = { chat, options, before, after -> chat.historyPage(options, before, after) }
             model.sends.messageRead = { client, id -> client.conversations.getMessageById(id) }
-            model.session.onSessionInvalidated = {}
-            model.session.unregisterNotifications = {}
+            graphRule.observers.onSessionInvalidated = {}
+            graphRule.observers.beforeUnregister = {}
             if (model.session.active.value != null ||
                 model.session.preferences.reset() != null
             ) {
@@ -79,6 +87,14 @@ class MessengerReviewInstrumentedTest {
         until("open $id") { model.state.value.conversationId == id && model.state.value.screen == Screen.TIMELINE }
     }
 
+    private suspend fun openDetails(id: String) {
+        model.dispatch(MessengerAction.Navigate(Screen.CONVERSATION_SETTINGS))
+        until("details owner $id") {
+            model.state.value.screen == Screen.CONVERSATION_SETTINGS &&
+                model.group.state.value.conversationId == id && !model.group.state.value.busy
+        }
+    }
+
     @Test fun closedOwnerDuringActiveProjectionDoesNotTerminateTheUiCollector() =
         runBlocking {
             val entered = CompletableDeferred<ActiveSession>()
@@ -86,7 +102,7 @@ class MessengerReviewInstrumentedTest {
             try {
                 model.session.signOut()
                 until("signed-out UI before owner refresh") { model.state.value.screen == Screen.START }
-                model.beforeActiveRefresh = { owner ->
+                model.projection.beforeActiveRefresh = { owner ->
                     entered.complete(owner)
                     try {
                         awaitCancellation()
@@ -107,7 +123,7 @@ class MessengerReviewInstrumentedTest {
                 assertTrue(
                     runCatching { owner.client.conversations.list() }.exceptionOrNull() is XmtpException.ClientClosed,
                 )
-                model.beforeActiveRefresh = {}
+                model.projection.beforeActiveRefresh = {}
                 model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
                 val next = checkNotNull(model.session.active.value)
                 until("collector handles next owner") { model.state.value.inbox == next.client.inboxId() }
@@ -133,7 +149,7 @@ class MessengerReviewInstrumentedTest {
                 until("published Markdown") { chat.messages(publishedSelection()).any { it.id == parentId } }
                 assertEquals(1uL, chat.countMessages(incomingSelection("0".repeat(64))))
                 assertEquals(0uL, chat.countMessages(incomingSelection(owner.client.inboxId())))
-                model.dispatch(MessengerAction.Refresh)
+                model.chat.dispatch(ChatAction.Refresh)
                 until("Markdown conversation preview") {
                     model.state.value.conversations
                         .any { it.id == group.id() && it.preview == text }
@@ -155,7 +171,7 @@ class MessengerReviewInstrumentedTest {
                 val reply = checkNotNull(owner.client.conversations.getMessageById(replyId))
                 assertTrue(reply.inReplyTo?.content is MessageBody.Markdown)
                 assertEquals(text, reply.toRow(owner.client.inboxId()).reply)
-                model.dispatch(MessengerAction.Refresh)
+                model.chat.dispatch(ChatAction.Refresh)
                 until("Markdown reply quote in timeline") {
                     model.state.value.messages
                         .any { it.id == replyId && it.reply == text }
@@ -204,8 +220,8 @@ class MessengerReviewInstrumentedTest {
                 assertFalse(model.state.value.recoveryAtNewest)
                 assertTrue(model.state.value.messages.size <= 50)
                 val refreshed = CompletableDeferred<Unit>()
-                model.onQueuedActionFinished = { if (it == MessengerAction.Refresh) refreshed.complete(Unit) }
-                model.dispatch(MessengerAction.Refresh)
+                model.chat.onQueuedActionFinished = { if (it == ChatAction.Refresh) refreshed.complete(Unit) }
+                model.chat.dispatch(ChatAction.Refresh)
                 until("selected pending window refresh completed") { refreshed.isCompleted }
                 assertTrue(
                     model.state.value.messages
@@ -213,7 +229,7 @@ class MessengerReviewInstrumentedTest {
                 )
                 val finished = CompletableDeferred<Unit>()
                 val retry = MessengerAction.RetrySend(ids.first())
-                model.onQueuedActionFinished = { if (it == retry) finished.complete(Unit) }
+                model.chat.onQueuedActionFinished = { if (it.matchesInput(retry)) finished.complete(Unit) }
                 model.dispatch(retry)
                 withTimeout(30_000) { finished.await() }
                 until("oldest ID published by actual retry") {
@@ -253,9 +269,10 @@ class MessengerReviewInstrumentedTest {
                     )
                 val groupId = group.id()
                 openChat(groupId)
+                openDetails(groupId)
                 val action = MessengerAction.UpdateGroup("First native commit", "Must not commit")
-                model.beforeGroupWrite = { current, index ->
-                    if (current == action && index == 1) {
+                model.group.beforeGroupWrite = { current, index ->
+                    if (current.matchesInput(action) && index == 1) {
                         entered.complete(Unit)
                         try {
                             release.await()
@@ -285,7 +302,9 @@ class MessengerReviewInstrumentedTest {
                     runCatching { owner.client.conversations.listGroups(null) }
                         .exceptionOrNull() is XmtpException.ClientClosed,
                 )
-                model.beforeGroupWrite = { _, _ -> }
+                model.group.beforeGroupWrite = { _, _ -> }
+                model.group.onGroupActionFinished = {}
+                model.conversations.beforeConsentDecision = {}
                 model.session.connect(BuildConfig.XMTP_BACKEND_URL, null, false)
                 val reopened = checkNotNull(model.session.active.value)
                 assertEquals(inbox, reopened.client.inboxId())
@@ -324,16 +343,18 @@ class MessengerReviewInstrumentedTest {
                     )
                 for (action in actions) {
                     openChat(a.id())
+                    openDetails(a.id())
                     val entered = CompletableDeferred<Unit>()
                     val release = CompletableDeferred<Unit>().also(releases::add)
                     val finished = CompletableDeferred<Unit>()
-                    model.beforeGroupWrite = { current, index ->
-                        if (current == action && index == 1) {
+                    model.group.beforeGroupWrite = { current, index ->
+                        if (current.matchesInput(action) && index == 1) {
                             entered.complete(Unit)
                             release.await()
                         }
                     }
-                    model.onQueuedActionFinished = { current -> if (current == action) finished.complete(Unit) }
+                    model.group.onGroupActionFinished =
+                        { current -> if (current.matchesInput(action)) finished.complete(Unit) }
                     model.dispatch(action)
                     withTimeout(30_000) { entered.await() }
                     if (action is MessengerAction.UpdateGroup) {
@@ -414,6 +435,7 @@ class MessengerReviewInstrumentedTest {
                     )
                 for (action in actions) {
                     openChat(a.id())
+                    if (action.isGroupInput()) openDetails(a.id())
                     until("origin parent visible") {
                         model.state.value.messages
                             .any { it.id == target }
@@ -422,13 +444,30 @@ class MessengerReviewInstrumentedTest {
                     val entered = CompletableDeferred<Unit>()
                     val release = CompletableDeferred<Unit>().also(releases::add)
                     val finished = CompletableDeferred<Unit>()
-                    model.beforeQueuedAction = { queued ->
-                        if (queued == action) {
+                    model.chat.beforeQueuedAction = { queued ->
+                        if (queued.matchesInput(action)) {
                             entered.complete(Unit)
                             release.await()
                         }
                     }
-                    model.onQueuedActionFinished = { queued -> if (queued == action) finished.complete(Unit) }
+                    model.chat.onQueuedActionFinished =
+                        { queued -> if (queued.matchesInput(action)) finished.complete(Unit) }
+                    model.group.beforeGroupWrite = { queued, index ->
+                        if (index == 0 && queued.matchesInput(action)) {
+                            entered.complete(Unit)
+                            release.await()
+                        }
+                    }
+                    model.group.onGroupActionFinished =
+                        { queued -> if (queued.matchesInput(action)) finished.complete(Unit) }
+                    model.conversations.beforeConsentDecision = {
+                        if (action is MessengerAction.Consent) {
+                            entered.complete(Unit)
+                            release.await()
+                        }
+                    }
+                    model.conversations.onConsentFinished =
+                        { if (action is MessengerAction.Consent) finished.complete(Unit) }
                     model.dispatch(action)
                     withTimeout(30_000) { entered.await() }
                     openChat(b.id())
@@ -539,9 +578,10 @@ class MessengerReviewInstrumentedTest {
                         release.await()
                         return message
                     }
-                    model.actionMessageRead = { current, id -> read(current.client, id) }
+                    model.chat.actionMessageRead = { current, id -> read(current.client, id) }
                     model.sends.messageRead = ::read
-                    model.onQueuedActionFinished = { queued -> if (queued == action) finished.complete(Unit) }
+                    model.chat.onQueuedActionFinished =
+                        { queued -> if (queued.matchesInput(action)) finished.complete(Unit) }
                     model.dispatch(action)
                     withTimeout(30_000) { entered.await() }
                     openChat(b.id())
@@ -580,7 +620,7 @@ class MessengerReviewInstrumentedTest {
                             .isEmpty(),
                     )
                     println("ACTION_SCOPE_PROOF stage=read-completed-without-write action=$action")
-                    model.actionMessageRead = { current, id -> current.client.conversations.getMessageById(id) }
+                    model.chat.actionMessageRead = { current, id -> current.client.conversations.getMessageById(id) }
                     model.sends.messageRead = { client, id -> client.conversations.getMessageById(id) }
                 }
             } finally {
@@ -609,43 +649,19 @@ class MessengerReviewInstrumentedTest {
                         model.state.value.messages
                             .any { it.id == next }
                 }
-                val featureEntered = CompletableDeferred<Unit>()
-                val featureRelease = CountDownLatch(1)
-                model.beforeFeaturesUiUpdate = {
-                    featureEntered.complete(Unit)
-                    check(featureRelease.await(30, TimeUnit.SECONDS))
-                }
-                val featureUpdate =
-                    async(Dispatchers.IO) {
-                        model.setFeatures(model.state.value.features)
-                    }
-                try {
-                    withTimeout(30_000) { featureEntered.await() }
-                    model.dispatch(MessengerAction.Reply(original))
-                    assertEquals(original, model.state.value.replyTo)
-                    featureRelease.countDown()
-                    withTimeout(30_000) { featureUpdate.await() }
-                    assertEquals(
-                        "Reply survives a concurrent SDK host state update",
-                        original,
-                        model.state.value.replyTo,
-                    )
-                } finally {
-                    featureRelease.countDown()
-                    model.beforeFeaturesUiUpdate = {}
-                }
                 model.dispatch(MessengerAction.Reply(original))
                 assertEquals(original, model.state.value.replyTo)
                 val action = MessengerAction.SendText("Captured reply")
                 val entered = CompletableDeferred<Unit>()
                 val finished = CompletableDeferred<Unit>()
-                model.beforeQueuedAction = { queued ->
-                    if (queued == action) {
+                model.chat.beforeQueuedAction = { queued ->
+                    if (queued.matchesInput(action)) {
                         entered.complete(Unit)
                         release.await()
                     }
                 }
-                model.onQueuedActionFinished = { queued -> if (queued == action) finished.complete(Unit) }
+                model.chat.onQueuedActionFinished =
+                    { queued -> if (queued.matchesInput(action)) finished.complete(Unit) }
                 model.dispatch(action)
                 withTimeout(30_000) { entered.await() }
                 model.dispatch(MessengerAction.Reply(next))
@@ -670,11 +686,66 @@ class MessengerReviewInstrumentedTest {
                     replies,
                 )
                 assertEquals(next, model.state.value.replyTo)
-                model.beforeQueuedAction = {}
+                model.chat.beforeQueuedAction = {}
+
+                // Hide only the rendered parent. The SDK still owns its readable body.
+                model.chat.historyPageRead = { chat, options, before, after ->
+                    val page = chat.historyPage(options, before, after)
+                    val visible = page.messages.filter { it.id != next }
+                    page.copy(
+                        messages = visible,
+                        skippedCount = page.skippedCount + (page.messages.size - visible.size).toUInt(),
+                    )
+                }
+                model.chat.refresh(owner)
+                until("reply parent outside the rendered window") {
+                    model.state.value.messages
+                        .none { it.id == next }
+                }
+                assertEquals(
+                    "Next reply parent",
+                    checkNotNull(owner.client.conversations.getMessageById(next)).toRow(owner.client.inboxId()).text,
+                )
+                assertEquals(next, model.state.value.replyTo)
+                assertEquals("Next reply parent", model.state.value.replyPreview)
+                compose.activityRule.scenario.recreate()
+                until("recreated reply keeps the native parent") {
+                    model.state.value.replyTo == next && model.state.value.replyPreview == "Next reply parent"
+                }
+                compose.onNodeWithText("Next reply parent", substring = false).assertExists()
+                compose.onNodeWithText("Message").performTextReplacement("Reply to retained native parent")
+                compose.onNodeWithText("Send").performClick()
+                until("off-window reply publishes to its native parent") {
+                    Conversation.Group(group).messages(publishedSelection()).any {
+                        it.standardContent() ==
+                            MessageContent.Reply(next, MessageBody.Text("Reply to retained native parent"))
+                    }
+                }
+                val restoredReplies =
+                    Conversation.Group(group).messages(publishedSelection()).filter {
+                        it.standardContent() ==
+                            MessageContent.Reply(next, MessageBody.Text("Reply to retained native parent"))
+                    }
+                assertEquals(1, restoredReplies.size)
+                assertEquals(next, restoredReplies.single().inReplyTo?.id)
+                model.chat.historyPageRead =
+                    { chat, options, before, after -> chat.historyPage(options, before, after) }
+                println("REPLY_INTENT_PROOF stage=off-window-parent-refresh-recreation-keeps-native-reply")
 
                 suspend fun dispatchCurrent(current: MessengerAction) {
                     val done = CompletableDeferred<Unit>()
-                    model.onQueuedActionFinished = { queued -> if (queued == current) done.complete(Unit) }
+                    if (current.isGroupInput()) {
+                        openDetails(group.id())
+                        model.group.onGroupActionFinished =
+                            { queued -> if (queued.matchesInput(current)) done.complete(Unit) }
+                    } else if (current is MessengerAction.Consent) {
+                        openChat(group.id())
+                        model.conversations.onConsentFinished = { done.complete(Unit) }
+                    } else {
+                        openChat(group.id())
+                        model.chat.onQueuedActionFinished =
+                            { queued -> if (queued.matchesInput(current)) done.complete(Unit) }
+                    }
                     model.dispatch(current)
                     withTimeout(30_000) { done.await() }
                     assertNull("Current action error: $current", model.state.value.error)
@@ -734,7 +805,7 @@ class MessengerReviewInstrumentedTest {
                         CreateGroupOptions(name = "Accepted B"),
                     )
                 openChat(a.id())
-                val token = model.screenToken()
+                val token = model.chat.screenToken()
                 val accepted = CompletableDeferred<MessageId>()
                 val task =
                     async {
@@ -744,7 +815,7 @@ class MessengerReviewInstrumentedTest {
                                 owner.client,
                                 a,
                                 admission = {
-                                    model.acceptsScreen(
+                                    model.chat.acceptsScreen(
                                         owner.key,
                                         token,
                                     )
@@ -802,12 +873,12 @@ class MessengerReviewInstrumentedTest {
                 until("open A") { model.state.value.conversationId == a.id() }
                 val entered = CompletableDeferred<Unit>()
                 val finished = CompletableDeferred<Unit>()
-                model.writeConsent = { chat, value ->
+                model.conversations.writeConsent = { chat, value ->
                     entered.complete(Unit)
                     release.await()
                     chat.updateConsentState(value)
                 }
-                model.onConsentFinished = { finished.complete(Unit) }
+                model.conversations.onConsentFinished = { finished.complete(Unit) }
                 model.dispatch(MessengerAction.Consent(false))
                 withTimeout(30_000) { entered.await() }
                 model.dispatch(MessengerAction.OpenConversation(b.id()))
@@ -1011,8 +1082,8 @@ class MessengerReviewInstrumentedTest {
             if (invalidate) {
                 val unregisterEntered = CompletableDeferred<Unit>()
                 val invalidated = CompletableDeferred<Unit>()
-                model.session.onSessionInvalidated = { invalidated.complete(Unit) }
-                model.session.unregisterNotifications = {
+                graphRule.observers.onSessionInvalidated = { invalidated.complete(Unit) }
+                graphRule.observers.beforeUnregister = {
                     unregisterEntered.complete(Unit)
                     unregisterRelease.await()
                 }

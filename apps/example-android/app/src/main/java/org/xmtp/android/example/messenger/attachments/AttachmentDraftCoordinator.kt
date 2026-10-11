@@ -416,7 +416,8 @@ class AttachmentDraftCoordinator(
                     val remote = pending.remoteAttachment()
                     processMutex.withLock {
                         if (known.any { it == remote } || (creating[key.profileId] ?: 0) != 0) return@withLock
-                        // Selection registers before SDK creation. Read its latest saved ownership under this metadata lock.
+                        // Selection registers before SDK creation.
+                        // Read its latest saved ownership under this metadata lock.
                         val latest =
                             preferences.drafts(key.profileId).filter {
                                 it.descriptorSecretRef != null && it.acceptedMessageId == null
@@ -567,13 +568,64 @@ class AttachmentDraftCoordinator(
 internal fun Throwable.isExpiredDraft() =
     this is XmtpException.Attachment && v2.cause == AttachmentFailureCause.STAGED_UNUSABLE
 
-internal fun Throwable.attachmentLabel(): String =
-    if (this is XmtpException.Attachment) {
-        "${v2.cause}${v2.httpStatus?.let { " (HTTP $it)" } ?: ""}"
-    } else {
-        message
-            ?: javaClass.simpleName
-    }
+internal fun Throwable.attachmentFailure(): org.xmtp.android.example.shared.AppFailure {
+    val cause = (this as? XmtpException.Attachment)?.v2?.cause?.name
+    val message =
+        when (cause) {
+            "NOT_OFFERED" -> {
+                "This server does not support file uploads."
+            }
+
+            "TOO_LARGE" -> {
+                "This file exceeds the server size limit."
+            }
+
+            "STAGED_UNUSABLE", "DELETED" -> {
+                "This file is unavailable. Select the file again."
+            }
+
+            "NOT_FOUND" -> {
+                "This file is not available for download. Try again later."
+            }
+
+            "DIGEST_MISMATCH", "DECRYPTION_FAILED", "NOT_AN_ATTACHMENT", "MALFORMED" -> {
+                "This file could not be verified."
+            }
+
+            "BLOCKED_ADDRESS", "INSECURE_URL" -> {
+                "This file location is not allowed."
+            }
+
+            "CREDENTIAL" -> {
+                "File access was refused. Check your server access."
+            }
+
+            else -> {
+                "The file operation failed. Try again."
+            }
+        }
+    val retry =
+        cause == null || cause in
+            setOf(
+                "NETWORK",
+                "LOCAL_STORAGE",
+                "BACKEND_UNAVAILABLE",
+                "NOT_FOUND",
+                "HTTP_STATUS",
+                "TARGET_REJECTED",
+            )
+    return org.xmtp.android.example.shared.AppFailure(
+        message,
+        "attachment_${cause?.lowercase() ?: "operation"}",
+        if (retry) {
+            org.xmtp.android.example.shared.FailureRecovery.RETRY
+        } else {
+            org.xmtp.android.example.shared.FailureRecovery.NONE
+        },
+    )
+}
+
+internal fun Throwable.attachmentLabel(): String = attachmentFailure().message
 
 internal fun PendingAttachmentStatus.label(): String =
     when (this) {

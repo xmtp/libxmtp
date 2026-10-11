@@ -8,15 +8,21 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.MessengerViewModel
+import org.xmtp.android.example.messenger.TestAppGraphRule
 import org.xmtp.android.example.shared.*
 import uniffi.xmtp_sdk.*
 import java.util.UUID
 
 /** Check app navigation, shared controls, event refresh and profile reopen. */
 class MetadataNavigationInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(check: () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
@@ -54,8 +60,8 @@ class MetadataNavigationInstrumentedTest {
         val verb = if (update) "update" else "add"
         compose.onNodeWithTag("metadata-$verb-$id").performScrollTo().performClick()
         until {
-            !model.metadataState.value.busy &&
-                model.metadataState.value.fields
+            !model.group.metadataState.value.busy &&
+                model.group.metadataState.value.fields
                     .single { it.id.componentId.toInt() == id }
                     .entries
                     .any { it.key == key && it.value == value }
@@ -70,8 +76,8 @@ class MetadataNavigationInstrumentedTest {
         compose.onNodeWithTag("metadata-fields").performScrollToNode(hasTestTag(tag))
         compose.onNodeWithTag(tag).performScrollTo().performClick()
         until {
-            !model.metadataState.value.busy &&
-                model.metadataState.value.fields
+            !model.group.metadataState.value.busy &&
+                model.group.metadataState.value.fields
                     .single { it.id.componentId.toInt() == id }
                     .entries
                     .none { it.key == key }
@@ -110,8 +116,8 @@ class MetadataNavigationInstrumentedTest {
                 until { model.state.value.screen == Screen.CONVERSATION_SETTINGS && model.state.value.settings.group }
                 settingsAction("Group fields")
                 until {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.id.componentId == 0xc001.toUShort() }
                 }
                 compose.onNodeWithTag("metadata-value-49153").performTextReplacement("UI title")
@@ -119,8 +125,8 @@ class MetadataNavigationInstrumentedTest {
                     .closeSoftKeyboard()
                 compose.onNodeWithTag("metadata-set-49153").performScrollTo().performClick()
                 until {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.scalar == "UI title" }
                 }
                 other.sync()
@@ -130,8 +136,8 @@ class MetadataNavigationInstrumentedTest {
                     .closeSoftKeyboard()
                 compose.onNodeWithTag("metadata-set-49154").performScrollTo().performClick()
                 until {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.scalar == "0080ff" }
                 }
                 entry(49155, "01", "00ff")
@@ -165,7 +171,7 @@ class MetadataNavigationInstrumentedTest {
                 )
                 other.updateMetadataField(ref(0xc001), ComponentMutation.Replace(FieldValue.String("Peer title")))
                 withTimeoutOrNull(10_000) {
-                    while (model.metadataState.value.fields
+                    while (model.group.metadataState.value.fields
                             .none { it.scalar == "Peer title" }
                     ) {
                         delay(20)
@@ -173,7 +179,7 @@ class MetadataNavigationInstrumentedTest {
                 }
                 assertEquals(
                     "Peer title",
-                    model.metadataState.value.fields
+                    model.group.metadataState.value.fields
                         .single {
                             it.id.componentId == 0xc001.toUShort()
                         }.scalar,
@@ -185,11 +191,11 @@ class MetadataNavigationInstrumentedTest {
                     .closeSoftKeyboard()
                 compose.onNodeWithTag("metadata-set-64768").performScrollTo().performClick()
                 until {
-                    model.metadataState.value.fields
+                    model.group.metadataState.value.fields
                         .any { it.scalar == "First UI" }
                 }
                 assertFalse(
-                    model.metadataState.value.fields
+                    model.group.metadataState.value.fields
                         .single {
                             it.id.componentId == 0xfd00.toUShort()
                         }.canWrite,
@@ -203,12 +209,12 @@ class MetadataNavigationInstrumentedTest {
                 group.updateUserData(listOf(UserFieldUpdate(ref(0x800c), FieldValue.String("Old name"))))
                 settingsAction("My fields")
                 until {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.id.componentId == 0xc006.toUShort() }
                 }
                 until {
-                    model.metadataState.value.fields.any {
+                    model.group.metadataState.value.fields.any {
                         it.id.componentId == 0xfd03.toUShort() && it.componentPresent && !it.canWrite
                     }
                 }
@@ -218,7 +224,7 @@ class MetadataNavigationInstrumentedTest {
                 compose.onNodeWithTag("metadata-value-49158").performTextReplacement("UI own note")
                 group.updateUserData(listOf(UserFieldUpdate(ref(0x800c), FieldValue.String("New name"))))
                 until {
-                    model.metadataState.value.fields
+                    model.group.metadataState.value.fields
                         .any { it.scalar == "New name" }
                 }
                 compose.onNodeWithTag("metadata-value-49158").assertTextContains("UI own note")
@@ -226,8 +232,8 @@ class MetadataNavigationInstrumentedTest {
                     .closeSoftKeyboard()
                 saveOwn()
                 until {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.scalar == "UI own note" }
                 }
                 other.sync()
@@ -264,8 +270,8 @@ class MetadataNavigationInstrumentedTest {
                 compose.onNodeWithText("Group fields").assertDoesNotExist()
                 settingsAction("My fields")
                 until {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.id.componentId == 0xc006.toUShort() }
                 }
                 compose.onNodeWithTag("metadata-fields").performScrollToNode(hasTestTag("metadata-value-49158"))
@@ -276,8 +282,8 @@ class MetadataNavigationInstrumentedTest {
                     .closeSoftKeyboard()
                 saveOwn()
                 until {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.scalar == "DM own note" }
                 }
                 otherDm.sync()
@@ -305,7 +311,7 @@ class MetadataNavigationInstrumentedTest {
                 model.session.signOut()
                 until { model.state.value.screen == Screen.START }
                 assertTrue(
-                    model.metadataState.value.fields
+                    model.group.metadataState.value.fields
                         .isEmpty(),
                 )
                 model.session.connect(url, "", false)
@@ -314,11 +320,11 @@ class MetadataNavigationInstrumentedTest {
                 until { model.state.value.conversationId == dm.id() && !model.state.value.busy }
                 model.dispatch(MessengerAction.Navigate(Screen.MY_FIELDS))
                 until {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.scalar == "DM own note" }
                 }
-                assertNull(model.metadataState.value.error)
+                assertNull(model.group.metadataState.value.error)
                 println("METADATA_UI native group=UI own note dm=DM own note:00ff reopen=retained")
             } finally {
                 withContext(NonCancellable) {

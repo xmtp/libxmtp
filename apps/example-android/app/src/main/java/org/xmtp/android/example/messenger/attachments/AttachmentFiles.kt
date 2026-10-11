@@ -1,6 +1,5 @@
 package org.xmtp.android.example.messenger.attachments
 
-import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -15,7 +14,6 @@ import uniffi.xmtp_sdk.RemoteAttachment
 import uniffi.xmtp_sdk.SDKClient
 import uniffi.xmtp_sdk.attachments
 import java.io.File
-import java.util.UUID
 
 /** A verified result can enter this class only through the SDK download operation. */
 class AttachmentFiles(
@@ -82,33 +80,19 @@ class AttachmentFiles(
         )
 
     internal suspend fun openIntent(downloaded: DownloadedAttachment): Intent {
+        val export = prepareOpen(downloaded)
+        // Callers of this compatibility API own the returned Intent and its viewer lifetime.
+        export.launched()
+        return export.intent
+    }
+
+    internal suspend fun prepareOpen(
+        downloaded: DownloadedAttachment,
+        admission: () -> Boolean = { true },
+    ): PreparedAttachmentExport {
         checkCurrent()
         beforeOpenCopy()
-        return withContext(Dispatchers.IO) {
-            checkCurrent()
-            val directory = profileDirectory(context, key.profileId)
-            check(directory.isDirectory || directory.mkdirs()) { "Cannot create the export directory" }
-            // The remote filename does not enter the path.
-            val file = File(directory, "file-${UUID.randomUUID()}")
-            try {
-                val source = File(downloaded.path)
-                source.inputStream().use { input ->
-                    file.outputStream().use { output ->
-                        PrivateFileStager.copy(input, output, ULong.MAX_VALUE)
-                    }
-                }
-                checkCurrent()
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                val mime = downloaded.mimeType ?: "application/octet-stream"
-                Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).apply {
-                    clipData = ClipData.newRawUri("File", uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-            } catch (error: Throwable) {
-                file.delete()
-                throw error
-            }
-        }
+        return AttachmentExports.prepare(context, key.profileId, downloaded) { accepts(key) && admission() }
     }
 
     suspend fun save(
@@ -141,6 +125,17 @@ class AttachmentFiles(
     fun isDownloaded(messageId: String) = messageId in retained.value
 
     companion object {
+        /** Call after session work drains. Immediate revocation is a separate step. */
+        fun removeProfileExports(
+            context: Context,
+            profileId: String,
+        ) {
+            revokeProfile(context, profileId)
+            val directory = profileDirectory(context, profileId)
+            check(!directory.exists() || directory.deleteRecursively()) { "Cannot clear file exports" }
+            AttachmentExports.forget(directory)
+        }
+
         fun profileDirectory(
             context: Context,
             profileId: String,

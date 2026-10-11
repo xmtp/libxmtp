@@ -13,7 +13,7 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.xmtp.android.example.messenger.AppSession
+import org.xmtp.android.example.messenger.TestSessionFixture
 import uniffi.xmtp_sdk.*
 import java.io.File
 import android.os.Message as AndroidMessage
@@ -127,7 +127,7 @@ class FileShareInstrumentedTest {
                     fixture.preferences.setActive(fixture.profile)
                     fixture.preferences.saveReset(fixture.paths.resetRecord(fixture.profile.id))
                     android.util.Log.i("XmtpFileGrant", "Recover recorded STOPPING reset")
-                    AppSession(fixture.context).restore()
+                    TestSessionFixture(fixture.context).session.restore()
                     assertFalse(exportRoot.exists())
                     assertFalse(canRead(exact))
                     // A removed file alone does not prove that the old URI grant was revoked.

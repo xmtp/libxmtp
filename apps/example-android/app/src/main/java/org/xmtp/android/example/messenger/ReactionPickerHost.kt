@@ -92,9 +92,9 @@ private fun sizePickerCategories(picker: EmojiPickerView) {
     val latestAction by rememberUpdatedState(action)
     val keyboard = LocalSoftwareKeyboardController.current
     content { value ->
-        if (value is MessengerAction.Feature && value.name == "pick-reaction") {
+        if (value is MessengerAction.PickReaction) {
             keyboard?.hide()
-            target = value.value
+            target = value.messageId
         } else {
             action(value)
         }

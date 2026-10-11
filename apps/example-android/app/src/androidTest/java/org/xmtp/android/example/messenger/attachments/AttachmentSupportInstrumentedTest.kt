@@ -11,17 +11,23 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.MessengerViewModel
+import org.xmtp.android.example.messenger.TestAppGraphRule
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.attachments.AttachmentAction
 import uniffi.xmtp_sdk.*
 
 class AttachmentSupportInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
     private val previousLifecycle = AndroidStreamLifecycle.enabled
-    private var previousInvalidated: (suspend (org.xmtp.android.example.messenger.ActiveSession) -> Unit)? = null
 
     private suspend fun until(check: () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
 
@@ -38,7 +44,7 @@ class AttachmentSupportInstrumentedTest {
                 owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "Support proof")),
             )
         val opened = CompletableDeferred<Unit>()
-        model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+        model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
         model.dispatch(MessengerAction.OpenConversation(group.id()))
         withTimeout(30_000) { opened.await() }
         return group
@@ -46,9 +52,8 @@ class AttachmentSupportInstrumentedTest {
 
     private suspend fun cleanup() =
         withContext(NonCancellable) {
-            compose.activity.attachments.beforeSupportAdmission = { _, _ -> }
-            previousInvalidated?.let { model.session.onInvalidated = it }
-            model.onOpenFinished = {}
+            graphRule.graph.attachments.beforeSupportAdmission = { _, _ -> }
+            model.chat.onOpenFinished = {}
             if (model.session.active.value != null ||
                 model.session.preferences.reset() != null
             ) {
@@ -82,7 +87,7 @@ class AttachmentSupportInstrumentedTest {
                 assertNull(owner.client.serverConfiguration().attachments)
                 assertFalse(owner.client.attachments().offered())
                 compose.onNodeWithContentDescription("Select file").assertDoesNotExist()
-                model.featureAction(MessengerAction.Feature("select-file"))
+                graphRule.graph.dispatchAttachment(AttachmentAction.Select)
                 compose.waitForIdle()
                 assertEquals(0, monitor.hits)
                 sender.start()
@@ -108,52 +113,63 @@ class AttachmentSupportInstrumentedTest {
             }
         }
 
-    @Test fun oldSupportResultCannotChangeTheNewScreenAvailability() =
+    @Test fun oldSupportResultCannotChangeReplacementSessionAvailability() =
         runBlocking<Unit> {
+            val backend =
+                checkNotNull(InstrumentationRegistry.getArguments().getString("unsupportedBackendUrl")) {
+                    "Supply the owned unsupported backend fixture"
+                }
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
-            val oldResult = CompletableDeferred<Job>()
-            val currentResults = CompletableDeferred<Unit>()
             var refreshing: Deferred<Unit>? = null
             try {
                 connect(BuildConfig.XMTP_BACKEND_URL)
-                until { model.state.value.features.attachments }
+                val attachments = graphRule.graph.attachments
+                until { attachments.availability.value.available }
                 compose.onNodeWithContentDescription("Select file").assertIsDisplayed()
                 val owner = checkNotNull(model.session.active.value)
-                previousInvalidated = model.session.onInvalidated
-                model.session.onInvalidated = {}
-                val oldToken = model.screenToken()
-                compose.activity.attachments.beforeSupportAdmission = { supported, token ->
-                    if (token == oldToken) {
-                        assertTrue(supported)
-                        oldResult.complete(checkNotNull(currentCoroutineContext()[Job]))
+                val oldToken = model.chat.screenToken()
+                refreshing = async(start = CoroutineStart.LAZY) { attachments.refresh(owner, oldToken) }
+                attachments.beforeSupportAdmission = { supported, token ->
+                    if (currentCoroutineContext()[Job] === refreshing && supported && token == oldToken) {
                         entered.complete(Unit)
                         release.await()
-                    } else {
-                        // Hold later valid results while this case checks the captured old result.
-                        currentResults.await()
                     }
                 }
-                refreshing = async { model.featureRefresh(owner, model.currentConversation()) }
+                checkNotNull(refreshing).start()
                 withTimeout(30_000) { entered.await() }
-                model.dispatch(MessengerAction.Navigate(Screen.APP_SETTINGS))
-                model.setFeatures(
-                    model.state.value.features
-                        .copy(attachments = false),
-                )
+                model.session.deleteAccount()
+                model.session.connect(backend, "", true)
+                val replacement = checkNotNull(model.session.active.value)
+                assertNotEquals(owner.key, replacement.key)
+                assertNull(replacement.client.serverConfiguration().attachments)
+                assertFalse(replacement.client.attachments().offered())
+                until { !attachments.availability.value.available }
                 release.complete(Unit)
-                withTimeout(30_000) { oldResult.await().join() }
-                assertFalse(model.state.value.features.attachments)
-                model.dispatch(MessengerAction.Navigate(Screen.TIMELINE))
-                compose.waitUntil(5_000) {
-                    compose.onAllNodesWithContentDescription("Select file").fetchSemanticsNodes().isEmpty()
+                withTimeout(30_000) { checkNotNull(refreshing).await() }
+                assertFalse(
+                    "The old supported result cannot enter the replacement capability",
+                    attachments.availability.value.available,
+                )
+                attachments.refresh(replacement)
+                until {
+                    model.state.value.inbox == replacement.client.inboxId() &&
+                        !model.state.value.features.attachments
                 }
-                assertFalse(model.state.value.features.attachments)
+                val group =
+                    replacement.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "New capability owner"),
+                    )
+                val opened = CompletableDeferred<Unit>()
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                withTimeout(30_000) { opened.await() }
+                assertFalse(attachments.availability.value.available)
                 compose.onNodeWithContentDescription("Select file").assertDoesNotExist()
-                println("ATTACHMENT_SUPPORT_PROOF stage=old-screen-result-rejected picker-hidden=true")
+                println("ATTACHMENT_SUPPORT_PROOF stage=old-session-result-rejected picker-hidden=true")
             } finally {
                 release.complete(Unit)
-                currentResults.complete(Unit)
                 refreshing?.cancelAndJoin()
                 cleanup()
             }

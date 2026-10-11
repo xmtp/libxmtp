@@ -1,22 +1,29 @@
 package org.xmtp.android.example.messenger
 
+import androidx.lifecycle.ViewModelStore
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
 import org.xmtp.android.example.BuildConfig
 import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicInteger
 
 class SessionRaceInstrumentedTest {
+    private val graphRule = TestAppGraphRule()
+
+    @get:Rule val graphScope: org.junit.rules.TestRule = graphRule
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
 
     @Test fun staleSignOutAndResetCannotCloseANewerNativeConnect() =
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             val releases = mutableListOf<CompletableDeferred<Unit>>()
             try {
                 session.signOut()
@@ -65,7 +72,8 @@ class SessionRaceInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             var accepted = false
@@ -75,7 +83,7 @@ class SessionRaceInstrumentedTest {
                 release.await()
             }
             session.preferences.sessionCommitAccepted = { accepted = true }
-            session.onSessionInvalidated = { invalidated.complete(Unit) }
+            sessionFixture.lifecycle.onSessionInvalidated = { invalidated.complete(Unit) }
             val opening = async(Dispatchers.IO) { session.connect(BuildConfig.XMTP_BACKEND_URL, "", false) }
             try {
                 entered.await()
@@ -118,7 +126,8 @@ class SessionRaceInstrumentedTest {
     ) = runBlocking {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
-        val session = AppSession(context)
+        val sessionFixture = TestSessionFixture(context)
+        val session = sessionFixture.session
         session.signOut()
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
@@ -126,7 +135,7 @@ class SessionRaceInstrumentedTest {
         var held: ActiveSession? = null
         var work: Job? = null
         var closeCount = 0
-        session.beforeEnd = { closeCount += 1 }
+        sessionFixture.lifecycle.beforeEnd = { closeCount += 1 }
 
         suspend fun fault() {
             entered.complete(Unit)
@@ -200,11 +209,15 @@ class SessionRaceInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val session = graphRule.graph.session
+            val oldShellStore = ViewModelStore()
+            val newShellStore = ViewModelStore()
+            withContext(Dispatchers.Main) { graphRule.newShell(oldShellStore) }
+            val handled = AtomicInteger()
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             val invalidated = CompletableDeferred<Unit>()
-            session.onSessionInvalidated = { invalidated.complete(Unit) }
+            graphRule.observers.onSessionInvalidated = { invalidated.complete(Unit) }
             val unregistering = CompletableDeferred<Unit>()
             val allowUnregister = CompletableDeferred<Unit>()
             var peer: SDKClient? = null
@@ -213,9 +226,10 @@ class SessionRaceInstrumentedTest {
             try {
                 session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
                 val owner = checkNotNull(session.active.value)
-                session.onMessage = { _, message ->
+                graphRule.observers.afterHandle = { _, message ->
                     val body = (message.content as? SDKMessageContent.Standard)?.value as? MessageContent.Text
                     if (body?.v1 == "Unacknowledged callback") {
+                        handled.incrementAndGet()
                         entered.complete(Unit)
                         withContext(NonCancellable) { release.await() }
                     }
@@ -234,8 +248,24 @@ class SessionRaceInstrumentedTest {
                 peerReader = launch { second.conversations.streamAllMessages().collect { } }
                 val remote = second.conversations.createDm(owner.client.inboxId())
                 val id = remote.sendText("Unacknowledged callback")
-                entered.await()
-                session.unregisterNotifications = {
+                withTimeout(30_000) { entered.await() }
+                withContext(Dispatchers.Main) {
+                    oldShellStore.clear()
+                    graphRule.newShell(newShellStore)
+                }
+                assertSame(owner, session.active.value)
+                assertEquals("Shell replacement adds no required handler", 1, handled.get())
+                val stillOwned =
+                    withTimeout(30_000) {
+                        runCatching {
+                            owner.client.conversations
+                                .streamAllMessages()
+                                .first()
+                        }.exceptionOrNull()
+                    }
+                assertTrue("Shell replacement keeps one default reader", stillOwned is XmtpException.ConsumerOwned)
+                assertNull(session.readerError.value)
+                graphRule.observers.beforeUnregister = {
                     unregistering.complete(Unit)
                     allowUnregister.await()
                 }
@@ -272,6 +302,10 @@ class SessionRaceInstrumentedTest {
                 withContext(NonCancellable) {
                     signingOut?.await()
                     peer?.end()
+                    withContext(Dispatchers.Main) {
+                        oldShellStore.clear()
+                        newShellStore.clear()
+                    }
                     session.signOut()
                     if (session.preferences.active() !=
                         null

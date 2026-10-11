@@ -27,6 +27,7 @@ import uniffi.xmtp_sdk.*
 private const val narrowCase = "narrowPickerKeepsTargetsAndComposerClearAtDoubleTextScale"
 
 class MessengerUxInstrumentedTest {
+    private val graphRule = TestAppGraphRule()
     val compose = createAndroidComposeRule<MainActivity>()
 
     @get:Rule val rules: TestRule =
@@ -53,7 +54,8 @@ class MessengerUxInstrumentedTest {
                         }
                     }
                 },
-            ).around(compose)
+            ).around(graphRule)
+            .around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(
@@ -118,10 +120,10 @@ class MessengerUxInstrumentedTest {
 
     private suspend fun cleanup() =
         withContext(NonCancellable) {
-            model.inspectBackend = { backend ->
+            model.connect.inspectBackend = { backend ->
                 SDKClient.fetchServerConfiguration(BackendSource.Options(BackendOptions(url = backend)))
             }
-            model.onBackendProbeFinished = { _, _ -> }
+            model.connect.onBackendProbeFinished = { _, _ -> }
             if (model.session.active.value != null) model.session.deleteAccount()
             model.session.signOut()
             AndroidStreamLifecycle.enabled = true
@@ -135,14 +137,14 @@ class MessengerUxInstrumentedTest {
                 val remote = "http://probe.example.test"
                 val finished = CompletableDeferred<Unit>()
                 var queries = 0
-                model.inspectBackend = { url ->
+                model.connect.inspectBackend = { url ->
                     if (url == remote) {
                         queries += 1
                         error("Remote HTTP reached the SDK configuration probe")
                     }
                     SDKClient.fetchServerConfiguration(BackendSource.Options(BackendOptions(url = url)))
                 }
-                model.onBackendProbeFinished = { _, url -> if (url == remote) finished.complete(Unit) }
+                model.connect.onBackendProbeFinished = { _, url -> if (url == remote) finished.complete(Unit) }
                 model.dispatch(MessengerAction.InspectBackend(remote))
                 withTimeout(30_000) { finished.await() }
                 assertEquals(0, queries)
@@ -172,14 +174,14 @@ class MessengerUxInstrumentedTest {
                 val requiredCompleted = CompletableDeferred<Unit>()
                 val disabledCompleted = CompletableDeferred<Unit>()
                 val disabledUrl = "https://public.example.test"
-                model.onBackendProbeFinished = { _, url ->
+                model.connect.onBackendProbeFinished = { _, url ->
                     when (url) {
                         publicUrl -> completed.complete(Unit)
                         requiredUrl -> requiredCompleted.complete(Unit)
                         disabledUrl -> disabledCompleted.complete(Unit)
                     }
                 }
-                model.inspectBackend = { url ->
+                model.connect.inspectBackend = { url ->
                     if (url == publicUrl) {
                         entered.complete(Unit)
                         withContext(NonCancellable) { release.await() }
@@ -204,7 +206,7 @@ class MessengerUxInstrumentedTest {
                 println("UX_PROOF auth=$required")
                 assertEquals(requiredUrl, model.state.value.credentialsRequiredFor)
                 compose.onNodeWithText("Credential").assertExists()
-                model.inspectBackend = { configuration.copy(auth = configuration.auth.copy(enabled = false)) }
+                model.connect.inspectBackend = { configuration.copy(auth = configuration.auth.copy(enabled = false)) }
                 compose.onNodeWithText("Backend URL").performTextReplacement(disabledUrl)
                 withTimeout(30_000) { disabledCompleted.await() }
                 assertNull(model.state.value.credentialsRequiredFor)

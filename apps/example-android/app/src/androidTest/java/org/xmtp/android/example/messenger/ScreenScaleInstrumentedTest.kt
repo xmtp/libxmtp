@@ -18,12 +18,14 @@ import org.junit.runners.model.Statement
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.attachments.AttachmentDescriptor
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.group.GroupAction
 import org.xmtp.android.example.shared.metadata.FieldShape
 import uniffi.xmtp_sdk.*
 import java.util.UUID
 
 /** Actual 320 dp device layout, touch scrolling and 200% text on all nine screens. */
 class ScreenScaleInstrumentedTest {
+    private val graphRule = TestAppGraphRule()
     val compose = createAndroidComposeRule<MainActivity>()
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
     private val captured = mutableSetOf<Screen>()
@@ -36,7 +38,8 @@ class ScreenScaleInstrumentedTest {
                         override fun evaluate() = withScreenDisplay(::checkedScreenShell) { base.evaluate() }
                     }
                 },
-            ).around(compose)
+            ).around(graphRule)
+            .around(compose)
 
     private suspend fun until(
         stage: String,
@@ -348,16 +351,16 @@ class ScreenScaleInstrumentedTest {
     }
 
     private suspend fun groupAction(
-        expected: MessengerAction,
+        expected: GroupAction,
         label: String,
     ) {
         val finished = CompletableDeferred<Unit>()
-        model.onGroupActionFinished = { if (it == expected) finished.complete(Unit) }
+        model.group.onGroupActionFinished = { if (it == expected) finished.complete(Unit) }
         try {
             control(click(label)).performClick()
             withTimeout(30_000) { finished.await() }
         } finally {
-            model.onGroupActionFinished = {}
+            model.group.onGroupActionFinished = {}
         }
     }
 
@@ -431,7 +434,7 @@ class ScreenScaleInstrumentedTest {
                 input("Name", "Scaled settings name")
                 input("Description", "The settings controls remain editable")
                 groupAction(
-                    MessengerAction.UpdateGroup("Scaled settings name", "The settings controls remain editable"),
+                    GroupAction.UpdateGroup("Scaled settings name", "The settings controls remain editable"),
                     "Save",
                 )
                 assertEquals("Scaled settings name", group.state().name)
@@ -448,12 +451,12 @@ class ScreenScaleInstrumentedTest {
                 capture(Screen.CONVERSATION_SETTINGS)
                 control(click("Group fields")).performClick()
                 until("The real catalogue fields did not load") {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.id.componentId == 49160.toUShort() }
                 }
                 control(click("Reload fields")).performClick()
-                until("The real field refresh did not finish") { !model.metadataState.value.busy }
+                until("The real field refresh did not finish") { !model.group.metadataState.value.busy }
                 for (idValue in listOf(49153, 49154, 49155, 49156, 49157, 49160, 64768, 64769, 64770)) {
                     val prefix =
                         if (idValue in 49155..49157 || idValue in 64769..64770) "metadata-key-" else "metadata-value-"
@@ -482,8 +485,8 @@ class ScreenScaleInstrumentedTest {
                 }
                 control(click("My fields")).performClick()
                 until("The actual user fields did not load") {
-                    !model.metadataState.value.busy &&
-                        model.metadataState.value.fields
+                    !model.group.metadataState.value.busy &&
+                        model.group.metadataState.value.fields
                             .any { it.id.componentId == 49159.toUShort() }
                 }
                 control(hasTestTag("metadata-value-49158"))
@@ -582,7 +585,7 @@ class ScreenScaleInstrumentedTest {
                 }
                 try {
                     withContext(NonCancellable) {
-                        attempt { model.onGroupActionFinished = {} }
+                        attempt { model.group.onGroupActionFinished = {} }
                         attempt { reader?.cancelAndJoin() }
                         attempt { peer?.end() }
                         attempt { if (model.session.active.value != null) model.session.deleteAccount() }

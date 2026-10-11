@@ -6,6 +6,8 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
@@ -16,7 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class AttachmentLifetimeInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(check: () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
@@ -43,19 +48,19 @@ class AttachmentLifetimeInstrumentedTest {
                 resumeStreams()
                 session.signOut()
                 compose.activityRule.scenario.recreate()
-                val host = compose.activity.attachments
+                val controller = graphRule.graph.attachments
                 Thread.setDefaultUncaughtExceptionHandler { thread, failure ->
-                    if (failure.stackTrace.any { it.className.contains("attachments.AttachmentHost") }) {
+                    if (failure.stackTrace.any { it.className.contains("feature.attachments.AttachmentController") }) {
                         uncaught.compareAndSet(null, failure)
                     } else {
                         previousHandler?.uncaughtException(thread, failure)
                     }
                 }
-                model.beforeActiveRefresh = {
+                model.projection.beforeActiveRefresh = {
                     ready.complete(Unit)
                     vmRelease.await()
                 }
-                host.beforeWatchRefresh = {
+                controller.beforeWatchRefresh = {
                     ready.await()
                     watcherJob.complete(checkNotNull(currentCoroutineContext()[Job]))
                     if (stage == "initialization" && paused.compareAndSet(false, true)) {
@@ -63,13 +68,13 @@ class AttachmentLifetimeInstrumentedTest {
                         check(release.await(30, TimeUnit.SECONDS))
                     }
                 }
-                host.beforeWatchRecovery = {
+                controller.beforeWatchRecovery = {
                     if (stage == "recovery" && paused.compareAndSet(false, true)) {
                         entered.complete(Unit)
                         check(release.await(30, TimeUnit.SECONDS))
                     }
                 }
-                host.onWatchFinished = { finished.complete(Unit) }
+                controller.onWatchFinished = { finished.complete(Unit) }
                 session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
                 val owner = checkNotNull(session.active.value)
                 withTimeout(30_000) { entered.await() }
@@ -84,10 +89,10 @@ class AttachmentLifetimeInstrumentedTest {
                 }
                 assertNull("No uncaught attachment watcher failure at $stage", uncaught.get())
                 assertNull(session.active.value)
-                host.beforeWatchRefresh = {}
-                host.beforeWatchRecovery = {}
-                host.onWatchFinished = {}
-                model.beforeActiveRefresh = {}
+                controller.beforeWatchRefresh = {}
+                controller.beforeWatchRecovery = {}
+                controller.onWatchFinished = {}
+                model.projection.beforeActiveRefresh = {}
                 session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
                 val next = checkNotNull(session.active.value)
                 until { model.state.value.inbox == next.client.inboxId() && model.state.value.features.attachments }
@@ -97,10 +102,10 @@ class AttachmentLifetimeInstrumentedTest {
                 release.countDown()
                 vmRelease.complete(Unit)
                 Thread.setDefaultUncaughtExceptionHandler(previousHandler)
-                model.beforeActiveRefresh = {}
-                compose.activity.attachments.beforeWatchRefresh = {}
-                compose.activity.attachments.beforeWatchRecovery = {}
-                compose.activity.attachments.onWatchFinished = {}
+                model.projection.beforeActiveRefresh = {}
+                graphRule.graph.attachments.beforeWatchRefresh = {}
+                graphRule.graph.attachments.beforeWatchRecovery = {}
+                graphRule.graph.attachments.onWatchFinished = {}
                 withContext(NonCancellable) {
                     if (session.active.value != null || session.preferences.reset() != null) session.deleteAccount()
                     session.signOut()

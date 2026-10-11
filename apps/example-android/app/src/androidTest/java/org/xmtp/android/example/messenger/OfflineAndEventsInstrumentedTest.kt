@@ -22,7 +22,8 @@ class OfflineAndEventsInstrumentedTest {
                 AppOfflineBackendProxy(
                     BuildConfig.XMTP_BACKEND_URL,
                 )
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             try {
                 session
                     .connect(
@@ -102,7 +103,8 @@ class OfflineAndEventsInstrumentedTest {
                     .targetContext.applicationContext
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             val lagged = CompletableDeferred<Unit>()
@@ -126,7 +128,7 @@ class OfflineAndEventsInstrumentedTest {
                 val group =
                     owner.client.conversations
                         .createGroup(emptyList())
-                session.onEvent = {
+                sessionFixture.projection.onEvent = {
                     _,
                     event,
                     ->
@@ -144,7 +146,7 @@ class OfflineAndEventsInstrumentedTest {
                             .complete(Unit)
                     }
                 }
-                session.onInvalidated = {
+                sessionFixture.projection.onInvalidated = {
                     currentConsent =
                         group
                             .state()
@@ -185,7 +187,7 @@ class OfflineAndEventsInstrumentedTest {
                         .common.consentState,
                     currentConsent,
                 )
-                session.onMessage = {
+                sessionFixture.projection.onMessage = {
                     _,
                     message,
                     ->

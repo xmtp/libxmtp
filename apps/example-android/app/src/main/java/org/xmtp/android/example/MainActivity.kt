@@ -5,33 +5,43 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.key
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.messenger.MessengerViewModel
 import org.xmtp.android.example.messenger.ReactionPickerHost
 import org.xmtp.android.example.messenger.attachments.AttachmentHost
+import org.xmtp.android.example.messenger.platform.systemReducedMotion
+import org.xmtp.android.example.shared.AppRoute
 import org.xmtp.android.example.shared.MessengerScreens
 import org.xmtp.android.example.shared.Screen
 import org.xmtp.android.example.shared.metadata.MetadataScreen
 
 class MainActivity : ComponentActivity() {
-    private val model: MessengerViewModel by viewModels()
+    private val model: MessengerViewModel by viewModels {
+        viewModelFactory {
+            initializer { MessengerViewModel((application as ExampleApp).graph, createSavedStateHandle()) }
+        }
+    }
     internal lateinit var attachments: AttachmentHost
         private set
 
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            model.notifications.permissionChanged()
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            model.graph.notificationPermission.complete(granted)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        attachments = AttachmentHost(this, model)
+        attachments = AttachmentHost(this, model.attachments)
         lifecycleScope.launch {
             model.notifications.permissionRequest.collect { request ->
                 requestNotificationPermission(request)
@@ -39,7 +49,19 @@ class MainActivity : ComponentActivity() {
         }
         lifecycleScope.launch { model.openPush(intent) }
         setContent {
-            val state = model.state.collectAsStateWithLifecycle().value
+            val current = model.state.collectAsStateWithLifecycle().value
+            val state = current.copy(shellState = current.shellState?.copy(reducedMotion = systemReducedMotion()))
+            val destination =
+                model.graph.destinations.state
+                    .collectAsStateWithLifecycle()
+                    .value
+            BackHandler(
+                enabled =
+                    (destination.route != AppRoute.Connect && destination.route != AppRoute.Chats) ||
+                        state.chatState?.overlay != null,
+            ) {
+                model.graph.back()
+            }
             ReactionPickerHost(state, model::dispatch) { action ->
                 MessengerScreens(
                     state,
@@ -47,15 +69,15 @@ class MainActivity : ComponentActivity() {
                     extraScreen = { screen ->
                         when (screen) {
                             Screen.DRAFTS -> {
-                                attachments.Recovery()
+                                attachments.Recovery(state.conversations)
                             }
 
                             Screen.GROUP_FIELDS, Screen.MY_FIELDS -> {
-                                key(model.screenToken()) {
+                                key(destination.token) {
                                     MetadataScreen(
                                         model.metadataState.collectAsStateWithLifecycle().value,
                                         screen == Screen.MY_FIELDS,
-                                        model::editMetadata,
+                                        model.group::editMetadata,
                                     )
                                 }
                             }
@@ -65,8 +87,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    composerExtra = { attachments.Composer() },
-                    messageExtra = { row -> attachments.Message(row) },
+                    composerExtra = { attachments.Composer(state.conversationId) },
+                    messageExtra = { row -> attachments.Message(row, state.conversationId) },
                 )
             }
         }
@@ -74,12 +96,11 @@ class MainActivity : ComponentActivity() {
 
     private fun requestNotificationPermission(request: Long) {
         if (request <= 0 || !model.notifications.configured || Build.VERSION.SDK_INT < 33) return
-        val owner = model.session.active.value ?: return
-        model.session.withCurrent(owner.key) {
-            if (model.notifications.enabled.value && model.notifications.permissionRequest.value == request) {
-                model.notifications.permissionRequested()
-                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
+        val identity = model.graph.notificationPermission.claim(request) ?: return
+        try {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } catch (_: IllegalStateException) {
+            model.graph.notificationPermission.launchFailed(identity)
         }
     }
 
