@@ -15,7 +15,12 @@ import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.ExampleApp
 import org.xmtp.android.example.MainActivity
+import org.xmtp.android.example.messenger.app.RouteOwner
+import org.xmtp.android.example.messenger.data.xmtp.BackendProbe
+import org.xmtp.android.example.messenger.feature.AppFeaturePreferences
+import org.xmtp.android.example.messenger.feature.connect.ConnectController
 import org.xmtp.android.example.messenger.notifications.NotificationController
+import org.xmtp.android.example.messenger.session.SessionCommands
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.feature.chat.ChatAction
 import org.xmtp.android.example.shared.feature.connect.ConnectAction
@@ -233,10 +238,97 @@ class MessengerRecoveryUxInstrumentedTest {
                 assertEquals("new secret", credential?.toString(Charsets.UTF_8))
                 assertTrue(owner.client.inboxId().isNotBlank())
                 println("START_RETRY_PROOF stage=current-url-and-credential-created-native-owner")
+                model.session.signOut()
+                obsoleteConnectCannotClearNewRetryTarget(false)
+                obsoleteConnectCannotClearNewRetryTarget(true)
             } finally {
                 cleanup()
             }
         }
+
+    private suspend fun obsoleteConnectCannotClearNewRetryTarget(retry: Boolean) {
+        val job = SupervisorJob()
+        val scope = CoroutineScope(job + Dispatchers.IO)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val newerEntered = CompletableDeferred<Unit>()
+        val failNewer = CompletableDeferred<Unit>()
+        val retried = CompletableDeferred<Pair<String, String?>>()
+        val calls =
+            java.util.concurrent.atomic
+                .AtomicInteger()
+
+        class ConnectCommands : SessionCommands by model.session {
+            override suspend fun restore(): Unit = throw AssertionError("Retry must retain the newer connect target")
+
+            override suspend fun connect(
+                backend: String,
+                credential: String?,
+                allowPrivateNetwork: Boolean,
+            ) {
+                val call = calls.incrementAndGet()
+                when {
+                    retry && call == 1 -> {
+                        throw IOException("Seed retry target")
+                    }
+
+                    call == (if (retry) 2 else 1) -> {
+                        entered.complete(Unit)
+                        release.await()
+                    }
+
+                    call == (if (retry) 3 else 2) -> {
+                        newerEntered.complete(Unit)
+                        failNewer.await()
+                        throw IOException("Newer connect failed")
+                    }
+
+                    else -> {
+                        retried.complete(backend to credential)
+                    }
+                }
+            }
+        }
+        val commands = ConnectCommands()
+        val controller =
+            ConnectController(
+                model.session,
+                commands,
+                BackendProbe { error("No server probe is needed") },
+                AppFeaturePreferences(compose.activity, model.session, model.session.secrets),
+                RouteOwner { model.session },
+                scope,
+                BuildConfig.XMTP_BACKEND_URL,
+                { emptyList() },
+            )
+        try {
+            controller.dispatch(ConnectAction.Connect("https://old.example", "old secret"))
+            if (retry) {
+                until("seed retry failure") {
+                    !controller.state.value.busy && controller.state.value.failure != null
+                }
+                controller.dispatch(ConnectAction.Retry)
+            }
+            withTimeout(30_000) { entered.await() }
+            controller.dispatch(ConnectAction.Connect("https://new.example", "new secret"))
+            withTimeout(30_000) { newerEntered.await() }
+            release.complete(Unit)
+            until("obsolete operation completed") { job.children.count() == 1 }
+            failNewer.complete(Unit)
+            until("newer connect failure") {
+                !controller.state.value.busy && controller.state.value.failure != null
+            }
+            controller.dispatch(ConnectAction.Retry)
+            until("newer target retried") { retried.isCompleted || !controller.state.value.busy }
+            val completedAction = if (retry) "Retry" else "Connect"
+            assertTrue("Retry must call connect after an obsolete $completedAction success", retried.isCompleted)
+            assertEquals("https://new.example" to "new secret", retried.await())
+        } finally {
+            release.complete(Unit)
+            failNewer.complete(Unit)
+            job.cancelAndJoin()
+        }
+    }
 
     @Test fun failedStartupRestoreRetryUsesSavedBackendAndRetainedCredential() =
         runBlocking {

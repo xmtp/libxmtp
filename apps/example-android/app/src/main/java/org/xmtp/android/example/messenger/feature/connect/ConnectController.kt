@@ -121,45 +121,51 @@ internal class ConnectController(
             }
 
             is ConnectAction.Connect -> {
-                lastAttempt = action.backend to action.credential
-                ui.update { it.copy(backend = action.backend) }
-                transition {
-                    commands.connect(
-                        action.backend,
-                        action.credential,
-                        localAttachmentNetwork(action.backend),
-                    )
-                    session.active.value?.let { owner ->
-                        preferences.setLabel(
-                            owner.key,
-                            ui.value.label,
+                session.withStateLock {
+                    lastAttempt = action.backend to action.credential
+                    ui.update { it.copy(backend = action.backend) }
+                    transition { attempt ->
+                        commands.connect(
+                            action.backend,
+                            action.credential,
+                            localAttachmentNetwork(action.backend),
                         )
+                        session.active.value?.let { owner ->
+                            preferences.setLabel(
+                                owner.key,
+                                ui.value.label,
+                            )
+                        }
+                        session.withStateLock {
+                            if (attempt == operations.get()) lastAttempt = null
+                        }
                     }
-                    lastAttempt =
-                        null
                 }
             }
 
             ConnectAction.Retry -> {
-                val previous =
-                    lastAttempt
-                transition(restoring = previous == null) {
-                    if (previous == null) {
-                        commands.restore()
-                    } else {
-                        commands.connect(
-                            previous.first,
-                            previous.second,
-                            localAttachmentNetwork(previous.first),
-                        )
-                        session.active.value?.let {
-                            preferences.setLabel(
-                                it.key,
-                                ui.value.label,
+                session.withStateLock {
+                    val previous =
+                        lastAttempt
+                    transition(restoring = previous == null) { attempt ->
+                        if (previous == null) {
+                            commands.restore()
+                        } else {
+                            commands.connect(
+                                previous.first,
+                                previous.second,
+                                localAttachmentNetwork(previous.first),
                             )
+                            session.active.value?.let {
+                                preferences.setLabel(
+                                    it.key,
+                                    ui.value.label,
+                                )
+                            }
+                            session.withStateLock {
+                                if (attempt == operations.get()) lastAttempt = null
+                            }
                         }
-                        lastAttempt =
-                            null
                     }
                 }
             }
@@ -187,7 +193,7 @@ internal class ConnectController(
     private fun transition(
         reset: Boolean = false,
         restoring: Boolean = false,
-        command: suspend () -> Unit,
+        command: suspend (Long) -> Unit,
     ) {
         val attempt =
             session.withStateLock {
@@ -199,7 +205,7 @@ internal class ConnectController(
         scope.launch(Dispatchers.IO) {
             try {
                 if (attempt != operations.get()) return@launch
-                command()
+                command(attempt)
                 session.withStateLock {
                     if (attempt == operations.get()) ui.update { it.copy(pendingReset = false) }
                 }

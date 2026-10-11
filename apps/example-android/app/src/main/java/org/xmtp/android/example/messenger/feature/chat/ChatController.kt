@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.withPermit
 import org.xmtp.android.example.messenger.*
 import org.xmtp.android.example.messenger.app.DestinationOrigin
 import org.xmtp.android.example.messenger.app.DestinationScope
+import org.xmtp.android.example.messenger.app.RouteOwner
 import org.xmtp.android.example.messenger.data.xmtp.ChatQueries
 import org.xmtp.android.example.messenger.data.xmtp.ConversationQueries
 import org.xmtp.android.example.messenger.feature.*
@@ -152,17 +153,7 @@ internal class ChatController(
         ui.value = ChatState()
     }
 
-    private fun routeConversationId(): String? =
-        when (
-            val route =
-                destinations.state.value.route
-        ) {
-            is AppRoute.Chat -> route.conversationId
-            is AppRoute.ConversationDetails -> route.conversationId
-            is AppRoute.GroupFields -> route.conversationId
-            is AppRoute.OwnFields -> route.conversationId
-            else -> null
-        }
+    private fun routeConversationId(): String? = RouteOwner.conversationId(destinations.state.value.route)
 
     override fun currentConversation(): Conversation? {
         val key =
