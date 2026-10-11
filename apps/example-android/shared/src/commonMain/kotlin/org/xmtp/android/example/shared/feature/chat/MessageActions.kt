@@ -20,11 +20,21 @@ import org.xmtp.android.example.shared.*
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun MessageActions(row: MessageRow, maximumHeight: Dp, enabled: Boolean, action: (ChatAction) -> Unit) {
+internal fun MessageActions(
+    row: MessageRow,
+    maximumHeight: Dp,
+    enabled: Boolean,
+    action: (ChatAction) -> Unit,
+) {
     val clipboard = LocalClipboardManager.current
     val haptics = LocalHapticFeedback.current
     var confirmDelete by remember(row.id) { mutableStateOf(false) }
-    Surface(Modifier.testTag("reaction-popover").widthIn(max = 304.dp).heightIn(max = maximumHeight.coerceAtLeast(48.dp)), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp), shadowElevation = 8.dp) {
+    Surface(
+        Modifier.testTag("reaction-popover").widthIn(max = 304.dp).heightIn(max = maximumHeight.coerceAtLeast(48.dp)),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(24.dp),
+        shadowElevation = 8.dp,
+    ) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
             Row {
                 listOf("👍", "❤️", "😂", "😮", "😢").forEach { emoji ->
@@ -37,25 +47,63 @@ internal fun MessageActions(row: MessageRow, maximumHeight: Dp, enabled: Boolean
                         Text(emoji, fontSize = with(LocalDensity.current) { (24 / fontScale).sp })
                     }
                 }
-                IconButton({ action(ChatAction.ShowEmoji(row.id)) }, Modifier.size(48.dp), enabled = enabled) { Icon(AppIcons.More, "More reactions") }
+                IconButton({
+                    action(ChatAction.ShowEmoji(row.id))
+                }, Modifier.size(48.dp), enabled = enabled) { Icon(AppIcons.More, "More reactions") }
             }
             HorizontalDivider(Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
             FlowRow(Modifier.fillMaxWidth()) {
-                TextButton({ clipboard.setText(AnnotatedString(row.text)); action(ChatAction.DismissOverlay) }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Copy") }
-                TextButton({ action(ChatAction.Reply(row.id)); action(ChatAction.DismissOverlay) }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Reply") }
-                if (row.mine && row.sendState == MessageSendState.SENT) TextButton({ confirmDelete = true }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Delete") }
-                if (row.mine && (row.sendState == MessageSendState.QUEUED || row.sendState == MessageSendState.NOT_SENT)) {
-                    TextButton({ action(ChatAction.RetrySend(row.id)); action(ChatAction.DismissOverlay) }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Retry") }
-                    TextButton({ action(ChatAction.EditFailedSend(row.id)); action(ChatAction.DismissOverlay) }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Edit") }
+                TextButton({
+                    clipboard.setText(AnnotatedString(row.text))
+                    action(ChatAction.DismissOverlay)
+                }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Copy") }
+                TextButton({
+                    action(ChatAction.Reply(row.id))
+                    action(ChatAction.DismissOverlay)
+                }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Reply") }
+                if (row.mine &&
+                    row.sendState == MessageSendState.SENT
+                ) {
+                    TextButton(
+                        { confirmDelete = true },
+                        Modifier.heightIn(min = 48.dp),
+                        enabled = enabled,
+                    ) { Text("Delete") }
+                }
+                if (row.mine &&
+                    (row.sendState == MessageSendState.QUEUED || row.sendState == MessageSendState.NOT_SENT)
+                ) {
+                    TextButton({
+                        action(ChatAction.RetrySend(row.id))
+                        action(ChatAction.DismissOverlay)
+                    }, Modifier.heightIn(min = 48.dp).testTag("message-retry-${row.id}"), enabled = enabled) {
+                        Text("Retry")
+                    }
+                    TextButton({
+                        action(ChatAction.EditFailedSend(row.id))
+                        action(ChatAction.DismissOverlay)
+                    }, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Edit") }
                 }
             }
         }
     }
-    if (confirmDelete) AlertDialog(
-        onDismissRequest = { confirmDelete = false },
-        title = { Text("Delete message?") },
-        text = { Text("This sends a deletion request to this conversation. Other members may already have a copy.") },
-        confirmButton = { TextButton({ confirmDelete = false; action(ChatAction.DeleteMessage(row.id)); action(ChatAction.DismissOverlay) }) { Text("Delete message", color = MaterialTheme.colorScheme.error) } },
-        dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } },
-    )
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete message?") },
+            text = {
+                Text(
+                    "This sends a deletion request to this conversation. Other members may already have a copy.",
+                )
+            },
+            confirmButton = {
+                TextButton({
+                    confirmDelete = false
+                    action(ChatAction.DeleteMessage(row.id))
+                    action(ChatAction.DismissOverlay)
+                }) { Text("Delete message", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } },
+        )
+    }
 }

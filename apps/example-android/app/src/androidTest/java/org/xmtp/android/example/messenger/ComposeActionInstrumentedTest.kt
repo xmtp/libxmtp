@@ -74,7 +74,7 @@ class ComposeActionInstrumentedTest {
                 ),
             )
         }
-        compose.onNodeWithText("Connect").performClick()
+        compose.onNodeWithText("Join a server").performScrollTo().performClick()
         val connect = actions.filterIsInstance<ConnectAction.Connect>().single()
         assertEquals("http://example.test", connect.backend)
 
@@ -101,7 +101,7 @@ class ComposeActionInstrumentedTest {
         }
         compose.onNodeWithText("First conversation").performClick()
         assertTrue(actions.contains(ConversationsAction.OpenConversation("one")))
-        compose.onNodeWithContentDescription("New conversation").performClick()
+        compose.onNodeWithContentDescription("New message").performClick()
         assertTrue(actions.contains(ShellAction.Navigate(AppRoute.CreateConversation)))
 
         compose.runOnIdle {
@@ -129,7 +129,7 @@ class ComposeActionInstrumentedTest {
                 )
         }
         compose.onNodeWithText("Message", substring = false).performTextInput("New text")
-        compose.onNodeWithText("Send").performClick()
+        compose.onNodeWithContentDescription("Send message").performClick()
         val sent = actions.filterIsInstance<ChatAction.SendText>().single()
         assertEquals("New text", sent.text)
         assertEquals(
@@ -140,7 +140,7 @@ class ComposeActionInstrumentedTest {
         compose.onNodeWithText("Hello").performClick()
         compose.onNodeWithText("Reply").performClick()
         assertTrue(actions.contains(ChatAction.Reply("message")))
-        compose.onNodeWithContentDescription("Conversation settings").performClick()
+        compose.onNodeWithContentDescription("Conversation details").performClick()
         assertTrue(actions.contains(ShellAction.Navigate(AppRoute.ConversationDetails("one"))))
     }
 }

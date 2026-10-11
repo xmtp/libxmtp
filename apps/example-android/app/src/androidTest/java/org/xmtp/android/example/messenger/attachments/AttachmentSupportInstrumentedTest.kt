@@ -86,7 +86,7 @@ class AttachmentSupportInstrumentedTest {
                 val owner = checkNotNull(model.session.active.value)
                 assertNull(owner.client.serverConfiguration().attachments)
                 assertFalse(owner.client.attachments().offered())
-                compose.onNodeWithContentDescription("Select file").assertDoesNotExist()
+                compose.onNodeWithContentDescription("Add attachment").assertDoesNotExist()
                 graphRule.graph.dispatchAttachment(AttachmentAction.Select)
                 compose.waitForIdle()
                 assertEquals(0, monitor.hits)
@@ -104,7 +104,7 @@ class AttachmentSupportInstrumentedTest {
                 compose.waitUntil(30_000) { compose.onAllNodesWithText("Verified").fetchSemanticsNodes().isNotEmpty() }
                 compose.onNodeWithText("Open").assertIsDisplayed()
                 compose.onNodeWithText("Save").assertIsDisplayed()
-                compose.onNodeWithContentDescription("Select file").assertDoesNotExist()
+                compose.onNodeWithContentDescription("Add attachment").assertDoesNotExist()
                 println("ATTACHMENT_SUPPORT_PROOF stage=unsupported-native-config picker-hidden=true picker-launches=0")
             } finally {
                 instrumentation.removeMonitor(monitor)
@@ -126,7 +126,7 @@ class AttachmentSupportInstrumentedTest {
                 connect(BuildConfig.XMTP_BACKEND_URL)
                 val attachments = graphRule.graph.attachments
                 until { attachments.availability.value.available }
-                compose.onNodeWithContentDescription("Select file").assertIsDisplayed()
+                compose.onNodeWithContentDescription("Add attachment").assertIsDisplayed()
                 val owner = checkNotNull(model.session.active.value)
                 val oldToken = model.chat.screenToken()
                 refreshing = async(start = CoroutineStart.LAZY) { attachments.refresh(owner, oldToken) }
@@ -166,7 +166,7 @@ class AttachmentSupportInstrumentedTest {
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 withTimeout(30_000) { opened.await() }
                 assertFalse(attachments.availability.value.available)
-                compose.onNodeWithContentDescription("Select file").assertDoesNotExist()
+                compose.onNodeWithContentDescription("Add attachment").assertDoesNotExist()
                 println("ATTACHMENT_SUPPORT_PROOF stage=old-session-result-rejected picker-hidden=true")
             } finally {
                 release.complete(Unit)

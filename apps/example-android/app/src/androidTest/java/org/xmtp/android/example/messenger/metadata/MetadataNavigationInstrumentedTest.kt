@@ -13,6 +13,7 @@ import org.junit.rules.TestRule
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.MessengerViewModel
 import org.xmtp.android.example.messenger.TestAppGraphRule
+import org.xmtp.android.example.messenger.ownedMetadataBackend
 import org.xmtp.android.example.shared.*
 import uniffi.xmtp_sdk.*
 import java.util.UUID
@@ -38,8 +39,10 @@ class MetadataNavigationInstrumentedTest {
     }
 
     private fun settingsAction(text: String) {
-        compose.onNodeWithTag("conversation-settings").performScrollToNode(hasText(text))
-        compose.onNodeWithText(text).performClick()
+        compose.onNodeWithTag("conversation-settings").performScrollToNode(hasText("Developer tools"))
+        compose.onNodeWithText("Developer tools").assertIsDisplayed()
+        compose.onNodeWithTag("conversation-settings").performScrollToNode(hasText(text) and hasClickAction())
+        compose.onNode(hasText(text) and hasClickAction()).performClick()
     }
 
     private fun saveOwn() {
@@ -86,7 +89,12 @@ class MetadataNavigationInstrumentedTest {
 
     @Test fun screensSaveAndRefreshConversationValues() =
         runBlocking {
-            val url = checkNotNull(InstrumentationRegistry.getArguments().getString("metadataBackendUrl"))
+            val arguments = InstrumentationRegistry.getArguments()
+            val url =
+                ownedMetadataBackend(
+                    arguments.getString("metadataBackendUrl"),
+                    arguments.getString("metadataBackendOwned"),
+                )
             val context = compose.activity.applicationContext
             val peerPath = context.filesDir.resolve("metadata-peer/${UUID.randomUUID()}")
             val lifecycle = AndroidStreamLifecycle.enabled
@@ -112,7 +120,7 @@ class MetadataNavigationInstrumentedTest {
                 val other = checkNotNull(peer.conversations.getById(group.id()))
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 until { model.state.value.conversationId == group.id() && !model.state.value.busy }
-                compose.onNodeWithContentDescription("Conversation settings").performClick()
+                compose.onNodeWithContentDescription("Conversation details").performClick()
                 until { model.state.value.screen == Screen.CONVERSATION_SETTINGS && model.state.value.settings.group }
                 settingsAction("Group fields")
                 until {
@@ -262,7 +270,7 @@ class MetadataNavigationInstrumentedTest {
                 val otherDm = checkNotNull(peer.conversations.getById(dm.id()))
                 model.dispatch(MessengerAction.OpenConversation(dm.id()))
                 until { model.state.value.conversationId == dm.id() && !model.state.value.busy }
-                compose.onNodeWithContentDescription("Conversation settings").performClick()
+                compose.onNodeWithContentDescription("Conversation details").performClick()
                 until {
                     model.state.value.screen == Screen.CONVERSATION_SETTINGS &&
                         !model.state.value.settings.group && !model.state.value.busy
@@ -318,7 +326,9 @@ class MetadataNavigationInstrumentedTest {
                 until { model.state.value.inbox == own }
                 model.dispatch(MessengerAction.OpenConversation(dm.id()))
                 until { model.state.value.conversationId == dm.id() && !model.state.value.busy }
-                model.dispatch(MessengerAction.Navigate(Screen.MY_FIELDS))
+                compose.onNodeWithContentDescription("Conversation details").performClick()
+                until { model.state.value.screen == Screen.CONVERSATION_SETTINGS && !model.state.value.busy }
+                settingsAction("My fields")
                 until {
                     !model.group.metadataState.value.busy &&
                         model.group.metadataState.value.fields

@@ -129,14 +129,23 @@ class AttachmentPickerRecreationInstrumentedTest {
                 val token = model.chat.screenToken()
                 instrumentation.addMonitor(monitor)
                 if (stage == "select") {
-                    compose.onNodeWithContentDescription("Select file").performClick()
+                    compose.onNodeWithContentDescription("Add attachment").performClick()
                 } else {
                     val messageId = checkNotNull(id)
-                    model.dispatch(MessengerAction.OpenAttachment(messageId))
+                    compose.onNodeWithTag("attachment-card-$messageId", useUnmergedTree = true).assertExists()
+                    compose
+                        .onNodeWithText("Download")
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .performClick()
                     compose.waitUntil(5_000) {
                         compose.onAllNodesWithText("Verified").fetchSemanticsNodes().isNotEmpty()
                     }
-                    compose.onNodeWithText("Save").performClick()
+                    compose
+                        .onNodeWithText("Save")
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .performClick()
                 }
                 pickerReady()
                 assertTrue(outstanding)
@@ -195,6 +204,49 @@ class AttachmentPickerRecreationInstrumentedTest {
                             .status(),
                     )
                     assertNull(retained.launchedSelect())
+                    compose.waitUntil(5_000) {
+                        compose
+                            .onAllNodesWithTag("attachment-card-${draft.draftId}", useUnmergedTree = true)
+                            .fetchSemanticsNodes()
+                            .isNotEmpty()
+                    }
+                    compose
+                        .onNodeWithText("Send file")
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .performClick()
+                    until {
+                        val messages = chat.messages(null)
+                        messages.size == 1 && messages.single().deliveryStatus == DeliveryStatus.PUBLISHED &&
+                            session.preferences.drafts(owner.key.profileId).isEmpty()
+                    }
+                    val sent = chat.messages(null).single()
+                    val content = (sent.content as? SDKMessageContent.Standard)?.value
+                    val publishedRemote = checkNotNull(content as? MessageContent.RemoteAttachment).v1
+                    until {
+                        session.secrets.read(owner.key.profileId, ref) == null &&
+                            graphRule.graph.attachments.drafts.value
+                                .none { it.id == draft.draftId } &&
+                            model.state.value.messages
+                                .any { it.id == sent.id }
+                    }
+                    assertNull(session.secrets.read(owner.key.profileId, ref))
+                    compose
+                        .onNodeWithText("Download")
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .performClick()
+                    compose.waitUntil(30_000) {
+                        compose.onAllNodesWithText("Verified").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    assertArrayEquals(actual, File(owner.client.attachments().localPath(publishedRemote)).readBytes())
+                    compose.onNodeWithText("Open").assertIsDisplayed()
+                    compose.onNodeWithText("Save").assertIsDisplayed()
+                    assertEquals(listOf(sent.id), chat.messages(null).map { it.id })
+                    println(
+                        "ATTACHMENT_PICKER_RECREATION_PROOF stage=select-send published-id=${sent.id} " +
+                            "one-message=true verified-bytes=true",
+                    )
                 } else {
                     val values =
                         android.content.ContentValues().apply {

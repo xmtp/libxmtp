@@ -90,7 +90,7 @@ class MessengerRecoveryUxInstrumentedTest {
                     throw IOException("Definite queue preparation failure")
                 }
                 compose.onNodeWithText("Message").performTextInput("kept draft")
-                compose.onNodeWithText("Send").performClick()
+                compose.onNodeWithContentDescription("Send message").performClick()
                 until("definite failure result") {
                     model.state.value.textSendResult
                         ?.outcome is TextSendOutcome.Rejected
@@ -111,7 +111,7 @@ class MessengerRecoveryUxInstrumentedTest {
                         release.await()
                     }
                 }
-                compose.onNodeWithText("Send").performClick()
+                compose.onNodeWithContentDescription("Send message").performClick()
                 withTimeout(30_000) { entered.await() }
                 compose.onNode(hasSetTextAction() and hasText("kept draft")).performTextReplacement("new edit")
                 release.complete(Unit)
@@ -161,7 +161,7 @@ class MessengerRecoveryUxInstrumentedTest {
                 }
                 model.sends.beforePublish = { throw IOException("Publication failure after native acceptance") }
                 compose.onNodeWithText("Message").performTextInput("accepted body")
-                compose.onNodeWithText("Send").performClick()
+                compose.onNodeWithContentDescription("Send message").performClick()
                 withTimeout(30_000) { sendEntered.await() }
                 withContext(Dispatchers.IO) { group.updateName("Active submission recovery") }
                 until("native metadata event refreshed active submission") { metadataRefreshed.isCompleted }
@@ -188,7 +188,10 @@ class MessengerRecoveryUxInstrumentedTest {
                 compose.onNode(hasSetTextAction() and hasText("accepted body")).assertDoesNotExist()
                 compose.onNodeWithText("Message").assertExists()
                 model.sends.beforePublish = {}
-                model.dispatch(MessengerAction.RetrySend(id))
+                compose
+                    .onNode(
+                        hasText("Retry") and hasClickAction() and hasAnyAncestor(hasTestTag("publication-recovery")),
+                    ).performClick()
                 until("same native ID published") {
                     owner.client.conversations
                         .getMessageById(id)
@@ -216,18 +219,43 @@ class MessengerRecoveryUxInstrumentedTest {
                 model.connect.inspectBackend = { config.copy(auth = config.auth.copy(enabled = true)) }
                 model.dispatch(MessengerAction.InspectBackend(BuildConfig.XMTP_BACKEND_URL))
                 until("credential") { model.state.value.credentialsRequiredFor != null }
-                compose.onNodeWithText("Credential").performTextInput("first secret")
+                compose
+                    .onNodeWithText("Access token")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performTextInput("first secret")
                 model.session.beforeClientBuild = { throw IOException("First connection failed") }
-                compose.onNodeWithText("Connect").performClick()
+                compose
+                    .onNodeWithText("Join a server")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performClick()
                 until("connection failure") {
                     model.connect.state.value.failure != null
                 }
                 val url = "http://127.0.0.1:${URI(BuildConfig.XMTP_BACKEND_URL).port}"
-                compose.onNodeWithText("Backend URL").performTextReplacement(url)
+                compose
+                    .onNodeWithText("Server address")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performTextReplacement(url)
                 until("new credential origin") { model.state.value.credentialsRequiredFor == url }
-                compose.onNodeWithText("Credential").performTextReplacement("new secret")
+                compose
+                    .onNodeWithText("Access token")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performTextReplacement("new secret")
                 model.session.beforeClientBuild = {}
-                compose.onNodeWithText("Retry").performClick()
+                compose
+                    .onNodeWithText("Retry")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performClick()
                 until("retried native owner") {
                     model.session.active.value
                         ?.profile
@@ -376,9 +404,9 @@ class MessengerRecoveryUxInstrumentedTest {
                         MessengerScreens(fresh.state.collectAsState().value, fresh::dispatch)
                     }
                 }
-                compose.onNodeWithText("Backend URL").assertTextContains(saved.backend)
+                compose.onNodeWithText("Server address").assertTextContains(saved.backend)
                 compose
-                    .onNodeWithText("Credential")
+                    .onNodeWithText("Access token")
                     .performScrollTo()
                     .assertIsDisplayed()
                     .assertIsEnabled()

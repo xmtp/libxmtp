@@ -14,6 +14,8 @@ import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.feature.chat.ChatAction
+import org.xmtp.android.example.shared.feature.conversations.RequestAction
+import org.xmtp.android.example.shared.feature.conversations.RequestDecision
 import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
 
@@ -236,7 +238,7 @@ class MessengerRaceInstrumentedTest {
                 }
                 model.chat.lookupConversation = { current, id -> current.client.conversations.getById(id) }
                 compose.onNodeWithText("Message").performTextReplacement("Explicit B send")
-                compose.onNodeWithText("Send").performClick()
+                compose.onNodeWithContentDescription("Send message").performClick()
                 until("explicit B native send") {
                     Conversation.Group(b).messages(publishedSelection()).any {
                         it.standardContent() ==
@@ -814,6 +816,7 @@ class MessengerRaceInstrumentedTest {
         runBlocking {
             var peer: SDKClient? = null
             var reader: Job? = null
+            val releaseDecision = CompletableDeferred<Unit>()
             try {
                 val owner = connect()
                 peer =
@@ -864,7 +867,106 @@ class MessengerRaceInstrumentedTest {
                         .single { it.id == chat.id() }
                         .unread,
                 )
+                chat.updateConsentState(ConsentState.UNKNOWN)
+                model.dispatch(MessengerAction.Refresh)
+                until("actual unread chat becomes a request") {
+                    model.conversations.state.value.requests
+                        .any { it.id == chat.id() }
+                }
+                compose.onNode(hasText("Message requests", substring = true) and hasClickAction()).performClick()
+                until("actual request list is ready") {
+                    val list = model.conversations.state.value
+                    graphRule.graph.destinations.state.value.route == AppRoute.Requests &&
+                        list.unknownTab && !list.busy &&
+                        list.requests.any { it.id == chat.id() && it.preview == "Read this message" }
+                }
+                val requestRow = hasText("Read this message", substring = true) and hasClickAction()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(requestRow)
+                compose.onNode(requestRow).assertIsDisplayed().performClick()
+                until("actual request trust state is visible") {
+                    model.chat.state.value.conversationId == chat.id() && model.chat.state.value.unknown
+                }
+                val decisionEntered = CompletableDeferred<Unit>()
+                val duplicateEntered = CompletableDeferred<Unit>()
+                val decisionFinished = CompletableDeferred<Unit>()
+                val decisionCalls =
+                    java.util.concurrent.atomic
+                        .AtomicInteger()
+                model.conversations.beforeConsentDecision = { decision ->
+                    if (decisionCalls.incrementAndGet() == 1) {
+                        decisionEntered.complete(Unit)
+                    } else {
+                        duplicateEntered.complete(Unit)
+                    }
+                    assertEquals(RequestDecision.DELETE_LOCAL, decision)
+                    releaseDecision.await()
+                }
+                model.conversations.onConsentFinished = { decisionFinished.complete(Unit) }
+                compose.onNode(hasText("Delete request") and hasClickAction()).assertIsEnabled().performClick()
+                compose.onNodeWithText("Delete this request?").assertIsDisplayed()
+                assertEquals(ConsentState.UNKNOWN, conversationState(chat).consentState)
+                assertNotNull(owner.client.conversations.getMessageById(id))
+                assertEquals(0, decisionCalls.get())
+                compose.onNode(hasText("Cancel") and hasAnyAncestor(isDialog())).performClick()
+                until("request deletion canceled before write") {
+                    model.conversations.requestState.value.pendingDecision == null
+                }
+                assertEquals(0, decisionCalls.get())
+                assertEquals(ConsentState.UNKNOWN, conversationState(chat).consentState)
+                assertNotNull(owner.client.conversations.getMessageById(id))
+                compose.onNode(hasText("Delete request") and hasClickAction()).assertIsEnabled().performClick()
+                compose
+                    .onNode(
+                        hasText("Delete request") and hasClickAction() and hasAnyAncestor(isDialog()),
+                    ).performClick()
+                withTimeout(30_000) { decisionEntered.await() }
+                until("request deletion has active progress") {
+                    val request = model.conversations.requestState.value
+                    request.pendingDecision == null && request.activeDecision == RequestDecision.DELETE_LOCAL
+                }
+                compose.onNodeWithText("Delete this request?").assertDoesNotExist()
+                compose.onNode(hasText("Cancel") and hasAnyAncestor(isDialog())).assertDoesNotExist()
+                compose.onNodeWithText("Deleting request…").assertIsDisplayed()
+                compose.onNode(hasText("Delete request") and hasClickAction()).assertIsNotEnabled()
+                compose.onNode(hasText("Accept") and hasClickAction()).assertIsNotEnabled()
+                compose.runOnUiThread {
+                    model.conversations.dispatch(RequestAction.Confirm)
+                    model.conversations.dispatch(RequestAction.Accept)
+                    model.conversations.dispatch(RequestAction.Cancel)
+                }
+                assertNull(
+                    "Repeated callbacks must not start another consent write",
+                    withTimeoutOrNull(1_000) { duplicateEntered.await() },
+                )
+                assertEquals(1, decisionCalls.get())
+                assertEquals(RequestDecision.DELETE_LOCAL, model.conversations.requestState.value.activeDecision)
+                assertNull(model.conversations.requestState.value.pendingDecision)
+                assertEquals(ConsentState.UNKNOWN, conversationState(chat).consentState)
+                assertNotNull(owner.client.conversations.getMessageById(id))
+                releaseDecision.complete(Unit)
+                withTimeout(30_000) { decisionFinished.await() }
+                until("local request dismissal returns to Chats") {
+                    graphRule.graph.destinations.state.value.route == AppRoute.Chats &&
+                        model.conversations.state.value.requests
+                            .none { it.id == chat.id() }
+                }
+                assertEquals(1, decisionCalls.get())
+                assertNull(model.conversations.requestState.value.activeDecision)
+                model.conversations.refresh(owner)
+                assertTrue(
+                    model.conversations.state.value.requests
+                        .none { it.id == chat.id() },
+                )
+                assertNotNull(owner.client.conversations.getById(chat.id()))
+                assertEquals(ConsentState.UNKNOWN, conversationState(chat).consentState)
+                assertEquals(
+                    MessageContent.Text("Read this message"),
+                    checkNotNull(owner.client.conversations.getMessageById(id)).standardContent(),
+                )
             } finally {
+                releaseDecision.complete(Unit)
+                model.conversations.beforeConsentDecision = {}
+                model.conversations.onConsentFinished = {}
                 reader?.cancelAndJoin()
                 withContext(NonCancellable) { peer?.end() }
                 cleanup()

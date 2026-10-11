@@ -14,12 +14,24 @@ import androidx.compose.ui.window.DialogProperties
 /** Reduced motion uses an immediate surface with the same content and Back action. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MessengerSheet(onDismiss: () -> Unit, visible: Boolean = true, onHidden: () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+fun MessengerSheet(
+    onDismiss: () -> Unit,
+    visible: Boolean = true,
+    onHidden: () -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit,
+) {
     if (LocalReducedMotion.current) {
-        if (!visible) { LaunchedEffect(Unit) { onHidden() }; return }
+        if (!visible) {
+            LaunchedEffect(Unit) { onHidden() }
+            return
+        }
         Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Box(Modifier.fillMaxSize().safeDrawingPadding()) {
-                Surface(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp), color = MaterialTheme.colorScheme.surface) {
+                Surface(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
                     Column(Modifier.padding(top = 16.dp), content = content)
                 }
             }
@@ -27,8 +39,18 @@ fun MessengerSheet(onDismiss: () -> Unit, visible: Boolean = true, onHidden: () 
     } else {
         val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         LaunchedEffect(visible) {
-            if (visible) sheet.show() else { sheet.hide(); onHidden() }
+            if (visible) {
+                sheet.show()
+            } else {
+                sheet.hide()
+                onHidden()
+            }
         }
-        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surface, content = content)
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheet,
+            containerColor = MaterialTheme.colorScheme.surface,
+            content = content,
+        )
     }
 }

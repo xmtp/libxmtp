@@ -144,7 +144,7 @@ class AcceptanceAndCredentialInstrumentedTest {
                 val (owner, group) = chat(holdActivation = true)
                 val completed = failAcceptedCommit()
                 compose.onNodeWithText("Message").performTextInput("SDK accepted body")
-                compose.onNodeWithText("Send").performClick()
+                compose.onNodeWithContentDescription("Send message").performClick()
                 until("failed accepted commit action finished") { completed.isCompleted }
                 assertTrue(
                     model.chat.state.value.composer.result
@@ -155,7 +155,7 @@ class AcceptanceAndCredentialInstrumentedTest {
                         ?.outcome is TextSendOutcome.Accepted,
                 )
                 compose.onNode(hasSetTextAction() and hasText("SDK accepted body")).assertExists()
-                compose.onNodeWithText("Send").assertIsNotEnabled()
+                compose.onNodeWithContentDescription("Send message").assertIsNotEnabled()
                 val selection = publishedSelection().copy(deliveryStatus = DeliveryStatus.UNPUBLISHED)
                 val queued = Conversation.Group(group).messages(selection)
                 assertEquals("The SDK accepted exactly one row", 1, queued.size)
@@ -213,7 +213,7 @@ class AcceptanceAndCredentialInstrumentedTest {
                             ?.acceptedMessageId == id
                 }
                 compose.onNode(hasSetTextAction() and hasText("new draft edit")).assertExists()
-                compose.onNodeWithText("Send").assertIsEnabled()
+                compose.onNodeWithContentDescription("Send message").assertIsEnabled()
                 assertEquals(listOf(id), Conversation.Group(group).messages(selection).map { it.id })
                 model.sends.messageRead = { client, messageId -> client.conversations.getMessageById(messageId) }
                 model.dispatch(MessengerAction.RetrySend(id))
@@ -236,7 +236,7 @@ class AcceptanceAndCredentialInstrumentedTest {
                 val (owner, group) = chat()
                 val completed = failAcceptedCommit()
                 compose.onNodeWithText("Message").performTextInput("Discarded accepted reference")
-                compose.onNodeWithText("Send").performClick()
+                compose.onNodeWithContentDescription("Send message").performClick()
                 until("accepted SDK row with failed app reference") { completed.isCompleted }
                 val draft =
                     model.session.preferences
@@ -303,7 +303,7 @@ class AcceptanceAndCredentialInstrumentedTest {
                 model.connect.inspectBackend = { config.copy(auth = config.auth.copy(enabled = true)) }
                 model.dispatch(MessengerAction.InspectBackend(BuildConfig.XMTP_BACKEND_URL))
                 until("credential field admitted") { model.state.value.credentialsRequiredFor != null }
-                compose.onNodeWithText("Credential").performClick()
+                compose.onNodeWithText("Access token").performClick()
                 var types = emptyList<Int>()
                 until("effective Android password editor") {
                     val descriptor =
