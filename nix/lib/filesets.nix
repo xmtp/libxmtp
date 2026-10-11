@@ -173,6 +173,10 @@ let
     ];
     "crates/xmtp_attachments" = [ (src + /crates/xmtp_attachments/src/address-registry.txt) ];
     "crates/xmtp_db" = [ (src + /crates/xmtp_db/migrations) ];
+    "crates/xmtp_legacy_migration" = [
+      (src + /crates/xmtp_legacy_migration/migrations)
+      (src + /crates/xmtp_legacy_migration/browser-storage.js)
+    ];
     "crates/xmtp_id" = [
       (src + /crates/xmtp_id/src/scw_verifier/chain_urls_default.json)
       (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
@@ -186,6 +190,8 @@ let
   };
   # Files that only a package's own tests read.
   testData = {
+    "crates/xmtp_legacy_migration" = [ (src + /crates/xmtp_legacy_migration/fixtures) ];
+    "crates/xmtp_mls" = [ (src + /crates/xmtp_legacy_migration/fixtures) ];
     "apps/backend" = [
       (src + /docs/schemas/backend-v1.json)
       (src + /docs/backend-observability.md)

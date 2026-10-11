@@ -1,11 +1,20 @@
 import init, {
   import_source,
   export_source,
+  leave_hot_journal,
   inspect_archive,
 } from "/target/migration-fixture-host/fixture_host.js";
 self.onmessage = async ({ data }) => {
   try {
     await init();
+    if (data.operation === "hot-journal") {
+      await navigator.locks.request(data.lifetimeLock, async () => {
+        await leave_hot_journal(data.path);
+        self.postMessage({ ok: true });
+        await new Promise(() => {});
+      });
+      return;
+    }
     const value =
       data.operation === "import"
         ? await import_source(data.path, data.bytes)

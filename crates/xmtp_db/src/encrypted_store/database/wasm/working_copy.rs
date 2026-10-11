@@ -26,6 +26,8 @@ pub enum OpfsWorkingCopyError {
     OutputIo(i32),
     #[error("source is not a SQLite database")]
     InvalidDatabase,
+    #[error("source has SQLite sidecars; recover and close the legacy client first")]
+    RecoveryRequired,
 }
 fn source(error: super::PlatformStorageError) -> OpfsWorkingCopyError {
     OpfsWorkingCopyError::Source(error.into())
@@ -54,6 +56,14 @@ impl OpfsWorkingCopy {
             return Err(OpfsWorkingCopyError::SourceIo(ffi::SQLITE_CANTOPEN));
         }
         closed_target(None).map_err(source)?;
+        for suffix in ["-journal", "-wal", "-shm"] {
+            if source_pool
+                .exists(&format!("{path}{suffix}"))
+                .map_err(|error| source(error.into()))?
+            {
+                return Err(OpfsWorkingCopyError::RecoveryRequired);
+            }
+        }
         let mut original = RawFile::open(
             xmtp_configuration::WASM_VFS_NAME,
             path,

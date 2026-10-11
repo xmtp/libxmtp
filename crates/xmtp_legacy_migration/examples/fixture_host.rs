@@ -24,8 +24,33 @@ mod browser {
         let util = sqlite_wasm_vfs::sahpool::install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, true)
             .await
             .map_err(error)?;
+        util.reserve_minimum_capacity(util.list().len() as u32 + 1)
+            .await
+            .map_err(error)?;
         util.import_db(&path, &bytes).map_err(error)?;
         util.pause_vfs().map_err(error)
+    }
+    #[wasm_bindgen]
+    pub async fn leave_hot_journal(path: String) -> Result<(), JsValue> {
+        use diesel::{Connection, connection::SimpleConnection};
+        let cfg = sqlite_wasm_vfs::sahpool::OpfsSAHPoolCfg {
+            vfs_name: xmtp_configuration::WASM_VFS_NAME.into(),
+            directory: xmtp_configuration::WASM_VFS_DIRECTORY.into(),
+            clear_on_init: false,
+            initial_capacity: 6,
+        };
+        let util = sqlite_wasm_vfs::sahpool::install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, true)
+            .await
+            .map_err(error)?;
+        util.unpause_vfs().await.map_err(error)?;
+        let mut conn = diesel::SqliteConnection::establish(&path).map_err(error)?;
+        conn.batch_execute("PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; WITH RECURSIVE rows(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM rows WHERE n<128) INSERT INTO group_messages(id,group_id,decrypted_message_bytes,sent_at_ns,kind,sender_installation_id,sender_inbox_id,delivery_status,content_type,authority_id,originator_id,sequence_id) SELECT randomblob(32),group_id,decrypted_message_bytes,sent_at_ns,kind,sender_installation_id,sender_inbox_id,delivery_status,content_type,authority_id,originator_id,sequence_id FROM rows CROSS JOIN group_messages WHERE id=x'0101010101010101010101010101010101010101010101010101010101010101'; PRAGMA cache_size=1; PRAGMA cache_spill=ON; BEGIN IMMEDIATE; UPDATE group_messages SET sent_at_ns=sent_at_ns+1000000;").map_err(error)?;
+        // The fixture worker must die without rolling back the transaction.
+        std::mem::forget(conn);
+        if !util.exists(&format!("{path}-journal")).map_err(error)? {
+            return Err(JsValue::from_str("transaction did not create a journal"));
+        }
+        Ok(())
     }
     #[wasm_bindgen]
     pub async fn export_source(path: String) -> Result<Vec<u8>, JsValue> {

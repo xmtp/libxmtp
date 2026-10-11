@@ -175,8 +175,91 @@ try {
       files.length > 0 && files.every((size) => size <= 4096),
       "private working data remains after cleanup",
     );
+    await page.evaluate(async () => {
+      const { fixtureCall, check } = await import("./support.mjs");
+      const sdk = await import("/target/sdk-packages/browser/entry.js");
+      const bytes = new Uint8Array(
+        await (
+          await fetch("/crates/xmtp_legacy_migration/fixtures/stable.db3")
+        ).arrayBuffer(),
+      );
+      for (const suffix of ["-journal", "-wal", "-shm"]) {
+        const path = "/source" + suffix + ".db3";
+        await fixtureCall({ operation: "import", path, bytes });
+        if (suffix === "-journal") {
+          const lifetimeLock = "migration-fixture:" + crypto.randomUUID();
+          await fixtureCall({ operation: "hot-journal", path, lifetimeLock });
+          await navigator.locks.request(lifetimeLock, () => {});
+        } else {
+          // Any sidecar requires recovery, including malformed WAL or SHM data.
+          await fixtureCall({
+            operation: "import",
+            path: path + suffix,
+            bytes,
+          });
+        }
+        const before = await fixtureCall({ operation: "export", path });
+        const sidecar = await fixtureCall({
+          operation: "export",
+          path: path + suffix,
+        });
+        if (suffix === "-journal")
+          check(
+            [0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7].every(
+              (byte, i) => sidecar[i] === byte,
+            ),
+            "fixture has no hot SQLite journal",
+          );
+        const previous = await sdk.readMigrationArchive("working.xmtp");
+        const newOutput = "new" + suffix + ".xmtp";
+        for (const outputPath of ["working.xmtp", newOutput]) {
+          let rejected = false;
+          try {
+            await sdk.prepareMigrationArchive({
+              databasePath: path,
+              archiveKey: new Uint8Array(32).fill(7),
+              outputPath,
+            });
+          } catch (error) {
+            rejected = error instanceof sdk.XmtpError.InvalidInput;
+          }
+          check(
+            rejected,
+            "source sidecar was not rejected as InvalidInput: " + suffix,
+          );
+        }
+        const after = await fixtureCall({ operation: "export", path });
+        const afterSidecar = await fixtureCall({
+          operation: "export",
+          path: path + suffix,
+        });
+        check(
+          before.length === after.length &&
+            before.every((byte, i) => after[i] === byte),
+          "source was changed",
+        );
+        check(
+          sidecar.length === afterSidecar.length &&
+            sidecar.every((byte, i) => afterSidecar[i] === byte),
+          "source sidecar was changed",
+        );
+        const preserved = await sdk.readMigrationArchive("working.xmtp");
+        check(
+          previous.length === preserved.length &&
+            previous.every((byte, i) => preserved[i] === byte),
+          "sidecar rejection replaced prior output",
+        );
+        let absent = false;
+        try {
+          await sdk.readMigrationArchive(newOutput);
+        } catch (error) {
+          absent = error instanceof sdk.XmtpError.MigrationOutput;
+        }
+        check(absent, "sidecar rejection published new output");
+      }
+    });
     console.log(
-      "OPFS copy: bounded reads, 128 MiB source, quota, interruption, recovery, cleanup, and source preservation passed",
+      "OPFS copy: bounded reads, 128 MiB source, quota, interruption, recovery, cleanup, sidecar rejection, and source preservation passed",
     );
   });
 } finally {

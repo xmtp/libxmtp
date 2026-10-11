@@ -1,7 +1,7 @@
 //! The legacy exporter must feed the existing SDK importer.
 use super::*;
 use crate::tester;
-use diesel::prelude::*;
+use diesel::{connection::SimpleConnection, prelude::*};
 use xmtp_db::{
     ConnectionExt,
     consent_record::{ConsentState, ConsentType, QueryConsentRecord},
@@ -33,6 +33,22 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
     diesel::sql_query("UPDATE group_messages SET delivery_status=3 WHERE id=?")
         .bind::<diesel::sql_types::Binary, _>(vec![10; 32])
         .execute(&mut legacy)?;
+    // Keep the pinned legacy deletion authority and content-type rules.
+    legacy.batch_execute("PRAGMA foreign_keys=OFF;")?;
+    for id in 20..=24u8 {
+        diesel::sql_query("INSERT INTO group_messages(id, group_id, decrypted_message_bytes, sent_at_ns, kind, sender_installation_id, sender_inbox_id, delivery_status, content_type, authority_id, originator_id, sequence_id) SELECT ?, group_id, decrypted_message_bytes, sent_at_ns, kind, sender_installation_id, sender_inbox_id, 2, ?, authority_id, originator_id, sequence_id FROM group_messages WHERE id=?")
+            .bind::<diesel::sql_types::Binary, _>(vec![id; 32])
+            .bind::<diesel::sql_types::Integer, _>(if id == 24 { 0 } else { 1 })
+            .bind::<diesel::sql_types::Binary, _>(vec![1; 32])
+            .execute(&mut legacy)?;
+        diesel::sql_query("INSERT INTO message_deletions(id, group_id, deleted_message_id, deleted_by_inbox_id, is_super_admin_deletion, deleted_at_ns) SELECT ?, ?, ?, ?, ?, 1700000000000000999")
+            .bind::<diesel::sql_types::Binary, _>(vec![id + 100; 32])
+            .bind::<diesel::sql_types::Binary, _>(if id == 23 { vec![0x66; 16] } else { hex::decode(DM)? })
+            .bind::<diesel::sql_types::Binary, _>(vec![id; 32])
+            .bind::<diesel::sql_types::Text, _>(if id == 20 || id == 24 { "01".repeat(32) } else { "02".repeat(32) })
+            .bind::<diesel::sql_types::Bool, _>(id == 21 || id == 23)
+            .execute(&mut legacy)?;
+    }
     drop(legacy);
     let output = directory.path().join("migration.xmtp");
     let report = prepare_migration_archive(PrepareMigrationArchiveArgs {
@@ -48,7 +64,7 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
             report.message_count,
             report.consent_count
         ),
-        (2, 3, 3)
+        (2, 6, 3)
     );
     for populated in [false, true] {
         tester!(destination, disable_workers);
@@ -103,13 +119,13 @@ async fn legacy_migration_imports_into_empty_and_populated_stores_and_retries() 
                     .iter()
                     .map(|message| message.id.clone())
                     .collect::<Vec<_>>(),
-                [1, 8, 10].map(|id| vec![id; 32])
+                [1, 8, 10, 22, 23, 24].map(|id| vec![id; 32])
             );
             for message in messages {
                 assert_eq!(
                     message.delivery_status,
                     match message.id[0] {
-                        1 => DeliveryStatus::Published,
+                        1 | 22 | 23 | 24 => DeliveryStatus::Published,
                         8 => DeliveryStatus::Unpublished,
                         10 => DeliveryStatus::Failed,
                         id => panic!("unexpected migrated message: {id}"),

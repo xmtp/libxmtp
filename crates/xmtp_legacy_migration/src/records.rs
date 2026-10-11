@@ -17,7 +17,8 @@ const GROUP_PAGE: i64 = 64;
 const MAX_ROW_BYTES: i64 = 64 * 1024 * 1024;
 const ELIGIBLE_GROUPS: &str =
     "FROM groups WHERE conversation_type IN (1, 2) AND membership_state IN (1, 2, 3, 5)";
-const ELIGIBLE_MESSAGES: &str = "FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL";
+// Match the pinned legacy deletion authority and deletable content types.
+const ELIGIBLE_MESSAGES: &str = "FROM group_messages m JOIN groups g ON m.group_id = g.id WHERE g.conversation_type IN (1, 2) AND g.membership_state IN (1, 2, 3, 5) AND m.kind = 1 AND m.expire_at_ns IS NULL AND NOT EXISTS (SELECT 1 FROM message_deletions d WHERE d.deleted_message_id=m.id AND d.group_id=m.group_id AND m.content_type IN (1, 6, 7, 8, 9, 10, 12, 15) AND (d.deleted_by_inbox_id=m.sender_inbox_id OR d.is_super_admin_deletion=1))";
 
 #[derive(QueryableByName)]
 struct GroupId {
