@@ -75,13 +75,24 @@ The nonterminal partial-page host case remains. Its terminal native counterpart
 does not prove retained continuation. Timestamp-tie, cache-bound, accepted-commit,
 reader replay, privacy, grant, release, and fixture tests remain independent.
 
-### Final evidence
+### Architecture evidence
 
-The app source and tests match `25e1ff5386a7d316000750567a1ab19d62085293`.
+The full-suite baseline is `25e1ff5386a7d316000750567a1ab19d62085293`.
 The complete Debug suite ran at `f8610a0987ed15fcb2c5c3d09e2c5bf432884ed5`.
 The later rebase added only the API 23 CI memory change. A source comparison
 confirmed no app difference. Release and host tests ran after that rebase.
 The local run archive is `xmtp-android-redesign-20261010`.
+
+Commit `ec52581121` then reused the route owner's conversation mapping and fixed
+connect retry ownership. An older Connect or Retry completion cannot clear the
+newer attempt's backend and credential. The existing
+`MessengerRecoveryUxInstrumentedTest.startRetryUsesCurrentBackendAndCredentialInRealConnect`
+checks both overlapping operations after its actual native connection proof.
+Both separate guard-removal controls failed at their named assertions. The
+restored method passed with no skips. Evidence: `architecture-retry-restored/`,
+`control-runs/architecture-connect-retry-owner/`, and
+`control-runs/architecture-retry-retry-owner/`. Format and Android lint passed in
+`format-architecture-retry-4.log` and `lint-architecture-retry.log`.
 
 | Proof | Final evidence |
 | --- | --- |
