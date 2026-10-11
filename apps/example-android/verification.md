@@ -164,19 +164,19 @@ The final test source compiled in the installed run. Format and Android lint
 passed in `format-architecture-review-6.log` and
 `lint-architecture-review-final.log`.
 
-### Final design evidence
+### Design baseline evidence
 
 The restored full Debug suite uses source
 `61401309df3d7e69dba1a6a08ad3a9586c779273` with an empty source diff.
-Its archived files match the current source. Other rows retain their named
+Its archived files match that recorded baseline source. Other rows retain their named
 tested source scope.
 
 | Proof | Recorded result |
 | --- | --- |
-| Complete current Debug suite | 132 cases: 131 passed, one configured-Firebase skip, zero failures or errors. XML and 27 exported PNGs: `ui-full-restored-final/`. Source/XML checks and PNG hashes: `ui-restored-full-verified.json`. |
-| Current host Debug and Release | `dev/nix-shell 'just example-android test :example:testReleaseUnitTest --rerun-tasks'`: 156 fresh executions passed, zero failures, errors, or skips at `61401309df`. All 266 archived source hashes match. XML: `ui-host-current-final/`. |
-| Current actual Release instrumentation | Two tests passed with no skips at `61401309df`, with an empty source diff. All 266 archived source hashes match. XML: `ui-release-current-final/`. |
-| Current format and Android lint | PASS at `61401309df`. Log: `lint-ui-current-final.log`. Release/host/lint evidence checks: `ui-final-gates-verified.json`. |
+| Complete baseline Debug suite | 132 cases: 131 passed, one configured-Firebase skip, zero failures or errors. XML and 27 exported PNGs: `ui-full-restored-final/`. Source/XML checks and PNG hashes: `ui-restored-full-verified.json`. |
+| Baseline host Debug and Release | `dev/nix-shell 'just example-android test :example:testReleaseUnitTest --rerun-tasks'`: 156 fresh executions passed, zero failures, errors, or skips at `61401309df`. All 266 archived source hashes match. XML: `ui-host-current-final/`. |
+| Baseline actual Release instrumentation | Two tests passed with no skips at `61401309df`, with an empty source diff. All 266 archived source hashes match. XML: `ui-release-current-final/`. |
+| Baseline format and Android lint | PASS at `61401309df`. Log: `lint-ui-current-final.log`. Release/host/lint evidence checks: `ui-final-gates-verified.json`. |
 | Actual large-text scale journey | `ScreenScaleInstrumentedTest.allScreensRemainReachableAtDoubleTextScale` passed in `ui-focused-sixth/`. The combined route failed its separate screen method. This is one passing named case, not a passing combined run. |
 | Main screen journey | `MessengerScreensInstrumentedTest.realSessionRendersSetupListMessagesAndSettings` passed at clean `41c370843c671a64b21581b7849473cf2797de2a` in `ui-screens-eighth/`. |
 | Native picker render and retention | The same main screen method passed with the picker fix in `ui-native-picker-square-positive/`. It detected 24 drawn emoji cells and retained the native grid after a state update with unchanged columns. Fourteen screenshots include the four rendered variants. |
@@ -201,6 +201,53 @@ run at `61401309df`. That run has no other failure or error.
 The root agent inspected the current inline reactions, reply composer, native
 emoji grid, dark Settings, RTL at 200% text, landscape with IME, and wide Chat
 PNGs. The expected controls and content render.
+
+### Request consent proof
+
+Unknown-consent requests require Accept before composer editing, sending,
+and outbound message or reaction actions. Copy, reactor lists, and Close remain
+available. Reactor detail Add and Remove require accepted consent.
+ChatController rejects retained outbound callbacks while consent is Unknown.
+The native emoji callback checks current consent before dispatch.
+
+The existing main screen journey checks disabled controls by retained draft
+text, rejected retained callbacks through native consent and reactions, and
+successful actions after Accept. No test method is added. Declared methods
+remain 268. The earlier focused positive run retains its seven-file scope.
+
+All three source controls failed once at their intended assertions, with zero
+errors or skips. Production sources were restored to their recorded hashes.
+
+| Control | Source | Intended first failure |
+| --- | --- | --- |
+| `ui-request-composer-consent` | `apps/example-android/shared/src/commonMain/kotlin/org/xmtp/android/example/shared/feature/chat/MessageComposer.kt` | Draft editor is enabled at line 672. |
+| `ui-request-reaction-controls` | `apps/example-android/shared/src/commonMain/kotlin/org/xmtp/android/example/shared/feature/chat/ChatScreen.kt` | Quick reaction is enabled at line 687. |
+| `ui-request-retained-reaction-consent` | `apps/example-android/app/src/main/java/org/xmtp/android/example/messenger/feature/chat/ChatController.kt` | Native consent is ALLOWED instead of UNKNOWN after joined callbacks at line 705. |
+
+The unchanged test SHA-256 is `621be6c13fd9d3f15fbb2fb79ac44a26e553319c0777616ed46969d88b6891d6`.
+
+| Control | Restored source SHA-256 | Mutant SHA-256 |
+| --- | --- | --- |
+| `ui-request-composer-consent` | `a8d70f929949c74dcee4bde9d88e5e32816f179fe25c79c4b84a47152622f5da` | `4555831cc6a8e77b8752e3e80fb702a76016a7dab87440955ace031b720f8a93` |
+| `ui-request-reaction-controls` | `2c4ceb73e94c7ed2718306f9a123039d31d66ecbe14f6c0bb56f9022b9711939` | `2d86675481ef04126e80058aaf1a00f08c23d70f34380f8fd2521344370a56a0` |
+| `ui-request-retained-reaction-consent` | `23277943a4d9b8dcba5a52d62addc13abd0ba0b0a29a3d13df5134af4524198d` | `642f8f0f83a5dbe411d6d5b26b319ebc2fe1d7f8e1b2c8cf5a92c5f092ee284d` |
+
+The final full Debug suite uses clean source
+`706e88b9e5ba65185bceec9831c425bb45ef2fca`: 132 cases, 131 passed, one expected
+configured-Firebase skip, zero failures or errors. XML and 27 exported PNGs are
+in `ui-request-consent-full-restored/`. The consent verifier passed all three
+controls and the complete source/XML checks. The gate archive records identical
+before/after head and all 266 source hashes, with no production changes during
+the full run, evidence check, strict build, or lint.
+
+Strict Debug, Release, shared UI, and test APK builds passed. Both APK JNI
+inspections passed. Spotless and Android lint passed. Evidence is in
+`consent-final-gates.json`, `check-ui-consent-final.log`, and
+`lint-ui-consent-final.log`. The newly exported images are not claimed as
+visually inspected. The earlier inspected images retain their baseline scope.
+
+The 156 host and two actual Release passes at `61401309df` remain baseline
+proof. They were not repeated for the later consent repair.
 
 ### Stable manual gaps
 
