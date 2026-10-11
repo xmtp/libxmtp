@@ -13,6 +13,7 @@ import org.xmtp.android.example.messenger.app.DestinationScope
 import org.xmtp.android.example.messenger.data.xmtp.ChatQueries
 import org.xmtp.android.example.messenger.data.xmtp.ConversationQueries
 import org.xmtp.android.example.messenger.feature.AppFeaturePreferences
+import org.xmtp.android.example.messenger.feature.FeatureInputFailure
 import org.xmtp.android.example.messenger.feature.featureFailure
 import org.xmtp.android.example.messenger.notifications.NotificationController
 import org.xmtp.android.example.shared.*
@@ -461,7 +462,7 @@ internal class ConversationsController(
         owner.work.launch {
             try {
                 beforeConsentDecision(decision)
-                val chat = queries.find(owner, id) ?: return@launch
+                val chat = queries.find(owner, id) ?: throw FeatureInputFailure("This request is no longer available.")
                 if (!destinations.accepts(origin) ||
                     requestUi.value.conversationId != id ||
                     routeConversationId() != id

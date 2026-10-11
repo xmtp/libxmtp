@@ -20,6 +20,8 @@ import org.xmtp.android.example.messenger.feature.conversations.CreateConversati
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.feature.chat.ChatAction
 import org.xmtp.android.example.shared.feature.conversations.CreateConversationAction
+import org.xmtp.android.example.shared.feature.conversations.RequestAction
+import org.xmtp.android.example.shared.feature.conversations.RequestDecision
 import uniffi.xmtp_sdk.*
 import java.io.File
 import java.nio.file.Files
@@ -1017,6 +1019,28 @@ class MessengerReviewInstrumentedTest {
                 assertEquals(ConsentState.DENIED, a.state().common.consentState)
                 assertEquals(b.id(), model.state.value.conversationId)
                 assertEquals(Screen.CONVERSATION_SETTINGS, model.state.value.screen)
+                val beforeMissingConsent = b.state().common.consentState
+                val missingId =
+                    UUID
+                        .randomUUID()
+                        .toString()
+                        .replace("-", "")
+                assertEquals(b.id().length, missingId.length)
+                assertTrue(missingId.all { it in '0'..'9' || it in 'a'..'f' })
+                assertNull(owner.client.conversations.getById(missingId))
+                model.graph.destinations.navigate(AppRoute.Chat(missingId))
+                model.conversations.prepareRequest(owner, missingId, "Removed request")
+                val missingFinished = CompletableDeferred<Unit>()
+                model.conversations.onConsentFinished = { missingFinished.complete(Unit) }
+                model.conversations.dispatch(RequestAction.Block)
+                assertEquals(RequestDecision.BLOCK, model.conversations.requestState.value.pendingDecision)
+                model.conversations.dispatch(RequestAction.Confirm)
+                withTimeout(30_000) { missingFinished.await() }
+                val missingState = model.conversations.requestState.value
+                assertNull("A missing request must clear its confirmation", missingState.pendingDecision)
+                assertEquals("This request is no longer available.", missingState.failure?.message)
+                assertEquals("request-decision", missingState.failure?.code)
+                assertEquals(beforeMissingConsent, b.state().common.consentState)
             } finally {
                 release.complete(Unit)
                 cleanup()

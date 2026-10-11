@@ -79,11 +79,49 @@ class MessengerRaceInstrumentedTest {
 
             try {
                 val owner = connect()
+                graphRule.observers.pauseAutomaticProjection()
                 val a = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "A"))
                 val b = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "B"))
                 val aId = a.id()
                 val bId = b.id()
                 println("OPEN_PROOF stage=ids A=$aId B=$bId key=${owner.key}")
+                val lookupAttempts =
+                    java.util.concurrent.atomic
+                        .AtomicInteger()
+                model.chat.clear()
+                model.chat.lookupConversation = { current, id ->
+                    if (id == aId && lookupAttempts.incrementAndGet() == 1) {
+                        throw java.io.IOException("Transient first chat lookup failure")
+                    }
+                    current.client.conversations.getById(id)
+                }
+                model.dispatch(MessengerAction.OpenConversation(aId))
+                until("initial chat lookup failure") {
+                    model.chat.state.value.failure
+                        ?.code == "chat-open" && !model.chat.state.value.busy
+                }
+                assertNull(model.chat.currentConversation())
+                val openFailure = checkNotNull(model.chat.state.value.failure)
+                assertEquals("Cannot open this chat. Try again.", openFailure.message)
+                compose.waitUntil(30_000) {
+                    compose.onAllNodesWithText(openFailure.message).fetchSemanticsNodes().size == 1 &&
+                        compose.onAllNodesWithText("Retry").fetchSemanticsNodes().size == 1
+                }
+                compose.onNodeWithText(openFailure.message).assertIsDisplayed()
+                compose
+                    .onNodeWithText("Retry")
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performClick()
+                until("Retry reopens the unbound native chat") {
+                    model.chat.currentConversation()?.id() == aId && model.chat.state.value.failure == null &&
+                        !model.chat.state.value.busy
+                }
+                assertEquals("Retry must repeat the failed conversation lookup", 2, lookupAttempts.get())
+                model.chat.lookupConversation = { current, id -> current.client.conversations.getById(id) }
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("Chats route after lookup retry") { model.state.value.screen == Screen.CONVERSATIONS }
+
                 val entered = CompletableDeferred<Unit>()
                 val returned = CompletableDeferred<Unit>()
                 val completed = CompletableDeferred<Unit>()
@@ -471,6 +509,8 @@ class MessengerRaceInstrumentedTest {
 
     @Test fun anchoredRefreshPreservesEveryLoadedNativeMessage() =
         runBlocking {
+            val releaseHistory = CompletableDeferred<Unit>()
+            val releaseLookup = CompletableDeferred<Unit>()
             try {
                 val owner = connect()
                 graphRule.observers.pauseAutomaticProjection()
@@ -515,7 +555,117 @@ class MessengerRaceInstrumentedTest {
                 assertEquals(saved, model.state.value.anchor)
                 assertFalse(model.state.value.hasOlder)
                 println("REFRESH_PROOF stage=anchored-multiple-pages-retained count=200")
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("Chats before a fresh saved-anchor route") { model.state.value.screen == Screen.CONVERSATIONS }
+                compose.waitForIdle()
+                model.chat.clear()
+                val lookupEntered = CompletableDeferred<Unit>()
+                model.chat.lookupConversation = { current, id ->
+                    val chat = current.client.conversations.getById(id)
+                    lookupEntered.complete(Unit)
+                    releaseLookup.await()
+                    chat
+                }
+                val historyEntered = CompletableDeferred<Unit>()
+                val firstViewport = CompletableDeferred<ChatAction.Viewport>()
+                val viewportStored = CompletableDeferred<Unit>()
+                val firstViewportAction =
+                    java.util.concurrent.atomic
+                        .AtomicReference<ChatAction.Viewport>()
+                model.chat.historyPageRead = { chat, options, before, after ->
+                    historyEntered.complete(Unit)
+                    releaseHistory.await()
+                    chat.historyPage(options, before, after)
+                }
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                until("requested chat placeholder is visible before native bind") {
+                    lookupEntered.isCompleted && model.state.value.conversationId == group.id() &&
+                        model.state.value.anchor == null &&
+                        model.state.value.messages
+                            .isEmpty()
+                }
+                compose.waitForIdle()
+                compose.onNode(hasScrollToIndexAction()).assertExists()
+                compose.onNodeWithText("Opening chat").assertIsDisplayed()
+                compose.onNodeWithTag("message-composer").assertIsDisplayed()
+                assertNull("Requested chat placeholder has no saved anchor yet", model.state.value.anchor)
+                releaseLookup.complete(Unit)
+                until("saved anchor is bound before history") {
+                    historyEntered.isCompleted && model.chat.state.value.conversationId == group.id()
+                }
+                compose.waitForIdle()
+                compose.onNode(hasScrollToIndexAction()).assertExists()
+                compose.onNodeWithText("Loaded range").assertIsDisplayed()
+                compose.onNodeWithTag("message-composer").assertIsDisplayed()
+                assertTrue(
+                    "Saved-anchor route first renders empty history",
+                    model.chat.state.value.messages
+                        .isEmpty(),
+                )
+                assertEquals(saved, model.chat.state.value.anchor)
+                val restoreToken = model.chat.screenToken()
+                model.chat.beforeQueuedAction = { action ->
+                    if (action is ChatAction.Viewport && model.chat.screenToken() == restoreToken &&
+                        model.chat.state.value.conversationId == group.id() &&
+                        firstViewportAction.compareAndSet(null, action)
+                    ) {
+                        firstViewport.complete(action)
+                    }
+                }
+                model.chat.onQueuedActionFinished = { action ->
+                    if (action === firstViewportAction.get()) viewportStored.complete(Unit)
+                }
+                releaseHistory.complete(Unit)
+                until("held history publishes the saved native row") {
+                    model.chat.state.value.messages
+                        .any { it.id == saved.messageId }
+                }
+                compose.waitForIdle()
+                val restoredViewport =
+                    try {
+                        withTimeout(30_000) { firstViewport.await() }
+                    } catch (error: TimeoutCancellationException) {
+                        throw AssertionError(
+                            "Stage: first UI viewport after saved history; token=${model.chat.screenToken()} expected=$restoreToken messages=${model.chat.state.value.messages.size} anchor=${model.chat.state.value.anchor} failure=${model.chat.state.value.failure}",
+                            error,
+                        )
+                    }
+                assertEquals(
+                    "First UI viewport must restore the saved native message",
+                    saved.messageId,
+                    restoredViewport.anchor.messageId,
+                )
+                assertEquals(
+                    "First UI viewport must restore the saved pixel offset",
+                    saved.offsetPx,
+                    restoredViewport.anchor.offsetPx,
+                )
+                assertFalse(restoredViewport.atNewest)
+                try {
+                    withTimeout(30_000) { viewportStored.await() }
+                } catch (error: TimeoutCancellationException) {
+                    throw AssertionError(
+                        "Stage: exact first UI viewport action completion; instance=${System.identityHashCode(
+                            restoredViewport,
+                        )} token=${model.chat.screenToken()} anchor=${model.chat.state.value.anchor} failure=${model.chat.state.value.failure}",
+                        error,
+                    )
+                }
+                assertEquals("Saved-anchor route token stays current", restoreToken, model.chat.screenToken())
+                until("UI saved anchor stays persisted after delayed history") {
+                    model.session.preferences.anchor(
+                        owner.key.profileId,
+                        logicalConversationKey(Conversation.Group(group), owner.client.inboxId()),
+                    ) ==
+                        saved
+                }
+                compose.onNodeWithText("Loaded 100").assertIsDisplayed()
+                println("SAVED_ANCHOR_UI_PROOF stage=empty-to-loaded-first-viewport-restored")
             } finally {
+                releaseLookup.complete(Unit)
+                releaseHistory.complete(Unit)
+                model.chat.beforeQueuedAction = {}
+                model.chat.onQueuedActionFinished = {}
                 cleanup()
             }
         }

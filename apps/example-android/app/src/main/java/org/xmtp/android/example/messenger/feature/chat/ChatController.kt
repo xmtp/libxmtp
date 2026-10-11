@@ -401,7 +401,11 @@ internal class ChatController(
             if (error is CancellationException) throw error
             if (destinations.accepts(origin)) {
                 ui.update {
-                    it.copy(
+                    val failed =
+                        it.takeIf { state -> state.conversationId == id }
+                            ?: ChatState(conversationId = id, title = "Chat", composer = ComposerState(enabled = false))
+                    failed.copy(
+                        busy = false,
                         failure =
                             featureFailure(
                                 error,
@@ -1361,7 +1365,12 @@ internal class ChatController(
 
     suspend fun refresh(owner: ActiveSession) {
         sends.recoverAccepted(owner.key)
-        if (conversation == null || boundKey != owner.key || !session.accepts(owner.key)) return
+        if (!session.accepts(owner.key)) return
+        val id = routeConversationId() ?: return
+        if (currentConversation()?.id() != id) {
+            open(id)
+            return
+        }
         recoverSubmission(owner, checkNotNull(conversation).id())
         projection.withLock { refreshTimeline(owner, destinations.state.value.token, true) }
     }

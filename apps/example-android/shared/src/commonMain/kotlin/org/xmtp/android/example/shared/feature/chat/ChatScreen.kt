@@ -50,7 +50,7 @@ import kotlin.math.roundToInt
     composerExtra: @Composable () -> Unit = {},
     messageExtra: @Composable (MessageRow) -> Unit = {},
 ) {
-    val list = rememberLazyListState()
+    val list = key(state.conversationId) { rememberLazyListState() }
     val text = state.composer.text
     val pendingSend = state.composer.pendingRequestId
     val selected = state.overlay?.messageId
@@ -63,11 +63,14 @@ import kotlin.math.roundToInt
     val currentSelection = state.messages.firstOrNull { it.id == selected && !it.deleted }
     transition.targetState = expanded && currentSelection != null
     val keyboard = LocalSoftwareKeyboardController.current
+    var initialRestoreComplete by remember(state.conversationId) { mutableStateOf(false) }
+    val latestState by rememberUpdatedState(state)
     LaunchedEffect(
         state.conversationId,
         state.anchor?.messageId,
+        state.messages.any { it.id == state.anchor?.messageId },
     ) {
-        state.anchor?.let { anchor ->
+        state.anchor?.takeIf { !initialRestoreComplete }?.let { anchor ->
             val index =
                 state.messages.indexOfFirst {
                     it.id ==
@@ -79,6 +82,7 @@ import kotlin.math.roundToInt
                         index,
                         anchor.offsetPx,
                     )
+                initialRestoreComplete = true
             }
         }
     }
@@ -87,31 +91,20 @@ import kotlin.math.roundToInt
         state.messages,
     ) {
         snapshotFlow {
-            list
-                .firstVisibleItemIndex to
-                list.firstVisibleItemScrollOffset
-        }.distinctUntilChanged().collect {
-            (
-                index,
-                offset,
-            ),
-            ->
-            state.messages
-                .getOrNull(index)
-                ?.let {
+            val pendingAnchor = !initialRestoreComplete && latestState.anchor != null
+            if (pendingAnchor) null else list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset
+        }.distinctUntilChanged().collect { position ->
+            position?.let { (index, offset) ->
+                latestState.messages.getOrNull(index)?.let { row ->
+                    initialRestoreComplete = true
                     action(
-                        ChatAction
-                            .Viewport(
-                                ScrollAnchor(
-                                    it.id,
-                                    it.sentAtNs,
-                                    offset,
-                                    index == 0 && offset == 0,
-                                ),
-                                index == 0 && offset == 0,
-                            ),
+                        ChatAction.Viewport(
+                            ScrollAnchor(row.id, row.sentAtNs, offset, index == 0 && offset == 0),
+                            index == 0 && offset == 0,
+                        ),
                     )
                 }
+            }
         }
     }
     Column(
