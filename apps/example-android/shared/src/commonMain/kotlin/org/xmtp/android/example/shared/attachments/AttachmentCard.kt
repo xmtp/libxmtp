@@ -119,7 +119,7 @@ fun AttachmentCard(
             ) {
                 if (state.canSend) AttachmentButton("Send file") { action(AttachmentAction.Send(state.id)) }
                 if (state.acceptedMessageId != null) {
-                    AttachmentButton("Retry publication", enabled = !state.busy) {
+                    AttachmentButton("Retry sending", enabled = !state.busy) {
                         action(AttachmentAction.RetryPublication(state.id, conversationId))
                     }
                 }

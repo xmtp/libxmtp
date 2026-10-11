@@ -474,6 +474,13 @@ class ScreenScaleInstrumentedTest {
                 capture(Screen.TIMELINE)
                 control(hasContentDescription("Conversation details")).performClick()
                 until("Conversation settings did not open") { model.state.value.screen == Screen.CONVERSATION_SETTINGS }
+                val memberTag = "settings-member-${other.inboxId()}"
+                control(click("Make admin") and hasAnyAncestor(hasTestTag(memberTag)))
+                control(click("Remove") and hasAnyAncestor(hasTestTag(memberTag)))
+                control(click("Add member")).performClick()
+                input("Inbox ID", other.inboxId())
+                control(click("Add member"))
+                control(click("Done")).performClick()
                 control(click("Edit name and description")).performClick()
                 input("Name", "Scaled settings name")
                 input("Description", "The settings controls remain editable")
@@ -489,13 +496,6 @@ class ScreenScaleInstrumentedTest {
                 control(click("Change duration")).performClick()
                 input("Duration in seconds", "0")
                 control(click("Save duration"))
-                val memberTag = "settings-member-${other.inboxId()}"
-                control(click("Make admin") and hasAnyAncestor(hasTestTag(memberTag)))
-                control(click("Remove") and hasAnyAncestor(hasTestTag(memberTag)))
-                control(click("Add member")).performClick()
-                input("Inbox ID", other.inboxId())
-                control(click("Add member"))
-                control(click("Done")).performClick()
                 control(click("Block conversation"))
                 capture(Screen.CONVERSATION_SETTINGS)
                 control(click("Group fields")).performClick()
@@ -610,7 +610,7 @@ class ScreenScaleInstrumentedTest {
                     val card = "attachment-card-$draft"
                     control(click("Discard") and hasAnyAncestor(hasTestTag(card)))
                     if (draft == acceptedDraft) {
-                        control(click("Retry publication") and hasAnyAncestor(hasTestTag(card)))
+                        control(click("Retry sending") and hasAnyAncestor(hasTestTag(card)))
                         control(click("View chat") and hasAnyAncestor(hasTestTag(card)))
                     } else {
                         recoveryChat(draft)

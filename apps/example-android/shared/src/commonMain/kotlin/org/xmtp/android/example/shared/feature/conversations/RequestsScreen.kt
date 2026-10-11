@@ -21,6 +21,7 @@ fun RequestsScreen(
     shellAction: (ShellAction) -> Unit = {},
 ) {
     val clipboard = LocalClipboardManager.current
+    val busy = state.activeDecision != null
     var showSender by remember(state.conversationId) { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.primaryContainer,
@@ -50,19 +51,39 @@ fun RequestsScreen(
                         },
                 )
             }
-            Button(onClick = {
-                action(RequestAction.Accept)
-            }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Accept") }
+            state.activeDecision?.let { decision ->
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text(
+                    when (decision) {
+                        RequestDecision.ACCEPT -> "Accepting request…"
+                        RequestDecision.DELETE_LOCAL -> "Deleting request…"
+                        RequestDecision.BLOCK -> "Blocking conversation…"
+                    },
+                    Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+            Button(
+                onClick = {
+                    action(RequestAction.Accept)
+                },
+                enabled = !busy && state.pendingDecision == null,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) { Text("Accept") }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    action(RequestAction.DeleteLocal)
-                }, enabled = state.deleteCapability.available, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        action(RequestAction.DeleteLocal)
+                    },
+                    enabled = state.deleteCapability.available && !busy && state.pendingDecision == null,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                ) {
                     Text("Delete request")
                 }
                 TextButton(
                     onClick = {
                         action(RequestAction.Block)
                     },
+                    enabled = !busy && state.pendingDecision == null,
                     modifier =
                         Modifier
                             .weight(
@@ -110,7 +131,7 @@ fun RequestsScreen(
             }
         }
     }
-    state.pendingDecision?.let { decision ->
+    state.pendingDecision?.takeIf { it != RequestDecision.ACCEPT }?.let { decision ->
         val title =
             when (decision) {
                 RequestDecision.ACCEPT -> "Accept this request?"
@@ -133,7 +154,7 @@ fun RequestsScreen(
                 }
             }
         AlertDialog(
-            onDismissRequest = { action(RequestAction.Cancel) },
+            onDismissRequest = { if (!busy) action(RequestAction.Cancel) },
             title = { Text(title) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -144,7 +165,7 @@ fun RequestsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     action(RequestAction.Confirm)
-                }, modifier = Modifier.heightIn(min = 48.dp)) {
+                }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(
                         when (decision) {
                             RequestDecision.ACCEPT -> "Accept"
@@ -157,6 +178,7 @@ fun RequestsScreen(
             dismissButton = {
                 TextButton(
                     onClick = { action(RequestAction.Cancel) },
+                    enabled = !busy,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text("Cancel") }
             },

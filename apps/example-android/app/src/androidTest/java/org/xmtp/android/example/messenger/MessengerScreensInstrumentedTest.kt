@@ -1,5 +1,11 @@
 package org.xmtp.android.example.messenger
 
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.BackEventCompat
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.emoji2.emojipicker.EmojiPickerView
@@ -20,6 +26,7 @@ import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.feature.chat.ChatAction
 import org.xmtp.android.example.shared.feature.chat.MessageSurface
+import org.xmtp.android.example.shared.feature.settings.SettingsAction
 import uniffi.xmtp_sdk.*
 import java.io.IOException
 import java.security.SecureRandom
@@ -50,8 +57,11 @@ class MessengerScreensInstrumentedTest {
 
     private fun textAction(label: String) = compose.onNode(hasText(label) and hasClickAction())
 
-    private fun screen(name: String) {
-        Espresso.closeSoftKeyboard()
+    private fun screen(
+        name: String,
+        closeKeyboard: Boolean = true,
+    ) {
+        if (closeKeyboard) Espresso.closeSoftKeyboard()
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.waitForIdleSync()
@@ -79,6 +89,8 @@ class MessengerScreensInstrumentedTest {
             var peer: SDKClient? = null
             var peerReader: Job? = null
             val releaseSend = CompletableDeferred<Unit>()
+            val historyEntered = CompletableDeferred<Unit>()
+            val releaseHistory = CompletableDeferred<Unit>()
             try {
                 compose.onNodeWithContentDescription("XMTP").assertExists()
                 screen("setup")
@@ -111,10 +123,22 @@ class MessengerScreensInstrumentedTest {
                 textAction("Continue").performScrollTo().performClick()
                 compose.onNodeWithText("Group name").performTextInput("Navy proof group")
                 screen("create-group")
+                graph.chat.historyPageRead = { chat, options, before, after ->
+                    historyEntered.complete(Unit)
+                    releaseHistory.await()
+                    chat.historyPage(options, before, after)
+                }
                 textAction("Create group").performScrollTo().performClick()
                 until("created group timeline") {
-                    graph.chat.state.value.conversationId != null && !graph.chat.state.value.busy
+                    graph.chat.state.value.conversationId != null && historyEntered.isCompleted
                 }
+                compose.waitForIdle()
+                compose.onNodeWithTag("message-timeline").assertIsDisplayed()
+                assertTrue(
+                    "The UI starts with an empty history",
+                    graph.chat.state.value.messages
+                        .isEmpty(),
+                )
                 val chatId = checkNotNull(graph.chat.state.value.conversationId)
                 val group = (checkNotNull(owner.client.conversations.getById(chatId)) as Conversation.Group).group
                 assertEquals("Navy proof group", group.state().name)
@@ -122,16 +146,59 @@ class MessengerScreensInstrumentedTest {
                 val peerChat = checkNotNull(second.conversations.getById(chatId))
                 val parentBody = "Quote first line\nHidden second line"
                 val parentId = peerChat.sendText(parentBody)
+                until("actual incoming text is stored before UI history") {
+                    owner.client.conversations.getMessageById(parentId) != null
+                }
+                graph.conversations.refresh(owner)
+                until("incoming badge before UI history") { graph.conversations.row(chatId)?.unread == "1" }
+                releaseHistory.complete(Unit)
+                graph.chat.historyPageRead =
+                    { chat, options, before, after -> chat.historyPage(options, before, after) }
                 until("actual incoming text rendered") {
                     graph.chat.state.value.messages
                         .any { it.id == parentId }
                 }
 
+                compose.onNodeWithText(parentBody).assertIsDisplayed()
+                until("UI history arrival marks the incoming message read without a scroll") {
+                    graph.chat.state.value.atNewest && graph.conversations.row(chatId)?.unread == "0"
+                }
+                println("VIEWPORT_PROOF stage=empty-ui-history-arrival-marks-native-message-read")
+
+                fun parentMessage(): SemanticsNodeInteraction {
+                    val parent = hasText(parentBody) and hasClickAction() and !hasText("A reply from this device")
+                    Espresso.closeSoftKeyboard()
+                    compose.waitForIdle()
+                    compose.onNodeWithTag("message-timeline").performScrollToNode(parent)
+                    return compose.onNode(parent).assertIsDisplayed()
+                }
+
                 fun selectParent() {
-                    compose
-                        .onNode(
-                            hasText(parentBody) and hasClickAction() and !hasText("A reply from this device"),
-                        ).performClick()
+                    parentMessage().performClick()
+                }
+
+                fun previewBack(edge: Int = BackEventCompat.EDGE_LEFT) {
+                    compose.runOnIdle {
+                        compose.activity.onBackPressedDispatcher.dispatchOnBackStarted(
+                            BackEventCompat(0f, 100f, 0f, edge),
+                        )
+                    }
+                    compose.runOnIdle {
+                        compose.activity.onBackPressedDispatcher.dispatchOnBackProgressed(
+                            BackEventCompat(120f, 100f, 0.6f, edge),
+                        )
+                    }
+                    compose.waitForIdle()
+                }
+
+                fun cancelBack() {
+                    compose.runOnIdle { compose.activity.onBackPressedDispatcher.dispatchOnBackCancelled() }
+                    compose.waitForIdle()
+                }
+
+                fun commitBack() {
+                    compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+                    compose.waitForIdle()
                 }
 
                 composer().performTextInput("Hello from this device")
@@ -180,9 +247,40 @@ class MessengerScreensInstrumentedTest {
                         .map { it.id },
                 )
 
+                parentMessage().performTouchInput { longClick() }
+                until("physical long press selects the native parent") {
+                    graph.chat.state.value.overlay
+                        ?.messageId == parentId &&
+                        graph.chat.state.value.overlay
+                            ?.surface == MessageSurface.POPOVER
+                }
+                val clipboard =
+                    checkNotNull(compose.activity.getSystemService(android.content.ClipboardManager::class.java))
+                compose.runOnIdle {
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("XMTP fixture", "before-copy"))
+                }
+                textAction("Copy").performClick()
+                var copied: String? = null
+                compose.runOnIdle {
+                    copied =
+                        clipboard.primaryClip
+                            ?.getItemAt(0)
+                            ?.coerceToText(compose.activity)
+                            ?.toString()
+                }
+                assertEquals(parentBody, copied)
+                assertNull(graph.chat.state.value.overlay)
+                assertEquals(
+                    parentBody,
+                    checkNotNull(owner.client.conversations.getMessageById(parentId))
+                        .toRow(
+                            owner.client.inboxId(),
+                        ).text,
+                )
                 composer().performTextInput("unsent draft")
-                selectParent()
-                textAction("Reply").performClick()
+                parentMessage().performTouchInput {
+                    swipe(Offset(width * .25f, height * .5f), Offset(width * .75f, height * .5f), 400)
+                }
                 until("reply first line and draft") {
                     graph.chat.state.value.composer.reply
                         ?.messageId == parentId
@@ -195,6 +293,49 @@ class MessengerScreensInstrumentedTest {
                 compose.onNodeWithText("Quote first line", substring = false).assertExists()
                 composer().assertTextContains("unsent draft")
                 screen("ux-reply-composer")
+                if (Build.VERSION.SDK_INT >= 29) {
+                    val beforeBack = graph.destinations.state.value
+                    val beforeComposer = graph.chat.state.value.composer
+                    val beforeAnchor = graph.chat.state.value.anchor
+                    val pane = compose.onNodeWithTag("back-preview-pane")
+                    val beforeBounds = pane.fetchSemanticsNode().boundsInRoot
+                    val resolver = compose.activity.contentResolver
+                    val motionSetting = Settings.Global.ANIMATOR_DURATION_SCALE
+                    val previousMotion = Settings.Global.getString(resolver, motionSetting)
+                    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+                    automation.adoptShellPermissionIdentity(android.Manifest.permission.WRITE_SECURE_SETTINGS)
+                    try {
+                        assertTrue(Settings.Global.putFloat(resolver, motionSetting, 1f))
+                        previewBack()
+                        compose.waitUntil(5_000) { pane.fetchSemanticsNode().boundsInRoot.width < beforeBounds.width }
+                        assertEquals(beforeBack, graph.destinations.state.value)
+                        assertEquals(beforeComposer, graph.chat.state.value.composer)
+                        assertEquals(beforeAnchor, graph.chat.state.value.anchor)
+                        cancelBack()
+                        assertEquals(beforeBounds, pane.fetchSemanticsNode().boundsInRoot)
+                        assertEquals(beforeBack, graph.destinations.state.value)
+                        assertEquals(beforeComposer, graph.chat.state.value.composer)
+                        assertEquals(beforeAnchor, graph.chat.state.value.anchor)
+
+                        assertTrue(Settings.Global.putFloat(resolver, motionSetting, 0f))
+                        previewBack(BackEventCompat.EDGE_RIGHT)
+                        compose.waitUntil(5_000) { pane.fetchSemanticsNode().boundsInRoot == beforeBounds }
+                        assertEquals(beforeBack, graph.destinations.state.value)
+                        assertEquals(beforeComposer, graph.chat.state.value.composer)
+                        cancelBack()
+                        assertEquals(beforeBounds, pane.fetchSemanticsNode().boundsInRoot)
+                        assertEquals(beforeBack, graph.destinations.state.value)
+                        assertEquals(beforeComposer, graph.chat.state.value.composer)
+                        assertEquals(beforeAnchor, graph.chat.state.value.anchor)
+                    } finally {
+                        try {
+                            Settings.Global.putString(resolver, motionSetting, previousMotion)
+                        } finally {
+                            automation.dropShellPermissionIdentity()
+                        }
+                        cancelBack()
+                    }
+                }
                 compose.onNodeWithContentDescription("Cancel reply").performClick()
                 assertNull(graph.chat.state.value.composer.reply)
                 compose.onNodeWithText("Quote first line", substring = false).assertDoesNotExist()
@@ -266,7 +407,17 @@ class MessengerScreensInstrumentedTest {
                 )
                 compose.onNodeWithTag("emoji-sheet").assertDoesNotExist()
                 compose.onNodeWithTag("reaction-popover").assertExists()
-                back()
+                val selectedBeforeBack = graph.chat.state.value.overlay
+                val selectedRoute = graph.destinations.state.value
+                previewBack()
+                assertEquals(selectedBeforeBack, graph.chat.state.value.overlay)
+                assertEquals(selectedRoute, graph.destinations.state.value)
+                cancelBack()
+                assertEquals(selectedBeforeBack, graph.chat.state.value.overlay)
+                assertEquals(selectedRoute, graph.destinations.state.value)
+                compose.onNodeWithTag("reaction-popover").assertExists()
+                previewBack()
+                commitBack()
                 assertNull(graph.chat.state.value.overlay)
                 assertEquals(AppRoute.Chat(chatId), graph.destinations.state.value.route)
                 selectParent()
@@ -360,11 +511,22 @@ class MessengerScreensInstrumentedTest {
                         .filter { it.standardContent() == MessageContent.Text("Accepted queued retry") }
                         .map { it.id },
                 )
-                compose.onAllNodesWithText("Delivered", substring = false).assertCountEquals(0)
-                compose.onAllNodesWithText("Read", substring = false).assertCountEquals(0)
-                assertTrue(compose.onAllNodesWithText("Sent", substring = false).fetchSemanticsNodes().isNotEmpty())
-
-                compose.onNodeWithText("Hello from this device").performClick()
+                val inTimeline = hasAnyAncestor(hasTestTag("message-timeline"))
+                compose.onAllNodes(hasText(" · Delivered", substring = true) and inTimeline).assertCountEquals(0)
+                compose.onAllNodes(hasText(" · Read", substring = true) and inTimeline).assertCountEquals(0)
+                assertEquals(
+                    DeliveryStatus.PUBLISHED,
+                    checkNotNull(owner.client.conversations.getMessageById(sentId)).deliveryStatus,
+                )
+                val ownText = hasText("Hello from this device") and hasClickAction() and inTimeline
+                Espresso.closeSoftKeyboard()
+                compose.waitForIdle()
+                compose.onNodeWithTag("message-timeline").performScrollToNode(ownText)
+                compose
+                    .onNode(ownText)
+                    .assertIsDisplayed()
+                    .assert(hasText(" · Sent", substring = true))
+                    .performClick()
                 textAction("Delete").performClick()
                 textAction("Delete message").performClick()
                 until("actual own message deletion") {
@@ -379,7 +541,9 @@ class MessengerScreensInstrumentedTest {
                 compose.onNodeWithText("Developer tools").assertIsDisplayed()
                 screen("settings")
                 compose.onNodeWithContentDescription("Back").performClick()
-                back()
+                previewBack()
+                assertEquals(AppRoute.Chat(chatId), graph.destinations.state.value.route)
+                commitBack()
                 until("Back returns to actual Chats") { graph.destinations.state.value.route == AppRoute.Chats }
 
                 val requestSender = second.conversations.createDm(owner.client.inboxId())
@@ -395,8 +559,15 @@ class MessengerScreensInstrumentedTest {
                         .any { it.id == requestId }
                 }
                 compose.onNode(hasText("Message requests", substring = true) and hasClickAction()).performClick()
-                until("request list is active") { graph.destinations.state.value.route == AppRoute.Requests }
-                compose.onNodeWithText("A real message request").performClick()
+                until("request list is active") {
+                    val list = graph.conversations.state.value
+                    graph.destinations.state.value.route == AppRoute.Requests &&
+                        list.unknownTab && !list.busy &&
+                        list.requests.any { it.id == requestId && it.preview == "A real message request" }
+                }
+                val requestRow = hasText("A real message request", substring = true) and hasClickAction()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(requestRow)
+                compose.onNode(requestRow).assertIsDisplayed().performClick()
                 until("actual request trust state") {
                     graph.chat.state.value.conversationId == requestId && graph.chat.state.value.unknown
                 }
@@ -412,8 +583,218 @@ class MessengerScreensInstrumentedTest {
                 until("request acceptance retains Chats") { graph.destinations.state.value.route == AppRoute.Chats }
                 compose.onNodeWithContentDescription("Settings").performClick()
                 screen("app-settings")
+                if (Build.VERSION.SDK_INT >= 33) {
+                    val savedDisplay = readScreenDisplay(::checkedScreenShell)
+                    val savedConfiguration = android.content.res.Configuration(compose.activity.resources.configuration)
+                    val locales =
+                        checkNotNull(
+                            InstrumentationRegistry
+                                .getInstrumentation()
+                                .targetContext
+                                .getSystemService(android.app.LocaleManager::class.java),
+                        )
+                    val savedLocales = locales.applicationLocales
+                    val savedAppearance = graph.settings.state.value.appearance
+                    val savedRoute = graph.destinations.state.value.route
+                    var variantFailure: Throwable? = null
+
+                    fun restore(step: () -> Unit) {
+                        try {
+                            step()
+                        } catch (error: Throwable) {
+                            if (variantFailure == null) {
+                                variantFailure = error
+                            } else if (variantFailure !== error) {
+                                variantFailure?.addSuppressed(error)
+                            }
+                        }
+                    }
+
+                    fun actionBounds(description: String): androidx.compose.ui.geometry.Rect {
+                        val action = compose.onNodeWithContentDescription(description).assertIsDisplayed()
+                        val bounds = action.fetchSemanticsNode().touchBoundsInRoot
+                        val minimum = 48f * compose.activity.resources.displayMetrics.density
+                        assertTrue("$description is narrower than 48 dp", bounds.width >= minimum - 1)
+                        assertTrue("$description is shorter than 48 dp", bounds.height >= minimum - 1)
+                        return action.fetchSemanticsNode().boundsInRoot
+                    }
+
+                    fun assertRetainedDraft(
+                        revision: Long,
+                        text: String,
+                    ) {
+                        assertSame("A display change replaced the native session", owner, session.active.value)
+                        assertEquals(AppRoute.Chat(requestId), graph.destinations.state.value.route)
+                        assertEquals(text, graph.chat.state.value.composer.text)
+                        assertEquals(revision, graph.chat.state.value.composer.revision)
+                        composer().assertTextContains(text)
+                    }
+
+                    try {
+                        val darkAction = hasText("Dark") and hasClickAction()
+                        compose.onNodeWithTag("app-settings").performScrollToNode(darkAction)
+                        compose.onNode(darkAction).assertIsDisplayed().performClick()
+                        until("dark appearance is active") { graph.settings.state.value.appearance == Appearance.DARK }
+                        val dark = compose.onNodeWithTag("back-preview-pane").captureToImage().toPixelMap()
+                        assertTrue("The actual header did not use a dark surface", dark[2, 2].luminance() < 0.1f)
+                        screen("ux-variant-dark")
+
+                        compose.runOnIdle {
+                            graph.conversations.dispatch(
+                                org.xmtp.android.example.shared.feature.conversations.ConversationsAction
+                                    .OpenConversation(requestId),
+                            )
+                        }
+                        until("variant chat is active") {
+                            graph.destinations.state.value.route == AppRoute.Chat(requestId) &&
+                                graph.chat.state.value.conversationId == requestId &&
+                                graph.chat.state.value.messages
+                                    .any { it.id == requestMessage }
+                        }
+                        val variantText = "Draft kept across display changes"
+                        composer().performTextReplacement(variantText)
+                        val variantRevision = graph.chat.state.value.composer.revision
+                        Espresso.closeSoftKeyboard()
+
+                        checkedScreenShell("wm size 320x680")
+                        checkedScreenShell("wm density 160")
+                        checkedScreenShell("settings put system font_scale 2.0")
+                        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                            locales.applicationLocales = android.os.LocaleList.forLanguageTags("ar")
+                        }
+                        compose.waitUntil(30_000) {
+                            val configuration = compose.activity.resources.configuration
+                            configuration.screenWidthDp == 320 && configuration.fontScale == 2f &&
+                                configuration.layoutDirection == android.view.View.LAYOUT_DIRECTION_RTL
+                        }
+                        assertRetainedDraft(variantRevision, variantText)
+                        val rtlSend = actionBounds("Send message")
+                        val rtlEditor = composer().assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                        assertTrue(
+                            "RTL did not move Send to the end of the composer",
+                            rtlSend.right <= rtlEditor.left + 1,
+                        )
+                        screen("ux-variant-dark-rtl-200")
+
+                        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                            locales.applicationLocales = android.os.LocaleList.forLanguageTags("en")
+                        }
+                        checkedScreenShell("settings put system font_scale 1.0")
+                        checkedScreenShell("wm size 760x400")
+                        compose.waitUntil(30_000) {
+                            val configuration = compose.activity.resources.configuration
+                            configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE &&
+                                configuration.fontScale == 1f &&
+                                configuration.layoutDirection == android.view.View.LAYOUT_DIRECTION_LTR
+                        }
+                        assertRetainedDraft(variantRevision, variantText)
+                        composer().performTouchInput { click() }
+                        compose.waitUntil(30_000) {
+                            compose.activity.window.decorView.rootWindowInsets
+                                ?.isVisible(
+                                    android.view.WindowInsets.Type
+                                        .ime(),
+                                ) == true
+                        }
+                        val send = actionBounds("Send message")
+                        val editor = composer().assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                        var imeTop = 0f
+                        var contentTop = 0
+                        compose.runOnIdle {
+                            val decor = compose.activity.window.decorView
+                            val decorLocation = IntArray(2)
+                            decor.getLocationOnScreen(decorLocation)
+                            val contentLocation = IntArray(2)
+                            checkNotNull(compose.activity.findViewById<android.view.View>(android.R.id.content))
+                                .getLocationOnScreen(contentLocation)
+                            contentTop = contentLocation[1]
+                            imeTop = decorLocation[1] + decor.height -
+                                checkNotNull(
+                                    decor.rootWindowInsets,
+                                ).getInsets(
+                                    android.view.WindowInsets.Type
+                                        .ime(),
+                                ).bottom
+                                    .toFloat()
+                        }
+                        assertTrue("Send is behind the landscape keyboard", send.bottom + contentTop <= imeTop + 1)
+                        assertTrue(
+                            "The editor is behind the landscape keyboard",
+                            editor.bottom + contentTop <= imeTop + 1,
+                        )
+                        assertRetainedDraft(variantRevision, variantText)
+                        screen("ux-variant-landscape-ime", closeKeyboard = false)
+                        Espresso.closeSoftKeyboard()
+
+                        checkedScreenShell("wm size 1100x760")
+                        compose.waitUntil(30_000) { compose.activity.resources.configuration.screenWidthDp >= 1000 }
+                        assertRetainedDraft(variantRevision, variantText)
+                        val sidebar = actionBounds("Settings")
+                        val pane =
+                            compose
+                                .onNodeWithTag("back-preview-pane")
+                                .assertIsDisplayed()
+                                .fetchSemanticsNode()
+                                .boundsInRoot
+                        assertTrue("Chats and the active chat are not separate panes", sidebar.right <= pane.left + 1)
+                        assertTrue(
+                            "The active chat pane is too narrow",
+                            pane.width >= 500f * compose.activity.resources.displayMetrics.density,
+                        )
+                        actionBounds("Send message")
+                        screen("ux-variant-wide-chat")
+
+                        restoreScreenDisplay(::checkedScreenShell, savedDisplay)
+                        compose.waitUntil(30_000) {
+                            val configuration = compose.activity.resources.configuration
+                            configuration.screenWidthDp == savedConfiguration.screenWidthDp &&
+                                configuration.fontScale == savedConfiguration.fontScale
+                        }
+                        assertRetainedDraft(variantRevision, variantText)
+                        assertEquals(
+                            requestMessage,
+                            checkNotNull(owner.client.conversations.getMessageById(requestMessage)).id,
+                        )
+                        println(
+                            "UI_VARIANT_PROOF dark=true rtl-320-200=true landscape-ime=true " +
+                                "wide-chat=true native-owner-kept=true draft-kept=true",
+                        )
+                    } catch (error: Throwable) {
+                        variantFailure = error
+                    } finally {
+                        restore { Espresso.closeSoftKeyboard() }
+                        restore {
+                            graph.settings.dispatch(
+                                SettingsAction.SetAppearance(savedAppearance),
+                            )
+                        }
+                        restore {
+                            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                                locales.applicationLocales = savedLocales
+                            }
+                        }
+                        restore { restoreScreenDisplay(::checkedScreenShell, savedDisplay) }
+                        restore {
+                            compose.waitUntil(30_000) {
+                                val configuration = compose.activity.resources.configuration
+                                configuration.screenWidthDp == savedConfiguration.screenWidthDp &&
+                                    configuration.orientation == savedConfiguration.orientation &&
+                                    configuration.fontScale == savedConfiguration.fontScale &&
+                                    configuration.layoutDirection == savedConfiguration.layoutDirection &&
+                                    locales.applicationLocales == savedLocales
+                            }
+                            assertEquals(savedDisplay, readScreenDisplay(::checkedScreenShell))
+                            assertEquals(savedAppearance, graph.settings.state.value.appearance)
+                        }
+                        restore { graph.dispatch(ShellAction.Navigate(savedRoute)) }
+                    }
+                    variantFailure?.let { throw it }
+                }
             } finally {
                 releaseSend.complete(Unit)
+                releaseHistory.complete(Unit)
+                graph.chat.historyPageRead =
+                    { chat, options, before, after -> chat.historyPage(options, before, after) }
                 graph.chat.beforeQueuedAction = {}
                 graph.sends.beforePublish = {}
                 peerReader?.cancelAndJoin()

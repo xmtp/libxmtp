@@ -72,7 +72,7 @@ fun SettingsScreen(
             item {
                 SettingsSection("Local deletion is incomplete") {
                     Text(
-                        "Continue to remove this server's identity, database, and local files from this device.",
+                        "Continue to remove this server's identity, saved messages, and local files from this device.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Action("Continue deletion", !state.busy) { action(SettingsAction.ResumeReset) }
@@ -233,7 +233,8 @@ fun SettingsScreen(
             SettingsSection("This device") {
                 Text("Sign out", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "End this session and clear its access token. Your identity and database stay on this device.",
+                    "End this session and clear its access token. " +
+                        "Your identity and saved messages stay on this device.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -246,7 +247,7 @@ fun SettingsScreen(
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 Text("Delete local data", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Remove this server's identity, SDK database, and local files from this device.",
+                    "Remove this server's identity, saved messages, and local files from this device.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -267,7 +268,7 @@ fun SettingsScreen(
             text = {
                 Text(
                     "This ends the current session and clears its access token. " +
-                        "Your identity and database stay on this device.",
+                        "Your identity and saved messages stay on this device.",
                 )
             },
             confirmButton = {
@@ -285,7 +286,7 @@ fun SettingsScreen(
             title = { Text("Delete local data?") },
             text = {
                 Text(
-                    "This removes this server's identity, SDK database, and local files from this device. " +
+                    "This removes this server's identity, saved messages, and local files from this device. " +
                         "It does not delete a remote account or messages on other devices.",
                 )
             },

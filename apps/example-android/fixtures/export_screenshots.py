@@ -35,6 +35,10 @@ NAMES = {
     "ux-reply-composer.png",
     "ux-inline-reactions-200.png",
     "ux-full-reactions-200.png",
+    "ux-variant-dark.png",
+    "ux-variant-dark-rtl-200.png",
+    "ux-variant-landscape-ime.png",
+    "ux-variant-wide-chat.png",
     "attachment-card-verified.png",
     "group-settings-pending-remove.png",
 } | {

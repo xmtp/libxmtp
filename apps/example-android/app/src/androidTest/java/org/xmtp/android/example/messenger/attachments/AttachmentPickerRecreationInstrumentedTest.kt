@@ -21,11 +21,14 @@ import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
+import org.xmtp.android.example.shared.AppRoute
 import org.xmtp.android.example.shared.MessengerAction
+import org.xmtp.android.example.shared.attachments.AttachmentSelection
 import uniffi.xmtp_sdk.*
 import java.io.File
 import java.io.FileNotFoundException
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 
 class AttachmentPickerRecreationInstrumentedTest {
     private val graphRule = TestAppGraphRule()
@@ -85,11 +88,15 @@ class AttachmentPickerRecreationInstrumentedTest {
             val sender = AttachmentTestFixture()
             var destination: Uri? = null
             var outstanding = false
+            val selectedMimeTypes = AtomicReference<List<String>?>(null)
             val monitor =
                 object : Instrumentation.ActivityMonitor() {
                     override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
                         val selecting = intent.action == Intent.ACTION_OPEN_DOCUMENT
                         val exporting = intent.action == Intent.ACTION_CREATE_DOCUMENT
+                        if (selecting) {
+                            selectedMimeTypes.set(intent.getStringArrayExtra(Intent.EXTRA_MIME_TYPES)?.toList())
+                        }
                         if (selecting || exporting) {
                             val component = AttachmentPickerActivity::class.java.name
                             intent.setClassName(instrumentation.context.packageName, component)
@@ -130,6 +137,41 @@ class AttachmentPickerRecreationInstrumentedTest {
                 instrumentation.addMonitor(monitor)
                 if (stage == "select") {
                     compose.onNodeWithContentDescription("Add attachment").performClick()
+                    compose.waitUntil(5_000) {
+                        compose.onAllNodesWithTag("attachment-choice-sheet").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    compose.onNodeWithTag("attachment-choice-sheet").assertExists()
+                    val sheet = checkNotNull(graphRule.graph.attachments.choice.value)
+                    instrumentation.runOnMainSync { assertTrue(graphRule.graph.back()) }
+                    assertNull(graphRule.graph.attachments.choice.value)
+                    assertEquals(AppRoute.Chat(chat.id()), graphRule.graph.destinations.state.value.route)
+                    assertNull(model.attachments.requests.launchedSelect())
+                    compose.waitUntil(5_000) {
+                        compose.onAllNodesWithTag("attachment-choice-sheet").fetchSemanticsNodes().isEmpty()
+                    }
+                    compose.onNodeWithContentDescription("Add attachment").performClick()
+                    compose.waitUntil(5_000) {
+                        graphRule.graph.attachments.choice.value
+                            ?.instanceId
+                            ?.let { it != sheet.instanceId } == true &&
+                            compose.onAllNodesWithTag("attachment-choice-file").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    compose.onNodeWithTag("attachment-choice-file").performScrollTo().performClick()
+                    pickerReady()
+                    assertEquals(listOf("*/*"), selectedMimeTypes.get())
+                    assertEquals(
+                        AttachmentSelection.FILE,
+                        checkNotNull(model.attachments.requests.launchedSelect()).selection,
+                    )
+                    complete(Uri.EMPTY)
+                    outstanding = false
+                    until { model.attachments.requests.launchedSelect() == null }
+                    compose.waitForIdle()
+                    compose.onNodeWithContentDescription("Add attachment").performClick()
+                    compose.waitUntil(5_000) {
+                        compose.onAllNodesWithTag("attachment-choice-photo-video").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    compose.onNodeWithTag("attachment-choice-photo-video").performScrollTo().performClick()
                 } else {
                     val messageId = checkNotNull(id)
                     compose.onNodeWithTag("attachment-card-$messageId", useUnmergedTree = true).assertExists()
@@ -149,12 +191,16 @@ class AttachmentPickerRecreationInstrumentedTest {
                 }
                 pickerReady()
                 assertTrue(outstanding)
+                if (stage == "select") assertEquals(listOf("image/*", "video/*"), selectedMimeTypes.get())
                 val oldModel = model
                 val retained = graphRule.graph.attachments.requests
                 val oldRequest = if (stage == "select") retained.launchedSelect() else retained.launchedSave()
                 assertNotNull(oldRequest)
                 assertEquals(owner.key, checkNotNull(oldRequest).identity.sessionKey)
                 assertEquals(token, oldRequest.identity.destinationToken)
+                if (oldRequest is AttachmentRequest.Select) {
+                    assertEquals(AttachmentSelection.PHOTO_VIDEO, oldRequest.selection)
+                }
                 if (oldRequest is AttachmentRequest.Save) {
                     assertArrayEquals(bytes, File(oldRequest.downloaded.path).readBytes())
                 }

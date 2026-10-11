@@ -69,6 +69,7 @@ data class RequestState(
     val pendingDecision: RequestDecision? = null,
     val deleteCapability: CapabilityUi = CapabilityUi(),
     val failure: AppFailure? = null,
+    val activeDecision: RequestDecision? = null,
 )
 
 sealed interface RequestAction {

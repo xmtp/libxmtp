@@ -86,24 +86,29 @@ fun ChatScreen(
     LaunchedEffect(requestedReactors) { if (requestedReactors != null) reactorOverlay = requestedReactors }
     val reactorRow = state.messages.firstOrNull { it.id == reactorOverlay?.messageId && !it.deleted }
     val popupRow = state.messages.firstOrNull { it.id == popupMessageId && !it.deleted }
-    LaunchedEffect(state.conversationId, state.anchor?.messageId) {
+    var restoringAnchor by remember(state.conversationId) { mutableStateOf(state.anchor != null) }
+    LaunchedEffect(state.conversationId, state.anchor?.messageId, state.messages.isEmpty()) {
         state.anchor?.let { anchor ->
             val index = state.messages.indexOfFirst { it.id == anchor.messageId }
-            if (index >= 0) list.scrollToItem(index, anchor.offsetPx)
+            if (index >= 0) {
+                list.scrollToItem(index, anchor.offsetPx)
+                restoringAnchor = false
+            }
         }
     }
     LaunchedEffect(state.conversationId) {
         snapshotFlow {
-            list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset
-        }.distinctUntilChanged().collect { (index, offset) ->
-            latestState.messages.getOrNull(index)?.let { row ->
-                latestAction(
-                    ChatAction.Viewport(
-                        ScrollAnchor(row.id, row.sentAtNs, offset, index == 0 && offset == 0),
-                        index == 0 && offset == 0,
-                    ),
-                )
+            val index = list.firstVisibleItemIndex
+            val offset = list.firstVisibleItemScrollOffset
+            val nativeKey =
+                list.layoutInfo.visibleItemsInfo
+                    .firstOrNull { it.index == index }
+                    ?.key
+            latestState.messages.getOrNull(index)?.takeIf { !restoringAnchor && it.id == nativeKey }?.let { row ->
+                ScrollAnchor(row.id, row.sentAtNs, offset, index == 0 && offset == 0)
             }
+        }.distinctUntilChanged().collect { anchor ->
+            anchor?.let { latestAction(ChatAction.Viewport(it, it.wasAtNewest)) }
         }
     }
     Column(Modifier.fillMaxSize()) {

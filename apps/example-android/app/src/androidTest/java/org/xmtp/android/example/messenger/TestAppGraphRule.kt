@@ -14,6 +14,8 @@ import org.junit.runner.Description
 import org.junit.runners.model.Statement
 import org.xmtp.android.example.ExampleApp
 import org.xmtp.android.example.messenger.app.AppGraph
+import org.xmtp.android.example.messenger.data.xmtp.ConversationQueries
+import org.xmtp.android.example.messenger.data.xmtp.XmtpQueries
 import org.xmtp.android.example.messenger.notifications.PushTransport
 import org.xmtp.android.example.messenger.session.SessionObservers
 import uniffi.xmtp_sdk.ClientEvent
@@ -23,6 +25,7 @@ import uniffi.xmtp_sdk.SDKClient
 /** Install an owned production graph before the Activity creates its controller. */
 internal class TestAppGraphRule(
     private val notificationTransport: PushTransport? = null,
+    private val conversationQueries: ConversationQueries = XmtpQueries(),
 ) : TestRule {
     val observers = TestGraphObservers()
     lateinit var graph: AppGraph
@@ -46,9 +49,18 @@ internal class TestAppGraphRule(
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as ExampleApp
         graph =
             if (notificationTransport == null) {
-                AppGraph(app, sessionObservers = observers.fixed())
+                AppGraph(
+                    app,
+                    sessionObservers = observers.fixed(),
+                    conversationQueries = conversationQueries,
+                )
             } else {
-                AppGraph(app, sessionObservers = observers.fixed(), notificationTransport = notificationTransport)
+                AppGraph(
+                    app,
+                    sessionObservers = observers.fixed(),
+                    notificationTransport = notificationTransport,
+                    conversationQueries = conversationQueries,
+                )
             }
         app.graph = graph
         return graph
@@ -65,12 +77,17 @@ internal class TestAppGraphRule(
                 previous.session.signOut()
                 graph =
                     if (notificationTransport == null) {
-                        AppGraph(app, sessionObservers = observers.fixed())
+                        AppGraph(
+                            app,
+                            sessionObservers = observers.fixed(),
+                            conversationQueries = conversationQueries,
+                        )
                     } else {
                         AppGraph(
                             app,
                             sessionObservers = observers.fixed(),
                             notificationTransport = notificationTransport,
+                            conversationQueries = conversationQueries,
                         )
                     }
                 app.graph = graph

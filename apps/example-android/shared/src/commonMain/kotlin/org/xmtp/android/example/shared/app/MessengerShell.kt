@@ -8,11 +8,14 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.xmtp.android.example.shared.*
@@ -35,6 +38,7 @@ fun MessengerShell(
     messageExtra: @Composable (MessageRow) -> Unit = {},
 ) {
     MessengerTheme(state.shell.appearance, state.shell.reducedMotion) {
+        val preview = LocalBackPreview.current
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
                 val split =
@@ -62,7 +66,7 @@ fun MessengerShell(
                             }
                         }
                         VerticalDivider()
-                        Box(Modifier.weight(1f)) {
+                        Box(Modifier.weight(1f).fillMaxHeight().backPreview(preview, state.shell.reducedMotion)) {
                             if (state.shell.route == AppRoute.Chats) {
                                 Column(
                                     Modifier.align(Alignment.Center).padding(32.dp),
@@ -96,17 +100,36 @@ fun MessengerShell(
                     }
                 } else {
                     val duration = if (state.shell.reducedMotion) 0 else MessengerMotion.ROUTE
-                    AnimatedContent(state.shell.route, transitionSpec = {
-                        fadeIn(tween(duration)) togetherWith
-                            fadeOut(tween(duration))
-                    }, label = "Screen") { route ->
-                        RouteContent(route, state, actions, extraScreen, composerExtra, messageExtra)
+                    Box(Modifier.fillMaxSize().backPreview(preview, state.shell.reducedMotion)) {
+                        AnimatedContent(state.shell.route, transitionSpec = {
+                            fadeIn(tween(duration)) togetherWith
+                                fadeOut(tween(duration))
+                        }, label = "Screen") { route ->
+                            RouteContent(route, state, actions, extraScreen, composerExtra, messageExtra)
+                        }
                     }
                 }
             }
         }
     }
 }
+
+private fun Modifier.backPreview(
+    preview: BackPreview?,
+    reducedMotion: Boolean,
+): Modifier =
+    graphicsLayer {
+        val progress = if (reducedMotion) 0f else preview?.progress?.coerceIn(0f, 1f) ?: 0f
+        scaleX = 1f - BACK_SCALE * progress
+        scaleY = scaleX
+        translationX = BACK_TRAVEL.dp.toPx() * progress * if (preview?.edge == BackEdge.RIGHT) -1f else 1f
+        shape = RoundedCornerShape((BACK_CORNER * progress).dp)
+        clip = progress > 0f
+    }.testTag("back-preview-pane")
+
+private const val BACK_SCALE = 0.06f
+private const val BACK_TRAVEL = 24
+private const val BACK_CORNER = 24
 
 @Composable
 private fun RouteContent(

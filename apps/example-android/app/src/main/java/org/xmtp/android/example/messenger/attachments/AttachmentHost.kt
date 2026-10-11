@@ -2,15 +2,17 @@ package org.xmtp.android.example.messenger.attachments
 
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.messenger.feature.attachments.AttachmentController
 import org.xmtp.android.example.shared.ConversationRow
 import org.xmtp.android.example.shared.MessageRow
 import org.xmtp.android.example.shared.attachments.*
+import org.xmtp.android.example.shared.feature.attachments.AttachmentChoiceSheet
+import org.xmtp.android.example.shared.feature.attachments.AttachmentChoiceState
 
 /** Launches Android requests. Transfer and recovery work belongs to the retained controller. */
 internal class AttachmentHost(
@@ -94,6 +96,15 @@ internal class AttachmentHost(
         }
 
     @Composable fun Composer(conversationId: String?) {
+        val currentChoice = controller.choice.collectAsState().value
+        var presentedChoice by remember(conversationId) { mutableStateOf<AttachmentChoiceState?>(null) }
+        val keyboard = LocalSoftwareKeyboardController.current
+        LaunchedEffect(currentChoice) {
+            if (currentChoice != null && currentChoice.conversationId == conversationId) {
+                presentedChoice = currentChoice
+                keyboard?.hide()
+            }
+        }
         AttachmentComposer(
             controller.drafts.collectAsState().value,
             conversationId,
@@ -103,6 +114,17 @@ internal class AttachmentHost(
                 ?.message,
             controller::dispatch,
         )
+        val presented = presentedChoice
+        if (presented != null && presented.conversationId == conversationId) {
+            AttachmentChoiceSheet(
+                presented,
+                visible = currentChoice?.instanceId == presented.instanceId,
+                onHidden = {
+                    if (presentedChoice?.instanceId == presented.instanceId) presentedChoice = null
+                },
+                action = controller::dispatch,
+            )
+        }
     }
 
     @Composable fun Message(

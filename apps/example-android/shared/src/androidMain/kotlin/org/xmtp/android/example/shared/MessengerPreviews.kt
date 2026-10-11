@@ -15,6 +15,8 @@ import androidx.compose.ui.unit.dp
 import org.xmtp.android.example.shared.attachments.AttachmentCard
 import org.xmtp.android.example.shared.attachments.AttachmentCardState
 import org.xmtp.android.example.shared.designsystem.*
+import org.xmtp.android.example.shared.feature.attachments.AttachmentChoiceSheet
+import org.xmtp.android.example.shared.feature.attachments.AttachmentChoiceState
 import org.xmtp.android.example.shared.feature.attachments.AttachmentPhase
 
 class MessengerPreviewProvider : PreviewParameterProvider<MessengerPreviewCase> {
@@ -117,6 +119,22 @@ class AttachmentPreviewProvider : PreviewParameterProvider<AttachmentCardState> 
                 phase = AttachmentPhase.EXPIRED,
             ),
         )
+}
+
+@Preview(name = "Attachment choices", widthDp = 360, heightDp = 680, showBackground = true)
+@Preview(
+    name = "Attachment choices dark large text",
+    widthDp = 320,
+    heightDp = 680,
+    fontScale = 2f,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+    showBackground = true,
+)
+@Composable
+fun MessengerAttachmentChoicePreview() {
+    MessengerTheme(Appearance.SYSTEM, reducedMotion = true) {
+        AttachmentChoiceSheet(AttachmentChoiceState(1, "sample-conversation"), true, {}, {})
+    }
 }
 
 @Preview(name = "File", widthDp = 360, showBackground = true)

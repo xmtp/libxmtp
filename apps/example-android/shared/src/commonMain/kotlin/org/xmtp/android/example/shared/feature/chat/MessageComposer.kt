@@ -7,9 +7,12 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -25,6 +28,8 @@ internal fun MessageComposer(
     extra: @Composable () -> Unit,
 ) {
     val composer = state.composer
+    val composerFocus = remember(state.conversationId) { FocusRequester() }
+    var composerHasFocus by remember(state.conversationId) { mutableStateOf(false) }
     val duration = if (LocalReducedMotion.current) 0 else MessengerMotion.REPLY
     Surface(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp).testTag("message-composer"),
@@ -75,49 +80,61 @@ internal fun MessageComposer(
                         Modifier.size(48.dp),
                     ) { Icon(AppIcons.Add, "Add attachment") }
                 }
-                TextField(
-                    value =
-                        TextFieldValue(
-                            composer.text,
-                            TextRange(
-                                composer.selectionStart.coerceIn(0, composer.text.length),
-                                composer.selectionEnd.coerceIn(0, composer.text.length),
+                val inputInstanceId = composer.inputInstanceId
+                val restoreComposerFocus = composerHasFocus
+                key(inputInstanceId) {
+                    LaunchedEffect(Unit) {
+                        if (restoreComposerFocus) composerFocus.requestFocus()
+                    }
+                    TextField(
+                        value =
+                            TextFieldValue(
+                                composer.text,
+                                TextRange(
+                                    composer.selectionStart.coerceIn(0, composer.text.length),
+                                    composer.selectionEnd.coerceIn(0, composer.text.length),
+                                ),
+                                composition =
+                                    composer.compositionStart?.let { start ->
+                                        composer.compositionEnd?.let { end ->
+                                            TextRange(
+                                                start.coerceIn(0, composer.text.length),
+                                                end.coerceIn(0, composer.text.length),
+                                            )
+                                        }
+                                    },
                             ),
-                            composition =
-                                composer.compositionStart?.let { start ->
-                                    composer.compositionEnd?.let { end ->
-                                        TextRange(
-                                            start.coerceIn(0, composer.text.length),
-                                            end.coerceIn(0, composer.text.length),
-                                        )
-                                    }
-                                },
-                        ),
-                    onValueChange = {
-                        action(
-                            ChatAction.ChangeDraft(
-                                it.text,
-                                it.selection.start,
-                                it.selection.end,
-                                it.composition?.start,
-                                it.composition?.end,
+                        onValueChange = {
+                            action(
+                                ChatAction.ChangeDraft(
+                                    it.text,
+                                    it.selection.start,
+                                    it.selection.end,
+                                    it.composition?.start,
+                                    it.composition?.end,
+                                    inputInstanceId,
+                                ),
+                            )
+                        },
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .heightIn(max = 180.dp)
+                                .focusRequester(composerFocus)
+                                .onFocusChanged { composerHasFocus = it.isFocused },
+                        placeholder = { Text("Message", style = MaterialTheme.typography.bodyLarge) },
+                        textStyle = MaterialTheme.typography.bodyLarge,
+                        maxLines = 5,
+                        colors =
+                            TextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                disabledContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                             ),
-                        )
-                    },
-                    modifier = Modifier.weight(1f).heightIn(max = 180.dp),
-                    placeholder = { Text("Message", style = MaterialTheme.typography.bodyLarge) },
-                    textStyle = MaterialTheme.typography.bodyLarge,
-                    maxLines = 5,
-                    enabled = composer.enabled,
-                    colors =
-                        TextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            disabledContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        ),
-                )
+                    )
+                }
                 FilledIconButton(
                     onClick = { action(ChatAction.SendText(composer.text, 0, composer.revision)) },
                     modifier = Modifier.padding(bottom = 4.dp, end = 4.dp).size(48.dp),

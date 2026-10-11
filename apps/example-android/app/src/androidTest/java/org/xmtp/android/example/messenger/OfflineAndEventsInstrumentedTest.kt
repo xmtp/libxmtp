@@ -17,6 +17,7 @@ import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.feature.chat.MessageSurface
+import org.xmtp.android.example.shared.feature.connect.ProbeState
 import uniffi.xmtp_sdk.*
 
 @RunWith(AndroidJUnit4::class)
@@ -48,7 +49,15 @@ class OfflineAndEventsInstrumentedTest {
             }
             try {
                 compose.onNodeWithText("Server address").performTextReplacement(proxy.url)
-                compose.onNode(hasText("Join a server") and hasClickAction()).performScrollTo().performClick()
+                until("real relay auth capability checked") {
+                    graph.connect.state.value.normalizedBackend == proxy.url &&
+                        graph.connect.state.value.probe == ProbeState.READY
+                }
+                compose
+                    .onNode(hasText("Join a server") and hasClickAction())
+                    .performScrollTo()
+                    .assertIsEnabled()
+                    .performClick()
                 until("real relayed server connected") { session.active.value != null }
                 val owner = checkNotNull(session.active.value)
                 val chat =
@@ -57,6 +66,11 @@ class OfflineAndEventsInstrumentedTest {
                         CreateGroupOptions(name = "Offline history"),
                     )
                 val id = chat.sendText("stored offline history")
+                val unrelated =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Unrelated stored chat"),
+                    )
                 val inbox = owner.client.inboxId()
                 graph.destinations.navigate(AppRoute.Chat(chat.id()))
                 until("history visible before outage") {
@@ -74,9 +88,38 @@ class OfflineAndEventsInstrumentedTest {
                 assertEquals(listOf(id), stored.messages(publishedSelection()).map { it.id })
                 until("offline local inbox visible") {
                     graph.conversations.state.value.rows
-                        .any { it.id == chat.id() }
+                        .map { it.id }
+                        .toSet()
+                        .containsAll(listOf(chat.id(), unrelated.id()))
                 }
-                compose.onNodeWithText("Offline history").performClick()
+                compose.onNodeWithText("Search chats").performTextReplacement("Offline history")
+                until("real local search keeps only its matching chat") {
+                    graph.conversations.state.value.rows
+                        .map { it.id } == listOf(chat.id())
+                }
+                val storedRow = hasText("Offline history") and hasClickAction() and !hasSetTextAction()
+                Espresso.closeSoftKeyboard()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(storedRow)
+                compose.onNode(storedRow).assertIsDisplayed()
+                compose.onNodeWithText("Unrelated stored chat").assertDoesNotExist()
+                compose.onNodeWithText("Search chats").performTextReplacement("No matching stored chat")
+                until("real local search has no results") {
+                    graph.conversations.state.value.rows
+                        .isEmpty()
+                }
+                compose.onNodeWithText("No matches").assertIsDisplayed()
+                compose.onNodeWithText("Search chats").performTextReplacement("")
+                until("clearing search restores both local chats") {
+                    graph.conversations.state.value.rows
+                        .map { it.id }
+                        .toSet()
+                        .containsAll(listOf(chat.id(), unrelated.id()))
+                }
+                assertEquals(listOf(id), stored.messages(publishedSelection()).map { it.id })
+                assertNotNull(reopened.client.conversations.getById(unrelated.id()))
+                Espresso.closeSoftKeyboard()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(storedRow)
+                compose.onNode(storedRow).assertIsDisplayed().performClick()
                 until("offline local body visible") {
                     graph.chat.state.value.messages
                         .any { it.id == id }

@@ -11,6 +11,12 @@ data class AttachmentState(
     val verifiedMessageIds: Set<String> = emptySet(),
     val capability: CapabilityUi = CapabilityUi(),
     val failure: AppFailure? = null,
+    val choice: AttachmentChoiceState? = null,
+)
+
+data class AttachmentChoiceState(
+    val instanceId: Long,
+    val conversationId: String,
 )
 
 enum class AttachmentPhase { AVAILABLE, WAITING, UPLOADING, COMPLETE, DOWNLOADING, VERIFIED, FAILED, UNKNOWN, EXPIRED }

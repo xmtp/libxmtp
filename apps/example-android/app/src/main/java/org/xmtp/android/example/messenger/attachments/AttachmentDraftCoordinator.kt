@@ -370,7 +370,7 @@ class AttachmentDraftCoordinator(
                         if (draft.acceptedMessageId != null) {
                             updateRecovered(
                                 draft,
-                                card(draft, null, "Message accepted. Retry publication in the chat."),
+                                card(draft, null, "Message saved on this device. Retry sending in the chat."),
                             )
                             continue
                         }

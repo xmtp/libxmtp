@@ -3,10 +3,9 @@ package org.xmtp.android.example.messenger.attachments
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.xmtp.android.example.messenger.platform.EffectIdentity
+import org.xmtp.android.example.shared.attachments.AttachmentSelection
 import uniffi.xmtp_sdk.DownloadedAttachment
 import java.util.concurrent.atomic.AtomicLong
-
-internal enum class AttachmentSelection { FILE, PHOTO_VIDEO }
 
 internal sealed interface AttachmentRequest {
     val identity: EffectIdentity

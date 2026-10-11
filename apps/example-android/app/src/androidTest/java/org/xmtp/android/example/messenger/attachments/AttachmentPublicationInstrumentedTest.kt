@@ -90,7 +90,11 @@ class AttachmentPublicationInstrumentedTest {
                 model.dispatch(MessengerAction.Navigate(Screen.DRAFTS))
                 until("drafts-screen") { model.state.value.screen == Screen.DRAFTS }
                 graphRule.graph.attachments.refresh(owner)
-                compose.onNodeWithText("Retry publication").assertIsDisplayed().performClick()
+                compose
+                    .onNodeWithText("Retry sending")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .performClick()
                 var published = false
                 for (attempt in 0 until 100) {
                     if (owner.client.conversations
@@ -111,7 +115,7 @@ class AttachmentPublicationInstrumentedTest {
                 }
                 assertEquals(listOf(id), chat.messages(null).map { it.id })
                 assertEquals(Screen.DRAFTS, model.state.value.screen)
-                compose.onNodeWithText("Retry publication").assertDoesNotExist()
+                compose.onNodeWithText("Retry sending").assertDoesNotExist()
                 println(
                     "ATTACHMENT_PUBLICATION_PROOF stage=actual-recovery-card stored-id=true no-descriptor=true one-message=true",
                 )

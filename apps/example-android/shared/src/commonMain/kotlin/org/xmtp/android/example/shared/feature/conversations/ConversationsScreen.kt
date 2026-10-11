@@ -71,7 +71,15 @@ fun ConversationsScreen(
                 Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (state.connection.isNotBlank()) Notice(state.connection)
+                val connectionNotice =
+                    when (state.connection.uppercase()) {
+                        "CONNECTING" -> "Connecting to your server…"
+                        "RECONNECTING" -> "Reconnecting to your server…"
+                        "FAILED" -> "Cannot connect to your server."
+                        "CLOSED" -> "Not connected to your server."
+                        else -> null
+                    }
+                connectionNotice?.let { Notice(it) }
                 state.failure?.let { ConversationFailure(it, state.busy) { action(ConversationsAction.Refresh) } }
                 OutlinedTextField(
                     value = state.query,
