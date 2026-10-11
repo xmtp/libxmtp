@@ -735,6 +735,13 @@ internal class ChatController(
                             if (message.conversationId != chat.id()) {
                                 throw FeatureInputFailure("This message belongs to another chat.")
                             }
+                            if (!sends.outboundAllowed(owner.key, chat) {
+                                    requireOrigin(owner, origin, chat)
+                                    true
+                                }
+                            ) {
+                                throw CancellationException("Consent changed before deletion")
+                            }
                             chat.deleteMessage(action.messageId)
                             refresh(owner)
                         }

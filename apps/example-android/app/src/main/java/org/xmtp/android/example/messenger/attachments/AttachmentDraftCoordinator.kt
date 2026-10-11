@@ -268,14 +268,23 @@ class AttachmentDraftCoordinator(
                 check(!discardState.isDiscarded(operationId(draftId))) { "The draft was discarded" }
                 queueing.add(operationId(draftId))
             }
-            sends.queue(key, client, conversation, draft, admission = admission, reconcile = reconcile) {
-                checkCurrent()
-                check(screenCurrent()) { "The screen changed" }
-                processMutex.withLock {
-                    check(
-                        !discardState.isDiscarded(operationId(draftId)),
-                    ) { "The draft was discarded" }
-                }
+            sends.queue(
+                key,
+                client,
+                conversation,
+                draft,
+                admission = admission,
+                beforeSend = {
+                    checkCurrent()
+                    check(screenCurrent()) { "The screen changed" }
+                    processMutex.withLock {
+                        check(
+                            !discardState.isDiscarded(operationId(draftId)),
+                        ) { "The draft was discarded" }
+                    }
+                },
+                reconcile = reconcile,
+            ) {
                 conversation.sendRemoteAttachment(selected, SendOptions(optimistic = true))
             }
             clearPublishedSecret(draft)

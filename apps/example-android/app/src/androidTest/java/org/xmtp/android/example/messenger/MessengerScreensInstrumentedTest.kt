@@ -79,6 +79,193 @@ class MessengerScreensInstrumentedTest {
         compose.waitForIdle()
     }
 
+    private suspend fun queuedConsentAdmission(
+        owner: ActiveSession,
+        request: Conversation,
+        requestMessage: String,
+    ) {
+        val graph = graphRule.graph
+        val session = graph.session
+        val requestId = request.id()
+        for (heldReaction in listOf(false, true)) {
+            val revokedConsent = if (heldReaction) ConsentState.DENIED else ConsentState.UNKNOWN
+            val previousDraftIds =
+                session.preferences
+                    .drafts(owner.key.profileId)
+                    .map { it.draftId }
+                    .toSet()
+            val blockedText = "Draft held before native consent admission"
+            val queueEntered = CompletableDeferred<Unit>()
+            val releaseQueue = CompletableDeferred<Unit>()
+            val actionFinished = CompletableDeferred<Unit>()
+            graph.sends.afterQueueDraftCommit = {
+                queueEntered.complete(Unit)
+                releaseQueue.await()
+            }
+            graph.chat.onQueuedActionFinished = { action ->
+                if ((heldReaction && action is ChatAction.React && action.emoji == "😢") ||
+                    (!heldReaction && action is ChatAction.SendText && action.text == blockedText)
+                ) {
+                    actionFinished.complete(Unit)
+                }
+            }
+            try {
+                assertFalse(graph.chat.state.value.unknown)
+                if (heldReaction) {
+                    Espresso.closeSoftKeyboard()
+                    compose.waitForIdle()
+                    val requestRow = hasText("A real message request") and hasClickAction()
+                    compose.onNodeWithTag("message-timeline").performScrollToNode(requestRow)
+                    compose.onNode(requestRow).assertIsDisplayed().performClick()
+                    until("held reaction opens the request message popover") {
+                        graph.chat.state.value.overlay?.let {
+                            it.messageId == requestMessage && it.surface == MessageSurface.POPOVER
+                        } == true
+                    }
+                    compose.onNodeWithTag("reaction-popover").assertIsDisplayed()
+                    compose.onNodeWithText("😢").assertIsEnabled().performClick()
+                } else {
+                    composer().performTextReplacement(blockedText)
+                    compose.onNodeWithContentDescription("Send message").assertIsEnabled().performClick()
+                }
+                withTimeout(30_000) { queueEntered.await() }
+                request.updateConsentState(revokedConsent)
+                assertEquals(revokedConsent, conversationState(request).consentState)
+                releaseQueue.complete(Unit)
+                withTimeout(30_000) { actionFinished.await() }
+                assertEquals(
+                    "Queued outbound work must preserve revoked native consent",
+                    revokedConsent,
+                    conversationState(request).consentState,
+                )
+                assertFalse(
+                    "Queued text must not reach the native conversation after consent changes",
+                    request.messages(publishedSelection().copy(deliveryStatus = null)).any {
+                        it.standardContent() == MessageContent.Text(blockedText)
+                    },
+                )
+                assertFalse(
+                    "Queued reaction must not reach the native message after consent changes",
+                    checkNotNull(owner.client.conversations.getMessageById(requestMessage)).reactions.any {
+                        it.reaction.content == "😢" && it.reaction.action == ReactionAction.ADDED
+                    },
+                )
+                if (!heldReaction) {
+                    assertEquals(blockedText, graph.chat.state.value.composer.text)
+                    assertTrue(
+                        graph.chat.state.value.composer.result
+                            ?.outcome is TextSendOutcome.Rejected,
+                    )
+                }
+                assertFalse(
+                    "Rejected outbound work must not keep an uncertain or accepted send record",
+                    session.preferences.drafts(owner.key.profileId).any {
+                        it.conversationKey == requestId && it.draftId !in previousDraftIds &&
+                            (it.phase == SendPhase.QUEUEING || it.phase == SendPhase.ACCEPTED)
+                    },
+                )
+                if (revokedConsent == ConsentState.DENIED) request.updateConsentState(ConsentState.UNKNOWN)
+                compose.runOnIdle { graph.chat.dispatch(ChatAction.Refresh) }
+                until("revoked native consent appears as a request") { graph.chat.state.value.unknown }
+                textAction("Accept").performClick()
+                until("explicit Accept restores native consent after queued rejection") {
+                    conversationState(request).consentState == ConsentState.ALLOWED &&
+                        !graph.chat.state.value.unknown
+                }
+                if (!heldReaction) composer().performTextClearance()
+            } finally {
+                releaseQueue.complete(Unit)
+                graph.sends.afterQueueDraftCommit = {}
+                graph.chat.onQueuedActionFinished = {}
+            }
+        }
+    }
+
+    private suspend fun retryDeleteConsentAdmission(
+        owner: ActiveSession,
+        request: Conversation,
+    ) {
+        val graph = graphRule.graph
+        for (heldDelete in listOf(false, true)) {
+            val nativeId =
+                request.sendText(
+                    if (heldDelete) "Held deletion fixture" else "Held publication fixture",
+                    SendOptions(optimistic = !heldDelete),
+                )
+            val nativeEntered = CompletableDeferred<Unit>()
+            val releaseNative = CompletableDeferred<Unit>()
+            val actionFinished = CompletableDeferred<Unit>()
+            val originalRead = graph.chat.actionMessageRead
+            if (heldDelete) {
+                graph.chat.actionMessageRead = { active, id ->
+                    val message = originalRead(active, id)
+                    if (id == nativeId) {
+                        nativeEntered.complete(Unit)
+                        releaseNative.await()
+                    }
+                    message
+                }
+            } else {
+                graph.sends.beforePublish = { id ->
+                    if (id == nativeId) {
+                        nativeEntered.complete(Unit)
+                        releaseNative.await()
+                    }
+                }
+            }
+            graph.chat.onQueuedActionFinished = { action ->
+                if ((heldDelete && action is ChatAction.DeleteMessage && action.messageId == nativeId) ||
+                    (!heldDelete && action is ChatAction.RetrySend && action.messageId == nativeId)
+                ) {
+                    actionFinished.complete(Unit)
+                }
+            }
+            try {
+                compose.runOnIdle {
+                    graph.chat.dispatch(
+                        if (heldDelete) ChatAction.DeleteMessage(nativeId) else ChatAction.RetrySend(nativeId),
+                    )
+                }
+                withTimeout(30_000) { nativeEntered.await() }
+                val revokedConsent = if (heldDelete) ConsentState.UNKNOWN else ConsentState.DENIED
+                request.updateConsentState(revokedConsent)
+                releaseNative.complete(Unit)
+                withTimeout(30_000) { actionFinished.await() }
+                assertEquals(
+                    "Held retry or deletion must preserve revoked native consent",
+                    revokedConsent,
+                    conversationState(request).consentState,
+                )
+                val nativeMessage = checkNotNull(owner.client.conversations.getMessageById(nativeId))
+                if (heldDelete) {
+                    assertFalse(
+                        "Held deletion must not delete after consent changes",
+                        nativeMessage.toRow(owner.client.inboxId()).deleted,
+                    )
+                } else {
+                    assertNotEquals(
+                        "Held retry must not publish after consent changes",
+                        DeliveryStatus.PUBLISHED,
+                        nativeMessage.deliveryStatus,
+                    )
+                }
+                if (revokedConsent == ConsentState.DENIED) request.updateConsentState(ConsentState.UNKNOWN)
+                compose.runOnIdle { graph.chat.dispatch(ChatAction.Refresh) }
+                until("held native write becomes a request") { graph.chat.state.value.unknown }
+                textAction("Accept").performClick()
+                until("explicit Accept restores consent after held native write") {
+                    conversationState(request).consentState == ConsentState.ALLOWED &&
+                        !graph.chat.state.value.unknown
+                }
+            } finally {
+                releaseNative.complete(Unit)
+                graph.chat.actionMessageRead = originalRead
+                graph.sends.beforePublish = {}
+                graph.chat.onQueuedActionFinished = {}
+            }
+        }
+    }
+
     @Test fun realSessionRendersSetupListMessagesAndSettings() =
         runBlocking {
             val graph = graphRule.graph
@@ -730,6 +917,8 @@ class MessengerScreensInstrumentedTest {
                     }
                 }
                 assertEquals(ConsentState.ALLOWED, conversationState(request).consentState)
+                queuedConsentAdmission(owner, request, requestMessage)
+                retryDeleteConsentAdmission(owner, request)
                 assertEquals(requestMessage, checkNotNull(owner.client.conversations.getMessageById(requestMessage)).id)
                 back()
                 until("accepted request returns to list") { graph.destinations.state.value.route == AppRoute.Requests }
