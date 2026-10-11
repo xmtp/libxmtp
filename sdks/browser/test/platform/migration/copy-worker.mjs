@@ -12,8 +12,14 @@ FileSystemFileHandle.prototype.createSyncAccessHandle = async function (
   if (phase === "permission")
     throw new DOMException("Injected source access denial", "NotAllowedError");
   const handle = await open.apply(this, args);
+  let copied = false;
   const read = handle.read.bind(handle);
   handle.read = function (bytes, options) {
+    if (phase === "setup-io" && copied && bytes.byteLength <= 4096)
+      throw new DOMException(
+        "Injected private-copy read failure",
+        "UnknownError",
+      );
     maximum = Math.max(maximum, bytes.byteLength);
     total += bytes.byteLength;
     return read(bytes, options);
@@ -21,7 +27,12 @@ FileSystemFileHandle.prototype.createSyncAccessHandle = async function (
   const write = handle.write.bind(handle);
   handle.write = function (bytes, options) {
     const count = write(bytes, options);
-    if (!fired && bytes.byteLength === 64 * 1024 && phase !== "measure") {
+    if (bytes.byteLength === 64 * 1024) copied = true;
+    if (
+      !fired &&
+      bytes.byteLength === 64 * 1024 &&
+      ["quota", "interrupt"].includes(phase)
+    ) {
       fired = true;
       if (phase === "quota")
         throw new DOMException(

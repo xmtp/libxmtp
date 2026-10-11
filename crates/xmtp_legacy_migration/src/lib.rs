@@ -76,6 +76,12 @@ pub enum InputError {
 /// Output failures retain their typed platform causes.
 #[derive(Debug, thiserror::Error)]
 pub enum OutputError {
+    #[cfg(target_arch = "wasm32")]
+    #[error(transparent)]
+    Connection(#[from] diesel::ConnectionError),
+    #[cfg(target_arch = "wasm32")]
+    #[error(transparent)]
+    Database(#[from] diesel::result::Error),
     #[error(transparent)]
     Archive(#[from] xmtp_archive::ArchiveError),
     #[cfg(target_arch = "wasm32")]

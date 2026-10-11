@@ -105,6 +105,12 @@ try {
       true,
       "source permission failure was classified as contention",
     );
+    const setupIo = await prepare("setup-io");
+    assert.equal(
+      setupIo.outputFailure,
+      true,
+      `private-copy setup I/O was classified as input: ${JSON.stringify(setupIo)}`,
+    );
     const completed = await page.evaluate(async () =>
       Array.from(
         await (

@@ -97,11 +97,11 @@ pub(crate) async fn prepare(
         .await
         .map_err(working_error)?;
     let mut conn = SqliteConnection::establish(&working.database_uri())
-        .map_err(|error| MigrationError::InvalidInput(InputError::Database(error)))?;
+        .map_err(|error| MigrationError::Output(OutputError::Connection(error)))?;
     conn.batch_execute(
         "PRAGMA journal_mode=DELETE; PRAGMA cache_size=-2048; PRAGMA temp_store=FILE;",
     )
-    .map_err(|error| MigrationError::InvalidInput(InputError::Read(error)))?;
+    .map_err(|error| MigrationError::Output(OutputError::Database(error)))?;
     // Browser cancellation terminates the worker.
     crate::migrations::apply(&mut conn, || Ok(()))?;
     let mut sink = Output(begin_output(&args.output_path).await.map_err(output)?);

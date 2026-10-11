@@ -68,11 +68,11 @@ try {
         archiveKey: new Uint8Array(32).fill(7),
         outputPath: "invalid-setup.xmtp",
       };
-      let input;
+      let setupFailure;
       try {
         await sdk.prepareMigrationArchive(args);
       } catch (error) {
-        input = error instanceof sdk.XmtpError.InvalidInput;
+        setupFailure = error instanceof sdk.XmtpError.MigrationOutput;
       }
       const after = await fixtureCall({ operation: "export", path });
       let unpublished;
@@ -86,7 +86,7 @@ try {
         databasePath: "/migration-regression.db3",
       });
       return {
-        input,
+        setupFailure,
         unpublished,
         sourceUnchanged:
           after.length === damaged.length &&
@@ -95,15 +95,15 @@ try {
       };
     }, fixture);
     assert.equal(
-      result.input,
+      result.setupFailure,
       true,
-      "SQLite setup failure was classified as a record read",
+      "private-copy setup failure did not retain Output class",
     );
     assert.equal(result.unpublished, true);
     assert.equal(result.sourceUnchanged, true);
     assert.equal(result.retry, 3n);
     console.log(
-      "SQLite setup: typed input failure, source preservation, no output, and retry passed",
+      "SQLite setup: typed output failure, source preservation, no output, and retry passed",
     );
   }
   if (["all", "memory"].includes(selected)) {
