@@ -1,6 +1,7 @@
 package org.xmtp.android.example.messenger
 import org.junit.Assert.*
 import org.junit.Test
+import org.xmtp.android.example.shared.feature.chat.ReactionIdentity
 import uniffi.xmtp_sdk.*
 
 class ReactionProjectionTest {
@@ -27,7 +28,7 @@ class ReactionProjectionTest {
         assertEquals(
             listOf(
                 org.xmtp.android.example.shared
-                    .ReactionUi("👍", 1, false),
+                    .ReactionUi("👍", 1, false, reactors = listOf(ReactionIdentity("other", "other"))),
             ),
             reactionRows(other, "me"),
         )
@@ -35,7 +36,12 @@ class ReactionProjectionTest {
         assertEquals(
             listOf(
                 org.xmtp.android.example.shared
-                    .ReactionUi("👍", 2, true),
+                    .ReactionUi(
+                        "👍",
+                        2,
+                        true,
+                        reactors = listOf(ReactionIdentity("me", "me"), ReactionIdentity("other", "other")),
+                    ),
             ),
             reactionRows(restored, "me"),
         )
@@ -43,7 +49,7 @@ class ReactionProjectionTest {
         assertEquals(
             listOf(
                 org.xmtp.android.example.shared
-                    .ReactionUi("👍", 1, true),
+                    .ReactionUi("👍", 1, true, reactors = listOf(ReactionIdentity("me", "me"))),
             ),
             reactionRows(otherRemoved, "me"),
         )
@@ -52,7 +58,7 @@ class ReactionProjectionTest {
             "Sent time still orders records from different times",
             listOf(
                 org.xmtp.android.example.shared
-                    .ReactionUi("👍", 1, true),
+                    .ReactionUi("👍", 1, true, reactors = listOf(ReactionIdentity("me", "me"))),
             ),
             reactionRows(oldRemoval, "me"),
         )
