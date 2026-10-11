@@ -1,591 +1,164 @@
 package org.xmtp.android.example.shared.feature.chat
+
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.flow.distinctUntilChanged
-import org.xmtp.android.example.shared.*
 import kotlin.math.roundToInt
+import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.designsystem.*
 
-@Composable fun ChatScreen(
-    state: ChatState,
-    action: (ChatAction) -> Unit,
-    shellAction: (ShellAction) -> Unit = {},
-    composerExtra: @Composable () -> Unit = {},
-    messageExtra: @Composable (MessageRow) -> Unit = {},
-) {
+@Composable
+fun ChatScreen(state: ChatState, action: (ChatAction) -> Unit, shellAction: (ShellAction) -> Unit = {}, composerExtra: @Composable () -> Unit = {}, messageExtra: @Composable (MessageRow) -> Unit = {}) {
     val list = key(state.conversationId) { rememberLazyListState() }
-    val text = state.composer.text
-    val pendingSend = state.composer.pendingRequestId
-    val selected = state.overlay?.messageId
-    var selectedBounds by remember(state.conversationId) { mutableStateOf(Rect.Zero) }
-    var composerTop by remember(state.conversationId) { mutableStateOf(Float.POSITIVE_INFINITY) }
-    val composerFocus = remember(state.conversationId) { FocusRequester() }
-    var composerHasFocus by remember(state.conversationId) { mutableStateOf(false) }
-    val expanded = state.overlay?.surface == MessageSurface.POPOVER
-    val transition = remember(state.conversationId) { MutableTransitionState(false) }
-    val currentSelection = state.messages.firstOrNull { it.id == selected && !it.deleted }
-    transition.targetState = expanded && currentSelection != null
-    val keyboard = LocalSoftwareKeyboardController.current
-    var initialRestoreComplete by remember(state.conversationId) { mutableStateOf(false) }
     val latestState by rememberUpdatedState(state)
-    LaunchedEffect(
-        state.conversationId,
-        state.anchor?.messageId,
-        state.messages.any { it.id == state.anchor?.messageId },
-    ) {
-        state.anchor?.takeIf { !initialRestoreComplete }?.let { anchor ->
-            val index =
-                state.messages.indexOfFirst {
-                    it.id ==
-                        anchor.messageId
-                }
-            if (index >= 0) {
-                list
-                    .scrollToItem(
-                        index,
-                        anchor.offsetPx,
-                    )
-                initialRestoreComplete = true
+    val latestAction by rememberUpdatedState(action)
+    val bubbleBounds = remember(state.conversationId) { mutableStateMapOf<String, Rect>() }
+    var composerTop by remember(state.conversationId) { mutableStateOf(Float.POSITIVE_INFINITY) }
+    val selected = state.messages.firstOrNull { it.id == state.overlay?.messageId && !it.deleted }
+    val reducedMotion = LocalReducedMotion.current
+    val duration = if (reducedMotion) 0 else MessengerMotion.ROW
+    val popupTransition = remember(state.conversationId) { MutableTransitionState(false) }
+    var popupMessageId by remember(state.conversationId) { mutableStateOf<String?>(null) }
+    var popupInstanceId by remember(state.conversationId) { mutableStateOf(0L) }
+    val requestedPopover = state.overlay?.takeIf { it.surface == MessageSurface.POPOVER }
+    val requestedPopup = selected?.takeIf { state.overlay?.surface == MessageSurface.POPOVER }
+    LaunchedEffect(requestedPopup?.id, requestedPopover?.instanceId) {
+        if (requestedPopup != null) {
+            popupMessageId = requestedPopup.id
+            popupInstanceId = requestedPopover?.instanceId ?: 0L
+            popupTransition.targetState = true
+        } else {
+            popupTransition.targetState = false
+        }
+    }
+    LaunchedEffect(popupTransition.currentState, popupTransition.isIdle) {
+        if (popupTransition.isIdle && !popupTransition.currentState && !popupTransition.targetState) popupMessageId = null
+    }
+    var reactorOverlay by remember(state.conversationId) { mutableStateOf<MessageOverlayState?>(null) }
+    val requestedReactors = state.overlay?.takeIf { it.surface == MessageSurface.REACTORS }
+    LaunchedEffect(requestedReactors) { if (requestedReactors != null) reactorOverlay = requestedReactors }
+    val reactorRow = state.messages.firstOrNull { it.id == reactorOverlay?.messageId && !it.deleted }
+    val popupRow = state.messages.firstOrNull { it.id == popupMessageId && !it.deleted }
+    LaunchedEffect(state.conversationId, state.anchor?.messageId) {
+        state.anchor?.let { anchor ->
+            val index = state.messages.indexOfFirst { it.id == anchor.messageId }
+            if (index >= 0) list.scrollToItem(index, anchor.offsetPx)
+        }
+    }
+    LaunchedEffect(state.conversationId) {
+        snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }.distinctUntilChanged().collect { (index, offset) ->
+            latestState.messages.getOrNull(index)?.let { row ->
+                latestAction(ChatAction.Viewport(ScrollAnchor(row.id, row.sentAtNs, offset, index == 0 && offset == 0), index == 0 && offset == 0))
             }
         }
     }
-    LaunchedEffect(
-        state.conversationId,
-        state.messages,
-    ) {
-        snapshotFlow {
-            val pendingAnchor = !initialRestoreComplete && latestState.anchor != null
-            if (pendingAnchor) null else list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset
-        }.distinctUntilChanged().collect { position ->
-            position?.let { (index, offset) ->
-                latestState.messages.getOrNull(index)?.let { row ->
-                    initialRestoreComplete = true
-                    action(
-                        ChatAction.Viewport(
-                            ScrollAnchor(row.id, row.sentAtNs, offset, index == 0 && offset == 0),
-                            index == 0 && offset == 0,
-                        ),
-                    )
-                }
-            }
+    Column(Modifier.fillMaxSize()) {
+        when (val outcome = state.composer.result?.outcome) {
+            is TextSendOutcome.AcceptedPendingCommit -> Notice("Message saved. Finishing the send…", "Retry") { action(ChatAction.RetrySend(outcome.messageId)) }
+            is TextSendOutcome.Rejected -> Notice(outcome.failure.message)
+            is TextSendOutcome.Unknown -> Notice("We could not confirm whether this message was sent. Your draft is kept. Check the conversation before you try again.", "Review send") { shellAction(ShellAction.Navigate(AppRoute.Settings)) }
+            else -> Unit
         }
-    }
-    Column(
-        Modifier
-            .fillMaxSize(),
-    ) {
-        state.readerFailure?.message?.let {
-            Notice(
-                it,
-                "Retry reader",
-            ) {
-                shellAction(ShellAction.RetryReader)
-            }
-        }
-        state.historyNotice?.let {
-            Notice(it)
-        }
+        state.readerFailure?.let { Notice(it.message, "Retry reader") { shellAction(ShellAction.RetryReader) } }
+        state.failure?.let { Notice(it.message, "Retry") { action(ChatAction.Refresh) } }
+        state.historyNotice?.let { Notice(it) }
         state.recoveryNotice?.let { Notice(it) }
         if (state.hasOlderRecovery || !state.recoveryAtNewest) {
             Row(Modifier.fillMaxWidth()) {
-                if (state.hasOlderRecovery) {
-                    TextButton(
-                        { action(ChatAction.LoadOlderRecovery) },
-                        Modifier.weight(1f).heightIn(min = 48.dp),
-                    ) {
-                        Text("Older pending messages")
-                    }
-                }
-                if (!state.recoveryAtNewest) {
-                    TextButton({ action(ChatAction.LatestRecovery) }, Modifier.weight(1f).heightIn(min = 48.dp)) {
-                        Text("Newest pending messages")
-                    }
-                }
+                if (state.hasOlderRecovery) TextButton({ action(ChatAction.LoadOlderRecovery) }, Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Older pending messages") }
+                if (!state.recoveryAtNewest) TextButton({ action(ChatAction.LatestRecovery) }, Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Newest pending messages") }
             }
         }
-        if (state.unknown) {
-            Row {
-                TextButton(
-                    {
-                        action(
-                            ChatAction
-                                .Consent(true),
-                        )
-                    },
-                    Modifier
-                        .heightIn(
-                            min =
-                                48.dp,
-                        ),
-                ) {
-                    Text("Allow")
-                }
-                TextButton(
-                    {
-                        action(
-                            ChatAction
-                                .Consent(false),
-                        )
-                    },
-                    Modifier
-                        .heightIn(
-                            min =
-                                48.dp,
-                        ),
-                ) {
-                    Text("Block")
-                }
-            }
-        }
-        LazyColumn(
-            state = list,
-            reverseLayout = true,
-            modifier =
-                Modifier
-                    .weight(1f),
-            contentPadding =
-                PaddingValues(
-                    16.dp,
-                ),
-            verticalArrangement =
-                Arrangement
-                    .spacedBy(
-                        8.dp,
-                    ),
-        ) {
-            items(
-                state.messages,
-                key = {
-                    it.id
-                },
-            ) { row ->
-                var bubbleBounds by remember(row.id) { mutableStateOf(Rect.Zero) }
-                Column(
-                    Modifier
-                        .fillMaxWidth(),
-                    horizontalAlignment =
-                        if (row.mine) {
-                            Alignment.End
-                        } else {
-                            Alignment.Start
-                        },
-                ) {
-                    Text(
-                        "${row.sender} · ${row.day}",
-                        style =
-                            MaterialTheme.typography.labelSmall,
-                    )
-                    Column(
-                        Modifier
-                            .widthIn(
-                                max =
-                                    320.dp,
-                            ).background(
-                                if (row.mine) {
-                                    outgoing
-                                } else {
-                                    Color(0xFFF1F3F7)
-                                },
-                                RoundedCornerShape(
-                                    16.dp,
-                                ),
-                            ).onGloballyPositioned {
-                                bubbleBounds = it.boundsInWindow()
-                                if (row.id == selected) selectedBounds = bubbleBounds
-                            }.clickable(enabled = !row.deleted) {
-                                keyboard?.hide()
-                                selectedBounds = bubbleBounds
-                                action(ChatAction.SelectMessage(row.id))
-                            }.padding(
-                                12.dp,
-                            ),
-                    ) {
-                        row.reply?.let {
-                            Text(
-                                "↳ $it",
-                                color = blue,
-                                style =
-                                    MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                        Text(
-                            row.text,
-                        )
-                        if (row.attachment) {
-                            messageExtra(row)
-                        }
-                        Text(
-                            "${row.time} · ${row.sendState.label}",
-                            style =
-                                MaterialTheme.typography.labelSmall,
-                        )
-                        Row {
-                            row.reactions.forEach { reaction ->
-                                TextButton(
-                                    {
-                                        action(
-                                            ChatAction
-                                                .React(
-                                                    row.id,
-                                                    reaction.emoji,
-                                                    reaction.mine,
-                                                ),
-                                        )
-                                    },
-                                    Modifier
-                                        .heightIn(
-                                            min =
-                                                48.dp,
-                                        ),
-                                ) {
-                                    Text("${reaction.emoji} ${reaction.count}")
-                                }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(state = list, reverseLayout = true, modifier = Modifier.fillMaxSize().testTag("message-timeline"), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                itemsIndexed(state.messages, key = { _, row -> row.id }) { index, row ->
+                    val older = state.messages.getOrNull(index + 1)
+                    val senderStart = older == null || older.sender != row.sender || older.day != row.day || older.mine != row.mine
+                    Column(Modifier.animateItem(fadeInSpec = tween(duration), placementSpec = tween(duration), fadeOutSpec = tween(duration))) {
+                        if (older == null || older.day != row.day) {
+                            Box(Modifier.fillMaxWidth().padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
+                                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .6f)) { Text(row.day, Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
                         }
+                        if (senderStart) Spacer(Modifier.height(10.dp))
+                        MessageBubble(row, state.group && senderStart, selected?.id == row.id, state.composer.reply?.messageId != row.id, action, { bubbleBounds[row.id] = it }, messageExtra)
                     }
                 }
+                if (state.hasOlder) item { TextButton({ action(ChatAction.LoadOlder) }, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !state.busy) { Text(if (state.busy) "Loading history…" else "Older messages") } }
             }
-            if (state.hasOlder) {
-                item {
-                    TextButton(
-                        {
-                            action(
-                                ChatAction.LoadOlder,
-                            )
-                        },
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(
-                                min =
-                                    48.dp,
-                            ),
-                    ) {
-                        Text("Load older")
-                    }
+            if (state.messages.isEmpty() && !state.busy) Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                MessengerAvatar(state.title, size = 64.dp, group = state.group)
+                Spacer(Modifier.height(16.dp))
+                Text("Start the conversation", style = MaterialTheme.typography.titleLarge)
+                Text("Send your first message below.", Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            AnimatedVisibility(!state.atNewest, Modifier.align(Alignment.BottomEnd).padding(16.dp), enter = fadeIn(tween(duration)), exit = fadeOut(tween(duration))) {
+                FilledTonalButton({ action(ChatAction.JumpToLatest) }, Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(24.dp)) {
+                    Icon(AppIcons.Down, "Jump to latest")
+                    state.newMessageCount?.takeIf { it > 0 }?.let { Text("$it new", Modifier.padding(start = 8.dp)) }
                 }
             }
         }
-        TextButton(
-            {
-                action(
-                    ChatAction.JumpToLatest,
-                )
-            },
-            Modifier
-                .fillMaxWidth()
-                .heightIn(
-                    min =
-                        48.dp,
-                ),
-        ) {
-            Text("Jump to latest")
+        Box(Modifier.onGloballyPositioned { composerTop = it.boundsInWindow().top }) { MessageComposer(state, action, composerExtra) }
+    }
+    if (popupRow != null && (popupTransition.currentState || popupTransition.targetState)) {
+        val gap = with(LocalDensity.current) { 8.dp.toPx() }
+        val retainedInstance = popupInstanceId
+        val popupAction: (ChatAction) -> Unit = { value ->
+            val current = latestState.overlay
+            if (current != null && current.messageId == popupRow.id && current.surface == MessageSurface.POPOVER && current.instanceId == retainedInstance) action(value)
         }
-        composerExtra()
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .onGloballyPositioned { composerTop = it.boundsInWindow().top }
-                .padding(
-                    12.dp,
-                ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            if (state.features.attachments) {
-                CircleAction(
-                    "Select file",
-                    AppIcons.Add,
-                ) {
-                    action(
-                        ChatAction.SelectAttachment,
-                    )
-                }
-            }
-            Column(
-                Modifier
-                    .weight(
-                        1f,
-                    ).testTag("message-composer")
-                    .background(Color(0xFFF1F3F7), RoundedCornerShape(28.dp)),
-            ) {
-                state.composer.reply?.let { reply ->
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            reply.firstLine,
-                            Modifier.weight(1f),
-                            color = blue,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        IconButton(
-                            onClick = { action(ChatAction.Reply(null)) },
-                            modifier = Modifier.size(48.dp),
-                        ) {
-                            Icon(AppIcons.Close, "Cancel reply", tint = ink)
-                        }
-                    }
-                }
-                val inputInstanceId = state.composer.inputInstanceId
-                val restoreComposerFocus = composerHasFocus
-                key(inputInstanceId) {
-                    LaunchedEffect(Unit) {
-                        if (restoreComposerFocus) composerFocus.requestFocus()
-                    }
-                    OutlinedTextField(
-                        androidx.compose.ui.text.input.TextFieldValue(
-                            text,
-                            androidx.compose.ui.text.TextRange(
-                                state.composer.selectionStart.coerceIn(0, text.length),
-                                state.composer.selectionEnd.coerceIn(0, text.length),
-                            ),
-                            composition =
-                                state.composer.compositionStart?.let { start ->
-                                    state.composer.compositionEnd?.let { end ->
-                                        androidx.compose.ui.text.TextRange(
-                                            start.coerceIn(0, text.length),
-                                            end.coerceIn(0, text.length),
-                                        )
-                                    }
-                                },
-                        ),
-                        { value ->
-                            action(
-                                ChatAction.ChangeDraft(
-                                    value.text,
-                                    value.selection.start,
-                                    value.selection.end,
-                                    value.composition?.start,
-                                    value.composition?.end,
-                                    inputInstanceId,
-                                ),
-                            )
-                        },
-                        placeholder = {
-                            Text("Message")
-                        },
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .focusRequester(composerFocus)
-                                .onFocusChanged { composerHasFocus = it.isFocused },
-                        maxLines = 5,
-                        shape = RoundedCornerShape(28.dp),
-                        colors =
-                            OutlinedTextFieldDefaults.colors(
-                                unfocusedContainerColor = Color(0xFFF1F3F7),
-                                focusedContainerColor = Color(0xFFF1F3F7),
-                                unfocusedBorderColor = Color.Transparent,
-                            ),
-                    )
-                }
-            }
-            TextButton(
-                {
-                    action(ChatAction.SendText(text, 0, state.composer.revision))
-                },
-                Modifier
-                    .heightIn(
-                        min =
-                            48.dp,
-                    ),
-                enabled =
-                    text
-                        .isNotBlank() &&
-                        !state.busy && state.composer.enabled && pendingSend == null,
-            ) {
-                Text("Send")
+        Popup(MessagePopupPosition(bubbleBounds[popupRow.id] ?: Rect.Zero, composerTop, gap), onDismissRequest = { popupAction(ChatAction.DismissOverlay) }, properties = PopupProperties(focusable = popupTransition.targetState)) {
+            val pickerDuration = if (reducedMotion) 0 else MessengerMotion.PICKER
+            AnimatedVisibility(visibleState = popupTransition, enter = fadeIn(tween(pickerDuration)) + scaleIn(tween(pickerDuration), initialScale = if (reducedMotion) 1f else .98f), exit = fadeOut(tween(pickerDuration))) {
+                MessageActions(popupRow, with(LocalDensity.current) { (composerTop - gap).toDp().coerceAtLeast(48.dp) }, popupTransition.targetState, popupAction)
             }
         }
     }
-    if (currentSelection != null && (transition.currentState || transition.targetState)) {
-        val gap = with(LocalDensity.current) { 8.dp.toPx() }
-        Popup(
-            popupPositionProvider = MessagePopupPosition(selectedBounds, composerTop, gap),
-            onDismissRequest = { action(ChatAction.DismissOverlay) },
-            properties = PopupProperties(focusable = true),
-        ) {
-            AnimatedVisibility(
-                visibleState = transition,
-                enter = fadeIn(tween(140)) + slideInVertically(tween(140)) { -8 },
-                exit = fadeOut(tween(100)) + slideOutVertically(tween(100)) { -4 },
-            ) {
-                val maximumHeight = with(LocalDensity.current) { (composerTop - gap).toDp() }
-                MessagePopover(
-                    currentSelection,
-                    state.features,
-                    expanded,
-                    maximumHeight,
-                    action,
-                ) { action(ChatAction.DismissOverlay) }
-            }
+    val retainedReactors = reactorOverlay
+    if (reactorRow != null && retainedReactors != null) {
+        ReactionDetails(reactorRow, retainedReactors.emoji, retainedReactors.instanceId, requestedReactors != null, {
+            if (reactorOverlay?.instanceId == retainedReactors.instanceId && reactorOverlay?.messageId == retainedReactors.messageId) reactorOverlay = null
+        }) { value ->
+            val current = latestState.overlay
+            if (value is ChatAction.CloseSheet || (current != null && current.messageId == retainedReactors.messageId && current.surface == MessageSurface.REACTORS && current.instanceId == retainedReactors.instanceId)) action(value)
         }
     }
 }
 
-private val quickReactions = listOf("👍", "❤️", "😂", "😮", "😢")
-
-private class MessagePopupPosition(
-    private val bubble: Rect,
-    private val composerTop: Float,
-    private val gap: Float,
-) : PopupPositionProvider {
-    override fun calculatePosition(
-        anchorBounds: IntRect,
-        windowSize: IntSize,
-        layoutDirection: LayoutDirection,
-        popupContentSize: IntSize,
-    ): IntOffset {
-        val x =
-            (bubble.center.x - popupContentSize.width / 2)
-                .roundToInt()
-                .coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
+private class MessagePopupPosition(private val bubble: Rect, private val composerTop: Float, private val gap: Float) : PopupPositionProvider {
+    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+        val x = (bubble.center.x - popupContentSize.width / 2).roundToInt().coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0))
         val bottom = minOf(windowSize.height.toFloat(), composerTop) - gap
         val above = bubble.top - popupContentSize.height - gap
         val below = bubble.bottom + gap
-        val preferred =
-            if (above >=
-                0
-            ) {
-                above
-            } else if (below + popupContentSize.height <= bottom) {
-                below
-            } else {
-                bottom - popupContentSize.height
-            }
-        val y =
-            preferred
-                .roundToInt()
-                .coerceIn(0, (bottom - popupContentSize.height).roundToInt().coerceAtLeast(0))
+        val y = (if (above >= 0) above else if (below + popupContentSize.height <= bottom) below else bottom - popupContentSize.height).roundToInt().coerceIn(0, (bottom - popupContentSize.height).roundToInt().coerceAtLeast(0))
         return IntOffset(x, y)
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun MessagePopover(
-    row: MessageRow,
-    features: FeatureAvailability,
-    expanded: Boolean,
-    maximumHeight: androidx.compose.ui.unit.Dp,
-    action: (ChatAction) -> Unit,
-    dismiss: () -> Unit,
-) {
-    Surface(
-        modifier =
-            Modifier
-                .testTag(
-                    "reaction-popover",
-                ).width(304.dp)
-                .heightIn(max = maximumHeight.coerceAtLeast(48.dp)),
-        color = Color.White,
-        shape = RoundedCornerShape(20.dp),
-        shadowElevation = 8.dp,
-    ) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
-            Row {
-                quickReactions.forEach { emoji ->
-                    TextButton(
-                        onClick = {
-                            action(ChatAction.React(row.id, emoji, false))
-                            dismiss()
-                        },
-                        modifier = Modifier.size(48.dp),
-                        enabled = expanded,
-                        contentPadding = PaddingValues(0.dp),
-                    ) {
-                        Text(emoji, fontSize = with(LocalDensity.current) { (24 / fontScale).sp })
-                    }
-                }
-                IconButton(
-                    onClick = {
-                        action(ChatAction.ShowEmoji(row.id))
-                        dismiss()
-                    },
-                    modifier = Modifier.size(48.dp),
-                    enabled = expanded,
-                ) { Icon(AppIcons.More, "More reactions", tint = ink) }
-            }
-            FlowRow(Modifier.fillMaxWidth()) {
-                TextButton(
-                    onClick = {
-                        action(ChatAction.Reply(row.id))
-                        dismiss()
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    enabled = expanded,
-                ) { Text("Reply") }
-                if (row.mine) {
-                    TextButton(
-                        onClick = {
-                            action(ChatAction.DeleteMessage(row.id))
-                            dismiss()
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                        enabled = expanded,
-                    ) { Text("Delete message") }
-                }
-                if (row.sendState == MessageSendState.NOT_SENT || row.sendState == MessageSendState.QUEUED) {
-                    TextButton(
-                        onClick = {
-                            action(ChatAction.RetrySend(row.id))
-                            dismiss()
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                        enabled = expanded,
-                    ) { Text("Retry publication") }
-                }
-            }
-            if (row.attachment && features.attachments) {
-                TextButton(
-                    onClick = {
-                        action(ChatAction.OpenAttachment(row.id))
-                        dismiss()
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    enabled = expanded,
-                ) { Text("Download / Open") }
-            }
-        }
     }
 }

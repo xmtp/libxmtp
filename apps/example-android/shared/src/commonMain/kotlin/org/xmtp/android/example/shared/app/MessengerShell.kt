@@ -1,18 +1,28 @@
 package org.xmtp.android.example.shared.app
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.designsystem.MessengerTheme
+import org.xmtp.android.example.shared.designsystem.MessengerMotion
 import org.xmtp.android.example.shared.feature.chat.ChatScreen
 import org.xmtp.android.example.shared.feature.connect.ConnectScreen
 import org.xmtp.android.example.shared.feature.conversations.ConversationsScreen
 import org.xmtp.android.example.shared.feature.conversations.CreateConversationScreen
+import org.xmtp.android.example.shared.feature.conversations.RequestsScreen
 import org.xmtp.android.example.shared.feature.group.ConversationDetailsScreen
 import org.xmtp.android.example.shared.feature.settings.SettingsScreen
 
@@ -24,145 +34,104 @@ fun MessengerShell(
     composerExtra: @Composable () -> Unit = {},
     messageExtra: @Composable (MessageRow) -> Unit = {},
 ) {
-    val route = state.shell.route
-    val screen = route.screen()
-    val failure =
-        when (screen) {
-            Screen.START -> state.connect.failure
-            Screen.CONVERSATIONS -> state.conversations.failure
-            Screen.CREATE -> state.create.failure
-            Screen.TIMELINE -> state.chat.failure
-            Screen.CONVERSATION_SETTINGS -> state.group.failure
-            Screen.APP_SETTINGS -> state.settings.failure
-            else -> null
-        }
-    val busy =
-        when (screen) {
-            Screen.START -> state.connect.busy
-            Screen.CONVERSATIONS -> state.conversations.busy
-            Screen.CREATE -> state.create.busy
-            Screen.TIMELINE -> state.chat.busy
-            Screen.CONVERSATION_SETTINGS -> state.group.busy
-            Screen.APP_SETTINGS -> state.settings.busy
-            else -> false
-        }
-    MaterialTheme(
-        colorScheme =
-            lightColorScheme(
-                primary = blue,
-                onPrimary = Color.White,
-                background = Color.White,
-                surface = Color.White,
-                onSurface = ink,
-                onBackground = ink,
-                onSurfaceVariant = Color(0xFF657186),
-            ),
-    ) {
-        Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                if (screen != Screen.START) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (screen != Screen.CONVERSATIONS) {
-                            CircleAction("Back", AppIcons.Back) { actions.shell(ShellAction.Back) }
-                        }
-                        Text(
-                            when (screen) {
-                                Screen.CONVERSATIONS -> "Conversations"
-                                Screen.TIMELINE -> state.chat.title
-                                Screen.CREATE -> "New conversation"
-                                Screen.CONVERSATION_SETTINGS -> "Conversation settings"
-                                Screen.APP_SETTINGS -> "Settings"
-                                Screen.GROUP_FIELDS -> "Group fields"
-                                Screen.MY_FIELDS -> "My fields"
-                                Screen.DRAFTS -> "Draft recovery"
-                                else -> "XMTP"
-                            },
-                            Modifier.weight(1f).padding(12.dp),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        if (screen == Screen.CONVERSATIONS) {
-                            CircleAction(
-                                "New conversation",
-                                AppIcons.Add,
-                            ) { actions.shell(ShellAction.Navigate(AppRoute.CreateConversation)) }
-                            CircleAction(
-                                "Settings",
-                                AppIcons.Settings,
-                            ) { actions.shell(ShellAction.Navigate(AppRoute.Settings)) }
-                        }
-                        if (route is AppRoute.Chat) {
-                            CircleAction("Conversation settings", AppIcons.More) {
-                                actions.shell(ShellAction.Navigate(AppRoute.ConversationDetails(route.conversationId)))
+    MessengerTheme(state.shell.appearance, state.shell.reducedMotion) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
+                val split = maxWidth >= 840.dp && state.shell.route != AppRoute.Connect && state.shell.route != AppRoute.Requests && !state.conversations.unknownTab
+                if (split) {
+                    Row(Modifier.fillMaxSize()) {
+                        Surface(Modifier.width(340.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surface) {
+                            Column {
+                                ShellHeader(AppRoute.Chats, state, actions)
+                                val selected = when (val route = state.shell.route) {
+                                    is AppRoute.Chat -> route.conversationId
+                                    is AppRoute.ConversationDetails -> route.conversationId
+                                    is AppRoute.GroupFields -> route.conversationId
+                                    is AppRoute.OwnFields -> route.conversationId
+                                    else -> null
+                                }
+                                ConversationsScreen(state.conversations.copy(selectedConversationId = selected), actions.conversations, actions.shell)
                             }
                         }
-                    }
-                }
-                failure?.takeIf { screen != Screen.START || state.connect.pendingReset }?.let {
-                    Notice(it.message, "Retry") {
-                        if (state.connect.pendingReset) {
-                            actions.connect(org.xmtp.android.example.shared.feature.connect.ConnectAction.ResumeReset)
-                        } else {
-                            actions.shell(ShellAction.Refresh)
-                        }
-                    }
-                }
-                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                Box(Modifier.weight(1f)) {
-                    when (screen) {
-                        Screen.START -> {
-                            if (state.connect.pendingReset) {
-                                Text(
-                                    "Finish local reset before you connect.",
-                                )
+                        VerticalDivider()
+                        Box(Modifier.weight(1f)) {
+                            if (state.shell.route == AppRoute.Chats) {
+                                Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    MessengerAvatar("XMTP", size = 72.dp)
+                                    Text("Your conversations, together", style = MaterialTheme.typography.headlineMedium)
+                                    Text("Choose a chat or start a new conversation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Button({ actions.shell(ShellAction.Navigate(AppRoute.CreateConversation)) }) { Text("New message") }
+                                }
                             } else {
-                                ConnectScreen(state.connect, actions.connect, actions.shell)
+                                RouteContent(state.shell.route, state, actions, extraScreen, composerExtra, messageExtra)
                             }
                         }
-
-                        Screen.CONVERSATIONS -> {
-                            ConversationsScreen(
-                                state.conversations,
-                                actions.conversations,
-                                actions.shell,
-                            )
-                        }
-
-                        Screen.CREATE -> {
-                            CreateConversationScreen(state.create, actions.create)
-                        }
-
-                        Screen.TIMELINE -> {
-                            ChatScreen(
-                                state.chat,
-                                actions.chat,
-                                actions.shell,
-                                composerExtra,
-                                messageExtra,
-                            )
-                        }
-
-                        Screen.CONVERSATION_SETTINGS -> {
-                            ConversationDetailsScreen(
-                                state.group,
-                                actions.group,
-                                actions.shell,
-                            )
-                        }
-
-                        Screen.APP_SETTINGS -> {
-                            SettingsScreen(state.settings, actions.settings, actions.shell)
-                        }
-
-                        else -> {
-                            extraScreen(screen)
-                        }
+                    }
+                } else {
+                    val duration = if (state.shell.reducedMotion) 0 else MessengerMotion.ROUTE
+                    AnimatedContent(state.shell.route, transitionSpec = { fadeIn(tween(duration)) togetherWith fadeOut(tween(duration)) }, label = "Screen") { route ->
+                        RouteContent(route, state, actions, extraScreen, composerExtra, messageExtra)
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun RouteContent(route: AppRoute, state: MessengerUiState, actions: MessengerCallbacks, extraScreen: @Composable (Screen) -> Unit, composerExtra: @Composable () -> Unit, messageExtra: @Composable (MessageRow) -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        if (route != AppRoute.Connect) ShellHeader(route, state, actions)
+        Box(Modifier.weight(1f)) {
+            when (route) {
+                AppRoute.Connect -> ConnectScreen(state.connect, actions.connect, actions.shell)
+                AppRoute.Chats -> ConversationsScreen(state.conversations.copy(selectedConversationId = null), actions.conversations, actions.shell)
+                AppRoute.Requests -> ConversationsScreen(state.conversations.copy(unknownTab = true), actions.conversations, actions.shell)
+                AppRoute.CreateConversation -> CreateConversationScreen(state.create, actions.create)
+                is AppRoute.Chat -> Column {
+                    if (state.chat.unknown) Box(Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState())) { RequestsScreen(state.request, actions.request, actions.shell) }
+                    ChatScreen(state.chat, actions.chat, actions.shell, composerExtra, messageExtra)
+                }
+                is AppRoute.ConversationDetails -> ConversationDetailsScreen(state.group, actions.group, actions.shell, messageExtra)
+                AppRoute.Settings -> SettingsScreen(state.settings, actions.settings, actions.shell)
+                else -> extraScreen(route.screen())
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShellHeader(route: AppRoute, state: MessengerUiState, actions: MessengerCallbacks) {
+    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (route != AppRoute.Chats) CircleAction("Back", AppIcons.Back) { actions.shell(ShellAction.Back) }
+            if (route is AppRoute.Chat) {
+                Row(Modifier.weight(1f).clickable { actions.shell(ShellAction.Navigate(AppRoute.ConversationDetails(route.conversationId))) }.padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    MessengerAvatar(state.chat.title, size = 42.dp, group = state.chat.group)
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                        Text(state.chat.title, style = MaterialTheme.typography.titleMedium)
+                        Text(if (state.chat.unknown) "Message request" else state.chat.memberCount?.let { "$it members" } ?: "Conversation details", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                CircleAction("Conversation details", AppIcons.More) { actions.shell(ShellAction.Navigate(AppRoute.ConversationDetails(route.conversationId))) }
+            } else {
+                Text(when (route) {
+                    AppRoute.Chats -> "Chats"
+                    AppRoute.Requests -> "Message requests"
+                    AppRoute.CreateConversation -> "New message"
+                    is AppRoute.ConversationDetails -> "Details"
+                    AppRoute.Settings -> "Settings"
+                    is AppRoute.GroupFields, is AppRoute.OwnFields -> "Developer tools"
+                    AppRoute.AttachmentRecovery -> "Attachment recovery"
+                    else -> "XMTP"
+                }, Modifier.weight(1f).padding(horizontal = 12.dp), style = if (route == AppRoute.Chats) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                if (route == AppRoute.Chats) {
+                    CircleAction("New message", AppIcons.Add) { actions.shell(ShellAction.Navigate(AppRoute.CreateConversation)) }
+                    Spacer(Modifier.width(8.dp))
+                    CircleAction("Settings", AppIcons.Settings) { actions.shell(ShellAction.Navigate(AppRoute.Settings)) }
+                }
+            }
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }

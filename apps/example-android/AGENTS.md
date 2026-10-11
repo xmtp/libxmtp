@@ -4,6 +4,7 @@ Run commands from the repository root. These recipes use the Android Nix shell.
 
 ```bash
 dev/nix-shell 'just example-android check'
+dev/nix-shell 'just example-android preview-check'
 dev/nix-shell 'just example-android lint'
 dev/nix-shell 'just example-android format'
 dev/nix-shell 'just example-android test'
@@ -29,6 +30,14 @@ The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
 shared dependency verification inventory. App module locks remain here. The
 app uses API 27 and JVM 17. Common Compose source has no SDK objects.
 Keep the application ID and private profile paths unchanged.
+
+`preview-check` compiles the shared UI and Android Studio previews. It does not
+build native bindings or start services. Use `MessengerPreviews.kt` for fixed
+screen and attachment states at phone, dark, 320 dp, 200% text, RTL, landscape,
+and wide window sizes. The app's `NativeReactionPickerPreviews.kt` renders the
+actual Android emoji picker and search. It needs the regular app build;
+`preview-check` covers only the shared module. These previews start no session
+or services. A preview is not a runtime proof.
 
 `check` compiles Debug, Release, shared targets, and the app test APK with strict
 verification. `test` stages matched bindings and the host JNI library before

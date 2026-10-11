@@ -12,6 +12,9 @@ kotlin {
         }
     }
     sourceSets {
+        androidMain.dependencies {
+            compileOnly 'androidx.compose.ui:ui-tooling-preview:1.8.2'
+        }
         commonMain.dependencies {
             implementation compose.runtime
             implementation compose.foundation
