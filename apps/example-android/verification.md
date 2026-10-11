@@ -93,7 +93,6 @@ The local run archive is `xmtp-android-redesign-20261010`.
 | Configuration and fixture checks | `dev/nix-shell 'just lint-config'`: PASS. Log: `lint-config-architecture-final-2.log`. |
 | Material source controls | All 20 controls below failed at their intended assertions. Each source file was restored and its hash checked. The complete restored Debug suite passed. XML and hashes: `control-runs/`; index: `architecture-controls-summary.json`. |
 
-
 Seventeen controls ran at `7cef1b3bd0`. The labeled reader and route controls,
 and the saved-server probe control, ran at `f8610a0987`. Original generic timeout
 attempts for the reader and route controls receive no credit.
