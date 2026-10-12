@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**36 error types** across **10 crates** with **412 total error codes**.
+**37 error types** across **10 crates** with **413 total error codes**.
 
 ## xmtp_api
 
@@ -268,6 +268,16 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `DeserializationError::Deprecated` | Deprecated field. A deprecated field was used. Not retryable. |
 | `DeserializationError::Ed25519` | Ed25519 key error. Failed to create public key from bytes. Not retryable. |
 | `DeserializationError::Bincode` | Unable to deserialize. Bincode deserialization failed. Not retryable. |
+
+### InvalidHandle <sub>struct</sub>
+
+<small>`crates/xmtp_id/src/associations/handle.rs`</small>
+
+Invalid handle.
+
+The string is not a handle under the handle grammar. Not retryable.
+
+**Error code:** `InvalidHandle`
 
 ### KeyPackageVerificationError <sub>enum</sub>
 
