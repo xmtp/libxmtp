@@ -75,6 +75,21 @@ When a journey replaces a narrow test, retain its unique assertions before
 removing the old test. Check each new assertion with a plausible weaker
 implementation and restore the source after the failure check.
 
+## Run locally
+
+With the backend running, start the app from the repository root:
+
+```sh
+dev/nix-shell 'just example-android start'
+```
+
+This command builds the local SDK and Debug app, boots a visible API 34 emulator
+at 1080 × 2400 and 420 dpi with automatic GPU rendering,
+forwards the backend and object-store ports, and opens XMTP Messenger. Use the
+backend URL shown in the app. Keep the terminal open. Press Enter to stop the
+emulator. This session uses a temporary device; stopping it removes its app data.
+The command uses the current worktree ports and keeps the backend running.
+
 ## Build and check
 
 Run these commands from the repository root:

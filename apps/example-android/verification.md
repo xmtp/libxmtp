@@ -310,6 +310,20 @@ wait timeout; neither receives passing credit. The fixture sets ALLOWED after
 the UNKNOWN lagged-event assertions before its separate early-send phase.
 Actual Release instrumentation remains scoped to the two passes at `61401309df`.
 
+### Local start command
+
+`dev/nix-shell 'just example-android start'` was checked with the existing local
+backend and object store. The command cold-booted a visible API 34 emulator,
+built Debug with strict dependency verification, installed only on its selected
+device, forwarded both service ports, and opened MainActivity successfully.
+Android reported 1080 × 2400 pixels and an effective density of 420 dpi. The
+captured PNG has the same dimensions and the rendered Start screen reported
+Server ready. Pressing Enter stopped the owned emulator and removed its temporary
+Android home. Configuration, Markdown, shell syntax, and ShellCheck checks passed.
+
+This proof covers the launcher. It does not add app feature test coverage or
+replace the source scopes of the app suites recorded above.
+
 ### Stable manual gaps
 
 - Real FCM receipt, background delivery, successful OS posting, and tap need a

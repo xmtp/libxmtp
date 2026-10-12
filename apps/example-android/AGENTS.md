@@ -3,6 +3,7 @@
 Run commands from the repository root. These recipes use the Android Nix shell.
 
 ```bash
+dev/nix-shell 'just example-android start'
 dev/nix-shell 'just example-android check'
 dev/nix-shell 'just example-android preview-check'
 dev/nix-shell 'just example-android lint'
@@ -48,6 +49,13 @@ The Off Firebase graph uses `app/gradle.lockfile`. The configured graph uses
 private file at `app/google-services.json`. Do not commit it.
 
 ## Local services
+
+`start` builds the local SDK, boots a visible API 34 emulator at 1080 × 2400
+and 420 dpi with automatic GPU rendering, installs Debug,
+forwards the worktree backend and object-store ports, and launches the app.
+It uses the existing backend. Press Enter to stop the owned emulator and remove
+its temporary device data. Keep the scoped launcher so failure and interruption
+also clean up only this device.
 
 The Android host is in `app`. Shared Compose screens are in `shared/src/commonMain`.
 `test` runs host and shared unit tests. `test-integration` runs app instrumentation

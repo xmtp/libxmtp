@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${ANDROID_SERIAL:?The emulator launcher must select a device}"
+: "${XMTP_BACKEND_PORT:?Load the worktree backend ports first}"
+: "${XMTP_S3_PORT:?Load the worktree object-store ports first}"
+
+./gradlew -p . :example:assembleDebug --dependency-verification=strict --no-daemon
+adb -s "$ANDROID_SERIAL" shell wm density 420
+adb -s "$ANDROID_SERIAL" install -r app/build/outputs/apk/debug/example-debug.apk
+adb -s "$ANDROID_SERIAL" reverse "tcp:$XMTP_BACKEND_PORT" "tcp:$XMTP_BACKEND_PORT"
+adb -s "$ANDROID_SERIAL" reverse "tcp:$XMTP_S3_PORT" "tcp:$XMTP_S3_PORT"
+adb -s "$ANDROID_SERIAL" shell am start -W -n org.xmtp.android.example/.MainActivity
+
+printf '\nXMTP Messenger is running on %s.\n' "$ANDROID_SERIAL"
+printf 'Use the backend URL shown in the app. Press Enter to stop the emulator.\n'
+read -r _ || true
