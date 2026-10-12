@@ -118,9 +118,12 @@ class AttachmentCardInstrumentedTest {
                         })
                     }
                 }
-                compose.onNodeWithText("Download").assertIsDisplayed()
+                compose.onNodeWithTag("attachment-card-$id", useUnmergedTree = true).assertExists()
+                compose.onNodeWithText("Download").performScrollTo().assertIsDisplayed()
                 compose.onNodeWithText("Open").assertDoesNotExist()
-                compose.onNodeWithContentDescription("blue.png").assertDoesNotExist()
+                compose
+                    .onNodeWithContentDescription("Verified image: blue.png", useUnmergedTree = true)
+                    .assertDoesNotExist()
                 compose.onNodeWithText("Download").performClick()
                 withTimeout(30_000) { ready.await() }
                 assertArrayEquals(bytes, File(owner.client.attachments().localPath(remote)).readBytes())
@@ -129,7 +132,9 @@ class AttachmentCardInstrumentedTest {
                 compose.onNodeWithText("Verified").assertIsDisplayed()
                 compose.onNodeWithText("Open").assertIsDisplayed()
                 compose.onNodeWithText("Save").assertIsDisplayed()
-                compose.onNodeWithContentDescription("blue.png").assertIsDisplayed()
+                compose
+                    .onNodeWithContentDescription("Verified image: blue.png", useUnmergedTree = true)
+                    .assertIsDisplayed()
                 println("FILE_CARD_PROOF stage=verified-actions-and-preview parent-refresh=held message=$id")
                 val privateCapture =
                     File(compose.activity.filesDir, "xmtp-messenger-proof/attachment-card-verified.png")

@@ -1,85 +1,159 @@
 package org.xmtp.android.example.messenger
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.emoji2.text.EmojiCompat
+import androidx.test.espresso.Espresso
+import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.*
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.junit.runner.RunWith
 import org.xmtp.android.example.BuildConfig
+import org.xmtp.android.example.MainActivity
+import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.chat.MessageSurface
+import org.xmtp.android.example.shared.feature.connect.ProbeState
 import uniffi.xmtp_sdk.*
 
 @RunWith(AndroidJUnit4::class)
 class OfflineAndEventsInstrumentedTest {
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
+
     @Test fun sameEndpointOfflineReopenKeepsLocalHistoryAndInbox() =
         runBlocking {
-            val context =
-                InstrumentationRegistry
-                    .getInstrumentation()
-                    .targetContext.applicationContext
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val proxy =
-                AppOfflineBackendProxy(
-                    BuildConfig.XMTP_BACKEND_URL,
+            val proxy = AppOfflineBackendProxy(BuildConfig.XMTP_BACKEND_URL)
+            val graph = graphRule.graph
+            val session = graph.session
+
+            suspend fun until(
+                stage: String,
+                check: suspend () -> Boolean,
+            ) {
+                assertTrue(
+                    stage,
+                    withTimeoutOrNull(30_000) {
+                        while (!check()) delay(30)
+                        true
+                    } == true,
                 )
-            val sessionFixture = TestSessionFixture(context)
-            val session = sessionFixture.session
+            }
             try {
-                session
-                    .connect(
-                        proxy.url,
-                        "",
-                        false,
-                    )
-                val owner =
-                    checkNotNull(
-                        session.active.value,
-                    )
+                compose.onNodeWithText("Server address").performTextReplacement(proxy.url)
+                until("real relay auth capability checked") {
+                    graph.connect.state.value.normalizedBackend == proxy.url &&
+                        graph.connect.state.value.probe == ProbeState.READY
+                }
+                compose
+                    .onNode(hasText("Join a server") and hasClickAction())
+                    .performScrollTo()
+                    .assertIsEnabled()
+                    .performClick()
+                until("real relayed server connected") { session.active.value != null }
+                val owner = checkNotNull(session.active.value)
                 val chat =
-                    owner.client.conversations
-                        .createGroup(emptyList())
-                val id =
-                    chat
-                        .sendText("stored offline history")
-                val inbox =
-                    owner.client
-                        .inboxId()
-                session
-                    .signOut()
-                proxy
-                    .close()
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Offline history"),
+                    )
+                val id = chat.sendText("stored offline history")
+                val unrelated =
+                    owner.client.conversations.createGroup(
+                        emptyList(),
+                        CreateGroupOptions(name = "Unrelated stored chat"),
+                    )
+                val inbox = owner.client.inboxId()
+                graph.destinations.navigate(AppRoute.Chat(chat.id()))
+                until("history visible before outage") {
+                    graph.chat.state.value.messages
+                        .any { it.id == id }
+                }
+                session.signOut()
+                proxy.close()
                 withContext(Dispatchers.IO) { proxy.assertUnavailable() }
-                session
-                    .connect(
-                        proxy.url,
-                        "",
-                        false,
-                    )
-                val reopened =
-                    checkNotNull(
-                        session.active.value,
-                    )
+                session.connect(proxy.url, "", false)
+                val reopened = checkNotNull(session.active.value)
+                assertEquals(inbox, reopened.client.inboxId())
+                assertEquals(proxy.url, reopened.profile.backend)
+                val stored = checkNotNull(reopened.client.conversations.getById(chat.id()))
+                assertEquals(listOf(id), stored.messages(publishedSelection()).map { it.id })
+                until("offline local inbox visible") {
+                    graph.conversations.state.value.rows
+                        .map { it.id }
+                        .toSet()
+                        .containsAll(listOf(chat.id(), unrelated.id()))
+                }
+                compose.onNodeWithText("Search chats").performTextReplacement("Offline history")
+                until("real local search keeps only its matching chat") {
+                    graph.conversations.state.value.rows
+                        .map { it.id } == listOf(chat.id())
+                }
+                val storedRow = hasText("Offline history") and hasClickAction() and !hasSetTextAction()
+                Espresso.closeSoftKeyboard()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(storedRow)
+                compose.onNode(storedRow).assertIsDisplayed()
+                compose.onNodeWithText("Unrelated stored chat").assertDoesNotExist()
+                compose.onNodeWithText("Search chats").performTextReplacement("No matching stored chat")
+                until("real local search has no results") {
+                    graph.conversations.state.value.rows
+                        .isEmpty()
+                }
+                compose.onNodeWithText("No matches").assertIsDisplayed()
+                compose.onNodeWithText("Search chats").performTextReplacement("")
+                until("clearing search restores both local chats") {
+                    graph.conversations.state.value.rows
+                        .map { it.id }
+                        .toSet()
+                        .containsAll(listOf(chat.id(), unrelated.id()))
+                }
+                assertEquals(listOf(id), stored.messages(publishedSelection()).map { it.id })
+                assertNotNull(reopened.client.conversations.getById(unrelated.id()))
+                Espresso.closeSoftKeyboard()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(storedRow)
+                compose.onNode(storedRow).assertIsDisplayed().performClick()
+                until("offline local body visible") {
+                    graph.chat.state.value.messages
+                        .any { it.id == id }
+                }
+                compose.onNodeWithText("stored offline history").assertIsDisplayed().performClick()
+                compose.onNodeWithContentDescription("More reactions").performClick()
+                compose.onNodeWithTag("emoji-sheet").assertExists()
+                until("offline bundled emoji font") { EmojiCompat.get().loadState == EmojiCompat.LOAD_STATE_SUCCEEDED }
+                until("offline native emoji grid") {
+                    runCatching {
+                        Espresso
+                            .onView(withContentDescription(org.hamcrest.CoreMatchers.containsString("😀")))
+                            .check { view, error ->
+                                if (error != null) throw error
+                                assertTrue(view.isShown)
+                            }
+                    }.isSuccess
+                }
+                compose.onNodeWithTag("emoji-search").performTextInput("grinning face")
+                compose.waitUntil(30_000) {
+                    compose.onAllNodes(hasText("😀") and hasClickAction()).fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithContentDescription("Close emoji picker").performClick()
+                until("offline sheet close retains native selection") {
+                    graph.chat.state.value.overlay
+                        ?.surface == MessageSurface.POPOVER
+                }
                 assertEquals(
-                    inbox,
-                    reopened.client
-                        .inboxId(),
+                    id,
+                    graph.chat.state.value.overlay
+                        ?.messageId,
                 )
-                val stored =
-                    checkNotNull(
-                        reopened.client.conversations
-                            .getById(
-                                chat
-                                    .id(),
-                            ),
-                    )
-                assertEquals(
-                    listOf(id),
-                    stored
-                        .messages(publishedSelection())
-                        .map {
-                            it.id
-                        },
-                )
+                assertEquals(listOf(id), stored.messages(publishedSelection()).map { it.id })
+                println("OFFLINE_PROOF stage=same-endpoint-local-inbox-history-native-picker-and-search")
             } finally {
                 withContext(NonCancellable) {
                     if (session.active.value != null) {
@@ -187,6 +261,7 @@ class OfflineAndEventsInstrumentedTest {
                         .common.consentState,
                     currentConsent,
                 )
+                group.updateConsentState(ConsentState.ALLOWED)
                 sessionFixture.projection.onMessage = {
                     _,
                     message,

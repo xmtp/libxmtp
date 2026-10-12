@@ -30,7 +30,7 @@ object ChatFixtures {
             ),
         )
     val empty = ChatState(conversationId = "conversation-alex", title = "Alex Chen", hasOlder = false)
-    val populated = empty.copy(messages = messages)
+    val populated = empty.copy(messages = messages.asReversed())
     val loading = empty.copy(busy = true)
     val failure =
         populated.copy(
@@ -57,13 +57,19 @@ object ChatFixtures {
             recoveryAtNewest = false,
             recoveryNotice = "Some messages are waiting to be sent.",
         )
-    val sending = populated.copy(messages = messages.dropLast(1) + messages.last().copy(status = "Sending"))
-    val queued = populated.copy(messages = messages.dropLast(1) + messages.last().copy(status = "Queued"))
+    val sending = populated.copy(messages = populated.messages.map { if (it.mine) it.copy(status = "Sending") else it })
+    val queued = populated.copy(messages = populated.messages.map { if (it.mine) it.copy(status = "Queued") else it })
     val sent = populated
-    val notSent = populated.copy(messages = messages.dropLast(1) + messages.last().copy(status = "Not sent"))
+    val notSent =
+        populated.copy(
+            messages = populated.messages.map { if (it.mine) it.copy(status = "Not sent") else it },
+        )
     val unknown =
         populated.copy(
-            messages = messages.dropLast(1) + messages.last().copy(status = "Unknown outcome"),
+            messages =
+                populated.messages.map {
+                    if (it.mine) it.copy(status = "Unknown outcome") else it
+                },
             composer =
                 ComposerState(
                     text = "Yes. See you at 6.",
@@ -89,5 +95,34 @@ object ChatFixtures {
                     enabled = false,
                 ),
         )
+    val rejected =
+        populated.copy(
+            composer =
+                ComposerState(
+                    text = "I will bring the notes.",
+                    revision = 1,
+                    result = TextSendResult(2, "conversation-alex", 1, TextSendOutcome.Rejected(sendFailure)),
+                ),
+        )
+    val longContent =
+        populated
+            .copy(
+                title = "Alexandra Chen and the planning team",
+                group = true,
+                messages =
+                    populated.messages.map {
+                        if (it.mine) {
+                            it
+                        } else {
+                            it.copy(
+                                sender = "Alexandra Chen",
+                                text =
+                                    "Please bring the notes for tomorrow’s meeting. " +
+                                        "We can review the full plan together before we start. " +
+                                        "The meeting room is next to the main entrance.",
+                            )
+                        }
+                    },
+            )
     val request = populated.copy(unknown = true)
 }

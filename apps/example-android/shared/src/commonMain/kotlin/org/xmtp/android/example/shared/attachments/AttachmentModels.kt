@@ -26,8 +26,19 @@ data class AttachmentCardState(
     val phase: AttachmentPhase = attachmentPhase(status, unknownOutcome, unavailable),
 )
 
+enum class AttachmentSelection { FILE, PHOTO_VIDEO }
+
 sealed interface AttachmentAction {
     data object Select : AttachmentAction
+
+    data class Choose(
+        val instanceId: Long,
+        val selection: AttachmentSelection,
+    ) : AttachmentAction
+
+    data class DismissChoice(
+        val instanceId: Long,
+    ) : AttachmentAction
 
     data class Send(
         val draftId: String,

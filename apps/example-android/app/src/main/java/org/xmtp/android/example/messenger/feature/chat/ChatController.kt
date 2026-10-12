@@ -507,6 +507,15 @@ internal class ChatController(
         )
 
     fun dispatch(action: ChatAction) {
+        if (ui.value.unknown &&
+            (
+                action is ChatAction.SendText || action is ChatAction.React ||
+                    action is ChatAction.RetrySend || action is ChatAction.DeleteMessage ||
+                    action is ChatAction.ShowEmoji || (action is ChatAction.Reply && action.messageId != null)
+            )
+        ) {
+            return
+        }
         when (action) {
             is ChatAction.ChangeDraft -> {
                 changeDraft(action)
@@ -725,6 +734,13 @@ internal class ChatController(
                             requireOrigin(owner, origin, chat)
                             if (message.conversationId != chat.id()) {
                                 throw FeatureInputFailure("This message belongs to another chat.")
+                            }
+                            if (!sends.outboundAllowed(owner.key, chat) {
+                                    requireOrigin(owner, origin, chat)
+                                    true
+                                }
+                            ) {
+                                throw CancellationException("Consent changed before deletion")
                             }
                             chat.deleteMessage(action.messageId)
                             refresh(owner)

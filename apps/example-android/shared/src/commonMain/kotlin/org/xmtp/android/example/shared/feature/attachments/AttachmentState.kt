@@ -13,6 +13,11 @@ data class AttachmentState(
     val failure: AppFailure? = null,
 )
 
+data class AttachmentChoiceState(
+    val instanceId: Long,
+    val conversationId: String,
+)
+
 enum class AttachmentPhase { AVAILABLE, WAITING, UPLOADING, COMPLETE, DOWNLOADING, VERIFIED, FAILED, UNKNOWN, EXPIRED }
 
 fun attachmentPhase(

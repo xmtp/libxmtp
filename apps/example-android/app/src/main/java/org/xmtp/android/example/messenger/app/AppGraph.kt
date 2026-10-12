@@ -283,6 +283,7 @@ internal class AppGraph(
     }
 
     fun back(): Boolean {
+        if (attachments.dismissChoiceSheet()) return true
         if (chat.dismissTopSurface()) return true
         if (destinations.state.value.route == AppRoute.CreateConversation &&
             createConversation.state.value.step == CreateStep.REVIEW

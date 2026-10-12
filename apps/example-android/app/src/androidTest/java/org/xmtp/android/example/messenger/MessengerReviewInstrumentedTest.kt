@@ -1,8 +1,12 @@
 package org.xmtp.android.example.messenger
 
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.*
@@ -836,7 +840,7 @@ class MessengerReviewInstrumentedTest {
                 }
                 compose.onNodeWithText("Next reply parent", substring = false).assertExists()
                 compose.onNodeWithText("Message").performTextReplacement("Reply to retained native parent")
-                compose.onNodeWithText("Send").performClick()
+                compose.onNodeWithContentDescription("Send message").performClick()
                 until("off-window reply publishes to its native parent") {
                     Conversation.Group(group).messages(publishedSelection()).any {
                         it.standardContent() ==
@@ -1081,7 +1085,11 @@ class MessengerReviewInstrumentedTest {
                 )
                 Files.delete(link.toPath())
                 link = null
-                compose.onNodeWithText("Retry").performClick()
+                compose
+                    .onNode(
+                        (hasText("Continue deletion") or hasText("Continue local data removal")) and hasClickAction(),
+                    ).performScrollTo()
+                    .performClick()
                 println("RESET_PROOF stage=retry-clicked pending=${model.state.value.pendingReset}")
                 until("reset retry complete") { !model.state.value.pendingReset && model.state.value.error == null }
                 assertNull(model.session.preferences.reset())
@@ -1126,7 +1134,11 @@ class MessengerReviewInstrumentedTest {
                 assertEquals("peer data", sentinel.readText())
                 Files.delete(link.toPath())
                 link = null
-                compose.onNodeWithText("Retry").performClick()
+                compose
+                    .onNode(
+                        (hasText("Continue deletion") or hasText("Continue local data removal")) and hasClickAction(),
+                    ).performScrollTo()
+                    .performClick()
                 until(
                     "cold reset retry complete",
                 ) { !model.state.value.pendingReset && model.state.value.error == null }

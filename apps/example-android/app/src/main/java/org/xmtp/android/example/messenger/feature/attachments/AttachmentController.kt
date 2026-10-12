@@ -21,6 +21,7 @@ import org.xmtp.android.example.messenger.attachments.*
 import org.xmtp.android.example.messenger.platform.EffectIdentity
 import org.xmtp.android.example.shared.*
 import org.xmtp.android.example.shared.attachments.*
+import org.xmtp.android.example.shared.feature.attachments.AttachmentChoiceState
 import org.xmtp.android.example.shared.feature.attachments.AttachmentState
 import uniffi.xmtp_sdk.*
 
@@ -42,6 +43,9 @@ internal class AttachmentController(
     val availability = capability.asStateFlow()
     internal val requests = AttachmentRequests()
     internal val verified = MutableStateFlow<Set<String>>(emptySet())
+    private val choiceUi = MutableStateFlow<AttachmentChoiceState?>(null)
+    val choice = choiceUi.asStateFlow()
+    private var choiceOrigin: EffectIdentity? = null
 
     val state =
         combine(drafts, downloads, verified, capability, error) { drafts, messages, ids, capability, failure ->
@@ -85,6 +89,7 @@ internal class AttachmentController(
         if (!started.compareAndSet(false, true)) return
         scope.launch {
             session.active.collectLatest { active ->
+                clearInvalidChoice()
                 services?.files?.clearVerified()
                 drafts.value = emptyList()
                 downloads.value = emptyMap()
@@ -128,6 +133,7 @@ internal class AttachmentController(
             var token = destinations.state.value.token
             destinations.state.collectLatest { destination ->
                 if (token != destination.token) {
+                    clearInvalidChoice()
                     token = destination.token
                     services?.files?.clearVerified()
                     downloads.value = emptyMap()
@@ -162,15 +168,59 @@ internal class AttachmentController(
         token: Long,
     ) = EffectIdentity(requests.nextId(), active.key, token)
 
-    fun selectFile(selection: AttachmentSelection = AttachmentSelection.FILE) {
-        val conversation = chat.currentConversation() ?: return
+    private fun showChoiceSheet() {
+        val conversationId = chat.currentConversation()?.id() ?: return
         perform { work ->
             if (!uploadSupported(work.active)) return@perform
+            session.withCurrent(work.active.key) {
+                destinations.admit(DestinationOrigin(work.active.key, work.token)) {
+                    if (chat.currentConversation()?.id() != conversationId) return@admit
+                    val origin = identity(work.active, work.token)
+                    session.withStateLock {
+                        choiceOrigin = origin
+                        choiceUi.value = AttachmentChoiceState(origin.requestId, conversationId)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun choose(action: AttachmentAction.Choose) {
+        val selected =
+            session.withStateLock {
+                val displayed = choiceUi.value ?: return@withStateLock null
+                val origin = choiceOrigin ?: return@withStateLock null
+                if (displayed.instanceId != action.instanceId) return@withStateLock null
+                choiceUi.value = null
+                choiceOrigin = null
+                displayed to origin
+            } ?: return
+        perform(selected.second) { work ->
+            if (!uploadSupported(work.active)) return@perform
+            if (chat.currentConversation()?.id() != selected.first.conversationId) return@perform
             if (current(work)) {
                 requests.offer(
-                    AttachmentRequest.Select(identity(work.active, work.token), conversation.id(), selection),
+                    AttachmentRequest.Select(selected.second, selected.first.conversationId, action.selection),
                 )
             }
+        }
+    }
+
+    fun dismissChoiceSheet(instanceId: Long? = null): Boolean =
+        session.withStateLock {
+            val displayed = choiceUi.value ?: return@withStateLock false
+            if (instanceId != null && displayed.instanceId != instanceId) return@withStateLock false
+            choiceUi.value = null
+            choiceOrigin = null
+            true
+        }
+
+    private fun clearInvalidChoice() {
+        session.withStateLock {
+            val origin = choiceOrigin
+            if (origin != null && accepts(origin)) return@withStateLock
+            choiceUi.value = null
+            choiceOrigin = null
         }
     }
 
@@ -324,7 +374,15 @@ internal class AttachmentController(
     fun dispatch(action: AttachmentAction) {
         when (action) {
             AttachmentAction.Select -> {
-                selectFile()
+                showChoiceSheet()
+            }
+
+            is AttachmentAction.Choose -> {
+                choose(action)
+            }
+
+            is AttachmentAction.DismissChoice -> {
+                dismissChoiceSheet(action.instanceId)
             }
 
             is AttachmentAction.ViewChat -> {

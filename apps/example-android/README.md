@@ -75,6 +75,21 @@ When a journey replaces a narrow test, retain its unique assertions before
 removing the old test. Check each new assertion with a plausible weaker
 implementation and restore the source after the failure check.
 
+## Run locally
+
+With the backend running, start the app from the repository root:
+
+```sh
+dev/nix-shell 'just example-android start'
+```
+
+This command builds the local SDK and Debug app, boots a visible API 34 emulator
+at 1080 × 2400 and 420 dpi with automatic GPU rendering,
+forwards the backend and object-store ports, and opens XMTP Messenger. Use the
+backend URL shown in the app. Keep the terminal open. Press Enter to stop the
+emulator. This session uses a temporary device; stopping it removes its app data.
+The command uses the current worktree ports and keeps the backend running.
+
 ## Build and check
 
 Run these commands from the repository root:
@@ -94,7 +109,7 @@ process lifecycle checks remain separate gates.
 
 ## Connect
 
-The Start screen shows the backend URL from the worktree build configuration.
+The Join a server screen shows the backend URL from the worktree build configuration.
 You can edit it. Use HTTPS for a remote backend. HTTP is allowed only for the
 local development hosts `localhost`, `127.0.0.1`, `[::1]` and the Android emulator
 host `10.0.2.2` in debug builds. Release builds permit HTTP only for the listed
@@ -121,9 +136,15 @@ local device reset. A failed reset retains its cleanup record for Retry.
 
 ## Chat
 
-Allowed and Unknown tabs use current consent. An Unknown chat has Allow and
-Block actions. New conversations accept lowercase inbox IDs or Ethereum
-addresses. Groups offer All members and Admins only presets.
+Chats shows accepted conversations. Message requests shows conversations with
+Unknown consent. Accept applies consent in one step. Delete request and Block
+require confirmation. Delete request dismisses the local entry and keeps native
+conversation data. Block changes native consent to Denied.
+Accept is required before composer, send, and outbound message or reaction
+actions. Copy, reactor lists, and Close remain available. Retained outbound
+callbacks also require accepted consent.
+New conversations accept lowercase inbox IDs or Ethereum addresses. Groups
+offer All members and Admins only presets.
 
 Messages support text, replies, emoji reactions and remote deletion. “Sent”
 means that the SDK reports Published. It does not mean that a recipient read the
@@ -142,7 +163,7 @@ until a later committed state changes it.
 
 ## Conversation fields
 
-Conversation settings opens Group fields and My fields. Group fields shows the
+Conversation details opens Group fields and My fields. Group fields shows the
 registered application fields. My fields shows your values and member values
 for this conversation. String values use text. Bytes use hex. Map and set
 controls change one entry. A save in My fields sends only changed own values in
@@ -210,7 +231,7 @@ The backend must also have its FCM channel configured.
 
 Open App settings and select Turn notifications on. This action asks for Android
 permission when required. The app shows the current token, permission and SDK
-registration state. Conversation settings can enable or mute the conversation.
+registration state. Conversation details can enable or mute the conversation.
 Sign out persists signed-out state before stopping owned jobs and unregistering.
 A failed unregister cannot reopen the signed-out account.
 

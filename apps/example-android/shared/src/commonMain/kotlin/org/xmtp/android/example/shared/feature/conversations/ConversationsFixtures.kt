@@ -1,6 +1,7 @@
 package org.xmtp.android.example.shared.feature.conversations
 
 import org.xmtp.android.example.shared.AppFailure
+import org.xmtp.android.example.shared.CapabilityUi
 import org.xmtp.android.example.shared.ConversationRow
 import org.xmtp.android.example.shared.FailureRecovery
 
@@ -39,8 +40,9 @@ object ConversationsFixtures {
     val offline = populated.copy(connection = "Offline")
     val reconnecting = populated.copy(connection = "Reconnecting")
     val requests = populated.copy(rows = requestRows, unknownTab = true)
-    val search = populated.copy(query = "Alex")
-    val request = RequestState("conversation-request", "New contact", "sample-new-contact")
+    val search = populated.copy(query = "Alex", rows = rows.filter { it.title.contains("Alex") })
+    val request =
+        RequestState("conversation-request", "New contact", "sample-new-contact", deleteCapability = CapabilityUi(true))
 }
 
 object CreateConversationFixtures {

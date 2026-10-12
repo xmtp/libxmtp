@@ -35,6 +35,14 @@ internal class ConversationsController(
     val state: StateFlow<ConversationsState> = ui
     private val requestUi = MutableStateFlow(RequestState(deleteCapability = CapabilityUi(true)))
     val requestState: StateFlow<RequestState> = requestUi
+
+    private data class RequestCommand(
+        val token: Long,
+        val decision: RequestDecision,
+    )
+
+    private var nextRequestCommand = 0L
+    private val requestCommands = mutableMapOf<Pair<SessionKey, String>, RequestCommand>()
     private val projection = Mutex()
     private val generation = AtomicLong()
     private var visibleStart = 0
@@ -63,6 +71,7 @@ internal class ConversationsController(
         chats::history
 
     fun clear() {
+        session.withStateLock { requestCommands.clear() }
         generation.incrementAndGet()
         knownRows =
             emptyList()
@@ -398,19 +407,19 @@ internal class ConversationsController(
     ) {
         val origin = destinations.capture(owner)
         destinations.admit(origin) {
-            if (routeConversationId() == id &&
-                requestUi.value.conversationId != id
-            ) {
-                requestUi.value =
-                    RequestState(
-                        id,
-                        title,
-                        deleteCapability =
-                            CapabilityUi(
-                                true,
-                                "Remove this request from this device.",
-                            ),
-                    )
+            if (routeConversationId() == id) {
+                val active = requestCommands[owner.key to id]?.decision
+                if (requestUi.value.conversationId != id) {
+                    requestUi.value =
+                        RequestState(
+                            id,
+                            title,
+                            deleteCapability = CapabilityUi(true, "Remove this request from this device."),
+                            activeDecision = active,
+                        )
+                } else {
+                    requestUi.update { it.copy(activeDecision = active) }
+                }
             }
         }
     }
@@ -440,12 +449,35 @@ internal class ConversationsController(
     }
 
     fun dispatch(action: RequestAction) {
-        when (action) {
-            RequestAction.Cancel -> requestUi.update { it.copy(pendingDecision = null) }
-            RequestAction.Accept -> decide(RequestDecision.ACCEPT)
-            RequestAction.DeleteLocal -> requestUi.update { it.copy(pendingDecision = RequestDecision.DELETE_LOCAL) }
-            RequestAction.Block -> requestUi.update { it.copy(pendingDecision = RequestDecision.BLOCK) }
-            RequestAction.Confirm -> requestUi.value.pendingDecision?.let(::decide)
+        session.withStateLock {
+            val current = requestUi.value
+            if (current.activeDecision != null) return@withStateLock
+            if (current.pendingDecision != null && action != RequestAction.Cancel && action != RequestAction.Confirm) {
+                return@withStateLock
+            }
+            when (action) {
+                RequestAction.Cancel -> {
+                    requestUi.update { it.copy(pendingDecision = null) }
+                }
+
+                RequestAction.Accept -> {
+                    decide(RequestDecision.ACCEPT)
+                }
+
+                RequestAction.DeleteLocal -> {
+                    if (current.deleteCapability.available) {
+                        requestUi.update { it.copy(pendingDecision = RequestDecision.DELETE_LOCAL) }
+                    }
+                }
+
+                RequestAction.Block -> {
+                    requestUi.update { it.copy(pendingDecision = RequestDecision.BLOCK) }
+                }
+
+                RequestAction.Confirm -> {
+                    current.pendingDecision?.let(::decide)
+                }
+            }
         }
     }
 
@@ -454,60 +486,87 @@ internal class ConversationsController(
     }
 
     private fun decide(decision: RequestDecision) {
-        val owner = session.active.value ?: return
-        val id = requestUi.value.conversationId.takeIf(String::isNotBlank) ?: return
-        if (routeConversationId() != id) return
-        val origin = destinations.capture(owner)
-        requestUi.update { it.copy(pendingDecision = decision, failure = null) }
-        owner.work.launch {
-            try {
-                beforeConsentDecision(decision)
-                val chat = queries.find(owner, id) ?: throw FeatureInputFailure("This request is no longer available.")
-                if (!destinations.accepts(origin) ||
-                    requestUi.value.conversationId != id ||
-                    routeConversationId() != id
-                ) {
-                    throw CancellationException("Request changed")
+        val admitted =
+            session.withStateLock {
+                val owner = session.active.value ?: return@withStateLock null
+                val current = requestUi.value
+                val id = current.conversationId.takeIf(String::isNotBlank) ?: return@withStateLock null
+                val key = owner.key to id
+                if (requestCommands.containsKey(key) || routeConversationId() != id) return@withStateLock null
+                if (current.pendingDecision != null && current.pendingDecision != decision) return@withStateLock null
+                val origin = destinations.capture(owner)
+                var command: RequestCommand? = null
+                destinations.admit(origin) {
+                    command = RequestCommand(++nextRequestCommand, decision)
+                    requestCommands[key] = checkNotNull(command)
+                    requestUi.update { it.copy(pendingDecision = null, activeDecision = decision, failure = null) }
                 }
-                if (decision == RequestDecision.DELETE_LOCAL) {
-                    preferences.dismiss(owner.key, id)
-                } else {
-                    notifications.withPrivacyMutation(owner) {
-                        if (!destinations.accepts(origin) ||
-                            routeConversationId() != id
-                        ) {
-                            throw CancellationException("Request changed")
+                command?.let { Triple(owner, origin, id to it) }
+            } ?: return
+        val (owner, origin, entry) = admitted
+        val (id, command) = entry
+        val key = owner.key to id
+        val job =
+            owner.work.launch {
+                try {
+                    beforeConsentDecision(decision)
+                    val chat =
+                        queries.find(owner, id) ?: throw FeatureInputFailure("This request is no longer available.")
+                    if (!destinations.accepts(origin) ||
+                        requestUi.value.conversationId != id ||
+                        routeConversationId() != id
+                    ) {
+                        throw CancellationException("Request changed")
+                    }
+                    if (decision == RequestDecision.DELETE_LOCAL) {
+                        preferences.dismiss(owner.key, id)
+                    } else {
+                        notifications.withPrivacyMutation(owner) {
+                            if (!destinations.accepts(origin) ||
+                                routeConversationId() != id
+                            ) {
+                                throw CancellationException("Request changed")
+                            }
+                            writeConsent(
+                                chat,
+                                if (decision == RequestDecision.ACCEPT) ConsentState.ALLOWED else ConsentState.DENIED,
+                            )
                         }
-                        writeConsent(
-                            chat,
-                            if (decision == RequestDecision.ACCEPT) ConsentState.ALLOWED else ConsentState.DENIED,
-                        )
+                    }
+                    if (destinations.accepts(origin)) {
+                        if (decision != RequestDecision.ACCEPT) destinations.navigate(AppRoute.Chats)
+                        refresh(owner)
+                    }
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    session.withStateLock {
+                        if (session.accepts(owner.key) && requestUi.value.conversationId == id &&
+                            requestCommands[key]?.token == command.token
+                        ) {
+                            requestUi.update {
+                                it.copy(
+                                    failure =
+                                        featureFailure(
+                                            error,
+                                            "Cannot change this request. Try again.",
+                                            "request-decision",
+                                        ),
+                                )
+                            }
+                        }
                     }
                 }
-                if (destinations.accepts(origin)) {
-                    requestUi.update { it.copy(pendingDecision = null) }
-                    if (decision != RequestDecision.ACCEPT) destinations.navigate(AppRoute.Chats)
-                    refresh(owner)
-                }
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                if (destinations.accepts(origin)) {
-                    requestUi.update {
-                        it.copy(
-                            pendingDecision =
-                            null,
-                            failure =
-                                featureFailure(
-                                    error,
-                                    "Cannot change this request. Try again.",
-                                    "request-decision",
-                                ),
-                        )
-                    }
-                }
-            } finally {
-                onConsentFinished()
             }
+        job.invokeOnCompletion {
+            session.withStateLock {
+                if (requestCommands[key]?.token == command.token) {
+                    requestCommands.remove(key)
+                    if (session.accepts(owner.key) && requestUi.value.conversationId == id) {
+                        requestUi.update { it.copy(activeDecision = null) }
+                    }
+                }
+            }
+            onConsentFinished()
         }
     }
 

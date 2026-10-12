@@ -5,7 +5,11 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.emoji2.emojipicker.EmojiPickerView
+import androidx.emoji2.text.EmojiCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.test.espresso.Espresso
+import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
@@ -81,82 +85,70 @@ class ScreenScaleInstrumentedTest {
     ): SemanticsNodeInteraction {
         closeKeyboard()
         val minimum = 48f * compose.activity.resources.displayMetrics.density
-        var searchBackwards = false
-        repeat(24) {
-            val node = compose.onAllNodes(matcher).fetchSemanticsNodes().singleOrNull()
-            if (node != null) {
-                val bounds = node.touchBoundsInRoot
-                if (bounds.width >= minimum - 1 && bounds.height >= minimum - 1) {
-                    val control = compose.onNode(matcher)
-                    if (control.isDisplayed() && labelsFit(control, siblingLabel)) return control
+        // Cached lazy items can have stale positions. Scan each direction to its edge.
+        for (backwards in listOf(false, true)) {
+            for (attempt in 0 until 96) {
+                val node = compose.onAllNodes(matcher).fetchSemanticsNodes().singleOrNull()
+                if (node != null) {
+                    val bounds = node.touchBoundsInRoot
+                    if (bounds.width >= minimum - 1 && bounds.height >= minimum - 1) {
+                        val control = compose.onNode(matcher)
+                        if (control.isDisplayed() && labelsFit(control, siblingLabel)) return control
+                    }
                 }
-            }
-            val scrolling =
-                compose
-                    .onAllNodes(
-                        SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy) and
-                            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange),
+                val scrolling =
+                    compose
+                        .onAllNodes(
+                            SemanticsMatcher.keyIsDefined(SemanticsActions.ScrollBy) and
+                                SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange),
+                            useUnmergedTree = true,
+                        ).fetchSemanticsNodes()
+                        .maxByOrNull { it.boundsInRoot.width * it.boundsInRoot.height }
+                assertNotNull("No user scroll path can reveal $matcher on ${model.state.value.screen}", scrolling)
+                val scroll = checkNotNull(scrolling)
+                val interaction =
+                    compose.onNode(
+                        SemanticsMatcher("scroll frame ${scroll.id}") { it.id == scroll.id },
                         useUnmergedTree = true,
-                    ).fetchSemanticsNodes()
-                    .maxByOrNull { it.boundsInRoot.width * it.boundsInRoot.height }
-            assertNotNull("No user scroll path can reveal $matcher on ${model.state.value.screen}", scrolling)
-            val scroll = checkNotNull(scrolling)
-            val interaction =
-                compose.onNode(
-                    SemanticsMatcher("scroll frame ${scroll.id}") { it.id == scroll.id },
-                    useUnmergedTree = true,
-                )
-            val before = scroll.config[SemanticsProperties.VerticalScrollAxisRange].value()
-            val targetTop = node?.takeIf { it.boundsInRoot.width > 0 && it.boundsInRoot.height > 0 }?.positionInRoot?.y
-            val targetBottom = targetTop?.plus(checkNotNull(node).size.height)
-            val backwards = if (targetTop == null) searchBackwards else targetTop < scroll.boundsInRoot.top
-            val gap =
-                when {
-                    backwards && targetTop != null -> {
-                        scroll.boundsInRoot.top - targetTop
-                    }
-
-                    targetBottom != null && targetBottom > scroll.boundsInRoot.bottom -> {
-                        targetBottom -
-                            scroll.boundsInRoot.bottom
-                    }
-
-                    else -> {
-                        scroll.boundsInRoot.height * 0.2f
-                    }
+                    )
+                val before = scroll.config[SemanticsProperties.VerticalScrollAxisRange].value()
+                val distance = (scroll.boundsInRoot.height * 0.2f).coerceAtLeast(32f)
+                interaction.performTouchInput {
+                    val x = width - 4f
+                    val upper = height * 0.4f
+                    val lower = upper + distance
+                    swipe(Offset(x, if (backwards) upper else lower), Offset(x, if (backwards) lower else upper), 750)
                 }
-            val distance = (gap + 16f).coerceIn(32f, scroll.boundsInRoot.height * 0.25f)
-            interaction.performTouchInput {
-                val x = width - 4f
-                val upper = height * 0.4f
-                val lower = upper + distance
-                swipe(Offset(x, if (backwards) upper else lower), Offset(x, if (backwards) lower else upper), 750)
-            }
-            compose.waitForIdle()
-            val after = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
-            val range = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
-            val atEdge = if (backwards) before <= 0f else before >= range.maxValue()
-            if (before == after && atEdge) {
-                searchBackwards = !backwards
-                return@repeat
-            }
-            if (before == after) {
-                println(
-                    "SCALE_UNREACHABLE screen=${model.state.value.screen} matcher=$matcher " +
-                        "node=${node?.boundsInRoot} touch=${node?.touchBoundsInRoot} " +
-                        "sibling=$siblingLabel scroll=${scroll.boundsInRoot}",
-                )
-                if (siblingLabel != null) {
-                    compose.onAllNodes(hasText(siblingLabel), useUnmergedTree = true).fetchSemanticsNodes().forEach {
-                        println("SCALE_SIBLING bounds=${it.boundsInRoot} parent=${it.parent?.id}")
-                    }
+                compose.waitForIdle()
+                val after = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+                val range = interaction.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+                val atEdge = if (backwards) before <= 0f else before >= range.maxValue()
+                if (before == after && atEdge) {
+                    break
                 }
-                saveMessengerScreenshot(
-                    compose.activity,
-                    "scale-unreachable-${model.state.value.screen.name.lowercase()}",
-                )
+                if (before == after) {
+                    println(
+                        "SCALE_UNREACHABLE screen=${model.state.value.screen} matcher=$matcher " +
+                            "node=${node?.boundsInRoot} touch=${node?.touchBoundsInRoot} " +
+                            "sibling=$siblingLabel scroll=${scroll.boundsInRoot}",
+                    )
+                    if (siblingLabel != null) {
+                        compose
+                            .onAllNodes(
+                                hasText(siblingLabel),
+                                useUnmergedTree = true,
+                            ).fetchSemanticsNodes()
+                            .forEach {
+                                println("SCALE_SIBLING bounds=${it.boundsInRoot} parent=${it.parent?.id}")
+                            }
+                    }
+                    saveMessengerScreenshot(
+                        compose.activity,
+                        "scale-unreachable-${model.state.value.screen.name.lowercase()}",
+                    )
+                }
+                assertNotEquals("Touch scrolling did not move ${model.state.value.screen}", before, after)
             }
-            assertNotEquals("Touch scrolling did not move ${model.state.value.screen}", before, after)
         }
         val finalNode = compose.onAllNodes(matcher).fetchSemanticsNodes().singleOrNull()
         println(
@@ -332,6 +324,8 @@ class ScreenScaleInstrumentedTest {
 
     private fun capture(screen: Screen) {
         compose.waitForIdle()
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        InstrumentationRegistry.getInstrumentation().uiAutomation.waitForIdle(700, 10_000)
         assertEquals(screen, model.state.value.screen)
         saveMessengerScreenshot(compose.activity, "scale-${screen.name.lowercase()}")
         captured += screen
@@ -368,7 +362,12 @@ class ScreenScaleInstrumentedTest {
         runBlocking<Unit> {
             assertEquals(320, compose.activity.resources.configuration.screenWidthDp)
             assertEquals(2f, compose.activity.resources.configuration.fontScale, 0.01f)
-            val backend = checkNotNull(InstrumentationRegistry.getArguments().getString("metadataBackendUrl"))
+            val arguments = InstrumentationRegistry.getArguments()
+            val backend =
+                ownedMetadataBackend(
+                    arguments.getString("metadataBackendUrl"),
+                    arguments.getString("metadataBackendOwned"),
+                )
             val lifecycle = AndroidStreamLifecycle.enabled
             AndroidStreamLifecycle.enabled = false
             var peer: SDKClient? = null
@@ -377,10 +376,10 @@ class ScreenScaleInstrumentedTest {
                 resumeStreams()
                 model.session.signOut()
                 until("Start did not appear after sign out") { model.state.value.screen == Screen.START }
-                input("Backend URL", backend)
-                control(click("Connect"))
+                input("Server address", backend)
+                control(click("Join a server"))
                 capture(Screen.START)
-                control(click("Connect")).performClick()
+                control(click("Join a server")).performClick()
                 until("The actual profile did not connect") {
                     model.session.active.value != null &&
                         model.state.value.screen == Screen.CONVERSATIONS
@@ -398,20 +397,26 @@ class ScreenScaleInstrumentedTest {
                     )
                 val other = checkNotNull(peer)
                 reader = launch(Dispatchers.IO) { other.conversations.streamAllMessages().collect {} }
-                control(click("Allowed"))
-                control(click("Unknown"))
+                control(hasText("Search chats") and hasSetTextAction())
+                control(hasText("Message requests", substring = true) and hasClickAction())
                 control(hasContentDescription("Settings"))
                 capture(Screen.CONVERSATIONS)
-                control(hasContentDescription("New conversation")).performClick()
+                control(hasContentDescription("New message")).performClick()
                 until("Create did not open") { model.state.value.screen == Screen.CREATE }
                 control(click("Direct message"))
                 control(click("Group")).performClick()
-                input("Inbox IDs or Ethereum addresses, separated by commas", other.inboxId())
-                input("Name", "Scale proof group")
-                input("Description", "A real group for all screen bounds")
-                control(isToggleable(), siblingLabel = "Admins only")
+                input("Inbox ID or Ethereum address", other.inboxId())
+                control(click("Check and add")).performClick()
+                until("The pasted native member did not resolve") {
+                    model.createConversation.state.value.selectedRecipients.size == 1
+                }
+                control(click("Continue")).performClick()
+                input("Group name", "Scale proof group")
+                input("Description (optional)", "A real group for all screen bounds")
+                control(click("All members"))
+                control(click("Admins only"))
                 capture(Screen.CREATE)
-                control(click("Create")).performClick()
+                control(click("Create group")).performClick()
                 until("Create did not open the real timeline") {
                     model.state.value.screen == Screen.TIMELINE &&
                         model.state.value.conversationId != null
@@ -421,16 +426,50 @@ class ScreenScaleInstrumentedTest {
                 val group = (chat as Conversation.Group).group
                 assertEquals("Scale proof group", group.state().name)
                 input("Message", "Real scaled composer text")
-                control(click("Send")).performClick()
+                control(hasContentDescription("Send message")).performClick()
                 until("The scaled composer did not publish its real text") {
                     chat.messages(publishedSelection()).any {
                         (it.standardContent() as? MessageContent.Text)?.v1 == "Real scaled composer text"
                     }
                 }
-                control(hasContentDescription("Conversation settings"))
+                control(hasText("Real scaled composer text") and hasClickAction()).performClick()
+                for (emoji in listOf("👍", "❤️", "😂", "😮", "😢")) control(click(emoji))
+                val popup = compose.onNodeWithTag("reaction-popover").fetchSemanticsNode().boundsInWindow
+                val composerBounds = compose.onNodeWithTag("message-composer").fetchSemanticsNode().boundsInWindow
+                assertTrue("Popup ends above the composer", popup.bottom <= composerBounds.top)
+                assertTrue("Popup fits the narrow display", popup.left >= 0 && popup.right <= 320)
+                control(hasContentDescription("More reactions")).performClick()
+                compose.onNodeWithTag("emoji-sheet").assertExists()
+                until("The bundled native font is ready") {
+                    EmojiCompat.get().loadState == EmojiCompat.LOAD_STATE_SUCCEEDED
+                }
+                Espresso.onView(isAssignableFrom(EmojiPickerView::class.java)).check { view, error ->
+                    if (error != null) throw error
+                    val picker = view as EmojiPickerView
+                    assertEquals(2f, picker.resources.configuration.fontScale, 0.01f)
+                    val width = (picker.width - picker.paddingLeft - picker.paddingRight) / picker.emojiGridColumns
+                    assertTrue(
+                        "Native picker targets remain 48 dp",
+                        width / picker.resources.displayMetrics.density >= 48,
+                    )
+                }
+                control(hasTestTag("emoji-search") and hasSetTextAction())
+                control(hasContentDescription("Close emoji picker")).performClick()
+                compose.waitForIdle()
+                Espresso.pressBack()
+                compose.waitForIdle()
+                control(hasContentDescription("Conversation details"))
                 capture(Screen.TIMELINE)
-                control(hasContentDescription("Conversation settings")).performClick()
+                control(hasContentDescription("Conversation details")).performClick()
                 until("Conversation settings did not open") { model.state.value.screen == Screen.CONVERSATION_SETTINGS }
+                val memberTag = "settings-member-${other.inboxId()}"
+                control(click("Make admin") and hasAnyAncestor(hasTestTag(memberTag)))
+                control(click("Remove") and hasAnyAncestor(hasTestTag(memberTag)))
+                control(click("Add member")).performClick()
+                input("Inbox ID", other.inboxId())
+                control(click("Add member"))
+                control(click("Done")).performClick()
+                control(click("Edit name and description")).performClick()
                 input("Name", "Scaled settings name")
                 input("Description", "The settings controls remain editable")
                 groupAction(
@@ -438,16 +477,14 @@ class ScreenScaleInstrumentedTest {
                     "Save",
                 )
                 assertEquals("Scaled settings name", group.state().name)
+                control(click("Change permissions")).performClick()
                 control(click("All members"))
                 control(click("Admins only"))
-                input("Disappearing messages: seconds (0 is Off)", "0")
+                control(click("Done")).performClick()
+                control(click("Change duration")).performClick()
+                input("Duration in seconds", "0")
                 control(click("Save duration"))
-                val memberTag = "settings-member-${other.inboxId()}"
-                control(click("Make admin") and hasAnyAncestor(hasTestTag(memberTag)))
-                control(click("Remove") and hasAnyAncestor(hasTestTag(memberTag)))
-                input("Inbox ID", other.inboxId())
-                control(click("Add member"))
-                control(click("Block"))
+                control(click("Block conversation"))
                 capture(Screen.CONVERSATION_SETTINGS)
                 control(click("Group fields")).performClick()
                 until("The real catalogue fields did not load") {
@@ -552,16 +589,16 @@ class ScreenScaleInstrumentedTest {
                 control(click("Draft recovery"))
                 control(click("Sign out"))
                 capture(Screen.APP_SETTINGS)
-                control(click("Delete my account")).performClick()
+                control(click("Delete local data")).performClick()
                 control(click("Cancel")).performClick()
-                compose.onNodeWithText("Delete local account?").assertDoesNotExist()
+                compose.onNodeWithText("Delete local data?").assertDoesNotExist()
                 control(click("Draft recovery")).performClick()
                 until("Draft recovery did not open") { model.state.value.screen == Screen.DRAFTS }
                 for (draft in draftIds) {
                     val card = "attachment-card-$draft"
                     control(click("Discard") and hasAnyAncestor(hasTestTag(card)))
                     if (draft == acceptedDraft) {
-                        control(click("Retry publication") and hasAnyAncestor(hasTestTag(card)))
+                        control(click("Retry sending") and hasAnyAncestor(hasTestTag(card)))
                         control(click("View chat") and hasAnyAncestor(hasTestTag(card)))
                     } else {
                         recoveryChat(draft)
