@@ -207,6 +207,12 @@ pub(crate) fn export(
             report.group_count += 1;
         }
     }
+    // SQLite compares storage types before Diesel converts row values.
+    let malformed_deletions = diesel::sql_query("SELECT EXISTS(SELECT 1 FROM message_deletions WHERE typeof(group_id) != 'blob' OR typeof(deleted_message_id) != 'blob' OR typeof(deleted_by_inbox_id) != 'text' OR typeof(is_super_admin_deletion) != 'integer' OR is_super_admin_deletion NOT IN (0,1)) AS count")
+        .get_result::<Count>(conn)?;
+    if malformed_deletions.count != 0 {
+        return Err(invalid("invalid required deletion identity or Boolean"));
+    }
     // Keep NULL expiry as unknown. Current group settings do not establish a
     // historical message expiry (MIG-006; ARCH-009 gap waiver).
     let unknown_kind = diesel::sql_query("SELECT count(*) AS count FROM group_messages m LEFT JOIN groups g ON m.group_id = g.id WHERE m.expire_at_ns IS NULL AND (m.kind IS NULL OR m.kind NOT IN (1,2)) AND (g.id IS NULL OR (g.conversation_type IN (1,2) AND g.membership_state IN (1,2,3,5)))")
@@ -218,6 +224,13 @@ pub(crate) fn export(
             .get_result::<Count>(conn)?;
     if orphan.count != 0 {
         return Err(invalid("message has no required group"));
+    }
+    let malformed_message_identity = diesel::sql_query(format!(
+        "SELECT EXISTS(SELECT 1 {ELIGIBLE_MESSAGES} AND (typeof(m.id) != 'blob' OR typeof(m.sender_inbox_id) != 'text')) AS count"
+    ))
+    .get_result::<Count>(conn)?;
+    if malformed_message_identity.count != 0 {
+        return Err(invalid("invalid required message identity type"));
     }
     // Count every retained variable field before Diesel or Prost loads it.
     // CAST counts TEXT bytes, including embedded NULs, rather than characters.

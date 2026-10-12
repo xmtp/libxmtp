@@ -199,9 +199,7 @@ try {
         const path = "/source" + suffix + ".db3";
         await fixtureCall({ operation: "import", path, bytes });
         if (suffix === "-journal") {
-          const lifetimeLock = "migration-fixture:" + crypto.randomUUID();
-          await fixtureCall({ operation: "hot-journal", path, lifetimeLock });
-          await navigator.locks.request(lifetimeLock, () => {});
+          await fixtureCall({ operation: "hot-journal", path });
         } else {
           // Any sidecar requires recovery, including malformed WAL or SHM data.
           await fixtureCall({

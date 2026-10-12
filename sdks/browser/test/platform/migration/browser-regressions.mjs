@@ -34,24 +34,12 @@ try {
   );
   await page.evaluate(
     async ({ source, fixture }) => {
-      const worker = new Worker(
-        new URL("./fixture-worker.mjs", location.href),
-        { type: "module" },
-      );
-      try {
-        await new Promise((resolve, reject) => {
-          worker.onmessage = ({ data }) =>
-            data.ok ? resolve() : reject(new Error(data.error));
-          worker.onerror = (error) => reject(new Error(error.message));
-          worker.postMessage({
-            operation: "import",
-            path: source,
-            bytes: new Uint8Array(fixture),
-          });
-        });
-      } finally {
-        worker.terminate();
-      }
+      const { fixtureCall } = await import("./support.mjs");
+      await fixtureCall({
+        operation: "import",
+        path: source,
+        bytes: new Uint8Array(fixture),
+      });
     },
     { source, fixture },
   );
@@ -413,18 +401,8 @@ connection.close()
     );
   }
   const after = await page.evaluate(async (source) => {
-    const worker = new Worker(new URL("./fixture-worker.mjs", location.href), {
-      type: "module",
-    });
-    try {
-      return await new Promise((resolve, reject) => {
-        worker.onmessage = ({ data }) =>
-          data.ok ? resolve([...data.value]) : reject(new Error(data.error));
-        worker.postMessage({ operation: "export", path: source });
-      });
-    } finally {
-      worker.terminate();
-    }
+    const { fixtureCall } = await import("./support.mjs");
+    return [...(await fixtureCall({ operation: "export", path: source }))];
   }, source);
   assert.deepEqual(
     after,

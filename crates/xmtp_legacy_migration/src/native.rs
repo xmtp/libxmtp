@@ -40,7 +40,7 @@ pub(crate) async fn prepare(
     {
         return Err(MigrationError::invalid("keys must contain 32 bytes"));
     }
-    offload(move |cancel| run(args, cancel)).await
+    offload(move |cancel| run(args, cancel, working_copy)).await
 }
 
 /// The guard cancels the worker when its caller drops the returned future.
@@ -61,7 +61,7 @@ fn working_copy(
     source: &Path,
     destination: &Path,
     cancel: &CancellationToken,
-) -> Result<tempfile::TempDir, MigrationError> {
+) -> Result<(tempfile::TempDir, PathBuf), MigrationError> {
     live(cancel).map_err(output)?;
     let supplied_source = source;
     let source = source.canonicalize().map_err(input)?;
@@ -72,15 +72,15 @@ fn working_copy(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
+    // Keep the checked parent for output creation and publication.
+    let destination = parent.canonicalize().map_err(input)?.join(
+        destination
+            .file_name()
+            .ok_or_else(|| MigrationError::invalid("output has no file name"))?,
+    );
     let target = match destination.canonicalize() {
         Ok(path) => path,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            parent.canonicalize().map_err(input)?.join(
-                destination
-                    .file_name()
-                    .ok_or_else(|| MigrationError::invalid("output has no file name"))?,
-            )
-        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => destination.clone(),
         Err(e) => return Err(input(e)),
     };
     let mut files = Vec::new();
@@ -117,7 +117,7 @@ fn working_copy(
                 }
                 Err(error) => return Err(input(error)),
             };
-            if target == path.canonicalize().map_err(input)? || same_file(&file, destination)? {
+            if target == path.canonicalize().map_err(input)? || same_file(&file, &destination)? {
                 return Err(MigrationError::invalid("output aliases source storage"));
             }
             if let Some(previous) = &selected {
@@ -160,7 +160,7 @@ fn working_copy(
             copy_source(&mut file, &mut target, cancel)?;
         }
     }
-    Ok(directory)
+    Ok((directory, destination))
 }
 
 fn open_regular_source(path: &Path, follow_symlinks: bool) -> io::Result<fs::File> {
@@ -301,16 +301,21 @@ fn open_copy(path: &Path, key: Option<&[u8]>) -> Result<SqliteConnection, Migrat
 fn run(
     args: PrepareMigrationArchiveArgs,
     cancel: &CancellationToken,
+    copy: impl FnOnce(
+        &Path,
+        &Path,
+        &CancellationToken,
+    ) -> Result<(tempfile::TempDir, PathBuf), MigrationError>,
 ) -> Result<MigrationReport, MigrationError> {
     let output_path = Path::new(&args.output_path);
-    let directory = working_copy(Path::new(&args.database_path), output_path, cancel)?;
+    let (directory, output_path) = copy(Path::new(&args.database_path), output_path, cancel)?;
     live(cancel).map_err(output)?;
     let mut conn = open_copy(
         &directory.path().join("source.db3"),
         args.database_key.as_deref(),
     )?;
     crate::migrations::apply(&mut conn, || live(cancel).map_err(output))?;
-    write_output(output_path, cancel, |sink| {
+    write_output(&output_path, cancel, |sink| {
         let mut writer = xmtp_archive::exporter::ElementWriter::new(&args.archive_key, sink)?;
         let report = crate::records::export(&mut conn, args.output_path.clone(), |element| {
             live(cancel).map_err(output)?;

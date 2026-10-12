@@ -60,10 +60,21 @@ fn migration_error(error: xmtp_legacy_migration::MigrationError) -> XmtpError {
             "MigrationFailed",
             "legacy database migration failed",
         )),
-        MigrationError::RecordRead(_) => XmtpError::MigrationRecordRead(details(
-            "MigrationRecordRead",
-            "a required legacy record could not be read",
-        )),
+        MigrationError::RecordRead(error) => {
+            let reason = match error {
+                xmtp_legacy_migration::RecordError::Invalid(reason) => reason,
+                _ => "a required legacy record could not be read safely",
+            };
+            tracing::warn!(
+                code = "MigrationRecordRead",
+                reason,
+                "Migration stopped; no new archive was published"
+            );
+            let message = format!(
+                "Migration stopped: {reason}. No new archive was published. Source data and any previous archive are unchanged."
+            );
+            XmtpError::MigrationRecordRead(details("MigrationRecordRead", &message))
+        }
         MigrationError::Output(_) => XmtpError::MigrationOutput(details(
             "MigrationOutput",
             "the migration archive could not be completed",
@@ -105,3 +116,6 @@ pub async fn read_migration_archive(archive_path: String) -> Result<Vec<u8>, Xmt
         .await
         .map_err(migration_error)
 }
+
+#[cfg(test)]
+mod tests;

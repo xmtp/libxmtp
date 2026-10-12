@@ -66,7 +66,7 @@ Use the exact legacy database name, including its leading slash if present. `out
 
 ```
 
-Open the destination client after conversion completes. `readMigrationArchive` returns the completed file as bytes for the existing importer. Browser archive read and import run in memory. The reader checks the completed archive size before allocating its bytes. It accepts up to 100 MB (100,000,000 bytes), inclusive. A larger archive returns `MigrationOutput` and leaves the published file unchanged. This limit is separate from the 64 MiB per-row budget. Native file import has no Browser read limit.
+Open the destination client after conversion completes. The example closes that client after import succeeds or fails. `readMigrationArchive` returns the completed file as bytes for the existing importer. Browser archive read and import run in memory. The reader checks the completed archive size before allocating its bytes. It accepts up to 100 MB (100,000,000 bytes), inclusive. A larger archive returns `MigrationOutput` and leaves the published file unchanged. This limit is separate from the 64 MiB per-row budget. Native file import has no Browser read limit.
 
 ```ts source="legacy-migration-browser.ts" region="migrate"
 
@@ -113,7 +113,7 @@ Pass `archive.archivePath` and the archive key to the current Kotlin SDK archive
 
 ## Optional metadata and failures
 
-The converter uses the pinned legacy MLS decoder for conversation metadata. If an optional field cannot be decoded, the field is absent. Other decoded fields remain. The converter does not invent creator IDs, attributes, or admin lists. Required record failures still stop conversion.
+The converter uses the pinned legacy MLS decoder for conversation metadata. If an optional field cannot be decoded, the field is absent. Other decoded fields remain. The converter does not invent creator IDs, attributes, or admin lists. A malformed or unreadable required record fails the whole export. No new archive is published. The source and any previous completed output stay unchanged.
 
 `XmtpError` reports `InvalidInput`, `StorageBusy`, `MigrationUnsupportedSchema`, `MigrationFailed`, `MigrationRecordRead`, or `MigrationOutput`. Only `StorageBusy` is retryable without an input change. Use the typed variant to handle a failure. Do not match error message text.
 

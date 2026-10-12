@@ -24,6 +24,7 @@ if [ "${1:-all}" = all ] || [ "${1:-all}" = migration ]; then
   node "$platform/migration/browser-regressions.mjs"
   node "$platform/migration/archive-read-limit.mjs"
   node "$platform/migration/working-copy.mjs"
+  node "$platform/migration/lifecycle.mjs"
   node "$platform/migration/message-sizes.mjs"
   node "$platform/migration/group-consent-sizes.mjs"
 fi

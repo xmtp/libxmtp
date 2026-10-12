@@ -20,7 +20,11 @@ export async function migrateLegacyBrowserHistory(
   });
   const data = await readMigrationArchive(archive.archivePath);
   const client = await openDestination();
-  await client.archives.importFromBytes(data, archiveKey);
+  try {
+    await client.archives.importFromBytes(data, archiveKey);
+  } finally {
+    await client.end();
+  }
   // #endregion migrate
   return archive;
 }

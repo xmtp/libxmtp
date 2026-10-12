@@ -91,13 +91,13 @@ impl OpfsWorkingCopy {
         let pool = sqlite_wasm_vfs::sahpool::install::<ffi::WasmOsCallback>(&config, false)
             .await
             .map_err(output)?;
-        pool.unpause_vfs().await.map_err(output)?;
-        pool.clear_all().await.map_err(output)?;
         let working = Self {
             pool,
             finished: false,
             _admission: admission,
         };
+        working.pool.unpause_vfs().await.map_err(output)?;
+        working.pool.clear_all().await.map_err(output)?;
         {
             let mut target = RawFile::open(
                 WORK_VFS,
@@ -137,10 +137,14 @@ impl OpfsWorkingCopy {
         Ok(())
     }
     fn cleanup(&self) -> Result<(), OpfsWorkingCopyError> {
-        for file in self.pool.list() {
-            self.pool.delete_db(&file).map_err(output)?;
-        }
-        self.pool.pause_vfs().map_err(output)
+        let removed = self
+            .pool
+            .list()
+            .into_iter()
+            .try_for_each(|file| self.pool.delete_db(&file).map(|_| ()).map_err(output));
+        // Release access handles even when deleting private data fails.
+        let paused = self.pool.pause_vfs().map_err(output);
+        removed.and(paused)
     }
 }
 impl Drop for OpfsWorkingCopy {

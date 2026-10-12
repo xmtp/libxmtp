@@ -632,7 +632,7 @@ fn salt_sidecar_size_is_checked_before_copying() {
             &CancellationToken::new(),
         );
         if size == 32 {
-            let copy = result?;
+            let (copy, _) = result?;
             assert_eq!(
                 fs::read(sidecar(&copy.path().join("source.db3"), ".sqlcipher_salt"))?,
                 before[".sqlcipher_salt"]
@@ -993,3 +993,8 @@ mod group_consent_sizes;
 mod message_sizes;
 
 mod cancellation;
+
+mod deletions;
+
+#[cfg(unix)]
+mod output_path;

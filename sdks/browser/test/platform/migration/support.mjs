@@ -3,6 +3,8 @@ export function check(value, message) {
 }
 
 export async function fixtureCall(data) {
+  const lifetimeLock =
+    data.lifetimeLock ?? "migration-fixture:" + crypto.randomUUID();
   const worker = new Worker(new URL("./fixture-worker.mjs", location.href), {
     type: "module",
   });
@@ -11,11 +13,11 @@ export async function fixtureCall(data) {
       worker.onmessage = ({ data }) =>
         data.ok ? resolve(data.value) : reject(new Error(data.error));
       worker.onerror = (error) => reject(new Error(error.message));
-      worker.postMessage(data);
+      worker.postMessage({ ...data, lifetimeLock });
     });
   } finally {
     worker.terminate();
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await navigator.locks.request(lifetimeLock, () => {});
   }
 }
 
@@ -59,6 +61,10 @@ export async function assertFailedPreparation(sdk, args, name) {
         ": oversized row did not return MigrationRecordRead (" +
         (failure ? String(failure) : "preparation succeeded") +
         ")",
+    );
+    check(
+      String(failure).includes("No new archive was published"),
+      name + ": record failure did not state that no new archive was published",
     );
     // Check private files before an archive read can remove them.
     const root = await navigator.storage.getDirectory();

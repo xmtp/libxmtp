@@ -18,7 +18,7 @@ async fn dropped_call_stops_remaining_migrations_and_removes_copy() {
         let worker_args = args.clone();
         let mut future = Box::pin(offload(move |cancel| {
             let output_path = Path::new(&worker_args.output_path);
-            let temporary =
+            let (temporary, output_path) =
                 working_copy(Path::new(&worker_args.database_path), output_path, cancel)?;
             let copy_path = temporary.path().to_owned();
             let mut conn = open_copy(&copy_path.join("source.db3"), None)?;
@@ -38,7 +38,7 @@ async fn dropped_call_stops_remaining_migrations_and_removes_copy() {
             let migrated = crate::migrations::apply(&mut conn, || live(cancel).map_err(output));
             let completed = crate::migrations::validate(&mut conn)?;
             let result = migrated.and_then(|()| {
-                write_output(output_path, cancel, |sink| {
+                write_output(&output_path, cancel, |sink| {
                     sink.write_all(b"unexpected output").map_err(output)
                 })
             });

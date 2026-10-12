@@ -80,6 +80,15 @@ fn working_error(error: xmtp_db::database::OpfsWorkingCopyError) -> MigrationErr
 pub(crate) async fn prepare(
     args: PrepareMigrationArchiveArgs,
 ) -> Result<MigrationReport, MigrationError> {
+    let result = prepare_inner(args).await;
+    // All connections and working-copy guards have dropped before handoff.
+    xmtp_db::database::pause_sqlite_if_idle();
+    result
+}
+
+async fn prepare_inner(
+    args: PrepareMigrationArchiveArgs,
+) -> Result<MigrationReport, MigrationError> {
     if args.archive_key.len() != xmtp_archive::ENC_KEY_SIZE {
         return Err(MigrationError::invalid("archive key must contain 32 bytes"));
     }
@@ -115,7 +124,6 @@ pub(crate) async fn prepare(
     })();
     drop(conn);
     let cleanup = working.finish().map_err(working_error);
-    xmtp_db::database::pause_sqlite_if_idle();
     let report = match result {
         Ok(report) => report,
         Err(error) => {
