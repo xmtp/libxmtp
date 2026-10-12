@@ -12,7 +12,7 @@
 [![Version 8 RC](https://img.shields.io/badge/SDKs-8.0.0--rc1-blue)](https://xmtp.org/get-started/install/)
 [![MIT license](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-XMTP is an open protocol for end-to-end encrypted direct messages and group conversations. Use it to add chat, connect people with agents, or build app features inside conversations.
+XMTP is an open protocol for end-to-end encrypted direct messages and group conversations. Use it to add chat to your mobile or web app, connect people with agents from other apps, or connect agents to agents.
 
 This repository contains the shared Rust implementation, a ready to deploy messaging backend, and SDKs for browsers, Node.js, Android, iOS, and agents. The SDKs handle message encryption, identity, group state, and local storage so you can focus on your app.
 
@@ -24,7 +24,7 @@ This repository contains the shared Rust implementation, a ready to deploy messa
 
 - **Private groups and profiles.** Conversation members can manage membership and permissions without the server operator seeing either. Keep group metadata and member profiles encrypted, with configurable fields and permissions. See the [group guide](https://xmtp.org/sdk/groups/).
 
-- **Identity based on keys.** Create an account with a cryptographic private key. The identity registry provides an immutable ledger of all keys added to or removed from accounts. Clients verify signed updates, and your app keeps the private key. See the [identity model](https://xmtp.org/protocol/identity/).
+- **Private keys are first class identities.** Create an account with a cryptographic private key. The identity registry provides an immutable ledger of all keys added to or removed from accounts. Clients verify signed updates, and your app keeps the private key. See the [identity model](https://xmtp.org/protocol/identity/).
 
 - **Rich messages.** Use standard content types for replies, reactions, and attachments. Add custom content types for your app. XMTP supports remote attachments for encrypted files. See the [content type guide](https://xmtp.org/content-types/overview/).
 
@@ -92,10 +92,10 @@ The local setup uses Nix to provide pinned development tools. The setup script b
    ./dev/nix-up
    ```
 
-3. Start the database services and check the workspace.
+3. Start the backend and check the workspace.
 
    ```sh
-   dev/nix-shell 'just backend db-up'
+   dev/nix-shell 'just backend up'
    dev/nix-shell 'just check'
    dev/nix-shell 'just test'
    ```
@@ -127,14 +127,14 @@ Open the URL printed by the app. See the [web chat guide](https://xmtp.org/tools
 | [crates](https://github.com/xmtp/libxmtp/tree/main/crates) | Shared Rust code for messaging, identity, storage, and cryptography |
 | [apps/backend](https://github.com/xmtp/libxmtp/tree/main/apps/backend) | Ready to deploy messaging backend |
 | [apps](https://github.com/xmtp/libxmtp/tree/main/apps) | Example apps, command-line tools, and developer tools |
-| [docs/specs](https://xmtp.org/specs/) | Behavior specifications and their approval status |
+| [docs/specs](https://xmtp.org/specs/) | Behavior specifications |
 | [docs](https://xmtp.org/) | Setup, operations, and SDK guides |
 
 ## Contribute
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for dependency changes, test logging, coverage, and benchmark commands.
 
-Start with [CONTRIBUTING.md](https://github.com/xmtp/libxmtp/blob/main/CONTRIBUTING.md) and [AGENTS.md](https://github.com/xmtp/libxmtp/blob/main/AGENTS.md). Read the instructions in the directory you change. Check the [specifications](https://xmtp.org/specs/) for the relevant behavior; approved specs take precedence.
+Start with [CONTRIBUTING.md](https://github.com/xmtp/libxmtp/blob/main/CONTRIBUTING.md) and [AGENTS.md](https://github.com/xmtp/libxmtp/blob/main/AGENTS.md). Read the instructions in the directory you change. Check the [specifications](https://xmtp.org/specs/) for the relevant behavior.
 
 Open an [issue](https://github.com/xmtp/libxmtp/issues) for a bug or to discuss a substantial change. Branch from `main` and target your pull request at `main`. Explain what changed and how you checked it. Include a test that detects the bug when you fix behavior, and show that the test fails without the fix.
 
