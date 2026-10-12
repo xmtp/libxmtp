@@ -81,7 +81,7 @@ id = "IDENT-046"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
+reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature. No validator applies a ClaimHandle yet, so no claim signature is chain-checked."
 
 [[waiver]]
 id = "CONS-011"
@@ -701,7 +701,7 @@ id = "CONF-061"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending for the attachments field, which the generated SDK is expected to expose on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. No SDK exposes application_components yet."
+reason = "Installed-package proof pending for the attachments field, which the generated SDK is expected to expose on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. No SDK exposes application_components or handles yet."
 [[waiver]]
 id = "CONF-062"
 kind = "untested"
@@ -742,3 +742,171 @@ kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
 reason = "Legacy Swift and Kotlin V1 DecodedMessage paths retain a row with no decoded content after a decode failure, but do not expose the failure kind, diagnostics, or malformed envelope bytes to the app. Their history and delivery adapters retain the row, and delivery continues with normal acknowledgement timing. Core storage, V2 binding projections, and the new generated SDK remain subject to the requirement. The V1 gap ends when those SDKs are removed at cutover. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "IDENT-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The schema has no ClaimHandle message, no claim_handle action kind 5, and no IDENTIFIER_KIND_HANDLE value. A validator rejects every update that carries a claim as an unknown action kind."
+
+[[waiver]]
+id = "IDENT-020"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The signature text has no line pair for a ClaimHandle, so no validator can build the text that a claim signs."
+
+[[waiver]]
+id = "IDENT-077"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A CreateInbox or ChangeRecoveryAddress whose identifier kind is 3 or another value the enum does not list is read as Ethereum and accepted. It is not rejected."
+
+[[waiver]]
+id = "IDENT-078"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No validator applies a ClaimHandle, so no validator checks the handle grammar."
+
+[[waiver]]
+id = "IDENT-079"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No validator applies a ClaimHandle, so no validator rejects an update that carries a claim and another action."
+
+[[waiver]]
+id = "IDENT-080"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The association state has no claim count, and no validator rejects a claim after 64 claims."
+
+[[waiver]]
+id = "IDENT-081"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No validator applies a ClaimHandle, so no validator checks that a current member signed it."
+
+[[waiver]]
+id = "IDENT-082"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The association state holds no handles and no claim count, so no claim changes them."
+
+[[waiver]]
+id = "IDENT-083"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The association state holds no handles and no claim count, so no test can show that other actions keep them."
+
+[[waiver]]
+id = "IDENT-084"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A validator rejects every stored log that holds a ClaimHandle, so a log whose claims break the backend's policy cannot be shown to apply."
+
+[[waiver]]
+id = "IDENT-085"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No client resolves a handle. No code checks a handle lookup answer against the answered inbox's association state."
+
+[[waiver]]
+id = "IDENT-086"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No SDK returns the handles of an inbox, and no code reports a current handle and the other handles."
+
+[[waiver]]
+id = "API-296"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The schema has no ClaimHandle action and PublishError has no REASON_HANDLE_TAKEN, so the backend admits no claim and checks no handle against other inboxes, against lower indexes of the same request, or against a concurrent request."
+
+[[waiver]]
+id = "API-297"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The backend has no reserved list of name parts and no handles.min_name_length setting, and PublishError has no REASON_HANDLE_NOT_ALLOWED."
+
+[[waiver]]
+id = "API-298"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The history read for identity validation selects no server_ns, so admission cannot compare an earlier claim's server time with its clock, and PublishError has no REASON_HANDLE_TOO_SOON."
+
+[[waiver]]
+id = "API-299"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "GetInboxIds fails any entry whose identifier_kind is 3 with INVALID_ARGUMENT as an unknown identifier kind, and the backend stores no handle to resolve."
+
+[[waiver]]
+id = "API-210"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The PublishError enum in the schema has no REASON_HANDLE_TAKEN (6), REASON_HANDLE_NOT_ALLOWED (7), or REASON_HANDLE_TOO_SOON (8), which the section 3 wire block marks pending."
+
+[[waiver]]
+id = "CONF-017"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The public configuration schema does not carry the pending HandlesConfiguration message or the pending handles field 11 yet."
+
+[[waiver]]
+id = "CONF-025"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The client has no compiled default for handles.min_name_length, so a snapshot without handles, or with min_name_length 0, does not resolve it to 3."
+
+[[waiver]]
+id = "CONF-069"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The backend does not set handles in GetConfigurationResponse, so it does not publish the min_name_length it applies to claims."
+
+[[waiver]]
+id = "CONF-080"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The backend has no handles.min_name_length key, so it does not refuse to start when the value is outside 1 to 27."
+
+[[waiver]]
+id = "CONF-081"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Handles are not implemented, so no test shows that the client and the SDKs resolve, claim, and return a handle whose name part is shorter than the snapshot's handles.min_name_length."
+
+[[waiver]]
+id = "EVENT-058"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The client has no handle.changed kind, and the association state it stores carries no handles yet, so no event reports a change of an inbox's display handle."
+
+[[waiver]]
+id = "EVENT-059"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No handle.changed events exist yet, so nothing orders them by the sequence id of the association state they report."
