@@ -53,6 +53,8 @@ fun AttachmentCard(
                 TextButton(onClick = {
                     action(AttachmentAction.Open(state.id))
                 }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open") }
+            }
+            if (state.canSave) {
                 TextButton(onClick = {
                     action(AttachmentAction.Save(state.id))
                 }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Save") }

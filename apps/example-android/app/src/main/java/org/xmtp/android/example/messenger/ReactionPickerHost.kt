@@ -26,6 +26,7 @@ import org.xmtp.android.example.shared.AppIcons
 import org.xmtp.android.example.shared.MessengerAction
 import org.xmtp.android.example.shared.MessengerState
 import org.xmtp.android.example.shared.Screen
+import org.xmtp.android.example.shared.feature.chat.ChatAction
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -92,9 +93,15 @@ private fun sizePickerCategories(picker: EmojiPickerView) {
     val latestAction by rememberUpdatedState(action)
     val keyboard = LocalSoftwareKeyboardController.current
     content { value ->
-        if (value is MessengerAction.Feature && value.name == "pick-reaction") {
+        val messageId =
+            when (value) {
+                is MessengerAction.PickReaction -> value.messageId
+                is MessengerAction.ChatFeature -> (value.action as? ChatAction.ShowEmoji)?.messageId
+                else -> null
+            }
+        if (messageId != null) {
             keyboard?.hide()
-            target = value.value
+            target = messageId
         } else {
             action(value)
         }

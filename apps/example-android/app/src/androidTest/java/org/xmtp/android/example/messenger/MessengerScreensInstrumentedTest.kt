@@ -7,14 +7,20 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.ExampleApp
 import org.xmtp.android.example.MainActivity
+import org.xmtp.android.example.shared.feature.chat.ChatAction
 import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
 
 class MessengerScreensInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
 
     private fun screen(name: String) {
         androidx.test.espresso.Espresso
@@ -52,10 +58,12 @@ class MessengerScreensInstrumentedTest {
                     .application as ExampleApp
             val session =
                 app.session
+            assertEquals("org.xmtp.android.example", app.packageName)
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
             var peer: SDKClient? = null
             var peerReader: Job? = null
+            val releaseSend = CompletableDeferred<Unit>()
             try {
                 compose
                     .onNodeWithContentDescription("XMTP logo")
@@ -150,10 +158,47 @@ class MessengerScreensInstrumentedTest {
                 compose
                     .onNodeWithText("Message")
                     .performTextInput("Hello from this device")
-                compose
-                    .onNodeWithText("Send")
-                    .performClick()
+                val sendEntered = CompletableDeferred<Unit>()
+                graphRule.graph.chat.beforeQueuedAction = { action ->
+                    if (action is ChatAction.SendText && action.text == "Hello from this device") {
+                        sendEntered.complete(Unit)
+                        releaseSend.await()
+                    }
+                }
+                val jobsBeforeSend = checkNotNull(owner.work.coroutineContext[Job]).children.toSet()
+                compose.runOnIdle {
+                    val chat = graphRule.graph.chat
+                    val repeated =
+                        ChatAction.SendText(
+                            "Hello from this device",
+                            917L,
+                            chat.state.value.composer.revision,
+                        )
+                    chat.dispatch(repeated)
+                    chat.dispatch(repeated)
+                }
+                withTimeout(30_000) { sendEntered.await() }
+                val submittedJobs =
+                    checkNotNull(owner.work.coroutineContext[Job]).children.filterNot { it in jobsBeforeSend }.toList()
+                releaseSend.complete(Unit)
+                withTimeout(30_000) { submittedJobs.forEach { it.join() } }
+                graphRule.graph.chat.beforeQueuedAction = {}
                 visible("Hello from this device")
+                val nativeSent =
+                    Conversation
+                        .Group(group)
+                        .messages(publishedSelection().copy(deliveryStatus = null))
+                        .filter { it.standardContent() == MessageContent.Text("Hello from this device") }
+                assertEquals("Repeated send keeps one native row", 1, nativeSent.size)
+                val peerChat = checkNotNull(second.conversations.getById(group.id()))
+                withTimeout(30_000) {
+                    while (peerChat.messages(publishedSelection()).none { it.id == nativeSent.single().id }) delay(50)
+                }
+                val peerSent =
+                    peerChat
+                        .messages(publishedSelection())
+                        .filter { it.standardContent() == MessageContent.Text("Hello from this device") }
+                assertEquals("Repeated send keeps one peer row", listOf(nativeSent.single().id), peerSent.map { it.id })
                 compose
                     .onNodeWithText("Hello from the other member")
                     .performClick()
@@ -184,6 +229,8 @@ class MessengerScreensInstrumentedTest {
                         .name,
                 )
             } finally {
+                releaseSend.complete(Unit)
+                graphRule.graph.chat.beforeQueuedAction = {}
                 peerReader?.cancelAndJoin()
                 withContext(NonCancellable) {
                     peer?.end()

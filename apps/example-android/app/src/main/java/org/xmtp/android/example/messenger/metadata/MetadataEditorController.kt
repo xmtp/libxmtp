@@ -294,7 +294,7 @@ class MetadataEditorController(
                 }
                 if (isCurrent()) {
                     mutableState.value =
-                        mutableState.value.copy(error = "${e.javaClass.simpleName}: ${e.message ?: e}")
+                        mutableState.value.copy(error = "Cannot update these fields. Reload and try again.")
                 }
             }
         } finally {

@@ -40,7 +40,8 @@ class MessengerActionsInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             var peer: SDKClient? = null
             var peerReader: Job? = null
             try {

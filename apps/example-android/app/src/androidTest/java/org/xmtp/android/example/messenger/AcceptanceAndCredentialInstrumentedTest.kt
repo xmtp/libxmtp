@@ -2,6 +2,8 @@ package org.xmtp.android.example.messenger
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.text.InputType
@@ -13,15 +15,23 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.chat.ChatAction
 import uniffi.xmtp_sdk.*
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class AcceptanceAndCredentialInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     @Test fun syntheticProofCaptureStaysPrivateAndOutsideMediaStore() {
@@ -71,16 +81,34 @@ class AcceptanceAndCredentialInstrumentedTest {
         }
     }
 
-    private suspend fun chat(): Pair<ActiveSession, Group> {
+    private suspend fun chat(holdActivation: Boolean = false): Pair<ActiveSession, Group> {
+        val currentModel = model
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
-        model.session.signOut()
+        currentModel.session.signOut()
         val backend = BuildConfig.XMTP_BACKEND_URL
-        model.session.connect(backend, "", localAttachmentNetwork(backend))
-        val owner = checkNotNull(model.session.active.value)
-        val options = CreateGroupOptions(name = "Acceptance commit")
-        val group = owner.client.conversations.createGroup(emptyList(), options)
-        model.dispatch(MessengerAction.OpenConversation(group.id()))
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val (owner, group) =
+            try {
+                if (holdActivation) {
+                    Handler(Looper.getMainLooper()).post {
+                        entered.countDown()
+                        release.await()
+                    }
+                }
+                withContext(Dispatchers.IO) {
+                    if (holdActivation) check(entered.await(5, TimeUnit.SECONDS))
+                    currentModel.session.connect(backend, "", localAttachmentNetwork(backend))
+                    val active = checkNotNull(currentModel.session.active.value)
+                    val options = CreateGroupOptions(name = "Acceptance commit")
+                    val created = active.client.conversations.createGroup(emptyList(), options)
+                    currentModel.dispatch(MessengerAction.OpenConversation(created.id()))
+                    active to created
+                }
+            } finally {
+                release.countDown()
+            }
         until("current chat") { model.state.value.conversationId == group.id() && !model.state.value.busy }
         model.foreground(false)
         return owner to group
@@ -89,9 +117,9 @@ class AcceptanceAndCredentialInstrumentedTest {
     private suspend fun cleanup() =
         withContext(NonCancellable) {
             model.session.preferences.beforeDraftCommit = {}
-            model.onQueuedActionFinished = {}
+            model.chat.onQueuedActionFinished = {}
             model.sends.messageRead = { client, id -> client.conversations.getMessageById(id) }
-            model.inspectBackend = { url ->
+            model.connect.inspectBackend = { url ->
                 val source = BackendSource.Options(BackendOptions(url = url))
                 SDKClient.fetchServerConfiguration(source)
             }
@@ -106,25 +134,25 @@ class AcceptanceAndCredentialInstrumentedTest {
         model.session.preferences.beforeDraftCommit = {
             if (calls.incrementAndGet() == 2) throw IOException("Accepted reference write failed")
         }
-        model.onQueuedActionFinished = { if (it is MessengerAction.SendText) completed.complete(Unit) }
+        model.chat.onQueuedActionFinished = { if (it is ChatAction.SendText) completed.complete(Unit) }
         return completed
     }
 
     @Test fun acceptedCommitFailureKeepsComposerAndRecoversOnlyItsNativeId() =
         runBlocking {
             try {
-                val (owner, group) = chat()
+                val (owner, group) = chat(holdActivation = true)
                 val completed = failAcceptedCommit()
                 compose.onNodeWithText("Message").performTextInput("SDK accepted body")
                 compose.onNodeWithText("Send").performClick()
                 until("failed accepted commit action finished") { completed.isCompleted }
                 assertTrue(
-                    model.state.value.error
-                        ?.contains("Accepted reference write failed") == true,
+                    model.chat.state.value.composer.result
+                        ?.outcome is TextSendOutcome.AcceptedPendingCommit,
                 )
                 assertFalse(
                     model.state.value.textSendResult
-                        ?.accepted == true,
+                        ?.outcome is TextSendOutcome.Accepted,
                 )
                 compose.onNode(hasSetTextAction() and hasText("SDK accepted body")).assertExists()
                 compose.onNodeWithText("Send").assertIsNotEnabled()
@@ -151,11 +179,11 @@ class AcceptanceAndCredentialInstrumentedTest {
                     null
                 }
                 val refreshFinished = CompletableDeferred<Unit>()
-                model.onQueuedActionFinished = {
-                    if (it == MessengerAction.Refresh) refreshFinished.complete(Unit)
+                model.chat.onQueuedActionFinished = {
+                    if (it == ChatAction.Refresh) refreshFinished.complete(Unit)
                 }
                 model.session.preferences.beforeDraftCommit = {}
-                model.dispatch(MessengerAction.Refresh)
+                model.chat.dispatch(ChatAction.Refresh)
                 until("acceptance refresh finished with forced null lookup") { refreshFinished.isCompleted }
                 val recovered =
                     model.session.preferences
@@ -178,7 +206,7 @@ class AcceptanceAndCredentialInstrumentedTest {
                 assertEquals("Accepted-ID commit must not require a message lookup", 0, lookups.get())
                 until("verified accepted reference and request acknowledgment") {
                     model.state.value.textSendResult
-                        ?.accepted == true &&
+                        ?.outcome is TextSendOutcome.Accepted &&
                         model.session.preferences
                             .drafts(owner.key.profileId)
                             .singleOrNull()
@@ -272,7 +300,7 @@ class AcceptanceAndCredentialInstrumentedTest {
                         BackendSource.Options(BackendOptions(url = BuildConfig.XMTP_BACKEND_URL)),
                     )
                 // The field uses a scripted public auth capability. No authenticated login is claimed.
-                model.inspectBackend = { config.copy(auth = config.auth.copy(enabled = true)) }
+                model.connect.inspectBackend = { config.copy(auth = config.auth.copy(enabled = true)) }
                 model.dispatch(MessengerAction.InspectBackend(BuildConfig.XMTP_BACKEND_URL))
                 until("credential field admitted") { model.state.value.credentialsRequiredFor != null }
                 compose.onNodeWithText("Credential").performClick()

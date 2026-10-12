@@ -6,10 +6,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.example.exampleStorageLocation
-import org.xmtp.android.example.messenger.attachments.AttachmentFiles
-import org.xmtp.android.example.messenger.attachments.ExportCleanupReplay
+import org.xmtp.android.example.messenger.data.profile.ProfileCleanup
+import org.xmtp.android.example.messenger.session.LocalSessionDiagnostics
+import org.xmtp.android.example.messenger.session.SessionCommands
+import org.xmtp.android.example.messenger.session.SessionDiagnosticSink
+import org.xmtp.android.example.messenger.session.SessionLifecycle
+import org.xmtp.android.example.messenger.session.SessionProjection
+import org.xmtp.android.example.messenger.session.SessionReaders
 import uniffi.xmtp_sdk.*
-import java.io.File
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.attribute.BasicFileAttributes
@@ -32,7 +36,10 @@ data class ActiveSession(
  transfers and the default message collector. */
 class AppSession(
     context: Context,
-) {
+    projectionFactory: (AppSession) -> SessionProjection,
+    lifecycleFactory: (AppSession) -> SessionLifecycle,
+    private val diagnostics: SessionDiagnosticSink = LocalSessionDiagnostics,
+) : SessionCommands {
     private val context =
         context.applicationContext
     val preferences =
@@ -59,41 +66,33 @@ class AppSession(
     val readerError: StateFlow<String?> = readerState
     private val connectionState = MutableStateFlow("")
     val connection: StateFlow<String> = connectionState
-    private var messageJob: Job? = null
-    private var conversationJob: Job? = null
     private var stopping: ActiveSession? = null
     private var opening: ActiveSession? = null
     internal var beforeSessionStopLock: suspend () -> Unit = {}
     internal var beforeClientBuild: (String) -> Unit = {}
     internal var beforeOpeningListener: suspend (ActiveSession) -> Unit = {}
     internal var beforeSavedRestoreConnect: suspend (BackendProfile) -> Unit = {}
-    var onMessage: suspend (
-        ActiveSession,
-        Message,
-    ) -> Unit = {
-        _,
-        _,
-        ->
-    }
-    var onInvalidated: suspend (ActiveSession) -> Unit = {
-    }
-    var onEvent: suspend (
-        ActiveSession,
-        ClientEvent,
-    ) -> Unit = {
-        _,
-        _,
-        ->
-    }
-    var beforeEnd: suspend (ActiveSession) -> Unit = {
-    }
-    var unregisterNotifications: suspend (SDKClient) -> Unit = {}
-    internal var onNotificationAdmissionChanged: (ActiveSession) -> Unit = {}
 
-    internal var onSessionInvalidated: () -> Unit = {}
-    var beforeProfileRemoval: suspend (String) -> Unit = {}
-    var needsNotificationPreflight: suspend (String) -> Boolean = { false }
-    var stopStoredNotifications: suspend (ActiveSession) -> Unit = {}
+    // Construct process owners after session state, and before any startup work.
+    // Factories can read state and stores. They must not start session commands.
+    private val lifecycle = lifecycleFactory(this)
+    private val projection = projectionFactory(this)
+    private val readers =
+        SessionReaders(
+            scope = scope,
+            projection = projection,
+            accepts = ::accepts,
+            connection = { key, value -> withCurrent(key) { connectionState.value = value } },
+            readerFailure = { key, failure ->
+                diagnostics.report("session.reader", failure.javaClass.simpleName)
+                withCurrent(key) { readerState.value = "Message updates stopped. Retry to continue." }
+            },
+            conversationFailure = { key, failure ->
+                diagnostics.report("session.conversations", failure.javaClass.simpleName)
+                withCurrent(key) { errorState.value = "Cannot refresh conversations. Try again." }
+            },
+        )
+    private val cleanup = ProfileCleanup(this.context, preferences, lifecycle)
 
     fun admit(
         key: SessionKey,
@@ -118,6 +117,9 @@ class AppSession(
                 block,
             )
 
+    /** Route changes use the same lock as session admission, including while signed out. */
+    internal fun <T> withStateLock(block: () -> T): T = synchronized(fence, block)
+
     private suspend fun markSignedOutForCleanup(): String? {
         val profile = (activeState.value ?: stopping ?: opening)?.key?.profileId ?: preferences.active()?.id
         preferences.beginExportCleanup(profile)
@@ -125,12 +127,6 @@ class AppSession(
     }
 
     internal var beforeImmediateExportRevoke: suspend (String) -> Unit = {}
-
-    private fun clearExportFiles(profileId: String) {
-        AttachmentFiles.revokeProfile(context, profileId)
-        val exports = AttachmentFiles.profileDirectory(context, profileId)
-        check(!exports.exists() || exports.deleteRecursively()) { "Cannot clear file exports" }
-    }
 
     // Startup needs only local storage. A failure keeps the journal for an awaited retry.
     private val startupExportCleanup =
@@ -140,7 +136,8 @@ class AppSession(
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Throwable) {
-                errorState.value = failure.message ?: "Cannot clear file exports"
+                diagnostics.report("session.export_cleanup", failure.javaClass.simpleName)
+                errorState.value = "Cannot clear file exports. Try again."
             }
         }
 
@@ -149,23 +146,18 @@ class AppSession(
     // Call outside operation. Callers that hold operation use recoverExportCleanup.
     internal suspend fun replayExportCleanup() = operation.withLock { recoverExportCleanup() }
 
-    private suspend fun recoverExportCleanup() =
-        ExportCleanupReplay(
-            preferences::pendingExportCleanup,
-            ::clearExportFiles,
-            preferences::completeExportCleanup,
-        ).run()
+    private suspend fun recoverExportCleanup() = cleanup.replayExports()
 
     internal var beforeAutomaticProfileLookup: suspend () -> Unit = {}
     internal var beforeBoundConnectOperation: suspend (SessionKey) -> Unit = {}
 
-    suspend fun restore() {
+    override suspend fun restore() {
         val restoreIntent = fence.currentGeneration()
         val saved =
             operation.withLock {
                 recoverExportCleanup()
                 activeState.value?.let { owner ->
-                    withCurrent(owner.key) { if (messageJob == null) startReaders(owner) }
+                    withCurrent(owner.key) { if (!readers.started) readers.start(owner) }
                     return
                 }
                 preferences.reset()?.let {
@@ -180,7 +172,7 @@ class AppSession(
         currentCoroutineContext().ensureActive()
         operation.withLock {
             activeState.value?.let { owner ->
-                withCurrent(owner.key) { if (messageJob == null) startReaders(owner) }
+                withCurrent(owner.key) { if (!readers.started) readers.start(owner) }
                 return
             }
             preferences.reset()?.let {
@@ -275,7 +267,7 @@ class AppSession(
         val url = validatedBackendUrl(profile.backend)
         val inbox = profile.inboxId ?: return accepts(key)
         val identity = profile.identity ?: return accepts(key)
-        if (!needsNotificationPreflight(profile.id) || !pushDatabaseExists(paths)) return accepts(key)
+        if (!lifecycle.needsNotificationPreflight(profile.id) || !pushDatabaseExists(paths)) return accepts(key)
         if (!accepts(key)) return false
         val workers = options.workers ?: WorkerOptions()
         val intervals =
@@ -293,7 +285,7 @@ class AppSession(
         val owner = ActiveSession(key, profile, paths, client)
         opening = owner
         try {
-            if (accepts(key)) stopStoredNotifications(owner)
+            if (accepts(key)) lifecycle.stopStoredNotifications(owner)
         } finally {
             withContext(NonCancellable) { closeCurrent(unregister = false) }
         }
@@ -311,7 +303,7 @@ class AppSession(
         return attributes.isRegularFile && Files.isReadable(database)
     }
 
-    suspend fun connect(
+    override suspend fun connect(
         backend: String,
         credential: String?,
         allowPrivateNetwork: Boolean,
@@ -509,7 +501,7 @@ class AppSession(
                     committed && withCurrent(key) {
                         activeState.value = owner
                         errorState.value = null
-                        startReaders(owner)
+                        readers.start(owner)
                         true
                     } == true
                 if (published) opening = null
@@ -562,131 +554,40 @@ class AppSession(
                             event is ClientEvent.ConversationMembershipChanged ||
                             event is ClientEvent.ConversationPaused
                         ) {
-                            onNotificationAdmissionChanged(owner)
+                            lifecycle.onAdmissionChanged(owner)
                         }
-                        onEvent(
+                        projection.event(
                             owner,
                             event,
                         )
-                        onInvalidated(owner)
+                        projection.invalidate(owner)
                     } catch (error: Throwable) {
                         if (error is CancellationException) throw error
-                        if (accepts(key)) {
-                            errorState.value =
-                                error
-                                    .toString()
+                        diagnostics.report("session.events", error.javaClass.simpleName)
+                        withCurrent(key) {
+                            errorState.value = "Cannot refresh conversations. Try again."
                         }
                     }
                 }
             }
     }
 
-    private fun startReaders(owner: ActiveSession) {
-        messageJob =
-            scope.launch {
-                try {
-                    owner.client.conversations
-                        .streamAllMessages(
-                            MessageStreamOptions(
-                                consentStates =
-                                    listOf(
-                                        ConsentState.ALLOWED,
-                                        ConsentState.UNKNOWN,
-                                    ),
-                                onConnectionStateChange = {
-                                    _,
-                                    value,
-                                    ->
-                                    if (accepts(
-                                            owner.key,
-                                        )
-                                    ) {
-                                        connectionState.value =
-                                            value
-                                                .toString()
-                                    }
-                                },
-                            ),
-                        ).collect { message ->
-                            // No asynchronous Flow operator occurs before this completed app handling.
-                            if (!accepts(
-                                    owner.key,
-                                )
-                            ) {
-                                throw CancellationException("Session changed")
-                            }
-                            onMessage(
-                                owner,
-                                message,
-                            )
-                            if (!accepts(owner.key)) throw CancellationException("Session changed during handling")
-                        }
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    if (accepts(
-                            owner.key,
-                        )
-                    ) {
-                        readerState.value =
-                            error
-                                .toString()
-                    }
-                }
-            }
-        conversationJob =
-            scope.launch {
-                try {
-                    owner.client.conversations
-                        .stream(
-                            ConversationStreamOptions(
-                                consentStates =
-                                    listOf(
-                                        ConsentState.ALLOWED,
-                                        ConsentState.UNKNOWN,
-                                    ),
-                            ),
-                        ).collect {
-                            if (accepts(
-                                    owner.key,
-                                )
-                            ) {
-                                onInvalidated(owner)
-                            }
-                        }
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    if (accepts(
-                            owner.key,
-                        )
-                    ) {
-                        errorState.value =
-                            error
-                                .toString()
-                    }
-                }
-            }
-    }
-
-    suspend fun retryReader() =
+    override suspend fun retryReader() =
         operation.withLock {
             val owner =
                 activeState.value ?: return
-            messageJob?.cancelAndJoin()
-            conversationJob?.cancelAndJoin()
+            readers.stop()
             if (accepts(
                     owner.key,
                 )
             ) {
                 readerState.value = null
-                startReaders(owner)
+                readers.start(owner)
             }
         }
 
     private suspend fun closeCurrent(unregister: Boolean = true) {
-        messageJob?.cancelAndJoin()
-        messageJob = null
-        conversationJob?.cancelAndJoin()
-        conversationJob = null
+        readers.stop()
         val owner =
             activeState.value ?: stopping ?: opening
         stopping = owner
@@ -699,15 +600,14 @@ class AppSession(
                     ?.cancelAndJoin()
                 try {
                     try {
-                        if (unregister) unregisterNotifications(owner.client)
+                        if (unregister) lifecycle.unregisterNotifications(owner.client)
                     } catch (error: Exception) {
                         if (error is CancellationException) throw error
                     }
-                    beforeEnd(owner)
+                    lifecycle.beforeEnd(owner)
                 } finally {
                     try {
-                        clearExportFiles(owner.key.profileId)
-                        preferences.completeExportCleanup(owner.key.profileId)
+                        cleanup.finishExports(owner.key.profileId)
                     } finally {
                         owner.client.end()
                     }
@@ -719,9 +619,9 @@ class AppSession(
         connectionState.value = ""
     }
 
-    suspend fun signOut() {
+    override suspend fun signOut() {
         val stopGeneration = fence.reserve()
-        onSessionInvalidated()
+        lifecycle.onInvalidated()
         beforeSessionStopLock()
         operation.withLock {
             if (!fence.isReserved(stopGeneration)) return@withLock
@@ -730,7 +630,7 @@ class AppSession(
                 cleanupProfile?.let { profile ->
                     beforeImmediateExportRevoke(profile)
                     try {
-                        AttachmentFiles.revokeProfile(context, profile)
+                        cleanup.revokeExports(profile)
                     } catch (_: Exception) {
                         // The journal and final cleanup retain the retry after owner drain.
                     }
@@ -753,7 +653,7 @@ class AppSession(
         }
     }
 
-    suspend fun deleteAccount() {
+    override suspend fun deleteAccount() {
         val stopGeneration = fence.reserve()
         beforeSessionStopLock()
         operation.withLock {
@@ -813,7 +713,7 @@ class AppSession(
         }
     }
 
-    suspend fun resetLegacyAccount(inboxId: String) {
+    override suspend fun resetLegacyAccount(inboxId: String) {
         require(
             inboxId
                 .matches(Regex("[0-9a-f]{64}")),
@@ -852,62 +752,13 @@ class AppSession(
     }
 
     private suspend fun recoverReset(initial: ResetRecord) {
-        check(
-            activeState.value?.profile?.id !=
-                initial
-                    .profileId && stopping?.profile?.id !=
-                initial.profileId,
-        ) {
-            "Cannot reset an open profile"
-        }
-        val cleanup =
-            ResetCleanup(
-                context.filesDir,
-            )
-        var record = initial
-        if (record.phase ==
-            ResetPhase.STOPPING
-        ) {
-            cleanup
-                .removeDatabase(
-                    record,
-                    noOwner =
-                        activeState.value?.profile?.id !=
-                            record
-                                .profileId && stopping?.profile?.id !=
-                            record.profileId,
-                )
-            record =
-                record
-                    .copy(
-                        phase =
-                            ResetPhase.DATABASE_REMOVED,
-                    )
-            preferences
-                .saveReset(record)
-        }
-        if (record.phase ==
-            ResetPhase.DATABASE_REMOVED
-        ) {
-            AttachmentFiles.revokeProfile(context, record.profileId)
-            cleanup
-                .removeFiles(record)
-            record =
-                record
-                    .copy(
-                        phase =
-                            ResetPhase.FILES_REMOVED,
-                    )
-            preferences
-                .saveReset(record)
-        }
-        beforeProfileRemoval(record.profileId)
-        preferences
-            .removeProfile(
-                record.profileId,
-            )
-        preferences
-            .saveReset(null)
+        cleanup.recoverReset(
+            initial,
+            noOwner =
+                activeState.value?.profile?.id != initial.profileId &&
+                    stopping?.profile?.id != initial.profileId &&
+                    opening?.profile?.id != initial.profileId,
+        )
         errorState.value = null
     }
 }

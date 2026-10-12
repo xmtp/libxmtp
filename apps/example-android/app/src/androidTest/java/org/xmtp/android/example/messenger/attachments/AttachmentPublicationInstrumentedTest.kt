@@ -7,6 +7,8 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
@@ -16,7 +18,10 @@ import uniffi.xmtp_sdk.*
 import java.util.UUID
 
 class AttachmentPublicationInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(
@@ -41,7 +46,7 @@ class AttachmentPublicationInstrumentedTest {
         runBlocking<Unit> {
             val lifecycle = AndroidStreamLifecycle.enabled
             val session = model.session
-            val invalidated = session.onInvalidated
+            val invalidated = graphRule.observers.beforeInvalidate
             try {
                 AndroidStreamLifecycle.enabled = false
                 resumeStreams()
@@ -53,7 +58,7 @@ class AttachmentPublicationInstrumentedTest {
                         model.state.value.features.attachments
                 }
                 model.foreground(false)
-                session.onInvalidated = {}
+                graphRule.observers.beforeInvalidate = {}
                 val chat =
                     owner.client.conversations.createGroup(
                         emptyList(),
@@ -84,7 +89,7 @@ class AttachmentPublicationInstrumentedTest {
                 )
                 model.dispatch(MessengerAction.Navigate(Screen.DRAFTS))
                 until("drafts-screen") { model.state.value.screen == Screen.DRAFTS }
-                model.featureRefresh(owner, null)
+                graphRule.graph.attachments.refresh(owner)
                 compose.onNodeWithText("Retry publication").assertIsDisplayed().performClick()
                 var published = false
                 for (attempt in 0 until 100) {
@@ -111,7 +116,7 @@ class AttachmentPublicationInstrumentedTest {
                     "ATTACHMENT_PUBLICATION_PROOF stage=actual-recovery-card stored-id=true no-descriptor=true one-message=true",
                 )
             } finally {
-                session.onInvalidated = invalidated
+                graphRule.observers.beforeInvalidate = invalidated
                 withContext(NonCancellable) {
                     if (session.active.value != null || session.preferences.reset() != null) session.deleteAccount()
                     session.signOut()

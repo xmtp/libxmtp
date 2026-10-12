@@ -1,5 +1,11 @@
 package org.xmtp.android.example.shared
 
+import org.xmtp.android.example.shared.feature.chat.*
+import org.xmtp.android.example.shared.feature.connect.*
+import org.xmtp.android.example.shared.feature.conversations.*
+import org.xmtp.android.example.shared.feature.group.*
+import org.xmtp.android.example.shared.feature.settings.*
+
 enum class Screen {
     START,
     CONVERSATIONS,
@@ -20,12 +26,17 @@ data class ConversationRow(
     val unread: String,
     val unknown: Boolean,
     val pattern: Int,
+    val muted: Boolean? = null,
+    val group: Boolean = false,
+    val alias: String? = null,
+    val senderPreview: String? = null,
 )
 
 data class ReactionUi(
     val emoji: String,
     val count: Int,
     val mine: Boolean,
+    val reactors: List<ReactionIdentity> = emptyList(),
 )
 
 data class MessageRow(
@@ -41,12 +52,24 @@ data class MessageRow(
     val reactions: List<ReactionUi> = emptyList(),
     val deleted: Boolean = false,
     val attachment: Boolean = false,
-)
+) {
+    val sendState: MessageSendState
+        get() =
+            when (status) {
+                "Sending" -> MessageSendState.SENDING
+                "Queued" -> MessageSendState.QUEUED
+                "Sent", "Delivered", "Published" -> MessageSendState.SENT
+                "Failed", "Not sent" -> MessageSendState.NOT_SENT
+                "Unknown outcome", "Unknown" -> MessageSendState.UNKNOWN
+                else -> if (mine) MessageSendState.UNKNOWN else MessageSendState.SENT
+            }
+}
 
 data class MemberRow(
     val inboxId: String,
     val role: String,
     val canManage: Boolean,
+    val displayName: String? = null,
 )
 
 data class ScrollAnchor(
@@ -83,7 +106,8 @@ data class UnknownSendRow(
 data class TextSendResult(
     val requestId: Long,
     val conversationId: String,
-    val accepted: Boolean,
+    val submittedRevision: Long,
+    val outcome: TextSendOutcome,
 )
 
 data class MessengerState(
@@ -119,6 +143,14 @@ data class MessengerState(
     val features: FeatureAvailability = FeatureAvailability(),
     val notificationStatus: String = "Off: Firebase is not configured",
     val notificationsEnabled: Boolean = false,
+    val shellState: ShellState? = null,
+    val connectState: ConnectState? = null,
+    val conversationsState: ConversationsState? = null,
+    val chatState: ChatState? = null,
+    val createState: CreateConversationState? = null,
+    val groupState: GroupState? = null,
+    val settingsState: SettingsState? = null,
+    val requestState: RequestState? = null,
 )
 
 sealed interface MessengerAction {
@@ -244,8 +276,53 @@ sealed interface MessengerAction {
         val draftId: String,
     ) : MessengerAction
 
-    data class Feature(
-        val name: String,
-        val value: String = "",
+    data class PickReaction(
+        val messageId: String,
+    ) : MessengerAction
+
+    data object SelectAttachment : MessengerAction
+
+    data class OpenAttachment(
+        val messageId: String,
+    ) : MessengerAction
+
+    data class SetAppNotifications(
+        val enabled: Boolean,
+    ) : MessengerAction
+
+    data class SetConversationNotifications(
+        val enabled: Boolean,
+    ) : MessengerAction
+
+    data class ConnectFeature(
+        val action: ConnectAction,
+    ) : MessengerAction
+
+    data class ConversationsFeature(
+        val action: ConversationsAction,
+    ) : MessengerAction
+
+    data class ChatFeature(
+        val action: ChatAction,
+    ) : MessengerAction
+
+    data class CreateFeature(
+        val action: CreateConversationAction,
+    ) : MessengerAction
+
+    data class GroupFeature(
+        val action: GroupAction,
+    ) : MessengerAction
+
+    data class SettingsFeature(
+        val action: SettingsAction,
+    ) : MessengerAction
+
+    data class RequestFeature(
+        val action: RequestAction,
+    ) : MessengerAction
+
+    data class ShellFeature(
+        val action: ShellAction,
     ) : MessengerAction
 }

@@ -8,6 +8,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.messenger.AppSession
+import org.xmtp.android.example.messenger.TestSessionFixture
 import uniffi.xmtp_sdk.*
 
 class NotificationRestoreRaceInstrumentedTest {
@@ -16,8 +17,10 @@ class NotificationRestoreRaceInstrumentedTest {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
             val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-            val original = AppSession(context)
-            val restored = AppSession(context)
+            val originalFixture = TestSessionFixture(context)
+            val original = originalFixture.session
+            val restoredFixture = TestSessionFixture(context)
+            val restored = restoredFixture.session
             val lookupEntered = CompletableDeferred<Unit>()
             val releaseLookup = CompletableDeferred<Unit>()
             val pushOpened = CompletableDeferred<Unit>()

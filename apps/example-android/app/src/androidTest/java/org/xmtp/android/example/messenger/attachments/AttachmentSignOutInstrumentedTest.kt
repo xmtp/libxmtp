@@ -16,6 +16,8 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
@@ -26,7 +28,10 @@ import java.util.concurrent.TimeUnit
 import android.os.Message as AndroidMessage
 
 class AttachmentSignOutInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     @Test fun ownerExportsAreRevokedWhenHostClosesDuringSignOutDrain() =
@@ -37,7 +42,7 @@ class AttachmentSignOutInstrumentedTest {
             val enabled = AndroidStreamLifecycle.enabled
             val sender = AttachmentTestFixture()
             val session = model.session
-            val unregister = session.unregisterNotifications
+            val unregister = graphRule.observers.beforeUnregister
             val replies = HandlerThread("attachment-grant-proof").apply { start() }
             val draining = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
@@ -74,7 +79,14 @@ class AttachmentSignOutInstrumentedTest {
                         assertEquals(owner.paths.exports, directory)
                         val exported = directory.listFiles()!!.single()
                         assertArrayEquals(bytes, exported.readBytes())
-                        val lateUri = checkNotNull(files.openIntent("file").data)
+                        assertEquals("Repeated Open uses the same export URI", uri, files.openIntent("file").data)
+                        val latePending =
+                            sender.client.attachments().create(
+                                AttachmentSource.Bytes(bytes, "late-export.txt", "text/plain"),
+                            )
+                        latePending.upload()
+                        files.download("late-file", latePending.remoteAttachment())
+                        val lateUri = checkNotNull(files.openIntent("late-file").data)
                         assertNotEquals(uri, lateUri)
                         val opened = CompletableDeferred<Pair<Boolean, Int>>()
                         val receiver =
@@ -140,7 +152,7 @@ class AttachmentSignOutInstrumentedTest {
                         context.grantUriPermission(target, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         assertTrue(canRead(uri))
                         var readableBeforeUnregister: Boolean? = null
-                        session.unregisterNotifications = { client ->
+                        graphRule.observers.beforeUnregister = { client ->
                             readableBeforeUnregister = canRead(uri)
                             unregister(client)
                         }
@@ -225,7 +237,7 @@ class AttachmentSignOutInstrumentedTest {
                 release.complete(Unit)
                 callback?.let(lifecycle::removeLifecycleCallback)
                 if (bound) context.unbindService(checkNotNull(connection))
-                session.unregisterNotifications = unregister
+                graphRule.observers.beforeUnregister = unregister
                 try {
                     withContext(NonCancellable) {
                         exportRoot?.let {

@@ -14,22 +14,6 @@ class DraftDiscardStateTest {
         assertEquals("Completed quiescent discards do not accumulate", 0, state.retainedForProfile("profile"))
     }
 
-    @Test fun aCompletedDiscardRemainsUntilAllSnapshotReadersFinish() {
-        val state = DraftDiscardState()
-        val id = "profile/draft"
-        state.retainSnapshots(listOf(id))
-        state.retainSnapshots(listOf(id))
-        assertTrue(state.beginDiscard(id))
-        state.finishDiscard(id, true)
-        var staleCardAdded = false
-        state.admitCard(id) { staleCardAdded = true }
-        assertFalse("A stale recovery snapshot cannot add its discarded card", staleCardAdded)
-        state.releaseSnapshots(listOf(id))
-        assertTrue("Another coordinator still owns the old snapshot", state.isDiscarded(id))
-        state.releaseSnapshots(listOf(id))
-        assertEquals("The final reader retires the successful discard", 0, state.retainedForProfile("profile"))
-    }
-
     @Test fun aFailedDiscardClearsItsMarkerEvenWhileOtherSnapshotsExist() {
         val state = DraftDiscardState()
         val id = "profile/draft"

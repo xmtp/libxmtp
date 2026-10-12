@@ -10,14 +10,20 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.chat.ChatAction
 import uniffi.xmtp_sdk.*
 import java.net.URI
 
 class MessengerFeedbackInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(
@@ -31,62 +37,64 @@ class MessengerFeedbackInstrumentedTest {
         }
     }
 
-    private suspend fun cleanup(profiles: List<BackendProfile>) =
-        withContext(NonCancellable) {
-            model.session.beforeSavedRestoreConnect = {}
-            model.recoveryRead = { chat, options, before, after -> chat.recoveryPage(options, before, after) }
-            model.onQueuedActionFinished = {}
-            if (model.session.active.value != null) model.session.deleteAccount()
-            for (profile in profiles.distinctBy { it.id }) {
-                if (model.session.preferences
-                        .profiles()
-                        .any { it.id == profile.id }
-                ) {
-                    model.session.preferences.setActive(profile)
-                    model.session.deleteAccount()
-                }
+    private suspend fun cleanup(
+        profiles: List<BackendProfile>,
+        session: AppSession = model.session,
+    ) = withContext(NonCancellable) {
+        session.beforeSavedRestoreConnect = {}
+        model.chat.recoveryRead = { chat, options, before, after -> chat.recoveryPage(options, before, after) }
+        model.chat.onQueuedActionFinished = {}
+        if (session.active.value != null) session.deleteAccount()
+        for (profile in profiles.distinctBy { it.id }) {
+            if (session.preferences
+                    .profiles()
+                    .any { it.id == profile.id }
+            ) {
+                session.preferences.setActive(profile)
+                session.deleteAccount()
             }
-            model.session.signOut()
-            AndroidStreamLifecycle.enabled = true
         }
+        session.signOut()
+        AndroidStreamLifecycle.enabled = true
+    }
 
     @Test fun delayedStartupCannotReplaceTheUserChosenNativeBackend() =
         runBlocking {
             val store = ViewModelStore()
             val release = CompletableDeferred<Unit>()
             val owned = mutableListOf<BackendProfile>()
+            var session = model.session
             try {
                 AndroidStreamLifecycle.enabled = false
                 resumeStreams()
-                model.session.signOut()
-                model.session.connect(
+                session.signOut()
+                session.connect(
                     BuildConfig.XMTP_BACKEND_URL,
                     "",
                     localAttachmentNetwork(BuildConfig.XMTP_BACKEND_URL),
                 )
-                val saved = checkNotNull(model.session.active.value).profile.also(owned::add)
-                model.session.signOut()
-                model.session.preferences.setSignedIn(true)
+                val saved = checkNotNull(session.active.value).profile.also(owned::add)
+                session.signOut()
+                session = graphRule.replaceGraph().session
+                session.preferences.setSignedIn(true)
                 val entered = CompletableDeferred<Unit>()
-                model.session.beforeSavedRestoreConnect = {
+                session.beforeSavedRestoreConnect = {
                     assertEquals(saved.id, it.id)
                     entered.complete(Unit)
                     withContext(NonCancellable) { release.await() }
                 }
-                val factory =
-                    ViewModelProvider.AndroidViewModelFactory.getInstance(compose.activity.application)
-                val fresh = ViewModelProvider(store, factory)[MessengerViewModel::class.java]
+                val fresh = graphRule.newShell(store)
                 withTimeout(30_000) { entered.await() }
                 val uri = URI(BuildConfig.XMTP_BACKEND_URL)
                 val host = if (uri.host == "127.0.0.1") "10.0.2.2" else "127.0.0.1"
                 val selectedUrl = "http://$host:${uri.port}"
                 fresh.dispatch(MessengerAction.Connect(selectedUrl, "selected credential"))
                 until("user chosen native owner") {
-                    model.session.active.value
+                    session.active.value
                         ?.profile
                         ?.backend == selectedUrl
                 }
-                val selected = checkNotNull(model.session.active.value)
+                val selected = checkNotNull(session.active.value)
                 owned.add(selected.profile)
                 val group =
                     selected.client.conversations.createGroup(
@@ -94,28 +102,28 @@ class MessengerFeedbackInstrumentedTest {
                         CreateGroupOptions(name = "Selected backend owner"),
                     )
                 release.complete(Unit)
-                withTimeout(30_000) { fresh.awaitStartupRestore() }
+                withTimeout(30_000) { fresh.connect.awaitStartupRestore() }
                 assertEquals(
                     selected.key,
-                    model.session.active.value
+                    session.active.value
                         ?.key,
                 )
-                assertTrue(model.session.accepts(selected.key))
+                assertTrue(session.accepts(selected.key))
                 assertEquals(
                     selectedUrl,
-                    model.session.preferences
+                    session.preferences
                         .active()
                         ?.backend,
                 )
                 assertEquals("Selected backend owner", group.state().name)
-                val credential = model.session.secrets.read(selected.key.profileId, "credential")
+                val credential = session.secrets.read(selected.key.profileId, "credential")
                 assertEquals("selected credential", credential?.toString(Charsets.UTF_8))
                 until("selected backend UI") { fresh.state.value.backend == selectedUrl }
                 println("STARTUP_INTENT_PROOF stage=late-saved-restore-skipped-selected-native-owner-live")
             } finally {
                 release.complete(Unit)
                 store.clear()
-                cleanup(owned)
+                cleanup(owned, session)
             }
         }
 
@@ -153,21 +161,25 @@ class MessengerFeedbackInstrumentedTest {
                 assertEquals(accepted.toSet(), (newest.messages + older.messages).map { it.id }.toSet())
                 assertEquals(0u, newest.skippedCount + older.skippedCount)
 
-                suspend fun act(action: MessengerAction) {
+                suspend fun act(action: ChatAction) {
                     val completed = CompletableDeferred<Unit>()
-                    model.onQueuedActionFinished = { if (it == action) completed.complete(Unit) }
-                    model.dispatch(action)
+                    model.chat.onQueuedActionFinished = { if (it == action) completed.complete(Unit) }
+                    model.chat.dispatch(action)
                     until("completed $action") { completed.isCompleted }
-                    model.onQueuedActionFinished = {}
+                    model.chat.onQueuedActionFinished = {}
                 }
-                act(MessengerAction.OpenConversation(group.id()))
+                val opened = CompletableDeferred<Unit>()
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                withTimeout(30_000) { opened.await() }
+                model.chat.onOpenFinished = {}
                 assertEquals(
                     newest.messages.map { it.id },
                     model.state.value.messages
                         .map { it.id },
                 )
                 assertTrue(model.state.value.hasOlderRecovery)
-                act(MessengerAction.LoadOlderRecovery)
+                act(ChatAction.LoadOlderRecovery)
                 assertEquals(
                     older.messages.map { it.id },
                     model.state.value.messages
@@ -202,11 +214,11 @@ class MessengerFeedbackInstrumentedTest {
                         .toSet(),
                 )
                 val seen = java.util.concurrent.CopyOnWriteArrayList<MessageRecoveryPosition?>()
-                model.recoveryRead = { current, options, before, after ->
+                model.chat.recoveryRead = { current, options, before, after ->
                     seen.add(before)
                     current.recoveryPage(options, before, after)
                 }
-                act(MessengerAction.Refresh)
+                act(ChatAction.Refresh)
                 assertTrue("Refresh reads the held recovery page", seen.isNotEmpty())
                 assertTrue("Every refresh keeps the held upper bound", seen.all { it == newest.lastPosition })
                 println("PENDING_RECOVERY_PROOF stage=held-refresh-observed-calls count=${seen.size}")
@@ -219,11 +231,11 @@ class MessengerFeedbackInstrumentedTest {
                 )
                 assertTrue(
                     model.state.value.messages
-                        .all { it.status == "Delivered" },
+                        .all { it.status == "Sent" },
                 )
                 assertFalse(model.state.value.recoveryAtNewest)
 
-                act(MessengerAction.LatestRecovery)
+                act(ChatAction.LatestRecovery)
                 assertTrue(
                     model.state.value.messages
                         .any { it.id == retried && it.status == "Queued" },
@@ -233,7 +245,7 @@ class MessengerFeedbackInstrumentedTest {
                     model.state.value.messages
                         .any { it.id == secondPending && it.status == "Queued" },
                 )
-                act(MessengerAction.RetrySend(retried))
+                act(ChatAction.RetrySend(retried))
                 until("retained native ID published") {
                     owner.client.conversations
                         .getMessageById(retried)
@@ -247,11 +259,11 @@ class MessengerFeedbackInstrumentedTest {
                         .getMessageById(retried)
                         ?.id,
                 )
-                act(MessengerAction.Refresh)
+                act(ChatAction.Refresh)
                 assertTrue(chat.recoveryPage(selection).messages.isEmpty())
                 assertTrue(
                     model.state.value.messages
-                        .all { it.status == "Delivered" },
+                        .all { it.status == "Sent" },
                 )
                 assertEquals(50, model.state.value.messages.size)
                 println("PENDING_RECOVERY_PROOF stage=actual-eighty-pending-held-boundary-retained-id-retry")
@@ -292,7 +304,7 @@ class MessengerFeedbackInstrumentedTest {
                 assertTrue(accepted.contains(retained))
                 val calls = java.util.concurrent.CopyOnWriteArrayList<MessageRecoveryPage>()
                 // Simulate an unreadable prefix after real SDK reads. Keep every consumed raw position.
-                model.recoveryRead = { current, options, before, after ->
+                model.chat.recoveryRead = { current, options, before, after ->
                     val page = current.recoveryPage(options, before, after)
                     calls.add(page)
                     println("PENDING_RECOVERY_PROOF stage=raw-page-read call=${calls.size} rows=${page.messages.size}")
@@ -366,7 +378,7 @@ class MessengerFeedbackInstrumentedTest {
                         .toSet()
                 assertEquals(setOf(missing, retained), nativeIds)
                 // Simulate one conversion loss after the real SDK page read. Keep its raw bounds.
-                model.recoveryRead = { chat, options, before, after ->
+                model.chat.recoveryRead = { chat, options, before, after ->
                     val page = chat.recoveryPage(options, before, after)
                     val readable = page.messages.filter { it.id != missing }
                     page.copy(

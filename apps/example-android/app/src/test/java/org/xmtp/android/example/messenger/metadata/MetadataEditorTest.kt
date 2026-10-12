@@ -7,6 +7,7 @@ import org.xmtp.android.example.shared.metadata.*
 import uniffi.xmtp_sdk.*
 
 class MetadataEditorTest {
+    private val safeUpdateError = "Cannot update these fields. Reload and try again."
     private val own = "a".repeat(64)
     private val peer = "b".repeat(64)
     private val allow = MetadataPolicy.Base(MetadataBasePolicy.Allow)
@@ -495,10 +496,12 @@ class MetadataEditorTest {
                 controller.edit(MetadataEdit.Scalar(FieldUiId(field.field.componentId), "old form"))
                 assertTrue(group.mutations.isEmpty())
                 assertTrue(
-                    controller.state.value.error
+                    controller.failure
+                        ?.message
                         .orEmpty()
                         .contains("type or policy changed"),
                 )
+                assertEquals(safeUpdateError, controller.state.value.error)
                 assertEquals(
                     if (policyChange) FieldShape.STRING else FieldShape.BYTES,
                     controller.state.value.fields
@@ -548,11 +551,7 @@ class MetadataEditorTest {
                     .single()
                     .scalar,
             )
-            assertTrue(
-                controller.state.value.error
-                    .orEmpty()
-                    .contains("PermissionDenied"),
-            )
+            assertEquals(safeUpdateError, controller.state.value.error)
         }
 
     @Test fun validationUsesBytesAndSerializedCollectionBounds() {
@@ -591,10 +590,12 @@ class MetadataEditorTest {
             controller.edit(MetadataEdit.Scalar(FieldUiId(policy.field.componentId), "blocked"))
             assertTrue(group.mutations.isEmpty())
             assertTrue(
-                controller.state.value.error
+                controller.failure
+                    ?.message
                     .orEmpty()
                     .contains("Unsupported"),
             )
+            assertEquals(safeUpdateError, controller.state.value.error)
         }
 
     private fun malformedPolicies() =
@@ -663,10 +664,12 @@ class MetadataEditorTest {
                     assertTrue(group.mutations.isEmpty())
                     assertTrue(group.userWrites.isEmpty())
                     assertTrue(
-                        controller.state.value.error
+                        controller.failure
+                            ?.message
                             .orEmpty()
                             .contains("Unsupported"),
                     )
+                    assertEquals(safeUpdateError, controller.state.value.error)
                 }
             }
         }
@@ -712,9 +715,11 @@ class MetadataEditorTest {
             controller.edit(MetadataEdit.Own(mapOf(FieldUiId(field.field.componentId) to "00".repeat(8192))))
             assertTrue(group.userWrites.isEmpty())
             assertTrue(
-                controller.state.value.error
+                controller.failure
+                    ?.message
                     .orEmpty()
                     .contains("65536"),
             )
+            assertEquals(safeUpdateError, controller.state.value.error)
         }
 }

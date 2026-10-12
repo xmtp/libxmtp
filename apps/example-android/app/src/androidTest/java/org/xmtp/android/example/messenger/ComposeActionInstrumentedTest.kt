@@ -1,4 +1,5 @@
 package org.xmtp.android.example.messenger
+
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -6,131 +7,140 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.chat.*
+import org.xmtp.android.example.shared.feature.connect.*
+import org.xmtp.android.example.shared.feature.conversations.*
 
 class ComposeActionInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
     @Test fun screenControlsDispatchTheCurrentAppActions() {
-        val state = mutableStateOf(MessengerState(backend = "http://example.test"))
-        val actions = mutableListOf<MessengerAction>()
+        val state =
+            mutableStateOf(
+                MessengerUiState(
+                    connect = ConnectState(backend = "http://example.test"),
+                ),
+            )
+        val actions = mutableListOf<Any>()
         compose.setContent {
             MessengerScreens(
                 state.value,
-                {
-                    actions
-                        .add(it)
-                },
+                MessengerCallbacks(
+                    shell = { actions.add(it) },
+                    connect = { actions.add(it) },
+                    conversations = { actions.add(it) },
+                    chat = { action ->
+                        actions.add(action)
+                        // Return controlled input state. The fixture does not perform commands.
+                        when (action) {
+                            is ChatAction.ChangeDraft -> {
+                                state.value =
+                                    state.value.copy(
+                                        chat =
+                                            state.value.chat.copy(
+                                                composer =
+                                                    ComposerState(
+                                                        text = action.text,
+                                                        selectionStart = action.selectionStart,
+                                                        selectionEnd = action.selectionEnd,
+                                                        revision = 7,
+                                                    ),
+                                            ),
+                                    )
+                            }
+
+                            is ChatAction.SelectMessage -> {
+                                state.value =
+                                    state.value.copy(
+                                        chat =
+                                            state.value.chat.copy(
+                                                overlay = MessageOverlayState(action.messageId),
+                                            ),
+                                    )
+                            }
+
+                            is ChatAction.Reply -> {
+                                state.value =
+                                    state.value.copy(
+                                        chat = state.value.chat.copy(overlay = null),
+                                    )
+                            }
+
+                            else -> {
+                                Unit
+                            }
+                        }
+                    },
+                ),
             )
         }
-        compose
-            .onNodeWithText("Connect")
-            .performClick()
-        val connect =
-            actions.single {
-                it is MessengerAction.Connect
-            } as MessengerAction.Connect
-        assertEquals(
-            "http://example.test",
-            connect.backend,
-        )
+        compose.onNodeWithText("Connect").performClick()
+        val connect = actions.filterIsInstance<ConnectAction.Connect>().single()
+        assertEquals("http://example.test", connect.backend)
+
         compose.runOnIdle {
             state.value =
-                MessengerState(
-                    screen =
-                        Screen.CONVERSATIONS,
+                MessengerUiState(
+                    shell = ShellState(route = AppRoute.Chats),
                     conversations =
-                        listOf(
-                            ConversationRow(
-                                "one",
-                                "First conversation",
-                                "Preview",
-                                "12:00",
-                                "1",
-                                false,
-                                1,
-                            ),
+                        ConversationsState(
+                            rows =
+                                listOf(
+                                    ConversationRow(
+                                        "one",
+                                        "First conversation",
+                                        "Preview",
+                                        "12:00",
+                                        "1",
+                                        false,
+                                        1,
+                                    ),
+                                ),
                         ),
                 )
         }
-        compose
-            .onNodeWithText("First conversation")
-            .performClick()
-        val open =
-            MessengerAction
-                .OpenConversation("one")
-        assertTrue(
-            actions
-                .contains(open),
-        )
-        compose
-            .onNodeWithContentDescription("New conversation")
-            .performClick()
-        assertTrue(
-            actions
-                .contains(
-                    MessengerAction
-                        .Navigate(
-                            Screen.CREATE,
-                        ),
-                ),
-        )
+        compose.onNodeWithText("First conversation").performClick()
+        assertTrue(actions.contains(ConversationsAction.OpenConversation("one")))
+        compose.onNodeWithContentDescription("New conversation").performClick()
+        assertTrue(actions.contains(ShellAction.Navigate(AppRoute.CreateConversation)))
+
         compose.runOnIdle {
             state.value =
-                MessengerState(
-                    screen =
-                        Screen.TIMELINE,
-                    conversationId = "one",
-                    conversationTitle = "First conversation",
-                    messages =
-                        listOf(
-                            MessageRow(
-                                "message",
-                                "You",
-                                "Hello",
-                                "12:00",
-                                "Oct 8",
-                                100,
-                                true,
-                                "Delivered",
-                            ),
+                MessengerUiState(
+                    shell = ShellState(route = AppRoute.Chat("one")),
+                    chat =
+                        ChatState(
+                            conversationId = "one",
+                            title = "First conversation",
+                            messages =
+                                listOf(
+                                    MessageRow(
+                                        "message",
+                                        "You",
+                                        "Hello",
+                                        "12:00",
+                                        "Oct 8",
+                                        100,
+                                        true,
+                                        "Sent",
+                                    ),
+                                ),
                         ),
                 )
         }
-        compose
-            .onNodeWithText(
-                "Message",
-                substring = false,
-            ).performTextInput("New text")
-        compose
-            .onNodeWithText("Send")
-            .performClick()
-        val sent = actions.filterIsInstance<MessengerAction.SendText>().single()
+        compose.onNodeWithText("Message", substring = false).performTextInput("New text")
+        compose.onNodeWithText("Send").performClick()
+        val sent = actions.filterIsInstance<ChatAction.SendText>().single()
         assertEquals("New text", sent.text)
-        assertTrue(sent.requestId > 0)
-        compose
-            .onNodeWithText("Hello")
-            .performClick()
-        compose
-            .onNodeWithText("Reply")
-            .performClick()
-        assertTrue(
-            actions
-                .contains(
-                    MessengerAction
-                        .Reply("message"),
-                ),
+        assertEquals(
+            "Send carries the displayed draft revision",
+            7L,
+            sent.submittedRevision,
         )
-        compose
-            .onNodeWithContentDescription("Conversation settings")
-            .performClick()
-        assertTrue(
-            actions
-                .contains(
-                    MessengerAction
-                        .Navigate(
-                            Screen.CONVERSATION_SETTINGS,
-                        ),
-                ),
-        )
+        compose.onNodeWithText("Hello").performClick()
+        compose.onNodeWithText("Reply").performClick()
+        assertTrue(actions.contains(ChatAction.Reply("message")))
+        compose.onNodeWithContentDescription("Conversation settings").performClick()
+        assertTrue(actions.contains(ShellAction.Navigate(AppRoute.ConversationDetails("one"))))
     }
 }

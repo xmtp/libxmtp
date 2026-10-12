@@ -5,7 +5,184 @@ spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
-The current parent is `ada6699f3e9f32bdfc50464a0ed15f73a9e20d57` on E
+## Messenger redesign, 2026-10-10
+
+This section owns the architecture and design proof for the two redesign PRs.
+Older sections below are historical evidence. Their source heads and passing
+results do not prove this redesign.
+
+### Architecture contracts
+
+- AppGraph owns the process session, required message projection, typed feature
+  controllers, route state, and Android effect requests. MessengerViewModel binds
+  SavedStateHandle and screen state. Shell replacement creates no new default reader.
+- AppSession receives explicit projection and lifecycle collaborators. Required
+  message handling is awaited before reader advance. SessionObservers surround
+  the real delegates; they cannot replace required processing.
+- Connect, conversations, chat, group, settings, and attachment controllers own
+  their state and commands. Shared Compose state contains no generated SDK object.
+  Query adapters call the local composite SDK. Preferences hold small app records,
+  not a second message store.
+- Routes bind the profile and session generation. Delayed restore, old query
+  completion, and old saved-state writes cannot replace a newer user destination.
+  Completing Create opens Chat without retaining the completed Create screen.
+- Send reserves the current draft before asynchronous work. One submission has
+  one accepted native ID. Accepted-reference failure keeps the draft; publication
+  failure exposes a fixed error and retries that ID. A newer draft edit survives
+  acceptance. Reply restoration can read its native parent outside the loaded page.
+- AttachmentController owns transfers and retained request identities. Activity
+  hosts launch Android effects. Picker and Save results retain their session and
+  destination identity through recreation. Open/Save use captured SDK-verified
+  bytes. Session cleanup and final grant revocation remain required.
+- Timestamp ties, opaque raw continuation, bounded history, accepted IDs, privacy
+  revisions, notification admission, fixture ownership, and actual Release/JNI
+  loading keep separate proof. No public SDK contract or package ID changes.
+
+### Test reduction
+
+Counts are declared methods. They include support tests and the manual benchmark.
+They do not count assertion statements or parameter rows. Routine Android counts
+include the optional configured-Firebase method; a skip must remain visible.
+
+| Layer | Baseline | PR1 architecture |
+| --- | ---: | ---: |
+| Host JVM | 83 | 77 |
+| Debug host | 1 | 1 |
+| Release host | 1 | 1 |
+| Routine installed Android | 138 | 137 |
+| Manual installed benchmark | 1 | 1 |
+| Release installed Android | 2 | 2 |
+| Fixture process methods | 32 | 32 |
+| Performance support methods | 22 | 22 |
+| **App tree total** | **280** | **273** |
+
+The six duplicate host methods and one Activity smoke method were removed in
+PR1. The retained native proofs exercise the same contract through real SDK state.
+
+| Removed method | Retained named proof |
+| --- | --- |
+| `MarkdownSelectionTest.markdownParentKeepsTextWithoutAFallback` | `MessengerReviewInstrumentedTest.nativeMarkdownIsVisibleAndKeepsItsReplyQuote` |
+| `MarkdownSelectionTest.markdownUsesTheCurrentCodecTypeInPublishedAndUnreadSelections` | The same native Markdown proof checks history, unread selection, preview, and quote. |
+| `PendingMessagePagesTest.emptyRawPagesKeepContinuationAtTheFourReadLimit` | `MessengerFeedbackInstrumentedTest.emptyNativePendingProjectionKeepsRawContinuationAfterFourReads` |
+| `SDKHistoryPageTest.emptyConvertedPrefixUsesRawContinuationAndFourReadBudget` | `MessengerRaceInstrumentedTest.sdkRawContinuationReachesReadableRowsAfterAnEmptyPrefix` |
+| `SDKHistoryPageTest.anchoredQueriesUseSdkNeighborsWithoutLookingUpTheDeletedAnchor` | `MessengerRaceInstrumentedTest.deletedNativeAnchorUsesItsRetainedTupleAndTheNextNewerRow` |
+| `DraftDiscardStateTest.aCompletedDiscardRemainsUntilAllSnapshotReadersFinish` | `AttachmentRecoveryRaceInstrumentedTest.completedDiscardMarkersExpireAfterSharedSnapshotsFinish` |
+| `MainActivityInstrumentedTest.messengerActivityLaunchesWithTheProcessSession` | `MessengerScreensInstrumentedTest.realSessionRendersSetupListMessagesAndSettings` also checks the installed package ID. |
+
+PR2 carries the five installed journey consolidations in the next PR.
+
+The nonterminal partial-page host case remains. Its terminal native counterpart
+does not prove retained continuation. Timestamp-tie, cache-bound, accepted-commit,
+reader replay, privacy, grant, release, and fixture tests remain independent.
+
+### Architecture evidence
+
+The full-suite baseline is `25e1ff5386a7d316000750567a1ab19d62085293`.
+The complete Debug suite ran at `f8610a0987ed15fcb2c5c3d09e2c5bf432884ed5`.
+The later rebase added only the API 23 CI memory change. A source comparison
+confirmed no app difference. Release and host tests ran after that rebase.
+The local run archive is `xmtp-android-redesign-20261010`.
+
+Commit `ec52581121` then reused the route owner's conversation mapping and fixed
+connect retry ownership. An older Connect or Retry completion cannot clear the
+newer attempt's backend and credential. The existing
+`MessengerRecoveryUxInstrumentedTest.startRetryUsesCurrentBackendAndCredentialInRealConnect`
+checks both overlapping operations after its actual native connection proof.
+Both separate guard-removal controls failed at their named assertions. The
+restored method passed with no skips. Evidence: `architecture-retry-restored/`,
+`control-runs/architecture-connect-retry-owner/`, and
+`control-runs/architecture-retry-retry-owner/`. Format and Android lint passed in
+`format-architecture-retry-4.log` and `lint-architecture-retry.log`.
+
+| Proof | Final evidence |
+| --- | --- |
+| Strict Debug/Release/shared/test APK and JNI inspection | `dev/nix-shell 'just example-android check'`: PASS. Both APK JNI inspections passed. Log: `check-architecture-final-2.log`. |
+| Source format and Android lint | `dev/nix-shell 'just example-android lint'`: PASS. Log: `lint-architecture-final-2.log`. |
+| Host Debug/Release | `dev/nix-shell 'just example-android test :example:testReleaseUnitTest'`: 156 executions passed, no skips. XML: `architecture-host-final-second/`. |
+| Complete routine Android suite | `dev/nix-shell 'just example-android test-integration'`: 136 passed, one configured-Firebase skip, no failures. XML and 25 screenshots: `architecture-full-final/`. Owned emulator, fixture, and response gate were removed. |
+| Actual Release instrumentation | `dev/nix-shell 'just example-android test-release-integration'`: two passed, no skips. This installed the signed Release build with `DEBUG=false`. XML: `architecture-release-final/`. |
+| Configuration and fixture checks | `dev/nix-shell 'just lint-config'`: PASS. Log: `lint-config-architecture-final-2.log`. |
+| Material source controls | All 20 controls below failed at their intended assertions. Each source file was restored and its hash checked. The complete restored Debug suite passed. XML and hashes: `control-runs/`; index: `architecture-controls-summary.json`. |
+
+Seventeen controls ran at `7cef1b3bd0`. The labeled reader and route controls,
+and the saved-server probe control, ran at `f8610a0987`. Original generic timeout
+attempts for the reader and route controls receive no credit.
+
+| Weaker behavior | Observed failure |
+| --- | --- |
+| Allow a second submission of one draft | Two native rows instead of one. |
+| Omit the reply-parent lookup outside the loaded page | Missing native reply parent ID. |
+| Detach required reader handling | Original native ID did not replay while unregister was blocked. |
+| Retain chat A while loading chat B | Loading B did not hide A. |
+| Admit a delayed send to the old chat | An extra native row appeared in A. |
+| Clear the composer before accepted-reference persistence | The editable accepted body disappeared. |
+| Hide publication failure | The publication error did not appear. |
+| Create a new export on repeated Open | The export URI changed. |
+| Drop Select ownership during recreation | The retained Select request was missing. |
+| Admit a stale attachment capability result | Old support entered the replacement session. |
+| Treat metadata edits as pending membership changes | An eligible push was rejected. |
+| Omit the member-add privacy guard | A push was accepted during the pending member change. |
+| Recover a send while its original submission is active | Publication recovery lost its expected error state. |
+| Drop navigation while session binding is pending | The current chat did not open. |
+| Tie Create completion to the old destination | The completed lookup kept its busy state. |
+| Tie Settings completion to the old destination | The completed command kept its busy state. |
+| Keep the marker after a rejected leave | The leave marker remained. |
+| Keep the marker after a rejected promotion | The promotion marker remained. |
+| Read native group state twice per row | Fifty groups caused 100 state reads instead of 50. |
+| Omit the saved-server startup probe | The saved server did not receive its credential capability. |
+
+Required handling uses the real AppGraph. Isolated session protocol tests use
+one explicit test-only collaborator fixture. These controls prove their stated
+contracts. They do not replace the complete installed suite.
+
+#### Recovery regression proof
+
+Commit `63a11d29b4` fixes three recovery paths. A missing request clears its
+confirmation and shows an unavailable message. Retry reopens the current chat
+when no matching native conversation is bound. Initial scroll restoration waits
+for the saved native row, including when the saved anchor arrives after a
+loading placeholder. Later viewport updates do not repeat the initial scroll.
+
+The existing installed journeys cover each path:
+
+| Journey | Source control and observed failure |
+| --- | --- |
+| `MessengerReviewInstrumentedTest.lateBlockedConsentCannotReplaceNewChatSettings` | `architecture-missing-request`: restoring the silent missing-request return keeps the Block confirmation set. |
+| `MessengerRaceInstrumentedTest.suspendedOldOpenCannotReplaceNewChatOrSettings` | `architecture-unbound-chat-retry`: removing route reopening prevents the real Retry button from binding the native chat. |
+| `MessengerRaceInstrumentedTest.anchoredRefreshPreservesEveryLoadedNativeMessage` | `arch-saved-anchor-delayed-history`: removing the restoration gate and row-availability retry changes the first UI viewport's saved native message ID. |
+
+All three journeys pass after source restoration: three tests, no failures,
+errors, or skips in `architecture-review-restored-final/`. That archive records
+the source diff and file hashes. Each control records its exact source, test,
+mutation, failure, and restored hash under `control-runs/`. The scroll journey
+also checks the saved pixel offset and persisted cursor after the exact viewport
+action completes. No test method was added.
+
+Strict builds and both APK JNI checks passed in `check-architecture-review-2.log`.
+The final test source compiled in the installed run. Format and Android lint
+passed in `format-architecture-review-6.log` and
+`lint-architecture-review-final.log`.
+
+### Stable manual gaps
+
+- Real FCM receipt, background delivery, successful OS posting, and tap need a
+  configured developer Firebase project and a backend channel. Off behavior,
+  compilation, and a captured publisher do not prove delivery.
+- TalkBack service traversal, focus announcements, and switch/keyboard operation
+  need manual device proof. Fixed Compose previews do not provide it.
+- The fixed Linux API 34 x86_64 performance workload, its cache failure control,
+  and restored same-dataset result need their explicit manual route. Functional
+  ARM64 tests and host validators do not prove its timing or heap limits.
+
+- Edit-to-preview and test speed have no measured comparison on one machine and
+  cache state. Package separation and fewer methods do not establish a speed gain.
+- SDK receipt semantics, typing, presence, calls, invitations, mixed pending
+  timestamp policy, and inbound private-download policy are not added by this
+  redesign. No missing server capability is represented by invented UI state.
+
+## Historical evidence before the redesign
+
+The historical parent is `ada6699f3e9f32bdfc50464a0ed15f73a9e20d57` on E
 `23696a2b37584d6975755d12f18aff5bbc140046`, D
 `a2eb8b69b7faa89105973c93d8a4661a48bbab63`, C
 `ed4f6ee535afaf57fbbb781935f02317ff2e369a` and B

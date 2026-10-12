@@ -13,6 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.example.ExampleApp
@@ -27,6 +28,9 @@ import java.util.concurrent.atomic.AtomicLong
 /** Opt in on the fixed Linux emulator. This test creates actual SDK messages. */
 @RunWith(AndroidJUnit4::class)
 class MessengerPerformanceInstrumentedTest {
+    private val graphRule = TestAppGraphRule()
+
+    @get:Rule val graphScope: org.junit.rules.TestRule = graphRule
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext.applicationContext
     private val arguments get() = InstrumentationRegistry.getArguments()
@@ -364,23 +368,15 @@ class MessengerPerformanceInstrumentedTest {
                 val replayRows = AtomicInteger()
                 val replayHandling = AtomicInteger()
                 val lastReplayFinished = AtomicLong(SystemClock.elapsedRealtimeNanos())
-                val viewModel =
-                    withContext(Dispatchers.Main) {
-                        MessengerViewModel(application).also {
-                            store.put("performance", it)
-                            val productionHandler = session.onMessage
-                            session.onMessage = { owner, message ->
-                                if (message.standardContent() is MessageContent.Text) replayRows.incrementAndGet()
-                                replayHandling.incrementAndGet()
-                                try {
-                                    productionHandler(owner, message)
-                                } finally {
-                                    lastReplayFinished.set(SystemClock.elapsedRealtimeNanos())
-                                    replayHandling.decrementAndGet()
-                                }
-                            }
-                        }
-                    }
+                graphRule.observers.beforeHandle = { _, message ->
+                    if (message.standardContent() is MessageContent.Text) replayRows.incrementAndGet()
+                    replayHandling.incrementAndGet()
+                }
+                graphRule.observers.afterHandle = { _, _ ->
+                    lastReplayFinished.set(SystemClock.elapsedRealtimeNanos())
+                    replayHandling.decrementAndGet()
+                }
+                val viewModel = withContext(Dispatchers.Main) { graphRule.newShell(store) }
                 // Normal restore owns the client and activates its generation guard.
                 recordReadiness("initial-vm", "state", viewModel, readinessStarted)
                 val active =
@@ -437,8 +433,8 @@ class MessengerPerformanceInstrumentedTest {
                 val heavy = checkNotNull(owner.conversations.getById(ids.getString(0)))
                 val own = owner.inboxId()
                 var maxHistoryReadRows = 0L
-                val productionRead = viewModel.historyPageRead
-                viewModel.historyPageRead = { chat, selection, before, after ->
+                val productionRead = viewModel.chat.historyPageRead
+                viewModel.chat.historyPageRead = { chat, selection, before, after ->
                     assertTrue("Published SDK page request exceeds 50 rows", checkNotNull(selection.limit) <= 50u)
                     productionRead(chat, selection, before, after).also {
                         maxHistoryReadRows =
@@ -460,7 +456,7 @@ class MessengerPerformanceInstrumentedTest {
                     val firstMs =
                         measured {
                             val queryStarted = SystemClock.elapsedRealtimeNanos()
-                            first = viewModel.performancePage(heavy, null)
+                            first = viewModel.chat.performancePage(heavy, null)
                             val mappingStarted = SystemClock.elapsedRealtimeNanos()
                             firstSdkMs = (mappingStarted - queryStarted) / 1_000_000.0
                             first.rows.map { it.toRow(own) }
@@ -472,7 +468,7 @@ class MessengerPerformanceInstrumentedTest {
                     val olderMs =
                         measured {
                             val queryStarted = SystemClock.elapsedRealtimeNanos()
-                            older = viewModel.performancePage(heavy, checkNotNull(first.last))
+                            older = viewModel.chat.performancePage(heavy, checkNotNull(first.last))
                             val mappingStarted = SystemClock.elapsedRealtimeNanos()
                             olderSdkMs = (mappingStarted - queryStarted) / 1_000_000.0
                             older.rows.map { it.toRow(own) }
@@ -484,7 +480,7 @@ class MessengerPerformanceInstrumentedTest {
                     assertTrue(older.rows.isNotEmpty())
                     val listMs =
                         measured {
-                            val rows = viewModel.performanceList(active)
+                            val rows = viewModel.conversations.performanceList(active)
                             assertEquals(50, rows.size)
                             assertTrue(
                                 rows.all {
@@ -528,7 +524,7 @@ class MessengerPerformanceInstrumentedTest {
                     if (run >= 5 && listSamples.size < 30) listSamples += listMs
                     run += 1
                 }
-                viewModel.performanceClearCache()
+                viewModel.chat.performanceClearCache()
                 val baseline = gcHeap()
                 var maxRows = 0
                 var maxCacheRows = 0
@@ -540,21 +536,21 @@ class MessengerPerformanceInstrumentedTest {
                     var before: MessageHistoryPosition? = null
                     var loaded = 0
                     do {
-                        val page = viewModel.performancePage(chat, before)
+                        val page = viewModel.chat.performancePage(chat, before)
                         maxPageRows = maxOf(maxPageRows, page.rows.size)
                         assertNull(page.notice)
                         assertTrue(page.rows.isNotEmpty())
                         before = page.last
                         loaded += page.rows.size
-                        val retained = viewModel.performanceRetain(chat.id(), page)
+                        val retained = viewModel.chat.performanceRetain(chat.id(), page)
                         currentRows = retained.map { it.toRow(own) }
                         maxRows = maxOf(maxRows, retained.size)
                         val visitedIds = (0 until 10).map { ids.getString(it) }
-                        maxCacheRows = maxOf(maxCacheRows, viewModel.performanceCacheRows(visitedIds))
+                        maxCacheRows = maxOf(maxCacheRows, viewModel.chat.performanceCacheRows(visitedIds))
                         maxCacheTranscripts =
                             maxOf(
                                 maxCacheTranscripts,
-                                visitedIds.count { viewModel.performanceCacheRows(listOf(it)) > 0 },
+                                visitedIds.count { viewModel.chat.performanceCacheRows(listOf(it)) > 0 },
                             )
                         assertNotNull("SDK history continuation is missing", before)
                     } while (loaded < 1_000)
@@ -631,8 +627,9 @@ class MessengerPerformanceInstrumentedTest {
                 try {
                     withContext(NonCancellable) {
                         attempt { withContext(Dispatchers.Main) { store.clear() } }
-                        attempt { session.onMessage = { _, _ -> } }
-                        attempt { session.onInvalidated = {} }
+                        attempt { graphRule.observers.beforeHandle = { _, _ -> } }
+                        attempt { graphRule.observers.afterHandle = { _, _ -> } }
+                        attempt { graphRule.observers.beforeInvalidate = {} }
                         attempt { session.signOut() }
                     }
                     failure?.let { throw it }

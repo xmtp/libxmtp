@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.*
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.example.BuildConfig
@@ -18,6 +19,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(AndroidJUnit4::class)
 class ConversationListStateInstrumentedTest {
+    private val graphRule = TestAppGraphRule()
+
+    @get:Rule val graphScope: org.junit.rules.TestRule = graphRule
+
     private suspend fun until(
         stage: String,
         check: suspend () -> Boolean,
@@ -34,11 +39,7 @@ class ConversationListStateInstrumentedTest {
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             val application = instrumentation.targetContext.applicationContext as ExampleApp
             val store = ViewModelStore()
-            val model =
-                ViewModelProvider(
-                    store,
-                    ViewModelProvider.AndroidViewModelFactory(application),
-                )[MessengerViewModel::class.java]
+            val model = graphRule.newShell(store)
             val initialRefresh = CompletableDeferred<Unit>()
             val releaseRefresh = CompletableDeferred<Unit>()
             var peer: SDKClient? = null
@@ -46,12 +47,11 @@ class ConversationListStateInstrumentedTest {
                 AndroidStreamLifecycle.enabled = false
                 resumeStreams()
                 model.session.signOut()
-                model.beforeActiveRefresh = {
+                model.projection.beforeActiveRefresh = {
                     initialRefresh.complete(Unit)
                     releaseRefresh.await()
                 }
-                model.session.onMessage = { _, _ -> }
-                model.session.onInvalidated = {}
+                graphRule.observers.pauseAutomaticProjection()
                 val backend = BuildConfig.XMTP_BACKEND_URL
                 model.session.connect(backend, "", localAttachmentNetwork(backend))
                 val owner = checkNotNull(model.session.active.value)
@@ -71,16 +71,22 @@ class ConversationListStateInstrumentedTest {
                 }
                 releaseRefresh.complete(Unit)
                 until("initial fifty-group list ready") { model.state.value.conversations.size == 50 }
-                model.beforeActiveRefresh = {}
+                model.projection.beforeActiveRefresh = {}
                 val calls = ConcurrentHashMap<String, AtomicInteger>()
-                model.listGroupStateRead = { group ->
-                    calls.computeIfAbsent(group.id()) { AtomicInteger() }.incrementAndGet()
+                val measuredRefresh = CoroutineName("measured-conversation-list-refresh")
+                model.conversations.listGroupStateRead = { group ->
+                    // Count this command's reads, including its async row reads.
+                    if (currentCoroutineContext()[CoroutineName] == measuredRefresh) {
+                        calls.computeIfAbsent(group.id()) { AtomicInteger() }.incrementAndGet()
+                    }
                     group.state()
                 }
-                model.refreshList(owner)
+                val measuredRows = withContext(measuredRefresh) { model.conversations.refresh(owner) }
                 assertEquals("Each of 50 groups needs one native state call", 50, calls.values.sumOf { it.get() })
                 assertEquals(groups.map { it.id() }.toSet(), calls.keys)
                 assertTrue("No group needs a second native state call", calls.values.all { it.get() == 1 })
+                // Wait for the shell's separate flow to publish this command's rows.
+                until("measured fifty-group shell projection") { model.state.value.conversations == measuredRows }
                 val rows =
                     model.state.value.conversations
                         .associateBy { it.id }
@@ -111,8 +117,9 @@ class ConversationListStateInstrumentedTest {
                 dm.updateConsentState(ConsentState.ALLOWED)
                 groups[49].updateConsentState(ConsentState.DENIED)
                 calls.clear()
-                model.refreshList(owner)
+                val measuredMixedRows = withContext(measuredRefresh) { model.conversations.refresh(owner) }
                 assertEquals("The DM path adds no GroupState read", 49, calls.values.sumOf { it.get() })
+                until("measured mixed shell projection") { model.state.value.conversations == measuredMixedRows }
                 val mixed = model.state.value.conversations
                 assertEquals(50, mixed.size)
                 assertFalse(mixed.any { it.id == groups[49].id() })
@@ -140,8 +147,8 @@ class ConversationListStateInstrumentedTest {
             } finally {
                 releaseRefresh.complete(Unit)
                 withContext(NonCancellable) {
-                    model.beforeActiveRefresh = {}
-                    model.listGroupStateRead = { it.state() }
+                    model.projection.beforeActiveRefresh = {}
+                    model.conversations.listGroupStateRead = { it.state() }
                     peer?.end()
                     if (model.session.active.value != null) model.session.deleteAccount()
                     model.session.signOut()

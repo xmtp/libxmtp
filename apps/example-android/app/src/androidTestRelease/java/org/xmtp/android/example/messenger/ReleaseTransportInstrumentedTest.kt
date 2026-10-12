@@ -16,7 +16,13 @@ import java.net.URI
 import java.util.UUID
 
 class ReleaseTransportInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: org.junit.rules.TestRule =
+        org.junit.rules.RuleChain
+            .outerRule(graphRule)
+            .around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private fun assertRelease() {
@@ -61,11 +67,11 @@ class ReleaseTransportInstrumentedTest {
                 val url = "http://10.0.2.2:5050"
                 val finished = CompletableDeferred<Unit>()
                 var probes = 0
-                model.inspectBackend = {
+                model.connect.inspectBackend = {
                     probes += 1
                     error("Rejected release bridge entered the SDK probe")
                 }
-                model.onBackendProbeFinished = { _, current -> if (current == url) finished.complete(Unit) }
+                model.connect.onBackendProbeFinished = { _, current -> if (current == url) finished.complete(Unit) }
                 model.dispatch(MessengerAction.InspectBackend(url))
                 withTimeout(30_000) { finished.await() }
                 assertEquals(0, probes)
@@ -74,9 +80,9 @@ class ReleaseTransportInstrumentedTest {
             } finally {
                 withContext(NonCancellable) {
                     session.beforeClientBuild = {}
-                    model.inspectBackend =
+                    model.connect.inspectBackend =
                         { SDKClient.fetchServerConfiguration(BackendSource.Options(BackendOptions(url = it))) }
-                    model.onBackendProbeFinished = { _, _ -> }
+                    model.connect.onBackendProbeFinished = { _, _ -> }
                     session.signOut()
                     session.preferences.profiles().filter { it.id !in originalProfiles }.forEach {
                         for (ref in listOf("credential", "wallet", "database-key")) session.secrets.delete(it.id, ref)

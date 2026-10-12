@@ -1,5 +1,6 @@
 package org.xmtp.android.example.messenger
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.chat.ReactionIdentity
 import uniffi.xmtp_sdk.*
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -180,6 +181,7 @@ fun reactionRows(
                 values.any {
                     it.senderInboxId == own
                 },
+                reactors = values.map { ReactionIdentity(it.senderInboxId, it.senderInboxId.take(12)) },
             )
         }
 
@@ -225,7 +227,7 @@ fun Message.toRow(own: InboxId): MessageRow {
         senderInboxId == own,
         when (deliveryStatus) {
             DeliveryStatus.PUBLISHED,
-            -> "Delivered"
+            -> "Sent"
 
             DeliveryStatus.FAILED,
             -> "Failed"

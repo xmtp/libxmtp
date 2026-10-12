@@ -108,6 +108,7 @@ class SendCoordinator(
                 throw kotlinx.coroutines.CancellationException("Action scope changed before send")
             }
             val id = send()
+            var acceptedCommitted = false
             // Acceptance belongs to this profile even when navigation cancels the caller.
             withContext(NonCancellable) {
                 val acceptedDraft = draft.copy(phase = SendPhase.ACCEPTED, acceptedMessageId = id)
@@ -128,7 +129,10 @@ class SendCoordinator(
                     )
                 knownAcceptances[draft.draftId] = entry
                 onStored(id)
-                if (entry.commit.finish()) knownAcceptances.remove(draft.draftId, entry)
+                if (entry.commit.finish()) {
+                    acceptedCommitted = true
+                    knownAcceptances.remove(draft.draftId, entry)
+                }
             }
             if (!accepts(key)) return id
             client.conversations
@@ -136,6 +140,7 @@ class SendCoordinator(
                 ?.let {
                     reconcile(it)
                 }
+            if (!acceptedCommitted) return id
             retry(
                 key,
                 client,
@@ -163,6 +168,17 @@ class SendCoordinator(
     ) {
         check(accepts(key))
         if (!admission()) throw kotlinx.coroutines.CancellationException("Action scope changed")
+        for ((draftId, entry) in knownAcceptances.entries.toList()) {
+            if (entry.profile != key.profileId || entry.commit.messageId != id) continue
+            val finished = withContext(NonCancellable) { entry.commit.finish() }
+            if (!finished) return
+            knownAcceptances.remove(draftId, entry)
+        }
+        if (!accepts(key) ||
+            !admission()
+        ) {
+            throw kotlinx.coroutines.CancellationException("Action scope changed before publication")
+        }
         val current = messageRead(client, id) ?: error("Stored message is unavailable")
         if (!accepts(key) ||
             !admission()

@@ -14,8 +14,10 @@ class NotificationBackendTransportInstrumentedTest {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
             val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-            val original = AppSession(context)
-            val recreated = AppSession(context)
+            val originalFixture = TestSessionFixture(context)
+            val original = originalFixture.session
+            val recreatedFixture = TestSessionFixture(context)
+            val recreated = recreatedFixture.session
             var sdkStarts = 0
             try {
                 original.connect(BuildConfig.XMTP_BACKEND_URL, "", localAttachmentNetwork(BuildConfig.XMTP_BACKEND_URL))
@@ -29,7 +31,7 @@ class NotificationBackendTransportInstrumentedTest {
                 original.preferences.setSignedIn(true)
                 val credential = "saved-push-test-only-secret".toByteArray()
                 original.secrets.write(saved.id, "credential", credential)
-                recreated.needsNotificationPreflight = { true }
+                recreatedFixture.lifecycle.needsNotificationPreflight = { true }
                 recreated.beforeClientBuild = {
                     sdkStarts += 1
                     error("Saved remote HTTP reached the SDK construction boundary")

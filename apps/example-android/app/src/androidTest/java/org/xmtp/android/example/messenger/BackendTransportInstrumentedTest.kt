@@ -37,7 +37,8 @@ class BackendTransportInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             var local: BackendProfile? = null
             var remote: BackendProfile? = null
             var recreated: AppSession? = null
@@ -80,7 +81,8 @@ class BackendTransportInstrumentedTest {
                 println("TRANSPORT_PROOF stage=remote-connect-rejected-before-profile-secret-sdk")
                 session.signOut()
                 session.preferences.setSignedIn(true)
-                val localSession = AppSession(context)
+                val localSessionFixture = TestSessionFixture(context)
+                val localSession = localSessionFixture.session
                 localRecreated = localSession
                 localSession.beforeClientBuild = session.beforeClientBuild
                 localSession.restore()
@@ -99,7 +101,8 @@ class BackendTransportInstrumentedTest {
                 session.preferences.setActive(checkNotNull(remote))
                 session.preferences.setSignedIn(true)
                 session.secrets.write(checkNotNull(remote).id, "credential", "saved-test-only-secret".toByteArray())
-                recreated = AppSession(context)
+                val recreatedFixture = TestSessionFixture(context)
+                recreated = recreatedFixture.session
                 var restoreSdkStarts = 0
                 checkNotNull(recreated).beforeClientBuild = {
                     restoreSdkStarts += 1

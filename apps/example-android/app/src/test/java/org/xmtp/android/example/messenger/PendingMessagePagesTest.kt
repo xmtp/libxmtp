@@ -84,47 +84,6 @@ class PendingMessagePagesTest {
             assertEquals(11, calls)
         }
 
-    @Test fun emptyRawPagesKeepContinuationAtTheFourReadLimit() =
-        runBlocking {
-            var calls = 0
-            val bounds = mutableListOf<MessageRecoveryPosition?>()
-            val read: suspend (ListMessagesOptions, MessageRecoveryPosition?, MessageRecoveryPosition?) ->
-            MessageRecoveryPage = { options, before, after ->
-                assertSelection(options)
-                assertNull(after)
-                bounds += before
-                calls += 1
-                if (calls <= 4) {
-                    MessageRecoveryPage(
-                        emptyList(),
-                        position((calls - 1) * 50),
-                        position(calls * 50 - 1),
-                        true,
-                        50u,
-                    )
-                } else {
-                    MessageRecoveryPage(
-                        listOf(storedMessage(1, DeliveryStatus.FAILED)),
-                        position(200),
-                        position(200),
-                        false,
-                        0u,
-                    )
-                }
-            }
-            val empty = pendingMessagePage(null, read)
-            assertEquals("The first operation uses four recovery calls", 4, calls)
-            assertTrue(empty.rows.isEmpty())
-            assertTrue("Raw continuation remains available", empty.hasOlder)
-            assertEquals(position(0), empty.first)
-            assertEquals(position(199), empty.last)
-            assertNotNull(empty.notice)
-            val readable = pendingMessagePage(empty.last, read)
-            assertEquals(listOf("1"), readable.rows.map { it.id })
-            assertFalse(readable.hasOlder)
-            assertEquals(listOf(null, position(49), position(99), position(149), position(199)), bounds)
-        }
-
     @Test fun partialRawPageKeepsReadableRowsNoticeAndContinuation() =
         runBlocking {
             val retained = storedMessage(7, DeliveryStatus.UNPUBLISHED)

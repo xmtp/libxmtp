@@ -23,7 +23,8 @@ class SessionLifecycleInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             try {
                 session
                     .connect(
@@ -88,7 +89,7 @@ class SessionLifecycleInstrumentedTest {
                             .mkdirs()
                         writeText("plaintext")
                     }
-                session.unregisterNotifications = {
+                sessionFixture.lifecycle.unregisterNotifications = {
                     error("Unregister network failure")
                 }
                 session
@@ -189,7 +190,8 @@ class SessionLifecycleInstrumentedTest {
                                 first.key.profileId,
                             ),
                     )
-                val recreated = AppSession(context)
+                val recreatedFixture = TestSessionFixture(context)
+                val recreated = recreatedFixture.session
                 recreated
                     .restore()
                 assertNull(
@@ -276,7 +278,8 @@ class SessionLifecycleInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             var owned: File? = null
             try {
                 session
@@ -319,7 +322,8 @@ class SessionLifecycleInstrumentedTest {
                             false,
                         ),
                 )
-                val recreated = AppSession(context)
+                val recreatedFixture = TestSessionFixture(context)
+                val recreated = recreatedFixture.session
                 assertTrue(
                     runCatching {
                         recreated

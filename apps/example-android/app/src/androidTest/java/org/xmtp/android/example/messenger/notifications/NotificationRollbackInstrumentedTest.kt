@@ -15,8 +15,10 @@ class NotificationRollbackInstrumentedTest {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-        val original = AppSession(context)
-        val restored = AppSession(context)
+        val originalFixture = TestSessionFixture(context)
+        val original = originalFixture.session
+        val restoredFixture = TestSessionFixture(context)
+        val restored = restoredFixture.session
         var failedOwner: ActiveSession? = null
         var disables = 0
         try {
@@ -45,7 +47,7 @@ class NotificationRollbackInstrumentedTest {
             original.signOut()
             original.preferences.setSignedIn(true)
             // This registered-account fixture has no Off preflight policy or FCM transport.
-            restored.unregisterNotifications = { client ->
+            restoredFixture.lifecycle.unregisterNotifications = { client ->
                 disables += 1
                 client.disableNotifications()
             }

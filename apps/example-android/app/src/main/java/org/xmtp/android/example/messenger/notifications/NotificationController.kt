@@ -33,6 +33,7 @@ import org.xmtp.android.example.messenger.AppSession
 import org.xmtp.android.example.messenger.SessionKey
 import org.xmtp.android.example.messenger.conversationState
 import org.xmtp.android.example.messenger.logicalConversationKey
+import org.xmtp.android.example.messenger.session.SessionLifecycle
 import uniffi.xmtp_sdk.*
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -61,49 +62,51 @@ class NotificationController(
     val configured get() = transport.configured
     private val handler = PushHandler(this)
 
-    init {
-        val previousAdmissionChange = session.onNotificationAdmissionChanged
-        session.onNotificationAdmissionChanged = { owner ->
-            previousAdmissionChange(owner)
-            session.withCurrent(owner.key) { privacyRevision.incrementAndGet() }
-        }
-        session.unregisterNotifications = { client ->
-            if (configured) registration.withLock { disableRegistration(client) }
-        }
-        session.needsNotificationPreflight =
-            { profile -> !configured || !permission() || !preferences.enabled(profile) }
-        val previousStop = session.stopStoredNotifications
-        session.stopStoredNotifications = { owner ->
-            previousStop(owner)
-            if (owner.client.notificationState() !is NotificationState.Disabled) {
-                try {
-                    withTimeout(5_000) { disableRegistration(owner.client) }
-                } catch (error: Exception) {
-                    if (error is CancellationException) currentCoroutineContext().ensureActive()
-                }
-                check(owner.client.notificationState() is NotificationState.Disabled) {
-                    "Cannot turn stored notifications off"
+    val lifecycle: SessionLifecycle =
+        object : SessionLifecycle {
+            override fun onAdmissionChanged(owner: ActiveSession) {
+                session.withCurrent(owner.key) { privacyRevision.incrementAndGet() }
+            }
+
+            override fun onInvalidated() {
+                privacyRevision.incrementAndGet()
+            }
+
+            override suspend fun unregisterNotifications(client: SDKClient) {
+                if (configured) registration.withLock { disableRegistration(client) }
+            }
+
+            override suspend fun needsNotificationPreflight(profileId: String): Boolean =
+                !configured || !permission() || !preferences.enabled(profileId)
+
+            override suspend fun stopStoredNotifications(owner: ActiveSession) {
+                if (owner.client.notificationState() !is NotificationState.Disabled) {
+                    try {
+                        withTimeout(5_000) { disableRegistration(owner.client) }
+                    } catch (error: Exception) {
+                        if (error is CancellationException) currentCoroutineContext().ensureActive()
+                    }
+                    check(owner.client.notificationState() is NotificationState.Disabled) {
+                        "Cannot turn stored notifications off"
+                    }
                 }
             }
-        }
-        val previousRemoval = session.beforeProfileRemoval
-        session.beforeProfileRemoval = { profile ->
-            previousRemoval(profile)
-            preferences.remove(profile)
-        }
-        val previous = session.beforeEnd
-        session.beforeEnd = { owner ->
-            try {
-                previous(owner)
-            } finally {
+
+            override suspend fun beforeProfileRemoval(profileId: String) {
+                preferences.remove(profileId)
+            }
+
+            override suspend fun beforeEnd(owner: ActiveSession) {
                 registration.withLock {
-                    // Feature work has stopped. A late enable cannot follow this unregister.
+                    // Session work has stopped. A late enable cannot follow this unregister.
                     registeredOwner = null
                     registeredToken = null
-                    NotificationManagerCompat.from(this.context).cancelAll()
+                    NotificationManagerCompat.from(context).cancelAll()
                 }
             }
         }
+
+    init {
         scope.launch {
             session.active.collect { owner ->
                 enabledState.value = false
