@@ -79,17 +79,28 @@ async fn connect_pool(url: &str, config: &Config) -> Result<PgPool, Error> {
 /// responses. Probe with one simple query: timestamps differ in an explicit
 /// transaction. A probe error makes SQLx close an aborted connection hard.
 async fn release(connection: &mut PgConnection) -> Result<bool, sqlx::Error> {
+    if rollback_open_transaction(connection).await? {
+        crate::telemetry::released_open_transaction();
+        tracing::warn!("rolled back an open transaction on pool release");
+    }
+    Ok(true)
+}
+
+/// Drain pending responses and roll back any transaction left by a cancelled BEGIN.
+/// Use a simple query because extended-query timestamps can differ outside a transaction.
+/// A failed probe or rollback returns the database error to the caller.
+pub(crate) async fn rollback_open_transaction(
+    connection: &mut PgConnection,
+) -> Result<bool, sqlx::Error> {
     let in_transaction: bool =
         sqlx::raw_sql("SELECT transaction_timestamp() <> statement_timestamp()")
             .fetch_one(&mut *connection)
             .await?
             .try_get(0)?;
     if in_transaction {
-        crate::telemetry::released_open_transaction();
         sqlx::raw_sql("ROLLBACK").execute(connection).await?;
-        tracing::warn!("rolled back an open transaction on pool release");
     }
-    Ok(true)
+    Ok(in_transaction)
 }
 
 /// Open the tailer's dedicated selected-read connection outside the request pool.
