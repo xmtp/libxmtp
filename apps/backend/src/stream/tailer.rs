@@ -173,6 +173,7 @@ impl RetryableError for StartupBoundaryError {
 /// Each attempt begins a new transaction; other errors retain their typed cause.
 /// Success proves the current fresh schema exists, not that later migrations
 /// have replayed on an already initialized replica. Cancellation stops retries.
+/// Deadline expiry also cleans up a BEGIN that SQLx has not recorded yet.
 async fn startup_boundary(
     connection: &mut sqlx::PgConnection,
     budget: Duration,
@@ -200,9 +201,12 @@ async fn startup_boundary(
     .await
     {
         Ok(result) => result.map_err(|error| error.0),
-        Err(_) => Err(Error::StartupBoundaryTimeout {
-            timeout_ms: budget.as_millis().try_into().unwrap_or(u64::MAX),
-        }),
+        Err(_) => {
+            db::rollback_open_transaction(connection).await?;
+            Err(Error::StartupBoundaryTimeout {
+                timeout_ms: budget.as_millis().try_into().unwrap_or(u64::MAX),
+            })
+        }
     }
 }
 

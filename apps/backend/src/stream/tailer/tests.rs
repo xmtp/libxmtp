@@ -8,6 +8,68 @@ const BOUNDARY_RETRY_OBSERVATION: Duration = Duration::from_millis(50);
 const PERMANENT_BOUNDARY_ERROR_DEADLINE: Duration = Duration::from_secs(1);
 const BOUNDARY_TEST_DEADLINE: Duration = Duration::from_secs(5);
 const RECOVERED_BOUNDARY: i64 = 7;
+const CANCELLED_BEGIN_LOCK: i64 = 1;
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn startup_timeout_during_begin_releases_the_read_only_transaction() {
+    let mut database = TestDatabase::new()?;
+    let mut connection = PgConnection::connect(database.url()).await?;
+    let mut blocker = PgConnection::connect(database.url()).await?;
+    let observer = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(database.url())
+        .await?;
+    let pid: i32 = sqlx::query_scalar(sqlx::AssertSqlSafe("SELECT pg_backend_pid()"))
+        .fetch_one(&mut connection)
+        .await?;
+    sqlx::query(sqlx::AssertSqlSafe("SELECT pg_advisory_lock($1)"))
+        .bind(CANCELLED_BEGIN_LOCK)
+        .execute(&mut blocker)
+        .await?;
+    // Leave a blocked query on the wire so BEGIN cannot finish before the deadline.
+    {
+        let pending = sqlx::query(sqlx::AssertSqlSafe("SELECT pg_advisory_lock($1)"))
+            .bind(CANCELLED_BEGIN_LOCK)
+            .execute(&mut connection);
+        tokio::pin!(pending);
+        tokio::select! {
+            result = &mut pending => panic!("expected a blocked query, got {result:?}"),
+            result = xmtp_common::wait_for_eq(|| async {
+                sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event = 'advisory')",
+                ))
+                .bind(pid)
+                .fetch_one(&observer)
+                .await
+                .expect("read blocked query state")
+            }, true) => result?,
+        }
+    }
+    let (result, unlocked) = timeout(BOUNDARY_TEST_DEADLINE, async {
+        tokio::join!(startup_boundary(&mut connection, Duration::ZERO), async {
+            sleep(BOUNDARY_RETRY_OBSERVATION).await;
+            sqlx::query(sqlx::AssertSqlSafe("SELECT pg_advisory_unlock($1)"))
+                .bind(CANCELLED_BEGIN_LOCK)
+                .execute(&mut blocker)
+                .await
+        })
+    })
+    .await?;
+    unlocked?;
+    xmtp_common::assert_err!(result, Error::StartupBoundaryTimeout { timeout_ms: 0 });
+    create_allocation_boundary(&mut connection, Some(RECOVERED_BOUNDARY)).await?;
+    let row = sqlx::raw_sql(sqlx::AssertSqlSafe(
+        "SELECT transaction_timestamp() <> statement_timestamp()",
+    ))
+    .fetch_one(&mut connection)
+    .await?;
+    let in_transaction: bool = sqlx::Row::try_get(&row, 0)?;
+    assert!(!in_transaction, "the connection must have no open snapshot");
+    connection.close().await?;
+    blocker.close().await?;
+    observer.close().await;
+    database.remove()?;
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn missing_startup_boundary_expires_and_releases_its_snapshot() {
