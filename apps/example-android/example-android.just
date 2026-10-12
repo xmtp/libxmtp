@@ -13,6 +13,14 @@ check *args: build
   ./gradlew -p . :example:assembleDebug :example:assembleRelease :example:assembleDebugAndroidTest :example-shared:assembleDebug :example-shared:assembleRelease {{ args }} --dependency-verification=strict --no-daemon
   python3.11 -B {{ root }}/sdks/android/dev/check-native-packages.py app/build/outputs/apk/debug/example-debug.apk app/build/outputs/apk/release/example-release-unsigned.apk
 
+# Boot a visible emulator and run the example against the existing local backend.
+start: build
+  {{ _env }} && NIX_ANDROID_EMULATOR_API=34 NIX_ANDROID_EMULATOR_FLAGS="-no-snapshot-save -gpu auto -skin 1080x2400 -memory 4096 -partition-size 8192" run-test-emulator -- bash ./dev/start
+
+# Compile shared screens and Android Studio previews without native bindings.
+preview-check *args:
+  ./gradlew -p . :example-shared:compileDebugKotlinAndroid {{ args }} --dependency-verification=strict --no-daemon
+
 # Run app host and shared screen unit tests with matched native bindings.
 test *args: build _test-host
   {{ _env }} && JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djna.library.path={{ root }}/sdks/android/.build/test-host/lib" ./gradlew -p . :example:testDebugUnitTest {{ args }} :example-shared:testDebugUnitTest --dependency-verification=strict --no-daemon

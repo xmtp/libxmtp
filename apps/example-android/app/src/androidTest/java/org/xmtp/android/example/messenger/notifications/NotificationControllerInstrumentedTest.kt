@@ -60,13 +60,14 @@ class NotificationControllerInstrumentedTest {
     }
 
     private fun controller(
-        session: AppSession,
+        fixture: TestSessionFixture,
         transport: Transport = Transport(),
     ) = NotificationController(
         context,
-        session,
+        fixture.session,
         transport,
     ).also {
+        fixture.bindNotifications(it)
         it.permissionGranted = { true }
         it.enableRegistration = { _, _ -> NotificationState.Enabled }
         it.disableRegistration = { }
@@ -112,8 +113,9 @@ class NotificationControllerInstrumentedTest {
     private suspend fun privacyWriteAlreadyPending(kind: String) {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
-        val session = AppSession(context)
-        val controller = controller(session)
+        val sessionFixture = TestSessionFixture(context)
+        val session = sessionFixture.session
+        val controller = controller(sessionFixture)
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         var mutation: Deferred<Unit>? = null
@@ -189,8 +191,9 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
-            val controller = controller(session)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
+            val controller = controller(sessionFixture)
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             var mutation: Deferred<Unit>? = null
@@ -250,8 +253,9 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
-            val controller = controller(session)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
+            val controller = controller(sessionFixture)
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             val committed = CompletableDeferred<Unit>()
@@ -327,8 +331,9 @@ class NotificationControllerInstrumentedTest {
     private suspend fun finalPrivacyChange(kind: String) {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
-        val session = AppSession(context)
-        val controller = controller(session)
+        val sessionFixture = TestSessionFixture(context)
+        val session = sessionFixture.session
+        val controller = controller(sessionFixture)
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         var pending: Deferred<Boolean>? = null
@@ -385,8 +390,9 @@ class NotificationControllerInstrumentedTest {
     private suspend fun changeDuringFinalNativeRead(kind: String) {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
-        val session = AppSession(context)
-        val controller = controller(session)
+        val sessionFixture = TestSessionFixture(context)
+        val session = sessionFixture.session
+        val controller = controller(sessionFixture)
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         var pending: Deferred<Boolean>? = null
@@ -416,8 +422,8 @@ class NotificationControllerInstrumentedTest {
                 owner.work.async { controller.setEnabled(owner, false) }.await()
             } else {
                 val changed = CompletableDeferred<Unit>()
-                val admission = session.onNotificationAdmissionChanged
-                session.onNotificationAdmissionChanged = { current ->
+                val admission = sessionFixture.lifecycle.onNotificationAdmissionChanged
+                sessionFixture.lifecycle.onNotificationAdmissionChanged = { current ->
                     admission(current)
                     changed.complete(Unit)
                 }
@@ -461,9 +467,10 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             val transport = Transport(false)
-            val controller = controller(session, transport)
+            val controller = controller(sessionFixture, transport)
             var registrations = 0
             controller.enableRegistration = { _, _ ->
                 registrations += 1
@@ -507,8 +514,10 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
-            val controller = controller(session)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
+            val controller = controller(sessionFixture)
+            val invalidated = sessionFixture.lifecycle.onSessionInvalidated
             val posted = linkedMapOf<String, Pair<PushRoute, Notification>>()
             // Capture construction and routes. This fixture does not post to Android.
             controller.postNotification = { envelope, route, notification ->
@@ -602,7 +611,8 @@ class NotificationControllerInstrumentedTest {
                 assertFalse(controller.receive(payload(1, installation(owner))))
                 val snapshot = checkNotNull(controller.current())
                 val delayed = checkNotNull(parsePush(payload(0, group.id(), "9")))
-                session.onSessionInvalidated = {
+                sessionFixture.lifecycle.onSessionInvalidated = {
+                    invalidated()
                     assertSame(owner, session.active.value)
                     runBlocking {
                         assertFalse(controller.postIfCurrent(snapshot, delayed, route))
@@ -613,7 +623,7 @@ class NotificationControllerInstrumentedTest {
                 session.signOut()
                 assertEquals(3, posted.size)
             } finally {
-                session.onSessionInvalidated = {}
+                sessionFixture.lifecycle.onSessionInvalidated = invalidated
                 withContext(NonCancellable) { peer?.end() }
                 cleanup(session, controller)
                 AndroidStreamLifecycle.enabled = true
@@ -624,8 +634,9 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
-            val controller = controller(session)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
+            val controller = controller(sessionFixture)
             var recreated: AppSession? = null
             var cold: NotificationController? = null
             var aProfile: BackendProfile? = null
@@ -644,7 +655,7 @@ class NotificationControllerInstrumentedTest {
                 assertFalse(session.preferences.signedIn())
                 assertFalse(controller.receive(payload(0, aGroup)))
                 assertFalse(controller.receive(payload(1, aWelcome)))
-                assertNull(AppSession(context).restoreForPush())
+                assertNull(TestSessionFixture(context).session.restoreForPush())
                 val local = java.net.URI(BuildConfig.XMTP_BACKEND_URL)
                 session.connect("http://127.0.0.1:${local.port}", "", false)
                 val b = checkNotNull(session.active.value)
@@ -656,8 +667,9 @@ class NotificationControllerInstrumentedTest {
                 session.signOut()
                 // The client is ended. Restore the saved signed-in bit to model process recreation.
                 session.preferences.setSignedIn(true)
-                recreated = AppSession(context)
-                cold = controller(checkNotNull(recreated))
+                val recreatedFixture = TestSessionFixture(context)
+                recreated = recreatedFixture.session
+                cold = controller(recreatedFixture)
                 val posted = mutableListOf<PushRoute>()
                 cold.postNotification = { _, route, _ ->
                     posted += route
@@ -685,8 +697,10 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val original = AppSession(context)
-            val reopened = AppSession(context)
+            val originalFixture = TestSessionFixture(context)
+            val original = originalFixture.session
+            val reopenedFixture = TestSessionFixture(context)
+            val reopened = reopenedFixture.session
             var probe: Job? = null
             try {
                 original.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
@@ -742,8 +756,9 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            var session = AppSession(context)
-            var controller = controller(session, Transport(false))
+            var sessionFixture = TestSessionFixture(context)
+            var session = sessionFixture.session
+            var controller = controller(sessionFixture, Transport(false))
             val notificationPreferences = NotificationPreferences(context)
             var failedOwner: ActiveSession? = null
             try {
@@ -771,8 +786,9 @@ class NotificationControllerInstrumentedTest {
                 session.signOut()
                 session.preferences.setSignedIn(true)
                 controller.close()
-                session = AppSession(context)
-                controller = controller(session, Transport(false))
+                sessionFixture = TestSessionFixture(context)
+                session = sessionFixture.session
+                controller = controller(sessionFixture, Transport(false))
                 session.beforeOpeningListener = { owner ->
                     failedOwner = owner
                     error("Push listener failure")
@@ -801,8 +817,9 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
-            val controller = controller(session)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
+            val controller = controller(sessionFixture)
             val configurations = mutableListOf<NotificationConfig>()
             var sdkState: NotificationState = NotificationState.Disabled
             var disables = 0
@@ -854,8 +871,9 @@ class NotificationControllerInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
-            val controller = controller(session)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
+            val controller = controller(sessionFixture)
             val entered = CompletableDeferred<Unit>()
             val cancelled = CompletableDeferred<Unit>()
             val order = mutableListOf<String>()

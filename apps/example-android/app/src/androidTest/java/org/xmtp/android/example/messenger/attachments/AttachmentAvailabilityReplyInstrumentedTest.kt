@@ -7,16 +7,20 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.MessengerViewModel
+import org.xmtp.android.example.messenger.TestAppGraphRule
 import org.xmtp.android.example.shared.MessengerAction
 import uniffi.xmtp_sdk.*
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 class AttachmentAvailabilityReplyInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(check: () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
@@ -24,10 +28,10 @@ class AttachmentAvailabilityReplyInstrumentedTest {
     @Test fun actualAttachmentAvailabilityRefreshKeepsConcurrentReplyAndDraftText() =
         runBlocking<Unit> {
             val previousLifecycle = AndroidStreamLifecycle.enabled
-            val release = CountDownLatch(1)
+            val release = CompletableDeferred<Unit>()
             val entered = CompletableDeferred<Unit>()
             val session = model.session
-            val previousInvalidated = session.onInvalidated
+            val previousInvalidated = graphRule.observers.beforeInvalidate
             try {
                 AndroidStreamLifecycle.enabled = false
                 resumeStreams()
@@ -43,7 +47,7 @@ class AttachmentAvailabilityReplyInstrumentedTest {
                     )
                 val id = group.sendText("Reply parent survives availability refresh")
                 val opened = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 withTimeout(30_000) { opened.await() }
                 until {
@@ -51,16 +55,23 @@ class AttachmentAvailabilityReplyInstrumentedTest {
                         .any { it.id == id }
                 }
                 compose.onNodeWithText("Message", substring = false).performTextInput("Keep the composer draft")
-                session.onInvalidated = {}
-                model.beforeFeaturesUiUpdate = {
-                    entered.complete(Unit)
-                    check(release.await(30, TimeUnit.SECONDS))
+                graphRule.observers.beforeInvalidate = {}
+                val refreshing =
+                    async(Dispatchers.IO, start = CoroutineStart.LAZY) { graphRule.graph.attachments.refresh(owner) }
+                graphRule.graph.attachments.beforeSupportAdmission = { supported, token ->
+                    if (currentCoroutineContext()[Job] === refreshing) {
+                        assertTrue(supported)
+                        assertEquals(model.chat.screenToken(), token)
+                        entered.complete(Unit)
+                        release.await()
+                    }
                 }
-                val refreshing = async(Dispatchers.IO) { model.featureRefresh(owner, model.currentConversation()) }
+                refreshing.start()
                 withTimeout(30_000) { entered.await() }
                 model.dispatch(MessengerAction.Reply(id))
+                until { model.state.value.replyTo == id }
                 assertEquals(id, model.state.value.replyTo)
-                release.countDown()
+                release.complete(Unit)
                 withTimeout(30_000) { refreshing.await() }
                 assertEquals("Reply survives the actual attachment availability update", id, model.state.value.replyTo)
                 assertEquals("Reply parent survives availability refresh", model.state.value.replyPreview)
@@ -69,10 +80,10 @@ class AttachmentAvailabilityReplyInstrumentedTest {
                 compose.onNodeWithText("Keep the composer draft").assertIsDisplayed()
                 println("ATTACHMENT_AVAILABILITY_REPLY_PROOF stage=actual-host-refresh reply-kept=true draft-kept=true")
             } finally {
-                release.countDown()
-                model.beforeFeaturesUiUpdate = {}
-                model.onOpenFinished = {}
-                session.onInvalidated = previousInvalidated
+                release.complete(Unit)
+                graphRule.graph.attachments.beforeSupportAdmission = { _, _ -> }
+                model.chat.onOpenFinished = {}
+                graphRule.observers.beforeInvalidate = previousInvalidated
                 withContext(NonCancellable) {
                     if (session.active.value != null || session.preferences.reset() != null) session.deleteAccount()
                     session.signOut()

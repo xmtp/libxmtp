@@ -12,9 +12,12 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.MessengerViewModel
+import org.xmtp.android.example.messenger.TestAppGraphRule
 import org.xmtp.android.example.shared.MessengerAction
 import org.xmtp.android.example.shared.MessengerScreens
 import uniffi.xmtp_sdk.*
@@ -22,7 +25,10 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 class AttachmentCardInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     private suspend fun until(check: () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
@@ -60,9 +66,9 @@ class AttachmentCardInstrumentedTest {
             val ready = CompletableDeferred<Unit>()
             val opened = CompletableDeferred<Unit>()
             val session = model.session
-            val previousInvalidated = session.onInvalidated
-            val previousMessage = session.onMessage
-            val previousOpenFinished = model.onOpenFinished
+            val previousInvalidated = graphRule.observers.beforeInvalidate
+            val previousMessage = graphRule.observers.beforeHandle
+            val previousOpenFinished = model.chat.onOpenFinished
             val host = compose.activity.attachments
             try {
                 session.signOut()
@@ -83,15 +89,15 @@ class AttachmentCardInstrumentedTest {
                 pending.upload()
                 val remote = pending.remoteAttachment()
                 // Hold SDK event refresh and the action's final refresh. The card must observe its own flows.
-                session.onInvalidated = { release.await() }
-                session.onMessage = { _, _ -> release.await() }
+                graphRule.observers.beforeInvalidate = { release.await() }
+                graphRule.observers.beforeHandle = { _, _ -> release.await() }
                 val group =
                     Conversation.Group(
                         owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "File card")),
                     )
                 val id = group.sendRemoteAttachment(remote, SendOptions(optimistic = true))
                 group.publishMessage(id)
-                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 withTimeout(30_000) { opened.await() }
                 until {
@@ -100,19 +106,24 @@ class AttachmentCardInstrumentedTest {
                             .any { it.id == id }
                 }
                 assertFalse(File(owner.client.attachments().localPath(remote)).exists())
-                host.beforeDownloadRefresh = {
+                graphRule.graph.attachments.beforeDownloadRefresh = {
                     ready.complete(Unit)
                     release.await()
                 }
                 val parentState = model.state.value
                 compose.runOnUiThread {
                     compose.activity.setContent {
-                        MessengerScreens(parentState, {}, messageExtra = { row -> host.Message(row) })
+                        MessengerScreens(parentState, {}, messageExtra = { row ->
+                            host.Message(row, parentState.conversationId)
+                        })
                     }
                 }
-                compose.onNodeWithText("Download").assertIsDisplayed()
+                compose.onNodeWithTag("attachment-card-$id", useUnmergedTree = true).assertExists()
+                compose.onNodeWithText("Download").performScrollTo().assertIsDisplayed()
                 compose.onNodeWithText("Open").assertDoesNotExist()
-                compose.onNodeWithContentDescription("blue.png").assertDoesNotExist()
+                compose
+                    .onNodeWithContentDescription("Verified image: blue.png", useUnmergedTree = true)
+                    .assertDoesNotExist()
                 compose.onNodeWithText("Download").performClick()
                 withTimeout(30_000) { ready.await() }
                 assertArrayEquals(bytes, File(owner.client.attachments().localPath(remote)).readBytes())
@@ -121,7 +132,9 @@ class AttachmentCardInstrumentedTest {
                 compose.onNodeWithText("Verified").assertIsDisplayed()
                 compose.onNodeWithText("Open").assertIsDisplayed()
                 compose.onNodeWithText("Save").assertIsDisplayed()
-                compose.onNodeWithContentDescription("blue.png").assertIsDisplayed()
+                compose
+                    .onNodeWithContentDescription("Verified image: blue.png", useUnmergedTree = true)
+                    .assertIsDisplayed()
                 println("FILE_CARD_PROOF stage=verified-actions-and-preview parent-refresh=held message=$id")
                 val privateCapture =
                     File(compose.activity.filesDir, "xmtp-messenger-proof/attachment-card-verified.png")
@@ -136,10 +149,10 @@ class AttachmentCardInstrumentedTest {
                 assertEquals("The card proof does not add a public image", publicCaptures, publicCaptureCount())
             } finally {
                 release.complete(Unit)
-                host.beforeDownloadRefresh = {}
-                session.onInvalidated = previousInvalidated
-                session.onMessage = previousMessage
-                model.onOpenFinished = previousOpenFinished
+                graphRule.graph.attachments.beforeDownloadRefresh = {}
+                graphRule.observers.beforeInvalidate = previousInvalidated
+                graphRule.observers.beforeHandle = previousMessage
+                model.chat.onOpenFinished = previousOpenFinished
                 withContext(NonCancellable) {
                     sender.close()
                     if (session.active.value != null || session.preferences.reset() != null) session.deleteAccount()

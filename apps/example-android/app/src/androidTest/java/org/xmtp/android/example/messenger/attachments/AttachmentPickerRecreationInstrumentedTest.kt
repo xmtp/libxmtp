@@ -16,17 +16,25 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
+import org.xmtp.android.example.shared.AppRoute
 import org.xmtp.android.example.shared.MessengerAction
+import org.xmtp.android.example.shared.attachments.AttachmentSelection
 import uniffi.xmtp_sdk.*
 import java.io.File
 import java.io.FileNotFoundException
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 
 class AttachmentPickerRecreationInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
 
@@ -75,16 +83,20 @@ class AttachmentPickerRecreationInstrumentedTest {
         coroutineScope {
             val enabled = AndroidStreamLifecycle.enabled
             val session = model.session
-            val invalidated = session.onInvalidated
-            val message = session.onMessage
+            val invalidated = graphRule.observers.beforeInvalidate
+            val message = graphRule.observers.beforeHandle
             val sender = AttachmentTestFixture()
             var destination: Uri? = null
             var outstanding = false
+            val selectedMimeTypes = AtomicReference<List<String>?>(null)
             val monitor =
                 object : Instrumentation.ActivityMonitor() {
                     override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
                         val selecting = intent.action == Intent.ACTION_OPEN_DOCUMENT
                         val exporting = intent.action == Intent.ACTION_CREATE_DOCUMENT
+                        if (selecting) {
+                            selectedMimeTypes.set(intent.getStringArrayExtra(Intent.EXTRA_MIME_TYPES)?.toList())
+                        }
                         if (selecting || exporting) {
                             val component = AttachmentPickerActivity::class.java.name
                             intent.setClassName(instrumentation.context.packageName, component)
@@ -101,8 +113,8 @@ class AttachmentPickerRecreationInstrumentedTest {
                 val owner = checkNotNull(session.active.value)
                 until { model.state.value.inbox == owner.client.inboxId() && model.state.value.features.attachments }
                 model.foreground(false)
-                session.onInvalidated = {}
-                session.onMessage = { _, _ -> }
+                graphRule.observers.beforeInvalidate = {}
+                graphRule.observers.beforeHandle = { _, _ -> }
                 val options = CreateGroupOptions(name = "Picker recreation")
                 val chat = owner.client.conversations.createGroup(emptyList(), options)
                 var id: String? = null
@@ -118,27 +130,80 @@ class AttachmentPickerRecreationInstrumentedTest {
                     chat.publishMessage(id)
                 }
                 val opened = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == chat.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == chat.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(chat.id()))
                 withTimeout(30_000) { opened.await() }
-                val token = model.screenToken()
+                val token = model.chat.screenToken()
                 instrumentation.addMonitor(monitor)
                 if (stage == "select") {
-                    compose.onNodeWithContentDescription("Select file").performClick()
+                    compose.onNodeWithContentDescription("Add attachment").performClick()
+                    compose.waitUntil(5_000) {
+                        compose.onAllNodesWithTag("attachment-choice-sheet").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    compose.onNodeWithTag("attachment-choice-sheet").assertExists()
+                    val sheet = checkNotNull(graphRule.graph.attachments.choice.value)
+                    instrumentation.runOnMainSync { assertTrue(graphRule.graph.back()) }
+                    assertNull(graphRule.graph.attachments.choice.value)
+                    assertEquals(AppRoute.Chat(chat.id()), graphRule.graph.destinations.state.value.route)
+                    assertNull(model.attachments.requests.launchedSelect())
+                    compose.waitUntil(5_000) {
+                        compose.onAllNodesWithTag("attachment-choice-sheet").fetchSemanticsNodes().isEmpty()
+                    }
+                    compose.onNodeWithContentDescription("Add attachment").performClick()
+                    compose.waitUntil(5_000) {
+                        graphRule.graph.attachments.choice.value
+                            ?.instanceId
+                            ?.let { it != sheet.instanceId } == true &&
+                            compose.onAllNodesWithTag("attachment-choice-file").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    compose.onNodeWithTag("attachment-choice-file").performScrollTo().performClick()
+                    pickerReady()
+                    assertEquals(listOf("*/*"), selectedMimeTypes.get())
+                    assertEquals(
+                        AttachmentSelection.FILE,
+                        checkNotNull(model.attachments.requests.launchedSelect()).selection,
+                    )
+                    complete(Uri.EMPTY)
+                    outstanding = false
+                    until { model.attachments.requests.launchedSelect() == null }
+                    compose.waitForIdle()
+                    compose.onNodeWithContentDescription("Add attachment").performClick()
+                    compose.waitUntil(5_000) {
+                        compose.onAllNodesWithTag("attachment-choice-photo-video").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    compose.onNodeWithTag("attachment-choice-photo-video").performScrollTo().performClick()
                 } else {
                     val messageId = checkNotNull(id)
-                    model.dispatch(MessengerAction.Feature("open-file", messageId))
+                    compose.onNodeWithTag("attachment-card-$messageId", useUnmergedTree = true).assertExists()
+                    compose
+                        .onNodeWithText("Download")
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .performClick()
                     compose.waitUntil(5_000) {
                         compose.onAllNodesWithText("Verified").fetchSemanticsNodes().isNotEmpty()
                     }
-                    compose.onNodeWithText("Save").performClick()
+                    compose
+                        .onNodeWithText("Save")
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .performClick()
                 }
                 pickerReady()
                 assertTrue(outstanding)
+                if (stage == "select") assertEquals(listOf("image/*", "video/*"), selectedMimeTypes.get())
                 val oldModel = model
-                val retained = ViewModelProvider(compose.activity)[AttachmentRequests::class.java]
-                val oldRequest = if (stage == "select") retained.picker else retained.destination
+                val retained = graphRule.graph.attachments.requests
+                val oldRequest = if (stage == "select") retained.launchedSelect() else retained.launchedSave()
                 assertNotNull(oldRequest)
+                assertEquals(owner.key, checkNotNull(oldRequest).identity.sessionKey)
+                assertEquals(token, oldRequest.identity.destinationToken)
+                if (oldRequest is AttachmentRequest.Select) {
+                    assertEquals(AttachmentSelection.PHOTO_VIDEO, oldRequest.selection)
+                }
+                if (oldRequest is AttachmentRequest.Save) {
+                    assertArrayEquals(bytes, File(oldRequest.downloaded.path).readBytes())
+                }
                 val oldActivity = compose.activity
                 val recreated = CompletableDeferred<MainActivity>()
                 val lifecycle = ActivityLifecycleMonitorRegistry.getInstance()
@@ -158,9 +223,12 @@ class AttachmentPickerRecreationInstrumentedTest {
                     }
                 pickerReady()
                 assertSame(oldModel, ViewModelProvider(newActivity)[MessengerViewModel::class.java])
-                assertTrue(oldModel.acceptsScreen(owner.key, token))
-                assertSame(retained, ViewModelProvider(newActivity)[AttachmentRequests::class.java])
-                assertEquals(oldRequest, if (stage == "select") retained.picker else retained.destination)
+                assertTrue(oldModel.chat.acceptsScreen(owner.key, token))
+                assertSame(
+                    retained,
+                    ViewModelProvider(newActivity)[MessengerViewModel::class.java].attachments.requests,
+                )
+                assertEquals(oldRequest, if (stage == "select") retained.launchedSelect() else retained.launchedSave())
                 if (stage == "select") {
                     val authority = instrumentation.context.packageName + ".file-source"
                     complete(Uri.parse("content://$authority/file?bytes=100001&length=0"))
@@ -181,7 +249,50 @@ class AttachmentPickerRecreationInstrumentedTest {
                             .pending(remote)
                             .status(),
                     )
-                    assertNull(retained.picker)
+                    assertNull(retained.launchedSelect())
+                    compose.waitUntil(5_000) {
+                        compose
+                            .onAllNodesWithTag("attachment-card-${draft.draftId}", useUnmergedTree = true)
+                            .fetchSemanticsNodes()
+                            .isNotEmpty()
+                    }
+                    compose
+                        .onNodeWithText("Send file")
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .performClick()
+                    until {
+                        val messages = chat.messages(null)
+                        messages.size == 1 && messages.single().deliveryStatus == DeliveryStatus.PUBLISHED &&
+                            session.preferences.drafts(owner.key.profileId).isEmpty()
+                    }
+                    val sent = chat.messages(null).single()
+                    val content = (sent.content as? SDKMessageContent.Standard)?.value
+                    val publishedRemote = checkNotNull(content as? MessageContent.RemoteAttachment).v1
+                    until {
+                        session.secrets.read(owner.key.profileId, ref) == null &&
+                            graphRule.graph.attachments.drafts.value
+                                .none { it.id == draft.draftId } &&
+                            model.state.value.messages
+                                .any { it.id == sent.id }
+                    }
+                    assertNull(session.secrets.read(owner.key.profileId, ref))
+                    compose
+                        .onNodeWithText("Download")
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .performClick()
+                    compose.waitUntil(30_000) {
+                        compose.onAllNodesWithText("Verified").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    assertArrayEquals(actual, File(owner.client.attachments().localPath(publishedRemote)).readBytes())
+                    compose.onNodeWithText("Open").assertIsDisplayed()
+                    compose.onNodeWithText("Save").assertIsDisplayed()
+                    assertEquals(listOf(sent.id), chat.messages(null).map { it.id })
+                    println(
+                        "ATTACHMENT_PICKER_RECREATION_PROOF stage=select-send published-id=${sent.id} " +
+                            "one-message=true verified-bytes=true",
+                    )
                 } else {
                     val values =
                         android.content.ContentValues().apply {
@@ -210,7 +321,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                             }
                         }
                     assertTrue("Recreated Save copies actual SDK-verified bytes to its selected URI", copied)
-                    assertNull(retained.destination)
+                    assertNull(retained.launchedSave())
                     assertEquals(listOf(id), chat.messages(null).map { it.id })
                 }
                 val proof = "ATTACHMENT_PICKER_RECREATION_PROOF stage=$stage"
@@ -218,9 +329,9 @@ class AttachmentPickerRecreationInstrumentedTest {
             } finally {
                 if (outstanding) complete(Uri.EMPTY)
                 instrumentation.removeMonitor(monitor)
-                model.onOpenFinished = {}
-                session.onInvalidated = invalidated
-                session.onMessage = message
+                model.chat.onOpenFinished = {}
+                graphRule.observers.beforeInvalidate = invalidated
+                graphRule.observers.beforeHandle = message
                 withContext(NonCancellable) {
                     destination?.let {
                         instrumentation.targetContext.revokeUriPermission(

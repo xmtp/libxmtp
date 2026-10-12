@@ -21,7 +21,8 @@ class TimelineInstrumentedTest {
                     .targetContext.applicationContext
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val session = AppSession(context)
+            val sessionFixture = TestSessionFixture(context)
+            val session = sessionFixture.session
             var peer: SDKClient? = null
             var reader: Job? = null
             val received =
@@ -29,7 +30,7 @@ class TimelineInstrumentedTest {
                     String,
                     Message,
                 >()
-            session.onMessage = {
+            sessionFixture.projection.onMessage = {
                 _,
                 message,
                 ->

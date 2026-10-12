@@ -1,11 +1,354 @@
 # Messenger verification ledger
 
-The approved app plan uses P1–P35 and V1–V9. These are plan identifiers, not SDK
+The historical app plan uses P1–P35 and V1–V9.
+The redesign plan uses P1–P29. These are plan identifiers, not SDK
 spec identifiers. Existing SDK tests remain SDK proofs. App proofs must call
 the production app boundary. A scripted reducer result cannot prove a native
 transfer, metadata commit, or persisted SDK state.
 
-The current parent is `ada6699f3e9f32bdfc50464a0ed15f73a9e20d57` on E
+## Messenger redesign, 2026-10-10
+
+This section owns the architecture and design proof for the two redesign PRs.
+Older sections below are historical evidence. Their source heads and passing
+results do not prove this redesign.
+
+### Architecture contracts
+
+- AppGraph owns the process session, required message projection, typed feature
+  controllers, route state, and Android effect requests. MessengerViewModel binds
+  SavedStateHandle and screen state. Shell replacement creates no new default reader.
+- AppSession receives explicit projection and lifecycle collaborators. Required
+  message handling is awaited before reader advance. SessionObservers surround
+  the real delegates; they cannot replace required processing.
+- Connect, conversations, chat, group, settings, and attachment controllers own
+  their state and commands. Shared Compose state contains no generated SDK object.
+  Query adapters call the local composite SDK. Preferences hold small app records,
+  not a second message store.
+- Routes bind the profile and session generation. Delayed restore, old query
+  completion, and old saved-state writes cannot replace a newer user destination.
+  Completing Create opens Chat without retaining the completed Create screen.
+- Send reserves the current draft before asynchronous work. One submission has
+  one accepted native ID. Accepted-reference failure keeps the draft; publication
+  failure exposes a fixed error and retries that ID. A newer draft edit survives
+  acceptance. Reply restoration can read its native parent outside the loaded page.
+- AttachmentController owns transfers and retained request identities. Activity
+  hosts launch Android effects. Picker and Save results retain their session and
+  destination identity through recreation. Open/Save use captured SDK-verified
+  bytes. Session cleanup and final grant revocation remain required.
+- Timestamp ties, opaque raw continuation, bounded history, accepted IDs, privacy
+  revisions, notification admission, fixture ownership, and actual Release/JNI
+  loading keep separate proof. No public SDK contract or package ID changes.
+
+### Test reduction
+
+Counts are declared methods. They include support tests and the manual benchmark.
+They do not count assertion statements or parameter rows. Routine Android counts
+include the optional configured-Firebase method; a skip must remain visible.
+
+| Layer | Baseline | PR1 architecture | PR2 design |
+| --- | ---: | ---: | ---: |
+| Host JVM | 83 | 77 | 77 |
+| Debug host | 1 | 1 | 1 |
+| Release host | 1 | 1 | 1 |
+| Routine installed Android | 138 | 137 | 132 |
+| Manual installed benchmark | 1 | 1 | 1 |
+| Release installed Android | 2 | 2 | 2 |
+| Fixture process methods | 32 | 32 | 32 |
+| Performance support methods | 22 | 22 | 22 |
+| **App tree total** | **280** | **273** | **268** |
+
+The six duplicate host methods and one Activity smoke method were removed in
+PR1. The retained native proofs exercise the same contract through real SDK state.
+
+| Removed method | Retained named proof |
+| --- | --- |
+| `MarkdownSelectionTest.markdownParentKeepsTextWithoutAFallback` | `MessengerReviewInstrumentedTest.nativeMarkdownIsVisibleAndKeepsItsReplyQuote` |
+| `MarkdownSelectionTest.markdownUsesTheCurrentCodecTypeInPublishedAndUnreadSelections` | The same native Markdown proof checks history, unread selection, preview, and quote. |
+| `PendingMessagePagesTest.emptyRawPagesKeepContinuationAtTheFourReadLimit` | `MessengerFeedbackInstrumentedTest.emptyNativePendingProjectionKeepsRawContinuationAfterFourReads` |
+| `SDKHistoryPageTest.emptyConvertedPrefixUsesRawContinuationAndFourReadBudget` | `MessengerRaceInstrumentedTest.sdkRawContinuationReachesReadableRowsAfterAnEmptyPrefix` |
+| `SDKHistoryPageTest.anchoredQueriesUseSdkNeighborsWithoutLookingUpTheDeletedAnchor` | `MessengerRaceInstrumentedTest.deletedNativeAnchorUsesItsRetainedTupleAndTheNextNewerRow` |
+| `DraftDiscardStateTest.aCompletedDiscardRemainsUntilAllSnapshotReadersFinish` | `AttachmentRecoveryRaceInstrumentedTest.completedDiscardMarkersExpireAfterSharedSnapshotsFinish` |
+| `MainActivityInstrumentedTest.messengerActivityLaunchesWithTheProcessSession` | `MessengerScreensInstrumentedTest.realSessionRendersSetupListMessagesAndSettings` also checks the installed package ID. |
+
+PR2 carries the five installed journey consolidations in the next PR.
+
+The nonterminal partial-page host case remains. Its terminal native counterpart
+does not prove retained continuation. Timestamp-tie, cache-bound, accepted-commit,
+reader replay, privacy, grant, release, and fixture tests remain independent.
+
+### Architecture evidence
+
+The full-suite baseline is `25e1ff5386a7d316000750567a1ab19d62085293`.
+The complete Debug suite ran at `f8610a0987ed15fcb2c5c3d09e2c5bf432884ed5`.
+The later rebase added only the API 23 CI memory change. A source comparison
+confirmed no app difference. Release and host tests ran after that rebase.
+The local run archive is `xmtp-android-redesign-20261010`.
+
+Commit `ec52581121` then reused the route owner's conversation mapping and fixed
+connect retry ownership. An older Connect or Retry completion cannot clear the
+newer attempt's backend and credential. The existing
+`MessengerRecoveryUxInstrumentedTest.startRetryUsesCurrentBackendAndCredentialInRealConnect`
+checks both overlapping operations after its actual native connection proof.
+Both separate guard-removal controls failed at their named assertions. The
+restored method passed with no skips. Evidence: `architecture-retry-restored/`,
+`control-runs/architecture-connect-retry-owner/`, and
+`control-runs/architecture-retry-retry-owner/`. Format and Android lint passed in
+`format-architecture-retry-4.log` and `lint-architecture-retry.log`.
+
+| Proof | Final evidence |
+| --- | --- |
+| Strict Debug/Release/shared/test APK and JNI inspection | `dev/nix-shell 'just example-android check'`: PASS. Both APK JNI inspections passed. Log: `check-architecture-final-2.log`. |
+| Source format and Android lint | `dev/nix-shell 'just example-android lint'`: PASS. Log: `lint-architecture-final-2.log`. |
+| Host Debug/Release | `dev/nix-shell 'just example-android test :example:testReleaseUnitTest'`: 156 executions passed, no skips. XML: `architecture-host-final-second/`. |
+| Complete routine Android suite | `dev/nix-shell 'just example-android test-integration'`: 136 passed, one configured-Firebase skip, no failures. XML and 25 screenshots: `architecture-full-final/`. Owned emulator, fixture, and response gate were removed. |
+| Actual Release instrumentation | `dev/nix-shell 'just example-android test-release-integration'`: two passed, no skips. This installed the signed Release build with `DEBUG=false`. XML: `architecture-release-final/`. |
+| Configuration and fixture checks | `dev/nix-shell 'just lint-config'`: PASS. Log: `lint-config-architecture-final-2.log`. |
+| Material source controls | All 20 controls below failed at their intended assertions. Each source file was restored and its hash checked. The complete restored Debug suite passed. XML and hashes: `control-runs/`; index: `architecture-controls-summary.json`. |
+
+Seventeen controls ran at `7cef1b3bd0`. The labeled reader and route controls,
+and the saved-server probe control, ran at `f8610a0987`. Original generic timeout
+attempts for the reader and route controls receive no credit.
+
+| Weaker behavior | Observed failure |
+| --- | --- |
+| Allow a second submission of one draft | Two native rows instead of one. |
+| Omit the reply-parent lookup outside the loaded page | Missing native reply parent ID. |
+| Detach required reader handling | Original native ID did not replay while unregister was blocked. |
+| Retain chat A while loading chat B | Loading B did not hide A. |
+| Admit a delayed send to the old chat | An extra native row appeared in A. |
+| Clear the composer before accepted-reference persistence | The editable accepted body disappeared. |
+| Hide publication failure | The publication error did not appear. |
+| Create a new export on repeated Open | The export URI changed. |
+| Drop Select ownership during recreation | The retained Select request was missing. |
+| Admit a stale attachment capability result | Old support entered the replacement session. |
+| Treat metadata edits as pending membership changes | An eligible push was rejected. |
+| Omit the member-add privacy guard | A push was accepted during the pending member change. |
+| Recover a send while its original submission is active | Publication recovery lost its expected error state. |
+| Drop navigation while session binding is pending | The current chat did not open. |
+| Tie Create completion to the old destination | The completed lookup kept its busy state. |
+| Tie Settings completion to the old destination | The completed command kept its busy state. |
+| Keep the marker after a rejected leave | The leave marker remained. |
+| Keep the marker after a rejected promotion | The promotion marker remained. |
+| Read native group state twice per row | Fifty groups caused 100 state reads instead of 50. |
+| Omit the saved-server startup probe | The saved server did not receive its credential capability. |
+
+Required handling uses the real AppGraph. Isolated session protocol tests use
+one explicit test-only collaborator fixture. These controls prove their stated
+contracts. They do not replace the complete installed suite.
+
+#### Recovery regression proof
+
+Commit `63a11d29b4` fixes three recovery paths. A missing request clears its
+confirmation and shows an unavailable message. Retry reopens the current chat
+when no matching native conversation is bound. Initial scroll restoration waits
+for the saved native row, including when the saved anchor arrives after a
+loading placeholder. Later viewport updates do not repeat the initial scroll.
+
+The existing installed journeys cover each path:
+
+| Journey | Source control and observed failure |
+| --- | --- |
+| `MessengerReviewInstrumentedTest.lateBlockedConsentCannotReplaceNewChatSettings` | `architecture-missing-request`: restoring the silent missing-request return keeps the Block confirmation set. |
+| `MessengerRaceInstrumentedTest.suspendedOldOpenCannotReplaceNewChatOrSettings` | `architecture-unbound-chat-retry`: removing route reopening prevents the real Retry button from binding the native chat. |
+| `MessengerRaceInstrumentedTest.anchoredRefreshPreservesEveryLoadedNativeMessage` | `arch-saved-anchor-delayed-history`: removing the restoration gate and row-availability retry changes the first UI viewport's saved native message ID. |
+
+All three journeys pass after source restoration: three tests, no failures,
+errors, or skips in `architecture-review-restored-final/`. That archive records
+the source diff and file hashes. Each control records its exact source, test,
+mutation, failure, and restored hash under `control-runs/`. The scroll journey
+also checks the saved pixel offset and persisted cursor after the exact viewport
+action completes. No test method was added.
+
+Strict builds and both APK JNI checks passed in `check-architecture-review-2.log`.
+The final test source compiled in the installed run. Format and Android lint
+passed in `format-architecture-review-6.log` and
+`lint-architecture-review-final.log`.
+
+### Design baseline evidence
+
+The restored full Debug suite uses source
+`61401309df3d7e69dba1a6a08ad3a9586c779273` with an empty source diff.
+Its archived files match that recorded baseline source. Other rows retain their named
+tested source scope.
+
+| Proof | Recorded result |
+| --- | --- |
+| Complete baseline Debug suite | 132 cases: 131 passed, one configured-Firebase skip, zero failures or errors. XML and 27 exported PNGs: `ui-full-restored-final/`. Source/XML checks and PNG hashes: `ui-restored-full-verified.json`. |
+| Baseline host Debug and Release | `dev/nix-shell 'just example-android test :example:testReleaseUnitTest --rerun-tasks'`: 156 fresh executions passed, zero failures, errors, or skips at `61401309df`. All 266 archived source hashes match. XML: `ui-host-current-final/`. |
+| Baseline actual Release instrumentation | Two tests passed with no skips at `61401309df`, with an empty source diff. All 266 archived source hashes match. XML: `ui-release-current-final/`. |
+| Baseline format and Android lint | PASS at `61401309df`. Log: `lint-ui-current-final.log`. Release/host/lint evidence checks: `ui-final-gates-verified.json`. |
+| Actual large-text scale journey | `ScreenScaleInstrumentedTest.allScreensRemainReachableAtDoubleTextScale` passed in `ui-focused-sixth/`. The combined route failed its separate screen method. This is one passing named case, not a passing combined run. |
+| Main screen journey | `MessengerScreensInstrumentedTest.realSessionRendersSetupListMessagesAndSettings` passed at clean `41c370843c671a64b21581b7849473cf2797de2a` in `ui-screens-eighth/`. |
+| Native picker render and retention | The same main screen method passed with the picker fix in `ui-native-picker-square-positive/`. It detected 24 drawn emoji cells and retained the native grid after a state update with unchanged columns. Fourteen screenshots include the four rendered variants. |
+| UI source controls | All 18 controls failed at their intended assertions on the recorded pre-restack source. Target names, XML, patches, source/test hashes, and restoration were checked. Frozen index: `ui-controls-ee7491-summary.json`. This is control proof, not a complete restored suite. |
+
+The initial picker render check failed at `native picker draws visible emoji
+cells` in `ui-native-picker-positive/`. The same test SHA-256
+`994168b7571d57effb60d4b2027b6162fa91f987e42f3f202fc1dcfdf41c848d`
+passed after the host stopped setting an unchanged column count and stopped
+forcing five rows. The passing picker source SHA-256 is
+`9c59c5dc04c889856b3a388f4418366cc6aa9422eb58896002c4d0852bbf3a7d`.
+This positive run used `41c370843c` plus the recorded picker diff before rebase.
+The root agent inspected the full grid and all four variant images from
+`ui-screens-eighth/`. Source hashes and diffs retain the exact run scope.
+
+The complete run at `718f268bb7` had one Retry failure in
+`MessengerRaceInstrumentedTest.suspendedOldOpenCannotReplaceNewChatOrSettings`.
+The general failure banner now dispatches ShellAction.Refresh so Retry can
+reopen an unbound native chat. The same method passes in the complete restored
+run at `61401309df`. That run has no other failure or error.
+
+The root agent inspected the current inline reactions, reply composer, native
+emoji grid, dark Settings, RTL at 200% text, landscape with IME, and wide Chat
+PNGs. The expected controls and content render.
+
+### Request consent proof
+
+Unknown-consent requests require Accept before composer editing, sending,
+and outbound message or reaction actions. Copy, reactor lists, and Close remain
+available. Reactor detail Add and Remove require accepted consent.
+ChatController rejects retained outbound callbacks while consent is Unknown.
+The native emoji callback checks current consent before dispatch.
+
+The existing main screen journey checks disabled controls by retained draft
+text, rejected retained callbacks through native consent and reactions, and
+successful actions after Accept. No test method is added. Declared methods
+remain 268. The earlier focused positive run retains its seven-file scope.
+
+All three source controls failed once at their intended assertions, with zero
+errors or skips. Production sources were restored to their recorded hashes.
+
+| Control | Source | Intended first failure |
+| --- | --- | --- |
+| `ui-request-composer-consent` | `apps/example-android/shared/src/commonMain/kotlin/org/xmtp/android/example/shared/feature/chat/MessageComposer.kt` | Draft editor is enabled at line 672. |
+| `ui-request-reaction-controls` | `apps/example-android/shared/src/commonMain/kotlin/org/xmtp/android/example/shared/feature/chat/ChatScreen.kt` | Quick reaction is enabled at line 687. |
+| `ui-request-retained-reaction-consent` | `apps/example-android/app/src/main/java/org/xmtp/android/example/messenger/feature/chat/ChatController.kt` | Native consent is ALLOWED instead of UNKNOWN after joined callbacks at line 705. |
+
+The unchanged test SHA-256 is `621be6c13fd9d3f15fbb2fb79ac44a26e553319c0777616ed46969d88b6891d6`.
+
+| Control | Restored source SHA-256 | Mutant SHA-256 |
+| --- | --- | --- |
+| `ui-request-composer-consent` | `a8d70f929949c74dcee4bde9d88e5e32816f179fe25c79c4b84a47152622f5da` | `4555831cc6a8e77b8752e3e80fb702a76016a7dab87440955ace031b720f8a93` |
+| `ui-request-reaction-controls` | `2c4ceb73e94c7ed2718306f9a123039d31d66ecbe14f6c0bb56f9022b9711939` | `2d86675481ef04126e80058aaf1a00f08c23d70f34380f8fd2521344370a56a0` |
+| `ui-request-retained-reaction-consent` | `23277943a4d9b8dcba5a52d62addc13abd0ba0b0a29a3d13df5134af4524198d` | `642f8f0f83a5dbe411d6d5b26b319ebc2fe1d7f8e1b2c8cf5a92c5f092ee284d` |
+
+The recorded full Debug suite uses clean source
+`706e88b9e5ba65185bceec9831c425bb45ef2fca`: 132 cases, 131 passed, one expected
+configured-Firebase skip, zero failures or errors. XML and 27 exported PNGs are
+in `ui-request-consent-full-restored/`. The consent verifier passed all three
+controls and the complete source/XML checks. The gate archive records identical
+before/after head and all 266 source hashes, with no production changes during
+the full run, evidence check, strict build, or lint.
+
+Strict Debug, Release, shared UI, and test APK builds passed. Both APK JNI
+inspections passed. Spotless and Android lint passed. Evidence is in
+`consent-final-gates.json`, `check-ui-consent-final.log`, and
+`lint-ui-consent-final.log`. The newly exported images are not claimed as
+visually inspected. The earlier inspected images retain their baseline scope.
+
+The 156 host and two actual Release passes at `61401309df` remain baseline
+proof. They were not repeated for the UI consent repair at `706e88b9e5`.
+
+### Live consent admission
+
+Outbound queue, publication retry, and deletion read current native consent
+before their native write. ALLOWED is required. Session and destination checks
+surround that read. Queue checks after preparation, retry after the publication
+wait, and deletion after its message read. Attachment preparation runs before
+the shared queue check, so its last mutex wait cannot bypass live admission.
+
+A rejected queue or preparation/consent-read error rolls back its QUEUEING
+record under NonCancellable and keeps the draft. Rejected retry keeps its
+accepted publication recovery record. Dead attachment command paths and their
+unused projection work are removed.
+
+The existing main screen journey uses two helpers to hold outbound work and
+change real native consent. Its native assertions cover queued text/reaction,
+retry, and deletion rejection before the rendered Accept flow. No test method
+is added. The focused main screen and picker journeys retain their separate
+source/run scope. Earlier full Debug and host results retain their stated
+source scope.
+
+Admission and the native write are separate operations. An independent consent
+change after admission is outside this repair. No atomic guarantee is claimed.
+
+The focused main screen journey passed one test with no failures, errors,
+or skips in `ui-live-consent-positive-third/`. Its recorded scope is c058 plus
+the live-consent repair. The native picker focused journey passed separately
+with unchanged production. Neither focused result is a full-suite result.
+
+The `ui-request-live-native-consent` control failed once at
+`queuedConsentAdmission`, line 136: native consent became ALLOWED instead of
+remaining UNKNOWN. There were zero errors or skips. The restored source and
+archived test hashes retain their control scope. The production source is unchanged.
+
+Restored SendCoordinator SHA-256: `5f1f7136b132c7eb9670e7b2a11377989f325f4056b52fc1c2e65055a0117928`.
+
+Mutant SHA-256: `f9c149ee785241579f79d3987de0e174b55c332f305c7fda1135be82154552ae`.
+
+Archived control test SHA-256: `fa6fdaea158a8e352e25e72eb0fde5fb741f16f0093cd8fe7408a0e5e28e0444`.
+
+Final source is `ebc5756f08d2e89388511d678f3d9a563937c9d2`.
+The complete installed Debug suite has 132 cases: 131 passed, one unchanged
+configured-Firebase skip, zero failures or errors. Fresh host Debug and Release
+tests pass all 156 executions with no skips. Strict Debug/Release/shared/test
+APK builds, both APK JNI checks, Spotless, and Android lint pass. All 266 source
+hashes and the clean head are unchanged across these gates.
+
+The read-only live-consent verifier passes the source control, complete XML,
+and diagnostic equivalence checks. The archived native oracle is line 136 with
+test SHA-256 `fa6fdaea158a8e352e25e72eb0fde5fb741f16f0093cd8fe7408a0e5e28e0444`.
+The final diagnostic test is SHA-256
+`b7932a0f070da3775a73d9d6167bdb5539410ecd37b2d262cdf671a11ae44d39`, with that
+same native oracle at line 162. Removing only the diagnostic awaitBarrier helper
+and restoring the two 30,000 ms waits reproduces the archived test bytes.
+
+Final archives are `ui-live-consent-full-restored-third/`,
+`ui-live-consent-host-final-third/`, and `live-consent-final-gates-third.json`.
+The earlier full runs contain one fixture precondition failure and one queue
+wait timeout; neither receives passing credit. The fixture sets ALLOWED after
+the UNKNOWN lagged-event assertions before its separate early-send phase.
+Actual Release instrumentation remains scoped to the two passes at `61401309df`.
+
+### Local start command
+
+`dev/nix-shell 'just example-android start'` was checked with the existing local
+backend and object store. The command cold-booted a visible API 34 emulator,
+built Debug with strict dependency verification, installed only on its selected
+device, forwarded both service ports, and opened MainActivity successfully.
+Android reported 1080 × 2400 pixels and an effective density of 420 dpi. The
+captured PNG has the same dimensions and the rendered Start screen reported
+Server ready. Pressing Enter stopped the owned emulator and removed its temporary
+Android home. Configuration, Markdown, shell syntax, and ShellCheck checks passed.
+
+This proof covers the launcher. It does not add app feature test coverage or
+replace the source scopes of the app suites recorded above.
+
+### Stable manual gaps
+
+- Real FCM receipt, background delivery, successful OS posting, and tap need a
+  configured developer Firebase project and a backend channel. Off behavior,
+  compilation, and a captured publisher do not prove delivery.
+- TalkBack service traversal, focus announcements, and switch/keyboard operation
+  need manual device proof. Fixed Compose previews do not provide it.
+- The fixed Linux API 34 x86_64 performance workload, its cache failure control,
+  and restored same-dataset result need their explicit manual route. Functional
+  ARM64 tests and host validators do not prove its timing or heap limits.
+
+- Physical predictive Back from both edges and complete IME/system-bar behavior
+  across OS versions need device proof beyond dispatcher-driven integration.
+- All-screen dark, RTL, landscape, wide-window, long-name, and reduced-motion
+  interaction needs further manual proof. The selected rendered journey above
+  has a smaller scope.
+- Edit-to-preview and test speed have no measured comparison on one machine and
+  cache state. Package separation and fewer methods do not establish a speed gain.
+- SDK receipt semantics, typing, presence, calls, invitations, mixed pending
+  timestamp policy, and inbound private-download policy are not added by this
+  redesign. No missing server capability is represented by invented UI state.
+
+## Historical evidence before the redesign
+
+The historical parent is `ada6699f3e9f32bdfc50464a0ed15f73a9e20d57` on E
 `23696a2b37584d6975755d12f18aff5bbc140046`, D
 `a2eb8b69b7faa89105973c93d8a4661a48bbab63`, C
 `ed4f6ee535afaf57fbbb781935f02317ff2e369a` and B

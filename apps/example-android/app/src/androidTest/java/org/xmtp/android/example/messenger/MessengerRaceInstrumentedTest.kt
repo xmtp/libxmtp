@@ -8,21 +8,29 @@ import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.shared.*
+import org.xmtp.android.example.shared.feature.chat.ChatAction
+import org.xmtp.android.example.shared.feature.conversations.RequestAction
+import org.xmtp.android.example.shared.feature.conversations.RequestDecision
 import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
 
 class MessengerRaceInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
-    private suspend fun until(check: () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
+    private suspend fun until(check: suspend () -> Boolean) = withTimeout(30_000) { while (!check()) delay(20) }
 
     private suspend fun until(
         stage: String,
-        check: () -> Boolean,
+        check: suspend () -> Boolean,
     ) {
         try {
             until(check)
@@ -35,10 +43,10 @@ class MessengerRaceInstrumentedTest {
         AndroidStreamLifecycle.enabled = false
         resumeStreams()
         model.session.signOut()
-        until { model.state.value.screen == Screen.START }
+        until("Connect route after sign-out") { model.state.value.screen == Screen.START }
         model.session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
         val owner = checkNotNull(model.session.active.value)
-        until {
+        until("Chats projection after native connect") {
             model.state.value.inbox == owner.client.inboxId() && model.state.value.screen == Screen.CONVERSATIONS
         }
         model.foreground(false)
@@ -47,9 +55,9 @@ class MessengerRaceInstrumentedTest {
 
     private suspend fun cleanup() =
         withContext(NonCancellable) {
-            model.lookupConversation = { owner, id -> owner.client.conversations.getById(id) }
-            model.historyPageRead = { chat, options, before, after -> chat.historyPage(options, before, after) }
-            model.onOpenFinished = {}
+            model.chat.lookupConversation = { owner, id -> owner.client.conversations.getById(id) }
+            model.chat.historyPageRead = { chat, options, before, after -> chat.historyPage(options, before, after) }
+            model.chat.onOpenFinished = {}
             if (model.session.active.value != null) model.session.deleteAccount()
             model.session.signOut()
             AndroidStreamLifecycle.enabled = true
@@ -58,22 +66,73 @@ class MessengerRaceInstrumentedTest {
     @Test fun suspendedOldOpenCannotReplaceNewChatOrSettings() =
         runBlocking {
             val release = CompletableDeferred<Unit>()
+            val releaseB = CompletableDeferred<Unit>()
+
+            // Keep each existing deadline and name the wait that fails.
+            suspend fun <T> atStage(
+                stage: String,
+                action: suspend () -> T,
+            ): T =
+                try {
+                    withTimeout(30_000) { action() }
+                } catch (error: TimeoutCancellationException) {
+                    throw AssertionError("Stage: $stage", error)
+                }
+
             try {
                 val owner = connect()
+                graphRule.observers.pauseAutomaticProjection()
                 val a = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "A"))
                 val b = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "B"))
                 val aId = a.id()
                 val bId = b.id()
                 println("OPEN_PROOF stage=ids A=$aId B=$bId key=${owner.key}")
+                val lookupAttempts =
+                    java.util.concurrent.atomic
+                        .AtomicInteger()
+                model.chat.clear()
+                model.chat.lookupConversation = { current, id ->
+                    if (id == aId && lookupAttempts.incrementAndGet() == 1) {
+                        throw java.io.IOException("Transient first chat lookup failure")
+                    }
+                    current.client.conversations.getById(id)
+                }
+                model.dispatch(MessengerAction.OpenConversation(aId))
+                until("initial chat lookup failure") {
+                    model.chat.state.value.failure
+                        ?.code == "chat-open" && !model.chat.state.value.busy
+                }
+                assertNull(model.chat.currentConversation())
+                val openFailure = checkNotNull(model.chat.state.value.failure)
+                assertEquals("Cannot open this chat. Try again.", openFailure.message)
+                compose.waitUntil(30_000) {
+                    compose.onAllNodesWithText(openFailure.message).fetchSemanticsNodes().size == 1 &&
+                        compose.onAllNodesWithText("Retry").fetchSemanticsNodes().size == 1
+                }
+                compose.onNodeWithText(openFailure.message).assertIsDisplayed()
+                compose
+                    .onNodeWithText("Retry")
+                    .assertIsDisplayed()
+                    .assertIsEnabled()
+                    .performClick()
+                until("Retry reopens the unbound native chat") {
+                    model.chat.currentConversation()?.id() == aId && model.chat.state.value.failure == null &&
+                        !model.chat.state.value.busy
+                }
+                assertEquals("Retry must repeat the failed conversation lookup", 2, lookupAttempts.get())
+                model.chat.lookupConversation = { current, id -> current.client.conversations.getById(id) }
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("Chats route after lookup retry") { model.state.value.screen == Screen.CONVERSATIONS }
+
                 val entered = CompletableDeferred<Unit>()
                 val returned = CompletableDeferred<Unit>()
                 val completed = CompletableDeferred<Unit>()
                 var attemptA: Long? = null
-                model.onOpenStarted = { attempt, id ->
-                    println("OPEN_PROOF stage=start id=$id attempt=$attempt token=${model.screenToken()}")
+                model.chat.onOpenStarted = { attempt, id ->
+                    println("OPEN_PROOF stage=start id=$id attempt=$attempt token=${model.chat.screenToken()}")
                     if (id == aId) attemptA = attempt
                 }
-                model.onOpenAttemptFinished = { attempt, id ->
+                model.chat.onOpenAttemptFinished = { attempt, id ->
                     if (attempt == attemptA && id == a.id()) {
                         println(
                             "OPEN_PROOF attempt=$attempt old-operation-completed screen=${model.state.value.screen} chat=${model.state.value.conversationId}",
@@ -81,7 +140,7 @@ class MessengerRaceInstrumentedTest {
                         completed.complete(Unit)
                     }
                 }
-                model.lookupConversation = { current, id ->
+                model.chat.lookupConversation = { current, id ->
                     val result = current.client.conversations.getById(id)
                     if (id == a.id()) {
                         entered.complete(Unit)
@@ -91,14 +150,14 @@ class MessengerRaceInstrumentedTest {
                     result
                 }
                 model.dispatch(MessengerAction.OpenConversation(a.id()))
-                withTimeout(30_000) { entered.await() }
+                atStage("old A native lookup entry") { entered.await() }
                 println("OPEN_PROOF stage=old-lookup-blocked attempt=$attemptA")
                 model.dispatch(MessengerAction.OpenConversation(b.id()))
                 try {
                     until { model.state.value.conversationId == bId }
                 } catch (error: TimeoutCancellationException) {
                     val chatId = model.state.value.conversationId
-                    val token = model.screenToken()
+                    val token = model.chat.screenToken()
                     val accepted = model.session.accepts(owner.key)
                     throw AssertionError("B open: chat=$chatId token=$token accepted=$accepted", error)
                 }
@@ -111,12 +170,96 @@ class MessengerRaceInstrumentedTest {
                     throw AssertionError("B settings: screen=$screen title=$title", error)
                 }
                 release.complete(Unit)
-                withTimeout(30_000) { returned.await() }
-                withTimeout(30_000) { completed.await() }
+                atStage("released old A native lookup return") { returned.await() }
+                atStage("old A open completion") { completed.await() }
                 assertEquals(b.id(), model.state.value.conversationId)
                 assertEquals(Screen.CONVERSATION_SETTINGS, model.state.value.screen)
+
+                model.chat.lookupConversation = { current, id -> current.client.conversations.getById(id) }
+                val retainedA = a.sendText("Retained A while B opens")
+                model.dispatch(MessengerAction.OpenConversation(aId))
+                until("retained A native transcript") {
+                    model.chat.state.value.messages
+                        .any { it.id == retainedA } && !model.chat.state.value.busy
+                }
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("Chats route before held B lookup") { model.state.value.screen == Screen.CONVERSATIONS }
+                val beforeA =
+                    Conversation
+                        .Group(
+                            a,
+                        ).messages(publishedSelection().copy(deliveryStatus = null))
+                        .map { it.id }
+                val beforeB =
+                    Conversation
+                        .Group(
+                            b,
+                        ).messages(publishedSelection().copy(deliveryStatus = null))
+                        .map { it.id }
+                val enteredB = CompletableDeferred<Unit>()
+                model.chat.lookupConversation = { current, id ->
+                    val found = current.client.conversations.getById(id)
+                    if (id == bId) {
+                        enteredB.complete(Unit)
+                        releaseB.await()
+                    }
+                    found
+                }
+                model.dispatch(MessengerAction.OpenConversation(bId))
+                atStage("held B native lookup entry") { enteredB.await() }
+                until("loading B hides retained A") {
+                    model.state.value.chatState
+                        ?.let { it.busy && it.conversationId == bId } == true
+                }
+                compose.waitForIdle()
+                compose.onNodeWithText("Retained A while B opens").assertDoesNotExist()
+                val earlierCommands = checkNotNull(owner.work.coroutineContext[Job]).children.toSet()
+                compose.runOnIdle { model.dispatch(MessengerAction.SendText("Reject stale destination send")) }
+                val attemptedCommands =
+                    checkNotNull(owner.work.coroutineContext[Job])
+                        .children
+                        .filter {
+                            it !in
+                                earlierCommands
+                        }.toList()
+                atStage("stale destination command completion") { attemptedCommands.forEach { it.join() } }
+                assertEquals(
+                    beforeA,
+                    Conversation.Group(a).messages(publishedSelection().copy(deliveryStatus = null)).map { it.id },
+                )
+                assertEquals(
+                    beforeB,
+                    Conversation.Group(b).messages(publishedSelection().copy(deliveryStatus = null)).map { it.id },
+                )
+                releaseB.complete(Unit)
+                until("released B native transcript") {
+                    model.chat.state.value.conversationId == bId &&
+                        !model.chat.state.value.busy
+                }
+                model.chat.lookupConversation = { current, id -> current.client.conversations.getById(id) }
+                compose.onNodeWithText("Message").performTextReplacement("Explicit B send")
+                compose.onNodeWithContentDescription("Send message").performClick()
+                until("explicit B native send") {
+                    Conversation.Group(b).messages(publishedSelection()).any {
+                        it.standardContent() ==
+                            MessageContent.Text("Explicit B send")
+                    }
+                }
+                assertEquals(
+                    beforeA,
+                    Conversation.Group(a).messages(publishedSelection().copy(deliveryStatus = null)).map { it.id },
+                )
+                val sentB =
+                    Conversation.Group(b).messages(publishedSelection()).filter {
+                        it.standardContent() ==
+                            MessageContent.Text("Explicit B send")
+                    }
+                assertEquals(1, sentB.size)
+                assertEquals(bId, sentB.single().conversationId)
+                println("OPEN_PROOF stage=loading-B-rejects-stale-A-send-explicit-B-send-keeps-origin")
             } finally {
                 release.complete(Unit)
+                releaseB.complete(Unit)
                 cleanup()
             }
         }
@@ -125,8 +268,7 @@ class MessengerRaceInstrumentedTest {
         runBlocking {
             try {
                 val owner = connect()
-                model.session.onInvalidated = {}
-                model.session.onMessage = { _, _ -> }
+                graphRule.observers.pauseAutomaticProjection()
                 val group =
                     owner.client.conversations.createGroup(
                         emptyList(),
@@ -139,7 +281,7 @@ class MessengerRaceInstrumentedTest {
                 val calls =
                     java.util.concurrent.atomic
                         .AtomicInteger()
-                model.historyPageRead = { chat, options, before, after ->
+                model.chat.historyPageRead = { chat, options, before, after ->
                     val page = chat.historyPage(options, before, after)
                     if (chat.id() != group.id() || options.limit != 50u) {
                         page
@@ -151,7 +293,7 @@ class MessengerRaceInstrumentedTest {
                     }
                 }
                 val opened = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 withTimeout(30_000) { opened.await() }
                 assertEquals(4, calls.get())
@@ -186,8 +328,7 @@ class MessengerRaceInstrumentedTest {
         runBlocking {
             try {
                 val owner = connect()
-                model.session.onInvalidated = {}
-                model.session.onMessage = { _, _ -> }
+                graphRule.observers.pauseAutomaticProjection()
                 val group =
                     owner.client.conversations.createGroup(
                         emptyList(),
@@ -197,7 +338,7 @@ class MessengerRaceInstrumentedTest {
                 group.publishMessages()
                 assertEquals(501uL, group.countMessages(publishedSelection()))
                 val opened = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 withTimeout(30_000) { opened.await() }
                 assertEquals(
@@ -252,8 +393,7 @@ class MessengerRaceInstrumentedTest {
         runBlocking {
             try {
                 val owner = connect()
-                model.session.onInvalidated = {}
-                model.session.onMessage = { _, _ -> }
+                graphRule.observers.pauseAutomaticProjection()
                 val group =
                     owner.client.conversations.createGroup(
                         emptyList(),
@@ -268,7 +408,7 @@ class MessengerRaceInstrumentedTest {
                 owner.client.conversations.deleteMessageLocally(anchor.id)
                 assertNull(owner.client.conversations.getMessageById(anchor.id))
                 val opened = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 withTimeout(30_000) { opened.await() }
                 val restored = checkNotNull(model.state.value.anchor)
@@ -299,8 +439,7 @@ class MessengerRaceInstrumentedTest {
         runBlocking {
             try {
                 val owner = connect()
-                model.session.onInvalidated = {}
-                model.session.onMessage = { _, _ -> }
+                graphRule.observers.pauseAutomaticProjection()
                 val group =
                     owner.client.conversations.createGroup(
                         emptyList(),
@@ -336,12 +475,12 @@ class MessengerRaceInstrumentedTest {
                 val reads =
                     java.util.concurrent.atomic
                         .AtomicInteger()
-                model.historyPageRead = { chat, options, before, after ->
+                model.chat.historyPageRead = { chat, options, before, after ->
                     if (chat.id() == group.id() && options.limit == 50u) reads.incrementAndGet()
                     chat.historyPage(options, before, after)
                 }
                 val opened = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 withTimeout(30_000) { opened.await() }
                 assertEquals("Native deleted placeholders require a newest-page read", 3, reads.get())
@@ -372,10 +511,11 @@ class MessengerRaceInstrumentedTest {
 
     @Test fun anchoredRefreshPreservesEveryLoadedNativeMessage() =
         runBlocking {
+            val releaseHistory = CompletableDeferred<Unit>()
+            val releaseLookup = CompletableDeferred<Unit>()
             try {
                 val owner = connect()
-                model.session.onInvalidated = {}
-                model.session.onMessage = { _, _ -> }
+                graphRule.observers.pauseAutomaticProjection()
                 val group =
                     owner.client.conversations.createGroup(
                         emptyList(),
@@ -384,7 +524,7 @@ class MessengerRaceInstrumentedTest {
                 val ids = (0 until 200).map { group.sendText("Loaded $it", SendOptions(optimistic = true)) }
                 group.publishMessages()
                 val opened = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 withTimeout(30_000) { opened.await() }
                 while (model.state.value.hasOlder) {
@@ -417,7 +557,117 @@ class MessengerRaceInstrumentedTest {
                 assertEquals(saved, model.state.value.anchor)
                 assertFalse(model.state.value.hasOlder)
                 println("REFRESH_PROOF stage=anchored-multiple-pages-retained count=200")
+                model.dispatch(MessengerAction.Navigate(Screen.CONVERSATIONS))
+                until("Chats before a fresh saved-anchor route") { model.state.value.screen == Screen.CONVERSATIONS }
+                compose.waitForIdle()
+                model.chat.clear()
+                val lookupEntered = CompletableDeferred<Unit>()
+                model.chat.lookupConversation = { current, id ->
+                    val chat = current.client.conversations.getById(id)
+                    lookupEntered.complete(Unit)
+                    releaseLookup.await()
+                    chat
+                }
+                val historyEntered = CompletableDeferred<Unit>()
+                val firstViewport = CompletableDeferred<ChatAction.Viewport>()
+                val viewportStored = CompletableDeferred<Unit>()
+                val firstViewportAction =
+                    java.util.concurrent.atomic
+                        .AtomicReference<ChatAction.Viewport>()
+                model.chat.historyPageRead = { chat, options, before, after ->
+                    historyEntered.complete(Unit)
+                    releaseHistory.await()
+                    chat.historyPage(options, before, after)
+                }
+                model.dispatch(MessengerAction.OpenConversation(group.id()))
+                until("requested chat placeholder is visible before native bind") {
+                    lookupEntered.isCompleted && model.state.value.conversationId == group.id() &&
+                        model.state.value.anchor == null &&
+                        model.state.value.messages
+                            .isEmpty()
+                }
+                compose.waitForIdle()
+                compose.onNode(hasScrollToIndexAction()).assertExists()
+                compose.onNodeWithText("Opening chat").assertIsDisplayed()
+                compose.onNodeWithTag("message-composer").assertIsDisplayed()
+                assertNull("Requested chat placeholder has no saved anchor yet", model.state.value.anchor)
+                releaseLookup.complete(Unit)
+                until("saved anchor is bound before history") {
+                    historyEntered.isCompleted && model.chat.state.value.conversationId == group.id()
+                }
+                compose.waitForIdle()
+                compose.onNode(hasScrollToIndexAction()).assertExists()
+                compose.onNodeWithText("Loaded range").assertIsDisplayed()
+                compose.onNodeWithTag("message-composer").assertIsDisplayed()
+                assertTrue(
+                    "Saved-anchor route first renders empty history",
+                    model.chat.state.value.messages
+                        .isEmpty(),
+                )
+                assertEquals(saved, model.chat.state.value.anchor)
+                val restoreToken = model.chat.screenToken()
+                model.chat.beforeQueuedAction = { action ->
+                    if (action is ChatAction.Viewport && model.chat.screenToken() == restoreToken &&
+                        model.chat.state.value.conversationId == group.id() &&
+                        firstViewportAction.compareAndSet(null, action)
+                    ) {
+                        firstViewport.complete(action)
+                    }
+                }
+                model.chat.onQueuedActionFinished = { action ->
+                    if (action === firstViewportAction.get()) viewportStored.complete(Unit)
+                }
+                releaseHistory.complete(Unit)
+                until("held history publishes the saved native row") {
+                    model.chat.state.value.messages
+                        .any { it.id == saved.messageId }
+                }
+                compose.waitForIdle()
+                val restoredViewport =
+                    try {
+                        withTimeout(30_000) { firstViewport.await() }
+                    } catch (error: TimeoutCancellationException) {
+                        throw AssertionError(
+                            "Stage: first UI viewport after saved history; token=${model.chat.screenToken()} expected=$restoreToken messages=${model.chat.state.value.messages.size} anchor=${model.chat.state.value.anchor} failure=${model.chat.state.value.failure}",
+                            error,
+                        )
+                    }
+                assertEquals(
+                    "First UI viewport must restore the saved native message",
+                    saved.messageId,
+                    restoredViewport.anchor.messageId,
+                )
+                assertEquals(
+                    "First UI viewport must restore the saved pixel offset",
+                    saved.offsetPx,
+                    restoredViewport.anchor.offsetPx,
+                )
+                assertFalse(restoredViewport.atNewest)
+                try {
+                    withTimeout(30_000) { viewportStored.await() }
+                } catch (error: TimeoutCancellationException) {
+                    throw AssertionError(
+                        "Stage: exact first UI viewport action completion; instance=${System.identityHashCode(
+                            restoredViewport,
+                        )} token=${model.chat.screenToken()} anchor=${model.chat.state.value.anchor} failure=${model.chat.state.value.failure}",
+                        error,
+                    )
+                }
+                assertEquals("Saved-anchor route token stays current", restoreToken, model.chat.screenToken())
+                until("UI saved anchor stays persisted after delayed history") {
+                    model.session.preferences.anchor(
+                        owner.key.profileId,
+                        logicalConversationKey(Conversation.Group(group), owner.client.inboxId()),
+                    ) ==
+                        saved
+                }
+                compose.onNodeWithText("Loaded 100").assertIsDisplayed()
+                println("SAVED_ANCHOR_UI_PROOF stage=empty-to-loaded-first-viewport-restored")
             } finally {
+                releaseLookup.complete(Unit)
+                releaseHistory.complete(Unit)
+                model.chat.beforeQueuedAction = {}
+                model.chat.onQueuedActionFinished = {}
                 cleanup()
             }
         }
@@ -426,8 +676,7 @@ class MessengerRaceInstrumentedTest {
         runBlocking {
             try {
                 val owner = connect()
-                model.session.onInvalidated = {}
-                model.session.onMessage = { _, _ -> }
+                graphRule.observers.pauseAutomaticProjection()
                 val group = owner.client.conversations.createGroup(emptyList(), CreateGroupOptions(name = "Old window"))
                 val ids =
                     withTimeout(120_000) {
@@ -443,7 +692,7 @@ class MessengerRaceInstrumentedTest {
                 val saved = ScrollAnchor(anchor.id, anchor.sentAt.ns, 17, false, anchor.deliveryCursor)
                 model.session.preferences.saveAnchor(owner.key.profileId, group.id(), saved)
                 val opened = CompletableDeferred<Unit>()
-                model.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
+                model.chat.onOpenFinished = { if (it == group.id()) opened.complete(Unit) }
                 model.dispatch(MessengerAction.OpenConversation(group.id()))
                 withTimeout(30_000) { opened.await() }
                 assertEquals("Retained native SDK anchor", saved, model.state.value.anchor)
@@ -509,8 +758,7 @@ class MessengerRaceInstrumentedTest {
         runBlocking {
             try {
                 val owner = connect()
-                model.session.onInvalidated = {}
-                model.session.onMessage = { _, _ -> }
+                graphRule.observers.pauseAutomaticProjection()
                 val group =
                     owner.client.conversations.createGroup(
                         emptyList(),
@@ -568,6 +816,7 @@ class MessengerRaceInstrumentedTest {
         runBlocking {
             var peer: SDKClient? = null
             var reader: Job? = null
+            val releaseDecision = CompletableDeferred<Unit>()
             try {
                 val owner = connect()
                 peer =
@@ -618,7 +867,106 @@ class MessengerRaceInstrumentedTest {
                         .single { it.id == chat.id() }
                         .unread,
                 )
+                chat.updateConsentState(ConsentState.UNKNOWN)
+                model.dispatch(MessengerAction.Refresh)
+                until("actual unread chat becomes a request") {
+                    model.conversations.state.value.requests
+                        .any { it.id == chat.id() }
+                }
+                compose.onNode(hasText("Message requests", substring = true) and hasClickAction()).performClick()
+                until("actual request list is ready") {
+                    val list = model.conversations.state.value
+                    graphRule.graph.destinations.state.value.route == AppRoute.Requests &&
+                        list.unknownTab && !list.busy &&
+                        list.requests.any { it.id == chat.id() && it.preview == "Read this message" }
+                }
+                val requestRow = hasText("Read this message", substring = true) and hasClickAction()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(requestRow)
+                compose.onNode(requestRow).assertIsDisplayed().performClick()
+                until("actual request trust state is visible") {
+                    model.chat.state.value.conversationId == chat.id() && model.chat.state.value.unknown
+                }
+                val decisionEntered = CompletableDeferred<Unit>()
+                val duplicateEntered = CompletableDeferred<Unit>()
+                val decisionFinished = CompletableDeferred<Unit>()
+                val decisionCalls =
+                    java.util.concurrent.atomic
+                        .AtomicInteger()
+                model.conversations.beforeConsentDecision = { decision ->
+                    if (decisionCalls.incrementAndGet() == 1) {
+                        decisionEntered.complete(Unit)
+                    } else {
+                        duplicateEntered.complete(Unit)
+                    }
+                    assertEquals(RequestDecision.DELETE_LOCAL, decision)
+                    releaseDecision.await()
+                }
+                model.conversations.onConsentFinished = { decisionFinished.complete(Unit) }
+                compose.onNode(hasText("Delete request") and hasClickAction()).assertIsEnabled().performClick()
+                compose.onNodeWithText("Delete this request?").assertIsDisplayed()
+                assertEquals(ConsentState.UNKNOWN, conversationState(chat).consentState)
+                assertNotNull(owner.client.conversations.getMessageById(id))
+                assertEquals(0, decisionCalls.get())
+                compose.onNode(hasText("Cancel") and hasAnyAncestor(isDialog())).performClick()
+                until("request deletion canceled before write") {
+                    model.conversations.requestState.value.pendingDecision == null
+                }
+                assertEquals(0, decisionCalls.get())
+                assertEquals(ConsentState.UNKNOWN, conversationState(chat).consentState)
+                assertNotNull(owner.client.conversations.getMessageById(id))
+                compose.onNode(hasText("Delete request") and hasClickAction()).assertIsEnabled().performClick()
+                compose
+                    .onNode(
+                        hasText("Delete request") and hasClickAction() and hasAnyAncestor(isDialog()),
+                    ).performClick()
+                withTimeout(30_000) { decisionEntered.await() }
+                until("request deletion has active progress") {
+                    val request = model.conversations.requestState.value
+                    request.pendingDecision == null && request.activeDecision == RequestDecision.DELETE_LOCAL
+                }
+                compose.onNodeWithText("Delete this request?").assertDoesNotExist()
+                compose.onNode(hasText("Cancel") and hasAnyAncestor(isDialog())).assertDoesNotExist()
+                compose.onNodeWithText("Deleting request…").assertIsDisplayed()
+                compose.onNode(hasText("Delete request") and hasClickAction()).assertIsNotEnabled()
+                compose.onNode(hasText("Accept") and hasClickAction()).assertIsNotEnabled()
+                compose.runOnUiThread {
+                    model.conversations.dispatch(RequestAction.Confirm)
+                    model.conversations.dispatch(RequestAction.Accept)
+                    model.conversations.dispatch(RequestAction.Cancel)
+                }
+                assertNull(
+                    "Repeated callbacks must not start another consent write",
+                    withTimeoutOrNull(1_000) { duplicateEntered.await() },
+                )
+                assertEquals(1, decisionCalls.get())
+                assertEquals(RequestDecision.DELETE_LOCAL, model.conversations.requestState.value.activeDecision)
+                assertNull(model.conversations.requestState.value.pendingDecision)
+                assertEquals(ConsentState.UNKNOWN, conversationState(chat).consentState)
+                assertNotNull(owner.client.conversations.getMessageById(id))
+                releaseDecision.complete(Unit)
+                withTimeout(30_000) { decisionFinished.await() }
+                until("local request dismissal returns to Chats") {
+                    graphRule.graph.destinations.state.value.route == AppRoute.Chats &&
+                        model.conversations.state.value.requests
+                            .none { it.id == chat.id() }
+                }
+                assertEquals(1, decisionCalls.get())
+                assertNull(model.conversations.requestState.value.activeDecision)
+                model.conversations.refresh(owner)
+                assertTrue(
+                    model.conversations.state.value.requests
+                        .none { it.id == chat.id() },
+                )
+                assertNotNull(owner.client.conversations.getById(chat.id()))
+                assertEquals(ConsentState.UNKNOWN, conversationState(chat).consentState)
+                assertEquals(
+                    MessageContent.Text("Read this message"),
+                    checkNotNull(owner.client.conversations.getMessageById(id)).standardContent(),
+                )
             } finally {
+                releaseDecision.complete(Unit)
+                model.conversations.beforeConsentDecision = {}
+                model.conversations.onConsentFinished = {}
                 reader?.cancelAndJoin()
                 withContext(NonCancellable) { peer?.end() }
                 cleanup()

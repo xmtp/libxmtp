@@ -15,8 +15,10 @@ class NotificationRestoreFailureInstrumentedTest {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
             val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-            val original = AppSession(context)
-            val restored = AppSession(context)
+            val originalFixture = TestSessionFixture(context)
+            val original = originalFixture.session
+            val restoredFixture = TestSessionFixture(context)
+            val restored = restoredFixture.session
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             val chosenBound = CompletableDeferred<SessionKey>()
@@ -35,8 +37,8 @@ class NotificationRestoreFailureInstrumentedTest {
                 val groupId = group.id()
                 original.signOut()
                 original.preferences.setSignedIn(true)
-                restored.needsNotificationPreflight = { true }
-                restored.stopStoredNotifications = { owner ->
+                restoredFixture.lifecycle.needsNotificationPreflight = { true }
+                restoredFixture.lifecycle.stopStoredNotifications = { owner ->
                     failed = owner
                     assertEquals(inbox, owner.client.inboxId())
                     assertEquals(NotificationState.Disabled, owner.client.notificationState())
@@ -47,7 +49,7 @@ class NotificationRestoreFailureInstrumentedTest {
                 push = async(Dispatchers.IO) { runCatching { restored.restoreForPush() }.exceptionOrNull() }
                 withTimeout(30_000) { entered.await() }
                 if (newerConnect) {
-                    restored.needsNotificationPreflight = { false }
+                    restoredFixture.lifecycle.needsNotificationPreflight = { false }
                     restored.beforeBoundConnectOperation = { key -> chosenBound.complete(key) }
                     chosen = async(Dispatchers.IO) { restored.connect(BuildConfig.XMTP_BACKEND_URL, null, false) }
                     withTimeout(30_000) { chosenBound.await() }
@@ -68,7 +70,7 @@ class NotificationRestoreFailureInstrumentedTest {
                 } else {
                     assertNull(restored.active.value)
                     assertTrue(restored.preferences.signedIn())
-                    restored.stopStoredNotifications = { owner -> owner.client.disableNotifications() }
+                    restoredFixture.lifecycle.stopStoredNotifications = { owner -> owner.client.disableNotifications() }
                     restored.restore()
                 }
                 assertNotNull(
@@ -89,8 +91,8 @@ class NotificationRestoreFailureInstrumentedTest {
                     push?.cancelAndJoin()
                     chosen?.cancelAndJoin()
                     restored.beforeBoundConnectOperation = {}
-                    restored.needsNotificationPreflight = { false }
-                    restored.stopStoredNotifications = {}
+                    restoredFixture.lifecycle.needsNotificationPreflight = { false }
+                    restoredFixture.lifecycle.stopStoredNotifications = {}
                     if (restored.preferences.active() != null) restored.deleteAccount()
                     restored.signOut()
                     original.signOut()

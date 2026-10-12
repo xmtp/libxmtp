@@ -21,7 +21,8 @@ class NotificationAutomaticRestoreFailureInstrumentedTest {
     private suspend fun savedAccount(): SavedAccount {
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         (context as ExampleApp).session.awaitStartupExportCleanup()
-        val original = AppSession(context)
+        val originalFixture = TestSessionFixture(context)
+        val original = originalFixture.session
         original.awaitStartupExportCleanup()
         try {
             println("AUTOMATIC_RESTORE_STAGE seed_native_account")
@@ -78,14 +79,15 @@ class NotificationAutomaticRestoreFailureInstrumentedTest {
     }
 
     private suspend fun cleanup(
-        restored: AppSession,
+        restoredFixture: TestSessionFixture,
         saved: SavedAccount,
     ) {
+        val restored = restoredFixture.session
         restored.secrets.write(saved.profile.id, "database-key", saved.encryption)
         restored.beforeSessionStopLock = {}
         restored.beforeBoundConnectOperation = {}
-        restored.needsNotificationPreflight = { false }
-        restored.stopStoredNotifications = {}
+        restoredFixture.lifecycle.needsNotificationPreflight = { false }
+        restoredFixture.lifecycle.stopStoredNotifications = {}
         if (restored.preferences.active() != null) restored.deleteAccount()
         restored.signOut()
         saved.original.signOut()
@@ -103,16 +105,17 @@ class NotificationAutomaticRestoreFailureInstrumentedTest {
                 resumeStreams()
                 val saved = savedAccount()
                 val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-                val restored = AppSession(context)
+                val restoredFixture = TestSessionFixture(context)
+                val restored = restoredFixture.session
                 restored.awaitStartupExportCleanup()
                 var failed: ActiveSession? = null
                 try {
-                    restored.needsNotificationPreflight = { true }
+                    restoredFixture.lifecycle.needsNotificationPreflight = { true }
                     if (corruptKey) {
                         val wrong = saved.encryption.map { (it.toInt() xor 0x5a).toByte() }.toByteArray()
                         restored.secrets.write(saved.profile.id, "database-key", wrong)
                     } else {
-                        restored.stopStoredNotifications = { owner ->
+                        restoredFixture.lifecycle.stopStoredNotifications = { owner ->
                             failed = owner
                             assertEquals(NotificationState.Disabled, owner.client.notificationState())
                             error("Controlled automatic preflight failure")
@@ -137,7 +140,7 @@ class NotificationAutomaticRestoreFailureInstrumentedTest {
                     )
                     assertEquals(saved.profile, restored.preferences.active())
                     assertTrue(restored.preferences.pendingExportCleanup().isEmpty())
-                    restored.stopStoredNotifications = { owner -> owner.client.disableNotifications() }
+                    restoredFixture.lifecycle.stopStoredNotifications = { owner -> owner.client.disableNotifications() }
                     println("AUTOMATIC_RESTORE_STAGE retry_native_account")
                     restored.restore()
                     assertNotNull(
@@ -147,7 +150,7 @@ class NotificationAutomaticRestoreFailureInstrumentedTest {
                     reopened(restored, saved)
                     println("AUTOMATIC_RESTORE_RETRY native_builder=$corruptKey actual_saved_group=true")
                 } finally {
-                    withContext(NonCancellable) { cleanup(restored, saved) }
+                    withContext(NonCancellable) { cleanup(restoredFixture, saved) }
                 }
             }
         }
@@ -163,7 +166,8 @@ class NotificationAutomaticRestoreFailureInstrumentedTest {
                 resumeStreams()
                 val saved = savedAccount()
                 val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-                val restored = AppSession(context)
+                val restoredFixture = TestSessionFixture(context)
+                val restored = restoredFixture.session
                 restored.awaitStartupExportCleanup()
                 val entered = CompletableDeferred<Unit>()
                 val release = CompletableDeferred<Unit>()
@@ -174,8 +178,8 @@ class NotificationAutomaticRestoreFailureInstrumentedTest {
                 var opening: Deferred<Throwable?>? = null
                 var next: Deferred<Unit>? = null
                 try {
-                    restored.needsNotificationPreflight = { true }
-                    restored.stopStoredNotifications = { owner ->
+                    restoredFixture.lifecycle.needsNotificationPreflight = { true }
+                    restoredFixture.lifecycle.stopStoredNotifications = { owner ->
                         failed = owner
                         assertEquals(NotificationState.Disabled, owner.client.notificationState())
                         entered.complete(Unit)
@@ -192,7 +196,7 @@ class NotificationAutomaticRestoreFailureInstrumentedTest {
                         next = async(Dispatchers.IO) { restored.signOut() }
                         withTimeout(30_000) { reserved.await() }
                     } else {
-                        restored.needsNotificationPreflight = { false }
+                        restoredFixture.lifecycle.needsNotificationPreflight = { false }
                         restored.beforeBoundConnectOperation = { key -> chosen.complete(key) }
                         next = async(Dispatchers.IO) { restored.connect(BuildConfig.XMTP_BACKEND_URL, null, false) }
                         withTimeout(30_000) { chosen.await() }
@@ -224,7 +228,7 @@ class NotificationAutomaticRestoreFailureInstrumentedTest {
                     withContext(NonCancellable) {
                         opening?.cancelAndJoin()
                         next?.cancelAndJoin()
-                        cleanup(restored, saved)
+                        cleanup(restoredFixture, saved)
                     }
                 }
             }

@@ -3,7 +3,9 @@
 Run commands from the repository root. These recipes use the Android Nix shell.
 
 ```bash
+dev/nix-shell 'just example-android start'
 dev/nix-shell 'just example-android check'
+dev/nix-shell 'just example-android preview-check'
 dev/nix-shell 'just example-android lint'
 dev/nix-shell 'just example-android format'
 dev/nix-shell 'just example-android test'
@@ -30,6 +32,14 @@ shared dependency verification inventory. App module locks remain here. The
 app uses API 27 and JVM 17. Common Compose source has no SDK objects.
 Keep the application ID and private profile paths unchanged.
 
+`preview-check` compiles the shared UI and Android Studio previews. It does not
+build native bindings or start services. Use `MessengerPreviews.kt` for fixed
+screen and attachment states at phone, dark, 320 dp, 200% text, RTL, landscape,
+and wide window sizes. The app's `NativeReactionPickerPreviews.kt` renders the
+actual Android emoji picker and search. It needs the regular app build;
+`preview-check` covers only the shared module. These previews start no session
+or services. A preview is not a runtime proof.
+
 `check` compiles Debug, Release, shared targets, and the app test APK with strict
 verification. `test` stages matched bindings and the host JNI library before
 host tests. A host test pass does not prove Android package loading.
@@ -39,6 +49,13 @@ The Off Firebase graph uses `app/gradle.lockfile`. The configured graph uses
 private file at `app/google-services.json`. Do not commit it.
 
 ## Local services
+
+`start` builds the local SDK, boots a visible API 34 emulator at 1080 × 2400
+and 420 dpi with automatic GPU rendering, installs Debug,
+forwards the worktree backend and object-store ports, and launches the app.
+It uses the existing backend. Press Enter to stop the owned emulator and remove
+its temporary device data. Keep the scoped launcher so failure and interruption
+also clean up only this device.
 
 The Android host is in `app`. Shared Compose screens are in `shared/src/commonMain`.
 `test` runs host and shared unit tests. `test-integration` runs app instrumentation

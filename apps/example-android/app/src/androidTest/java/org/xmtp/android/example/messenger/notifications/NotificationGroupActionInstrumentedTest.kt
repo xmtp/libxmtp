@@ -1,24 +1,37 @@
 package org.xmtp.android.example.messenger.notifications
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.ExampleApp
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
+import org.xmtp.android.example.shared.AppRoute
 import org.xmtp.android.example.shared.MessengerAction
 import org.xmtp.android.example.shared.Screen
+import org.xmtp.android.example.shared.ShellAction
+import org.xmtp.android.example.shared.feature.group.GroupAction
 import uniffi.xmtp_sdk.*
 import java.security.SecureRandom
 import java.util.Base64
 
 class NotificationGroupActionInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val transport =
+        object : PushTransport {
+            override val configured = true
+
+            override fun requestToken(callback: (String?, Throwable?) -> Unit) = callback("compile-only-token", null)
+        }
+    private val graphRule = TestAppGraphRule(notificationTransport = transport)
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
 
     private suspend fun until(
         stage: String,
@@ -36,52 +49,22 @@ class NotificationGroupActionInstrumentedTest {
         resumeStreams()
         val app = compose.activity.application as ExampleApp
         val session = app.session
-        val previousController = app.notifications
-        val previousMessage = session.onMessage
-        val previousEvent = session.onEvent
-        val previousInvalidated = session.onInvalidated
-        val previousAdmission = session.onNotificationAdmissionChanged
-        val previousEnd = session.beforeEnd
-        val previousUnregister = session.unregisterNotifications
-        val previousPreflight = session.needsNotificationPreflight
-        val previousStop = session.stopStoredNotifications
-        val previousRemoval = session.beforeProfileRemoval
         val store = ViewModelStore()
         val releases = mutableListOf<CompletableDeferred<Unit>>()
-        var controller: NotificationController? = null
         var model: MessengerViewModel? = null
         var peer: SDKClient? = null
 
-        fun install(value: NotificationController) {
-            ExampleApp::class.java
-                .getDeclaredField("notifications")
-                .apply { isAccessible = true }
-                .set(app, value)
-        }
         try {
             session.signOut()
             session.connect(BuildConfig.XMTP_BACKEND_URL, "", false)
             val owner = checkNotNull(session.active.value)
-            val transport =
-                object : PushTransport {
-                    override val configured = true
-
-                    override fun requestToken(callback: (String?, Throwable?) -> Unit) =
-                        callback("compile-only-token", null)
-                }
-            val notifications = NotificationController(app, session, transport)
-            controller = notifications
+            val notifications = graphRule.graph.notifications
             notifications.permissionGranted = { true }
             notifications.enableRegistration = { _, _ -> NotificationState.Enabled }
             notifications.disableRegistration = { }
             notifications.readConversationState = { chat -> conversationState(chat).copy(notificationsEnabled = true) }
             notifications.tokenChanged("compile-only-token")
-            install(notifications)
-            val fresh =
-                ViewModelProvider(
-                    store,
-                    ViewModelProvider.AndroidViewModelFactory.getInstance(app),
-                )[MessengerViewModel::class.java]
+            val fresh = graphRule.newShell(store)
             model = fresh
             until("current SDK owner projection") { fresh.state.value.inbox == owner.client.inboxId() }
             fresh.foreground(false)
@@ -92,10 +75,10 @@ class NotificationGroupActionInstrumentedTest {
                     CreateGroupOptions(name = "Before edit", description = "Before description"),
                 )
             val groupId = group.id()
-            fresh.dispatch(MessengerAction.OpenConversation(groupId))
-            until("actual group timeline") {
-                fresh.state.value.conversationId == groupId &&
-                    fresh.state.value.screen == Screen.TIMELINE
+            fresh.dispatch(MessengerAction.ShellFeature(ShellAction.Navigate(AppRoute.ConversationDetails(groupId))))
+            until("actual group details") {
+                fresh.group.state.value.conversationId == groupId &&
+                    fresh.state.value.screen == Screen.CONVERSATION_SETTINGS
             }
             var posts = 0
             notifications.postNotification = { _, _, _ ->
@@ -105,21 +88,21 @@ class NotificationGroupActionInstrumentedTest {
             var sequence = 0
 
             suspend fun hold(
-                action: MessengerAction,
+                action: GroupAction,
                 index: Int,
                 verifyPaused: suspend () -> Unit,
             ) {
                 val entered = CompletableDeferred<Unit>()
                 val release = CompletableDeferred<Unit>().also(releases::add)
                 val finished = CompletableDeferred<Unit>()
-                fresh.beforeGroupWrite = { actual, write ->
+                fresh.group.beforeGroupWrite = { actual, write ->
                     if (actual == action && write == index) {
                         entered.complete(Unit)
                         release.await()
                     }
                 }
-                fresh.onQueuedActionFinished = { actual -> if (actual == action) finished.complete(Unit) }
-                fresh.dispatch(action)
+                fresh.group.onGroupActionFinished = { actual -> if (actual == action) finished.complete(Unit) }
+                fresh.group.dispatch(action)
                 withTimeout(30_000) { entered.await() }
                 verifyPaused()
                 sequence += 1
@@ -145,21 +128,21 @@ class NotificationGroupActionInstrumentedTest {
                         ),
                     )
                 val peerId = checkNotNull(peer).inboxId()
-                hold(MessengerAction.AddMember(peerId), 0) { assertFalse(group.members().any { it.inboxId == peerId }) }
+                hold(GroupAction.AddMember(peerId), 0) { assertFalse(group.members().any { it.inboxId == peerId }) }
                 assertTrue(group.members().any { it.inboxId == peerId })
                 assertEquals(0, posts)
             } else {
-                hold(MessengerAction.UpdateGroup("First name", "First description"), 0) {
+                hold(GroupAction.UpdateGroup("First name", "First description"), 0) {
                     assertEquals("Before edit", group.state().name)
                 }
                 assertEquals("First name", group.state().name)
                 assertEquals("First description", group.state().description)
-                hold(MessengerAction.UpdateGroup("Second name", "Second description"), 1) {
+                hold(GroupAction.UpdateGroup("Second name", "Second description"), 1) {
                     assertEquals("Second name", group.state().name)
                     assertEquals("First description", group.state().description)
                 }
                 assertEquals("Second description", group.state().description)
-                hold(MessengerAction.SetDisappearing(60), 0) { assertNull(group.state().common.disappearingSettings) }
+                hold(GroupAction.SetDisappearing(60), 0) { assertNull(group.state().common.disappearingSettings) }
                 assertEquals(
                     60_000_000_000L,
                     group
@@ -173,8 +156,8 @@ class NotificationGroupActionInstrumentedTest {
         } finally {
             releases.forEach { it.complete(Unit) }
             withContext(NonCancellable) {
-                model?.beforeGroupWrite = { _, _ -> }
-                model?.onQueuedActionFinished = {}
+                model?.group?.beforeGroupWrite = { _, _ -> }
+                model?.group?.onGroupActionFinished = {}
                 try {
                     if (session.preferences.active() != null ||
                         session.preferences.reset() != null
@@ -185,17 +168,6 @@ class NotificationGroupActionInstrumentedTest {
                 } finally {
                     peer?.end()
                     store.clear()
-                    controller?.close()
-                    install(previousController)
-                    session.onMessage = previousMessage
-                    session.onEvent = previousEvent
-                    session.onInvalidated = previousInvalidated
-                    session.onNotificationAdmissionChanged = previousAdmission
-                    session.beforeEnd = previousEnd
-                    session.unregisterNotifications = previousUnregister
-                    session.needsNotificationPreflight = previousPreflight
-                    session.stopStoredNotifications = previousStop
-                    session.beforeProfileRemoval = previousRemoval
                     AndroidStreamLifecycle.enabled = true
                 }
             }

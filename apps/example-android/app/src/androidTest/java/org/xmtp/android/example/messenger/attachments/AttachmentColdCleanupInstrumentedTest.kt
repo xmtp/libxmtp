@@ -13,6 +13,8 @@ import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
 import org.xmtp.android.example.BuildConfig
 import org.xmtp.android.example.MainActivity
 import org.xmtp.android.example.messenger.*
@@ -22,7 +24,10 @@ import java.util.UUID
 import android.os.Message as AndroidMessage
 
 class AttachmentColdCleanupInstrumentedTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val graphRule = TestAppGraphRule()
+    val compose = createAndroidComposeRule<MainActivity>()
+
+    @get:Rule val rules: TestRule = RuleChain.outerRule(graphRule).around(compose)
     private val model get() = ViewModelProvider(compose.activity)[MessengerViewModel::class.java]
 
     /** Reconstructs the durable death gap. It does not kill the Android process. */
@@ -37,8 +42,8 @@ class AttachmentColdCleanupInstrumentedTest {
             val target = instrumentation.context.packageName
             val session = model.session
             val lifecycle = AndroidStreamLifecycle.enabled
-            val invalidated = session.onInvalidated
-            val message = session.onMessage
+            val invalidated = graphRule.observers.beforeInvalidate
+            val message = graphRule.observers.beforeHandle
             val sender = AttachmentTestFixture()
             val releaseDrain = CompletableDeferred<Unit>()
             val persisted = CompletableDeferred<Unit>()
@@ -57,7 +62,7 @@ class AttachmentColdCleanupInstrumentedTest {
                         session.connect(BuildConfig.XMTP_BACKEND_URL, "", true)
                         val owner = checkNotNull(session.active.value)
                         model.foreground(false)
-                        model.featureRefresh(owner, null)
+                        graphRule.graph.attachments.refresh(owner)
                         sender.start()
                         val bytes = "real cold export".toByteArray()
                         val source = AttachmentSource.Bytes(bytes, "cold.txt", "text/plain")
@@ -136,8 +141,8 @@ class AttachmentColdCleanupInstrumentedTest {
                         }
                         context.grantUriPermission(target, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         assertTrue(canRead(uri))
-                        session.onInvalidated = {}
-                        session.onMessage = { _, _ -> }
+                        graphRule.observers.beforeInvalidate = {}
+                        graphRule.observers.beforeHandle = { _, _ -> }
                         val privateBytes = ByteArray(24) { (it % 251).toByte() }
                         val drafts =
                             AttachmentDraftCoordinator(
@@ -180,7 +185,7 @@ class AttachmentColdCleanupInstrumentedTest {
                             }
                         entered.await()
                         // Finish the initial empty startup before testing the separate awaited path.
-                        val waiting = if (startupOnly) null else AppSession(context)
+                        val waiting = if (startupOnly) null else TestSessionFixture(context).session
                         waiting?.awaitStartupExportCleanup()
                         session.beforeImmediateExportRevoke = { profile ->
                             assertEquals(owner.key.profileId, profile)
@@ -197,7 +202,7 @@ class AttachmentColdCleanupInstrumentedTest {
                         assertTrue(database.exists())
                         // Startup reconstructs after persistence.
                         // Restore replays a later journal on an unopened session.
-                        val cold = waiting ?: AppSession(context)
+                        val cold = waiting ?: TestSessionFixture(context).session
                         if (startupOnly) cold.awaitStartupExportCleanup() else cold.restore()
                         assertNull("Signed-out cold recovery does not open an SDK owner", cold.active.value)
                         assertFalse("Cold replay deletes the recorded profile export", exports.exists())
@@ -247,8 +252,8 @@ class AttachmentColdCleanupInstrumentedTest {
                         it.deleteRecursively()
                     }
                     sender.close()
-                    session.onInvalidated = invalidated
-                    session.onMessage = message
+                    graphRule.observers.beforeInvalidate = invalidated
+                    graphRule.observers.beforeHandle = message
                     if (session.active.value != null || session.preferences.reset() != null) session.deleteAccount()
                     session.signOut()
                     AndroidStreamLifecycle.enabled = lifecycle

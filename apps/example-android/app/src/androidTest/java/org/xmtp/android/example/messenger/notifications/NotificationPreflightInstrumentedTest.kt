@@ -25,10 +25,22 @@ class NotificationPreflightInstrumentedTest {
         runBlocking {
             AndroidStreamLifecycle.enabled = false
             resumeStreams()
-            val original = AppSession(context)
-            val originalController = NotificationController(context, original, OffTransport())
-            val restored = AppSession(context)
-            val controller = NotificationController(context, restored, OffTransport())
+            val originalFixture = TestSessionFixture(context)
+            val original = originalFixture.session
+            val originalController =
+                NotificationController(
+                    context,
+                    original,
+                    OffTransport(),
+                ).also(originalFixture::bindNotifications)
+            val restoredFixture = TestSessionFixture(context)
+            val restored = restoredFixture.session
+            val controller =
+                NotificationController(
+                    context,
+                    restored,
+                    OffTransport(),
+                ).also(restoredFixture::bindNotifications)
             var relay: AppOfflineBackendProxy? = AppOfflineBackendProxy(BuildConfig.XMTP_BACKEND_URL)
             var held: ActiveSession? = null
             var unregisterUnavailable = false
@@ -83,8 +95,8 @@ class NotificationPreflightInstrumentedTest {
                         throw error
                     }
                 }
-                val stop = restored.stopStoredNotifications
-                restored.stopStoredNotifications = { owner ->
+                val stop = restoredFixture.lifecycle.stopStoredNotifications
+                restoredFixture.lifecycle.stopStoredNotifications = { owner ->
                     held = owner
                     val taskRunner =
                         owner.client
@@ -99,8 +111,8 @@ class NotificationPreflightInstrumentedTest {
                     assertEquals(NotificationState.Disabled, owner.client.notificationState())
                     println("PUSH_PREFLIGHT stage=disabled-before-offline-unregister-finish worker_enabled=false")
                 }
-                val end = restored.beforeEnd
-                restored.beforeEnd = { owner ->
+                val end = restoredFixture.lifecycle.beforeEnd
+                restoredFixture.lifecycle.beforeEnd = { owner ->
                     closeCount += 1
                     end(owner)
                 }
@@ -129,7 +141,7 @@ class NotificationPreflightInstrumentedTest {
                 println("PUSH_PREFLIGHT stage=normal-chat-published-notifications-disabled")
             } finally {
                 withContext(NonCancellable) {
-                    restored.stopStoredNotifications = {}
+                    restoredFixture.lifecycle.stopStoredNotifications = controller.lifecycle::stopStoredNotifications
                     originalController.close()
                     controller.close()
                     restored.deleteAccount()

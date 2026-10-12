@@ -1,5 +1,8 @@
 package org.xmtp.android.example.shared.attachments
 
+import org.xmtp.android.example.shared.feature.attachments.AttachmentPhase
+import org.xmtp.android.example.shared.feature.attachments.attachmentPhase
+
 /** Contains no remote URL or key material. */
 data class AttachmentCardState(
     val id: String,
@@ -15,10 +18,27 @@ data class AttachmentCardState(
     val error: String? = null,
     val conversationId: String = "",
     val acceptedMessageId: String? = null,
+    val canSave: Boolean = canOpen,
+    val mimeType: String? = null,
+    val verifiedSizeBytes: Long? = null,
+    val transferredBytes: Long? = null,
+    val totalBytes: Long? = null,
+    val phase: AttachmentPhase = attachmentPhase(status, unknownOutcome, unavailable),
 )
+
+enum class AttachmentSelection { FILE, PHOTO_VIDEO }
 
 sealed interface AttachmentAction {
     data object Select : AttachmentAction
+
+    data class Choose(
+        val instanceId: Long,
+        val selection: AttachmentSelection,
+    ) : AttachmentAction
+
+    data class DismissChoice(
+        val instanceId: Long,
+    ) : AttachmentAction
 
     data class Send(
         val draftId: String,

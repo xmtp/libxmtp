@@ -37,6 +37,16 @@ class SendCoordinator(
 
     fun knowsAccepted(id: String) = knownAcceptances.containsKey(id)
 
+    internal suspend fun outboundAllowed(
+        key: SessionKey,
+        conversation: Conversation,
+        admission: () -> Boolean,
+    ): Boolean {
+        if (!accepts(key) || !admission()) return false
+        val allowed = conversationState(conversation).consentState == ConsentState.ALLOWED
+        return allowed && accepts(key) && admission()
+    }
+
     suspend fun recoverAccepted(key: SessionKey) {
         for ((draftId, entry) in knownAcceptances.entries.toList()) {
             if (entry.profile != key.profileId || isInFlight(draftId)) continue
@@ -68,6 +78,7 @@ class SendCoordinator(
                     .id(),
             ),
         admission: () -> Boolean = { true },
+        beforeSend: suspend () -> Unit = {},
         onAccepted: (MessageId) -> Unit = {},
         onStored: (MessageId) -> Unit = {},
         reconcile: suspend (Message) -> Unit,
@@ -98,16 +109,25 @@ class SendCoordinator(
                 }
             if (!prepared) throw kotlinx.coroutines.CancellationException("Session changed before queue admission")
             afterQueueDraftCommit()
-            if (!accepts(key) || !admission()) {
-                preferences.rejectQueueDraft(
-                    key.profileId,
-                    draft.copy(phase = SendPhase.QUEUEING),
-                    previous,
-                    admit = { change -> admit(key, change) },
-                )
-                throw kotlinx.coroutines.CancellationException("Action scope changed before send")
+            val outbound =
+                runCatching {
+                    beforeSend()
+                    outboundAllowed(key, conversation, admission)
+                }
+            if (!outbound.getOrDefault(false)) {
+                withContext(NonCancellable) {
+                    preferences.rejectQueueDraft(
+                        key.profileId,
+                        draft.copy(phase = SendPhase.QUEUEING),
+                        previous,
+                        admit = { change -> admit(key, change) },
+                    )
+                }
+                outbound.exceptionOrNull()?.let { throw it }
+                throw kotlinx.coroutines.CancellationException("Outbound admission changed before send")
             }
             val id = send()
+            var acceptedCommitted = false
             // Acceptance belongs to this profile even when navigation cancels the caller.
             withContext(NonCancellable) {
                 val acceptedDraft = draft.copy(phase = SendPhase.ACCEPTED, acceptedMessageId = id)
@@ -128,7 +148,10 @@ class SendCoordinator(
                     )
                 knownAcceptances[draft.draftId] = entry
                 onStored(id)
-                if (entry.commit.finish()) knownAcceptances.remove(draft.draftId, entry)
+                if (entry.commit.finish()) {
+                    acceptedCommitted = true
+                    knownAcceptances.remove(draft.draftId, entry)
+                }
             }
             if (!accepts(key)) return id
             client.conversations
@@ -136,6 +159,7 @@ class SendCoordinator(
                 ?.let {
                     reconcile(it)
                 }
+            if (!acceptedCommitted) return id
             retry(
                 key,
                 client,
@@ -163,6 +187,17 @@ class SendCoordinator(
     ) {
         check(accepts(key))
         if (!admission()) throw kotlinx.coroutines.CancellationException("Action scope changed")
+        for ((draftId, entry) in knownAcceptances.entries.toList()) {
+            if (entry.profile != key.profileId || entry.commit.messageId != id) continue
+            val finished = withContext(NonCancellable) { entry.commit.finish() }
+            if (!finished) return
+            knownAcceptances.remove(draftId, entry)
+        }
+        if (!accepts(key) ||
+            !admission()
+        ) {
+            throw kotlinx.coroutines.CancellationException("Action scope changed before publication")
+        }
         val current = messageRead(client, id) ?: error("Stored message is unavailable")
         if (!accepts(key) ||
             !admission()
@@ -174,9 +209,7 @@ class SendCoordinator(
             DeliveryStatus.PUBLISHED
         ) {
             beforePublish(id)
-            if (!accepts(key) ||
-                !admission()
-            ) {
+            if (!outboundAllowed(key, conversation, admission)) {
                 throw kotlinx.coroutines.CancellationException("Action scope changed before publication")
             }
             conversation
