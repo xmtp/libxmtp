@@ -71,7 +71,7 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter "XmtpSdkTests.(ListenerGateT
 - `test-ios.yml` holds all iOS CI jobs. Its `swift` job runs `test-lifecycle`
   and `check-consumer`. Its `tests` job runs `test skip-lifecycle`, so its macOS
   run does not repeat the lifecycle checks. `test-simulator` still runs every
-  test on the simulator. Its `check-swift` job checks the native SDK compile.
+  test on the simulator.
   A selected iOS suite gates aggregate `Test` in `ci.yml`.
 - The Xcode recipes clear inherited `LD` before Xcode selects its linker driver.
 - Example builds select `arm64` to match the shipped simulator library.

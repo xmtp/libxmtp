@@ -460,6 +460,36 @@ S3_INPUTS = (
     "kache-s3-secret-access-key",
 )
 
+# Jobs that run cargo outside Nix, with their Kache scope. A job leaves this
+# list only when it stops running cargo outside Nix, so dropping Kache from a
+# cargo job fails here even when its README row goes too.
+KACHE_CALLERS = {
+    "build-sdk-node-platforms.yml / assemble": "sdk-native-release",
+    "check-rust.yml / native": "rust-clippy-native",
+    "check-rust.yml / wasm": "rust-clippy-wasm",
+    "check-sdk-products.yml / generated": "sdk-products-debug",
+    "check-sdk-unit.yml / unit": "sdk-tests-debug",
+    "check-types.yml / check": "sdk-products-debug",
+    "deploy-docs.yml / site": "sdk-products-debug",
+    "deploy-web-chat.yml / deploy": "sdk-products-debug",
+    "docs-rust-reference.yml / rust": "rust-reference",
+    "manual-sdk-recovery.yml / recovery": "sdk-native-debug",
+    "release-agent-sdk.yml / build": "sdk-native-debug",
+    "release-browser-sdk.yml / build": "sdk-products-debug",
+    "release-cli.yml / build": "sdk-native-debug",
+    "test-agent-sdk.yml / test": "sdk-native-debug",
+    "test-android.yml / android-stage": "sdk-android-release",
+    "test-backend.yml / native": "backend-tests-debug",
+    "test-browser-sdk.yml / test": "sdk-products-debug",
+    "test-node-sdk.yml / test": "sdk-native-debug",
+    "test-sdk-platform.yml / proof": (
+        "${{ matrix.target == 'browser' && 'sdk-browser-conformance'"
+        " || 'sdk-products-debug' }}"
+    ),
+    "test-sdk.yml / sdk": "sdk-products-tests-conformance",
+    "test-sdk.yml / android-stage": "sdk-android-release",
+}
+
 
 def setup_nix_calls():
     """Yield (workflow, job id, job, inputs) for every setup-nix call."""
@@ -496,11 +526,16 @@ class SetupNixTests(unittest.TestCase):
         ):
             lines = action_step(name)["with"][field].splitlines()
             with self.subTest(step=name):
-                self.assertIn("max-jobs = auto", lines)
-                self.assertIn("cores = 0", lines)
-                self.assertFalse(
-                    [line for line in lines if line.startswith("max-jobs")][1:]
-                )
+                # Nix applies the last value, so any other line would win.
+                for key, value in (("max-jobs", "auto"), ("cores", "0")):
+                    self.assertEqual(
+                        [
+                            line
+                            for line in lines
+                            if re.match(rf"\s*(extra-)?{key}\s*=", line)
+                        ],
+                        [f"{key} = {value}"],
+                    )
 
     def test_kache_is_off_unless_a_caller_runs_cargo(self):
         action = yaml.safe_load(ACTION.read_text())
@@ -521,6 +556,14 @@ class SetupNixTests(unittest.TestCase):
                         [name for name in inputs if name.startswith("kache")], []
                     )
                     self.assertNotIn("kache-s3-writer", environment)
+
+    def test_kache_callers_match_the_cargo_job_list(self):
+        callers = {
+            f"{workflow} / {job_id}": inputs.get("kache-scope")
+            for workflow, job_id, _, inputs in setup_nix_calls()
+            if inputs.get("kache") == "true"
+        }
+        self.assertEqual(callers, KACHE_CALLERS)
 
     def test_readme_lists_exactly_the_kache_callers(self):
         readme = (ROOT / ".github/actions/setup-nix/README.md").read_text()

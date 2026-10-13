@@ -150,9 +150,11 @@ the native backend acceptance job free of cache writer keys: pass only the
 Kache reader pair to its setup-nix step, and do not reference other secrets in
 that job.
 
-When adding an enabled caller, pass both optional Kache secrets through every
-reusable call in its chain. Declare them under `workflow_call.secrets` when a
-caller uses an explicit secret map. Share a stable scope across the same outer
+When adding an enabled caller, add it to the setup action's README table and
+to `KACHE_CALLERS` in `dev/agents/test_kache_env.py`. Pass both optional Kache
+secrets through every reusable call in its chain. Declare them under
+`workflow_call.secrets` when a caller uses an explicit secret map. Share a
+stable scope across the same outer
 Cargo build family, including reader-only consumers. Keep Clippy, check, test,
 doc, and release variants separate. Jobs with no outer Cargo compilation leave
 Kache off; Nix derivations do not use this remote. Identical test shards share

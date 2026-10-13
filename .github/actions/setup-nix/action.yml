@@ -55,6 +55,7 @@ runs:
     # the kernel killed a process for memory. Registered first, so it runs
     # after every other post step. action-post-run exec()s its `run` input as
     # a bare executable (no shell), so the script must live in a file.
+    # Every action here is pinned by commit SHA: release and publish jobs run it.
     - name: Write kernel OOM report script
       if: ${{ runner.os == 'Linux' }}
       run: |
@@ -77,7 +78,7 @@ runs:
       shell: bash
     - name: Register kernel OOM report
       if: ${{ runner.os == 'Linux' }}
-      uses: webiny/action-post-run@3.1.0
+      uses: webiny/action-post-run@2a0e96f0e55f0e698cf2a3d85670e3577ae30a30 # 3.1.0
       with:
         run: bash ${{ runner.temp }}/kernel-oom-report.sh
     # Gradle wrapper dist + dependency/transform caches for Android jobs.
@@ -87,7 +88,7 @@ runs:
     # post (which kills gradle/kotlin daemons) runs before this unmounts.
     - name: Mount ~/.gradle sticky disk
       if: ${{ inputs.gradle-disk == 'true' && runner.os == 'Linux' }}
-      uses: useblacksmith/stickydisk@v1
+      uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1
       with:
         key: ${{ github.repository }}-gradle-${{ runner.os }}-${{ runner.arch }}
         path: ~/.gradle
@@ -110,7 +111,7 @@ runs:
       shell: bash
     - name: Register ~/.gradle busy-process cleanup
       if: ${{ runner.os == 'Linux' && inputs.gradle-disk == 'true' }}
-      uses: webiny/action-post-run@3.1.0
+      uses: webiny/action-post-run@2a0e96f0e55f0e698cf2a3d85670e3577ae30a30 # 3.1.0
       with:
         run: bash ${{ runner.temp }}/gradle-unmount-cleanup.sh
     # Build independent derivations in parallel, one per CPU (`max-jobs`), and
@@ -121,7 +122,7 @@ runs:
     # (https://github.com/nixos/nix/issues/15619).
     - name: Install Nix (Linux)
       if: ${{ runner.os == 'Linux' }}
-      uses: nixbuild/nix-quick-install-action@v35
+      uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
       with:
         nix_version: 2.31.5
         nix_conf: |
@@ -131,7 +132,7 @@ runs:
           cores = 0
     - name: Install Nix (macOS)
       if: ${{ runner.os != 'Linux' }}
-      uses: cachix/install-nix-action@v31
+      uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
       with:
         # https://github.com/nixos/nix/issues/15619 2.34.4 causes patch failures
         install_url: https://releases.nixos.org/nix/nix-2.31.2/install
@@ -140,12 +141,12 @@ runs:
           accept-flake-config = true
           max-jobs = auto
           cores = 0
-    - uses: cachix/cachix-action@v17
+    - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cachix-auth-token != '' }}
       with:
         name: xmtp
         authToken: ${{ inputs.cachix-auth-token }}
-    - uses: cachix/cachix-action@v17
+    - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
       if: ${{ inputs.cachix-auth-token == '' }}
       with:
         name: xmtp
