@@ -22,6 +22,7 @@ import {
   type Intent,
   type LeaveRequest,
   type MultiRemoteAttachment,
+  type PublicIdentity,
   type Reaction,
   type RemoteAttachment,
   type StreamOptions,
@@ -108,6 +109,12 @@ type EventName<ContentTypes> = keyof EventHandlerMap<ContentTypes>;
 
 /** Ethereum address encoded as a prefixed hexadecimal string. */
 type EthAddress = Hex;
+
+/** Convert a handle to the XMTP identifier shape. The SDK lowercases ASCII capitals. */
+const handleIdentity = (handle: string): PublicIdentity => ({
+  identifier: handle,
+  kind: "handle",
+});
 
 /** Values available to a handler for the current message. */
 export type AgentBaseContext<_ContentTypes = unknown> = {
@@ -938,6 +945,31 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     });
 
     return group.addMembers(identifiers);
+  }
+
+  /**
+   * Create a DM with the inbox that claimed a handle, such as `nick` or
+   * `nick#2341`. An old handle of that inbox also resolves to it. A handle
+   * that no inbox claimed fails with `IdentityNotFound`.
+   */
+  createDmWithHandle(handle: string, options?: CreateDmOptions) {
+    return this.#client.conversations.createDm(handleIdentity(handle), options);
+  }
+
+  /** Create a group with the inboxes that claimed these handles. */
+  createGroupWithHandles(handles: string[], options?: CreateGroupOptions) {
+    return this.#client.conversations.createGroup(
+      handles.map(handleIdentity),
+      options,
+    );
+  }
+
+  /** Add the inboxes that claimed these handles to an existing group. */
+  addMembersWithHandles(
+    group: Group,
+    handles: string[],
+  ): ReturnType<Group["addMembers"]> {
+    return group.addMembers(handles.map(handleIdentity));
   }
 
   /** Resolve a conversation context, or return `undefined` when it is not local. */

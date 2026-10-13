@@ -42,6 +42,7 @@ The backend defaults to 256 identity log entries per inbox. The operator can cha
 - Remove a wallet
 - Add an installation
 - Revoke an installation
+- Claim a [handle](#handles)
 
 :::danger[CRITICAL FOR PRODUCTION]
 Inbox updates are cumulative and **cannot be reversed**. Revoking an installation counts as an update but does not decrease the total count. When the log reaches the configured limit, the backend rejects further entries for that inbox.
@@ -86,7 +87,8 @@ Show a user the installation ID, last activity time, app version, and device dat
 | Revoke all other installations | `client.revokeAllOtherInstallations(signer)` | `client.revokeAllOtherInstallations(signer)` (Kotlin) or `client.revokeAllOtherInstallations(signer: signer)` (Swift) |
 
 `InboxState` returns `inboxId`, `identities`, `installations`, `recoveryIdentity`,
-and optional `creationSignatureKind`. Static `inboxStates` leaves
+optional `creationSignatureKind`, optional `handle`, and `otherHandles` (see
+[Show handles](#show-handles)). Static `inboxStates` leaves
 `creationSignatureKind` absent. Each installation has `id` and an optional
 `createdAt`. The SDK does not return a last activity time or device name. Store
 those values in your app if needed.
@@ -153,7 +155,235 @@ Use `removeAccount(recoverySigner, identity)` on Browser, Node, or Kotlin. Swift
 
 When an inbox has multiple associated identities, the `identities` array is ordered by the `client_timestamp_ns` field, which sorts identities based on when they were added to the inbox, placing identities with recorded times in ascending order. An identity with no recorded time, including the initial identity, sorts after them. Equal timestamps have no promised order.
 
-For UI display purposes, use the only identity when there is one. Otherwise, use the first non-recovery identity in the ordered array.
+For UI display purposes, show the inbox's current handle when it has one. See [Show handles](#show-handles). Otherwise, use the only identity when there is one, or the first non-recovery identity in the ordered array.
+
+## Handles
+
+A **handle** is a short public name, such as `nick` or `nick#2341`, that an inbox claims so that other people can find it. Handles are optional. An inbox can claim a handle after it registers.
+
+A handle is a name part, then an optional `#` and a code of exactly 4 digits. The name part starts with a lowercase letter and has 1 to 27 characters: lowercase letters, digits, `_`, and `-`. `nick` and `nick#2341` are two different handles. When a user types a handle, the SDK changes ASCII capitals to lowercase.
+
+:::caution[Handles are public and permanent]
+Anyone can look up a handle and read every handle that an inbox claimed. A claim is never removed, released, or moved to another inbox. An old handle still finds its inbox after the inbox claims a new one. Tell users this before they claim a handle.
+:::
+
+The client claims a handle with an entry in the inbox's identity log, signed with its installation key. The user does not sign with a wallet. Each claim uses one entry of the [inbox update limit](#inbox-update-limit). The backend decides whether a claim is accepted. A claim fails with one of these errors:
+
+| Error                | Cause                                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `HandleTaken`        | Another inbox holds the handle.                                                                           |
+| `HandleNotAllowed`   | The name part is on the backend's reserved list, or is shorter than the deployment's minimum name length. |
+| `HandleTooSoon`      | The inbox claimed a handle less than 7 days ago.                                                          |
+| `HandleLimitReached` | The inbox made 64 claims. The SDK finds this in the inbox's own state before it signs.                    |
+
+None of these errors is retryable. Text outside the handle grammar fails with `InvalidArgument` before any request. A switch back to an older handle of the inbox is a new claim. It must pass every check in the table, and it counts toward the 64 claims. See [Handle limits](/reference/limits/#handle-limits).
+
+### Check a name as the user types
+
+The backend publishes its minimum name length in the server configuration as `handles.minNameLength`. Use it for a hint while the user types. The SDK never applies it: it does not refuse a claim or hide a handle because of it. The client's configuration snapshot can be older than the backend's setting, so the backend's answer decides. A handle claimed before the minimum changed stays valid.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="inboxes-browser.ts" region="hint"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="inboxes-node.ts" region="hint"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+fun handleHint(client: SDKClient, typed: String): String? {
+    val handle = typed.lowercase()
+    if (!Regex("[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?").matches(handle)) {
+        return "Start with a letter. Use letters, digits, _ and -."
+    }
+    // A hint only: the backend decides each claim.
+    val minNameLength = client.serverConfiguration().handles.minNameLength
+    val name = handle.substringBefore('#')
+    return if (name.length.toUInt() < minNameLength) "Use at least $minNameLength characters before #." else null
+}
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+import Foundation
+import XmtpSdk
+
+func handleHint(client: SDKClient, typed: String) -> String? {
+    let handle = typed.lowercased()
+    guard handle.range(of: "^[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?$", options: .regularExpression) != nil else {
+        return "Start with a letter. Use letters, digits, _ and -."
+    }
+    // A hint only: the backend decides each claim.
+    let minNameLength = client.serverConfiguration().handles.minNameLength
+    let name = handle.split(separator: "#").first ?? ""
+    return name.count < minNameLength ? "Use at least \(minNameLength) characters before #." : nil
+}
+```
+
+</TabItem>
+</Tabs>
+
+Before the client exists, read the same value with `Client.fetchServerConfiguration(backend)` on Browser and Node, or `SDKClient.fetchServerConfiguration` on Kotlin and Swift.
+
+### Find and claim a handle
+
+`availableHandles(name)` returns the handles that no inbox holds, with the typed name first when it is free. For a name without a code, it checks the name and 100 random codes in one lookup. For a name with a code, it checks only that handle. An empty result means that every checked handle is taken: call it again for new codes, or ask for another name. An unregistered client can call it. It does not check the reserved list or the minimum name length, so a claim of a returned handle can still fail with `HandleNotAllowed`.
+
+`claimHandle(handle)` claims the handle for the client's inbox. The handle becomes the inbox's current handle.
+
+The candidate loop is app code. The SDK does not choose a handle, and it does not retry a claim. When a person chooses the handle:
+
+- On `HandleTaken`, another inbox claimed the handle first, or a lookup did not see that claim yet. Show new candidates and let the user pick again.
+- On `HandleNotAllowed`, ask for another name. Every code of that name fails the same way.
+- On `HandleTooSoon`, tell the user that the handle can change again 7 days after the last change.
+- On `HandleLimitReached`, tell the user that the inbox cannot claim more handles.
+
+Never claim a handle that the user did not choose. A claim is permanent, and the inbox must then wait 7 days before its next claim.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="inboxes-browser.ts" region="claim"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="inboxes-node.ts" region="claim"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+suspend fun chooseHandle(
+    client: SDKClient,
+    name: String,
+    pick: suspend (candidates: List<String>, taken: String?) -> String?,
+): String? {
+    var candidates = client.availableHandles(name)
+    var taken: String? = null
+    while (true) {
+        val choice = pick(candidates, taken) ?: return null
+        try {
+            client.claimHandle(choice)
+            return choice
+        } catch (e: XmtpException.HandleTaken) {
+            // Show other errors to the user. Never claim a handle they did not pick.
+            taken = choice
+            candidates = client.availableHandles(name)
+        }
+    }
+}
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+func chooseHandle(
+    client: SDKClient,
+    name: String,
+    pick: (_ candidates: [String], _ taken: String?) async throws -> String?
+) async throws -> String? {
+    var candidates = try await client.availableHandles(name: name)
+    var taken: String?
+    while let choice = try await pick(candidates, taken) {
+        do {
+            try await client.claimHandle(handle: choice)
+            return choice
+        } catch XmtpError.HandleTaken {
+            // Show other errors to the user. Never claim a handle they did not pick.
+            taken = choice
+            candidates = try await client.availableHandles(name: name)
+        }
+    }
+    return nil
+}
+```
+
+</TabItem>
+</Tabs>
+
+### Claim a handle for an agent
+
+An automated app, such as an agent, has no person to ask. On `HandleTaken`, it can claim the next candidate itself. Claim once, and keep the handle on later starts. `availableHandles` and `claimHandle` are on `agent.client`.
+
+```ts source="inboxes-agent.ts" region="agent-claim"
+
+```
+
+### Show handles
+
+`InboxState` and `Member` have `handle`, the inbox's current handle, and `otherHandles`, its other handles with the most recent first. The current handle is the handle that the inbox claimed last. A `Member` reads them from the newest identity state that the client holds for that inbox.
+
+When an inbox has a current handle, show that handle as the text that identifies the inbox. Show the other handles only as secondary information, for example in a detail view. An old handle still finds its inbox, so when a user finds an inbox by an old handle, show the current handle.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="inboxes-browser.ts" region="display"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="inboxes-node.ts" region="display"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val labels = group.members().map { member ->
+    // The current handle identifies the inbox. Other handles are secondary.
+    (member.handle ?: member.inboxId) to member.otherHandles
+}
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let labels = try await group.members().map { member in
+    // The current handle identifies the inbox. Other handles are secondary.
+    (title: member.handle ?? member.inboxId, alsoKnownAs: member.otherHandles)
+}
+```
+
+</TabItem>
+</Tabs>
+
+When the client stores a newer identity state for an inbox with a different current handle, it emits a `handle.changed` event. Read the members again to show the new handle. See [Events](/sdk/events/#available-events).
+
+### Find an inbox by handle
+
+A `PublicIdentity` with the kind `handle` names the inbox that claimed the handle. Calls that take a `PublicIdentity` to find an inbox also take a handle: `canMessage`, `inboxIdFor`, `getDmByIdentity`, `createDm`, `createGroup`, `addMembers`, and `removeMembers`. One list can mix handles and accounts. Before the SDK uses a lookup answer, it checks that the inbox's own identity log claimed the handle. An old handle finds the inbox too.
+
+The SDK never derives an inbox ID from a handle. For a handle that no inbox claimed, `client.inboxIdFor` returns no inbox, static `inboxIdFor` fails with `IdentityNotFound`, and a call that creates a conversation or changes members fails with `IdentityNotFound`. `canMessage` reports a handle under the key `handle:<handle>`, in lowercase; `true` means that an inbox claimed it.
+
+A handle is not an account: it signs nothing. Client creation, `generateInboxId`, and the calls that add, remove, or change an account fail with `InvalidArgument` for a handle.
+
+The Agent SDK adds `createDmWithHandle`, `createGroupWithHandles`, and `addMembersWithHandles`:
+
+```ts source="inboxes-agent.ts" region="agent-helpers"
+
+```
 
 ## FAQ
 
