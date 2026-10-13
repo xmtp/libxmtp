@@ -26,3 +26,10 @@ import Testing
  routes.show(.settings)
  #expect(!routes.admit(origin, fence: fence))
 }
+
+@MainActor @Test func restoreCannotReserveOverBoundProfile() {
+ let fence = SessionFence()
+ guard let generation = fence.reserveRestore(), let key = fence.bind(UUID(), reserved: generation) else { Issue.record("Could not bind restore"); return }
+ #expect(fence.reserveRestoreIfCurrent(generation) == nil)
+ #expect(fence.accepts(key))
+}

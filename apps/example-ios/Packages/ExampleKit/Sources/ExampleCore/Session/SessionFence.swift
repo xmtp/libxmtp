@@ -39,7 +39,7 @@ public struct DestinationOrigin: Sendable {
     }
 
     public func reserveRestoreIfCurrent(_ expected: UInt64) -> UInt64? {
-        guard generation == expected else { return nil }; return reserveRestore()
+        guard generation == expected, profileID == nil else { return nil }; return reserveRestore()
     }
 
     public func releaseRestore(_ key: SessionKey) -> Bool {
