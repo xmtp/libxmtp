@@ -100,18 +100,31 @@ dev/nix-shell 'just example-android apk'
 ```
 
 The command prints the output path:
-`apps/example-android/build/apk/xmtp-messenger-local.apk`. It builds the local
-SDK and includes arm64-v8a, armeabi-v7a, x86_64, and x86 in one debug-signed APK.
+`apps/example-android/build/apk/xmtp-messenger-local.apk`. It builds the
+`example-android-apk` Nix derivation, which includes the local SDK's arm64-v8a,
+armeabi-v7a, x86_64, and x86 libraries in one signed release APK.
 It does not need a backend or emulator. Android 8.1 (API 27) or newer is required.
 Transfer the APK to a device and open it, allowing installation from that source
 when Android asks. Or install it over USB with `adb install -r <apk-path>`.
 
 Every Android dev, RC, stable, and nightly release attaches
 `xmtp-messenger-<version>.apk` to its `android-<version>` GitHub Release.
-These APKs are for testing. Each build machine uses its own debug signing key.
-If Android rejects an update because its signature differs, uninstall the old
-app first. Uninstalling removes its profiles and local data.
-Published APKs have Firebase notifications off.
+These APKs use the public AOSP testing key so local and CI builds can update
+each other. They are for testing only. Remote servers require HTTPS; HTTP is limited to loopback. Installing over an older APK signed with
+a different key requires uninstalling that app first, which removes its profiles
+and local data. Firebase notifications are off in the downloadable APK.
+
+You can also build directly with Nix on macOS ARM64 or Linux x86_64:
+
+```sh
+nix build .#example-android-apk
+```
+
+The APK is at `result/xmtp-messenger.apk`. Its version comes from the Android SDK's
+`gradle.properties`. Nix can cache the finished APK. The build uses pinned Gradle
+downloads and does not use your local Gradle cache or private configuration.
+After changing dependencies, refresh the download list with
+`dev/nix-shell 'just example-android apk-update-deps'`, then build again.
 
 Choose a reachable HTTPS server in the app. For a USB-connected device and a
 local backend, run `adb reverse tcp:5050 tcp:5050` and enter

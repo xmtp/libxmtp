@@ -59,6 +59,8 @@ class SelectionTest(unittest.TestCase):
             "apps/example-android/fixtures/metadata_backend.py",
             "apps/example-android/performance/run.py",
             "apps/example-android/gradlew",
+            "nix/package/example-android-apk.nix",
+            "nix/package/example-android-apk-deps.json",
         ):
             with self.subTest(path=path):
                 result = select([path])
@@ -170,7 +172,7 @@ class SelectionTest(unittest.TestCase):
     def test_app_jobs_require_every_child_and_generated_gate(self):
         self.assert_child_gate(
             ".github/workflows/test-example-android.yml",
-            ("unit-tests", "integration-tests"),
+            ("apk", "unit-tests", "integration-tests"),
         )
         for phase, suite in (
             ("lint", "lint_example_android"),

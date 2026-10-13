@@ -4,6 +4,26 @@ name: Test Android example
 permissions:
   contents: read
 jobs:
+  apk:
+    name: Build downloadable APK (Nix)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v6
+    - uses: ./.github/actions/setup-nix
+      with:
+        disk-key: android
+        github-token: ${{ github.token }}
+        cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}
+        kache-s3-region: ${{ vars.KACHE_S3_REGION }}
+        kache-s3-endpoint: ${{ vars.KACHE_S3_ENDPOINT || '' }}
+        kache-s3-access-key-id: ${{ secrets.KACHE_S3_ACCESS_KEY_ID }}
+        kache-s3-secret-access-key: ${{ secrets.KACHE_S3_SECRET_ACCESS_KEY }}
+        kache-scope: nix-only
+        kache-readonly: 'true'
+    - name: Build and verify the signed universal APK
+      run: nix build .#example-android-apk --no-link
   unit-tests:
     name: Unit tests and builds (Messenger)
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -106,9 +126,10 @@ jobs:
     timeout-minutes: 1
     if: always()
     needs:
+    - apk
     - unit-tests
     - integration-tests
     steps:
     - env:
-        PASSED: ${{ needs.unit-tests.result == 'success' && needs.integration-tests.result == 'success' }}
+        PASSED: ${{ needs.apk.result == 'success' && needs.unit-tests.result == 'success' && needs.integration-tests.result == 'success' }}
       run: test "$PASSED" = true

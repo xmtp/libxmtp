@@ -23,69 +23,77 @@ def step(name):
 
 
 class AndroidReleaseTest(unittest.TestCase):
-    def test_apk_build_and_failure_gates(self):
+    def test_universal_apk_rejects_each_missing_abi(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            readelf = root / "toolchains/llvm/prebuilt/fixture/bin/llvm-readelf"
+            readelf.parent.mkdir(parents=True)
+            readelf.write_text("#!/bin/sh\nprintf ' [1] .dynsym\\n [2] .dynstr\\n'\n")
+            readelf.chmod(0o755)
+            abis = {"arm64-v8a", "armeabi-v7a", "x86", "x86_64"}
+            for missing in (None, *sorted(abis)):
+                with self.subTest(missing=missing):
+                    apk = root / "example.apk"
+                    with zipfile.ZipFile(apk, "w") as archive:
+                        for abi in abis - {missing}:
+                            archive.writestr(f"lib/{abi}/libxmtp_sdk.so", b"fixture")
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            str(ROOT / "sdks/android/dev/check-native-packages.py"),
+                            "--require-all-abis",
+                            str(apk),
+                        ],
+                        env=dict(os.environ, ANDROID_NDK_HOME=str(root)),
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        result.returncode, 1 if missing else 0, result.stderr
+                    )
+                    if missing:
+                        self.assertIn(f"missing SDK ABIs: {missing}", result.stderr)
+
+    def test_apk_export_and_failure_gates(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             app = root / "apps/example-android"
-            sdk = root / "sdks/android/dev"
             (app / "dev").mkdir(parents=True)
-            sdk.mkdir(parents=True)
             shutil.copy(ROOT / "apps/example-android/dev/apk", app / "dev/apk")
-            shutil.copy(ROOT / "sdks/android/dev/check-native-packages.py", sdk)
-
-            def executable(path, body):
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("#!/usr/bin/env bash\nset -eu\n" + body)
-                path.chmod(0o755)
-
-            executable(
-                sdk / "bindings", 'test "$*" = --release\nexit "${BINDINGS_EXIT:-0}"\n'
+            nix = root / "nix"
+            nix.write_text(
+                f"#!{sys.executable}\n"
+                "import os, pathlib, sys\n"
+                "assert sys.argv[1:4] == ['build', os.environ['EXPECTED_ROOT'] + '#example-android-apk', '--out-link']\n"
+                "assert 'LD_LIBRARY_PATH' not in os.environ\n"
+                "code = int(os.environ.get('NIX_EXIT', '0'))\n"
+                "if code: sys.exit(code)\n"
+                "out = pathlib.Path(sys.argv[4]); out.mkdir(parents=True, exist_ok=True)\n"
+                "(out / 'version').write_text(os.environ.get('PACKAGE_VERSION', '8.0.0-dev.test') + '\\n')\n"
+                "if not os.environ.get('MISSING_APK'): (out / 'xmtp-messenger.apk').write_bytes(b'built by Nix')\n"
             )
-            executable(
-                app / "gradlew",
-                'test "$*" = "-p . :example:assembleDebug -PxmtpExampleVersion=8.0.0-dev.test --dependency-verification=strict --no-daemon"\n'
-                'exit "${GRADLE_EXIT:-0}"\n',
-            )
-            android = root / "android"
-            executable(
-                android / "build-tools/35.0.0/apksigner",
-                'test "$*" = "verify app/build/outputs/apk/debug/example-debug.apk"\n'
-                'exit "${SIGNATURE_EXIT:-0}"\n',
-            )
-            ndk = root / "ndk"
-            executable(
-                ndk / "toolchains/llvm/prebuilt/host/bin/llvm-readelf",
-                "printf '  [1] .dynsym\\n  [2] .dynstr\\n'\n",
-            )
-            apk = app / "app/build/outputs/apk/debug/example-debug.apk"
-            apk.parent.mkdir(parents=True)
+            nix.chmod(0o755)
             output = app / "build/apk/xmtp-messenger-8.0.0-dev.test.apk"
             output.parent.mkdir(parents=True)
             env = dict(
                 os.environ,
-                ANDROID_HOME=str(android),
-                ANDROID_NDK_HOME=str(ndk),
+                PATH=str(root) + os.pathsep + os.environ["PATH"],
+                EXPECTED_ROOT=str(root),
                 XMTP_EXAMPLE_VERSION="8.0.0-dev.test",
+                LD_LIBRARY_PATH="/must-not-reach-nix",
             )
-            abis = ["arm64-v8a", "armeabi-v7a", "x86_64", "x86"]
-            for failure, status in [
-                (None, 0),
-                ("BINDINGS_EXIT", 41),
-                ("GRADLE_EXIT", 42),
-                ("SIGNATURE_EXIT", 43),
-                ("missing_abi", 1),
+            for overrides, status in [
+                ({}, 0),
+                ({"NIX_EXIT": "42"}, 42),
+                ({"PACKAGE_VERSION": "8.0.0"}, 1),
+                ({"MISSING_APK": "1"}, 1),
             ]:
-                with self.subTest(failure=failure):
-                    with zipfile.ZipFile(apk, "w") as archive:
-                        for abi in abis[:1] if failure == "missing_abi" else abis:
-                            archive.writestr(f"lib/{abi}/libxmtp_sdk.so", "fixture")
+                with self.subTest(overrides=overrides):
+                    shutil.rmtree(app / ".build", ignore_errors=True)
                     output.write_text("stale APK")
-                    run_env = dict(env)
-                    if failure and failure != "missing_abi":
-                        run_env[failure] = str(status)
                     result = subprocess.run(
                         ["bash", str(app / "dev/apk")],
-                        env=run_env,
+                        env=env | overrides,
                         capture_output=True,
                         text=True,
                     )
@@ -95,11 +103,24 @@ class AndroidReleaseTest(unittest.TestCase):
                     if status:
                         self.assertFalse(output.exists(), result.stdout + result.stderr)
                     else:
-                        self.assertEqual(output.read_bytes(), apk.read_bytes())
+                        self.assertEqual(output.read_bytes(), b"built by Nix")
                         self.assertIn(str(output), result.stdout)
+            del env["XMTP_EXAMPLE_VERSION"]
+            result = subprocess.run(
+                ["bash", str(app / "dev/apk")], env=env, capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                (output.parent / "xmtp-messenger-local.apk").read_bytes(),
+                b"built by Nix",
+            )
 
     def test_apk_release_publication(self):
-        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        self.assertEqual(workflow["permissions"]["contents"], "read")
+        jobs = workflow["jobs"]
+        caller = yaml.safe_load((WORKFLOW.parent / "release.yml").read_text())["jobs"]
+        self.assertEqual(caller["release-android"]["permissions"]["contents"], "write")
         steps = jobs["publish"]["steps"]
         names = [item.get("name") for item in steps]
         build = steps[names.index("Build example APK")]
@@ -116,6 +137,7 @@ class AndroidReleaseTest(unittest.TestCase):
             "apps/example-android/build/apk/xmtp-messenger-${{ steps.version.outputs.version }}.apk",
         )
         job = jobs["publish-apk"]
+        self.assertEqual(job["permissions"]["contents"], "write")
         self.assertEqual(set(job["needs"]), {"publish", "push-tag"})
         self.assertNotIn("if", job)
         self.assertNotIn("if", build)

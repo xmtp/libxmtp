@@ -235,6 +235,8 @@ jobs:
       && (needs.validate.outputs.release-type != 'nightly'
           || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
     uses: ./.github/workflows/release-android.yml
+    permissions:
+      contents: write
     with:
       release-type: ${{ needs.validate.outputs.release-type }}
       rc-number: ${{ inputs.rc-number }}

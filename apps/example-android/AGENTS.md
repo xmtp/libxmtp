@@ -5,6 +5,7 @@ Run commands from the repository root. These recipes use the Android Nix shell.
 ```bash
 dev/nix-shell 'just example-android start'
 dev/nix-shell 'just example-android apk'
+dev/nix-shell 'just example-android apk-update-deps'
 dev/nix-shell 'just example-android check'
 dev/nix-shell 'just example-android preview-check'
 dev/nix-shell 'just example-android lint'
@@ -28,12 +29,20 @@ Open this directory as a Gradle project in Android Studio. `:example` maps to
 `org.xmtp:android` to `sdks/android/library` in this checkout. Do not use a
 published SDK package for these checks.
 
-`apk` stages all four release JNI ABIs and builds a debug-signed universal APK
-without starting services or an emulator. It checks JNI packaging and signing,
-then writes `build/apk/xmtp-messenger-local.apk`. `XMTP_EXAMPLE_VERSION` sets the
-filename and app version name for CI. Android releases attach this APK to the
-`android-<version>` GitHub Release. The debug signing key belongs to the build
-machine; switching builds can require an uninstall, which removes local data.
+`apk` builds the `example-android-apk` Nix derivation, then copies its signed
+universal APK to `build/apk/xmtp-messenger-local.apk`. It starts no services or
+emulator. The derivation includes all four JNI ABIs and checks packaging and
+signing. It uses the non-debuggable release variant and its HTTPS transport rules.
+The APK uses the public AOSP testing key and embeds the SDK version
+from `sdks/android/gradle.properties`. For releases, `XMTP_EXAMPLE_VERSION` selects
+the output filename and must match that version. Android releases attach it to
+the `android-<version>` GitHub Release.
+
+`apk-update-deps` refreshes `nix/package/example-android-apk-deps.json` using a
+fresh Gradle cache and strict dependency verification. Run it after changing the
+APK's dependencies or build plugins. The Nix build replays only these pinned
+downloads. It does not read the developer's Gradle cache, Firebase file, signing
+key, or worktree service configuration. Firebase is off in the downloadable APK.
 
 The SDK root owns `gradle/toolchain.properties`, the Gradle wrapper, and the
 shared dependency verification inventory. App module locks remain here. The
