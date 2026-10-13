@@ -561,6 +561,7 @@ fn encryption_key_diagnostics_hide_nested_secret_bytes() {
 }
 
 // verifies: CTYPE-009
+#[cfg(test)]
 #[xmtp_common::test(unwrap_try = true)]
 fn standard_codec_errors_keep_distinct_typed_outcomes() {
     let value = StandardContent::Actions(Actions {
