@@ -9,9 +9,9 @@ import XmtpSdk
 final class StandardCodecTests: XCTestCase {
 	private let reference: MessageId = String(repeating: "d", count: 64)
 	private let remote = RemoteAttachment(
-		url: "https://example.test/file", contentDigest: "digest",
+		url: "https://example.test/file", contentDigest: "abababababababababababababababababababababababababababababababab",
 		secret: Data(repeating: 1, count: 32), salt: Data(repeating: 2, count: 32),
-		nonce: Data(repeating: 3, count: 12), scheme: "https", contentLength: 10, filename: "file",
+		nonce: Data(repeating: 3, count: 12), scheme: "https://", contentLength: 10, filename: "file",
 	)
 
 	/// The codec writes the same bytes as Rust for `standard`, reads them back

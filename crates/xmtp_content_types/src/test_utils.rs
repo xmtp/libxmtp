@@ -39,11 +39,13 @@ impl TestContentGenerator {
         let remote_attachment = RemoteAttachment {
             url: url.to_string(),
             filename: Some(filename.to_string()),
-            content_digest: "test-digest".to_string(),
-            secret: b"test-secret".to_vec(),
-            salt: b"test-salt".to_vec(),
-            nonce: b"test-nonce".to_vec(),
-            scheme: "https".to_string(),
+            content_digest: "ab".repeat(32),
+            secret: vec![1; 32],
+            salt: vec![2; 32],
+            nonce: vec![3; 12],
+            scheme: crate::remote_attachment::content_url_scheme(url)
+                .expect("valid attachment URL")
+                .into(),
             content_length: Some(100),
         };
         RemoteAttachmentCodec::encode(remote_attachment)
@@ -55,13 +57,15 @@ impl TestContentGenerator {
             .into_iter()
             .map(|url| {
                 xmtp_proto::xmtp::mls::message_contents::content_types::RemoteAttachmentInfo {
-                    url,
+                    url: url.clone(),
                     filename: Some("test.txt".to_string()),
-                    content_digest: "test-digest".to_string(),
-                    secret: b"test-secret".to_vec(),
-                    salt: b"test-salt".to_vec(),
-                    nonce: b"test-nonce".to_vec(),
-                    scheme: "https".to_string(),
+                    content_digest: "ab".repeat(32),
+                    secret: vec![1; 32],
+                    salt: vec![2; 32],
+                    nonce: vec![3; 12],
+                    scheme: crate::remote_attachment::content_url_scheme(&url)
+                        .expect("valid attachment URL")
+                        .into(),
                     content_length: Some(100),
                 }
             })
@@ -209,6 +213,48 @@ impl TestContentGenerator {
             compression: None,
             content: b"malformed content for a known type".to_vec(),
             fallback: Some("Malformed message".to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // verifies: CTYPE-014
+    #[xmtp_common::test(unwrap_try = true)]
+    fn remote_factories_use_valid_catalogue_fields() {
+        let urls = [
+            "https://example.test/file",
+            "http://localhost/file",
+            "http://127.0.0.1/file",
+            "http://[::1]/file",
+        ];
+        for url in urls {
+            let value = RemoteAttachmentCodec::decode(
+                TestContentGenerator::remote_attachment_content(url, "test.txt"),
+            )?;
+            assert_eq!(value.url, url);
+            assert_eq!(
+                value.scheme,
+                crate::remote_attachment::content_url_scheme(url)?
+            );
+            assert_eq!(value.secret.len(), 32);
+            assert_eq!(value.salt.len(), 32);
+            assert_eq!(value.nonce.len(), 12);
+        }
+        let multi = MultiRemoteAttachmentCodec::decode(
+            TestContentGenerator::multi_remote_attachment_content(
+                urls.into_iter().map(str::to_owned).collect(),
+            ),
+        )?;
+        assert_eq!(multi.attachments.len(), urls.len());
+        for (value, url) in multi.attachments.iter().zip(urls) {
+            assert_eq!(value.url, url);
+            assert_eq!(
+                value.scheme,
+                crate::remote_attachment::content_url_scheme(url)?
+            );
         }
     }
 }

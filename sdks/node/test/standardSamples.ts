@@ -1,11 +1,12 @@
 import * as sdk from "@xmtp/node-sdk";
 const remote = {
   url: "https://example.test/file",
-  contentDigest: "digest",
+  contentDigest:
+    "abababababababababababababababababababababababababababababababab",
   secret: new Uint8Array(32).fill(1),
   salt: new Uint8Array(32).fill(2),
   nonce: new Uint8Array(12).fill(3),
-  scheme: "https",
+  scheme: "https://",
   contentLength: 10,
   filename: "file",
 };

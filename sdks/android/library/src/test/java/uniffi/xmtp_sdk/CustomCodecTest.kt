@@ -162,4 +162,31 @@ class CustomCodecTest {
         assertNull(closed.value)
         assertEquals("ClientClosed", closed.error?.code)
     }
+
+    // verifies: CTYPE-001, CTYPE-009
+    @Test
+    fun registryMatchesAuthorityTypeAndMajorAndIgnoresMinor() {
+        withClient(listOf(NoteCodec(noteType))) { key ->
+            for ((type, matched) in listOf(
+                noteType.copy(versionMinor = 9u) to true,
+                noteType.copy(authorityId = "other.org") to false,
+                noteType.copy(typeId = "other") to false,
+                noteType.copy(versionMajor = 2u) to false,
+            )) {
+                val encoded = EncodedContent(type, emptyMap(), "kept", "value".toByteArray())
+                val content = custom(key, encoded).content
+                if (matched) {
+                    val value = content as SDKMessageContent.Custom
+                    assertEquals("value", value.value)
+                    assertEquals(encoded, value.encoded)
+                    assertNull(value.error)
+                } else {
+                    val unknown = content as SDKMessageContent.Unknown
+                    assertEquals(encoded, unknown.encoded)
+                    assertArrayEquals(byteArrayOf(7, 8), unknown.rawBytes)
+                    assertEquals("CodecNotFound", unknown.error.code)
+                }
+            }
+        }
+    }
 }
