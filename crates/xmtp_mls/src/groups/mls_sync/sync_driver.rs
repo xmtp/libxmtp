@@ -322,7 +322,7 @@ where
             let mut round_succeeded = false;
             match xmtp_common::time::timeout(
                 remaining,
-                self.sync_intent_round(intent_id, remaining),
+                self.sync_intent_round(intent_id, predecessor, remaining),
             )
             .await
             {
@@ -442,9 +442,12 @@ where
     }
 
     /// Observe the current attempt at its accepted receipt target, not a later topic head.
+    /// Before the attempt has a receipt, observe the receipt of `predecessor`, the state
+    /// change that blocks it. A `QueryNewest` head can trail that receipt (OPS-009).
     async fn sync_intent_round(
         &self,
         intent_id: ID,
+        predecessor: Option<ID>,
         timeout: Duration,
     ) -> Result<SyncSummary, GroupError> {
         use xmtp_proto::types::Topic;
@@ -456,8 +459,12 @@ where
             Err(_) => return Err(GroupError::SyncFailedToWait(Box::new(summary))),
         }
         let receipt = self.published_intent_target(intent_id)?;
+        let blocker = match (receipt, predecessor) {
+            (None, Some(predecessor)) => self.published_intent_target(predecessor)?,
+            _ => None,
+        };
         let topic = Topic::new_group_message(self.group_id);
-        let targets = match receipt {
+        let targets = match receipt.or(blocker) {
             Some(target) => [(topic, target)].into(),
             None => self.context.api().newest_topic_cursors(vec![topic]).await?,
         };

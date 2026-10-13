@@ -1,4 +1,5 @@
-//! A backend double that refuses chosen publishes or loses their responses.
+//! A backend double that refuses chosen publishes, loses their responses, or
+//! answers `QueryNewest` from a lagged copy.
 
 use super::*;
 use parking_lot::Mutex;
@@ -38,6 +39,9 @@ pub(super) struct FaultyApi {
     /// Fail every `Query` after the next `OUT_OF_RANGE` with `DATA_LOSS` until
     /// [`Self::restart`], as if the process stopped before its recovery read.
     pub stop_before_recovery: Arc<AtomicBool>,
+    /// Answer every `QueryNewest` with no results, as a lagged copy that has
+    /// not replayed the group's first envelope (OPS-009).
+    pub lag_newest: Arc<AtomicBool>,
     poisoned: Arc<AtomicBool>,
     /// Intercepted publishes run one at a time, so the first to fail ends a
     /// concurrent batch before any other intercepted request is sent.
@@ -57,6 +61,7 @@ impl FaultyApi {
             requests: Default::default(),
             lost: Default::default(),
             stop_before_recovery: Default::default(),
+            lag_newest: Default::default(),
             poisoned: Default::default(),
             serial: Default::default(),
         }
@@ -145,6 +150,9 @@ impl XmtpBackendClient for FaultyApi {
         &self,
         request: wire::QueryNewestRequest,
     ) -> Result<wire::QueryNewestResponse, Self::Error> {
+        if self.lag_newest.load(Ordering::SeqCst) {
+            return Ok(wire::QueryNewestResponse::default());
+        }
         self.inner.query_newest(request).await
     }
 

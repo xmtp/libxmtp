@@ -147,6 +147,7 @@ let
 
     # Hardware config
     {
+      echo "hw.keyboard = yes"
       echo "hw.gpu.enabled = yes"
       echo "hw.gpu.mode = swiftshader_indirect"
       echo "hw.ramSize = 4096"
