@@ -30,6 +30,27 @@ let lastRead = 0;
 let storedRead = 0;
 
 /**
+ * Takes the next read number. Call it before a read of the own handles
+ * outside `loadOwnHandles`, then store the result with `storeOwnHandles`.
+ */
+export const beginOwnHandlesRead = () => ++lastRead;
+
+/**
+ * Stores the handles from read `read` of `client` when the client is current
+ * and no newer read stored handles. Returns whether it stored them.
+ */
+export const storeOwnHandles = (
+  client: Client,
+  read: number,
+  handles: OwnHandles,
+): boolean => {
+  if (client !== syncedClient || read < storedRead) return false;
+  storedRead = read;
+  inboxStore.getState().setOwnHandles(handles);
+  return true;
+};
+
+/**
  * Reads the handles of the client's inbox into the inbox store. Returns the
  * handles that the store holds after the read, or `undefined` when the
  * client is no longer current.
@@ -38,7 +59,7 @@ export const loadOwnHandles = async (
   client: Client,
   refreshFromNetwork: boolean = false,
 ): Promise<OwnHandles | undefined> => {
-  const read = ++lastRead;
+  const read = beginOwnHandlesRead();
   let state;
   try {
     state = await client.inboxState(refreshFromNetwork);
@@ -50,15 +71,14 @@ export const loadOwnHandles = async (
     throw error;
   }
   if (client !== syncedClient) return undefined;
-  // a newer read already stored its handles
-  if (read < storedRead) return inboxStore.getState().ownHandles;
-  storedRead = read;
   const handles = {
     handle: state.handle ?? null,
     otherHandles: state.otherHandles,
   };
-  inboxStore.getState().setOwnHandles(handles);
-  return handles;
+  // a newer read already stored its handles
+  return storeOwnHandles(client, read, handles)
+    ? handles
+    : inboxStore.getState().ownHandles;
 };
 
 /** The current and other handles of the client's inbox. */

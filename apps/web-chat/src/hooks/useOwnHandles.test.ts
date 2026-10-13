@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { inboxStore } from "@/stores/inbox/store";
 
+import { useIdentity } from "./useIdentity";
 import { useHandleSync, useOwnHandles } from "./useOwnHandles";
 
 const mocks = vi.hoisted(() => ({ client: undefined as unknown }));
 vi.mock("@/contexts/XMTPContext", () => ({
   useClient: () => mocks.client,
+  useXMTP: () => ({}),
 }));
 
 const member = (
@@ -303,6 +305,47 @@ describe("useHandleSync", () => {
     await act(async () => slow.resolve({ handle: "alice", otherHandles: [] }));
     expect(inboxStore.getState().ownHandles?.handle).toBe("alice");
     expect(result.current).toMatchObject({ loaded: true, failed: false });
+  });
+
+  it("drops a slow identity read that finishes after a newer refresh", async () => {
+    const a = fakeClient("a".repeat(64));
+    const identityRead = Promise.withResolvers<Handles>();
+    a.client.inboxState
+      .mockResolvedValueOnce({ handle: "alice", otherHandles: [] })
+      .mockReturnValueOnce(identityRead.promise)
+      .mockResolvedValueOnce({ handle: "alice2", otherHandles: ["alice"] });
+    const client = Object.assign(a.client, {
+      keyPackageStatuses: vi.fn(async () => new Map()),
+    });
+    renderSync(client);
+    await waitFor(() =>
+      expect(inboxStore.getState().ownHandles?.handle).toBe("alice"),
+    );
+
+    mocks.client = client;
+    // the identity modal starts its read, then a newer refresh stores alice2
+    renderHook(() => useIdentity(true));
+    await waitFor(() => expect(a.client.inboxState).toHaveBeenCalledTimes(2));
+    const { result } = renderHook(() => useOwnHandles());
+    await act(async () => {
+      await result.current.refresh(true);
+    });
+    expect(inboxStore.getState().ownHandles?.handle).toBe("alice2");
+
+    await act(async () =>
+      identityRead.resolve({
+        inboxId: a.client.inboxId,
+        installations: [],
+        identities: [],
+        recoveryIdentity: null,
+        handle: "alice",
+        otherHandles: [],
+      } as unknown as Handles),
+    );
+    expect(inboxStore.getState().ownHandles).toEqual({
+      handle: "alice2",
+      otherHandles: ["alice"],
+    });
   });
 
   describe("after handle.changed", () => {

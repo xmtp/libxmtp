@@ -6,7 +6,7 @@ import type {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useClient, useXMTP } from "@/contexts/XMTPContext";
-import { inboxStore } from "@/stores/inbox/store";
+import { beginOwnHandlesRead, storeOwnHandles } from "@/hooks/useOwnHandles";
 
 export type Installation = XmtpInstallation & {
   keyPackageStatus: KeyPackageStatus | undefined;
@@ -43,6 +43,8 @@ export const useIdentity = (syncOnMount: boolean = false) => {
 
   const loadIdentity = useCallback(async () => {
     const request = ++generation.current;
+    // the own handles follow the same read order as useOwnHandles
+    const read = beginOwnHandlesRead();
     let identity: Identity | undefined;
     try {
       const inboxState = await client.inboxState(true);
@@ -71,7 +73,7 @@ export const useIdentity = (syncOnMount: boolean = false) => {
     } finally {
       if (request === generation.current) {
         if (identity) {
-          inboxStore.getState().setOwnHandles({
+          storeOwnHandles(client, read, {
             handle: identity.handle,
             otherHandles: identity.otherHandles,
           });
