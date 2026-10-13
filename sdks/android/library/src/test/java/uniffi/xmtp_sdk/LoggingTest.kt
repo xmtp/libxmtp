@@ -104,6 +104,10 @@ private class LogMailbox<T> {
     suspend fun next(): T = withTimeout(30_000) { channel.receive() }
 
     suspend fun waitForRelease(): T = channel.receive()
+
+    fun finish() {
+        channel.cancel()
+    }
 }
 
 private suspend fun emitContractLogs(count: Int) {
@@ -179,6 +183,7 @@ class LogDispatchContractTest {
                         org.junit.Assert.assertEquals(3uL, record.droppedRecords)
                         assertTrue(record.fields["error"].orEmpty().contains("invalid local signer private key"))
                     } finally {
+                        replies.finish()
                         setLogSink(null)
                         initLogging(LoggingOptions(level = LogLevel.WARN))
                     }

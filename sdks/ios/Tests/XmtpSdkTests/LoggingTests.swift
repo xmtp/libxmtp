@@ -85,6 +85,10 @@ private final class ContractLogReplies: @unchecked Sendable {
 		continuation.yield(value)
 	}
 
+	func finish() {
+		continuation.finish()
+	}
+
 	func next() async throws -> Bool {
 		var iterator = stream.makeAsyncIterator()
 		guard let value = await iterator.next() else {
@@ -124,6 +128,7 @@ extension LoggingTests {
 		for oldSuccess in [false, true] {
 			let records = ContractLogMailbox<LogRecord>()
 			let replies = ContractLogReplies()
+			defer { replies.finish() }
 			let active = Shared(0)
 			let maximum = Shared(0)
 			try await initLogging(options: LoggingOptions(level: .error))
