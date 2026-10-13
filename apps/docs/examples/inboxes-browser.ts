@@ -25,7 +25,9 @@ export async function manageInboxes(
 // #region hint
 /** Return a hint for the name that the user typed, or undefined. */
 export function handleHint(client: Client, typed: string) {
-  const handle = typed.toLowerCase();
+  // Lowercase ASCII capitals only, as the SDK does. toLowerCase() also
+  // folds U+212A KELVIN SIGN to "k", which the SDK refuses.
+  const handle = typed.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
   if (!/^[a-z][a-z0-9_-]{0,26}(#[0-9]{4})?$/.test(handle))
     return "Start with a letter. Use letters, digits, _ and -.";
   // A hint only: the backend decides each claim.
