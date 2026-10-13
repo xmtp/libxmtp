@@ -14,6 +14,9 @@ Pass a backend and a storage location to `Client.create` or `Client.build`.
 The backend URL must include `http://` or `https://`.
 
 ```typescript
+import { Client } from "@xmtp/node-sdk";
+
+const signer = await Client.generateKeys();
 const client = await Client.create(signer, {
   backend: { url: "http://127.0.0.1:5050", appVersion: "my-app/1.0.0" },
   storage: { location: "default", label: "local" },
@@ -23,6 +26,11 @@ const client = await Client.create(signer, {
 Messages have tagged content. For a text message, read `message.content.value`
 after checking `message.content.kind === "text"`. Custom codecs implement
 `ContentCodec<T>` and expose their `ContentTypeId` in the `type` field.
+
+Save `await signer.toHex()` in a secret store and restore it with
+`await LocalSigningKey.fromHex(saved)` on later starts. Import `LocalSigningKey`
+from the SDK. `toBytes()` and `fromBytes()` use 32-byte `Uint8Array` values.
+Keep signing keys separate from database encryption keys.
 
 ## Requirements
 

@@ -56,7 +56,7 @@ struct ContentView: View {
 						options: exampleOptions(key: account.databaseKey),
 					)
 				} else {
-					let signer = await generateLocalSigner()
+					let signer = await SDKClient.generateKeys()
 					let key = try secureRandomBytes(count: 32)
 					let identity = try await signer.identity()
 					try persistence.saveAccount(Persistence.Account(databaseKey: key, address: identity.identifier))

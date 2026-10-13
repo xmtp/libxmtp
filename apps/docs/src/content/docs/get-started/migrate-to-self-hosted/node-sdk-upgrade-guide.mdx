@@ -86,7 +86,7 @@ unsigned 64-bit `bigint` values.
 Passkey signers are also supported. Their identity uses `kind: "passkey"`;
 `kind()` returns `{ kind: "passkey" }`; `sign()` returns a `"passkey"` signature
 with `signature`, `publicKey`, `authenticatorData`, and `clientDataJson` byte
-buffers. `generateLocalSigner()` and `localSignerFromPrivateKey(bytes)` are new
+buffers. `Client.generateKeys()` and `LocalSigningKey.fromBytes(bytes)` are new
 helpers for local Ethereum signers.
 
 Previous client setup:

@@ -183,10 +183,10 @@ pub trait Signer: MaybeSend + MaybeSync + 'static {
     async fn sign(&self, request: SigningRequest) -> Result<Signature, SignerError>;
 }
 
-struct LocalSigner(PrivateKeySigner);
+include!("local.rs");
 
 #[xmtp_common::async_trait]
-impl Signer for LocalSigner {
+impl Signer for LocalSigningKey {
     async fn identity(&self) -> Result<PublicIdentity, SignerError> {
         Ok(PublicIdentity {
             identifier: self
@@ -216,14 +216,12 @@ impl Signer for LocalSigner {
 
 #[xmtp_macro::sdk_export]
 pub async fn generate_local_signer() -> Arc<dyn Signer> {
-    Arc::new(LocalSigner(PrivateKeySigner::random()))
+    generate_keys().await
 }
 
 #[xmtp_macro::sdk_export]
 pub async fn local_signer_from_private_key(key: Vec<u8>) -> Result<Arc<dyn Signer>, XmtpError> {
-    let signer = PrivateKeySigner::from_slice(&key)
-        .map_err(|_| XmtpError::invalid("invalid local signer private key"))?;
-    Ok(Arc::new(LocalSigner(signer)))
+    Ok(LocalSigningKey::parse_bytes(&key)?)
 }
 
 /// The account a signer signs for. A signer that names a handle fails with

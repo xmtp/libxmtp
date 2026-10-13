@@ -6712,6 +6712,247 @@ public func FfiConverterTypeGroup_lower(_ value: Group) -> UInt64 {
 
 
 
+/**
+ * An exportable Ethereum signing key. Only explicit export methods reveal its private key.
+ */
+public protocol LocalSigningKeyProtocol: AnyObject, Sendable {
+
+    func identity() async throws  -> PublicIdentity
+
+    func kind() async throws  -> SignerKind
+
+    func sign(request: SigningRequest) async throws  -> Signature
+
+    /**
+     * Export a copy of the private key. Store it securely; it controls the account.
+     */
+    func toBytes()  -> Data
+
+    /**
+     * Export the private key as lowercase, 0x-prefixed hex. Store it securely.
+     */
+    func toHex()  -> String
+
+}
+/**
+ * An exportable Ethereum signing key. Only explicit export methods reveal its private key.
+ */
+open class LocalSigningKey: LocalSigningKeyProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_xmtp_sdk_fn_clone_localsigningkey(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_xmtp_sdk_fn_free_localsigningkey(handle, $0) }
+    }
+
+
+    /**
+     * Restore a 32-byte secp256k1 private key. The input is copied.
+     */
+public static func fromBytes(key: Data)async throws  -> LocalSigningKey  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_constructor_localsigningkey_from_bytes(FfiConverterData.lower(key)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_u64,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_u64,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLocalSigningKey_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Restore a private key encoded as 0x followed by exactly 64 hexadecimal digits.
+     */
+public static func fromHex(key: String)async throws  -> LocalSigningKey  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_constructor_localsigningkey_from_hex(FfiConverterString.lower(key)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_u64,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_u64,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLocalSigningKey_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+
+
+open func identity()async throws  -> PublicIdentity  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_localsigningkey_identity(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypePublicIdentity_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+open func kind()async throws  -> SignerKind  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_localsigningkey_kind(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSignerKind_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+open func sign(request: SigningRequest)async throws  -> Signature  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_method_localsigningkey_sign(
+                        self.uniffiCloneHandle(),FfiConverterTypeSigningRequest_lower(request)
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSignature_lift,
+            errorHandler: FfiConverterTypeXmtpError_lift
+        )
+}
+
+    /**
+     * Export a copy of the private key. Store it securely; it controls the account.
+     */
+open func toBytes() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_localsigningkey_to_bytes(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+
+    /**
+     * Export the private key as lowercase, 0x-prefixed hex. Store it securely.
+     */
+open func toHex() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtp_sdk_fn_method_localsigningkey_to_hex(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+
+
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocalSigningKey: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LocalSigningKey
+
+    public static func lift(_ handle: UInt64) throws -> LocalSigningKey {
+        return LocalSigningKey(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LocalSigningKey) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocalSigningKey {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LocalSigningKey, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalSigningKey_lift(_ handle: UInt64) throws -> LocalSigningKey {
+    return try FfiConverterTypeLocalSigningKey.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalSigningKey_lower(_ value: LocalSigningKey) -> UInt64 {
+    return FfiConverterTypeLocalSigningKey.lower(value)
+}
+
+
+
+
+
+
 public protocol LogSink: AnyObject, Sendable {
 
     func log(record: LogRecord) async throws
@@ -29089,6 +29330,25 @@ public func generateInboxId(identity: PublicIdentity, nonce: UInt64? = nil)throw
     )
 })
 }
+/**
+ * Generate an exportable local key without a backend or client database.
+ */
+public func generateKeys()async  -> LocalSigningKey  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_xmtp_sdk_fn_func_generate_keys(
+                )
+            },
+            pollFunc: ffi_xmtp_sdk_rust_future_poll_u64,
+            completeFunc: ffi_xmtp_sdk_rust_future_complete_u64,
+            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_u64,
+            freeFunc: ffi_xmtp_sdk_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLocalSigningKey_lift,
+            errorHandler: nil
+
+        )
+}
 public func generateLocalSigner()async  -> Signer  {
     return
         try!  await uniffiRustCallAsync(
@@ -29374,6 +29634,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_generate_inbox_id() != 38075) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_func_generate_keys() != 5584) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_generate_local_signer() != 36191) {
@@ -30135,6 +30398,21 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_method_preferences_sync() != 3540) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_identity() != 47159) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_kind() != 49084) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_sign() != 26966) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_to_bytes() != 44337) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_method_localsigningkey_to_hex() != 58335) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtp_sdk_checksum_method_signer_identity() != 1499) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -30162,6 +30440,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_constructor_backend_connect() != 5995) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtp_sdk_checksum_constructor_localsigningkey_from_bytes() != 64520) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtp_sdk_checksum_constructor_localsigningkey_from_hex() != 35157) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
     uniffiCallbackInitCredentialSource()
     uniffiCallbackInitEventListener()
@@ -30185,3 +30469,6 @@ public func uniffiEnsureXmtpSdkInitialized() {
 }
 
 // swiftlint:enable all
+
+// The Rust-backed key can be passed directly to client creation.
+extension LocalSigningKey: Signer {}

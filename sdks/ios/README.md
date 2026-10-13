@@ -19,6 +19,12 @@ archive URL and checksum in `ReleaseArtifacts.json`. An invalid receipt fails
 evaluation. The `ios-<version>` tag is a release source template. It does not
 mean that an unpublished version has an available tag or archive.
 
+Create a local signer with `let signer = await SDKClient.generateKeys()`.
+Save `signer.toHex()` securely and restore it with
+`try await LocalSigningKey.fromHex(key: saved)` on later starts. `toBytes()` and
+`fromBytes(key:)` use 32-byte `Data`. Exports are synchronous; generation and
+restoration use `await`. Keep this key separate from the database key.
+
 Create a client with a signer and explicit backend options. A database encryption
 key is optional. The example below uses the app's stored 32-byte key:
 

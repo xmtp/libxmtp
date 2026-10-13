@@ -10,9 +10,9 @@ struct ExampleCredentials: Codable {
 		if let saved = try load(service: service) {
 			return saved
 		}
-		let credentials = try ExampleCredentials(signerKey: randomKey(), databaseKey: randomKey())
-		// Validate the signer before storing either key.
-		_ = try await localSignerFromPrivateKey(key: credentials.signerKey)
+		let signer = await SDKClient.generateKeys()
+		let signerKey = signer.toBytes()
+		let credentials = try ExampleCredentials(signerKey: signerKey, databaseKey: randomKey())
 		var query = keychainQuery(service: service)
 		query[kSecValueData as String] = try JSONEncoder().encode(credentials)
 		query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
