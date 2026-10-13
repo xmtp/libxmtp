@@ -17,6 +17,8 @@ export const Member: React.FC<MemberProps> = ({
   displayName,
   avatar,
   description,
+  handle,
+  inboxId,
   onClick,
   buttonLabel = "Remove",
 }) => {
@@ -32,6 +34,8 @@ export const Member: React.FC<MemberProps> = ({
         displayName={displayName}
         avatar={avatar}
         description={description}
+        handle={handle}
+        inboxId={inboxId}
         withClass={false}
         shortenAddress={false}
       />

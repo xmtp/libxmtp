@@ -6,7 +6,11 @@ import { DateLabel } from "@/components/DateLabel";
 import { Identity } from "@/components/Identity";
 import { useConversationContext } from "@/contexts/ConversationContext";
 import { nsToDate } from "@/helpers/date";
-import { combineProfiles, useAllProfiles } from "@/helpers/member";
+import {
+  combineProfiles,
+  memberHandles,
+  useAllProfiles,
+} from "@/helpers/member";
 import { getMemberAddress } from "@/helpers/xmtp";
 import { useConversation } from "@/hooks/useConversation";
 
@@ -50,6 +54,7 @@ export const MessageContentWrapper: React.FC<MessageContentWrapperProps> = ({
               conversationId={conversationId}
               description={senderProfile.description}
               displayName={senderProfile.displayName}
+              {...memberHandles(senderMember)}
               inboxId={senderMember.inboxId}
               showDm={!(conversation instanceof Dm)}
               position="top"

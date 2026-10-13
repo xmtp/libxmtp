@@ -19,6 +19,8 @@ const state = (inboxId: string) => ({
   installations: [],
   identities: [],
   recoveryIdentity: null,
+  handle: undefined,
+  otherHandles: [],
 });
 
 beforeEach(() => vi.clearAllMocks());

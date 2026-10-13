@@ -110,6 +110,8 @@ export const Members: React.FC<MembersProps> = ({
                       displayName={member.displayName}
                       avatar={member.avatar}
                       description={member.description}
+                      handle={member.handle ?? null}
+                      inboxId={member.inboxId}
                     />
                   ))}
                 </Stack>
@@ -133,6 +135,8 @@ export const Members: React.FC<MembersProps> = ({
                       displayName={member.displayName}
                       avatar={member.avatar}
                       description={member.description}
+                      handle={member.handle ?? null}
+                      inboxId={member.inboxId}
                       onClick={
                         showRemovedMembersSection &&
                         member.inboxId !== client.inboxId
@@ -164,6 +168,8 @@ export const Members: React.FC<MembersProps> = ({
                       displayName={member.displayName}
                       avatar={member.avatar}
                       description={member.description}
+                      handle={member.handle ?? null}
+                      inboxId={member.inboxId}
                       onClick={
                         showRemovedMembersSection &&
                         member.inboxId !== client.inboxId

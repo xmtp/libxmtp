@@ -17,6 +17,8 @@ export const MemberListItem: React.FC<MemberListItemProps> = (props) => {
           displayName={props.displayName}
           avatar={props.avatar}
           description={props.description}
+          handle={props.handle}
+          inboxId={props.inboxId}
         />
       </MemberPopover>
     </Box>

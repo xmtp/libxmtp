@@ -76,7 +76,7 @@ export const CreateDmModal: React.FC = () => {
         <Box p="md">
           <TextInput
             size="sm"
-            label="Address or inbox ID"
+            label="Address, inbox ID, or handle"
             styles={{
               label: {
                 marginBottom: "var(--mantine-spacing-xxs)",

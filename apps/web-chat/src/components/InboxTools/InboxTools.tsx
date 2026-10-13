@@ -291,7 +291,7 @@ export const InboxTools: React.FC = () => {
               <Stack gap="xs" mb="md">
                 <Group justify="space-between" align="center">
                   <Text size="sm" pl={4}>
-                    Enter an address or inbox ID
+                    Enter an address, inbox ID, or handle
                   </Text>
                   {memberIdError && (
                     <Text c="red.7" size="sm">
