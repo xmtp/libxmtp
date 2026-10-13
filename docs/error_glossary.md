@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **10 crates** with **420 total error codes**.
+**39 error types** across **10 crates** with **422 total error codes**.
 
 ## xmtp_api
 
@@ -543,6 +543,17 @@ Stable failure categories. Inner causes remain available to Rust callers.
 | `GroupError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
 | `GroupError::DeleteMessage` | Delete message error. Failed to delete message. Not retryable. |
 | `GroupError::DeviceSync` | Device sync error. Device sync operation failed. May be retryable. |
+
+### HandleError <sub>enum</sub>
+
+<small>`crates/xmtp_mls/src/inbox_handles.rs`</small>
+
+A handle operation that the client refuses.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `HandleError::NotFound` | No inbox holds the handle. Either the backend names no inbox for it, or the inbox it names does not hold the handle in any state the client derived from that inbox's log. Not retryable. |
+| `HandleError::LimitReached` | The inbox has made the most handle claims its identity log can hold, so a validator rejects another. Not retryable. |
 
 ### IdentityError <sub>enum</sub>
 
