@@ -24,7 +24,7 @@ import { WalletConnect } from "@/components/App/WalletConnect";
 import { InstallationTable } from "@/components/InboxTools/InstallationTable";
 import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { createEOASigner, createSCWSigner } from "@/helpers/createSigner";
-import { isValidInboxId } from "@/helpers/strings";
+import { isValidInboxId, normalizeMemberInput } from "@/helpers/strings";
 import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
 import { useMemberId } from "@/hooks/useMemberId";
 import { useSettings } from "@/hooks/useSettings";
@@ -306,9 +306,7 @@ export const InboxTools: React.FC = () => {
                   onChange={(event) => {
                     // as in the new-DM and add-members fields: a handle
                     // typed with capitals still matches the handle grammar
-                    setMemberId(
-                      event.target.value.toLowerCase().replace(/\s/g, ""),
-                    );
+                    setMemberId(normalizeMemberInput(event.target.value));
                   }}
                 />
                 <Group justify="space-between" align="center">

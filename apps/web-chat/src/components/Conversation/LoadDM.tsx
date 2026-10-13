@@ -5,7 +5,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { LoadingMessage } from "@/components/LoadingMessage";
 import { useClient } from "@/contexts/XMTPContext";
 import { isValidHandle } from "@/helpers/handles";
-import { isValidEthereumAddress } from "@/helpers/strings";
+import { asciiLowercase, isValidEthereumAddress } from "@/helpers/strings";
 import { useActions } from "@/stores/inbox/hooks";
 
 const REDIRECT_TIMEOUT = 2000;
@@ -31,11 +31,12 @@ export const LoadDM: React.FC = () => {
 
     const resolveIdentity = (address: string): PublicIdentity | null => {
       if (isValidEthereumAddress(address)) {
-        return { identifier: address.toLowerCase(), kind: "ethereum" };
+        return { identifier: asciiLowercase(address), kind: "ethereum" };
       }
       // keep the code, or refuse a fragment that is not one: never resolve
-      // the bare name in place of the handle in the link
-      const handle = `${address}${hash}`.toLowerCase();
+      // the bare name in place of the handle in the link. Lowercase ASCII
+      // only, as the protocol does: a folded U+212A would resolve "kate".
+      const handle = asciiLowercase(`${address}${hash}`);
       return isValidHandle(handle)
         ? { identifier: handle, kind: "handle" }
         : null;

@@ -93,6 +93,31 @@ describe("HandleEditor", () => {
     expect(mocks.availableHandles).not.toHaveBeenCalled();
   });
 
+  it.each(["\u212Aate", "\u0130nci"])(
+    "keeps a non-ASCII capital in %s, so the grammar refuses it",
+    (input) => {
+      renderEditor();
+      // toLowerCase would fold U+212A KELVIN SIGN to "k" and admit "kate"
+      type(input);
+      expect(
+        screen.getByRole<HTMLInputElement>("textbox", { name: "Handle" }).value,
+      ).toBe(input);
+      expect(
+        screen.getByText("Use only lowercase letters, numbers, _ and -."),
+      ).toBeTruthy();
+      expect(button("Continue")).toHaveProperty("disabled", true);
+    },
+  );
+
+  it("lowercases ASCII capitals as the user types", () => {
+    renderEditor();
+    type("Nick#2341");
+    expect(
+      screen.getByRole<HTMLInputElement>("textbox", { name: "Handle" }).value,
+    ).toBe("nick#2341");
+    expect(button("Continue")).toHaveProperty("disabled", false);
+  });
+
   it("shows the check, then a free name", async () => {
     const pending = Promise.withResolvers<string[]>();
     mocks.availableHandles.mockReturnValueOnce(pending.promise);
