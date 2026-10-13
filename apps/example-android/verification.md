@@ -13,11 +13,12 @@ approved handle designs. `HandleControllerTest` drives every editor state
 through the production `HandleController` with a fake account: empty, invalid
 grammar, too short, checking, a stale answer after an edit, a free bare name,
 suggestions and Show more, a taken coded handle, no free handle, taken during a
-claim with the next suggestion selected and no automatic claim, not allowed,
-too soon, the claim limit, a failed check, a claim with no answer, a switch back
-that fails the current rules, confirmation, Skip for now, and an account that
-already has a handle. Each of the 22 tests failed under its own mutation of the
-controller or the input check, and passed again after the source was restored.
+claim with fresh suggestions, the first one selected, and no automatic claim,
+not allowed, too soon, the claim limit, a failed check, a claim with no answer,
+a switch back that fails the current rules, confirmation, Skip for now, and an
+account that already has a handle. Each of the 22 tests failed under its own
+mutation of the controller or the input check, and passed again after the
+source was restored.
 
 Review round 1 added three controller tests and one more page of Show more:
 typing the current handle or another handle of the inbox, which the server never
@@ -26,6 +27,15 @@ lists as free; a too-soon answer when this device's last claim is older than
 drives `HandleStep`, which keeps Choose your handle to one run for each account.
 Each new assertion failed under its own mutation, and the 23 earlier mutations
 still fail their tests.
+
+The PD15 cleanup removed the editor's extra reads and their tests: the network
+read and load error when the editor opens, the read after a claim with no
+answer, the read after a too-soon or limit answer, and the ownership check of
+earlier suggestions after a taken answer. The editor reads the handles this
+device knows once. A taken answer gets a new lookup that never offers the taken
+handle. `HandleControllerTest` now has 27 tests. The new or changed tests, a
+failed own read, a claim and a change with no answer, and taken during a claim,
+each failed under their own mutation and passed after the source was restored.
 
 `HandleStepInstrumentedTest` runs the production `AppGraph` and `RouteOwner`
 against the worktree backend. A new account opens Choose your handle, and Back

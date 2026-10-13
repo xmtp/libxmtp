@@ -107,7 +107,7 @@ sealed interface HandleStatus {
 
 /** A message in an error box. Each one comes from a server answer or a failed request. */
 sealed interface HandleNotice {
-    /** Another inbox claimed [handle] first. The editor shows refreshed suggestions. */
+    /** Another inbox claimed [handle] first. The editor shows fresh suggestions. */
     data class Taken(
         val handle: String,
     ) : HandleNotice

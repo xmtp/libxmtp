@@ -30,11 +30,6 @@ internal class SessionHandleAccount(
 
     override suspend fun availableHandles(name: String): List<String> = owner.client.availableHandles(name)
 
-    override suspend fun owned(handles: List<String>): Set<String> {
-        val answers = owner.client.canMessage(handles.map { PublicIdentity(it, PublicIdentityKind.HANDLE) })
-        return handles.filterTo(mutableSetOf()) { answers["handle:$it"] == true }
-    }
-
     override suspend fun claimHandle(handle: String) = owner.client.claimHandle(handle)
 
     override fun claimTimes(): Map<String, Long> = preferences.handleClaims(owner.key.profileId)

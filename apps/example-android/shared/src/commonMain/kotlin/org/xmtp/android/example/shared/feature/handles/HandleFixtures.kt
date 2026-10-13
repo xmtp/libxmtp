@@ -13,10 +13,11 @@ object HandleFixtures {
             status = HandleStatus.Suggestions("nick", codes, HANDLE_SUGGESTION_PAGE, codes.first()),
         )
     val claiming = suggestions.copy(claiming = codes.first())
+    private val fresh = listOf("nick#4127", "nick#0385", "nick#8862", "nick#3390", "nick#5214")
     val takenWhileClaiming =
         HandleState(
             input = "nick",
-            status = HandleStatus.Suggestions("nick", codes.drop(1), HANDLE_SUGGESTION_PAGE, codes[1]),
+            status = HandleStatus.Suggestions("nick", fresh, HANDLE_SUGGESTION_PAGE, fresh.first()),
             notice = HandleNotice.Taken(codes.first()),
         )
     val invalidCharacters = input("nick.eth")

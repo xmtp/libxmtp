@@ -26,14 +26,11 @@ class HandleControllerTest {
         var minimum: Int = DEFAULT_HANDLE_MIN_NAME_LENGTH,
     ) : HandleAccount {
         val lookups = mutableListOf<String>()
-        val ownedQueries = mutableListOf<List<String>>()
         val claims = mutableListOf<String>()
         val times = mutableMapOf<String, Long>()
         var finished = 0
-        var held = emptySet<String>()
         var available: suspend (String) -> List<String> = { emptyList() }
         var claim: suspend (String) -> Unit = {}
-        var ownedFailure: (() -> Throwable)? = null
         var readFailure: (() -> Throwable)? = null
 
         override suspend fun handles(): OwnHandles {
@@ -46,12 +43,6 @@ class HandleControllerTest {
         override suspend fun availableHandles(name: String): List<String> {
             lookups += name
             return available(name)
-        }
-
-        override suspend fun owned(handles: List<String>): Set<String> {
-            ownedQueries += handles
-            ownedFailure?.let { throw it() }
-            return handles.filterTo(mutableSetOf()) { it in held }
         }
 
         override suspend fun claimHandle(handle: String) {
@@ -321,22 +312,25 @@ class HandleControllerTest {
         assertEquals("nick#4410", editor.value.pick)
     }
 
-    @Test fun takenDuringClaimReturnsToRefreshedSuggestionsAndWaitsForThePick() {
-        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418")
+    @Test fun takenDuringClaimShowsFreshSuggestionsAndWaitsForThePick() {
+        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418", "nick#7702", "nick#1180", "nick#2207")
+        // The fresh answer still lists the taken handle, as a lagging replica can.
+        val fresh = listOf("nick#4127", "nick#2341", "nick#0385", "nick#8862", "nick#3390")
         val account =
             FakeAccount().apply {
-                available = { free }
+                available = { if (lookups.size == 1) free else fresh }
                 claim = { if (it == "nick#2341") throw taken() }
             }
         val editor = open(account)
         editor.type("nick")
         editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.ShowMore)
         editor.dispatch(HandleAction.Claim)
-        // The refreshed suggestions come back with the next one selected; nothing else is claimed.
+        // A fresh lookup comes back with its first handle selected, on the first page. Nothing else is claimed.
         assertEquals(listOf("nick#2341"), account.claims)
-        assertEquals(listOf(free.drop(1)), account.ownedQueries)
+        assertEquals(listOf("nick", "nick"), account.lookups)
         assertEquals(
-            HandleStatus.Suggestions("nick", free.drop(1), 3, "nick#0912"),
+            HandleStatus.Suggestions("nick", fresh - "nick#2341", 3, "nick#4127"),
             editor.value.status,
         )
         assertEquals(HandleNotice.Taken("nick#2341"), editor.value.notice)
@@ -348,26 +342,8 @@ class HandleControllerTest {
         )
         // The user picks again.
         editor.dispatch(HandleAction.Claim)
-        assertEquals(listOf("nick#2341", "nick#0912"), account.claims)
+        assertEquals(listOf("nick#2341", "nick#4127"), account.claims)
         assertEquals(1, account.finished)
-    }
-
-    @Test fun takenDuringClaimDropsSuggestionsThatAreNoLongerFree() {
-        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418", "nick#7702")
-        val account =
-            FakeAccount().apply {
-                available = { free }
-                claim = { throw taken() }
-                held = setOf("nick#5530")
-            }
-        val editor = open(account)
-        editor.type("nick")
-        editor.dispatch(HandleAction.Check)
-        editor.dispatch(HandleAction.Select("nick#0912"))
-        editor.dispatch(HandleAction.Claim)
-        val expected = listOf("nick#2341", "nick#6418", "nick#7702")
-        assertEquals(HandleStatus.Suggestions("nick", expected, 3, "nick#6418"), editor.value.status)
-        assertEquals(listOf("nick"), account.lookups)
     }
 
     @Test fun takenBareNameRefreshesWithNewCodes() {
@@ -389,33 +365,6 @@ class HandleControllerTest {
         )
         assertEquals(HandleNotice.Taken("nick"), editor.value.notice)
         assertEquals(listOf("nick"), account.claims)
-    }
-
-    @Test fun takenWithAFailedRecheckShowsTheNetworkErrorAndRetryChecksAgain() {
-        val free = listOf("nick#2341", "nick#0912", "nick#5530", "nick#6418")
-        val fresh = listOf("nick#5530", "nick#6418", "nick#7001")
-        val account =
-            FakeAccount().apply {
-                available = { if (lookups.size == 1) free else fresh }
-                claim = { throw taken() }
-                ownedFailure = { offline() }
-            }
-        val editor = open(account)
-        editor.type("nick")
-        editor.dispatch(HandleAction.Check)
-        editor.dispatch(HandleAction.Claim)
-        // The earlier suggestions were not checked again, so none of them shows.
-        assertEquals(HandleNotice.CheckFailed, editor.value.notice)
-        assertEquals(HandleStatus.Editing, editor.value.status)
-        assertNull(editor.value.claiming)
-        assertEquals("Cannot check this handle. Try again.", HandleCopy.notice(editor.value.notice!!))
-        // Retry asks the server again, and shows only its fresh answer. Nothing is claimed.
-        account.ownedFailure = null
-        editor.dispatch(HandleAction.Retry)
-        assertEquals(listOf("nick", "nick"), account.lookups)
-        assertEquals(HandleStatus.Suggestions("nick", fresh, 3, "nick#5530"), editor.value.status)
-        assertNull(editor.value.notice)
-        assertEquals(listOf("nick#2341"), account.claims)
     }
 
     @Test fun takenWithAFailedFreshLookupShowsTheNetworkError() {

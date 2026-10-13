@@ -146,10 +146,10 @@ As you type, the app checks the handle grammar and the server's published
 minimum name length. Continue asks the server which handles are free. A free
 name shows Claim. A taken name shows three free `name#code` handles, and Show
 more adds three more. The app claims only the handle you pick. When another
-inbox claims your pick first, the app shows refreshed handles with the next one
-selected and waits for you. The server decides each claim: a refused name, a
-claim within 7 days of the last one, and the 64-claim limit each show as a
-message. A successful claim opens Chats.
+inbox claims your pick first, the app asks the server again, shows the free
+handles with the first one selected, and waits for you. The server decides
+each claim: a refused name, a claim within 7 days of the last one, and the
+64-claim limit each show as a message. A successful claim opens Chats.
 
 Settings shows your current handle as the profile title and your other handles
 below it. Change handle reuses the editor, lists your other handles with Use,

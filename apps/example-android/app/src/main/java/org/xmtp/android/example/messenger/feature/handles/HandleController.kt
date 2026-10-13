@@ -27,9 +27,6 @@ internal interface HandleAccount {
 
     suspend fun availableHandles(name: String): List<String>
 
-    /** The handles among [handles] that an inbox holds now. */
-    suspend fun owned(handles: List<String>): Set<String>
-
     suspend fun claimHandle(handle: String)
 
     /** The time of each claim this device made, in milliseconds. */
@@ -228,20 +225,7 @@ internal class HandleController(
                 ui.value = state.copy(status = HandleStatus.Checking(state.input), confirm = null, notice = null)
                 Triple(opened, ++request, state.input)
             }
-        work =
-            scope.launch(dispatcher) {
-                try {
-                    val status = lookup(account, input)
-                    update(token, step) { it.copy(status = status) }
-                } catch (error: XmtpException.InvalidArgument) {
-                    update(token, step) {
-                        it.copy(status = HandleStatus.Editing, problem = HandleInputProblem.INVALID_CHARACTERS)
-                    }
-                } catch (error: Throwable) {
-                    if (error is CancellationException) throw error
-                    update(token, step) { it.copy(status = HandleStatus.Editing, notice = HandleNotice.CheckFailed) }
-                }
-            }
+        work = scope.launch(dispatcher) { answer(account, token, step, input) }
     }
 
     /** A switch back to [handle], one of the inbox's other handles, asks for confirmation first (D34). */
@@ -255,27 +239,46 @@ internal class HandleController(
             null
         }
 
+    /**
+     * Show the server's answer for [input], with [notice]. It never offers [except]: after
+     * HandleTaken, a lagging replica can still list the taken handle as free.
+     */
+    private suspend fun answer(
+        account: HandleAccount,
+        token: Long,
+        step: Long,
+        input: String,
+        except: String? = null,
+        notice: HandleNotice? = null,
+    ) {
+        try {
+            val status = lookup(account, input, except)
+            update(token, step) { it.copy(claiming = null, status = status, notice = notice) }
+        } catch (error: XmtpException.InvalidArgument) {
+            update(token, step) {
+                it.copy(claiming = null, status = HandleStatus.Editing, problem = HandleInputProblem.INVALID_CHARACTERS)
+            }
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            update(token, step) {
+                it.copy(claiming = null, status = HandleStatus.Editing, notice = HandleNotice.CheckFailed)
+            }
+        }
+    }
+
     /** The bare name or the typed handle if it is free, else the free handles for its name part. */
     private suspend fun lookup(
         account: HandleAccount,
         input: String,
+        except: String?,
     ): HandleStatus {
-        val free = account.availableHandles(input)
+        val free = account.availableHandles(input).filter { it != except }
         if (input in free) return HandleStatus.Available(input)
         val name = handleName(input)
-        val handles = (if (name == input) free else account.availableHandles(name)).filter { it != input }
-        return suggestions(input, handles, handles.firstOrNull())
-    }
-
-    private fun suggestions(
-        input: String,
-        handles: List<String>,
-        selected: String?,
-        shown: Int = 0,
-    ): HandleStatus {
-        if (handles.isEmpty() || selected == null) return HandleStatus.NoneFree(input)
-        val visible = maxOf(HANDLE_SUGGESTION_PAGE, shown, handles.indexOf(selected) + 1)
-        return HandleStatus.Suggestions(input, handles, visible.coerceAtMost(handles.size), selected)
+        val handles =
+            (if (name == input) free else account.availableHandles(name)).filter { it != input && it != except }
+        if (handles.isEmpty()) return HandleStatus.NoneFree(input)
+        return HandleStatus.Suggestions(input, handles, minOf(HANDLE_SUGGESTION_PAGE, handles.size), handles.first())
     }
 
     private fun claim(
@@ -296,7 +299,14 @@ internal class HandleController(
                     account.claimHandle(handle)
                     claimed(account, token, step, handle)
                 } catch (error: XmtpException.HandleTaken) {
-                    taken(account, token, step, handle, previous.status)
+                    // Show fresh suggestions and wait for the user's pick (PD9).
+                    val input =
+                        when (val status = previous.status) {
+                            is HandleStatus.Suggestions -> status.input
+                            is HandleStatus.Available -> status.handle
+                            else -> handle
+                        }
+                    answer(account, token, step, input, except = handle, notice = HandleNotice.Taken(handle))
                 } catch (error: XmtpException.HandleNotAllowed) {
                     update(token, step) {
                         if (handle in previous.others) {
@@ -347,51 +357,6 @@ internal class HandleController(
                 )
             }
         if (applied) account.finish()
-    }
-
-    /** Another inbox claimed [handle] first. Show the refreshed suggestions and wait for the user. */
-    private suspend fun taken(
-        account: HandleAccount,
-        token: Long,
-        step: Long,
-        handle: String,
-        previous: HandleStatus,
-    ) {
-        val input =
-            when (previous) {
-                is HandleStatus.Suggestions -> previous.input
-                is HandleStatus.Available -> previous.handle
-                else -> handle
-            }
-        val earlier = (previous as? HandleStatus.Suggestions)?.handles.orEmpty()
-        val candidates = earlier.filter { it != handle }
-        val still: List<String>
-        val fresh: List<String>
-        try {
-            still = if (candidates.isEmpty()) candidates else candidates - account.owned(candidates)
-            fresh =
-                if (still.size >= HANDLE_SUGGESTION_PAGE) emptyList() else account.availableHandles(handleName(input))
-        } catch (error: Throwable) {
-            if (error is CancellationException) throw error
-            // Never show suggestions that were not checked again: they can be taken now too.
-            // Retry checks the input again.
-            update(token, step) {
-                it.copy(claiming = null, status = HandleStatus.Editing, notice = HandleNotice.CheckFailed)
-            }
-            return
-        }
-        val handles = (still + fresh).filter { it != handle }.distinct()
-        // The next one is the first remaining suggestion after the one that was taken.
-        val position = earlier.indexOf(handle)
-        val next = handles.getOrNull(if (position < 0) 0 else earlier.take(position).count { it in still })
-        val shown = (previous as? HandleStatus.Suggestions)?.shown ?: 0
-        update(token, step) {
-            it.copy(
-                claiming = null,
-                status = suggestions(input, handles, next ?: handles.firstOrNull(), shown),
-                notice = HandleNotice.Taken(handle),
-            )
-        }
     }
 
     private fun blocked(
