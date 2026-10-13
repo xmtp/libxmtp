@@ -33,9 +33,11 @@ read and load error when the editor opens, the read after a claim with no
 answer, the read after a too-soon or limit answer, and the ownership check of
 earlier suggestions after a taken answer. The editor reads the handles this
 device knows once. A taken answer gets a new lookup that never offers the taken
-handle. `HandleControllerTest` now has 27 tests. The new or changed tests, a
-failed own read, a claim and a change with no answer, and taken during a claim,
-each failed under their own mutation and passed after the source was restored.
+handle. A late answer applies only while its job is active, so an edit, open,
+or close drops it. `HandleControllerTest` now has 28 tests. The new or changed
+tests, a failed own read, a claim and a change with no answer, taken during a
+claim, and an answer after close, each failed under their own mutation and
+passed after the source was restored.
 
 `HandleStepInstrumentedTest` runs the production `AppGraph` and `RouteOwner`
 against the worktree backend. A new account opens Choose your handle, and Back
