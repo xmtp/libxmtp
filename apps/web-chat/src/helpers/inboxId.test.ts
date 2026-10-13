@@ -62,6 +62,7 @@ it("resolves a handle through one credentialed connection", async () => {
   mocks.inboxIdFor.mockResolvedValue("inbox-b");
   mocks.inboxStates.mockResolvedValue([{ handle: "nicky" }]);
 
+  // "nick" is an old handle of the inbox: the result names its current one
   await expect(getInboxIdForHandle("nick", options)).resolves.toEqual({
     inboxId: "inbox-b",
     handle: "nicky",
@@ -79,5 +80,14 @@ it("gives no inbox for a handle that no inbox holds", async () => {
   mocks.inboxIdFor.mockRejectedValue(new mocks.IdentityNotFound());
 
   await expect(getInboxIdForHandle("nobody", options)).resolves.toBeNull();
+  expect(mocks.inboxStates).not.toHaveBeenCalled();
+});
+
+it("rethrows a handle lookup failure that is not IdentityNotFound", async () => {
+  const failure = new Error("backend unavailable");
+  mocks.inboxIdFor.mockRejectedValue(failure);
+
+  // the caller shows "Try again", not "No inbox has this handle"
+  await expect(getInboxIdForHandle("nick", options)).rejects.toBe(failure);
   expect(mocks.inboxStates).not.toHaveBeenCalled();
 });

@@ -62,10 +62,38 @@ describe("LoadDM", () => {
   it("opens the DM for a coded handle, whose code is the URL fragment", async () => {
     open("/dm/nick#2341");
     await screen.findByText("conversation dm-1");
-    expect(mocks.client.inboxIdFor).toHaveBeenCalledWith({
+    // the coded handle, never the bare name before the fragment
+    expect(mocks.client.inboxIdFor).toHaveBeenCalledExactlyOnceWith({
       identifier: "nick#2341",
       kind: "handle",
     });
+  });
+
+  it("resolves a handle through the SDK and creates the DM by that handle", async () => {
+    const handle = { identifier: "nick", kind: "handle" };
+    const newDm = { id: "dm-2" };
+    mocks.client.conversations.getDmByInboxId.mockResolvedValue(undefined);
+    mocks.client.conversations.createDm.mockResolvedValue(newDm);
+
+    open("/dm/Nick");
+    await screen.findByText("conversation dm-2");
+    expect(mocks.client.canMessage).not.toHaveBeenCalled();
+    expect(mocks.client.inboxIdFor).toHaveBeenCalledExactlyOnceWith(handle);
+    expect(mocks.client.conversations.getDmByInboxId).toHaveBeenCalledWith(
+      "b".repeat(64),
+    );
+    expect(mocks.client.conversations.createDm).toHaveBeenCalledWith(handle);
+    expect(mocks.addConversation).toHaveBeenCalledWith(newDm);
+  });
+
+  it("refuses a handle that no inbox holds", async () => {
+    mocks.client.inboxIdFor.mockResolvedValue(undefined);
+
+    open("/dm/nobody");
+    await screen.findByText(
+      "No inbox has this handle on this server, redirecting...",
+    );
+    expect(mocks.client.conversations.createDm).not.toHaveBeenCalled();
   });
 
   it("refuses a fragment that is not a handle code", async () => {
