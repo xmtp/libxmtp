@@ -1,5 +1,5 @@
 import { Config } from "@oclif/core";
-import type { Client as XmtpClient } from "@xmtp/node-sdk";
+import { type Client as XmtpClient, XmtpError } from "@xmtp/node-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ClientHandleClaim from "@/commands/client/handle-claim";
@@ -267,6 +267,40 @@ describe("client handle-claim", () => {
     await command.run();
 
     expect(claimHandle).toHaveBeenCalledOnce();
+    expect(inboxState).toHaveBeenLastCalledWith(true);
+    expect(log).toHaveBeenCalledExactlyOnceWith("Your handle is now nick.");
+  });
+
+  it("reports success when a retry of a claim that landed is too soon", async () => {
+    const claimHandle = vi.fn(async (_handle: string) => {
+      throw new XmtpError.HandleTooSoon({
+        code: "HandleTooSoon",
+        category: "identity",
+        retryable: false,
+        message: "HandleTooSoon",
+      });
+    });
+    // this device saw no handle; the network read shows the claim landed
+    const inboxState = vi
+      .fn()
+      .mockResolvedValueOnce({
+        inboxId: "inbox",
+        handle: undefined,
+        otherHandles: [],
+      })
+      .mockResolvedValueOnce({
+        inboxId: "inbox",
+        handle: "nick",
+        otherHandles: [],
+      });
+    const { command, log } = await mockedClaim(
+      ["nick", "--force"],
+      inboxState,
+      claimHandle,
+    );
+
+    await command.run();
+
     expect(inboxState).toHaveBeenLastCalledWith(true);
     expect(log).toHaveBeenCalledExactlyOnceWith("Your handle is now nick.");
   });
