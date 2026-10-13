@@ -1,6 +1,7 @@
 import type {
   AuthConfiguration,
   Backend,
+  HandlesConfiguration,
   LimitsConfiguration,
   MlsConfiguration,
   RetentionConfiguration,
@@ -64,6 +65,10 @@ export function checkServerConfiguration(client: Client): void {
   const maxInstallationsPerInbox: bigint = mls.maxInstallationsPerInbox;
   const commitLogEnabled: boolean | undefined = mls.commitLogEnabled;
 
+  // A uint32 is a number. The SDK publishes it for apps and never applies it.
+  const handles: HandlesConfiguration = configuration.handles;
+  const minNameLength: number = handles.minNameLength;
+
   const _values = [
     identifier,
     serverVersion,
@@ -81,6 +86,7 @@ export function checkServerConfiguration(client: Client): void {
     maxGroupMembers,
     maxInstallationsPerInbox,
     commitLogEnabled,
+    minNameLength,
   ];
 }
 

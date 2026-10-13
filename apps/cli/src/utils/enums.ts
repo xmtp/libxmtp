@@ -6,6 +6,7 @@ import type {
 export const identifierKindMap: Record<string, PublicIdentityKind> = {
   ethereum: "ethereum",
   passkey: "passkey",
+  handle: "handle",
 };
 export const consentStateMap: Record<string, ConsentState> = {
   allowed: "allowed",

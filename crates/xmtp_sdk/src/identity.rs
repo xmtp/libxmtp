@@ -44,6 +44,12 @@ pub struct InboxState {
     pub installations: Vec<Installation>,
     pub recovery_identity: PublicIdentity,
     pub creation_signature_kind: Option<SignatureKind>,
+    /// The inbox's current handle: the one it claimed last, or `None` when
+    /// it has claimed none. Show it as the text that identifies the inbox.
+    pub handle: Option<String>,
+    /// The inbox's other handles, the most recently claimed first. Each one
+    /// still names the inbox. Show them only as secondary information.
+    pub other_handles: Vec<String>,
 }
 
 impl InboxState {
@@ -69,6 +75,8 @@ impl InboxState {
             installations,
             recovery_identity: state.recovery_identifier().clone().into(),
             creation_signature_kind: creation_signature_kind.map(Into::into),
+            handle: state.display_handle().map(ToString::to_string),
+            other_handles: state.other_handles().map(ToString::to_string).collect(),
         })
     }
 }

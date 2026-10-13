@@ -20,6 +20,14 @@ pub struct Member {
     pub identities: Vec<PublicIdentity>,
     pub permission_level: PermissionLevel,
     pub consent_state: ConsentState,
+    /// The member's current handle, from the newest association state the
+    /// client holds for the member, or `None` when it has claimed none. Show
+    /// it as the text that identifies the member.
+    pub handle: Option<String>,
+    /// The member's other handles from that state, the most recently claimed
+    /// first. Each one still names the member. Show them only as secondary
+    /// information.
+    pub other_handles: Vec<String>,
 }
 
 impl TryFrom<xmtp_mls::groups::members::GroupMember> for Member {
@@ -41,6 +49,8 @@ impl TryFrom<xmtp_mls::groups::members::GroupMember> for Member {
                 }
             },
             consent_state: value.consent_state.into(),
+            handle: value.handle.map(String::from),
+            other_handles: value.other_handles.into_iter().map(String::from).collect(),
         })
     }
 }

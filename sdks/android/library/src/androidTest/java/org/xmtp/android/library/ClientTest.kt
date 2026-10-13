@@ -21,6 +21,7 @@ class ClientTest : BaseInstrumentedTest() {
         when (identity.kind) {
             PublicIdentityKind.ETHEREUM -> "ethereum:${identity.identifier.lowercase()}"
             PublicIdentityKind.PASSKEY -> "passkey:${identity.identifier.lowercase()}"
+            PublicIdentityKind.HANDLE -> "handle:${identity.identifier.lowercase()}"
         }
 
     @Test fun testCanBeCreatedWithBundle() =

@@ -53,6 +53,17 @@ pub struct MlsConfiguration {
     pub commit_log_enabled: Option<bool>,
 }
 
+/// Handle settings the deployment applies when it admits a claim. They are
+/// for apps, for example to check a name as a user types it. The SDK never
+/// fails an operation or omits a handle because of them: the backend's
+/// answer when it admits a claim decides.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct HandlesConfiguration {
+    /// The fewest characters a handle's name part, the text before `#`, can
+    /// have in a new claim.
+    pub min_name_length: u32,
+}
+
 /// The attachment service a deployment offers.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct AttachmentsConfiguration {
@@ -70,6 +81,7 @@ pub struct ServerConfiguration {
     pub retention: RetentionConfiguration,
     pub limits: LimitsConfiguration,
     pub mls: MlsConfiguration,
+    pub handles: HandlesConfiguration,
     pub smart_contract_wallet_chains: Vec<String>,
     /// Omitted when the deployment offers no attachment service.
     pub attachments: Option<AttachmentsConfiguration>,
@@ -130,6 +142,9 @@ impl From<&config::ServerConfiguration> for ServerConfiguration {
                 max_group_members: value.mls.max_group_members as u64,
                 max_installations_per_inbox: value.mls.max_installations_per_inbox as u64,
                 commit_log_enabled: value.mls.commit_log_enabled,
+            },
+            handles: HandlesConfiguration {
+                min_name_length: value.handles.min_name_length,
             },
             smart_contract_wallet_chains: value.smart_contract_wallet_chains.clone(),
             attachments: value
@@ -221,6 +236,7 @@ mod tests {
                 max_installations_per_inbox: 17,
                 commit_log_enabled: Some(false),
             },
+            handles: config::HandlesConfiguration { min_name_length: 7 },
             smart_contract_wallet_chains: vec!["eip155:1".into()],
             attachments: Some(config::AttachmentsConfiguration {
                 base_url: "https://files.example/v1/".into(),
@@ -274,6 +290,7 @@ mod tests {
             core.mls.max_installations_per_inbox as u64
         );
         assert_eq!(public.mls.commit_log_enabled, core.mls.commit_log_enabled);
+        assert_eq!(public.handles.min_name_length, core.handles.min_name_length);
         assert_eq!(
             public.smart_contract_wallet_chains,
             core.smart_contract_wallet_chains

@@ -88,6 +88,9 @@ Run commands from the repository root in the Nix shell. Run
 - `dev/nix-shell 'just sdk bench-check'` runs the benchmark unit tests and static runner
   checks. It needs no backend, device or SDK build.
 - `dev/nix-shell 'just test crate xmtp_sdk'` runs the façade tests against the local backend.
+  The handle tests that claim more than once per inbox, or need another
+  handle setting, also start a disposable backend (`xmtp_backend`'s
+  `TestServer`). It creates its own database on this worktree's `db` service.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 `xmtp_sdk` to this crate root so Swift and Kotlin load `uniffi.toml`.

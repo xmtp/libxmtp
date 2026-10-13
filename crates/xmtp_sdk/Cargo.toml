@@ -70,5 +70,10 @@ xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 
+# Handle tests that claim more than once per inbox run against a disposable
+# backend, because a claim on the shared backend is permanent.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+xmtp_backend = { path = "../../apps/backend", features = ["test-utils"] }
+
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
