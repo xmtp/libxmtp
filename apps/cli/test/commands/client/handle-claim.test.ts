@@ -161,6 +161,7 @@ describe("client handle-claim", () => {
 
     await command.run();
 
+    expect(inboxState).toHaveBeenNthCalledWith(1, true);
     expect(claimHandle).toHaveBeenCalledExactlyOnceWith("nick");
     expect(log).toHaveBeenCalledExactlyOnceWith(
       "Your handle is now nick.\nOther handles: nick#0001",
@@ -267,6 +268,8 @@ describe("client handle-claim", () => {
     await command.run();
 
     expect(claimHandle).toHaveBeenCalledOnce();
+    // the guard reads the network state first
+    expect(inboxState).toHaveBeenNthCalledWith(1, true);
     expect(inboxState).toHaveBeenLastCalledWith(true);
     expect(log).toHaveBeenCalledExactlyOnceWith("Your handle is now nick.");
   });
@@ -301,6 +304,8 @@ describe("client handle-claim", () => {
 
     await command.run();
 
+    // the guard reads the network state first
+    expect(inboxState).toHaveBeenNthCalledWith(1, true);
     expect(inboxState).toHaveBeenLastCalledWith(true);
     expect(log).toHaveBeenCalledExactlyOnceWith("Your handle is now nick.");
   });
@@ -322,8 +327,31 @@ describe("client handle-claim", () => {
     );
 
     await expect(command.run()).rejects.toBe(failure);
+    // the guard reads the network state first
+    expect(inboxState).toHaveBeenNthCalledWith(1, true);
     expect(inboxState).toHaveBeenLastCalledWith(true);
     expect(log).not.toHaveBeenCalled();
+  });
+
+  it("reads the network state, so a stale cache cannot hide the current handle", async () => {
+    const claimHandle = vi.fn(async (_handle: string) => undefined);
+    // another installation claimed nick; this client's cache still has the old handle
+    const inboxState = vi.fn(async (refreshFromNetwork: boolean) =>
+      refreshFromNetwork
+        ? { inboxId: "inbox", handle: "nick", otherHandles: ["nick#0001"] }
+        : { inboxId: "inbox", handle: "nick#0001", otherHandles: [] },
+    );
+    const { command } = await mockedClaim(
+      ["nick", "--force"],
+      inboxState,
+      claimHandle,
+    );
+
+    await expect(command.run()).rejects.toThrow(
+      "nick is already your current handle. Nothing was claimed.",
+    );
+    expect(inboxState).toHaveBeenCalledExactlyOnceWith(true);
+    expect(claimHandle).not.toHaveBeenCalled();
   });
 
   it("reports a taken handle and never claims another one", async () => {
