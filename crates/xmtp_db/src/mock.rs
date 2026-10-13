@@ -787,6 +787,11 @@ mock! {
             &self,
             identifiers: Vec<(String, i64)>,
         ) -> Result<Vec<AssociationStateProto>, StorageError>;
+
+        fn newest_cached_states<'a>(
+            &'a self,
+            inbox_ids: &'a [&'a str],
+        ) -> Result<std::collections::HashMap<String, (i64, AssociationStateProto)>, StorageError>;
     }
 
     impl QueryNotifications for DbQuery {

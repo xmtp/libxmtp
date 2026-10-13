@@ -601,6 +601,11 @@ impl ClientEvent {
             core::ClientEvent::AttachmentDeleted(v) => Self::AttachmentDeleted {
                 attachment_deleted: v.into(),
             },
+            // No SDK `EventKind` maps to `handle.changed` yet, so no SDK
+            // filter selects it and no subscription hands it off here.
+            core::ClientEvent::HandleChanged(_) => {
+                unreachable!("no SDK event filter selects handle.changed")
+            }
             core::ClientEvent::Lagged(v) => Self::Lagged {
                 lagged: Lagged {
                     discarded: v.discarded,

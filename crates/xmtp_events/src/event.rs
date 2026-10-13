@@ -32,11 +32,12 @@ pub enum EventKind {
     AttachmentDownloadCompleted,
     AttachmentDownloadFailed,
     AttachmentDeleted,
+    HandleChanged,
     Lagged,
 }
 
 impl EventKind {
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::ConversationJoined,
         Self::ConversationRemoved,
         Self::ConversationMembershipChanged,
@@ -64,6 +65,7 @@ impl EventKind {
         Self::AttachmentDownloadCompleted,
         Self::AttachmentDownloadFailed,
         Self::AttachmentDeleted,
+        Self::HandleChanged,
         Self::Lagged,
     ];
 
@@ -96,6 +98,7 @@ impl EventKind {
             Self::AttachmentDownloadCompleted => "attachment.download_completed",
             Self::AttachmentDownloadFailed => "attachment.download_failed",
             Self::AttachmentDeleted => "attachment.deleted",
+            Self::HandleChanged => "handle.changed",
             Self::Lagged => "lagged",
         }
     }
@@ -293,6 +296,15 @@ impl std::fmt::Debug for AttachmentFailed {
     }
 }
 
+/// The display handle of an inbox changed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HandleChanged {
+    /// The inbox whose display handle changed.
+    pub inbox_id: String,
+    /// The display handle of the stored association state.
+    pub handle: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Lagged {
     pub discarded: u64,
@@ -327,6 +339,7 @@ pub enum ClientEvent {
     AttachmentDownloadCompleted(AttachmentRef),
     AttachmentDownloadFailed(AttachmentFailed),
     AttachmentDeleted(AttachmentRef),
+    HandleChanged(HandleChanged),
     Lagged(Lagged),
 }
 
@@ -360,6 +373,7 @@ impl ClientEvent {
             Self::AttachmentDownloadCompleted(_) => EventKind::AttachmentDownloadCompleted,
             Self::AttachmentDownloadFailed(_) => EventKind::AttachmentDownloadFailed,
             Self::AttachmentDeleted(_) => EventKind::AttachmentDeleted,
+            Self::HandleChanged(_) => EventKind::HandleChanged,
             Self::Lagged(_) => EventKind::Lagged,
         }
     }

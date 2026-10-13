@@ -11,6 +11,7 @@ pub mod diagnostics;
 pub mod groups;
 pub mod identity;
 pub mod identity_updates;
+pub mod inbox_handles;
 mod intents;
 pub mod messages;
 pub mod mls_store;
