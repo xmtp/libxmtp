@@ -359,9 +359,9 @@ internal class HandleController(
                         }
                     }
                 } catch (error: XmtpException.HandleTooSoon) {
-                    refused(account, token, step, tooSoon(account))
+                    refused(account, token, step, handle, tooSoon(account))
                 } catch (error: XmtpException.HandleLimitReached) {
-                    refused(account, token, step, HandleNotice.LimitReached)
+                    refused(account, token, step, handle, HandleNotice.LimitReached)
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
                     // The claim can land before the failure. A second claim would then fail as too soon.
@@ -456,16 +456,22 @@ internal class HandleController(
 
     /**
      * The server refused every new claim for this inbox. When no handle shows, this view is
-     * stale (another device claimed), so read the inbox again. Onboarding ends for an inbox
-     * that has a handle, as when it opens.
+     * stale (another device claimed), so read the inbox again. A retry of a claim of [handle]
+     * that landed gets this refusal too: if [handle] is now current, the claim is a success.
+     * Onboarding ends for an inbox that has a handle, as when it opens.
      */
     private suspend fun refused(
         account: HandleAccount,
         token: Long,
         step: Long,
+        handle: String,
         notice: HandleNotice,
     ) {
         val own = read(account, refresh = true)
+        if (own?.current == handle) {
+            claimed(account, token, step, handle)
+            return
+        }
         val since = own?.current?.let { claimDay(account, it) }
         val applied =
             update(token, step) { state ->

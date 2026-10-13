@@ -115,6 +115,8 @@ class HandleControllerTest {
         assertTrue(editor.value.ownUnknown)
         assertEquals(HandleNotice.LoadFailed, editor.value.notice)
         assertEquals("Cannot load your handle. Try again.", HandleCopy.notice(editor.value.notice!!))
+        // Unknown handles are not "no handle": the screen keeps the Change title.
+        assertEquals("Change handle", HandleCopy.screenTitle(editor.value))
         assertFalse(editor.value.loading)
         assertFalse(editor.value.editable)
         // No edit, switch back, check, or claim goes through.
@@ -579,6 +581,34 @@ class HandleControllerTest {
         assertEquals(HandleNotice.LimitReached, other.value.notice)
         assertFalse(other.value.editable)
         assertEquals(0, stale.finished)
+    }
+
+    @Test fun tooSoonRetryOfAClaimThatLandedIsASuccess() {
+        // The first claim landed, but its transport error and the read after it hid that.
+        var landed = false
+        val account =
+            FakeAccount().apply {
+                available = { listOf(it) }
+                claim = {
+                    if (landed) throw tooSoon()
+                    landed = true
+                    throw offline()
+                }
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        account.readFailure = { offline() }
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(HandleNotice.ClaimFailed("nick"), editor.value.notice)
+        // The retry is refused as too soon, and the network read now shows the claim.
+        account.readFailure = null
+        account.current = "nick"
+        editor.dispatch(HandleAction.Retry)
+        assertEquals(listOf("nick", "nick"), account.claims)
+        assertNull(editor.value.notice)
+        assertEquals("nick", editor.value.current)
+        assertEquals(1, account.finished)
     }
 
     @Test fun claimLimitReachedBlocksEveryChange() {
