@@ -1,5 +1,4 @@
 import { Alert, Button, Group, Loader, Stack, Text } from "@mantine/core";
-import { XmtpError } from "@xmtp/browser-sdk";
 import { useCallback, useState } from "react";
 
 import { ConfirmHandleChange } from "@/components/Handles/ConfirmHandleChange";
@@ -11,7 +10,6 @@ import {
   splitHandle,
   type ClaimOutcome,
 } from "@/helpers/handles";
-import { asciiLowercase } from "@/helpers/strings";
 import { useOwnHandles } from "@/hooks/useOwnHandles";
 
 type Blocked = "tooSoon" | "limitReached";
@@ -52,35 +50,10 @@ export const HandleSection: React.FC = () => {
         outcome = "claimed";
       } catch (error) {
         outcome = claimFailure(error);
-        if (
-          outcome === "failed" &&
-          !(error instanceof XmtpError.InvalidArgument)
-        ) {
-          // A transport error can arrive after the backend stored the claim.
-          // A retry would then fail as too soon, so read the inbox's log: a
-          // claim that landed is a success.
-          const state = await client.inboxState(true).catch(() => undefined);
-          if (state?.handle === asciiLowercase(next)) {
-            outcome = "claimed";
-          }
-        }
       }
       if (outcome === "tooSoon" || outcome === "limitReached") {
-        // With no handle shown, a first claim cannot get these: another
-        // installation claimed, and this view is stale. A retry of a claim
-        // that landed gets them too. Read the inbox from the network; a
-        // handle it has now replaces the "Choose" view.
-        const own = await refresh(true).catch((error: unknown) => {
-          console.error(error);
-          return undefined;
-        });
-        if (own?.handle === asciiLowercase(next)) {
-          outcome = "claimed";
-        } else {
-          setBlocked(outcome);
-        }
-      }
-      if (outcome === "claimed") {
+        setBlocked(outcome);
+      } else if (outcome === "claimed") {
         setEditing(false);
         setSwitchBack(null);
         await refresh().catch(console.error);
@@ -123,7 +96,7 @@ export const HandleSection: React.FC = () => {
             loading={retrying}
             onClick={() => {
               setRetrying(true);
-              void refresh(true)
+              void refresh()
                 .catch(console.error)
                 .finally(() => {
                   setRetrying(false);

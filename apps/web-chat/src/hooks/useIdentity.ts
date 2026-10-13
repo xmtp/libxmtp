@@ -6,7 +6,6 @@ import type {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useClient, useXMTP } from "@/contexts/XMTPContext";
-import { beginOwnHandlesRead, storeOwnHandles } from "@/hooks/useOwnHandles";
 
 export type Installation = XmtpInstallation & {
   keyPackageStatus: KeyPackageStatus | undefined;
@@ -17,8 +16,6 @@ type Identity = {
   recoveryIdentity: PublicIdentity | null;
   identities: PublicIdentity[];
   installations: Installation[];
-  handle: string | null;
-  otherHandles: string[];
 };
 
 const EMPTY_IDENTITY: Identity = {
@@ -26,8 +23,6 @@ const EMPTY_IDENTITY: Identity = {
   recoveryIdentity: null,
   identities: [],
   installations: [],
-  handle: null,
-  otherHandles: [],
 };
 
 export const useIdentity = (syncOnMount: boolean = false) => {
@@ -43,8 +38,6 @@ export const useIdentity = (syncOnMount: boolean = false) => {
 
   const loadIdentity = useCallback(async () => {
     const request = ++generation.current;
-    // the own handles follow the same read order as useOwnHandles
-    const read = beginOwnHandlesRead();
     let identity: Identity | undefined;
     try {
       const inboxState = await client.inboxState(true);
@@ -67,17 +60,9 @@ export const useIdentity = (syncOnMount: boolean = false) => {
           ...installation,
           keyPackageStatus: keyPackageStatuses.get(installation.id),
         })),
-        handle: inboxState.handle ?? null,
-        otherHandles: inboxState.otherHandles,
       };
     } finally {
       if (request === generation.current) {
-        if (identity) {
-          storeOwnHandles(client, read, {
-            handle: identity.handle,
-            otherHandles: identity.otherHandles,
-          });
-        }
         setResult((current) => ({
           client,
           identity:

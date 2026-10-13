@@ -17,30 +17,16 @@ const mocks = vi.hoisted(() => {
   class HandleNotAllowed extends Error {}
   class HandleTooSoon extends Error {}
   class HandleLimitReached extends Error {}
-  class InvalidArgument extends Error {}
   return {
     errors: {
       HandleTaken,
       HandleNotAllowed,
       HandleTooSoon,
       HandleLimitReached,
-      InvalidArgument,
     },
     availableHandles: vi.fn<(name: string) => Promise<string[]>>(),
     claimHandle: vi.fn<(handle: string) => Promise<void>>(),
-    inboxState:
-      vi.fn<
-        (
-          refresh: boolean,
-        ) => Promise<{ handle?: string; otherHandles: string[] }>
-      >(),
-    refresh: vi.fn(
-      async (
-        _refreshFromNetwork?: boolean,
-      ): Promise<
-        { handle: string | null; otherHandles: string[] } | undefined
-      > => undefined,
-    ),
+    refresh: vi.fn(async (): Promise<void> => undefined),
     minNameLength: 3,
     handle: null as string | null,
     otherHandles: [] as string[],
@@ -56,7 +42,6 @@ vi.mock("@/contexts/XMTPContext", () => ({
   useClient: () => ({
     availableHandles: mocks.availableHandles,
     claimHandle: mocks.claimHandle,
-    inboxState: mocks.inboxState,
     serverConfiguration: { handles: { minNameLength: mocks.minNameLength } },
   }),
 }));
@@ -120,7 +105,6 @@ describe("HandleSection", () => {
       mocks.loaded = true;
       mocks.failed = false;
       mocks.handle = "nick#2341";
-      return { handle: "nick#2341", otherHandles: [] };
     });
     renderSection();
     expect(
@@ -131,7 +115,7 @@ describe("HandleSection", () => {
 
     fireEvent.click(button("Retry"));
     await screen.findByText("Your handle on this server");
-    expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith(true);
+    expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith();
     expect(mocks.claimHandle).not.toHaveBeenCalled();
   });
 
@@ -157,35 +141,12 @@ describe("HandleSection", () => {
     expect(mocks.claimHandle).toHaveBeenCalledWith("nick");
   });
 
-  // A transport error can arrive after the backend stored the claim.
-  it("treats a failed claim that landed as a success, with no retry", async () => {
+  it("shows the error when a claim fails", async () => {
     mocks.availableHandles.mockResolvedValueOnce(["nicky"]);
     mocks.claimHandle.mockRejectedValueOnce(new Error("transport closed"));
-    mocks.inboxState.mockResolvedValueOnce({
-      handle: "nicky",
-      otherHandles: ["nick#2341", "nick#0912", "nickm"],
-    });
-    renderSection();
-    await changeTo("nicky");
-    await waitFor(() => expect(mocks.refresh).toHaveBeenCalled());
-    expect(mocks.inboxState).toHaveBeenCalledExactlyOnceWith(true);
-    expect(mocks.claimHandle).toHaveBeenCalledOnce();
-    expect(screen.queryByText("Cannot claim nicky. Try again.")).toBeNull();
-    // the editor closed, as after a claim that answered
-    expect(screen.queryByRole("textbox", { name: "Handle" })).toBeNull();
-  });
-
-  it("shows the error when a failed claim did not land", async () => {
-    mocks.availableHandles.mockResolvedValueOnce(["nicky"]);
-    mocks.claimHandle.mockRejectedValueOnce(new Error("transport closed"));
-    mocks.inboxState.mockResolvedValueOnce({
-      handle: "nick#2341",
-      otherHandles: ["nick#0912", "nickm"],
-    });
     renderSection();
     await changeTo("nicky");
     await screen.findByText("Cannot claim nicky. Try again.");
-    expect(mocks.inboxState).toHaveBeenCalledExactlyOnceWith(true);
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
@@ -197,21 +158,20 @@ describe("HandleSection", () => {
     mocks.otherHandles = [];
     mocks.availableHandles.mockResolvedValueOnce(["nick"]);
     mocks.claimHandle.mockRejectedValueOnce(refusal);
-    const view = renderSection();
+    renderSection();
     fireEvent.change(screen.getByRole("textbox", { name: "Handle" }), {
       target: { value: "nick" },
     });
     fireEvent.click(button("Continue"));
     fireEvent.click(await screen.findByRole("button", { name: "Claim nick" }));
-    return view;
   };
 
-  it("reads the inbox again after a too-soon first claim, and blocks the editor", async () => {
+  it("blocks the editor after a too-soon first claim", async () => {
     await claimFirst();
     await screen.findByText(
       "You changed your handle less than 7 days ago. Try again later.",
     );
-    expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith(true);
+    expect(mocks.refresh).not.toHaveBeenCalled();
     expect(screen.getByText("Choose a handle")).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Handle" })).toHaveProperty(
       "disabled",
@@ -219,48 +179,14 @@ describe("HandleSection", () => {
     );
   });
 
-  it("shows the handle that the network read finds after a too-soon first claim", async () => {
-    mocks.refresh.mockImplementationOnce(async () => {
-      mocks.handle = "nick#0412";
-    });
-    await claimFirst();
-    await screen.findByText("Your handle on this server");
-    expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith(true);
-    expect(screen.queryByText("Choose a handle")).toBeNull();
-  });
-
   it("hides the editor after a first claim over the limit", async () => {
     await claimFirst(new mocks.errors.HandleLimitReached());
     await screen.findByText(
       "This inbox has used all 64 handle changes. Your current handle stays, and so do your other handles.",
     );
-    expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith(true);
+    expect(mocks.refresh).not.toHaveBeenCalled();
     expect(screen.getByText("Choose a handle")).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Handle" })).toBeNull();
-  });
-
-  // the claim landed, its transport error hid that, and the re-read failed
-  it("treats a too-soon retry of a claim that landed as a success", async () => {
-    mocks.refresh.mockImplementationOnce(async () => {
-      mocks.handle = "nick";
-      return { handle: "nick", otherHandles: [] };
-    });
-    const view = await claimFirst();
-    // the success path reads the handles again
-    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(2));
-    expect(mocks.refresh.mock.calls[0]).toEqual([true]);
-    // the mocked hook does not subscribe to the store, so render again
-    view.rerender(
-      <MantineProvider>
-        <HandleSection />
-      </MantineProvider>,
-    );
-    await screen.findByText("Your handle on this server");
-    expect(
-      screen.queryByText(
-        "You changed your handle less than 7 days ago. Try again later.",
-      ),
-    ).toBeNull();
   });
 
   it("shows when the handle changed less than 7 days ago", async () => {

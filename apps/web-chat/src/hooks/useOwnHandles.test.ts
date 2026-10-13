@@ -1,10 +1,9 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { Client, ClientEvent, Conversation } from "@xmtp/browser-sdk";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { inboxStore } from "@/stores/inbox/store";
 
-import { useIdentity } from "./useIdentity";
 import { useHandleSync, useOwnHandles } from "./useOwnHandles";
 
 const mocks = vi.hoisted(() => ({ client: undefined as unknown }));
@@ -81,6 +80,8 @@ const setup = () => {
 };
 
 afterEach(() => {
+  // unmount first, so a store reset cannot restart an earlier test's sync
+  cleanup();
   inboxStore.getState().reset();
   vi.restoreAllMocks();
 });
@@ -108,21 +109,11 @@ const fakeClient = (inboxId: string) => {
     if (!listener) throw new Error("no handle.changed listener");
     await act(async () => listener?.(event));
   };
-  // deliver an event without waiting for its retries to finish
-  const fire = async (event: ClientEvent) => {
-    if (!listener) throw new Error("no handle.changed listener");
-    await act(async () => {
-      void listener?.(event);
-      await Promise.resolve();
-    });
-  };
-  return { client, emit, fire };
+  return { client, emit };
 };
 
 const renderSync = (client: unknown) =>
-  renderHook(({ current }) => useHandleSync(current as Client), {
-    initialProps: { current: client },
-  });
+  renderHook(() => useHandleSync(client as Client));
 
 describe("useHandleSync", () => {
   it("reads a member's new handle when handle.changed arrives", async () => {
@@ -161,60 +152,38 @@ describe("useHandleSync", () => {
     });
   });
 
-  it("drops a slow read for a client that the app switched away from", async () => {
+  it("reads the own handles only after the listener is registered", async () => {
     const a = fakeClient("a".repeat(64));
-    const b = fakeClient("b".repeat(64));
-    const slow = Promise.withResolvers<Handles>();
-    a.client.inboxState.mockReturnValueOnce(slow.promise);
-    b.client.inboxState.mockResolvedValue({
-      handle: "bob",
-      otherHandles: [],
-    });
-
-    const { rerender } = renderSync(a.client);
-    await waitFor(() => expect(a.client.inboxState).toHaveBeenCalled());
-    rerender({ current: b.client });
-    await waitFor(() =>
-      expect(inboxStore.getState().ownHandles?.handle).toBe("bob"),
-    );
-
-    await act(async () => slow.resolve({ handle: "alice", otherHandles: [] }));
-    expect(inboxStore.getState().ownHandles).toEqual({
-      handle: "bob",
-      otherHandles: [],
-    });
-  });
-
-  it("drops a handle.changed read for a client that the app switched away from", async () => {
-    const a = fakeClient("a".repeat(64));
-    const b = fakeClient("b".repeat(64));
+    const registered = Promise.withResolvers<bigint>();
+    a.client.startListener.mockReturnValueOnce(registered.promise);
     a.client.inboxState.mockResolvedValue({
       handle: "alice",
       otherHandles: [],
     });
-    b.client.inboxState.mockResolvedValue({ handle: "bob", otherHandles: [] });
+    renderSync(a.client);
+    expect(a.client.startListener).toHaveBeenCalledOnce();
+    // a handle.changed before the listener exists would be lost
+    expect(a.client.inboxState).not.toHaveBeenCalled();
 
-    const { rerender } = renderSync(a.client);
-    await waitFor(() => expect(a.client.startListener).toHaveBeenCalled());
+    await act(async () => registered.resolve(1n));
     await waitFor(() =>
       expect(inboxStore.getState().ownHandles?.handle).toBe("alice"),
     );
-    rerender({ current: b.client });
-    await waitFor(() =>
-      expect(inboxStore.getState().ownHandles?.handle).toBe("bob"),
-    );
+    expect(a.client.inboxState).toHaveBeenCalledExactlyOnceWith(false);
+  });
 
-    // an event that A's listener delivers after the switch
+  it("reads the own handles when the listener cannot start", async () => {
+    const a = fakeClient("a".repeat(64));
+    a.client.startListener.mockRejectedValueOnce(new Error("closed"));
     a.client.inboxState.mockResolvedValue({
-      handle: "alice2",
-      otherHandles: ["alice"],
-    });
-    await a.emit(handleChanged(a.client.inboxId, "alice2"));
-    expect(a.client.inboxState).toHaveBeenCalledTimes(2);
-    expect(inboxStore.getState().ownHandles).toEqual({
-      handle: "bob",
+      handle: "alice",
       otherHandles: [],
     });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    renderSync(a.client);
+    await waitFor(() =>
+      expect(inboxStore.getState().ownHandles?.handle).toBe("alice"),
+    );
   });
 
   it("marks a failed first read, and a working retry loads the handles", async () => {
@@ -233,8 +202,32 @@ describe("useHandleSync", () => {
     const { result } = renderHook(() => useOwnHandles());
     expect(result.current).toMatchObject({ loaded: false, failed: true });
     await act(async () => {
-      await result.current.refresh(true);
+      await result.current.refresh();
     });
+    expect(result.current).toMatchObject({
+      loaded: true,
+      failed: false,
+      handle: "alice",
+    });
+    // the retry reads the local state again
+    expect(a.client.inboxState).toHaveBeenLastCalledWith(false);
+  });
+
+  it("keeps the known handles when a later read fails", async () => {
+    const a = fakeClient("a".repeat(64));
+    a.client.inboxState
+      .mockResolvedValueOnce({ handle: "alice", otherHandles: [] })
+      .mockRejectedValueOnce(new Error("offline"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    renderSync(a.client);
+    await waitFor(() =>
+      expect(inboxStore.getState().ownHandles?.handle).toBe("alice"),
+    );
+
+    await a.emit(handleChanged(a.client.inboxId, "alice2"));
+    expect(a.client.inboxState).toHaveBeenCalledTimes(2);
+    mocks.client = a.client;
+    const { result } = renderHook(() => useOwnHandles());
     expect(result.current).toMatchObject({
       loaded: true,
       failed: false,
@@ -242,187 +235,26 @@ describe("useHandleSync", () => {
     });
   });
 
-  it("ignores a failed read for a client that the app switched away from", async () => {
+  it("reloads the own handles when the member refresh fails", async () => {
     const a = fakeClient("a".repeat(64));
-    const b = fakeClient("b".repeat(64));
-    const slowA = Promise.withResolvers<Handles>();
-    const slowB = Promise.withResolvers<Handles>();
-    a.client.inboxState.mockReturnValueOnce(slowA.promise);
-    b.client.inboxState.mockReturnValueOnce(slowB.promise);
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const { rerender } = renderSync(a.client);
-    await waitFor(() => expect(a.client.inboxState).toHaveBeenCalled());
-    rerender({ current: b.client });
-    await waitFor(() => expect(b.client.inboxState).toHaveBeenCalled());
-
-    await act(async () => slowA.reject(new Error("offline")));
-    expect(inboxStore.getState().ownHandlesFailed).toBe(false);
-    await act(async () => slowB.resolve({ handle: "bob", otherHandles: [] }));
-    expect(inboxStore.getState().ownHandles?.handle).toBe("bob");
-  });
-
-  it("drops a slow earlier read that finishes after a newer refresh", async () => {
-    const a = fakeClient("a".repeat(64));
-    const slow = Promise.withResolvers<Handles>();
-    a.client.inboxState
-      .mockReturnValueOnce(slow.promise)
-      .mockResolvedValueOnce({ handle: "alice2", otherHandles: ["alice"] });
-    renderSync(a.client);
-    await waitFor(() => expect(a.client.inboxState).toHaveBeenCalledOnce());
-
-    mocks.client = a.client;
-    const { result } = renderHook(() => useOwnHandles());
-    await act(async () => {
-      await result.current.refresh(true);
-    });
-    expect(inboxStore.getState().ownHandles?.handle).toBe("alice2");
-
-    await act(async () => slow.resolve({ handle: "alice", otherHandles: [] }));
-    expect(inboxStore.getState().ownHandles).toEqual({
-      handle: "alice2",
-      otherHandles: ["alice"],
-    });
-  });
-
-  it("lets an earlier read fill the store after a newer read failed", async () => {
-    const a = fakeClient("a".repeat(64));
-    const slow = Promise.withResolvers<Handles>();
-    a.client.inboxState
-      .mockReturnValueOnce(slow.promise)
-      .mockRejectedValueOnce(new Error("offline"));
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    renderSync(a.client);
-    await waitFor(() => expect(a.client.inboxState).toHaveBeenCalledOnce());
-
-    mocks.client = a.client;
-    const { result } = renderHook(() => useOwnHandles());
-    await act(async () => {
-      await result.current.refresh(true).catch(() => undefined);
-    });
-    expect(inboxStore.getState().ownHandlesFailed).toBe(true);
-
-    await act(async () => slow.resolve({ handle: "alice", otherHandles: [] }));
-    expect(inboxStore.getState().ownHandles?.handle).toBe("alice");
-    expect(result.current).toMatchObject({ loaded: true, failed: false });
-  });
-
-  it("drops a slow identity read that finishes after a newer refresh", async () => {
-    const a = fakeClient("a".repeat(64));
-    const identityRead = Promise.withResolvers<Handles>();
     a.client.inboxState
       .mockResolvedValueOnce({ handle: "alice", otherHandles: [] })
-      .mockReturnValueOnce(identityRead.promise)
       .mockResolvedValueOnce({ handle: "alice2", otherHandles: ["alice"] });
-    const client = Object.assign(a.client, {
-      keyPackageStatuses: vi.fn(async () => new Map()),
+    inboxStore.setState({
+      refreshInboxHandles: vi.fn(async () => {
+        throw new Error("members read failed");
+      }),
     });
-    renderSync(client);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    renderSync(a.client);
     await waitFor(() =>
       expect(inboxStore.getState().ownHandles?.handle).toBe("alice"),
     );
 
-    mocks.client = client;
-    // the identity modal starts its read, then a newer refresh stores alice2
-    renderHook(() => useIdentity(true));
-    await waitFor(() => expect(a.client.inboxState).toHaveBeenCalledTimes(2));
-    const { result } = renderHook(() => useOwnHandles());
-    await act(async () => {
-      await result.current.refresh(true);
-    });
-    expect(inboxStore.getState().ownHandles?.handle).toBe("alice2");
-
-    await act(async () =>
-      identityRead.resolve({
-        inboxId: a.client.inboxId,
-        installations: [],
-        identities: [],
-        recoveryIdentity: null,
-        handle: "alice",
-        otherHandles: [],
-      } as unknown as Handles),
-    );
+    await a.emit(handleChanged(a.client.inboxId, "alice2"));
     expect(inboxStore.getState().ownHandles).toEqual({
       handle: "alice2",
       otherHandles: ["alice"],
-    });
-  });
-
-  describe("after handle.changed", () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-      vi.spyOn(console, "error").mockImplementation(() => undefined);
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    // settle the first load and the listener registration
-    const flush = () => act(async () => {});
-
-    it("reloads the own handles when the member refresh fails", async () => {
-      const a = fakeClient("a".repeat(64));
-      a.client.inboxState
-        .mockResolvedValueOnce({ handle: "alice", otherHandles: [] })
-        .mockResolvedValueOnce({ handle: "alice2", otherHandles: ["alice"] });
-      inboxStore.setState({
-        refreshInboxHandles: vi.fn(async () => {
-          throw new Error("members read failed");
-        }),
-      });
-      renderSync(a.client);
-      await flush();
-      expect(inboxStore.getState().ownHandles?.handle).toBe("alice");
-
-      await a.fire(handleChanged(a.client.inboxId, "alice2"));
-      expect(inboxStore.getState().ownHandles).toEqual({
-        handle: "alice2",
-        otherHandles: ["alice"],
-      });
-    });
-
-    it("retries a failed own-handle refresh after a short delay", async () => {
-      const a = fakeClient("a".repeat(64));
-      a.client.inboxState
-        .mockResolvedValueOnce({ handle: "alice", otherHandles: [] })
-        .mockRejectedValueOnce(new Error("offline"))
-        .mockResolvedValueOnce({ handle: "alice2", otherHandles: ["alice"] });
-      renderSync(a.client);
-      await flush();
-
-      await a.fire(handleChanged(a.client.inboxId, "alice2"));
-      expect(inboxStore.getState().ownHandles?.handle).toBe("alice");
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1_000);
-      });
-      expect(a.client.inboxState).toHaveBeenCalledTimes(3);
-      expect(inboxStore.getState().ownHandles?.handle).toBe("alice2");
-    });
-
-    it("stops retrying after the app switches clients", async () => {
-      const a = fakeClient("a".repeat(64));
-      const b = fakeClient("b".repeat(64));
-      a.client.inboxState
-        .mockResolvedValueOnce({ handle: "alice", otherHandles: [] })
-        .mockRejectedValueOnce(new Error("offline"))
-        .mockResolvedValue({ handle: "alice3", otherHandles: [] });
-      b.client.inboxState.mockResolvedValue({
-        handle: "bob",
-        otherHandles: [],
-      });
-      const { rerender } = renderSync(a.client);
-      await flush();
-      await a.fire(handleChanged(a.client.inboxId, "alice2"));
-      expect(a.client.inboxState).toHaveBeenCalledTimes(2);
-
-      rerender({ current: b.client });
-      await flush();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(10_000);
-      });
-      expect(a.client.inboxState).toHaveBeenCalledTimes(2);
-      expect(inboxStore.getState().ownHandles?.handle).toBe("bob");
     });
   });
 });
