@@ -140,12 +140,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A token carrying kid whose algorithm no loaded key uses is answered unsupported_alg before key selection, rather than untrusted."
 
 [[waiver]]
-id = "AUTH-035"
-kind = "untested"
-owner = "protocol"
-reason = "AuthHandle.inner.state in crates/xmtp_api_backend/src/middleware/auth.rs holds the shared failure count and lockout; no test drives failures from two clients sharing it."
-
-[[waiver]]
 id = "AUTH-031"
 kind = "gap"
 owner = "backend"
@@ -158,30 +152,6 @@ kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A client half-close during the drain for an outstanding Ping ends the stream with UNAVAILABLE rather than completing cleanly."
-
-[[waiver]]
-id = "API-292"
-kind = "untested"
-owner = "protocol"
-reason = "TrackedStatsClient in crates/xmtp_api_backend/src/queries/api_stats.rs counts the five API RPCs, and the Node and mobile stats bindings expose those counts; no test covers every shared client and static call."
-
-[[waiver]]
-id = "API-293"
-kind = "untested"
-owner = "protocol"
-reason = "TrackedStatsClient in crates/xmtp_api_backend/src/queries/api_stats.rs counts both identity RPCs, and the Node and mobile stats bindings expose those counts; no test covers every shared client and static call."
-
-[[waiver]]
-id = "API-294"
-kind = "untested"
-owner = "protocol"
-reason = "The Node api_aggregate_statistics and mobile api_aggregate_statistics bindings format AggregateStats with the API and identity counts; no test proves the shared-connection summary."
-
-[[waiver]]
-id = "API-295"
-kind = "untested"
-owner = "protocol"
-reason = "Node Client::clear_all_statistics and mobile FfiXmtpClient::clear_all_statistics call ApiStats::clear and IdentityStats::clear in crates/xmtp_proto/src/api_client/stats.rs, which reset all seven counts; no test proves each count after a nonzero value."
 
 [[waiver]]
 id = "PUSH-257"
@@ -553,12 +523,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
 
 [[waiver]]
-id = "EVENT-055"
-kind = "untested"
-owner = "protocol"
-reason = "ClientBuilder registers each client public event writer with its backend AuthHandle, and AuthInner::emit_lockout emits to every registered writer; no test drives two sharing clients."
-
-[[waiver]]
 id = "EVENT-056"
 kind = "gap"
 owner = "protocol"
@@ -578,34 +542,6 @@ kind = "untested"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "init_logging installs the native primary layer or browser console layer independently of SinkSlot. Clearing the app sink leaves those layers installed. No generated-target test proves default log delivery on every target. Follow-up Task 7 owns the missing proof."
-
-[[waiver]]
-id = "LOG-002"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "Current targets do not share one asynchronous, ordered sink dispatcher across generations; follow-up Task 7 closes the gap."
-
-[[waiver]]
-id = "LOG-003"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "Current app log queues and transports do not enforce one 4096-record limit; follow-up Task 7 closes the gap."
-
-[[waiver]]
-id = "LOG-004"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "Mobile log callbacks can still run inline with client work; follow-up Task 7 closes the gap."
-
-[[waiver]]
-id = "LOG-005"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "Not every target discards new records at the shared queue limit and counts those drops; follow-up Task 7 closes the gap."
 
 [[waiver]]
 id = "LOG-007"
@@ -634,27 +570,6 @@ kind = "untested"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "IdentityStrategy::initialize_identity logs only a fixed strategy name and stored-identity presence. AuthBridge::on_auth_required replaces credential callback failures with fixed messages, and mobile create_client logs database-key presence and length rather than key bytes. The identity source-event test proves the removed legacy-key leak stays closed, but no complete test proves authentication credential, private signing-key, and database encryption-key omission through app sinks and native output on every public target. Follow-up Task 7 owns the remaining emitter audit and destination proof."
-
-[[waiver]]
-id = "LOG-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "Current targets do not discard old-generation queued records and pending drops on replacement; follow-up Task 7 closes the gap."
-
-[[waiver]]
-id = "LOG-012"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "A late callback result is not yet isolated from the installed generation on every target; follow-up Task 7 closes the gap."
-
-[[waiver]]
-id = "LOG-013"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "Current sink paths do not capture one pending-drop snapshot when selecting each record for dispatch or preserve post-dispatch drops for later attempts across targets; follow-up Task 7 closes the gap."
 
 [[waiver]]
 id = "STORE-019"
