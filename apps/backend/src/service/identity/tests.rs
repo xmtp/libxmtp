@@ -1,12 +1,11 @@
 use crate::test_support as support;
 
+mod handles;
+
 use crate::api;
 use crate::api::publish_error::Reason;
 use prost::Message;
-use support::{
-    TestServer,
-    handles::{ClaimingInbox, resolve},
-};
+use support::TestServer;
 use tonic::Code;
 use xmtp_id::associations::{
     Identifier, MemberIdentifier,
@@ -777,126 +776,5 @@ async fn identity_invalid_mutations_retired_signature_fails_replay() {
 
     set_payload(original.clone()).await?;
     assert_eq!(server.publish(vec![add]).await?.len(), 1);
-    server.stop().await?;
-}
-
-/// A handle signs nothing, so a creation or a recovery change that names one
-/// as its identifier is refused on admission as an invalid identity update,
-/// not as a malformed payload, and nothing is stored.
-// verifies: IDENT-077
-#[xmtp_common::test(unwrap_try = true)]
-async fn handle_kind_outside_lookups_is_invalid_identity_update() {
-    let server = TestServer::new(|_| {}).await?;
-    let wallet = xmtp_cryptography::utils::generate_local_wallet();
-    let inbox_id = wallet.get_inbox_id(0);
-    let mut create = SignatureRequestBuilder::new(&inbox_id)
-        .create_inbox(wallet.identifier(), 0)
-        .build();
-    add_wallet_signature(&mut create, &wallet).await;
-    let create: IdentityUpdate = create.build_identity_update()?.into();
-    let mut change = SignatureRequestBuilder::new(&inbox_id)
-        .change_recovery_address(wallet.identifier().into(), Identifier::rand_ethereum())
-        .build();
-    add_wallet_signature(&mut change, &wallet).await;
-    let change: IdentityUpdate = change.build_identity_update()?.into();
-
-    let mut handle_creation = create.clone();
-    let Some(Kind::CreateInbox(action)) = &mut handle_creation.actions[0].kind else {
-        unreachable!("the request creates an inbox")
-    };
-    action.initial_identifier_kind = IdentifierKind::Handle.into();
-    let mut handle_recovery = change.clone();
-    let Some(Kind::ChangeRecoveryAddress(action)) = &mut handle_recovery.actions[0].kind else {
-        unreachable!("the request changes the recovery identifier")
-    };
-    action.new_recovery_identifier_kind = IdentifierKind::Handle.into();
-
-    for (case, update, stored) in [
-        ("creation", handle_creation, None),
-        ("recovery change", handle_recovery, Some(create)),
-    ] {
-        if let Some(stored) = stored {
-            server.publish(vec![identity_envelope(stored)]).await?;
-        }
-        let before = identity_rows(&server).await?;
-        let error = server
-            .publisher()
-            .publish(api::PublishRequest {
-                envelopes: vec![identity_envelope(update)],
-            })
-            .await
-            .expect_err(case);
-        assert_eq!(
-            rejection(&error)?,
-            Reason::InvalidIdentityUpdate,
-            "{case}: {error:?}"
-        );
-        assert_eq!(identity_rows(&server).await?, before, "{case}");
-    }
-    // The same change with its own kind is admitted.
-    server.publish(vec![identity_envelope(change)]).await?;
-    server.stop().await?;
-}
-
-/// A claimed handle resolves to its inbox, whatever the ASCII letter case of
-/// the lookup, and the answer echoes the identifier as sent. A handle no one
-/// claimed, the same name without the code included, resolves to no inbox.
-// verifies: API-299
-#[xmtp_common::test(unwrap_try = true)]
-async fn claimed_handle_resolves_by_exact_lookup() {
-    let server = TestServer::new(|_| {}).await?;
-    let inbox = ClaimingInbox::registered(&server).await?;
-    inbox.publish_claim(&server, "nick#0042").await?;
-
-    let rows: Vec<(String, i16, Vec<u8>)> = sqlx::query_as(
-        "SELECT identifier, identifier_kind, inbox_id FROM identifier_association
-         WHERE identifier_kind = 3",
-    )
-    .fetch_all(&server.backend.store.primary)
-    .await?;
-    assert_eq!(
-        rows,
-        [("nick#0042".into(), 3, hex::decode(&inbox.inbox_id)?)]
-    );
-
-    let owner = Some(inbox.inbox_id.clone());
-    assert_eq!(
-        resolve(
-            &server,
-            &["nick#0042", "NICK#0042", "Nick#0042", "nick", "nick#0043"]
-        )
-        .await?,
-        [owner.clone(), owner.clone(), owner, None, None]
-    );
-    let answer = server
-        .identity()
-        .get_inbox_ids(api::GetInboxIdsRequest {
-            requests: vec![api::get_inbox_ids_request::Request {
-                identifier: "NICK#0042".into(),
-                identifier_kind: IdentifierKind::Handle.into(),
-            }],
-        })
-        .await?
-        .into_inner();
-    assert_eq!(answer.responses[0].identifier, "NICK#0042");
-    assert_eq!(
-        answer.responses[0].identifier_kind,
-        i32::from(IdentifierKind::Handle)
-    );
-    server.stop().await?;
-}
-
-/// A handle lookup that the grammar does not match after its ASCII letters are
-/// lowercased fails the whole request with a fixed message that does not
-/// carry the handle.
-// verifies: API-299
-#[xmtp_common::test(unwrap_try = true)]
-async fn malformed_handle_lookup_is_invalid_argument() {
-    let server = TestServer::new(|_| {}).await?;
-    for input in ["nïck", "nick#12", "_nick", "nick.eth", "nick ", ""] {
-        let error = resolve(&server, &["nick", input]).await.expect_err(input);
-        assert_eq!(error.code(), Code::InvalidArgument, "{input:?}");
-        assert_eq!(error.message(), "malformed handle", "{input:?}");
-    }
     server.stop().await?;
 }

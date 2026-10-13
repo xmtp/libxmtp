@@ -60,6 +60,7 @@ operator can change it from 1 to 27; a change applies only to later claims.
 | Shortest name part, the text before `#`, in a claim |       3 |
 | Longest name part                                   |      27 |
 | Handle claims per inbox                             |      64 |
+| Days between two claims by one inbox                |       7 |
 
 Each claim uses one identity-update entry of the inbox. At the default of 256
 entries per inbox, 192 entries stay for membership changes.

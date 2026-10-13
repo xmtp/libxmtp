@@ -4,6 +4,7 @@ use crate::{
     api::{self, client_envelope::Payload, publish_error::Reason},
     db::{IdentityAdmission, PendingEnvelope},
     error::AdmissionError,
+    handles,
     validation::projection,
 };
 use prost::Message;
@@ -185,6 +186,7 @@ impl Backend {
                     IdentityAdmission {
                         inbox_id: parsed.topic.identifier().to_vec(),
                         head: 0,
+                        claim: None,
                     }
                 }),
                 index,
@@ -207,7 +209,8 @@ impl Backend {
     /// Identity updates use one complete primary history snapshot and retain
     /// its head for the locked comparison during commit. Other payload kinds
     /// use shared structural validation, and verifier retryability is preserved
-    /// for transport mapping.
+    /// for transport mapping. A claim that passes validation then passes the
+    /// handle policy that needs no lock; the taken check runs during commit.
     #[xmtp_common::span(prefix = "publish")]
     // implements: API-234
     async fn validate_publish(
@@ -220,6 +223,7 @@ impl Backend {
             if item.duplicate.is_some() {
                 continue;
             }
+            let mut stored_claims = Vec::new();
             let history = if let Some(Payload::IdentityUpdate(update)) = &parsed.envelope.payload {
                 let history = self.store.history(&item.topic).await?;
                 item.identity
@@ -238,7 +242,7 @@ impl Backend {
                     ));
                     continue;
                 }
-                history
+                let updates = history
                     .payloads
                     .into_iter()
                     .map(|payload| {
@@ -252,19 +256,52 @@ impl Backend {
                             )),
                         }
                     })
-                    .collect::<Result<Vec<_>, Status>>()?
+                    .collect::<Result<Vec<_>, Status>>()?;
+                stored_claims = updates
+                    .iter()
+                    .zip(&history.server_ns)
+                    .filter(|(update, _)| handles::carries_claim(update))
+                    .map(|(_, server_ns)| *server_ns)
+                    .collect();
+                updates
             } else {
                 Vec::new()
             };
-            item.validation = validate_envelope(
+            let validation = match validate_envelope(
                 parsed,
                 &history,
                 crate::validation::ObservedVerifier(&self.verifier),
                 &*self.chains,
             )
             .await
-            .map(|result| result.as_ref().map(projection))
-            .map_err(AdmissionError::from);
+            {
+                Ok(validation) => validation,
+                Err(error) => {
+                    item.validation = Err(error.into());
+                    continue;
+                }
+            };
+            item.validation = match validation {
+                Some(validation) => match validation.claimed_handles.first() {
+                    Some(handle) => {
+                        let clock_ns = self.store.clock_ns().await?;
+                        item.identity
+                            .as_mut()
+                            .ok_or_else(|| Status::internal("identity metadata missing"))?
+                            .claim = Some(handle.clone());
+                        handles::check_claim(
+                            handle,
+                            self.config.handles.min_name_length,
+                            stored_claims,
+                            clock_ns,
+                        )
+                        .map(|()| Some(projection(&validation)))
+                        .map_err(AdmissionError::Handle)
+                    }
+                    None => Ok(Some(projection(&validation))),
+                },
+                None => Ok(None),
+            };
         }
         Ok(())
     }

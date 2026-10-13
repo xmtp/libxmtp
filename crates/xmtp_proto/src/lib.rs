@@ -250,6 +250,46 @@ mod descriptor_tests {
         );
     }
 
+    /// The publish rejection reasons keep their numbers, the three handle
+    /// reasons included, so a client reads each reason the backend sends.
+    // verifies: API-210
+    #[xmtp_common::test(unwrap_try = true)]
+    fn publish_error_reasons_match_the_wire_contract() {
+        let descriptors = prost_types::FileDescriptorSet::decode(crate::FILE_DESCRIPTOR_SET)?;
+        let reason = descriptors
+            .file
+            .iter()
+            .filter(|file| file.package.as_deref() == Some("xmtp.backend.v1"))
+            .flat_map(|file| &file.message_type)
+            .find(|message| message.name.as_deref() == Some("PublishError"))
+            .and_then(|message| {
+                message
+                    .enum_type
+                    .iter()
+                    .find(|kind| kind.name.as_deref() == Some("Reason"))
+            })
+            .expect("PublishError.Reason descriptor");
+        let values: Vec<_> = reason
+            .value
+            .iter()
+            .map(|value| (value.name.as_deref().unwrap_or_default(), value.number()))
+            .collect();
+        assert_eq!(
+            values,
+            [
+                ("REASON_UNSPECIFIED", 0),
+                ("REASON_MALFORMED_PAYLOAD", 1),
+                ("REASON_INVALID_KEY_PACKAGE", 2),
+                ("REASON_INVALID_IDENTITY_UPDATE", 3),
+                ("REASON_INVALID_SIGNATURE", 4),
+                ("REASON_TOO_LARGE", 5),
+                ("REASON_HANDLE_TAKEN", 6),
+                ("REASON_HANDLE_NOT_ALLOWED", 7),
+                ("REASON_HANDLE_TOO_SOON", 8),
+            ]
+        );
+    }
+
     // verifies: ATCH-020
     #[xmtp_common::test(unwrap_try = true)]
     fn create_upload_method_matches_wire_contract() {

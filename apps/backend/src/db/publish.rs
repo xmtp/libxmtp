@@ -1,6 +1,8 @@
 use super::{PendingEnvelope, Store, StoredMeta, identity::apply_projection};
 use crate::error::{AdmissionError, Error};
+use crate::handles::HandleRejection;
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
+use std::collections::HashSet;
 
 #[cfg(test)]
 mod tests;
@@ -27,8 +29,9 @@ impl Store {
     /// Atomically finish a publish after parsing and validation.
     ///
     /// The transaction locks identity state and topics, repeats duplicate
-    /// lookup, checks each identity history head, inserts new rows, advances
-    /// watermarks, and applies projections before commit. A duplicate found by
+    /// lookup, checks each identity history head and each claimed handle,
+    /// inserts new rows, advances watermarks, and applies projections before
+    /// commit. A duplicate found by
     /// the locked check succeeds even when an earlier validation for that copy
     /// failed. A non-duplicate validation error or stale head aborts the whole
     /// transaction. The transaction timeout bounds database work; dropping the
@@ -59,6 +62,7 @@ impl Store {
         // original metadata before checking admission for the remaining inputs.
         duplicates(&mut tx, pending).await?;
         check_heads(&mut tx, pending).await?;
+        check_handles(&mut tx, pending).await?;
         let validation_error = pending
             .iter()
             .filter(|item| item.duplicate.is_none())
@@ -260,6 +264,75 @@ async fn check_heads(
     } else {
         Ok(())
     }
+}
+
+/// Fail each new claim whose handle another inbox holds, or that a lower
+/// index of this request claims for another inbox.
+///
+/// This runs under the identity lock, after the duplicate recheck, so a claim
+/// that commits in a concurrent request is visible here and two inboxes never
+/// both store one handle. Only claims that passed every earlier check are
+/// marked, so a claim's earlier failure keeps its own reason. The unique index
+/// on handles stays a backstop that fails as an invariant.
+// implements: API-296
+async fn check_handles(
+    tx: &mut Transaction<'_, Postgres>,
+    pending: &mut [PendingEnvelope],
+) -> Result<(), Error> {
+    let mut claims: Vec<_> = pending
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.duplicate.is_none() && item.validation.is_ok())
+        .filter_map(|(position, item)| {
+            let identity = item.identity.as_ref()?;
+            let handle = identity.claim.as_ref()?;
+            Some((item.index, position, handle.as_str(), &identity.inbox_id))
+        })
+        .collect();
+    if claims.is_empty() {
+        return Ok(());
+    }
+    claims.sort_unstable_by_key(|(index, ..)| *index);
+    let mut taken = HashSet::new();
+    // Two distinct updates for one inbox never share a request, so a repeat
+    // here is a later claim by another inbox.
+    let mut claimed = HashSet::new();
+    for (_, position, handle, _) in &claims {
+        if !claimed.insert(*handle) {
+            taken.insert(*position);
+        }
+    }
+    let handles: Vec<String> = claims
+        .iter()
+        .map(|(_, _, handle, _)| handle.to_string())
+        .collect();
+    let inboxes: Vec<Vec<u8>> = claims.iter().map(|(.., inbox)| inbox.to_vec()).collect();
+    // The kind is a literal so the planner can use the partial unique index.
+    let held = sqlx::query!(
+        r#"SELECT wanted.ordinality AS "ordinality!"
+        FROM unnest($1::text[], $2::bytea[]) WITH ORDINALITY AS wanted(handle, inbox_id, ordinality)
+        WHERE EXISTS (
+            SELECT 1 FROM identifier_association a
+            WHERE a.identifier = wanted.handle AND a.identifier_kind = 3
+                AND a.inbox_id <> wanted.inbox_id
+        )"#,
+        &handles,
+        &inboxes
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in held {
+        let ordinal = usize::try_from(row.ordinality - 1)
+            .map_err(|_| Error::Invariant("invalid handle ordinal"))?;
+        let (_, position, ..) = claims
+            .get(ordinal)
+            .ok_or(Error::Invariant("unknown handle ordinal"))?;
+        taken.insert(*position);
+    }
+    for position in taken {
+        pending[position].validation = Err(AdmissionError::Handle(HandleRejection::Taken));
+    }
+    Ok(())
 }
 
 /// Allocate sequence IDs and insert all new envelopes in request order.
