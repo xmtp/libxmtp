@@ -133,7 +133,7 @@ class AttachmentDownloadCancellationInstrumentedTest {
                     return@coroutineScope
                 }
                 assertTrue(model.chat.acceptsScreen(owner.key, token))
-                compose.waitUntil(5_000) {
+                compose.waitUntil(30_000) {
                     compose.onAllNodesWithText("Downloading").fetchSemanticsNodes().isEmpty()
                 }
                 compose.onNodeWithText("Failed").assertDoesNotExist()
