@@ -33,6 +33,14 @@ function equal<T>(actual: T, expected: T, label: string): void {
 // verifies: LOG-002, LOG-003, LOG-004, LOG-005, LOG-007, LOG-008, LOG-009,
 // verifies: LOG-011, LOG-012, LOG-013
 export async function loggingContract(api: LoggingApi): Promise<void> {
+  for (const oldSuccess of [false, true])
+    await loggingContractCase(api, oldSuccess);
+}
+
+async function loggingContractCase(
+  api: LoggingApi,
+  oldSuccess: boolean,
+): Promise<void> {
   const records = new Mailbox<ContractLogRecord>();
   const responses = new Mailbox<boolean>();
   let active = 0;
@@ -76,23 +84,33 @@ export async function loggingContract(api: LoggingApi): Promise<void> {
   equal(fourth.droppedRecords, 1n, "successful report keeps later drops");
   equal(maximum, 1, "one active callback");
 
-  const replacementRecords = new Mailbox<number>();
-  for (let generation = 1; generation <= 100; generation++) {
+  const replacementRecords = new Mailbox<{
+    generation: number;
+    record: ContractLogRecord;
+  }>();
+  for (let generation = 1; generation <= 4; generation++) {
     await api.setLogSink();
     await api.setLogSink({
-      async log() {
+      async log(record) {
         equal(active, 0, "replacement waits for old callback");
-        replacementRecords.push(generation);
+        replacementRecords.push({ generation, record });
       },
     });
-    await api.emit(1);
+    await api.emit(4099);
   }
   equal(active, 1, "replace does not wait for the old callback");
-  responses.push(false);
+  responses.push(oldSuccess);
+  const replacement = await replacementRecords.next();
+  equal(replacement.generation, 4, "only the final generation is handed off");
   equal(
-    await replacementRecords.next(),
-    100,
-    "only the final generation is handed off",
+    replacement.record.droppedRecords,
+    3n,
+    "old result does not change new drops",
+  );
+  equal(
+    replacement.record.fields.get("sequence"),
+    "0",
+    "replacement preserves its own order",
   );
   await api.setLogSink();
 

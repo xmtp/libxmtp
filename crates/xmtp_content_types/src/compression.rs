@@ -212,14 +212,33 @@ mod tests {
     // verifies: CTYPE-025
     #[xmtp_common::test(unwrap_try = true)]
     async fn decompression_stops_at_limit() {
-        let source = vec![b'A'; MAX_DECOMPRESSED_BYTES + 1];
+        struct CountedRead<R> {
+            inner: R,
+            bytes_read: usize,
+        }
+
+        impl<R: Read> Read for CountedRead<R> {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                let read = self.inner.read(buffer)?;
+                self.bytes_read += read;
+                Ok(read)
+            }
+        }
+
+        let source = vec![b'A'; MAX_DECOMPRESSED_BYTES + 2 * COMPRESSION_CHUNK_BYTES];
         let mut encoder = ZlibEncoder::new(Vec::new(), FlateCompression::default());
         encoder.write_all(&source)?;
         let compressed = encoder.finish()?;
         assert!(compressed.len() < 20_000);
         let mut budget = DecompressionBudget::new();
-        let result = read_bounded(&mut ZlibDecoder::new(compressed.as_slice()), &mut budget);
+        let mut reader = CountedRead {
+            inner: ZlibDecoder::new(compressed.as_slice()),
+            bytes_read: 0,
+        };
+        let result = read_bounded(&mut reader, &mut budget);
         assert!(matches!(result, Err(DecompressFailure::Limit)));
+        // One extra byte detects the limit without reading the rest of the source.
+        assert_eq!(reader.bytes_read, MAX_DECOMPRESSED_BYTES + 1);
         assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
         let mut content = TextCodec::encode(String::new())?;
         content.content = compressed;

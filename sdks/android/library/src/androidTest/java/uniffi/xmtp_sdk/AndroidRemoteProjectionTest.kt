@@ -9,7 +9,7 @@ class AndroidRemoteProjectionTest {
         val original =
             RemoteAttachment(
                 "https://example.org/file?signature=value",
-                "digest",
+                "ab".repeat(32),
                 ByteArray(32) { 1 },
                 ByteArray(32) { 2 },
                 ByteArray(12) { 3 },

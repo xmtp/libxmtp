@@ -27,7 +27,7 @@ test *args: build _test-host
 
 # Check startup and teardown of the owned backend without attachment storage.
 support-fixture:
-  ./dev/unsupported-backend true
+  {{ _env }} && ./dev/unsupported-backend true
 
 # Check startup and teardown of the owned S3 response gate without a device.
 io-fixture:

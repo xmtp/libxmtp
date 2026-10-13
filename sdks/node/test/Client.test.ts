@@ -223,6 +223,7 @@ describe("Client", () => {
     }
   });
 
+  // verifies: STORE-009, STORE-010
   it("reconnects the same live client storage and keeps its history", async () => {
     const client = await createRegisteredClient(createSigner().signer);
     const storage = client.storage;

@@ -313,26 +313,192 @@ async fn facade_key_package_statuses_keep_missing_entries() {
     client.end().await?;
 }
 
+// verifies: API-292, API-293, API-294, API-295
+#[xmtp_common::test(unwrap_try = true)]
+async fn facade_api_statistics_project_all_seven_shared_counts() {
+    use xmtp_proto::api::HasStats;
+    let BackendSource::Options {
+        options: backend_options,
+    } = options().backend?
+    else {
+        panic!("backend options");
+    };
+    let backend = Arc::new(crate::Backend::connect(backend_options).await?);
+    let mut settings = options();
+    settings.registration.auto = false;
+    settings.backend = Some(BackendSource::Connected { backend });
+    let first = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
+    let second = Client::create(crate::generate_local_signer().await, settings).await?;
+    let mut separate = options();
+    separate.registration.auto = false;
+    let isolated = Client::create(crate::generate_local_signer().await, separate).await?;
+    first.diagnostics().clear_statistics().await?;
+    isolated.diagnostics().clear_statistics().await?;
+    isolated
+        .inner
+        .context
+        .api()
+        .api_client
+        .mls_stats()
+        .publish
+        .count_request();
+    let stats = first.inner.context.api().api_client.mls_stats();
+    let identity = first.inner.context.api().api_client.identity_stats();
+    let counters = [
+        &stats.publish,
+        &stats.query,
+        &stats.query_newest,
+        &stats.subscribe,
+        &stats.subscribe_static,
+        &identity.get_inbox_ids,
+        &identity.verify_smart_contract_wallet_signatures,
+    ];
+    for (index, counter) in counters.into_iter().enumerate() {
+        for _ in 0..index + 1 {
+            counter.count_request();
+        }
+    }
+    async fn vector(client: &Client) -> Result<[u64; 7], XmtpError> {
+        let api = client.diagnostics().api_statistics().await?;
+        let identity = client.diagnostics().identity_statistics().await?;
+        Ok([
+            api.publish,
+            api.query,
+            api.query_newest,
+            api.subscribe,
+            api.subscribe_static,
+            identity.get_inbox_ids,
+            identity.verify_smart_contract_wallet_signatures,
+        ])
+    }
+    assert_eq!(vector(&first).await?, [1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(vector(&second).await?, [1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(vector(&isolated).await?, [1, 0, 0, 0, 0, 0, 0]);
+    let summary = first.diagnostics().aggregate_statistics().await?;
+    assert_eq!(summary, second.diagnostics().aggregate_statistics().await?);
+    assert!(!summary.is_empty());
+    for name in [
+        "publish",
+        "query",
+        "query_newest",
+        "subscribe",
+        "subscribe_static",
+        "get_inbox_ids",
+        "verify_smart_contract_wallet_signatures",
+    ] {
+        assert!(summary.contains(name), "missing endpoint {name}: {summary}");
+    }
+    let isolated_summary = isolated.diagnostics().aggregate_statistics().await?;
+    second.diagnostics().clear_statistics().await?;
+    assert_eq!(vector(&first).await?, [0; 7]);
+    assert_eq!(vector(&second).await?, [0; 7]);
+    assert_eq!(vector(&isolated).await?, [1, 0, 0, 0, 0, 0, 0]);
+    let cleared_summary = first.diagnostics().aggregate_statistics().await?;
+    assert_ne!(summary, cleared_summary, "summary must track shared clear");
+    assert_eq!(
+        cleared_summary,
+        second.diagnostics().aggregate_statistics().await?
+    );
+    assert_eq!(
+        isolated_summary,
+        isolated.diagnostics().aggregate_statistics().await?
+    );
+    for client in [first, second, isolated] {
+        client.end().await?;
+    }
+}
+
+// verifies: API-292, API-293, API-294, API-295
 #[xmtp_common::test(unwrap_try = true)]
 async fn facade_api_statistics_track_and_clear_requests() {
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let diagnostics = client.diagnostics();
-    diagnostics.clear_statistics().await?;
-    client.conversations().create_group(vec![], None).await?;
-    let can_message = client.can_message(vec![client.identity()]).await?;
-    assert_eq!(can_message.len(), 1);
-    assert!(can_message[&format!("ethereum:{}", client.identity().identifier)]);
-    let api = diagnostics.api_statistics().await?;
-    let identity = diagnostics.identity_statistics().await?;
-    assert!(api.publish > 0);
-    assert!(identity.get_inbox_ids > 0);
-    let aggregate = diagnostics.aggregate_statistics().await?;
-    assert!(aggregate.contains("publish"));
-    assert!(aggregate.contains("get_inbox_ids"));
-    diagnostics.clear_statistics().await?;
-    assert_eq!(diagnostics.api_statistics().await?.publish, 0);
-    assert_eq!(diagnostics.identity_statistics().await?.get_inbox_ids, 0);
-    client.end().await?;
+    let BackendSource::Options {
+        options: backend_options,
+    } = options().backend?
+    else {
+        panic!("backend options");
+    };
+    let backend = Arc::new(crate::Backend::connect(backend_options).await?);
+    let mut settings = options();
+    let source = BackendSource::Connected { backend };
+    settings.backend = Some(source.clone());
+    let first = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
+    let second = Client::create(crate::generate_local_signer().await, settings).await?;
+    let isolated = Client::create(crate::generate_local_signer().await, options()).await?;
+    first.diagnostics().clear_statistics().await?;
+    isolated.diagnostics().clear_statistics().await?;
+    first.conversations().create_group(vec![], None).await?;
+    let availability = second.can_message(vec![first.identity()]).await?;
+    assert!(availability[&format!("ethereum:{}", first.identity().identifier)]);
+    let published = first.diagnostics().api_statistics().await?.publish;
+    let queried = second
+        .diagnostics()
+        .identity_statistics()
+        .await?
+        .get_inbox_ids;
+    assert!(published > 0);
+    assert!(queried > 0);
+    assert_eq!(
+        second.diagnostics().api_statistics().await?.publish,
+        published
+    );
+    assert_eq!(
+        first
+            .diagnostics()
+            .identity_statistics()
+            .await?
+            .get_inbox_ids,
+        queried
+    );
+    let static_availability =
+        crate::static_helpers::can_message_with_backend(source, vec![first.identity()]).await?;
+    assert!(static_availability[&format!("ethereum:{}", first.identity().identifier)]);
+    assert_eq!(
+        first
+            .diagnostics()
+            .identity_statistics()
+            .await?
+            .get_inbox_ids,
+        queried + 1
+    );
+    assert_eq!(
+        second
+            .diagnostics()
+            .identity_statistics()
+            .await?
+            .get_inbox_ids,
+        queried + 1
+    );
+    isolated.can_message(vec![isolated.identity()]).await?;
+    let separate_count = isolated
+        .diagnostics()
+        .identity_statistics()
+        .await?
+        .get_inbox_ids;
+    assert!(separate_count > 0);
+    let summary = first.diagnostics().aggregate_statistics().await?;
+    assert!(summary.contains("publish"));
+    assert!(summary.contains("get_inbox_ids"));
+    second.diagnostics().clear_statistics().await?;
+    assert_eq!(first.diagnostics().api_statistics().await?.publish, 0);
+    assert_eq!(
+        first
+            .diagnostics()
+            .identity_statistics()
+            .await?
+            .get_inbox_ids,
+        0
+    );
+    assert_eq!(
+        isolated
+            .diagnostics()
+            .identity_statistics()
+            .await?
+            .get_inbox_ids,
+        separate_count
+    );
+    for client in [first, second, isolated] {
+        client.end().await?;
+    }
 }
 
 /// `count_messages` passes its list options to the core count, and

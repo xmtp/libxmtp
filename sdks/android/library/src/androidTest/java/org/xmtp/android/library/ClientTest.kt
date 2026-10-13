@@ -130,6 +130,7 @@ class ClientTest : BaseInstrumentedTest() {
             assertEquals(listOf(kept.installationId()), kept.inboxState(true).installations.map { it.id })
         }
 
+    // verifies: STORE-017, STORE-018
     @Test fun testCanDeleteDatabase() =
         runBlocking {
             val signer = createWallet()
@@ -140,36 +141,89 @@ class ClientTest : BaseInstrumentedTest() {
             val path = checkNotNull(original.storage().path())
             original.storage().delete()
             assertFalse(File(path).exists())
+            assertTrue(
+                runCatching { original.conversations.listGroups(null) }.exceptionOrNull() is XmtpException.ClientClosed,
+            )
             val replacement = client(signer, options)
             assertTrue(replacement.conversations.listGroups(null).isEmpty())
         }
 
-    // verifies: IDENT-076
+    // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
     @Test fun testPreAuthenticateToInboxCallback() =
         runBlocking {
-            val called = CompletableDeferred<Unit>()
+            val calls = mutableListOf<String>()
+            val signer = createWallet()
+            val recordingSigner =
+                object : Signer by signer {
+                    override suspend fun sign(request: SigningRequest): Signature {
+                        calls.add("sign")
+                        return signer.sign(request)
+                    }
+                }
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val handler =
+                object : PreAuthenticate {
+                    override suspend fun run() {
+                        calls.add("preAuthenticate")
+                        entered.complete(Unit)
+                        release.await()
+                    }
+                }
             val options =
                 createClientOptions().copy(
+                    registration = RegistrationOptions(auto = false),
+                    handlers = ClientHandlers(handler),
+                )
+            val created = client(recordingSigner, options)
+            assertEquals(emptyList<String>(), calls)
+            val registration = async { created.register() }
+            try {
+                withTimeout(5_000) { entered.await() }
+                delay(100)
+                assertFalse(registration.isCompleted)
+                assertEquals(listOf("preAuthenticate"), calls)
+            } finally {
+                release.complete(Unit)
+            }
+            registration.await()
+            assertEquals(listOf("preAuthenticate", "sign"), calls)
+            calls.clear()
+            created.register()
+            assertEquals(emptyList<String>(), calls)
+            created.end()
+
+            val refused =
+                options.copy(
+                    storage = StorageOptions(StorageLocation.InMemory),
+                    registration = RegistrationOptions(auto = true),
                     handlers =
                         ClientHandlers(
                             object : PreAuthenticate {
                                 override suspend fun run() {
-                                    called.complete(Unit)
+                                    calls.add("preAuthenticate")
+                                    throw PreAuthenticateException.Failed()
                                 }
                             },
                         ),
                 )
-            client(createWallet(), options)
-            withTimeout(5_000) { called.await() }
+            val failure = runCatching { client(recordingSigner, refused) }.exceptionOrNull()
+            assertTrue(failure is XmtpException.CallbackFailed)
+            val details = (failure as XmtpException.CallbackFailed).v1
+            assertEquals("CallbackFailed", details.code)
+            assertEquals(ErrorCategory.CALLBACK, details.category)
+            assertFalse(details.retryable)
+            assertEquals(listOf("preAuthenticate"), calls)
         }
 
+    // verifies: STORE-009, STORE-010
     @Test fun testCanDropReconnectDatabase() =
         runBlocking {
             val signer = createWallet()
             val options = createClientOptions()
             val original = client(signer, options)
             val group = original.conversations.createGroup(emptyList<InboxId>())
-            group.sendText("stored")
+            val sentId = group.sendText("stored")
             original.end()
             assertTrue(
                 runCatching {
@@ -179,7 +233,12 @@ class ClientTest : BaseInstrumentedTest() {
                 }.exceptionOrNull() is XmtpException.ClientClosed,
             )
             val reopened = trackClient(SDKClient.build(context, signer.identity(), options))
+            val path = reopened.storage().path()
+            val inbox = reopened.inboxId()
             reopened.storage().reconnect()
+            assertEquals(path, reopened.storage().path())
+            assertEquals(inbox, reopened.inboxId())
+            assertEquals(sentId, reopened.conversations.getMessageById(sentId)?.id)
             assertEquals(
                 group.id(),
                 reopened
@@ -188,6 +247,62 @@ class ClientTest : BaseInstrumentedTest() {
                     .single()
                     .id(),
             )
+        }
+
+    // verifies: STORE-007, STORE-009, STORE-011
+    @Test fun testNewBuildAndInMemoryDeletionAreTypedFailures() =
+        runBlocking {
+            val signer = createWallet()
+            val options = createClientOptions()
+            val failure = runCatching { SDKClient.build(context, signer.identity(), options) }.exceptionOrNull()
+            assertTrue(failure is XmtpException.IdentityNotFound)
+            val memory = client(signer, options.copy(storage = StorageOptions(StorageLocation.InMemory)))
+            assertNull(memory.storage().path())
+            val deletion = runCatching { memory.storage().delete() }.exceptionOrNull()
+            assertTrue(deletion is XmtpException.InvalidInput)
+            assertEquals("InvalidInput", (deletion as XmtpException.InvalidInput).v1.code)
+            assertTrue(memory.isRegistered())
+        }
+
+    // verifies: FORK-070
+    @Test fun testForkRecoveryOptionsCrossNativeBoundary() =
+        runBlocking {
+            val invalid =
+                createClientOptions().copy(
+                    storage = StorageOptions(StorageLocation.InMemory),
+                    registration = RegistrationOptions(auto = false),
+                    forkRecovery =
+                        ForkRecoveryOptions(
+                            policy = ForkRecoveryPolicy.ALLOWLISTED_GROUPS,
+                            groups = listOf("invalid"),
+                            disableResponses = false,
+                        ),
+                )
+            val failure = runCatching { client(createWallet(), invalid) }.exceptionOrNull()
+            assertTrue(failure is XmtpException.InvalidArgument)
+
+            for (policy in listOf(
+                ForkRecoveryPolicy.NONE,
+                ForkRecoveryPolicy.ALLOWLISTED_GROUPS,
+                ForkRecoveryPolicy.ALL,
+            )) {
+                for (disabled in listOf(false, true)) {
+                    val recovery =
+                        ForkRecoveryOptions(
+                            policy = policy,
+                            groups = listOf("13".repeat(16)),
+                            disableResponses = disabled,
+                        )
+                    val options =
+                        createClientOptions().copy(
+                            registration = RegistrationOptions(auto = false),
+                            forkRecovery = recovery,
+                        )
+                    val created = client(createWallet(), options)
+                    assertEquals(recovery, created.options().forkRecovery)
+                    created.end()
+                }
+            }
         }
 
     @Test fun testsSignatures() =
