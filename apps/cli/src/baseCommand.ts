@@ -291,12 +291,22 @@ export class BaseCommand extends Command {
   }
 }
 
+// oclif styles its own messages, such as parse errors, with SGR sequences.
+// oxlint-disable-next-line no-control-regex
+const SGR_SEQUENCE = /\u001b\[[0-9;]*m/g;
+
 /**
  * An error message with its control characters escaped, line by line. An
  * error can echo user input, such as a handle or an identifier argument.
+ * SGR styling (ESC [ ... m) is removed first, so oclif's styled messages stay
+ * readable; every other control character is shown as a visible escape.
  */
 export function terminalSafeMessage(message: string): string {
-  return message.split("\n").map(escapeControlCharacters).join("\n");
+  return message
+    .replace(SGR_SEQUENCE, "")
+    .split("\n")
+    .map(escapeControlCharacters)
+    .join("\n");
 }
 
 const UNSUPPORTED_DATABASE_CODES = [

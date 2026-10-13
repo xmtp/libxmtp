@@ -1,9 +1,10 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 
-import { Errors } from "@oclif/core";
+import { Config, Errors } from "@oclif/core";
 import { describe, expect, it } from "vitest";
 
 import { formatStorageErrorMessage, terminalSafeMessage } from "@/baseCommand";
+import ConversationSync from "@/commands/conversation/sync";
 
 import { createTestIdentity, runCommand } from "./helpers.js";
 
@@ -97,5 +98,30 @@ describe("error output", () => {
         "\u061c\u200b\u200e\u202e\u2060\u2066\u2069\ufeff failed",
       ),
     ).toBe("\\u061c\\u200b\\u200e\\u202e\\u2060\\u2066\\u2069\\ufeff failed");
+  });
+
+  it("escapes a plain error that reaches the command error handler", async () => {
+    const command = new ConversationSync(
+      ["id"],
+      await Config.load({ root: process.cwd() }),
+    );
+    let thrown: Error | undefined;
+    try {
+      command.catch(new Error("bad id abc\u001b]0;evil\u0007\u202Edef"));
+    } catch (error) {
+      thrown = error as Error;
+    }
+    expect(thrown?.message).toBe("bad id abc\\u001b]0;evil\\u0007\\u202edef");
+  });
+
+  it("keeps oclif's styled parse errors readable", async () => {
+    const result = await runCommand(["client", "inbox-id"], {
+      env: { FORCE_COLOR: "1" },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("Missing required flag identifier");
+    expect(result.stderr).not.toContain("\\u001b");
+    expect(result.stderr).not.toContain("\u001b");
   });
 });
