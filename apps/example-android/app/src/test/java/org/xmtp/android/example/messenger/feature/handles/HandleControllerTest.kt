@@ -36,7 +36,10 @@ class HandleControllerTest {
         var ownedFailure: (() -> Throwable)? = null
         var readFailure: (() -> Throwable)? = null
 
+        val reads = mutableListOf<Boolean>()
+
         override suspend fun handles(refresh: Boolean): OwnHandles {
+            reads += refresh
             readFailure?.let { throw it() }
             return OwnHandles(current, others)
         }
@@ -539,6 +542,43 @@ class HandleControllerTest {
         third.dispatch(HandleAction.SwitchBack("nick#0912"))
         third.dispatch(HandleAction.ConfirmClaim)
         assertEquals(HandleNotice.TooSoon(null, null), third.value.notice)
+    }
+
+    @Test fun tooSoonFirstClaimReadsTheInboxAgain() {
+        // This device sees no handle, but another device claimed one: the first claim is too soon.
+        val account =
+            FakeAccount().apply {
+                available = { listOf(it) }
+                claim = {
+                    current = "nick#0412"
+                    throw tooSoon()
+                }
+            }
+        val editor = open(account)
+        editor.type("nick")
+        editor.dispatch(HandleAction.Check)
+        editor.dispatch(HandleAction.Claim)
+        assertEquals(listOf(false, true, true), account.reads)
+        assertEquals("nick#0412", editor.value.current)
+        assertEquals(HandleNotice.TooSoon(null, null), editor.value.notice)
+        // The inbox has a handle, so onboarding ends with no other claim.
+        assertEquals(1, account.finished)
+        assertEquals(listOf("nick"), account.claims)
+        // The network read still shows no handle: the editor stays blocked and says why.
+        val stale =
+            FakeAccount().apply {
+                available = { listOf(it) }
+                claim = { throw limit() }
+            }
+        val other = open(stale)
+        other.type("nick")
+        other.dispatch(HandleAction.Check)
+        other.dispatch(HandleAction.Claim)
+        assertEquals(listOf(false, true, true), stale.reads)
+        assertNull(other.value.current)
+        assertEquals(HandleNotice.LimitReached, other.value.notice)
+        assertFalse(other.value.editable)
+        assertEquals(0, stale.finished)
     }
 
     @Test fun claimLimitReachedBlocksEveryChange() {
