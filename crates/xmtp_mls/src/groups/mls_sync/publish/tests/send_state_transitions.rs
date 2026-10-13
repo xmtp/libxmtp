@@ -1,9 +1,10 @@
 //! Durable send state across same-key retries, backend refusals, and
 //! ambiguous publish failures.
 
-use super::faults::refusing_group;
+use super::faults::{FaultyApi, faulty_group, group_message, refusing_group};
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
+use std::sync::atomic::Ordering;
 use xmtp_db::group_message::DeliveryStatus;
 
 fn intents_in<C: XmtpSharedContext>(
@@ -249,4 +250,27 @@ async fn send_state_transitions_ambiguous_failure_keeps_the_attempt_pending(
     assert!(saved.receipts.is_none());
     assert_eq!(status(&group, &message_id), DeliveryStatus::Unpublished);
     Ok(())
+}
+
+/// A send queued behind a state change must wait through that change's
+/// receipt. `QueryNewest` can trail the receipt (OPS-009), so a head sampled
+/// from it can sit below the change and leave its echo unprocessed in every
+/// round until the retry budget ends. A member's first send in a group it
+/// joined queues a key update ahead of the message, so this is that send.
+// verifies: SEND-010, PROC-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_state_transitions_send_behind_a_state_change_waits_for_its_receipt() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let api = FaultyApi::new(&alix, group_message, []);
+    api.lag_newest.store(true, Ordering::SeqCst);
+    let lagged = faulty_group(&alix, &group.group_id, api).await;
+    QueueIntent::key_update().queue(&lagged)?;
+
+    let message_id = lagged
+        .send_message(b"behind a key update", Default::default())
+        .await?;
+    assert!(intents_in(&lagged, &UNRESOLVED, IntentKind::KeyUpdate).is_empty());
+    assert!(intents_in(&lagged, &UNRESOLVED, IntentKind::SendMessage).is_empty());
+    assert_eq!(status(&lagged, &message_id), DeliveryStatus::Published);
 }

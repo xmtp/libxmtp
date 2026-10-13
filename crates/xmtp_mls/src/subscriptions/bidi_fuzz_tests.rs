@@ -59,6 +59,24 @@ async fn publish_message<C: XmtpSharedContext>(group: &MlsGroup<C>, payload: &[u
         .unwrap_or_else(|error| panic!("fuzz publish failed (seed={seed}): {error:?}"));
 }
 
+/// Join every group from its welcome. One `sync_welcomes` can miss a welcome
+/// sent just before it, because its target comes from a read that can lag the
+/// primary (see `wait_for_welcomes`). Poll until all of the groups arrive.
+async fn joined_groups(
+    producer: &crate::utils::ClientTester,
+    group_ids: &[xmtp_proto::types::GroupId],
+) -> Vec<crate::utils::TestMlsGroup> {
+    xmtp_common::wait_for_some(|| async {
+        producer
+            .sync_welcomes()
+            .await
+            .expect("producer welcome sync failed");
+        group_ids.iter().map(|id| producer.group(id).ok()).collect()
+    })
+    .await
+    .expect("producer never received every group welcome")
+}
+
 fn gm_parts(message: &ServerEnvelope) -> Option<(Topic, u64)> {
     let meta = message.meta.as_ref()?;
     Some((
@@ -285,19 +303,12 @@ async fn fuzz_server_honors_update_acknowledgements_and_targets() {
     // serially here, so the racing bursts later contend only as app
     // messages at a stable epoch. Join-time epoch churn is MLS-layer
     // behavior with its own tests; this fuzz targets wire delivery.
+    let group_ids: Vec<_> = groups.iter().map(|(group, _)| group.group_id).collect();
     let mut producer_groups = Vec::new();
     for producer in &producers {
-        producer
-            .sync_welcomes()
-            .await
-            .expect("producer welcome sync failed");
-        let mut handles = Vec::new();
-        for (group, _) in &groups {
-            let handle = producer
-                .group(&group.group_id)
-                .expect("producer missing a group it was added to");
-            publish_message(&handle, b"settle", seed).await;
-            handles.push(handle);
+        let handles = joined_groups(producer, &group_ids).await;
+        for handle in &handles {
+            publish_message(handle, b"settle", seed).await;
         }
         producer_groups.push(handles);
     }
@@ -697,19 +708,12 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
     // As in the server-contract fuzz: settle each producer's one-time
     // post-join KeyUpdate commit serially, so racing bursts hit a stable
     // epoch.
+    let group_ids: Vec<_> = groups.iter().map(|(group, _)| group.group_id).collect();
     let mut producer_groups = Vec::new();
     for producer in &producers {
-        producer
-            .sync_welcomes()
-            .await
-            .expect("producer welcome sync failed");
-        let mut handles = Vec::new();
-        for (group, _) in &groups {
-            let handle = producer
-                .group(&group.group_id)
-                .expect("producer missing a group it was added to");
-            publish_message(&handle, b"settle", seed).await;
-            handles.push(handle);
+        let handles = joined_groups(producer, &group_ids).await;
+        for handle in &handles {
+            publish_message(handle, b"settle", seed).await;
         }
         producer_groups.push(handles);
     }
