@@ -1,9 +1,10 @@
 import { Errors, Flags } from "@oclif/core";
-import type { PublicIdentity } from "@xmtp/node-sdk";
+import { type Client, type PublicIdentity, XmtpError } from "@xmtp/node-sdk";
 
 import { identifierKindMap } from "@/utils/enums";
 import {
   asciiLowercase,
+  handleNotFoundMessage,
   invalidHandleMessage,
   isValidHandle,
 } from "@/utils/handles";
@@ -38,6 +39,64 @@ export function publicIdentity(
     kind: identifierKindMap[kind],
     identifier: kind === "handle" ? identifier : identifier.toLowerCase(),
   };
+}
+
+/**
+ * The handles among `identities` that no inbox holds, in canonical text and
+ * without repeats. Each lookup uses the verified handle resolver, as the
+ * SDK's identity calls do. A lookup that fails counts as found, so the
+ * result names only handles that the resolver says no inbox holds.
+ */
+export async function unresolvedHandles(
+  client: Pick<Client, "inboxIdFor">,
+  identities: readonly PublicIdentity[],
+): Promise<string[]> {
+  const handles = [
+    ...new Set(
+      identities
+        .filter((identity) => identity.kind === "handle")
+        .map((identity) => asciiLowercase(identity.identifier)),
+    ),
+  ];
+  const missing = await Promise.all(
+    handles.map(async (handle) => {
+      try {
+        const inboxId = await client.inboxIdFor({
+          kind: "handle",
+          identifier: handle,
+        });
+        return inboxId === undefined;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return handles.filter((_, index) => missing[index]);
+}
+
+/**
+ * Run an SDK call that resolves `identities`. When the call fails with
+ * `IdentityNotFound` and a handle among them has no inbox, fail with a plain
+ * message that names each such handle. The SDK error does not name the
+ * handle, so this looks each handle up again. Every other error passes
+ * through.
+ */
+export async function reportUnresolvedHandles<T>(
+  client: Pick<Client, "inboxIdFor">,
+  identities: readonly PublicIdentity[],
+  call: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof XmtpError.IdentityNotFound) {
+      const missing = await unresolvedHandles(client, identities);
+      if (missing.length > 0) {
+        throw new Errors.CLIError(handleNotFoundMessage(missing));
+      }
+    }
+    throw error;
+  }
 }
 
 /** The key of an identity in a `canMessage` result. */

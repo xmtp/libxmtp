@@ -3,7 +3,11 @@ import type { GroupPermissionMode } from "@xmtp/node-sdk";
 import { type CreateGroupOptions } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
-import { identifierKindFlag, publicIdentity } from "@/utils/identity";
+import {
+  identifierKindFlag,
+  publicIdentity,
+  reportUnresolvedHandles,
+} from "@/utils/identity";
 import { memberDetails } from "@/utils/members";
 
 export default class ConversationsCreateGroup extends BaseCommand {
@@ -111,9 +115,8 @@ Returns the new group's ID and details.`;
       permissions: permissionsMap[flags.permissions],
     };
 
-    const group = await client.conversations.createGroup(
-      identifierObjects,
-      options,
+    const group = await reportUnresolvedHandles(client, identifierObjects, () =>
+      client.conversations.createGroup(identifierObjects, options),
     );
 
     const members = await group.members();

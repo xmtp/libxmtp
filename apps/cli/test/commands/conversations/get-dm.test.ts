@@ -4,6 +4,7 @@ import {
   createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
+  randomHandleName,
   runWithIdentity,
 } from "../../helpers.js";
 
@@ -135,5 +136,24 @@ describe("conversations get-dm", () => {
     const dm = parseJsonOutput<DmResult>(getResult.stdout);
     expect(dm.id).toBe(created.id);
     expect(dm.peerInboxId).toBe(recipient.inboxId);
+  });
+
+  it("names a handle that no inbox holds", async () => {
+    const sender = await createRegisteredIdentity();
+    const handle = randomHandleName();
+
+    const result = await runWithIdentity(sender, [
+      "conversations",
+      "get-dm",
+      handle,
+      "--identifier-kind",
+      "handle",
+    ]);
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.split("\n")).toContain(
+      `No inbox has the handle ${handle}.`,
+    );
+    expect(result.stderr).not.toContain("USAGE");
   });
 });

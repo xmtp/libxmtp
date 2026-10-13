@@ -2,7 +2,12 @@ import { Args, Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
 import { conversationState } from "@/utils/conversation";
-import { IDENTIFIER_KINDS, publicIdentity } from "@/utils/identity";
+import { handleNotFoundMessage } from "@/utils/handles";
+import {
+  IDENTIFIER_KINDS,
+  publicIdentity,
+  unresolvedHandles,
+} from "@/utils/identity";
 import { memberDetails } from "@/utils/members";
 
 export default class ConversationsGetDm extends BaseCommand {
@@ -61,13 +66,21 @@ such as nick#2341. An old handle of an inbox also finds it.`;
       flags["identifier-kind"] ??
       (args.addressOrInboxId.startsWith("0x") ? "ethereum" : undefined);
 
-    const dm = kind
-      ? await client.conversations.getDmByIdentity(
-          publicIdentity(args.addressOrInboxId, kind),
-        )
+    const identity = kind
+      ? publicIdentity(args.addressOrInboxId, kind)
+      : undefined;
+    const dm = identity
+      ? await client.conversations.getDmByIdentity(identity)
       : await client.conversations.getDmByInboxId(args.addressOrInboxId);
 
     if (!dm) {
+      // A handle that no inbox holds finds no DM, with no error. Say so.
+      const missing = identity
+        ? await unresolvedHandles(client, [identity])
+        : [];
+      if (missing.length > 0) {
+        this.error(handleNotFoundMessage(missing));
+      }
       this.error(`DM not found for: ${args.addressOrInboxId}`);
     }
 

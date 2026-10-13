@@ -2,7 +2,11 @@ import { Args } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
 import { requireGroup } from "@/utils/conversation";
-import { identifierKindFlag, publicIdentity } from "@/utils/identity";
+import {
+  identifierKindFlag,
+  publicIdentity,
+  reportUnresolvedHandles,
+} from "@/utils/identity";
 
 export default class ConversationRemoveMembers extends BaseCommand {
   static description = `Remove members from a group conversation.
@@ -75,7 +79,9 @@ Requires appropriate permissions to remove members (based on group settings).`;
     );
 
     const group = requireGroup(conversation);
-    await group.removeMembers(identifiers);
+    await reportUnresolvedHandles(client, identifiers, () =>
+      group.removeMembers(identifiers),
+    );
 
     this.output({
       success: true,

@@ -2,7 +2,11 @@ import { Args } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
 import { requireGroup } from "@/utils/conversation";
-import { identifierKindFlag, publicIdentity } from "@/utils/identity";
+import {
+  identifierKindFlag,
+  publicIdentity,
+  reportUnresolvedHandles,
+} from "@/utils/identity";
 
 export default class ConversationAddMembers extends BaseCommand {
   static description = `Add members to a group conversation.
@@ -74,7 +78,9 @@ Requires appropriate permissions to add members (based on group settings).`;
     );
 
     const group = requireGroup(conversation);
-    await group.addMembers(identifiers);
+    await reportUnresolvedHandles(client, identifiers, () =>
+      group.addMembers(identifiers),
+    );
 
     this.output({
       success: true,

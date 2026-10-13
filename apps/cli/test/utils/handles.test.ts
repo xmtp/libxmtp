@@ -1,4 +1,8 @@
-import { type ErrorDetails, XmtpError } from "@xmtp/node-sdk";
+import {
+  type ErrorDetails,
+  type PublicIdentity,
+  XmtpError,
+} from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,7 +12,11 @@ import {
   invalidHandleMessage,
   isValidHandle,
 } from "../../src/utils/handles.js";
-import { canMessageKey, publicIdentity } from "../../src/utils/identity.js";
+import {
+  canMessageKey,
+  publicIdentity,
+  reportUnresolvedHandles,
+} from "../../src/utils/identity.js";
 
 function details(code: string): ErrorDetails {
   return { code, category: "identity", retryable: false, message: code };
@@ -79,6 +87,71 @@ describe("claimFailureMessage", () => {
     expect(
       claimFailureMessage(new Error("network down"), "nick", []),
     ).toBeUndefined();
+  });
+});
+
+describe("reportUnresolvedHandles", () => {
+  const notFound = () =>
+    new XmtpError.IdentityNotFound(details("IdentityNotFound"));
+  // a client whose lookups find an inbox only for the handles in `held`
+  const client = (held: string[], lookups: string[] = []) => ({
+    inboxIdFor: async ({ identifier }: PublicIdentity) => {
+      lookups.push(identifier);
+      return held.includes(identifier) ? "inbox" : undefined;
+    },
+  });
+
+  it("names each handle that no inbox holds, once, in canonical text", async () => {
+    const lookups: string[] = [];
+    const identities = [
+      publicIdentity("Gone#0001", "handle"),
+      publicIdentity("nick", "handle"),
+      publicIdentity("gone#0001", "handle"),
+      publicIdentity("0xABC", "ethereum"),
+    ];
+
+    await expect(
+      reportUnresolvedHandles(client(["nick"], lookups), identities, () =>
+        Promise.reject(notFound()),
+      ),
+    ).rejects.toThrow(/^No inbox has the handle gone#0001\.$/);
+    expect(lookups.sort()).toEqual(["gone#0001", "nick"]);
+  });
+
+  it("passes the error through when every handle has an inbox", async () => {
+    const error = notFound();
+    await expect(
+      reportUnresolvedHandles(
+        client(["nick"]),
+        [publicIdentity("nick", "handle")],
+        () => Promise.reject(error),
+      ),
+    ).rejects.toBe(error);
+  });
+
+  it("passes the error through when a lookup fails", async () => {
+    const error = notFound();
+    const failing = {
+      inboxIdFor: () => Promise.reject(new Error("network down")),
+    };
+    await expect(
+      reportUnresolvedHandles(failing, [publicIdentity("nick", "handle")], () =>
+        Promise.reject(error),
+      ),
+    ).rejects.toBe(error);
+  });
+
+  it("looks nothing up for any other error", async () => {
+    const lookups: string[] = [];
+    const error = new XmtpError.InvalidArgument(details("InvalidArgument"));
+    await expect(
+      reportUnresolvedHandles(
+        client([], lookups),
+        [publicIdentity("nick", "handle")],
+        () => Promise.reject(error),
+      ),
+    ).rejects.toBe(error);
+    expect(lookups).toEqual([]);
   });
 });
 
