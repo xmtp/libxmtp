@@ -53,6 +53,10 @@ class AttachmentPickerRecreationInstrumentedTest {
         until {
             assertTrue("The picker session must still be current", model.session.accepts(owner.key))
             assertEquals(AppRoute.Chat(chatId), graphRule.graph.destinations.state.value.route)
+            val opening = model.chat.state.value
+            if (opening.conversationId == chatId && opening.failure?.code == "chat-open") {
+                assertNull("Chat open must succeed before a picker action", opening.failure)
+            }
             currentChatTargetReady(model, graphRule.graph, owner, chatId) && model.state.value.chatState?.let {
                 it.conversationId == chatId && it.failure == null && !it.busy &&
                     it.composer.enabled && !it.unknown && it.features.attachments
