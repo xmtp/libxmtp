@@ -354,3 +354,93 @@ async fn raw_subscription_rejects_missing_targets_and_messages_before_started() 
         assert!(raw.next().await.is_none());
     }
 }
+
+fn envelope(sequence: u64) -> wire::ServerEnvelope {
+    match messages(sequence).response {
+        Some(wire::subscribe_static_response::Response::Messages(mut frame)) => {
+            frame.envelopes.remove(0)
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// One frame of welcome envelopes on the test topic, one per sequence.
+fn frame(sequences: impl IntoIterator<Item = u64>) -> wire::SubscribeStaticResponse {
+    wire::SubscribeStaticResponse {
+        response: Some(wire::subscribe_static_response::Response::Messages(
+            wire::subscribe_static_response::Messages {
+                envelopes: sequences.into_iter().map(envelope).collect(),
+            },
+        )),
+    }
+}
+
+fn raw_frame(
+    frame: wire::SubscribeStaticResponse,
+    limits: IncomingBatchLimits,
+) -> BoxDynStream<'static, Result<IncomingEvent, ApiClientError>> {
+    normalize_static_stream(
+        Box::pin(stream::iter([started(0), frame].into_iter().map(Ok))),
+        [(
+            Topic::new_welcome_message(INSTALLATION_ID.into()),
+            Cursor(0),
+        )]
+        .into(),
+        limits,
+    )
+}
+
+/// The backend bounds a frame by bytes, not rows. A frame above the receive
+/// limits splits into bounded batches that chain their cursors.
+// verifies: PROC-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_subscription_splits_a_frame_above_the_receive_limits() {
+    let size = envelope(1).encoded_len();
+    for limits in [
+        IncomingBatchLimits {
+            max_rows: 2,
+            max_bytes: usize::MAX,
+        },
+        IncomingBatchLimits {
+            max_rows: usize::MAX,
+            max_bytes: 2 * size,
+        },
+    ] {
+        let mut raw = raw_frame(frame(1..=5), limits);
+        assert!(matches!(
+            raw.next().await??,
+            IncomingEvent::Registered { .. }
+        ));
+        let mut batches = Vec::new();
+        while let IncomingEvent::OrderedBatch(batch) = raw.next().await?? {
+            batches.push((batch.after, batch.envelopes.len()));
+        }
+        assert_eq!(batches, [(Cursor(0), 2), (Cursor(2), 2), (Cursor(4), 1)]);
+        assert!(raw.next().await.is_none());
+    }
+}
+
+/// Splitting never skips an envelope that cannot fit one delivery alone.
+// verifies: PROC-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_subscription_fails_when_one_envelope_cannot_fit() {
+    let size = envelope(1).encoded_len();
+    for limits in [
+        IncomingBatchLimits {
+            max_rows: 0,
+            max_bytes: usize::MAX,
+        },
+        IncomingBatchLimits {
+            max_rows: usize::MAX,
+            max_bytes: size - 1,
+        },
+    ] {
+        let mut raw = raw_frame(frame(1..=2), limits);
+        assert!(matches!(
+            raw.next().await??,
+            IncomingEvent::Registered { .. }
+        ));
+        assert!(!raw.next().await?.unwrap_err().is_retryable());
+        assert!(raw.next().await.is_none());
+    }
+}
