@@ -206,4 +206,28 @@ describe("HandleEditor", () => {
     fireEvent.click(button("Change"));
     await waitFor(() => expect(claim).toHaveBeenCalledWith("nicky"));
   });
+
+  it("refuses the current handle as the user types it", () => {
+    renderEditor({ currentHandle: "nick#2341" });
+    type("nick#2341");
+    expect(screen.getByText("This is your current handle.")).toBeTruthy();
+    expect(button("Continue")).toHaveProperty("disabled", true);
+    expect(mocks.availableHandles).not.toHaveBeenCalled();
+  });
+
+  it("treats a typed other handle as a switch back, with no lookup", async () => {
+    const { claim } = renderEditor({
+      currentHandle: "nick#2341",
+      otherHandles: ["nick#0912", "nickm"],
+    });
+    type("nickm");
+    fireEvent.click(button("Continue"));
+    await screen.findByText(
+      "nickm is one of your handles. Switching back counts as a change.",
+    );
+    expect(mocks.availableHandles).not.toHaveBeenCalled();
+    fireEvent.click(button("Change to nickm"));
+    fireEvent.click(button("Change"));
+    await waitFor(() => expect(claim).toHaveBeenCalledWith("nickm"));
+  });
 });
