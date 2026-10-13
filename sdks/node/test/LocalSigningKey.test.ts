@@ -11,6 +11,7 @@ const fixed =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
 
 describe("LocalSigningKey", () => {
+  // verifies: IDENT-088, IDENT-089
   it("restores a known account and keeps exported bytes independent", async () => {
     const key = await LocalSigningKey.fromHex(fixed);
     expect(await key.identity()).toEqual({

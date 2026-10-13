@@ -3,6 +3,7 @@ use alloy::signers::SignerSync;
 
 const KEY: &str = "0x0000000000000000000000000000000000000000000000000000000000000001";
 
+// verifies: IDENT-088, IDENT-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_key_restores_identity_and_personal_message_signatures() {
     let key = LocalSigningKey::from_hex(KEY.to_owned()).await?;
@@ -30,6 +31,7 @@ async fn local_key_restores_identity_and_personal_message_signatures() {
     }
 }
 
+// verifies: IDENT-089
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_key_rejects_invalid_scalars_and_encodings_without_echoing_them() {
     for bytes in [

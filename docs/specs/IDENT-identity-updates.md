@@ -20,7 +20,7 @@ flowchart TD
 
 ## Scope
 
-In scope: the identity update wire format and its actions, the association state and how each action changes it, the signature text and the signature kinds, which kind may sign for which member, inbox id derivation, replay protection, recovery authorization, smart contract wallet verification and chain binding, what an installation's registration and revocation mean, how an identifier resolves to an inbox, and handles: the claim action, the handle grammar, how a claim changes the association state, and how a client checks a handle lookup answer and reports an inbox's handles.
+In scope: the identity update wire format and its actions, the association state and how each action changes it, the signature text and the signature kinds, which kind may sign for which member, inbox id derivation, replay protection, recovery authorization, smart contract wallet verification and chain binding, what an installation's registration and revocation mean, how an identifier resolves to an inbox, local Ethereum signing-key export and restoration, and handles: the claim action, the handle grammar, how a claim changes the association state, and how a client checks a handle lookup answer and reports an inbox's handles.
 
 Out of scope: how an identity update is published, stored, ordered, and read back as an envelope, the snapshot the backend validates against and what it does when that snapshot moves (API-232), duplicate publishes (API-222), the lookup RPC and its answer (API-270), the verifier RPC, the checks of a claim that only the backend applies, and the error codes (`API`); the identity topic layout (TOPIC-001); the published limits and chains, and the minimum name length of a handle (`CONF`); what a key package carries (`JOIN`); how a group's membership follows a change of an inbox's installations (GMOD-029); and the event that reports a change of display handle (`EVENT`).
 
@@ -419,6 +419,15 @@ An inbox's handles are part of its association state, so a client reads them fro
 | IDENT-085 | A handle answer is checked | When a `GetInboxIds` answer names an inbox for a handle, a client MUST NOT return that inbox to the app, or act on it as the inbox of that handle, unless the handles of an association state that the client derived for that inbox under IDENT-071 contain the entry's `identifier` with its ASCII uppercase letters converted to lowercase, as API-299 converts it. | A backend could otherwise send a user's messages to an inbox that never claimed the handle the user entered. |
 | IDENT-086 | The current handle first | When an SDK returns the handles of an inbox to an app, it MUST return the display handle of the association state with the highest sequence id that the client holds for that inbox as the inbox's current handle, and the other handles of that state in the reverse of their order in its handles. | An app that receives an older handle as the current one names the inbox by a handle its owner has replaced. |
 | IDENT-087 | Apps show the current handle | When an app shows an inbox that has a display handle, the app SHOULD show that handle as the text that identifies the inbox, and SHOULD show the inbox's other handles only as secondary information. | |
+
+## 12. Local signing-key persistence
+
+An app can store a local Ethereum signing key outside the client database and restore it after a restart or through another SDK. The export carries the private scalar, not an installation key or a database encryption key. Changing that scalar changes the account that can authorize identity updates.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| IDENT-088 | Stable local key export | When an app exports a local Ethereum signing key, an SDK MUST return its private scalar as exactly 32 bytes in big-endian order, or as `0x` followed by the 64 lowercase hexadecimal digits of those same bytes, according to the form the app requests. | An app that stores a different encoding cannot restore its account through another SDK or version. |
+| IDENT-089 | Restore the same account | When an app imports a valid local Ethereum private scalar as exactly 32 big-endian bytes or as `0x` followed by 64 hexadecimal digits, an SDK MUST accept either letter case for hexadecimal digits and return a signer for the same Ethereum identifier, including after a process restart or through another SDK. | Restoring a different identifier leaves the app unable to authorize updates for its original account. |
 
 ## Known limitations
 

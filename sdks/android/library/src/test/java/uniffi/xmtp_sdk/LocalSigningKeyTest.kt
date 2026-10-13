@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalSigningKeyTest {
+    // verifies: IDENT-088, IDENT-089
     @Test
     fun exportRestoreAndSignerConformance() =
         runBlocking {

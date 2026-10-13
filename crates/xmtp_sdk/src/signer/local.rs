@@ -58,6 +58,7 @@ impl LocalSigningKey {
 
 impl LocalSigningKey {
     // Parse below the exported boundary so each failed SDK call logs only once.
+    // implements: IDENT-089
     fn parse_bytes(key: &[u8]) -> Result<Arc<Self>, XmtpError> {
         if key.len() != PRIVATE_KEY_LENGTH {
             return Err(XmtpError::invalid("invalid local signer private key"));
@@ -67,10 +68,12 @@ impl LocalSigningKey {
         Ok(Arc::new(Self(signer)))
     }
 
+    // implements: IDENT-088
     fn private_key_bytes(&self) -> Vec<u8> {
         self.0.to_bytes().to_vec()
     }
 
+    // implements: IDENT-088
     fn private_key_hex(&self) -> String {
         format!("0x{}", hex::encode(self.0.to_bytes()))
     }

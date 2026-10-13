@@ -3,6 +3,7 @@ import XCTest
 import XmtpSdk
 
 final class LocalSigningKeyTests: XCTestCase {
+	// verifies: IDENT-088, IDENT-089
 	func testExportRestoreAndSignerConformance() async throws {
 		let key = await SDKClient.generateKeys()
 		let bytes = key.toBytes()

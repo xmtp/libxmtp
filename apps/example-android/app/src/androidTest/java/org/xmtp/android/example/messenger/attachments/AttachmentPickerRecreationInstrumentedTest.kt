@@ -50,19 +50,17 @@ class AttachmentPickerRecreationInstrumentedTest {
     ) {
         assertTrue("The picker session must still be current", model.session.accepts(owner.key))
         assertEquals(AppRoute.Chat(chatId), graphRule.graph.destinations.state.value.route)
-        assertEquals("Chat open must bind the picker target", chatId, model.chat.currentConversation()?.id())
-        assertNull("Chat open must succeed before a picker action", model.chat.state.value.failure)
-        assertFalse("Chat open must finish before a picker action", model.chat.state.value.busy)
         until {
             assertTrue("The picker session must still be current", model.session.accepts(owner.key))
             assertEquals(AppRoute.Chat(chatId), graphRule.graph.destinations.state.value.route)
-            assertEquals(chatId, model.chat.currentConversation()?.id())
-            assertNull("Chat open must succeed before a picker action", model.chat.state.value.failure)
             currentChatTargetReady(model, graphRule.graph, owner, chatId) && model.state.value.chatState?.let {
                 it.conversationId == chatId && it.failure == null && !it.busy &&
                     it.composer.enabled && !it.unknown && it.features.attachments
             } == true
         }
+        assertEquals("Chat open must bind the picker target", chatId, model.chat.currentConversation()?.id())
+        assertNull("Chat open must succeed before a picker action", model.chat.state.value.failure)
+        assertFalse("Chat open must finish before a picker action", model.chat.state.value.busy)
         compose.waitForIdle()
         compose.onNodeWithText("Picker recreation").assertIsDisplayed()
         compose.onNodeWithTag("message-composer").assertIsDisplayed()
@@ -240,6 +238,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                     compose.waitUntil(30_000) {
                         compose.onAllNodesWithTag("attachment-choice-sheet").fetchSemanticsNodes().isEmpty()
                     }
+                    awaitCurrentPickerTarget(owner, chat.id())
                     compose.onNodeWithContentDescription("Add attachment").performClick()
                     compose.waitUntil(30_000) {
                         graphRule.graph.attachments.choice.value
@@ -257,6 +256,7 @@ class AttachmentPickerRecreationInstrumentedTest {
                     complete(Uri.EMPTY)
                     outstanding = false
                     until { model.attachments.requests.launchedSelect() == null }
+                    awaitCurrentPickerTarget(owner, chat.id())
                     compose.waitForIdle()
                     compose.onNodeWithContentDescription("Add attachment").performClick()
                     compose.waitUntil(30_000) {
