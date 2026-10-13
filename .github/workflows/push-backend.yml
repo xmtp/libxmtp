@@ -4,7 +4,7 @@ on:
   # No tag trigger: the release App pushes tags (release.yml, push-release-tag.yml),
   # and a tag on any commit must not publish an image. Releases call this workflow.
   push:
-    branches: [main, self-hosted]
+    branches: [main]
   workflow_call:
     inputs:
       ref:
@@ -56,7 +56,7 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   deploy-dev:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted' && !inputs.ref && !inputs.dry-run
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.ref && !inputs.dry-run
     needs: manifest
     uses: ./.github/workflows/deploy-backend-dev.yml
     secrets: inherit
@@ -86,7 +86,7 @@ jobs:
     # writer environment, and the trusted token). Every other run, and the
     # amd64 leg (post-merge.yml warms its image), reads only.
     environment:
-      name: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'kache-s3-writer' || '' }}
+      name: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'kache-s3-writer' || '' }}
     timeout-minutes: 60
     env:
       NIX_DEVSHELL: rust
@@ -114,8 +114,8 @@ jobs:
       - uses: ./.github/actions/setup-nix
         if: steps.image.outputs.exists != 'true'
         with:
-          cache-mode: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'read' }}
-          cachix-auth-token: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && secrets.CACHIX_AUTH_TOKEN || '' }}
+          cache-mode: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'read' }}
+          cachix-auth-token: ${{ matrix.arch == 'arm64' && github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@0c0305935e3ef3b9e6205d176ec55ee4fce34cca # just (v2.87.28)
         if: steps.image.outputs.exists != 'true'
@@ -189,7 +189,7 @@ jobs:
           docker manifest push --purge "$BACKEND_IMAGE"
       - name: Check the current branch manifest
         id: branch
-        if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted' && !inputs.ref
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.ref
         env:
           BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ needs.source.outputs.sha }}
           BRANCH_IMAGE: ghcr.io/xmtp/backend:self-hosted
@@ -198,7 +198,7 @@ jobs:
         run: |
           current_sha="$(curl --fail --silent --show-error \
             --header "Authorization: Bearer $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/git/ref/heads/self-hosted" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/git/ref/heads/main" \
             | jq --raw-output '.object.sha')"
           if [ "$current_sha" != "$COMMIT_SHA" ]; then
             echo "current=false" >> "$GITHUB_OUTPUT"
@@ -225,7 +225,7 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Publish branch manifest
-        if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted' && !inputs.ref && steps.branch.outputs.current == 'true' && steps.branch.outputs.exists != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.ref && steps.branch.outputs.current == 'true' && steps.branch.outputs.exists != 'true'
         env:
           AMD64_IMAGE: ghcr.io/xmtp/backend:sha-${{ needs.source.outputs.sha }}-amd64
           ARM64_IMAGE: ghcr.io/xmtp/backend:sha-${{ needs.source.outputs.sha }}-arm64

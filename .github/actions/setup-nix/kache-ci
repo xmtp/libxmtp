@@ -28,12 +28,12 @@ policy() {
   protected_push=false
   if [[ "${GITHUB_ACTIONS:-}" == true && "${GITHUB_EVENT_NAME:-}" == push && "${GITHUB_REF_TYPE:-}" == branch && "${GITHUB_REF_PROTECTED:-}" == true ]]; then
     case "${GITHUB_REF:-}" in
-      refs/heads/main|refs/heads/self-hosted) protected_push=true ;;
+      refs/heads/main) protected_push=true ;;
     esac
   fi
 
   if [[ "$mode" == trusted && "$protected_push" != true ]]; then
-    fail 'cache-mode trusted runs only on a protected push to main or self-hosted'
+    fail 'cache-mode trusted runs only on a protected push to main'
   fi
   if [[ "$mode" != ci && "${XMTP_CACHIX_PR_TOKEN:-false}" == true ]]; then
     fail "cache-mode $mode must not receive the xmtp-pr token"

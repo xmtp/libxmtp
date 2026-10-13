@@ -754,7 +754,7 @@ def command_explain(paths):
         print(f"{path}: {verdict}")
 
 
-def command_replay(count=100, ref="origin/self-hosted"):
+def command_replay(count=100, ref="origin/main"):
     selector = load_selector()
     log = subprocess.run(
         [

@@ -28,7 +28,7 @@
 #   workflow          The suite's workflow file in .github/workflows.
 #   run_on            Events that can run the suite: draft_pr_push and
 #                     ready_pr_push (pull request pushes) and merge (pushes to
-#                     main or self-hosted). A merge runs every suite that lists
+#                     main). A merge runs every suite that lists
 #                     it. A manual run runs every suite.
 #   disable_on_forks  true skips the suite for fork pull requests.
 #   secrets           `inherit` (all secrets), `kache` (only the Kache keys),

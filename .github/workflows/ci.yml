@@ -3,7 +3,6 @@ name: CI
   push:
     branches:
     - main
-    - self-hosted
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch: null

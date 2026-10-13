@@ -63,7 +63,7 @@ on:
         description: "Release PR target branch (only applies to final releases)"
         required: false
         type: string
-        default: "self-hosted"
+        default: "main"
       dry-run:
         description: "Build npm packages and selected backend images; skip mobile jobs, publishing, and tags"
         required: false

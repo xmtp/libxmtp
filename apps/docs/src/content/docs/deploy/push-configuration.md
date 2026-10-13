@@ -67,11 +67,11 @@ reads the variable's contents, not a file path. These secrets do not appear in
 backend logs, error messages, or debug output.
 
 Use the operator procedures for
-[APNs credentials](https://github.com/xmtp/libxmtp/blob/self-hosted/docs/self-hosted/backend-operations.md#apns-credentials)
-and [FCM credentials](https://github.com/xmtp/libxmtp/blob/self-hosted/docs/self-hosted/backend-operations.md#fcm-credentials).
+[APNs credentials](https://github.com/xmtp/libxmtp/blob/main/docs/self-hosted/backend-operations.md#apns-credentials)
+and [FCM credentials](https://github.com/xmtp/libxmtp/blob/main/docs/self-hosted/backend-operations.md#fcm-credentials).
 Apple delivery through FCM also needs the APNs key configured in Firebase.
 
-The [backend JSON schema](https://github.com/xmtp/libxmtp/blob/self-hosted/docs/schemas/backend-v1.json)
+The [backend JSON schema](https://github.com/xmtp/libxmtp/blob/main/docs/schemas/backend-v1.json)
 describes every setting. Missing required provider fields, invalid values, or
 invalid allowlist entries fail startup and name the setting.
 
@@ -116,7 +116,7 @@ Watch `xmtp_push_deliveries_total` by `channel` and `outcome`, and
 `xmtp_push_dispatcher` for the active dispatcher. A `mismatch` can mean a wrong
 APNs environment, bundle ID, or Firebase project. Correct the configuration;
 mismatches keep registrations. See
-[provider failure operations](https://github.com/xmtp/libxmtp/blob/self-hosted/docs/self-hosted/backend-operations.md#delivery-failures).
+[provider failure operations](https://github.com/xmtp/libxmtp/blob/main/docs/self-hosted/backend-operations.md#delivery-failures).
 
 Removing a provider block stops new registrations for that channel. It does not
 delete existing registrations. Dead recipients and recipients that stop renewing

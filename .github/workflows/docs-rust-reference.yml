@@ -22,7 +22,7 @@ jobs:
     name: Rust reference and error glossary
     runs-on: blacksmith-16vcpu-ubuntu-2404
     environment:
-      name: ${{ (inputs.cache-mode || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci')) == 'trusted' && 'kache-s3-writer' || '' }}
+      name: ${{ (inputs.cache-mode || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'ci')) == 'trusted' && 'kache-s3-writer' || '' }}
     timeout-minutes: 45
     env:
       NIX_DEVSHELL: rust
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: ./.github/actions/setup-nix
         with:
-          cache-mode: ${{ inputs.cache-mode || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/self-hosted') && 'trusted' || 'ci') }}
+          cache-mode: ${{ inputs.cache-mode || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && github.ref == 'refs/heads/main' && 'trusted' || 'ci') }}
           github-token: ${{ github.token }}
           kache: "true"
           kache-s3-bucket: ${{ vars.KACHE_S3_BUCKET }}

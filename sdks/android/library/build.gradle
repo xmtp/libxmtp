@@ -165,7 +165,7 @@ afterEvaluate {
                     licenses {
                         license {
                             name = "MIT License"
-                            url = "https://github.com/xmtp/libxmtp/blob/self-hosted/sdks/android/LICENSE"
+                            url = "https://github.com/xmtp/libxmtp/blob/main/sdks/android/LICENSE"
                         }
                     }
                     developers {

@@ -92,7 +92,7 @@ class CachePolicyTests(unittest.TestCase):
 
     def test_trusted_mode_runs_only_on_protected_trunk_pushes(self):
         for event, kind, ref, protected, allowed in (
-            ("push", "branch", "refs/heads/self-hosted", "true", True),
+            ("push", "branch", "refs/heads/self-hosted", "true", False),
             ("push", "branch", "refs/heads/main", "true", True),
             ("push", "branch", "refs/heads/self-hosted", "false", False),
             ("push", "branch", "refs/heads/main", "", False),
@@ -643,7 +643,7 @@ def workflow(name):
     return document, triggers
 
 
-TRUNK = ("main", "self-hosted")
+TRUNK = ("main",)
 
 
 def entry_contexts(triggers):
@@ -804,7 +804,7 @@ def protected_trunk_push(github):
         github["event_name"] == "push"
         and github["ref_type"] == "branch"
         and github["ref_protected"]
-        and github["ref"] in ("refs/heads/main", "refs/heads/self-hosted")
+        and github["ref"] == "refs/heads/main"
     )
 
 

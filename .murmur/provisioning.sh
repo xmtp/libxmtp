@@ -207,7 +207,7 @@ warm_step() {
   return "$rc"
 }
 
-if git clone --depth 1 --branch self-hosted \
+if git clone --depth 1 --branch main \
      https://github.com/xmtp/libxmtp "$WARM_DIR" 2>&1; then
   chown -R murmur:murmur "$WARM_DIR"
 

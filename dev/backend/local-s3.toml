@@ -1,4 +1,4 @@
-#:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+#:schema https://raw.githubusercontent.com/xmtp/libxmtp/main/docs/schemas/backend-v1.json
 [server]
 # Names this deployment on every published configuration response, log, and
 # metric. A real deployment uses its own reverse-DNS name.

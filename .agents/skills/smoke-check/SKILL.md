@@ -15,7 +15,7 @@ Use the built-in browser when the user requests it.
 ## Setup
 
 Read the repository rules. Use the checkout the user selects. Create a worktree
-from `origin/self-hosted` only when the user requests one. Record which processes,
+from `origin/main` only when the user requests one. Record which processes,
 containers, and tabs this run starts so cleanup can stop the correct resources.
 
 Run these commands from the repository root:

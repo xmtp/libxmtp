@@ -4,12 +4,12 @@ name: Deploy xmtp.chat
 # contains the worker, WASM modules, and pinned runtimes from this source tree.
 
 on:
-  # Every merge to self-hosted deploys, with no paths filter. The app bundles
+  # Every merge to main deploys, with no paths filter. The app bundles
   # the SDK WASM modules, so a commit touching only crates/ still changes
   # what ships; keeping the trigger unfiltered means the deployed build always
   # matches the branch head.
   push:
-    branches: [self-hosted]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -41,7 +41,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/self-hosted" --jq .object.sha)"
+          head="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
           if [ "$head" = "$GITHUB_SHA" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else

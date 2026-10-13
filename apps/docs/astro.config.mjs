@@ -18,7 +18,7 @@ function guidePages(section, pages) {
 }
 
 export default defineConfig({
-  site: "https://self-hosted-docs.xmtp.to",
+  site: "https://xmtp.org",
   base: "/",
   trailingSlash: "always",
   markdown: {
@@ -52,7 +52,7 @@ export default defineConfig({
       favicon: "/x-mark-blue-lightmode.png",
       customCss: ["./src/styles/custom.css"],
       editLink: {
-        baseUrl: "https://github.com/xmtp/libxmtp/edit/self-hosted/apps/docs/",
+        baseUrl: "https://github.com/xmtp/libxmtp/edit/main/apps/docs/",
       },
       lastUpdated: true,
       expressiveCode: {
@@ -80,7 +80,7 @@ export default defineConfig({
           tag: "meta",
           attrs: {
             property: "og:image",
-            content: "https://self-hosted-docs.xmtp.to/xmtp-og-card.jpeg",
+            content: "https://xmtp.org/xmtp-og-card.jpeg",
           },
         },
         {

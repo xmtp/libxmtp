@@ -91,8 +91,8 @@ jobs:
             *) echo "::error title=Release tag::A $EVENT_NAME run cannot push a release tag"; exit 1 ;;
           esac
           case "$CALLER_REF" in
-            refs/heads/main|refs/heads/self-hosted|refs/heads/release/*) ;;
-            *) echo "::error title=Release tag::$CALLER_REF is not main, self-hosted, or a release/* branch"; exit 1 ;;
+            refs/heads/main|refs/heads/release/*) ;;
+            *) echo "::error title=Release tag::$CALLER_REF is not main or a release/* branch"; exit 1 ;;
           esac
           if [ "$REF_PROTECTED" != true ]; then
             echo "::error title=Release tag::$CALLER_REF is not protected"
@@ -104,12 +104,11 @@ jobs:
           git --git-dir="$RUNNER_TEMP/release-push.git" fetch --quiet --no-tags --filter=tree:0 \
             "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" \
             '+refs/heads/main:refs/remotes/origin/main' \
-            '+refs/heads/self-hosted:refs/remotes/origin/self-hosted' \
             '+refs/heads/release/*:refs/remotes/origin/release/*'
           branches=$(git --git-dir="$RUNNER_TEMP/release-push.git" for-each-ref --contains "$SOURCE_SHA" \
             --format='%(refname:lstrip=3)' refs/remotes/origin/)
           if [[ -z "$branches" ]]; then
-            echo "::error title=Release tag::$SOURCE_SHA is not on main, self-hosted, or a release/* branch"
+            echo "::error title=Release tag::$SOURCE_SHA is not on main or a release/* branch"
             exit 1
           fi
           echo "Release source is on: $(tr '\n' ' ' <<< "$branches")"

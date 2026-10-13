@@ -25,7 +25,7 @@ This video provides a walkthrough of XMTP's implementation of MLS.
   allowfullscreen
 ></iframe>
 
-To dive deeper into how XMTP implements MLS, see the [XMTP MLS source](https://github.com/xmtp/libxmtp/tree/self-hosted/crates/xmtp_mls).
+To dive deeper into how XMTP implements MLS, see the [XMTP MLS source](https://github.com/xmtp/libxmtp/tree/main/crates/xmtp_mls).
 
 ## Security properties
 

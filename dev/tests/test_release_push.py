@@ -262,7 +262,7 @@ class ReleasePushTest(unittest.TestCase):
             )
             for branch, allowed in (
                 ("main", True),
-                ("self-hosted", True),
+                ("self-hosted", False),
                 ("release/1.0", True),
                 ("feature", False),
                 ("release-notes", False),
@@ -474,6 +474,7 @@ class ReleasePushTest(unittest.TestCase):
         trunk = {"EVENT_NAME": "push", "CALLER_REF": "refs/heads/main"}
         for change, allowed in [
             ({}, True),
+            ({"CALLER_REF": "refs/heads/self-hosted"}, False),
             ({"EVENT_NAME": "schedule"}, True),
             (
                 {
@@ -561,7 +562,7 @@ class ReleasePushTest(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn("permissions: {}", text)
         # The App secrets live in the `release` environment, which admits only
-        # main, self-hosted, and release/*, so a pull request run cannot mint
+        # main and release/*, so a pull request run cannot mint
         # the token. Every job that reads them runs in that environment.
         readers = []
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):

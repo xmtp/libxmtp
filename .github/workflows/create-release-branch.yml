@@ -86,7 +86,7 @@ on:
         description: "Release PR target branch"
         required: false
         type: string
-        default: "self-hosted"
+        default: "main"
 
 jobs:
   create-branch:

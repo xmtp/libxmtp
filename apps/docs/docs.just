@@ -45,7 +45,7 @@ check:
     node scripts/check-site.mjs --built
 
 # The site owner checks a composed current or staged artifact before routing changes.
-check-cutover origin="https://self-hosted-docs.xmtp.to" site="_site":
+check-cutover origin="https://xmtp.org" site="_site":
     node scripts/check-cutover.mjs "{{ origin }}" "{{ site }}"
 
 # Check the documentation source without a site build (docs_quality CI).
@@ -60,7 +60,7 @@ check-external:
     lychee --no-progress --max-retries 2 --scheme https --scheme http \
         --root-dir '{{ root }}/apps/docs/_site' \
         --exclude '^https://docs\.xmtp\.org/.*' \
-        --exclude '^https://self-hosted-docs\.xmtp\.to/.*' \
+        --exclude '^https://xmtp\.org/.*' \
         --exclude '^https://github\.com/xmtp/libxmtp/edit/.*' \
         --exclude '^https://github\.com/xmtp/libxmtp/blob/[0-9a-f]{40}/.*' \
         --exclude '^http://collector:4317/?$' \

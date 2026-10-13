@@ -11,7 +11,7 @@ export const links = {
   agents: "/agents/quickstart/",
   security: "/protocol/security/",
   quantumResistance: "/protocol/security/#quantum-resistance",
-  github: "https://github.com/xmtp/libxmtp/tree/self-hosted",
+  github: "https://github.com/xmtp/libxmtp/tree/main",
   backend: "/get-started/run-the-backend/",
   groups: "/sdk/conversations/",
   llms: "/llms.txt",
