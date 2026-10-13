@@ -56,7 +56,11 @@ export const MemberCard = forwardRef<HTMLDivElement, MemberCardProps>(
             <Text size="sm" truncate>
               {handle ||
                 displayName ||
-                (shortenAddress ? shortAddress(address) : address)}
+                (address
+                  ? shortenAddress
+                    ? shortAddress(address)
+                    : address
+                  : shownInboxId)}
             </Text>
             <Text size="xs" truncate c="dimmed">
               {handle ? shownInboxId : description}

@@ -21,7 +21,9 @@ export const Identity: React.FC<IdentityProps> = ({
     <MemberPopover {...props}>
       <IdentityBadge
         address={props.address}
-        displayName={props.displayName}
+        displayName={
+          props.displayName || (props.address ? null : props.inboxId)
+        }
         handle={props.handle}
         size={size}
         w={w}

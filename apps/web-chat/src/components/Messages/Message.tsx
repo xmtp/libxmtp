@@ -1,4 +1,4 @@
-import { Badge, Box, Button, Group, Text } from "@mantine/core";
+import { Badge, Box, Button, Group, Text, Tooltip } from "@mantine/core";
 import {
   type ReactionAction,
   type Message as XmtpMessage,
@@ -10,6 +10,9 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useConversationContext } from "@/contexts/ConversationContext";
 import { useClient } from "@/contexts/XMTPContext";
 import { isActionable } from "@/helpers/messages";
+import { shortAddress } from "@/helpers/strings";
+import { getMemberAddress } from "@/helpers/xmtp";
+import { useConversation } from "@/hooks/useConversation";
 
 import { MessageContentWithWrapper } from "./MessageContentWithWrapper";
 import { ReactionPopover } from "./ReactionPopover";
@@ -19,6 +22,7 @@ import classes from "./Message.module.css";
 type Reaction = {
   count: number;
   didAdd: boolean;
+  inboxIds: string[];
 };
 
 export type MessageProps = {
@@ -31,7 +35,8 @@ export const Message: React.FC<MessageProps> = ({
   scrollToMessage,
 }) => {
   const navigate = useNavigate();
-  const { setReplyTarget } = useConversationContext();
+  const { conversationId, setReplyTarget } = useConversationContext();
+  const { members } = useConversation(conversationId);
   const client = useClient();
 
   const isSender = client.inboxId === message.senderInboxId;
@@ -56,15 +61,18 @@ export const Message: React.FC<MessageProps> = ({
   const reactions = useMemo(() => {
     return message.reactions
       .filter((r) => r.reaction.schema === "unicode")
-      .reduce<Record<string, Reaction>>((acc, r) => {
+      .reduce<Record<string, Reaction | undefined>>((acc, r) => {
         const reactionContent = r.reaction;
         const { content: reaction, action } = reactionContent;
         const count = acc[reaction]?.count || 0;
         const isAdding = action === "added";
-        // oxlint-disable-next-line typescript/no-unnecessary-condition
         const prevDidAdd = acc[reaction]?.didAdd ?? false;
         const didAdd =
           r.senderInboxId === client.inboxId ? isAdding : prevDidAdd;
+        const previousInboxIds = acc[reaction]?.inboxIds ?? [];
+        const inboxIds = isAdding
+          ? [...new Set([...previousInboxIds, r.senderInboxId])]
+          : previousInboxIds.filter((inboxId) => inboxId !== r.senderInboxId);
         const newCount = isAdding ? count + 1 : count - 1;
         if (newCount <= 0) {
           const { [reaction]: _, ...rest } = acc;
@@ -72,7 +80,7 @@ export const Message: React.FC<MessageProps> = ({
         }
         return {
           ...acc,
-          [reaction]: { count: newCount, didAdd },
+          [reaction]: { count: newCount, didAdd, inboxIds },
         };
       }, {});
   }, [client.inboxId, message.reactions]);
@@ -106,20 +114,38 @@ export const Message: React.FC<MessageProps> = ({
         justify={align === "left" ? "flex-start" : "flex-end"}
         mt="xs"
         gap="xxxs">
-        {Object.entries(reactions).map(([reaction, { count, didAdd }]) => (
-          <Badge
-            className={classes.reaction}
-            key={reaction}
-            size="xl"
-            variant={didAdd ? "outline" : "default"}
-            radius="lg"
-            rightSection={
-              count > 1 ? <Text size="sm">{count}</Text> : undefined
-            }
-            onClick={handleReaction(reaction, didAdd ? "removed" : "added")}>
-            {reaction}
-          </Badge>
-        ))}
+        {Object.entries(reactions).map(([reaction, reactionState]) => {
+          if (!reactionState) return null;
+          const { count, didAdd, inboxIds } = reactionState;
+          const names = inboxIds
+            .map((inboxId) => {
+              const member = members.get(inboxId);
+              return (
+                member?.handle ||
+                shortAddress((member && getMemberAddress(member)) || inboxId)
+              );
+            })
+            .join(", ");
+          return (
+            <Tooltip key={reaction} label={names} disabled={!names}>
+              <Badge
+                className={classes.reaction}
+                aria-label={`${reaction}: ${names}`}
+                size="xl"
+                variant={didAdd ? "outline" : "default"}
+                radius="lg"
+                rightSection={
+                  count > 1 ? <Text size="sm">{count}</Text> : undefined
+                }
+                onClick={handleReaction(
+                  reaction,
+                  didAdd ? "removed" : "added",
+                )}>
+                {reaction}
+              </Badge>
+            </Tooltip>
+          );
+        })}
       </Group>
       {hasActions && (
         <Group justify={align === "left" ? "flex-start" : "flex-end"} mt={4}>

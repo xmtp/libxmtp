@@ -88,3 +88,57 @@ describe("useMemberId", () => {
     expect(result.current.inboxId).toBe("");
   });
 });
+
+it.each(["0x", "0xalice", "0xabc#1234"])(
+  "never resolves Ethereum-prefixed input %s as a handle",
+  async (input) => {
+    const { result } = renderHook(() => useMemberId());
+    await act(async () => result.current.setMemberId(input));
+    expect(result.current.error).toBe("Invalid address, inbox ID, or handle");
+    expect(result.current.loading).toBe(false);
+    expect(mocks.getInboxIdForHandleQuery).not.toHaveBeenCalled();
+  },
+);
+
+it("normalizes pasted handles and uppercase hexadecimal inbox IDs", async () => {
+  const { result } = renderHook(() => useMemberId());
+  await act(async () =>
+    result.current.setMemberId(" " + "AB".repeat(32) + " "),
+  );
+  expect(result.current.inboxId).toBe("ab".repeat(32));
+  mocks.getInboxIdForHandleQuery.mockResolvedValue({
+    inboxId: "b".repeat(64),
+    handle: "nick#2341",
+  });
+  await act(async () => result.current.setMemberId(" Nick#2341 "));
+  await waitFor(() => expect(result.current.inboxId).toBe("b".repeat(64)));
+  expect(mocks.getInboxIdForHandleQuery).toHaveBeenCalledWith(
+    "nick#2341",
+    credentialed,
+  );
+});
+
+it("refuses nonhexadecimal strings of inbox-ID length", async () => {
+  const { result } = renderHook(() => useMemberId());
+  await act(async () => result.current.setMemberId("g".repeat(64)));
+  expect(result.current.inboxId).toBe("");
+  expect(result.current.error).toBe("Invalid address, inbox ID, or handle");
+});
+
+it("ignores a handle lookup completed after the recipient changes", async () => {
+  let finish!: (value: { inboxId: string; handle: string }) => void;
+  mocks.getInboxIdForHandleQuery.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const { result } = renderHook(() => useMemberId());
+  await act(async () => result.current.setMemberId("nick"));
+  await waitFor(() =>
+    expect(mocks.getInboxIdForHandleQuery).toHaveBeenCalled(),
+  );
+  await act(async () => result.current.setMemberId("a".repeat(64)));
+  await act(async () => finish({ inboxId: "b".repeat(64), handle: "nick" }));
+  expect(result.current.inboxId).toBe("a".repeat(64));
+  expect(result.current.handle).toBeNull();
+});

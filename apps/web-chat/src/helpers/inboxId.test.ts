@@ -1,7 +1,11 @@
 import type { CredentialSource } from "@xmtp/browser-sdk";
 import { beforeEach, expect, it, vi } from "vitest";
 
-import { getInboxIdForAddress, getInboxIdForHandle } from "./inboxId";
+import {
+  getInboxIdForAddress,
+  getInboxIdForHandle,
+  getInboxIdForHandleQuery,
+} from "./inboxId";
 
 const mocks = vi.hoisted(() => {
   class IdentityNotFound extends Error {}
@@ -90,4 +94,16 @@ it("rethrows a handle lookup failure that is not IdentityNotFound", async () => 
   // the caller shows "Try again", not "No inbox has this handle"
   await expect(getInboxIdForHandle("nick", options)).rejects.toBe(failure);
   expect(mocks.inboxStates).not.toHaveBeenCalled();
+});
+
+it("resolves handles through the app query cache", async () => {
+  mocks.inboxIdFor.mockResolvedValue("a".repeat(64));
+  mocks.inboxStates.mockResolvedValue([{ handle: "nick#2341" }]);
+  await expect(getInboxIdForHandleQuery("nick#2341", options)).resolves.toEqual(
+    { inboxId: "a".repeat(64), handle: "nick#2341" },
+  );
+  expect(mocks.inboxIdFor).toHaveBeenCalledExactlyOnceWith(
+    { identifier: "nick#2341", kind: "handle" },
+    connected,
+  );
 });

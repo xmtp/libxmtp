@@ -69,7 +69,7 @@ describe("LoadDM", () => {
     });
   });
 
-  it("resolves a handle through the SDK and creates the DM by that handle", async () => {
+  it("resolves a handle through the SDK and creates the DM by its resolved inbox ID", async () => {
     const handle = { identifier: "nick", kind: "handle" };
     const newDm = { id: "dm-2" };
     mocks.client.conversations.getDmByInboxId.mockResolvedValue(undefined);
@@ -82,7 +82,9 @@ describe("LoadDM", () => {
     expect(mocks.client.conversations.getDmByInboxId).toHaveBeenCalledWith(
       "b".repeat(64),
     );
-    expect(mocks.client.conversations.createDm).toHaveBeenCalledWith(handle);
+    expect(mocks.client.conversations.createDm).toHaveBeenCalledWith(
+      "b".repeat(64),
+    );
     expect(mocks.addConversation).toHaveBeenCalledWith(newDm);
   });
 
@@ -128,5 +130,21 @@ describe("LoadDM", () => {
       identifier: address,
       kind: "ethereum",
     });
+  });
+});
+
+it("refuses a short Ethereum-prefixed DM link instead of resolving a handle", async () => {
+  open("/dm/0xnick");
+  await screen.findByText("Invalid identifier, redirecting...");
+  expect(mocks.client.inboxIdFor).not.toHaveBeenCalled();
+  expect(mocks.client.conversations.createDm).not.toHaveBeenCalled();
+});
+
+it("opens a displayed @handle link by its raw coded handle", async () => {
+  open("/dm/@Nick#2341");
+  await screen.findByText("conversation dm-1");
+  expect(mocks.client.inboxIdFor).toHaveBeenCalledExactlyOnceWith({
+    identifier: "nick#2341",
+    kind: "handle",
   });
 });

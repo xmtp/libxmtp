@@ -14,7 +14,7 @@ import {
   Permissions,
 } from "@/components/Conversation/Permissions";
 import { Modal } from "@/components/Modal";
-import { isValidEthereumAddress, isValidInboxId } from "@/helpers/strings";
+import { isValidInboxId } from "@/helpers/strings";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversations } from "@/hooks/useConversations";
 import { ContentLayout } from "@/layouts/ContentLayout";
@@ -67,18 +67,6 @@ export const CreateGroupModal: React.FC = () => {
             ? { kind: "custom", policySet }
             : { kind: permissionsPolicy },
       });
-
-      const addedMemberAddresses = addedMembers
-        .filter((member) => isValidEthereumAddress(member.address))
-        .map((member) => member.address);
-      if (addedMemberAddresses.length > 0) {
-        await conversation.addMembers(
-          addedMemberAddresses.map((address) => ({
-            identifier: address.toLowerCase(),
-            kind: "ethereum" as const,
-          })),
-        );
-      }
 
       // ensure conversation is added to store so navigation works
       await addConversation(conversation);

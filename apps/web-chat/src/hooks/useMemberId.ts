@@ -1,5 +1,5 @@
 import type { BackendOptions } from "@xmtp/browser-sdk";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { isValidHandle } from "@/helpers/handles";
@@ -11,6 +11,7 @@ import {
   asciiLowercase,
   isValidEthereumAddress,
   isValidInboxId,
+  normalizeMemberInput,
 } from "@/helpers/strings";
 import { useSettings } from "@/hooks/useSettings";
 
@@ -64,13 +65,17 @@ const lookUp = async (
  * the inbox's identity log.
  */
 export const useMemberId = () => {
-  const [memberId, setMemberId] = useState("");
+  const [memberId, setInput] = useState("");
+  const setMemberId = useCallback((value: string) => {
+    setInput(normalizeMemberInput(value));
+  }, []);
   const [lookup, setLookup] = useState<Lookup>();
   const { backendUrl } = useSettings();
   const { createCredentialSource } = useAuthToken();
 
   const isAddress = isValidEthereumAddress(memberId);
-  const isHandle = !isAddress && isValidHandle(memberId);
+  // A 0x prefix always means Ethereum, even before the address is complete.
+  const isHandle = !memberId.startsWith("0x") && isValidHandle(memberId);
   const needsLookup = isAddress || isHandle;
 
   useEffect(() => {

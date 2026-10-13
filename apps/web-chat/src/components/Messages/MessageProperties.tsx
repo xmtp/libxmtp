@@ -4,7 +4,10 @@ import { intlFormat } from "date-fns";
 import { useMemo } from "react";
 
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
+import { IdentityBadge } from "@/components/IdentityBadge";
 import { nsToDate } from "@/helpers/date";
+import { getMemberAddress } from "@/helpers/xmtp";
+import { useConversation } from "@/hooks/useConversation";
 
 export type MessagePropertiesProps = {
   message: XmtpMessage;
@@ -13,6 +16,8 @@ export type MessagePropertiesProps = {
 export const MessageProperties: React.FC<MessagePropertiesProps> = ({
   message,
 }) => {
+  const { members } = useConversation(message.conversationId);
+  const sender = members.get(message.senderInboxId);
   const deliveryStatus = useMemo(() => {
     switch (message.deliveryStatus) {
       case "published":
@@ -39,6 +44,16 @@ export const MessageProperties: React.FC<MessagePropertiesProps> = ({
 
   return (
     <Stack gap="xs" mih="30vh">
+      <Stack gap="calc(var(--mantine-spacing-xs) / 2)">
+        <Text size="sm" ml="xs">
+          Sender
+        </Text>
+        <IdentityBadge
+          address={sender ? getMemberAddress(sender) : ""}
+          displayName={message.senderInboxId}
+          handle={sender?.handle}
+        />
+      </Stack>
       <Stack gap="calc(var(--mantine-spacing-xs) / 2)">
         <Text size="sm" ml="xs">
           Message ID

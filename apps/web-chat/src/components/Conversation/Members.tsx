@@ -81,6 +81,8 @@ export const Members: React.FC<MembersProps> = ({
         <>
           {showRemovedMembersSection && (
             <RemoveMembers
+              existingMembers={existingMembers}
+              clientInboxId={client.inboxId}
               removedMembers={removedMembers}
               onMembersRemoved={onMembersRemoved}
             />

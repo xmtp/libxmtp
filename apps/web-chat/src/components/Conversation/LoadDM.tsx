@@ -5,7 +5,11 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { LoadingMessage } from "@/components/LoadingMessage";
 import { useClient } from "@/contexts/XMTPContext";
 import { isValidHandle } from "@/helpers/handles";
-import { asciiLowercase, isValidEthereumAddress } from "@/helpers/strings";
+import {
+  asciiLowercase,
+  isValidEthereumAddress,
+  normalizeMemberInput,
+} from "@/helpers/strings";
 import { useActions } from "@/stores/inbox/hooks";
 
 const REDIRECT_TIMEOUT = 2000;
@@ -30,13 +34,15 @@ export const LoadDM: React.FC = () => {
     };
 
     const resolveIdentity = (address: string): PublicIdentity | null => {
-      if (isValidEthereumAddress(address)) {
-        return { identifier: asciiLowercase(address), kind: "ethereum" };
+      if (asciiLowercase(address).startsWith("0x")) {
+        return isValidEthereumAddress(asciiLowercase(address))
+          ? { identifier: asciiLowercase(address), kind: "ethereum" }
+          : null;
       }
       // keep the code, or refuse a fragment that is not one: never resolve
       // the bare name in place of the handle in the link. Lowercase ASCII
       // only, as the protocol does: a folded U+212A would resolve "kate".
-      const handle = asciiLowercase(`${address}${hash}`);
+      const handle = normalizeMemberInput(`${address}${hash}`);
       return isValidHandle(handle)
         ? { identifier: handle, kind: "handle" }
         : null;
@@ -83,7 +89,7 @@ export const LoadDM: React.FC = () => {
         if (!dmId) {
           // no DM group, create it
           setMessage("Creating new DM...");
-          const newDm = await client.conversations.createDm(identity);
+          const newDm = await client.conversations.createDm(inboxId);
           dmId = newDm.id;
           // add new DM to store
           await addConversation(newDm);

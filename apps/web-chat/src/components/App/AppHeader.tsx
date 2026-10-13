@@ -13,6 +13,7 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
 import { AppMenu } from "@/components/App/AppMenu";
+import { HandleText } from "@/components/Handles/HandleText";
 import { backendHost } from "@/helpers/backend";
 import { shortAddress } from "@/helpers/strings";
 import { useOwnHandles } from "@/hooks/useOwnHandles";
@@ -71,8 +72,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             aria-label={accountIdentifier || ""}
             className={classes.button}
             onClick={handleClick}>
-            {handle ??
-              (accountIdentifier ? shortAddress(accountIdentifier) : "...")}
+            {handle ? (
+              <HandleText handle={handle} withPrefix inherit />
+            ) : accountIdentifier ? (
+              shortAddress(accountIdentifier)
+            ) : (
+              "..."
+            )}
           </Button>
         </Flex>
       </Flex>

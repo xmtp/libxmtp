@@ -3,7 +3,6 @@ import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { Modal } from "@/components/Modal";
-import { normalizeMemberInput } from "@/helpers/strings";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversations } from "@/hooks/useConversations";
 import { useMemberId } from "@/hooks/useMemberId";
@@ -86,7 +85,7 @@ export const CreateDmModal: React.FC = () => {
             error={memberIdError}
             value={memberId}
             onChange={(event) => {
-              setMemberId(normalizeMemberInput(event.target.value));
+              setMemberId(event.target.value);
             }}
             onKeyDown={(event) => {
               if (event.key === " ") {

@@ -6,6 +6,7 @@ import { Outlet, useNavigate } from "react-router";
 
 import { ConversationMenu } from "@/components/Conversation/ConversationMenu";
 import { MembersList } from "@/components/Conversation/MembersList";
+import { HandleText } from "@/components/Handles/HandleText";
 import { Messages } from "@/components/Messages/Messages";
 import { ConversationProvider } from "@/contexts/ConversationContext";
 import { useConversation } from "@/hooks/useConversation";
@@ -27,6 +28,7 @@ export const Conversation: React.FC<ConversationProps> = ({
   const {
     conversation,
     name,
+    handle,
     sync,
     loading: conversationLoading,
     messages,
@@ -50,7 +52,13 @@ export const Conversation: React.FC<ConversationProps> = ({
         key={conversationId}
         conversationId={conversationId}>
         <ContentLayout
-          title={name || "Untitled"}
+          title={
+            handle ? (
+              <HandleText handle={handle} withPrefix inherit />
+            ) : (
+              name || "Untitled"
+            )
+          }
           loading={messages.length === 0 && conversationLoading}
           headerActions={
             <Group gap="xxs">
