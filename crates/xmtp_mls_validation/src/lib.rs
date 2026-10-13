@@ -9,9 +9,8 @@ use tls_codec::Deserialize;
 use xmtp_common::RetryableError;
 use xmtp_id::{
     associations::{
-        self, AccountId, AssociationError, AssociationState, AssociationStateDiff,
-        DeserializationError, SignatureError, try_map_vec, unverified::UnverifiedIdentityUpdate,
-        verify_updates,
+        self, AccountId, AssociationError, AssociationState, AssociationStateDiff, SignatureError,
+        try_map_vec, unverified::UnverifiedIdentityUpdate, verify_updates,
     },
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
@@ -58,10 +57,10 @@ pub enum ValidationError {
     /// The MLS body is not a protocol message. Not retryable.
     #[error(transparent)]
     Protocol(#[from] openmls::framing::errors::ProtocolMessageError),
-    /// The identifier or topic has an invalid shape. Not retryable.
+    /// The topic identifier has an invalid shape. Not retryable.
     #[error(transparent)]
     #[error_code(inherit)]
-    Conversion(#[from] ConversionError),
+    InvalidTopic(ConversionError),
     /// The inbox identifier is not hexadecimal. Not retryable.
     #[error(transparent)]
     Inbox(#[from] hex::FromHexError),
@@ -69,10 +68,12 @@ pub enum ValidationError {
     #[error(transparent)]
     #[error_code(inherit)]
     KeyPackage(#[from] KeyPackageVerificationError),
-    /// Identity fields cannot be decoded. Not retryable.
+    /// Identity fields cannot be decoded, for example a field is unset or
+    /// unlisted, or an Ethereum identifier is not in its one form. Not
+    /// retryable.
     #[error(transparent)]
     #[error_code(inherit)]
-    IdentityEncoding(#[from] DeserializationError),
+    IdentityEncoding(ConversionError),
     /// Identity state transition failed. Nested verifier failures can be retryable.
     #[error(transparent)]
     #[error_code(inherit)]
@@ -85,6 +86,11 @@ pub enum ValidationError {
     /// [`MAX_BLOCK_AGE_SECS`] before it. Not retryable.
     #[error("signature block {0} is not fresh")]
     StaleBlock(u64),
+    /// An ERC-6492 signature's account id is not a CAIP-10 account id, so the
+    /// signature cannot be verified. Not retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    InvalidAccountId(ConversionError),
 }
 
 impl RetryableError for ValidationError {
@@ -103,15 +109,24 @@ impl ValidationError {
     ///
     /// The transport supplies the input index. Retryability is kept separate so
     /// a provider failure can become `UNAVAILABLE` instead of a bad-payload
-    /// reason.
+    /// reason. An identity update is malformed only when its inbox id names no
+    /// topic; every other identity failure is a signature or identity reason.
+    // implements: API-230
     pub fn reason(&self) -> Reason {
         match self {
             Self::KeyPackage(_) => Reason::InvalidKeyPackage,
             Self::Signature(_)
             | Self::Association(AssociationError::Signature(_))
-            | Self::StaleBlock(_) => Reason::InvalidSignature,
+            | Self::StaleBlock(_)
+            | Self::InvalidAccountId(_) => Reason::InvalidSignature,
             Self::IdentityEncoding(_) | Self::Association(_) => Reason::InvalidIdentityUpdate,
-            _ => Reason::MalformedPayload,
+            Self::MissingPayload
+            | Self::MissingWelcomeVersion
+            | Self::Protobuf(_)
+            | Self::Tls(_)
+            | Self::Protocol(_)
+            | Self::InvalidTopic(_)
+            | Self::Inbox(_) => Reason::MalformedPayload,
         }
     }
 }
@@ -169,7 +184,7 @@ pub fn is_commit_or_proposal(message: &ProtocolMessage) -> bool {
 /// Build and re-parse a topic so malformed identifiers fail before storage.
 fn checked_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Result<Topic, ValidationError> {
     let topic = kind.create(identifier);
-    Ok(Topic::parse(&topic)?)
+    Topic::parse(&topic).map_err(ValidationError::InvalidTopic)
 }
 
 /// Decode one envelope, derive its topic, and compute canonical retry bytes.
@@ -246,15 +261,19 @@ pub struct AssociationValidation {
 ///
 /// `old_updates` must be the ordered state read from storage, and
 /// `new_updates` must be the proposed suffix. This function performs signature
-/// verification and pure state transitions only; it does not read storage. A
-/// verifier error is returned unchanged so callers can preserve retryability.
+/// verification and pure state transitions only; it does not read storage. An
+/// update in either list that does not decode fails as
+/// [`ValidationError::IdentityEncoding`]. A verifier error is returned
+/// unchanged so callers can preserve retryability.
 pub async fn validate_identity_updates(
     old_updates: Vec<IdentityUpdate>,
     new_updates: Vec<IdentityUpdate>,
     verifier: impl SmartContractSignatureVerifier,
 ) -> Result<AssociationValidation, ValidationError> {
-    let old: Vec<UnverifiedIdentityUpdate> = try_map_vec(old_updates)?;
-    let new: Vec<UnverifiedIdentityUpdate> = try_map_vec(new_updates)?;
+    let old: Vec<UnverifiedIdentityUpdate> =
+        try_map_vec(old_updates).map_err(ValidationError::IdentityEncoding)?;
+    let new: Vec<UnverifiedIdentityUpdate> =
+        try_map_vec(new_updates).map_err(ValidationError::IdentityEncoding)?;
     let old = verify_updates(old, &verifier).await?;
     let new = verify_updates(new, &verifier).await?;
     if old.is_empty() {
@@ -323,7 +342,8 @@ pub async fn check_freshness(
 ) -> Result<(), ValidationError> {
     let blocks = erc6492_signatures(update)
         .map(|signature| {
-            let account = AccountId::try_from(signature.account_id.as_str())?;
+            let account = AccountId::try_from(signature.account_id.as_str())
+                .map_err(ValidationError::InvalidAccountId)?;
             account.eip155_chain_id().map_err(SignatureError::from)?;
             Ok((account.get_chain_id().to_owned(), signature.block_number))
         })
