@@ -24,6 +24,7 @@ test("registry matches authority, type, and major and ignores minor", async () =
     codecs: [codec],
   });
   try {
+    const group = await client.conversations.createGroup([]);
     for (const [changed, matched] of [
       [{ ...type, versionMinor: 9 }, true],
       [{ ...type, authorityId: "other.org" }, false],
@@ -35,7 +36,10 @@ test("registry matches authority, type, and major and ignores minor", async () =
         type: changed,
         fallback: "kept",
       };
-      const content = await client.decodeContent(encoded);
+      const id = await group.send(encoded);
+      const message = await client.conversations.getMessageById(id);
+      if (!message) throw new Error("Missing registry test message");
+      const content = message.content;
       expect(content).toMatchObject(
         matched
           ? { kind: "custom", value: "value", encoded }
