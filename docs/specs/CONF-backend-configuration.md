@@ -139,7 +139,7 @@ message MlsConfiguration {
 // Handle settings.
 message HandlesConfiguration {
   // The shortest name part, the text before "#", the backend admits in a claim.
-  uint32 min_name_length = 1;  // pending
+  uint32 min_name_length = 1;
 }
 
 // One operator-defined application component. A client registers it in the
@@ -172,7 +172,7 @@ message GetConfigurationResponse {
   // Sorted by component_id ascending.
   repeated ApplicationComponentDefinition application_components = 10;
   // Set on every deployment.
-  HandlesConfiguration handles = 11;  // pending
+  HandlesConfiguration handles = 11;
 }
 ```
 

@@ -172,9 +172,9 @@ message PublishError {
     REASON_INVALID_IDENTITY_UPDATE = 3;
     REASON_INVALID_SIGNATURE = 4;
     REASON_TOO_LARGE = 5;
-    REASON_HANDLE_TAKEN = 6;        // pending
-    REASON_HANDLE_NOT_ALLOWED = 7;  // pending
-    REASON_HANDLE_TOO_SOON = 8;     // pending
+    REASON_HANDLE_TAKEN = 6;
+    REASON_HANDLE_NOT_ALLOWED = 7;
+    REASON_HANDLE_TOO_SOON = 8;
   }
 
   // Index of the failing envelope in the request. Absent for request-level
