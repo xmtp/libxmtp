@@ -8,7 +8,20 @@ use crate::{
     tester,
 };
 use std::collections::HashSet;
+use xmtp_id::associations::Identifier;
 use xmtp_mls_common::group::DMMetadataOptions;
+
+/// The inbox ids of a group's members.
+async fn member_ids<Context: crate::context::XmtpSharedContext>(
+    group: &crate::groups::MlsGroup<Context>,
+) -> Result<HashSet<String>, GroupError> {
+    Ok(group
+        .members()
+        .await?
+        .into_iter()
+        .map(|member| member.inbox_id)
+        .collect())
+}
 
 fn no_inbox(error: &ClientError) -> bool {
     matches!(error, ClientError::Handle(HandleError::NotFound))
@@ -88,4 +101,75 @@ async fn mixed_targets_make_one_commit() {
         .collect();
     assert!(members.contains(bo.inbox_id()));
     assert!(members.contains(caro.inbox_id()));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn handle_routes_reach_the_claimed_inbox() {
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    let handle = random_handle();
+    bo.claim_handle(&handle).await?;
+    wait_until_claim_visible(&alix, &handle).await;
+    let bo_target = IdentityTarget::Handle(handle);
+    let caro_target = IdentityTarget::Account(caro.identifier());
+
+    // The DM by handle is the DM by inbox id.
+    let dm = alix
+        .find_or_create_dm_by_target(&bo_target, DMMetadataOptions::default())
+        .await?;
+    let by_inbox = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    assert_eq!(dm.group_id, by_inbox.group_id);
+    let found = alix.find_dm_by_target(&bo_target).await?.expect("the DM");
+    assert_eq!(found.group_id, dm.group_id);
+
+    // A mixed list creates the group, and later leaves it, in one commit each.
+    let group = alix
+        .create_group_with_targets(&[bo_target.clone(), caro_target.clone()], None, None)
+        .await?;
+    assert_eq!(group.epoch().await?, 1);
+    let members = member_ids(&group).await?;
+    assert!(members.contains(bo.inbox_id()) && members.contains(caro.inbox_id()));
+    group
+        .remove_members_by_targets(&[bo_target, caro_target])
+        .await?;
+    assert_eq!(group.epoch().await?, 2);
+    assert_eq!(
+        member_ids(&group).await?,
+        HashSet::from([alix.inbox_id().to_owned()])
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn account_targets_keep_the_account_path() {
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    let bo_target = IdentityTarget::Account(bo.identifier());
+    let caro_target = IdentityTarget::Account(caro.identifier());
+
+    let dm = alix
+        .find_or_create_dm_by_target(&bo_target, DMMetadataOptions::default())
+        .await?;
+    let found = alix.find_dm_by_target(&bo_target).await?.expect("the DM");
+    assert_eq!(found.group_id, dm.group_id);
+
+    let group = alix
+        .create_group_with_targets(std::slice::from_ref(&bo_target), None, None)
+        .await?;
+    group
+        .add_members_by_targets(std::slice::from_ref(&caro_target))
+        .await?;
+    assert!(member_ids(&group).await?.contains(caro.inbox_id()));
+    group
+        .remove_members_by_targets(std::slice::from_ref(&caro_target))
+        .await?;
+    assert!(!member_ids(&group).await?.contains(caro.inbox_id()));
+
+    // An account with no inbox keeps the account path's error.
+    let unknown = IdentityTarget::Account(Identifier::rand_ethereum());
+    assert!(matches!(
+        group.add_members_by_targets(&[unknown]).await,
+        Err(GroupError::AddressNotFound(_))
+    ));
 }
