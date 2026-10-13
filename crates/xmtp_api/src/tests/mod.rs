@@ -21,6 +21,7 @@ use xmtp_proto::{
     xmtp::identity::associations::IdentifierKind,
 };
 
+mod handles;
 mod incoming;
 mod integration;
 mod limits;
@@ -222,9 +223,17 @@ fn size_status(code: tonic::Code) -> ApiClientError {
     if code != tonic::Code::InvalidArgument {
         return status(code);
     }
+    publish_refusal(wire::publish_error::Reason::TooLarge)
+}
+
+/// An `INVALID_ARGUMENT` publish refusal whose structured detail carries
+/// `reason`. The messages are not the reason's text, so only the detail can
+/// identify it.
+fn publish_refusal(reason: wire::publish_error::Reason) -> ApiClientError {
+    let code = tonic::Code::InvalidArgument;
     let detail = wire::PublishError {
         index: None,
-        reason: wire::publish_error::Reason::TooLarge as i32,
+        reason: reason as i32,
         message: "not used".into(),
     };
     let details = tonic_types::pb::Status {

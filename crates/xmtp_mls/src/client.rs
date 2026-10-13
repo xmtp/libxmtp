@@ -197,6 +197,9 @@ pub enum ClientError {
     /// Data type failed to convert. Not retryable.
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Handle(#[from] crate::inbox_handles::HandleError),
     /// Registration not visible.
     ///
     /// The registration receipt was invalid or was not visible before the timeout.
@@ -772,7 +775,7 @@ where
 
     /// Ensures identity is ready before performing operations.
     /// Call `register_identity()` first if this fails.
-    fn ensure_identity_ready(&self) -> Result<(), ClientError> {
+    pub(crate) fn ensure_identity_ready(&self) -> Result<(), ClientError> {
         // Once the connection is blocked, every later call fails with the
         // reason. This is the gate every client-level operation already passes
         // through, so the check costs nothing extra.

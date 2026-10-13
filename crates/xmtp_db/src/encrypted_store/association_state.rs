@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use diesel::prelude::*;
 
 use super::schema::association_state::{self, dsl};
@@ -37,6 +39,14 @@ pub trait QueryAssociationStateCache {
         &self,
         identifiers: Vec<(String, i64)>,
     ) -> Result<Vec<AssociationStateProto>, StorageError>;
+
+    /// For each inbox in `inbox_ids`, the cached association state with the
+    /// greatest sequence id, with that sequence id, keyed by inbox id. An inbox
+    /// with no cached state has no entry.
+    fn newest_cached_states(
+        &self,
+        inbox_ids: &[&str],
+    ) -> Result<HashMap<String, (i64, AssociationStateProto)>, StorageError>;
 }
 
 impl<R> QueryAssociationStateCache for &R
@@ -65,6 +75,13 @@ where
         identifiers: Vec<(String, i64)>,
     ) -> Result<Vec<AssociationStateProto>, StorageError> {
         (**self).batch_read_from_cache(identifiers)
+    }
+
+    fn newest_cached_states(
+        &self,
+        inbox_ids: &[&str],
+    ) -> Result<HashMap<String, (i64, AssociationStateProto)>, StorageError> {
+        (**self).newest_cached_states(inbox_ids)
     }
 }
 
@@ -147,6 +164,32 @@ impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
             })
             .collect::<Result<Vec<_>, _>>()
     }
+
+    fn newest_cached_states(
+        &self,
+        inbox_ids: &[&str],
+    ) -> Result<HashMap<String, (i64, AssociationStateProto)>, StorageError> {
+        if inbox_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let newer = diesel::alias!(association_state as newer);
+        // Keep a row only when no row of the same inbox has a greater sequence id.
+        let query = dsl::association_state
+            .filter(dsl::inbox_id.eq_any(inbox_ids))
+            .filter(diesel::dsl::not(diesel::dsl::exists(
+                newer
+                    .filter(newer.field(dsl::inbox_id).eq(dsl::inbox_id))
+                    .filter(newer.field(dsl::sequence_id).gt(dsl::sequence_id)),
+            )))
+            .select((dsl::inbox_id, dsl::sequence_id, dsl::state));
+        let rows = self.raw_query(|conn| query.load::<StoredAssociationState>(conn))?;
+        rows.into_iter()
+            .map(|row| {
+                let state = AssociationStateProto::decode(row.state.as_slice())?;
+                Ok((row.inbox_id, (row.sequence_id, state)))
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -220,6 +263,30 @@ pub(crate) mod tests {
                 .map(Into::into)
                 .collect::<Vec<MockState>>();
             assert_eq!(no_results.len(), 0);
+        })
+    }
+
+    // verifies: IDENT-086
+    #[xmtp_common::test(unwrap_try = true)]
+    fn newest_cached_state_picks_greatest_sequence() {
+        with_connection(|conn| {
+            let state = |inbox_id: &str, handle: &str| AssociationStateProto {
+                inbox_id: inbox_id.into(),
+                handles: vec![handle.into()],
+                ..Default::default()
+            };
+            // Stored out of sequence order, so the insertion order cannot pick the answer.
+            conn.write_to_cache("a".into(), 5, state("a", "five"))?;
+            conn.write_to_cache("a".into(), 9, state("a", "nine"))?;
+            conn.write_to_cache("a".into(), 7, state("a", "seven"))?;
+            conn.write_to_cache("b".into(), 2, state("b", "two"))?;
+            conn.write_to_cache("c".into(), 1, state("c", "one"))?;
+
+            let newest = conn.newest_cached_states(&["a", "b", "missing"])?;
+            assert_eq!(newest.len(), 2, "only the asked inboxes that have a state");
+            assert_eq!(newest["a"], (9, state("a", "nine")));
+            assert_eq!(newest["b"], (2, state("b", "two")));
+            assert!(conn.newest_cached_states(&[])?.is_empty());
         })
     }
 }

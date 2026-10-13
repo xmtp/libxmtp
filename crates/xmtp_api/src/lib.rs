@@ -112,6 +112,26 @@ pub enum ApiError {
     /// Protobuf conversion failed. Not retryable.
     #[error(transparent)]
     ProtoConversion(#[from] xmtp_proto::ConversionError),
+    /// The backend refused a handle claim that the validators accept. Not retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    HandleRejected(#[from] HandleRejection),
+}
+
+/// Why the backend refused a handle claim that the validators accept. The
+/// backend reports it in the structured `PublishError` detail of the publish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, ErrorCode)]
+pub enum HandleRejection {
+    /// Another inbox holds the handle. Not retryable.
+    #[error("the handle is taken")]
+    Taken,
+    /// The handle's name part is reserved or shorter than the deployment's
+    /// minimum name length. Not retryable.
+    #[error("the handle is not allowed")]
+    NotAllowed,
+    /// The inbox claimed a handle too recently to claim another. Not retryable.
+    #[error("the inbox claimed a handle too recently")]
+    TooSoon,
 }
 
 impl RetryableError for ApiError {
