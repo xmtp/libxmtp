@@ -15,6 +15,7 @@ guard Bundle.main.bundleIdentifier == nil else {
 	fail("The bare executable has a bundle identifier")
 }
 
+// verifies: STORE-006
 do {
 	_ = try await SDKClient.create(
 		signer: generateLocalSigner(),
