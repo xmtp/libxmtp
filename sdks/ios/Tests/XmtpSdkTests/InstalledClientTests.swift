@@ -31,6 +31,7 @@ final class InstalledClientTests: XCTestCase {
 		let registration = Task { try await client.register() }
 		let entered = await eventually(seconds: 5) { !calls.values.isEmpty }
 		XCTAssertTrue(entered, "The pre-authentication handler did not start")
+		try await pause(seconds: 0.1)
 		XCTAssertEqual(calls.values, ["preAuthenticate"])
 		releaseSignal.finish()
 		try await registration.value

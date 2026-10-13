@@ -43,6 +43,14 @@ it("waits for pre-authentication and stops signing after callback failure", asyn
     expect(calls).toEqual([]);
     const registration = client.register();
     await started;
+    const status = await Promise.race([
+      registration.then(
+        () => "settled",
+        () => "settled",
+      ),
+      new Promise<string>((resolve) => setTimeout(() => resolve("held"), 100)),
+    ]);
+    expect(status).toBe("held");
     expect(calls).toEqual(["preAuthenticate"]);
     release();
     await registration;
