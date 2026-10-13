@@ -3,13 +3,15 @@ import type { GroupPermissionMode } from "@xmtp/node-sdk";
 import { type CreateGroupOptions } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
+import { identifierKindFlag, publicIdentity } from "@/utils/identity";
 import { memberDetails } from "@/utils/members";
 
 export default class ConversationsCreateGroup extends BaseCommand {
   static description = `Create a new group conversation.
 
 Creates a new group conversation with the specified members.
-Members are specified as Ethereum addresses.
+Members are Ethereum addresses, or handles such as nick#2341 with
+--identifier-kind handle.
 
 Group options include:
 - Name: Display name for the group
@@ -42,6 +44,11 @@ Returns the new group's ID and details.`;
       description: "Create group with admin-only permissions",
     },
     {
+      command:
+        "<%= config.bin %> <%= command.id %> nick bo#0042 --identifier-kind handle",
+      description: "Create group with the inboxes that hold two handles",
+    },
+    {
       command: "<%= config.bin %> <%= command.id %> <address> --json",
       description: "Output as JSON for scripting",
     },
@@ -51,13 +58,14 @@ Returns the new group's ID and details.`;
 
   static args = {
     identifiers: Args.string({
-      description: "Ethereum addresses to add to the group",
+      description: "Ethereum addresses or handles to add to the group",
       required: true,
     }),
   };
 
   static flags = {
     ...BaseCommand.baseFlags,
+    "identifier-kind": identifierKindFlag(),
     name: Flags.string({
       description: "Group name",
       helpValue: "<name>",
@@ -87,10 +95,9 @@ Returns the new group's ID and details.`;
 
     const client = await this.initClient();
 
-    const identifierObjects = identifiers.map((id) => ({
-      identifier: id.toLowerCase(),
-      kind: "ethereum" as const,
-    }));
+    const identifierObjects = identifiers.map((id) =>
+      publicIdentity(id, flags["identifier-kind"]),
+    );
 
     const permissionsMap: Record<string, GroupPermissionMode> = {
       "all-members": { kind: "allMembers" },
@@ -119,7 +126,7 @@ Returns the new group's ID and details.`;
       imageUrl: state.imageUrl,
       createdAt: group.createdAt.date.toISOString(),
       memberCount: members.length,
-      members: await memberDetails(client, members),
+      members: await memberDetails(client, members, this.jsonOutput),
     });
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
   runWithIdentity,
@@ -43,6 +44,44 @@ describe("conversation remove-members", () => {
     expect(removeResult.exitCode).toBe(0);
 
     // Verify member was removed
+    const membersResult = await runWithIdentity(creator, [
+      "conversation",
+      "members",
+      group.id,
+      "--json",
+    ]);
+    const members = parseJsonOutput<Member[]>(membersResult.stdout);
+    expect(members.length).toBe(2);
+    expect(members.map((m) => m.inboxId)).not.toContain(member2.inboxId);
+  });
+
+  it("removes a member by handle", async () => {
+    const creator = await createRegisteredIdentity();
+    const member1 = await createRegisteredIdentity();
+    const member2 = await createIdentityWithHandle();
+
+    const groupResult = await runWithIdentity(creator, [
+      "conversations",
+      "create-group",
+      member1.address,
+      member2.address,
+      "--json",
+    ]);
+    expect(groupResult.exitCode).toBe(0);
+    const group = parseJsonOutput<{ id: string }>(groupResult.stdout);
+
+    const removeResult = await runWithIdentity(creator, [
+      "conversation",
+      "remove-members",
+      group.id,
+      member2.handle,
+      "--identifier-kind",
+      "handle",
+      "--json",
+    ]);
+
+    expect(removeResult.exitCode).toBe(0);
+
     const membersResult = await runWithIdentity(creator, [
       "conversation",
       "members",

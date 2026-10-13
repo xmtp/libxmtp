@@ -7,6 +7,7 @@ export default class PreferencesInboxState extends BaseCommand {
 
 Retrieves the inbox state including:
 - Inbox ID
+- Current handle and other handles, if the inbox has claimed any
 - Recovery identifier
 - Associated installations (devices/apps)
 - Associated identifiers (wallet addresses)
@@ -47,6 +48,7 @@ Use --sync to fetch the latest state from the network.`;
 
     this.output({
       inboxId: inboxState.inboxId,
+      ...this.handleOutput(inboxState),
       recoveryIdentifier: inboxState.recoveryIdentity,
       installations: inboxState.installations.map((installation) => ({
         id: installation.id,

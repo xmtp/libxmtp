@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
   runWithIdentity,
@@ -15,6 +16,8 @@ interface GroupResult {
   memberCount: number;
   members: Array<{
     inboxId: string;
+    handle: string | null;
+    otherHandles: string[];
     accountIdentifiers: Array<{
       identifier: string;
       kind: string;
@@ -99,5 +102,33 @@ describe("conversations create-group", () => {
 
     const output = parseJsonOutput<GroupResult>(result.stdout);
     expect(output.memberCount).toBe(2);
+  });
+
+  it("creates a group from handles", async () => {
+    const creator = await createRegisteredIdentity();
+    const [member1, member2] = await Promise.all([
+      createIdentityWithHandle(),
+      createIdentityWithHandle(),
+    ]);
+
+    const result = await runWithIdentity(creator, [
+      "conversations",
+      "create-group",
+      member1.handle,
+      member2.handle,
+      "--identifier-kind",
+      "handle",
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    const output = parseJsonOutput<GroupResult>(result.stdout);
+    expect(output.memberCount).toBe(3);
+    for (const member of [member1, member2]) {
+      expect(
+        output.members.find((entry) => entry.inboxId === member.inboxId)
+          ?.handle,
+      ).toBe(member.handle);
+    }
   });
 });

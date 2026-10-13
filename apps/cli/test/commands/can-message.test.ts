@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   backendFlags,
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
+  randomHandleName,
   runCommand,
 } from "../helpers.js";
 
@@ -53,5 +55,26 @@ describe("can-message", () => {
     const result = await runCommand(["can-message", ...backendFlags()]);
 
     expect(result.exitCode).not.toBe(0);
+  });
+
+  it("checks handles with --identifier-kind handle", async () => {
+    const owner = await createIdentityWithHandle();
+    const unclaimed = randomHandleName();
+
+    const result = await runCommand([
+      "can-message",
+      owner.handle.toUpperCase(),
+      unclaimed,
+      "--identifier-kind",
+      "handle",
+      ...backendFlags(),
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(parseJsonOutput<CanMessageResult[]>(result.stdout)).toEqual([
+      { identifier: owner.handle.toUpperCase(), reachable: true },
+      { identifier: unclaimed, reachable: false },
+    ]);
   });
 });

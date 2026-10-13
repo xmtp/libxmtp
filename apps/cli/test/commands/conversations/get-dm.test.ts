@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createIdentityWithHandle,
   createRegisteredIdentity,
   parseJsonOutput,
   runWithIdentity,
@@ -106,5 +107,33 @@ describe("conversations get-dm", () => {
     ]);
 
     expect(result.exitCode).not.toBe(0);
+  });
+
+  it("gets a DM by handle", async () => {
+    const sender = await createRegisteredIdentity();
+    const recipient = await createIdentityWithHandle();
+
+    const createResult = await runWithIdentity(sender, [
+      "conversations",
+      "create-dm",
+      recipient.address,
+      "--json",
+    ]);
+    expect(createResult.exitCode).toBe(0);
+    const created = parseJsonOutput<DmResult>(createResult.stdout);
+
+    const getResult = await runWithIdentity(sender, [
+      "conversations",
+      "get-dm",
+      recipient.handle,
+      "--identifier-kind",
+      "handle",
+      "--json",
+    ]);
+
+    expect(getResult.exitCode).toBe(0);
+    const dm = parseJsonOutput<DmResult>(getResult.stdout);
+    expect(dm.id).toBe(created.id);
+    expect(dm.peerInboxId).toBe(recipient.inboxId);
   });
 });
