@@ -5,12 +5,21 @@ import { useClient } from "@/contexts/XMTPContext";
 import { useActions, useOwnHandlesState } from "@/stores/inbox/hooks";
 import { inboxStore } from "@/stores/inbox/store";
 
+/**
+ * The client whose handles the inbox store holds: the client of the mounted
+ * `useHandleSync`. A read that finishes after the app switched to another
+ * client, or disconnected, is dropped, so it cannot replace the handles of
+ * the current client.
+ */
+let syncedClient: Client | undefined;
+
 /** Reads the handles of the client's inbox into the inbox store. */
 export const loadOwnHandles = async (
   client: Client,
   refreshFromNetwork: boolean = false,
 ) => {
   const state = await client.inboxState(refreshFromNetwork);
+  if (client !== syncedClient) return;
   inboxStore.getState().setOwnHandles({
     handle: state.handle ?? null,
     otherHandles: state.otherHandles,
@@ -43,9 +52,14 @@ export const useHandleSync = (client: Client | undefined) => {
   const { refreshInboxHandles } = useActions();
 
   useEffect(() => {
-    if (client) {
-      void loadOwnHandles(client).catch(console.error);
-    }
+    if (!client) return;
+    syncedClient = client;
+    void loadOwnHandles(client).catch(console.error);
+    return () => {
+      if (syncedClient === client) {
+        syncedClient = undefined;
+      }
+    };
   }, [client]);
 
   useEffect(() => {
