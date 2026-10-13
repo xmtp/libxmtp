@@ -1,4 +1,5 @@
 import { Args, Flags } from "@oclif/core";
+import { XmtpError } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import {
@@ -27,8 +28,9 @@ changed your handle too recently, the command fails and claims nothing. It
 never claims a different handle. Run 'xmtp client handle-available <name>'
 to find free handles. If the handle is already your current handle, the
 command fails before it asks the backend, and claims nothing. If the
-connection fails during the claim, the command reads the inbox from the
-backend, and reports success when the handle is now current.`;
+connection fails during the claim, or the backend refuses it as too soon or
+over the limit, the command reads the inbox from the backend, and reports
+success when the handle is now current.`;
 
   static examples = [
     {
@@ -92,14 +94,20 @@ backend, and reports success when the handle is now current.`;
         args.handle,
         before.otherHandles,
       );
-      if (message !== undefined) {
-        this.error(message);
+      // A transport error can arrive after the backend stored the claim, and
+      // a retry of such a claim fails as too soon. Read the inbox's log for
+      // these: a claim that landed is a success.
+      const ambiguous =
+        message === undefined ||
+        error instanceof XmtpError.HandleTooSoon ||
+        error instanceof XmtpError.HandleLimitReached;
+      if (ambiguous) {
+        landed = await client.inboxState(true).catch(() => undefined);
       }
-      // A transport error can arrive after the backend stored the claim. A
-      // second claim would then fail as too soon, so read the inbox's log:
-      // a claim that landed is a success.
-      landed = await client.inboxState(true).catch(() => undefined);
       if (landed?.handle !== handle) {
+        if (message !== undefined) {
+          this.error(message);
+        }
         throw error;
       }
     }
